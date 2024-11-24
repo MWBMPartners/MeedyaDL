@@ -20,11 +20,11 @@ jobs:
     steps:
       # Step 1: Check out the code
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Update to latest major version (Node.js 20 compatible)
 
       # Step 2: Set up Python
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v4  # Ensure latest Node.js 20-compatible version
         with:
           python-version: ${{ matrix.python-version }}
 
