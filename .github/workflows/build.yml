@@ -20,11 +20,11 @@ jobs:
     steps:
       # Step 1: Check out the code
       - name: Checkout code
-        uses: actions/checkout@v4  # Update to latest major version (Node.js 20 compatible)
+        uses: actions/checkout@v4
 
       # Step 2: Set up Python
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4  # Ensure latest Node.js 20-compatible version
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -47,9 +47,9 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
 
       # Step 6: Install Compatibility Dependencies for PyQt5
-      - name: Install Compatibility Dependencies
+      - name: Install Compatibility Dependencies for PyQt5
         run: |
-          pip install sipbuild==6.7.5 PyQt5-sip==12.11.1
+          pip install sipbuild PyQt5-sip==12.11.1
 
       # Step 7: Install Python Dependencies
       - name: Install Python Dependencies
