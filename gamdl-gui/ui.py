@@ -1,29 +1,23 @@
 from PyQt5.QtWidgets import QVBoxLayout, QLabel, QPushButton, QWidget
-from PyQt5.QtCore import Qt
 
 class MainWindow(QWidget):
     """
-    The main application window.
+    Main application window.
     """
-
     def __init__(self, install_callback, update_callback):
         super().__init__()
-
         self.setWindowTitle("Gamdl GUI")
-        self.setGeometry(100, 100, 400, 200)
+        self.setGeometry(100, 100, 400, 300)
 
         self.init_ui(install_callback, update_callback)
 
     def init_ui(self, install_callback, update_callback):
-        """
-        Initializes the user interface layout.
-        """
         layout = QVBoxLayout()
 
-        self.status_label = QLabel("Checking gamdl installation...")
+        self.status_label = QLabel("Checking dependencies...")
         layout.addWidget(self.status_label)
 
-        self.install_button = QPushButton("Install Gamdl")
+        self.install_button = QPushButton("Install Missing Libraries")
         self.install_button.clicked.connect(install_callback)
         layout.addWidget(self.install_button)
 
