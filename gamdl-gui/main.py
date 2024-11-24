@@ -1,38 +1,26 @@
-import os
 from PyQt5.QtWidgets import QApplication
 from .ui import MainWindow
-from .utils import download_gamdl, check_gamdl_update, ensure_directory_exists
-from .constants import DEFAULT_GAMDL_DIR
+from .utils import download_library, is_library_available
+from .constants import DEFAULT_LIBRARY_PATHS
 
-def install_gamdl():
+def ensure_libraries_installed():
     """
-    Installs gamdl by downloading and extracting it to the default directory.
+    Ensures all required libraries are installed and functional.
     """
-    ensure_directory_exists(DEFAULT_GAMDL_DIR)
-    if download_gamdl(DEFAULT_GAMDL_DIR):
-        print("gamdl installed successfully!")
-    else:
-        print("Failed to install gamdl.")
-
-def check_for_updates():
-    """
-    Checks for updates to gamdl and notifies the user.
-    """
-    latest_version = check_gamdl_update()
-    if latest_version:
-        print(f"Latest version: {latest_version}")
-    else:
-        print("Failed to fetch the latest version.")
+    for name, path in DEFAULT_LIBRARY_PATHS.items():
+        if not is_library_available(path):
+            print(f"{name} not found. Installing...")
+            download_library(name)
 
 def main():
     """
-    Main function to start the application.
+    Starts the application.
     """
+    ensure_libraries_installed()
+
     app = QApplication([])
-
-    window = MainWindow(install_gamdl, check_for_updates)
+    window = MainWindow(ensure_libraries_installed, lambda: print("Checking for updates..."))
     window.show()
-
     app.exec_()
 
 if __name__ == "__main__":

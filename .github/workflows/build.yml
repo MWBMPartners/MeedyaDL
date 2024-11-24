@@ -1,4 +1,4 @@
-name: Build and Package Gamdl GUI
+name: Build Gamdl GUI
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    name: Build and Package Gamdl GUI
+    name: Build Gamdl GUI
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -18,7 +18,7 @@ jobs:
         python-version: [3.8]
 
     steps:
-      # Step 1: Check out the repository
+      # Step 1: Check out the code
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -34,10 +34,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Step 4: Build with PyInstaller
+      # Step 4: Build the application
       - name: Build with PyInstaller
         run: |
-          pyinstaller --onefile --noconsole gamdl_gui/main.py
+          pyinstaller --onefile --noconsole --add-data "bin:bin" gamdl_gui/main.py
         env:
           PYTHONPATH: ${{ runner.workspace }}
 

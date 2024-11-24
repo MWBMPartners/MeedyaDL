@@ -2,41 +2,49 @@ import os
 import requests
 import zipfile
 from io import BytesIO
+import subprocess
+from .constants import LIBRARY_URLS, LIBRARY_INSTALL_DIR
 
-from .constants import GAMDL_RELEASE_URL, GITHUB_API_RELEASE_URL, DEFAULT_GAMDL_DIR
-
-def download_gamdl(output_dir):
+def download_library(name):
     """
-    Downloads the gamdl release ZIP file and extracts it to the specified output directory.
+    Downloads the specified library and extracts or saves it to the bin directory.
     """
-    try:
-        response = requests.get(GAMDL_RELEASE_URL)
-        response.raise_for_status()
+    url = LIBRARY_URLS[name]
+    output_dir = LIBRARY_INSTALL_DIR
 
-        with zipfile.ZipFile(BytesIO(response.content)) as zf:
-            zf.extractall(output_dir)
+    # Ensure the directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    response = requests.get(url)
+    if response.status_code == 200:
+        if url.endswith(".zip"):
+            with zipfile.ZipFile(BytesIO(response.content)) as zf:
+                zf.extractall(output_dir)
+        else:
+            binary_path = os.path.join(output_dir, f"{name}.exe" if os.name == "nt" else name)
+            with open(binary_path, "wb") as file:
+                file.write(response.content)
+        print(f"{name} downloaded successfully.")
         return True
-    except Exception as e:
-        print(f"Error downloading gamdl: {e}")
+    else:
+        print(f"Failed to download {name}. HTTP Status: {response.status_code}")
         return False
 
-def check_gamdl_update():
+def is_library_available(path):
     """
-    Checks for the latest version of gamdl using the GitHub API.
-    Returns the version tag if available.
+    Checks if the library at the given path is functional.
     """
     try:
-        response = requests.get(GITHUB_API_RELEASE_URL)
-        response.raise_for_status()
-        release_info = response.json()
-        return release_info.get("tag_name", None)
+        subprocess.run([path, "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
     except Exception as e:
-        print(f"Error checking for updates: {e}")
-        return None
+        print(f"Library check failed for {path}: {e}")
+        return False
 
-def ensure_directory_exists(path):
+def check_library_update(name):
     """
-    Ensures that the specified directory exists. Creates it if it doesn't.
+    Checks if a newer version of the library is available.
     """
-    if not os.path.exists(path):
-        os.makedirs(path)
+    url = LIBRARY_URLS[name]
+    response = requests.head(url)
+    return response.status_code == 200
