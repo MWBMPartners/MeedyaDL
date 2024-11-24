@@ -28,29 +28,46 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Step 3: Install system dependencies (MacOS)
+      # Step 3: Install system dependencies on MacOS
       - name: Install system dependencies on MacOS
-        if: runner.os == 'macOS'
+        if: matrix.os == 'macos-latest'
         run: |
           brew update
           brew install qt
           echo 'export PATH="/usr/local/opt/qt/bin:$PATH"' >> $GITHUB_ENV
 
-      # Step 4: Install Python dependencies
-      - name: Install dependencies
+      # Step 4: Add Python Scripts to PATH (Windows)
+      - name: Add Python Scripts to PATH
+        if: runner.os == 'Windows'
+        run: echo "${{ env.pythonLocation }}\\Scripts" >> $GITHUB_PATH
+
+      # Step 5: Upgrade Python Build Tools
+      - name: Upgrade Python Build Tools
         run: |
           python -m pip install --upgrade pip setuptools wheel
+
+      # Step 6: Install Compatibility Dependencies for PyQt5
+      - name: Install Compatibility Dependencies
+        run: |
           pip install sipbuild==6.7.5 PyQt5-sip==12.11.1
+
+      # Step 7: Install Python Dependencies
+      - name: Install Python Dependencies
+        run: |
           pip install -r requirements.txt
 
-      # Step 5: Build the application
-      - name: Build with PyInstaller
+      # Step 8: Install PyInstaller
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller
+
+      # Step 9: Build the application with PyInstaller
+      - name: Build Application
         run: |
           pyinstaller --onefile --noconsole --add-data "bin:bin" gamdl_gui/main.py
         env:
           PYTHONPATH: ${{ runner.workspace }}
 
-      # Step 6: Upload build artifacts
+      # Step 10: Upload build artifacts
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v3
         with:
