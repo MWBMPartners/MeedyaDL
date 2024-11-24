@@ -1,5 +1,8 @@
 name: Build Gamdl GUI
 
+env:
+  ACTIONS_STEP_DEBUG: true
+
 on:
   push:
     branches:
