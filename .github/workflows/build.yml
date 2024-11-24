@@ -41,15 +41,14 @@ jobs:
         if: runner.os == 'Windows'
         run: echo "${{ env.pythonLocation }}\\Scripts" >> $GITHUB_PATH
 
-      # Step 5: Upgrade Python Build Tools
-      - name: Upgrade Python Build Tools
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
+      # Step 5: Upgrade Pip
+      - name: Upgrade Pip
+        run: python -m pip install --upgrade pip
 
-      # Step 6: Install Compatibility Dependencies for PyQt5
-      - name: Install Compatibility Dependencies for PyQt5
+      # Step 6: Install PyQt5 and Dependencies
+      - name: Install PyQt5 and Dependencies
         run: |
-          pip install sipbuild PyQt5-sip==12.11.1
+          pip install PyQt5==5.15.9 PyQt5-sip==12.11.1
 
       # Step 7: Install Python Dependencies
       - name: Install Python Dependencies
