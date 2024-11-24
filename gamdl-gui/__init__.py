@@ -1,1 +1,1 @@
-# This file marks the gamdl_gui directory as a Python package.
+# Marks this directory as a package for Python imports.
