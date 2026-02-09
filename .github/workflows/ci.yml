@@ -1,0 +1,132 @@
+# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Continuous Integration workflow for gamdl-GUI.
+# Runs on every push and pull request to verify code quality:
+# - TypeScript type checking and linting
+# - Frontend unit tests (Vitest)
+# - Rust compilation check (cargo check)
+# - Rust linting (clippy)
+# - Rust unit tests
+#
+# Uses a build matrix to test on macOS, Windows, and Linux.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # Frontend checks (TypeScript, lint, test)
+  # ============================================================
+  frontend:
+    name: Frontend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js LTS with npm cache
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      # Step 3: Install npm dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Step 4: Run TypeScript type checking
+      - name: Type check
+        run: npm run type-check
+
+      # Step 5: Run frontend unit tests
+      - name: Run tests
+        run: npm run test
+
+  # ============================================================
+  # Rust backend checks (compile, lint, test)
+  # ============================================================
+  backend:
+    name: Backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Linux system dependencies required by Tauri
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      # Step 3: Set up Rust toolchain with caching
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Step 4: Cache Rust compilation artifacts for faster builds
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Step 5: Set up Node.js (needed for Tauri's frontend build)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      # Step 6: Install npm dependencies (Tauri build depends on frontend)
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Step 7: Build the frontend (Tauri needs dist/ to exist)
+      - name: Build frontend
+        run: npm run build
+
+      # Step 8: Check Rust compilation
+      - name: Cargo check
+        working-directory: src-tauri
+        run: cargo check
+
+      # Step 9: Run Rust linter (clippy)
+      - name: Cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      # Step 10: Run Rust unit tests
+      - name: Cargo test
+        working-directory: src-tauri
+        run: cargo test

@@ -1,0 +1,95 @@
+/**
+ * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * Windows theme overrides.
+ * Applies Segoe UI Variable font, Mica/Acrylic-inspired material effects,
+ * and Windows 11 Fluent Design geometry to match the native Windows
+ * design language within a WebView.
+ */
+
+/* ============================================================
+ * Windows Light Mode
+ * ============================================================ */
+.platform-windows {
+  /* Segoe UI Variable (Windows 11) with fallbacks */
+  --font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+
+  /* Windows 11 rounded corners (slightly less rounded than macOS) */
+  --radius: 4px;
+  --radius-sm: 2px;
+  --radius-lg: 8px;
+
+  /* Mica-style sidebar background (subtle tint) */
+  --sidebar-bg: #f3f3f3;
+  --sidebar-hover: rgba(0, 0, 0, 0.04);
+  --sidebar-active: rgba(0, 0, 0, 0.06);
+  --sidebar-border: #e5e5e5;
+
+  /* Windows accent blue */
+  --accent: #0067c0;
+  --accent-hover: #1975ca;
+
+  /* Surfaces with slight warmth */
+  --surface-primary: #fafafa;
+  --surface-secondary: #f3f3f3;
+  --surface-elevated: #ffffff;
+
+  /* Windows-style shadows */
+  --shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.14);
+}
+
+/* Windows Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .platform-windows {
+    /* Mica dark material */
+    --sidebar-bg: #202020;
+    --sidebar-hover: rgba(255, 255, 255, 0.05);
+    --sidebar-active: rgba(255, 255, 255, 0.08);
+    --sidebar-border: #333333;
+
+    --accent: #4cc2ff;
+    --accent-hover: #60cdff;
+
+    --surface-primary: #1a1a1a;
+    --surface-secondary: #202020;
+    --surface-elevated: #2a2a2a;
+
+    --text-inverse: #1a1a1a;
+
+    --shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ============================================================
+ * Acrylic/Mica Visual Effects
+ * ============================================================ */
+.platform-windows aside {
+  /* Subtle Acrylic-like noise overlay */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23000' opacity='0.01'/%3E%3C/svg%3E");
+}
+
+/* Windows-style focus indicator (solid underline) */
+.platform-windows input:focus,
+.platform-windows select:focus,
+.platform-windows textarea:focus {
+  border-bottom: 2px solid var(--accent);
+  box-shadow: none;
+}
+
+/* Windows-style primary button */
+.platform-windows button.bg-accent {
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+/* Windows reveal hover effect on nav items */
+.platform-windows nav button:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    transparent 50%
+  );
+}

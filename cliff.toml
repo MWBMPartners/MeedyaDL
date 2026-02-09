@@ -1,0 +1,71 @@
+# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# git-cliff configuration for automated CHANGELOG.md generation.
+# Parses conventional commit messages and groups them by type.
+
+[changelog]
+# Template for the changelog header
+header = """
+# Changelog
+
+All notable changes to **GAMDL GUI** are documented in this file.
+
+This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
+
+"""
+# Template for each release section
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}**({{ commit.scope }})** {% endif %}\
+            {% if commit.breaking %}[**BREAKING**] {% endif %}\
+            {{ commit.message | upper_first }}\
+            {% if commit.body %}\n\n{{ commit.body | indent(prefix="  ") }}\n{% endif %}\
+    {% endfor %}
+{% endfor %}\n
+"""
+# Template for the changelog footer
+footer = """
+---
+*Generated with [git-cliff](https://git-cliff.org/)*
+"""
+# Remove leading and trailing whitespace from the changelog
+trim = true
+
+[git]
+# Parse conventional commits
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+
+# Map commit types to changelog section names
+commit_parsers = [
+    { message = "^feat", group = "<!-- 0 -->✨ Features" },
+    { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+    { message = "^doc", group = "<!-- 2 -->📚 Documentation" },
+    { message = "^perf", group = "<!-- 3 -->⚡ Performance" },
+    { message = "^refactor", group = "<!-- 4 -->🔧 Refactoring" },
+    { message = "^style", group = "<!-- 5 -->🎨 Styling" },
+    { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+    { message = "^build", group = "<!-- 7 -->📦 Build System" },
+    { message = "^ci", group = "<!-- 8 -->🔄 CI/CD" },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore\\(deps\\)", skip = true },
+    { message = "^chore\\(pr\\)", skip = true },
+    { message = "^chore", group = "<!-- 9 -->🧹 Maintenance" },
+    { body = ".*security", group = "<!-- 10 -->🔒 Security" },
+]
+# Protect email addresses
+protect_breaking_commits = false
+filter_commits = false
+# Tag pattern for version extraction
+tag_pattern = "v[0-9].*"
+# Sort commits by oldest first within each group
+sort_commits = "oldest"
