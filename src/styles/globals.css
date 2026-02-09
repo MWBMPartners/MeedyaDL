@@ -107,3 +107,18 @@
     app-region: no-drag;
   }
 }
+
+/* ============================================================
+ * Keyframe Animations
+ * Custom animations used by UI components
+ * ============================================================ */
+
+/* Indeterminate progress bar - slides left to right repeatedly */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
