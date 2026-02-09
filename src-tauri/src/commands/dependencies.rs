@@ -6,13 +6,16 @@
 // and external tool dependencies (FFmpeg, mp4decrypt, etc.).
 // These commands are primarily used by the first-run setup wizard
 // and the dependency status indicators throughout the UI.
+//
+// Delegates to service modules for the actual installation logic.
 
 use serde::Serialize;
 use tauri::AppHandle;
 
-use crate::utils::platform;
+use crate::services::{dependency_manager, gamdl_service, python_manager};
 
 /// Status information for a single dependency (Python, GAMDL, or tool).
+/// Returned to the frontend for display in the setup wizard and status bar.
 #[derive(Debug, Clone, Serialize)]
 pub struct DependencyStatus {
     /// Human-readable name of the dependency (e.g., "Python 3.12")
@@ -21,54 +24,28 @@ pub struct DependencyStatus {
     pub required: bool,
     /// Whether the dependency is currently installed and accessible
     pub installed: bool,
-    /// Installed version string, if available (e.g., "3.12.1", "2.8.4")
+    /// Installed version string, if available (e.g., "3.12.8", "2.8.4")
     pub version: Option<String>,
     /// Absolute path to the installed binary/executable
     pub path: Option<String>,
 }
 
-/// Checks whether a portable Python runtime is installed in the app data directory.
+/// Checks whether the portable Python runtime is installed in the app data directory.
 ///
-/// Returns true if the Python binary exists and is executable, along with
-/// the detected version. Used by the setup wizard to determine if the
+/// Returns status information including whether Python exists, its version,
+/// and its binary path. Used by the setup wizard to determine if the
 /// Python installation step can be skipped.
 #[tauri::command]
 pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, String> {
-    // Resolve the expected Python binary path for this platform
-    let python_dir = platform::get_python_dir(&app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    let version = python_manager::check_python_status(&app).await?;
 
-    // Check if the Python binary exists at the expected location
-    let installed = python_bin.exists();
-
-    // If installed, try to get the version by running 'python --version'
-    let version = if installed {
-        match tokio::process::Command::new(&python_bin)
-            .arg("--version")
-            .output()
-            .await
-        {
-            Ok(output) => {
-                // Parse "Python 3.12.1" -> "3.12.1"
-                let version_str = String::from_utf8_lossy(&output.stdout);
-                Some(
-                    version_str
-                        .trim()
-                        .strip_prefix("Python ")
-                        .unwrap_or(version_str.trim())
-                        .to_string(),
-                )
-            }
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
+    let python_dir = crate::utils::platform::get_python_dir(&app);
+    let python_bin = crate::utils::platform::get_python_binary_path(&python_dir);
 
     Ok(DependencyStatus {
-        name: "Python".to_string(),
+        name: format!("Python {}", python_manager::expected_python_version()),
         required: true,
-        installed,
+        installed: version.is_some(),
         version,
         path: python_bin.to_str().map(|s| s.to_string()),
     })
@@ -77,110 +54,62 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
 /// Downloads and installs a portable Python runtime.
 ///
 /// Downloads from python-build-standalone GitHub releases, extracts to
-/// the app data directory, and verifies the installation. Emits progress
-/// events that the frontend setup wizard displays as a progress bar.
+/// the app data directory, and verifies the installation. The frontend
+/// should poll check_python_status() for progress, or listen for log events.
 ///
-/// Returns the path to the installed Python binary on success.
+/// Returns the installed Python version string on success.
 #[tauri::command]
 pub async fn install_python(app: AppHandle) -> Result<String, String> {
-    // TODO: Phase 2 - Implement full Python download and installation
-    // For now, return an error indicating this is not yet implemented
-    let python_dir = platform::get_python_dir(&app);
-    log::info!("Python will be installed to: {}", python_dir.display());
-    Err("Python installation not yet implemented (Phase 2)".to_string())
+    python_manager::install_python(&app).await
 }
 
 /// Checks whether GAMDL is installed in the portable Python environment.
 ///
-/// Runs 'pip show gamdl' to detect if the package is installed and
-/// extracts the version number from the output.
+/// Runs 'python -m pip show gamdl' to detect the package and extract
+/// the version number from the output.
 #[tauri::command]
 pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, String> {
-    // First check if Python is available (GAMDL requires Python)
-    let python_dir = platform::get_python_dir(&app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    let version = gamdl_service::get_gamdl_version(&app).await?;
 
-    if !python_bin.exists() {
-        return Ok(DependencyStatus {
-            name: "GAMDL".to_string(),
-            required: true,
-            installed: false,
-            version: None,
-            path: None,
-        });
-    }
-
-    // Check GAMDL installation by running 'python -m pip show gamdl'
-    match tokio::process::Command::new(&python_bin)
-        .args(["-m", "pip", "show", "gamdl"])
-        .output()
-        .await
-    {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // Parse "Version: 2.8.4" from pip show output
-            let version = stdout
-                .lines()
-                .find(|line| line.starts_with("Version:"))
-                .map(|line| line.trim_start_matches("Version:").trim().to_string());
-            let installed = version.is_some();
-
-            Ok(DependencyStatus {
-                name: "GAMDL".to_string(),
-                required: true,
-                installed,
-                version,
-                path: None, // GAMDL is a Python package, not a standalone binary
-            })
-        }
-        Err(e) => Err(format!("Failed to check GAMDL status: {}", e)),
-    }
+    Ok(DependencyStatus {
+        name: "GAMDL".to_string(),
+        required: true,
+        installed: version.is_some(),
+        version,
+        path: None, // GAMDL is a Python package, not a standalone binary
+    })
 }
 
 /// Installs GAMDL via pip into the portable Python environment.
 ///
-/// Runs 'pip install gamdl' and returns the installed version on success.
+/// Runs 'pip install --upgrade gamdl' and returns the installed version.
+/// Python must already be installed before calling this command.
 #[tauri::command]
 pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
-    // TODO: Phase 2 - Implement GAMDL pip installation
-    let python_dir = platform::get_python_dir(&app);
-    log::info!(
-        "GAMDL will be installed via pip in: {}",
-        python_dir.display()
-    );
-    Err("GAMDL installation not yet implemented (Phase 2)".to_string())
+    gamdl_service::install_gamdl(&app).await
 }
 
 /// Checks the installation status of all external tool dependencies.
 ///
 /// Returns a list of all dependencies (FFmpeg, mp4decrypt, N_m3u8DL-RE,
-/// MP4Box) with their current installation status, version, and path.
+/// MP4Box) with their current installation status, including whether
+/// they're required and whether a binary exists at the expected path.
 #[tauri::command]
 pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStatus>, String> {
-    let tools_dir = platform::get_tools_dir(&app);
-
-    // Define all tool dependencies with their required/optional status
-    let dependencies = vec![
-        ("FFmpeg", true),
-        ("mp4decrypt", false),
-        ("N_m3u8DL-RE", false),
-        ("MP4Box", false),
-    ];
-
+    let tools = dependency_manager::get_all_tools();
     let mut results = Vec::new();
 
-    for (name, required) in dependencies {
-        // Check if the tool binary exists in the tools directory
-        let tool_path = tools_dir.join(name.to_lowercase());
-        let installed = tool_path.exists();
+    for tool in tools {
+        let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
+        let installed = binary_path.exists();
 
         results.push(DependencyStatus {
-            name: name.to_string(),
-            required,
+            name: tool.name.to_string(),
+            required: tool.required,
             installed,
-            version: None, // TODO: Phase 2 - Run --version to get version
+            version: None, // Version detection is slow; skip for batch checks
             path: if installed {
-                tool_path.to_str().map(|s| s.to_string())
+                binary_path.to_str().map(|s| s.to_string())
             } else {
                 None
             },
@@ -199,15 +128,5 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
 /// * `name` - The tool name: "ffmpeg", "mp4decrypt", "nm3u8dlre", or "mp4box"
 #[tauri::command]
 pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, String> {
-    // TODO: Phase 2 - Implement tool dependency installation
-    let tools_dir = platform::get_tools_dir(&app);
-    log::info!(
-        "Tool '{}' will be installed to: {}",
-        name,
-        tools_dir.display()
-    );
-    Err(format!(
-        "Dependency installation for '{}' not yet implemented (Phase 2)",
-        name
-    ))
+    dependency_manager::install_tool(&app, &name).await
 }

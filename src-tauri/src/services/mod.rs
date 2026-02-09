@@ -4,15 +4,23 @@
 // Service modules containing the core business logic.
 // Services are called by command handlers and encapsulate all
 // interactions with external tools, the filesystem, and APIs.
-// Full implementations will be added in Phase 2.
 
-// NOTE: Service modules are declared but not yet implemented.
-// They will be added in Phase 2 as each service is built:
-//
-// pub mod python_manager;       // Phase 2: Download/manage portable Python
-// pub mod gamdl_service;        // Phase 2: GAMDL CLI wrapper
-// pub mod dependency_manager;   // Phase 2: FFmpeg, mp4decrypt, etc.
-// pub mod config_service;       // Phase 2: Settings and GAMDL config sync
-// pub mod download_queue;       // Phase 4: Queue management with fallback
-// pub mod credential_store;     // Phase 2: OS keychain wrapper
-// pub mod update_checker;       // Phase 5: Version update checking
+/// Python runtime manager: download/install/verify portable Python
+/// from python-build-standalone GitHub releases
+pub mod python_manager;
+
+/// GAMDL CLI wrapper: install via pip, execute downloads as subprocesses,
+/// parse output into structured events for the frontend
+pub mod gamdl_service;
+
+/// Dependency manager: download/install external tools (FFmpeg, mp4decrypt,
+/// N_m3u8DL-RE, MP4Box) from their official release sources
+pub mod dependency_manager;
+
+/// Settings and config service: load/save JSON settings, sync to
+/// GAMDL's config.ini format for CLI compatibility
+pub mod config_service;
+
+// NOTE: The following services will be added in later phases:
+// pub mod download_queue;       // Phase 4: Queue management with fallback quality
+// pub mod update_checker;       // Phase 5: Version update checking for all components
