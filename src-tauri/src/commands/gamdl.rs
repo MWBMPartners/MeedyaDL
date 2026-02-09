@@ -53,10 +53,32 @@ pub async fn start_download(
         request.urls.len()
     );
 
-    // TODO: Phase 4 - Add to download queue and start processing
-    // For now, emit a placeholder event
+    // Notify the frontend that the download has been queued
     app.emit("download-queued", &download_id)
         .map_err(|e| format!("Failed to emit event: {}", e))?;
+
+    // Spawn the GAMDL download in a background task so this command returns immediately
+    let app_clone = app.clone();
+    let dl_id = download_id.clone();
+    let urls = request.urls.clone();
+    let options = request.options.unwrap_or_default();
+
+    tokio::spawn(async move {
+        match crate::services::gamdl_service::run_gamdl(&app_clone, &dl_id, &urls, &options).await
+        {
+            Ok(()) => {
+                log::info!("Download {} completed", dl_id);
+                let _ = app_clone.emit("download-complete", &dl_id);
+            }
+            Err(e) => {
+                log::error!("Download {} failed: {}", dl_id, e);
+                let _ = app_clone.emit("download-error", serde_json::json!({
+                    "download_id": dl_id,
+                    "error": e,
+                }));
+            }
+        }
+    });
 
     Ok(download_id)
 }
@@ -75,7 +97,8 @@ pub async fn cancel_download(
     download_id: String,
 ) -> Result<(), String> {
     log::info!("Cancel requested for download: {}", download_id);
-    // TODO: Phase 4 - Implement download cancellation
+    // TODO: Phase 4 - Implement download cancellation via the download queue service
+    // The queue service will track active child processes and provide kill handles
     Err("Download cancellation not yet implemented (Phase 4)".to_string())
 }
 
@@ -94,4 +117,16 @@ pub async fn get_queue_status(_app: AppHandle) -> Result<QueueStatus, String> {
         failed: 0,
         items: Vec::new(),
     })
+}
+
+/// Checks the latest GAMDL version available on PyPI.
+///
+/// Used by the update checker to notify the user when a new GAMDL
+/// version is available. Queries the PyPI JSON API.
+///
+/// # Returns
+/// The latest version string (e.g., "2.8.4")
+#[tauri::command]
+pub async fn check_gamdl_update() -> Result<String, String> {
+    crate::services::gamdl_service::check_latest_gamdl_version().await
 }
