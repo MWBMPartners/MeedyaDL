@@ -1,0 +1,95 @@
+/**
+ * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * macOS theme overrides.
+ * Applies San Francisco font, Liquid Glass-inspired visual effects,
+ * and macOS-specific spacing and geometry to match the native
+ * macOS design language as closely as possible within a WebView.
+ *
+ * Liquid Glass effects use backdrop-filter for blur/transparency.
+ * Note: True Liquid Glass requires native macOS APIs; this CSS
+ * provides a close visual approximation.
+ */
+
+/* ============================================================
+ * macOS Light Mode
+ * ============================================================ */
+.platform-macos {
+  /* San Francisco system font */
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display',
+    'SF Pro Text', 'Helvetica Neue', sans-serif;
+
+  /* macOS-style rounded corners (larger radius for glass effect) */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+
+  /* Sidebar with vibrancy/translucent effect */
+  --sidebar-bg: rgba(245, 245, 245, 0.7);
+  --sidebar-hover: rgba(0, 0, 0, 0.04);
+  --sidebar-active: rgba(0, 0, 0, 0.07);
+  --sidebar-border: rgba(0, 0, 0, 0.08);
+
+  /* macOS accent blue */
+  --accent: #007aff;
+  --accent-hover: #0062cc;
+
+  /* Softer shadows for macOS glass morphism */
+  --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+
+/* macOS Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .platform-macos {
+    --sidebar-bg: rgba(28, 28, 30, 0.75);
+    --sidebar-hover: rgba(255, 255, 255, 0.05);
+    --sidebar-active: rgba(255, 255, 255, 0.08);
+    --sidebar-border: rgba(255, 255, 255, 0.06);
+
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+
+    --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+  }
+}
+
+/* ============================================================
+ * Liquid Glass Visual Effects
+ * Applied to sidebar and elevated surfaces for the glass look
+ * ============================================================ */
+.platform-macos aside {
+  /* Backdrop blur creates the frosted glass effect */
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Elevated cards and modals get a subtle glass effect */
+.platform-macos .bg-surface-elevated {
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+}
+
+/* macOS-style focus ring (blue glow) */
+.platform-macos input:focus,
+.platform-macos select:focus,
+.platform-macos textarea:focus {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.3);
+  border-color: var(--accent);
+}
+
+/* macOS-style button with subtle gradient */
+.platform-macos button.bg-accent {
+  background: linear-gradient(180deg, #0a84ff 0%, #007aff 100%);
+}
+
+.platform-macos button.bg-accent:hover {
+  background: linear-gradient(180deg, #409cff 0%, #0a84ff 100%);
+}
+
+/* Account for macOS traffic light buttons (window controls) overlap */
+.platform-macos .sidebar-header {
+  padding-top: 38px; /* Space for traffic lights in overlay title bar */
+}

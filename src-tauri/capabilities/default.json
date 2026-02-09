@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/permissions.schema.json",
+  "identifier": "default",
+  "description": "Default capability set for the gamdl-GUI application. Grants permissions for file system access, native dialogs, shell execution, OS detection, persistent storage, and process management.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "dialog:default",
+    "fs:default",
+    "store:default",
+    "process:default",
+    "os:default"
+  ]
+}

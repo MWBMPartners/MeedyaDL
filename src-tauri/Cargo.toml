@@ -1,0 +1,94 @@
+# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Cargo package configuration for the gamdl-GUI Tauri backend.
+# This defines all Rust dependencies used by the desktop application,
+# including the Tauri framework, plugins, HTTP client, archive extraction,
+# credential storage, and utility crates.
+
+[package]
+name = "gamdl-gui"
+version = "0.1.0"
+description = "A multiplatform GUI for GAMDL (Apple Music downloader)"
+authors = ["MWBM Partners Ltd"]
+license = "MIT"
+repository = "https://github.com/MWBM-Partners-Ltd/gamdl-GUI"
+edition = "2021"
+
+# Tauri requires this build script for code generation
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# --- Tauri Framework & Plugins ---
+# Core Tauri framework with system tray icon support
+tauri = { version = "2", features = ["tray-icon"] }
+# Plugin: Execute shell commands and manage child processes
+tauri-plugin-shell = "2"
+# Plugin: Native file/folder picker dialogs
+tauri-plugin-dialog = "2"
+# Plugin: Read/write files from the application's allowed directories
+tauri-plugin-fs = "2"
+# Plugin: Persistent key-value store for application settings
+tauri-plugin-store = "2"
+# Plugin: Process management (exit, restart)
+tauri-plugin-process = "2"
+# Plugin: Detect operating system and architecture at runtime
+tauri-plugin-os = "2"
+
+# --- Serialization ---
+# Serialize/deserialize Rust structs to/from JSON for IPC communication
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# --- Async Runtime ---
+# Tokio async runtime with all features (timers, IO, sync, macros)
+tokio = { version = "1", features = ["full"] }
+
+# --- HTTP Client ---
+# HTTP client for downloading Python, GAMDL, and tool dependencies
+# 'stream' feature enables streaming downloads with progress reporting
+reqwest = { version = "0.12", features = ["stream", "json"] }
+
+# --- Archive Extraction ---
+# ZIP archive extraction (for Windows tool downloads)
+zip = "2"
+# GZIP decompression (for tar.gz archives on macOS/Linux)
+flate2 = "1"
+# TAR archive extraction (used with flate2 for tar.gz files)
+tar = "0.4"
+
+# --- Configuration ---
+# Read/write INI-format configuration files (GAMDL's config.ini)
+configparser = "3"
+
+# --- Secure Credential Storage ---
+# OS-native keychain/keyring integration for storing sensitive credentials
+# Maps to: macOS Keychain, Windows Credential Manager, Linux Secret Service
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+
+# --- Unique Identifiers ---
+# Generate UUIDs for download queue items and tracking
+uuid = { version = "1", features = ["v4"] }
+
+# --- Date/Time ---
+# Date and time handling for timestamps, cookie expiry parsing
+chrono = { version = "0.4", features = ["serde"] }
+
+# --- Logging ---
+# Logging facade used throughout the application
+log = "0.4"
+# Environment-based logger configuration (set via RUST_LOG env var)
+env_logger = "0.11"
+
+# --- Error Handling ---
+# Derive macro for defining custom error types with Display implementations
+thiserror = "2"
+
+# --- Platform Directories ---
+# Cross-platform resolution of standard directories (app data, config, cache)
+dirs = "6"
+
+# --- Regex ---
+# Regular expressions for parsing GAMDL output and URLs
+regex = "1"

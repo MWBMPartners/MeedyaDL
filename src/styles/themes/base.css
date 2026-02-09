@@ -1,0 +1,110 @@
+/**
+ * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * Base theme CSS custom properties.
+ * Defines the default design token values that all platform themes build upon.
+ * Platform-specific themes (macos.css, windows.css, linux.css) override
+ * these properties to achieve native-feeling UI on each OS.
+ *
+ * This file sets a neutral, light theme as the default.
+ */
+
+:root {
+  /* ---- Typography ---- */
+  /* Default system font stack (overridden per platform) */
+  --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-size-base: 14px;
+  --font-size-sm: 12px;
+  --font-size-lg: 16px;
+
+  /* ---- Colors: Sidebar ---- */
+  --sidebar-bg: #f5f5f5;
+  --sidebar-hover: rgba(0, 0, 0, 0.05);
+  --sidebar-active: rgba(0, 0, 0, 0.08);
+  --sidebar-text: #555555;
+  --sidebar-text-active: #1a1a1a;
+  --sidebar-border: #e0e0e0;
+
+  /* ---- Colors: Surfaces ---- */
+  --surface-primary: #ffffff;
+  --surface-secondary: #fafafa;
+  --surface-elevated: #f8f8f8;
+  --surface-overlay: rgba(0, 0, 0, 0.5);
+
+  /* ---- Colors: Accent ---- */
+  --accent: #007aff;
+  --accent-hover: #0062cc;
+  --accent-light: rgba(0, 122, 255, 0.1);
+
+  /* ---- Colors: Text ---- */
+  --text-primary: #1a1a1a;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  --text-inverse: #ffffff;
+
+  /* ---- Colors: Status ---- */
+  --status-success: #34c759;
+  --status-warning: #ff9500;
+  --status-error: #ff3b30;
+  --status-info: #007aff;
+
+  /* ---- Colors: Borders ---- */
+  --border: #d1d1d6;
+  --border-light: #e5e5ea;
+  --border-strong: #aeaeb2;
+
+  /* ---- Geometry ---- */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
+
+  /* ---- Shadows ---- */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);
+
+  /* ---- Transitions ---- */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+/* ============================================================
+ * Dark mode support (follows OS preference)
+ * ============================================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Sidebar */
+    --sidebar-bg: #1c1c1e;
+    --sidebar-hover: rgba(255, 255, 255, 0.06);
+    --sidebar-active: rgba(255, 255, 255, 0.1);
+    --sidebar-text: #a0a0a0;
+    --sidebar-text-active: #ffffff;
+    --sidebar-border: #2c2c2e;
+
+    /* Surfaces */
+    --surface-primary: #000000;
+    --surface-secondary: #1c1c1e;
+    --surface-elevated: #2c2c2e;
+    --surface-overlay: rgba(0, 0, 0, 0.7);
+
+    /* Accent (stays blue in dark mode) */
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --accent-light: rgba(10, 132, 255, 0.15);
+
+    /* Text */
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0a0;
+    --text-tertiary: #666666;
+    --text-inverse: #000000;
+
+    /* Borders */
+    --border: #3a3a3c;
+    --border-light: #2c2c2e;
+    --border-strong: #545458;
+
+    /* Shadows (less visible in dark mode) */
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+}

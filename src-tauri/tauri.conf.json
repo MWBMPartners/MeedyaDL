@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/schema.json",
+  "productName": "GAMDL",
+  "version": "0.1.0",
+  "identifier": "com.mwbmpartners.gamdl-gui",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GAMDL",
+        "label": "main",
+        "width": 1100,
+        "height": 700,
+        "minWidth": 800,
+        "minHeight": 550,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' https://is1-ssl.mzstatic.com https://is2-ssl.mzstatic.com https://is3-ssl.mzstatic.com https://is4-ssl.mzstatic.com https://is5-ssl.mzstatic.com asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "../help/*"
+    ],
+    "copyright": "Copyright (c) 2024-2026 MWBM Partners Ltd",
+    "category": "Music",
+    "shortDescription": "GUI for Apple Music downloader (GAMDL)",
+    "longDescription": "A multiplatform graphical user interface for GAMDL, supporting music and video downloads from Apple Music with quality selection, download queue management, lyrics embedding, and cover art handling.",
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": null,
+      "providerShortName": null,
+      "entitlements": null
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libappindicator3-1"]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

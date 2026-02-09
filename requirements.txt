@@ -1,5 +1,0 @@
-PyQt5==5.15.9      # For GUI components
-PyQt5-sip==12.11.1
-requests==2.31.0   # For HTTP requests (e.g., downloading gamdl)
-pytest==7.4.0      # For running tests
-pytest-qt==4.0.2   # PyQt5 testing helper
