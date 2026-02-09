@@ -1,0 +1,79 @@
+/**
+ * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * Linux theme overrides.
+ * Applies a clean, neutral design using the system default font stack.
+ * Follows GNOME/Adwaita design conventions with subtle adaptations
+ * for a familiar desktop Linux experience. Also serves as the
+ * default theme for Raspberry Pi and other Linux variants.
+ */
+
+/* ============================================================
+ * Linux Light Mode
+ * ============================================================ */
+.platform-linux {
+  /* System font stack (respects user's desktop font settings) */
+  --font-family: system-ui, 'Cantarell', 'Noto Sans', 'Liberation Sans',
+    sans-serif;
+
+  /* GNOME/Adwaita-style rounded corners */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 12px;
+
+  /* Neutral sidebar */
+  --sidebar-bg: #f0f0f0;
+  --sidebar-hover: rgba(0, 0, 0, 0.05);
+  --sidebar-active: rgba(0, 0, 0, 0.08);
+  --sidebar-border: #dcdcdc;
+
+  /* Adwaita blue accent */
+  --accent: #3584e4;
+  --accent-hover: #1c71d8;
+
+  /* Surfaces */
+  --surface-primary: #fafafa;
+  --surface-secondary: #f0f0f0;
+  --surface-elevated: #ffffff;
+
+  /* Shadows */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
+/* Linux Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .platform-linux {
+    --sidebar-bg: #242424;
+    --sidebar-hover: rgba(255, 255, 255, 0.05);
+    --sidebar-active: rgba(255, 255, 255, 0.08);
+    --sidebar-border: #3d3d3d;
+
+    --accent: #62a0ea;
+    --accent-hover: #3584e4;
+
+    --surface-primary: #1e1e1e;
+    --surface-secondary: #242424;
+    --surface-elevated: #303030;
+
+    --text-inverse: #1e1e1e;
+  }
+}
+
+/* ============================================================
+ * Linux-specific UI Adjustments
+ * ============================================================ */
+
+/* GNOME-style focus ring */
+.platform-linux input:focus,
+.platform-linux select:focus,
+.platform-linux textarea:focus {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+}
+
+/* Flat button style (Adwaita buttons are less rounded) */
+.platform-linux button.bg-accent {
+  border-radius: var(--radius);
+}

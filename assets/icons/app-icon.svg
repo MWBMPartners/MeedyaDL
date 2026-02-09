@@ -1,0 +1,46 @@
+<!--
+  Copyright (c) 2024-2026 MWBM Partners Ltd
+  Licensed under the MIT License. See LICENSE file in the project root.
+
+  GAMDL GUI Application Icon
+  A musical note with a download arrow, representing music downloading.
+  This SVG source is used to generate platform-specific icons.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#007AFF"/>
+      <stop offset="100%" stop-color="#5856D6"/>
+    </linearGradient>
+    <linearGradient id="note" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E0E0FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)"/>
+
+  <!-- Musical note shape -->
+  <g transform="translate(130, 100)" fill="url(#note)">
+    <!-- Note stem -->
+    <rect x="200" y="0" width="16" height="220" rx="8"/>
+
+    <!-- Note flag/beam -->
+    <path d="M216 0 C216 0 260 20 260 60 C260 100 216 80 216 80 Z"/>
+
+    <!-- Note head -->
+    <ellipse cx="160" cy="230" rx="56" ry="42" transform="rotate(-20, 160, 230)"/>
+  </g>
+
+  <!-- Download arrow overlay -->
+  <g transform="translate(256, 340)">
+    <!-- Arrow shaft -->
+    <rect x="-8" y="-50" width="16" height="60" rx="4" fill="white" opacity="0.9"/>
+    <!-- Arrow head -->
+    <polygon points="-24,10 0,36 24,10" fill="white" opacity="0.9"/>
+    <!-- Base line -->
+    <rect x="-30" y="42" width="60" height="6" rx="3" fill="white" opacity="0.7"/>
+  </g>
+</svg>
