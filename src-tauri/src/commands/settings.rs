@@ -4,13 +4,13 @@
 // Settings management IPC commands.
 // Handles reading, writing, and validating application settings.
 // Settings are stored as JSON in the app data directory and are
-// separate from GAMDL's own config.ini file (which is also managed).
+// synced to GAMDL's config.ini file for CLI compatibility.
 
 use serde::Serialize;
 use tauri::AppHandle;
 
 use crate::models::settings::AppSettings;
-use crate::utils::platform;
+use crate::services::config_service;
 
 /// Result of validating a Netscape-format cookies file.
 /// Provides detailed information about the cookies found and their validity.
@@ -33,21 +33,11 @@ pub struct CookieValidation {
 /// Loads and returns the current application settings.
 ///
 /// If no settings file exists (first run), returns default settings.
-/// Settings are loaded from {app_data}/settings.json.
+/// Settings are loaded from {app_data}/settings.json and are synced
+/// with GAMDL's config.ini file.
 #[tauri::command]
 pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
-    // Resolve the settings file path
-    let settings_path = platform::get_app_data_dir(&app).join("settings.json");
-
-    // If settings file exists, read and parse it
-    if settings_path.exists() {
-        let contents =
-            std::fs::read_to_string(&settings_path).map_err(|e| format!("Failed to read settings: {}", e))?;
-        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse settings: {}", e))
-    } else {
-        // Return default settings for first run
-        Ok(AppSettings::default())
-    }
+    config_service::load_settings(&app)
 }
 
 /// Saves application settings to disk.
@@ -57,22 +47,7 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 /// GAMDL CLI uses the same configuration as the GUI.
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    // Resolve the settings file path
-    let settings_path = platform::get_app_data_dir(&app).join("settings.json");
-
-    // Serialize settings to formatted JSON for readability
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-
-    // Write to disk
-    std::fs::write(&settings_path, json)
-        .map_err(|e| format!("Failed to write settings: {}", e))?;
-
-    log::info!("Settings saved to: {}", settings_path.display());
-
-    // TODO: Phase 2 - Sync relevant settings to GAMDL's config.ini
-
-    Ok(())
+    config_service::save_settings(&app, &settings)
 }
 
 /// Validates a Netscape-format cookies file.
@@ -117,7 +92,7 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
             if domain.contains("apple.com") || domain.contains("mzstatic.com") {
                 apple_music_cookies += 1;
 
-                // Check cookie expiry
+                // Check cookie expiry timestamp
                 if let Ok(expiry) = fields[4].parse::<i64>() {
                     if expiry > 0 && expiry < now {
                         expired = true;
@@ -136,7 +111,7 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
         }
     }
 
-    // Validate the results
+    // Build validation result
     let valid = cookie_count > 0;
 
     if apple_music_cookies == 0 {
@@ -144,7 +119,9 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
     }
 
     if expired {
-        warnings.push("Some Apple Music cookies have expired - you may need to re-export them".to_string());
+        warnings.push(
+            "Some Apple Music cookies have expired - you may need to re-export them".to_string(),
+        );
     }
 
     Ok(CookieValidation {
@@ -165,16 +142,5 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
 /// - Linux: ~/Music/Apple Music/
 #[tauri::command]
 pub fn get_default_output_path() -> Result<String, String> {
-    // Try to find the user's Music directory
-    let music_dir = dirs::audio_dir()
-        .or_else(dirs::home_dir)
-        .ok_or_else(|| "Could not determine home directory".to_string())?;
-
-    // Append our subdirectory
-    let output_path = music_dir.join("Apple Music");
-
-    output_path
-        .to_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "Failed to convert output path to string".to_string())
+    config_service::get_default_output_path()
 }
