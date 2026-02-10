@@ -17,3 +17,4 @@ export { LoadingSpinner } from './LoadingSpinner';
 export { Tooltip } from './Tooltip';
 export { FilePickerButton } from './FilePickerButton';
 export { ProgressBar } from './ProgressBar';
+export { UpdateBanner } from './UpdateBanner';

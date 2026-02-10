@@ -21,6 +21,10 @@ pub mod dependency_manager;
 /// GAMDL's config.ini format for CLI compatibility
 pub mod config_service;
 
-// NOTE: The following services will be added in later phases:
-// pub mod download_queue;       // Phase 4: Queue management with fallback quality
-// pub mod update_checker;       // Phase 5: Version update checking for all components
+/// Download queue manager: queue management with concurrent execution,
+/// fallback quality chain retries, and cancellation support
+pub mod download_queue;
+
+/// Update checker: check for new versions of GAMDL, Python, tools,
+/// and the app itself from PyPI and GitHub Releases
+pub mod update_checker;

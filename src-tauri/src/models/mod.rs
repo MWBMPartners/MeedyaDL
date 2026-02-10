@@ -16,3 +16,6 @@ pub mod gamdl_options;
 
 /// Dependency information models (Python, GAMDL, tools)
 pub mod dependency;
+
+/// Music service trait and extensibility types (GAMDL, gytmdl, votify)
+pub mod music_service;

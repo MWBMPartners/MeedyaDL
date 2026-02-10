@@ -6,9 +6,16 @@
  * Renders a sidebar navigation of help topics and a Markdown content viewer.
  * Help content is loaded from bundled markdown files.
  * Uses react-markdown with remark-gfm for GitHub-flavored markdown rendering.
+ *
+ * Enhanced features:
+ * - Search bar with real-time filtering of help topics by label and content
+ * - Highlighted search matches in sidebar labels
+ * - Result count display when searching
+ * - Keyboard shortcut hint (Ctrl/Cmd+K) for future shortcut support
+ * - Clear search button
  */
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -21,6 +28,8 @@ import {
   Video,
   HelpCircle,
   FileText,
+  Search,
+  X,
 } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
 
@@ -293,44 +302,370 @@ Licensed under the MIT License.
 ];
 
 /**
- * Renders the help page with a topic sidebar and markdown content viewer.
+ * Detects whether the user is on macOS so we can display the correct
+ * modifier key hint (Cmd on macOS, Ctrl on everything else).
+ * Uses navigator.platform with a fallback to navigator.userAgent for
+ * broader browser compatibility.
+ */
+function isMacPlatform(): boolean {
+  if (typeof navigator !== 'undefined') {
+    return (
+      navigator.platform?.toUpperCase().includes('MAC') ||
+      navigator.userAgent?.toUpperCase().includes('MAC')
+    );
+  }
+  return false;
+}
+
+/**
+ * Escapes special regex characters in a user-supplied string so it can
+ * be safely used inside a RegExp constructor without unintended pattern matching.
+ * For example, a search query containing "C++" would be escaped to "C\\+\\+"
+ * so the plus signs are matched literally.
+ *
+ * @param str - The raw string to escape
+ * @returns The escaped string safe for RegExp construction
+ */
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Renders a label string with search match segments highlighted.
+ * Splits the label on case-insensitive matches of the query, then wraps
+ * every matched segment in a styled <mark> element to visually distinguish
+ * it from the surrounding text.
+ *
+ * If the query is empty or there are no matches, the label is returned as
+ * plain text with no extra markup.
+ *
+ * @param label - The full label text to render
+ * @param query - The current search query to highlight within the label
+ * @returns A React fragment containing text nodes and <mark> elements
+ */
+function HighlightedLabel({
+  label,
+  query,
+}: {
+  label: string;
+  query: string;
+}) {
+  /* When there is no search query, render the label as plain text */
+  if (!query.trim()) {
+    return <>{label}</>;
+  }
+
+  /**
+   * Build a case-insensitive regex that captures the matched portion.
+   * The capturing group ensures that String.prototype.split retains
+   * the matched segments in the resulting array (interleaved between
+   * the non-matching parts).
+   */
+  const regex = new RegExp(`(${escapeRegExp(query.trim())})`, 'gi');
+  const parts = label.split(regex);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        /**
+         * Check whether this segment is a match by comparing it
+         * case-insensitively against the query. Matched segments
+         * receive highlight styling; non-matched segments render
+         * as ordinary text.
+         */
+        const isMatch = part.toLowerCase() === query.trim().toLowerCase();
+        return isMatch ? (
+          <mark
+            key={index}
+            className="bg-yellow-300/40 text-inherit rounded-sm px-0.5"
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={index}>{part}</span>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Renders the help page with a searchable topic sidebar and markdown content viewer.
+ *
+ * The component maintains two pieces of state:
+ * - activeTopic: the ID of the currently selected help topic
+ * - searchQuery: the current text in the search input
+ *
+ * When the user types a search query, the sidebar filters help topics by checking
+ * whether the query appears (case-insensitively) in the topic label or markdown
+ * content. Matching portions of the label are highlighted inline. A result count
+ * is shown below the search input when a query is active.
  */
 export function HelpViewer() {
+  /** Tracks which help topic is currently displayed in the content viewer */
   const [activeTopic, setActiveTopic] = useState('getting-started');
 
+  /** Tracks the current search input value for filtering the sidebar topics */
+  const [searchQuery, setSearchQuery] = useState('');
+
+  /**
+   * Determine the platform-appropriate modifier key label once.
+   * On macOS we show the Cmd symbol; on other platforms we show "Ctrl".
+   * This is memoized because isMacPlatform() accesses navigator, and
+   * we only need to evaluate it once per component mount.
+   */
+  const modifierKey = useMemo(() => (isMacPlatform() ? '\u2318' : 'Ctrl'), []);
+
+  /**
+   * Filters HELP_TOPICS based on the current searchQuery.
+   *
+   * Matching logic:
+   * - If the query is empty or whitespace-only, all topics are returned.
+   * - Otherwise, a topic matches if the query appears anywhere in its
+   *   label OR its markdown content (case-insensitive).
+   *
+   * The result is memoized so the filter only re-runs when the search
+   * query actually changes, avoiding unnecessary array iterations on
+   * every render.
+   */
+  const filteredTopics = useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+
+    /* No query: return the full topic list unfiltered */
+    if (!trimmed) {
+      return HELP_TOPICS;
+    }
+
+    /* Filter topics whose label or content contains the query substring */
+    return HELP_TOPICS.filter(
+      (topic) =>
+        topic.label.toLowerCase().includes(trimmed) ||
+        topic.content.toLowerCase().includes(trimmed)
+    );
+  }, [searchQuery]);
+
+  /**
+   * Look up the currently active topic object.
+   * Falls back to the first topic in the full list if the active ID
+   * is not found (e.g. on initial render or after a state reset).
+   */
   const topic = HELP_TOPICS.find((t) => t.id === activeTopic) || HELP_TOPICS[0];
+
+  /**
+   * Handles selecting a topic from the sidebar.
+   * Updates the active topic state so the content viewer shows
+   * the selected topic's markdown.
+   */
+  const handleTopicSelect = useCallback((topicId: string) => {
+    setActiveTopic(topicId);
+  }, []);
+
+  /**
+   * Handles changes to the search input.
+   * Updates the searchQuery state which triggers re-filtering
+   * of the sidebar topics via the filteredTopics memo.
+   */
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearchQuery(e.target.value);
+    },
+    []
+  );
+
+  /**
+   * Clears the search input and resets the filtered view to show
+   * all topics. Called when the user clicks the clear (X) button.
+   */
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
+
+  /**
+   * Determines whether a search is actively filtering the topic list.
+   * Used to conditionally render the result count and clear button.
+   */
+  const isSearchActive = searchQuery.trim().length > 0;
 
   return (
     <div className="flex flex-col h-full">
+      {/* Page header with title and description */}
       <PageHeader
         title="Help"
         subtitle="Documentation and guides for using GAMDL"
       />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Topic sidebar */}
-        <nav className="w-48 flex-shrink-0 border-r border-border-light overflow-y-auto p-2 space-y-0.5">
-          {HELP_TOPICS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTopic(id)}
-              className={`
-                w-full flex items-center gap-2.5 px-3 py-2
-                rounded-platform text-sm transition-colors
-                ${
-                  activeTopic === id
-                    ? 'bg-accent-light text-accent font-medium'
-                    : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary'
-                }
-              `}
-            >
-              <Icon size={16} className="flex-shrink-0" />
-              {label}
-            </button>
-          ))}
+        {/* ----------------------------------------------------------------
+         * Topic sidebar
+         * Contains the search bar and the scrollable list of help topics.
+         * The sidebar has a fixed width and does not shrink when the
+         * content area needs more space.
+         * ---------------------------------------------------------------- */}
+        <nav className="w-56 flex-shrink-0 border-r border-border-light overflow-y-auto flex flex-col">
+          {/* --------------------------------------------------------------
+           * Search bar section
+           * Positioned at the top of the sidebar with sticky behavior so
+           * it remains visible as the user scrolls through topics.
+           * -------------------------------------------------------------- */}
+          <div className="sticky top-0 bg-surface-primary z-10 p-2 pb-1 border-b border-border-light">
+            {/* Search input wrapper: contains the icon, input, keyboard
+                hint, and clear button in a single horizontal row */}
+            <div className="relative flex items-center">
+              {/* Search icon on the left side of the input */}
+              <Search
+                size={14}
+                className="absolute left-2.5 text-content-tertiary pointer-events-none"
+                aria-hidden="true"
+              />
+
+              {/* The search text input. Padded on the left to make room
+                  for the search icon, and on the right for the keyboard
+                  shortcut hint and clear button. */}
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                placeholder="Search topics..."
+                aria-label="Search help topics"
+                className="
+                  w-full pl-8 pr-16 py-1.5
+                  text-xs rounded-platform
+                  bg-surface-secondary
+                  border border-border-light
+                  text-content-primary
+                  placeholder:text-content-tertiary
+                  focus:outline-none focus:ring-1 focus:ring-accent
+                  transition-colors
+                "
+              />
+
+              {/* Right-side controls positioned absolutely within the input.
+                  Shows the keyboard shortcut hint when idle, or the clear
+                  button when a search query is entered. */}
+              <div className="absolute right-2 flex items-center gap-1">
+                {isSearchActive ? (
+                  /* Clear search button: visible only when there is text
+                     in the search input. Resets the query on click. */
+                  <button
+                    onClick={handleClearSearch}
+                    className="
+                      p-0.5 rounded
+                      text-content-tertiary
+                      hover:text-content-primary
+                      hover:bg-surface-tertiary
+                      transition-colors
+                    "
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    <X size={12} />
+                  </button>
+                ) : (
+                  /* Keyboard shortcut hint: shown when the input is empty.
+                     Displays Cmd+K on macOS or Ctrl+K on other platforms.
+                     This is a visual placeholder for future keyboard
+                     shortcut support (the actual shortcut handler is not
+                     yet implemented). */
+                  <kbd
+                    className="
+                      hidden sm:inline-flex items-center gap-0.5
+                      px-1 py-0.5 rounded
+                      text-[10px] leading-none
+                      font-mono
+                      text-content-tertiary
+                      bg-surface-tertiary
+                      border border-border-light
+                    "
+                    title={`${modifierKey}+K to focus search (coming soon)`}
+                    aria-label={`Keyboard shortcut: ${modifierKey} plus K (coming soon)`}
+                  >
+                    {modifierKey}+K
+                  </kbd>
+                )}
+              </div>
+            </div>
+
+            {/* Result count: displayed below the search input when the user
+                has entered a search query. Shows the number of matching
+                topics to give immediate feedback on the search scope. */}
+            {isSearchActive && (
+              <div className="mt-1 px-1 text-[10px] text-content-tertiary">
+                {filteredTopics.length === 1
+                  ? '1 result'
+                  : `${filteredTopics.length} results`}
+              </div>
+            )}
+          </div>
+
+          {/* --------------------------------------------------------------
+           * Topic list
+           * Renders a button for each help topic that passes the current
+           * search filter. Each button shows the topic's icon and label.
+           * When a search is active, matching portions of the label text
+           * are highlighted.
+           * -------------------------------------------------------------- */}
+          <div className="p-2 space-y-0.5 flex-1">
+            {filteredTopics.length > 0 ? (
+              filteredTopics.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => handleTopicSelect(id)}
+                  className={`
+                    w-full flex items-center gap-2.5 px-3 py-2
+                    rounded-platform text-sm transition-colors
+                    ${
+                      activeTopic === id
+                        ? 'bg-accent-light text-accent font-medium'
+                        : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary'
+                    }
+                  `}
+                >
+                  {/* Topic icon: fixed size to maintain alignment across
+                      all sidebar entries regardless of label length */}
+                  <Icon size={16} className="flex-shrink-0" />
+
+                  {/* Topic label: rendered with search match highlighting
+                      when a query is active, or as plain text otherwise */}
+                  <span className="truncate">
+                    <HighlightedLabel label={label} query={searchQuery} />
+                  </span>
+                </button>
+              ))
+            ) : (
+              /* Empty state: shown when the search query matches no topics.
+                 Provides a visual cue that the filter returned zero results
+                 and encourages the user to modify their search. */
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <Search
+                  size={24}
+                  className="text-content-tertiary mb-2 opacity-50"
+                />
+                <p className="text-xs text-content-tertiary">
+                  No matching topics found.
+                </p>
+                <button
+                  onClick={handleClearSearch}
+                  className="
+                    mt-2 text-xs text-accent
+                    hover:text-accent-hover
+                    transition-colors
+                  "
+                >
+                  Clear search
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
 
-        {/* Markdown content viewer */}
+        {/* ----------------------------------------------------------------
+         * Markdown content viewer
+         * Displays the full markdown content of the currently selected
+         * help topic. Uses react-markdown with the remark-gfm plugin
+         * to support GitHub-flavored markdown features such as tables,
+         * strikethrough, and task lists. The prose classes provide
+         * typographic styling with dark mode support.
+         * ---------------------------------------------------------------- */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-2xl prose prose-sm dark:prose-invert">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>

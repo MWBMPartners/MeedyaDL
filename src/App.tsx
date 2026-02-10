@@ -7,8 +7,10 @@
  * - Platform detection and theme loading
  * - Settings initialization from the backend
  * - Dependency status checking
+ * - Auto-update checking on startup
  * - Routing between the setup wizard and main application UI
  * - GAMDL progress event listening
+ * - System tray event handling
  */
 
 import { useEffect, useState } from 'react';
@@ -22,6 +24,7 @@ import { useUiStore } from './stores/uiStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useDependencyStore } from './stores/dependencyStore';
 import { useDownloadStore } from './stores/downloadStore';
+import { useUpdateStore } from './stores/updateStore';
 
 /* Layout */
 import { MainLayout } from './components/layout';
@@ -33,7 +36,7 @@ import { HelpViewer } from './components/help';
 import { SetupWizard } from './components/setup';
 
 /* Common */
-import { LoadingSpinner } from './components/common';
+import { LoadingSpinner, UpdateBanner } from './components/common';
 
 /* Styles */
 import './styles/themes/base.css';
@@ -50,7 +53,9 @@ import type { GamdlProgress } from './types';
  * 3. Loads settings from the backend
  * 4. Checks if dependencies are installed (Python, GAMDL)
  * 5. Shows the setup wizard if dependencies are missing, or the main UI if ready
- * 6. Listens for GAMDL progress events from the backend
+ * 6. Auto-checks for updates if enabled in settings
+ * 7. Listens for GAMDL progress events from the backend
+ * 8. Listens for system tray events (update check trigger)
  */
 function App() {
   /* Platform detection for theme selection */
@@ -72,8 +77,14 @@ function App() {
   const checkAll = useDependencyStore((s) => s.checkAll);
   const isReady_deps = useDependencyStore((s) => s.isReady);
 
+  /* Update store for checking component updates */
+  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
+
   /* Download store for handling progress events */
   const handleProgressEvent = useDownloadStore((s) => s.handleProgressEvent);
+  const handleDownloadComplete = useDownloadStore((s) => s.handleDownloadComplete);
+  const handleDownloadError = useDownloadStore((s) => s.handleDownloadError);
+  const handleDownloadCancelled = useDownloadStore((s) => s.handleDownloadCancelled);
   const refreshQueue = useDownloadStore((s) => s.refreshQueue);
 
   /*
@@ -136,6 +147,38 @@ function App() {
   }, [settings.sidebar_collapsed]);
 
   /*
+   * Auto-check for updates on startup if the setting is enabled.
+   * Also listens for the 'tray-check-updates' event emitted when the
+   * user clicks "Check for Updates" in the system tray context menu.
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    /* Check for updates automatically if the user has the setting enabled */
+    const autoCheck = useSettingsStore.getState().settings.auto_check_updates;
+    if (autoCheck) {
+      checkForUpdates().catch(() => {
+        /* Non-fatal: silently ignore update check failures on startup */
+      });
+    }
+
+    /* Listen for tray-triggered update checks */
+    let unlistenTray: (() => void) | undefined;
+    const setupTrayListener = async () => {
+      try {
+        unlistenTray = await listen('tray-check-updates', () => {
+          checkForUpdates().catch(() => {});
+        });
+      } catch {
+        /* Tauri API unavailable */
+      }
+    };
+    setupTrayListener();
+
+    return () => unlistenTray?.();
+  }, [isReady, checkForUpdates]);
+
+  /*
    * Listen for GAMDL progress events from the Tauri backend.
    * These events are emitted by the Rust gamdl_service when a download
    * subprocess produces output.
@@ -158,19 +201,39 @@ function App() {
   }, [handleProgressEvent]);
 
   /*
-   * Listen for download-complete and download-error events to refresh
-   * the queue status when a download finishes.
+   * Listen for download lifecycle events from the Tauri backend.
+   * These events update individual queue items in real-time:
+   * - download-complete: marks a download as complete
+   * - download-error: marks a download as errored with the error message
+   * - download-cancelled: marks a download as cancelled
+   * - download-queued: refreshes the queue when a new item is added or retried
    */
   useEffect(() => {
     let unlistenComplete: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let unlistenCancelled: (() => void) | undefined;
+    let unlistenQueued: (() => void) | undefined;
 
     const setupListeners = async () => {
       try {
-        unlistenComplete = await listen('download-complete', () => {
+        unlistenComplete = await listen<string>('download-complete', (event) => {
+          handleDownloadComplete(event.payload);
           refreshQueue();
         });
-        unlistenError = await listen('download-error', () => {
+        unlistenError = await listen<{ download_id: string; error: string }>(
+          'download-error',
+          (event) => {
+            handleDownloadError(event.payload.download_id, event.payload.error);
+            refreshQueue();
+          },
+        );
+        unlistenCancelled = await listen<string>(
+          'download-cancelled',
+          (event) => {
+            handleDownloadCancelled(event.payload);
+          },
+        );
+        unlistenQueued = await listen('download-queued', () => {
           refreshQueue();
         });
       } catch {
@@ -182,8 +245,10 @@ function App() {
     return () => {
       unlistenComplete?.();
       unlistenError?.();
+      unlistenCancelled?.();
+      unlistenQueued?.();
     };
-  }, [refreshQueue]);
+  }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 
   /* Show a loading screen while detecting platform and loading theme */
   if (!isReady) {
@@ -218,8 +283,13 @@ function App() {
     }
   };
 
-  /* Main application UI with sidebar, content, and status bar */
-  return <MainLayout>{renderPage()}</MainLayout>;
+  /* Main application UI with sidebar, update banner, content, and status bar */
+  return (
+    <MainLayout>
+      <UpdateBanner />
+      {renderPage()}
+    </MainLayout>
+  );
 }
 
 export default App;

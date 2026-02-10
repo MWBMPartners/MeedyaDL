@@ -20,3 +20,6 @@ pub mod gamdl;
 
 /// Secure credential storage commands (store, retrieve, delete)
 pub mod credentials;
+
+/// Update checking commands (check versions, upgrade GAMDL)
+pub mod updates;
