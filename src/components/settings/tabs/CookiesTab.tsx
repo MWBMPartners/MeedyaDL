@@ -5,28 +5,530 @@
  * Cookies settings tab.
  * Manages the cookies file used for Apple Music authentication.
  * Supports browsing for a Netscape-format cookies file, validating it,
- * and displaying validation results.
+ * and displaying validation results including detected domains, expiry
+ * warnings, and step-by-step browser export instructions.
  */
 
-import { useState } from 'react';
-import { Shield, AlertTriangle, CheckCircle } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import {
+  Shield,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Clock,
+  Globe,
+  Cookie,
+  Info,
+  CircleDot,
+} from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import * as commands from '@/lib/tauri-commands';
-import { FilePickerButton, Button } from '@/components/common';
+import { FilePickerButton, Button, Tooltip } from '@/components/common';
 import type { CookieValidation } from '@/types';
 
+// ============================================================
+// Constants
+// ============================================================
+
 /**
- * Renders the Cookies settings tab with a cookie file picker,
- * validation button, and validation results display.
+ * Step-by-step browser instructions for exporting cookies.
+ * Each entry contains the browser name and an ordered list of
+ * user-facing instruction steps. These are rendered inside the
+ * expandable "How to Export Cookies" section.
+ */
+const BROWSER_INSTRUCTIONS = [
+  {
+    browser: 'Google Chrome',
+    steps: [
+      'Install the "Get cookies.txt LOCALLY" extension from the Chrome Web Store.',
+      'Navigate to https://music.apple.com and sign in with your Apple ID.',
+      'Click the extension icon in the toolbar.',
+      'Click "Export" to download the cookies as a Netscape-format .txt file.',
+      'Save the file somewhere you can find it (e.g., your Downloads folder).',
+      'Use the "Browse" button below to select the exported file.',
+    ],
+  },
+  {
+    browser: 'Mozilla Firefox',
+    steps: [
+      'Install the "cookies.txt" add-on from the Firefox Add-ons site.',
+      'Navigate to https://music.apple.com and sign in with your Apple ID.',
+      'Click the extension icon in the toolbar.',
+      'Select "Current Site" to export only Apple Music cookies.',
+      'Save the cookies.txt file to a convenient location.',
+      'Use the "Browse" button below to select the exported file.',
+    ],
+  },
+  {
+    browser: 'Microsoft Edge',
+    steps: [
+      'Install the "Get cookies.txt LOCALLY" extension from the Edge Add-ons store.',
+      'Navigate to https://music.apple.com and sign in with your Apple ID.',
+      'Click the extension icon in the toolbar.',
+      'Click "Export" to download the cookies in Netscape format.',
+      'Save the file to a location you can easily browse to.',
+      'Use the "Browse" button below to select the exported file.',
+    ],
+  },
+  {
+    browser: 'Safari (macOS)',
+    steps: [
+      'Safari does not have a direct cookie export extension.',
+      'Use a third-party tool like "Cookie Exporter" or export via developer tools.',
+      'Alternatively, open music.apple.com in Chrome or Firefox to export cookies.',
+      'Ensure the exported file is in Netscape/Mozilla cookie format.',
+      'Use the "Browse" button below to select the exported file.',
+    ],
+  },
+] as const;
+
+/**
+ * Threshold in days below which we display a warning that
+ * cookies are approaching expiry.
+ */
+const EXPIRY_WARNING_DAYS = 7;
+
+// ============================================================
+// Status Badge Types
+// ============================================================
+
+/**
+ * Possible cookie states used to render the status badge.
+ * - 'not-set': No cookies file has been selected yet.
+ * - 'valid': Cookies file has been validated successfully and is not expired.
+ * - 'invalid': Validation ran but the cookies file failed checks.
+ * - 'expired': Cookies file is valid structurally but cookies have expired.
+ */
+type CookieStatus = 'not-set' | 'valid' | 'invalid' | 'expired';
+
+/**
+ * Maps each CookieStatus to its display configuration.
+ * Used by the StatusBadge component to render the appropriate
+ * icon, label, and colour classes.
+ */
+const STATUS_CONFIG: Record<
+  CookieStatus,
+  { label: string; colorClass: string; bgClass: string }
+> = {
+  'not-set': {
+    label: 'Not Set',
+    colorClass: 'text-content-tertiary',
+    bgClass: 'bg-surface-secondary',
+  },
+  valid: {
+    label: 'Valid',
+    colorClass: 'text-status-success',
+    bgClass: 'bg-green-50 dark:bg-green-950',
+  },
+  invalid: {
+    label: 'Invalid',
+    colorClass: 'text-status-error',
+    bgClass: 'bg-red-50 dark:bg-red-950',
+  },
+  expired: {
+    label: 'Expired',
+    colorClass: 'text-status-warning',
+    bgClass: 'bg-yellow-50 dark:bg-yellow-950',
+  },
+};
+
+// ============================================================
+// Helper Functions
+// ============================================================
+
+/**
+ * Derives the overall cookie status from the current settings
+ * and the most recent validation result.
+ *
+ * @param cookiesPath - The currently selected cookies file path (or null).
+ * @param validation - The result of the last validation call (or null if
+ *   validation has not been run yet).
+ * @returns The computed CookieStatus enum value.
+ */
+function deriveCookieStatus(
+  cookiesPath: string | null,
+  validation: CookieValidation | null,
+): CookieStatus {
+  /* No file has been selected at all */
+  if (!cookiesPath) return 'not-set';
+
+  /* A file is selected but we haven't validated it yet */
+  if (!validation) return 'not-set';
+
+  /* Validation returned but the cookies have expired */
+  if (validation.expired) return 'expired';
+
+  /* Validation returned a definitive pass/fail */
+  return validation.valid ? 'valid' : 'invalid';
+}
+
+/**
+ * Estimates the number of days until cookie expiry based on the
+ * current validation warnings. The Rust backend typically emits
+ * a warning string like "Cookies expire in N days" when expiry
+ * is approaching. This function parses that value out of the
+ * warnings array.
+ *
+ * @param warnings - Array of warning strings from the validation result.
+ * @returns The estimated days until expiry, or null if no expiry
+ *   information was found in the warnings.
+ */
+function parseExpiryDays(warnings: string[]): number | null {
+  for (const warning of warnings) {
+    /* Match patterns like "expire in 5 days", "expires in 12 days", etc. */
+    const match = warning.match(/expir\w*\s+in\s+(\d+)\s+day/i);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+  }
+  return null;
+}
+
+// ============================================================
+// Sub-components
+// ============================================================
+
+/**
+ * Renders a small inline badge that visually communicates the
+ * current cookie state. Displays an icon alongside a text label,
+ * colour-coded to match the severity.
+ *
+ * @param status - The derived CookieStatus value.
+ */
+function StatusBadge({ status }: { status: CookieStatus }) {
+  const config = STATUS_CONFIG[status];
+
+  /**
+   * Selects the appropriate icon for the given status.
+   * Each icon is sized at 14px for compact inline display.
+   */
+  const renderIcon = () => {
+    switch (status) {
+      case 'valid':
+        return <CheckCircle size={14} />;
+      case 'invalid':
+        return <XCircle size={14} />;
+      case 'expired':
+        return <AlertTriangle size={14} />;
+      case 'not-set':
+      default:
+        return <CircleDot size={14} />;
+    }
+  };
+
+  return (
+    <span
+      className={`
+        inline-flex items-center gap-1.5 px-2.5 py-1
+        text-xs font-medium rounded-full
+        border border-border-light
+        ${config.colorClass} ${config.bgClass}
+      `}
+      role="status"
+      aria-label={`Cookie status: ${config.label}`}
+    >
+      {renderIcon()}
+      {config.label}
+    </span>
+  );
+}
+
+/**
+ * Renders a collapsible section with step-by-step browser
+ * instructions for exporting cookies. Each browser gets its own
+ * expandable sub-section so users can quickly find the
+ * instructions relevant to their browser.
+ */
+function BrowserInstructions() {
+  /**
+   * Tracks which browser instruction panel is currently expanded.
+   * Only one browser section can be open at a time to avoid
+   * overwhelming the user with too much text. A value of null
+   * means all browser sections are collapsed.
+   */
+  const [expandedBrowser, setExpandedBrowser] = useState<string | null>(null);
+
+  /**
+   * Tracks whether the outer "How to Export Cookies" container
+   * is expanded or collapsed. Defaults to collapsed so the tab
+   * is not visually cluttered on first render.
+   */
+  const [isOpen, setIsOpen] = useState(false);
+
+  /**
+   * Toggles a browser's instruction panel. If the tapped browser
+   * is already open, collapse it; otherwise open the new one and
+   * close any previously open panel.
+   */
+  const toggleBrowser = useCallback((browser: string) => {
+    setExpandedBrowser((prev) => (prev === browser ? null : browser));
+  }, []);
+
+  return (
+    <div className="rounded-platform border border-border-light bg-surface-elevated overflow-hidden">
+      {/* Outer collapsible header */}
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="
+          w-full flex items-center gap-3 px-4 py-3
+          text-sm font-medium text-content-primary
+          hover:bg-surface-secondary transition-colors
+          cursor-pointer
+        "
+        aria-expanded={isOpen}
+      >
+        {/* Chevron rotates to indicate open/closed state */}
+        {isOpen ? (
+          <ChevronDown size={16} className="text-content-tertiary flex-shrink-0" />
+        ) : (
+          <ChevronRight size={16} className="text-content-tertiary flex-shrink-0" />
+        )}
+        <Info size={16} className="text-accent flex-shrink-0" />
+        <span>How to Export Cookies</span>
+      </button>
+
+      {/* Expandable instruction content */}
+      {isOpen && (
+        <div className="border-t border-border-light px-4 pb-4 pt-2 space-y-2">
+          {/* Introductory paragraph */}
+          <p className="text-xs text-content-secondary mb-3">
+            Select your browser below for step-by-step instructions on how to
+            export your Apple Music cookies in Netscape format.
+          </p>
+
+          {/* One accordion panel per browser */}
+          {BROWSER_INSTRUCTIONS.map(({ browser, steps }) => (
+            <div
+              key={browser}
+              className="rounded-platform border border-border-light overflow-hidden"
+            >
+              {/* Browser header button */}
+              <button
+                type="button"
+                onClick={() => toggleBrowser(browser)}
+                className="
+                  w-full flex items-center gap-2 px-3 py-2
+                  text-xs font-medium text-content-primary
+                  hover:bg-surface-secondary transition-colors
+                  cursor-pointer
+                "
+                aria-expanded={expandedBrowser === browser}
+              >
+                {expandedBrowser === browser ? (
+                  <ChevronDown size={14} className="text-content-tertiary flex-shrink-0" />
+                ) : (
+                  <ChevronRight size={14} className="text-content-tertiary flex-shrink-0" />
+                )}
+                <Globe size={14} className="text-accent flex-shrink-0" />
+                <span>{browser}</span>
+              </button>
+
+              {/* Numbered step list (shown only when this browser is expanded) */}
+              {expandedBrowser === browser && (
+                <ol className="list-decimal list-inside px-4 pb-3 pt-1 space-y-1.5 text-xs text-content-secondary border-t border-border-light">
+                  {steps.map((step, index) => (
+                    <li key={index} className="leading-relaxed">
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Renders the list of detected domains found during cookie
+ * validation. Each domain is displayed as a small pill/tag so
+ * the user can quickly see which sites' cookies are present in
+ * the file.
+ *
+ * @param domains - Array of domain strings from the validation result.
+ */
+function DetectedDomains({ domains }: { domains: string[] }) {
+  /* Don't render anything if there are no domains */
+  if (domains.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {/* Section heading */}
+      <div className="flex items-center gap-2">
+        <Globe size={14} className="text-content-tertiary" />
+        <span className="text-xs font-medium text-content-secondary">
+          Detected Domains ({domains.length})
+        </span>
+      </div>
+
+      {/* Domain pill list */}
+      <div className="flex flex-wrap gap-1.5">
+        {domains.map((domain) => (
+          <span
+            key={domain}
+            className={`
+              inline-flex items-center px-2 py-0.5
+              text-xs rounded-full border
+              ${
+                domain.includes('apple.com')
+                  ? 'bg-green-50 dark:bg-green-950 border-status-success text-status-success'
+                  : 'bg-surface-secondary border-border-light text-content-tertiary'
+              }
+            `}
+          >
+            {domain}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Renders a warning banner when cookies are expired or
+ * approaching expiry. Shows the estimated number of days
+ * remaining (if parseable from warnings) alongside a clock icon.
+ *
+ * @param expired - Whether the cookies have fully expired.
+ * @param warnings - Array of warning strings from the validation result,
+ *   potentially containing expiry-day information.
+ */
+function ExpiryWarning({
+  expired,
+  warnings,
+}: {
+  expired: boolean;
+  warnings: string[];
+}) {
+  /**
+   * Parse the number of days until expiry from the warnings.
+   * Memoized to avoid re-parsing on every render.
+   */
+  const daysUntilExpiry = useMemo(() => parseExpiryDays(warnings), [warnings]);
+
+  /*
+   * If cookies are not expired and there is no parseable days-until-expiry
+   * value, there is nothing actionable to display.
+   */
+  if (!expired && daysUntilExpiry === null) return null;
+
+  /**
+   * Determine whether the remaining days are critically low.
+   * Used to escalate the visual severity from warning (yellow)
+   * to error (red).
+   */
+  const isCritical =
+    expired || (daysUntilExpiry !== null && daysUntilExpiry <= EXPIRY_WARNING_DAYS);
+
+  return (
+    <div
+      className={`
+        flex items-start gap-2.5 p-3 rounded-platform border text-xs
+        ${
+          isCritical
+            ? 'border-status-error bg-red-50 dark:bg-red-950 text-status-error'
+            : 'border-status-warning bg-yellow-50 dark:bg-yellow-950 text-status-warning'
+        }
+      `}
+      role="alert"
+    >
+      <Clock size={14} className="flex-shrink-0 mt-0.5" />
+      <div className="space-y-0.5">
+        {/* Primary message */}
+        {expired ? (
+          <p className="font-medium">Cookies have expired</p>
+        ) : (
+          <p className="font-medium">
+            Cookies expire in {daysUntilExpiry} day{daysUntilExpiry !== 1 ? 's' : ''}
+          </p>
+        )}
+
+        {/* Guidance text */}
+        <p className="opacity-80">
+          {expired
+            ? 'Please export a fresh cookies file from your browser to continue downloading.'
+            : isCritical
+              ? 'Consider re-exporting cookies soon to avoid authentication failures.'
+              : 'Your cookies are approaching their expiry date.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Main Component
+// ============================================================
+
+/**
+ * Renders the Cookies settings tab with:
+ * - A status badge indicating the current cookie state.
+ * - An introductory info box about Apple Music cookie requirements.
+ * - Expandable/collapsible browser-specific export instructions.
+ * - A file picker for selecting the cookies.txt file.
+ * - A "Copy Cookie Path" button when a file is selected.
+ * - A "Validate Cookies" button with loading state.
+ * - Validation results panel showing:
+ *   - Pass/fail header with icon.
+ *   - Cookie counts (total and Apple Music specific).
+ *   - Detected domains list with visual highlighting for Apple domains.
+ *   - Expiry warning with estimated days remaining.
+ *   - Any additional warnings from the backend.
  */
 export function CookiesTab() {
+  /* ---- Store bindings ---- */
+  /** Read the current application settings from the Zustand store */
   const settings = useSettingsStore((s) => s.settings);
+
+  /** Obtain the settings mutation function to persist changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  /* ---- Local state ---- */
+  /**
+   * Holds the result of the most recent cookie validation call.
+   * null means validation has not been attempted (or was cleared
+   * after selecting a new file).
+   */
   const [validation, setValidation] = useState<CookieValidation | null>(null);
+
+  /**
+   * Tracks whether a validation request is currently in-flight
+   * so we can show a loading spinner on the validate button.
+   */
   const [isValidating, setIsValidating] = useState(false);
 
-  /** Validate the selected cookies file */
-  const handleValidate = async () => {
+  /**
+   * Tracks whether the "Copy Cookie Path" operation succeeded
+   * so we can briefly flash a confirmation to the user.
+   */
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  /* ---- Derived values ---- */
+  /**
+   * Compute the overall cookie status from the current path and
+   * validation result. This drives the status badge display.
+   */
+  const cookieStatus = useMemo(
+    () => deriveCookieStatus(settings.cookies_path, validation),
+    [settings.cookies_path, validation],
+  );
+
+  /* ---- Handlers ---- */
+
+  /**
+   * Validates the currently selected cookies file by invoking the
+   * Rust backend command. Updates both the validation state and
+   * the loading indicator. If the call throws (e.g., file not
+   * found), the validation state is cleared to null.
+   */
+  const handleValidate = useCallback(async () => {
+    /* Guard: nothing to validate if no file is selected */
     if (!settings.cookies_path) return;
 
     setIsValidating(true);
@@ -34,14 +536,69 @@ export function CookiesTab() {
       const result = await commands.validateCookiesFile(settings.cookies_path);
       setValidation(result);
     } catch {
+      /* On error, reset validation so the UI does not show stale results */
       setValidation(null);
     }
     setIsValidating(false);
-  };
+  }, [settings.cookies_path]);
 
+  /**
+   * Copies the currently selected cookies file path to the system
+   * clipboard using the Clipboard API. Shows a brief "Copied!"
+   * confirmation for 2 seconds before reverting the button text.
+   */
+  const handleCopyPath = useCallback(async () => {
+    if (!settings.cookies_path) return;
+
+    try {
+      await navigator.clipboard.writeText(settings.cookies_path);
+      setCopySuccess(true);
+
+      /* Reset the success indicator after 2 seconds */
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch {
+      /* Clipboard write can fail if the document is not focused or
+         the permission was denied -- silently ignore. */
+    }
+  }, [settings.cookies_path]);
+
+  /**
+   * Handles changes from the file picker. When a new file is
+   * selected, persists the path to settings and clears any
+   * previous validation result so stale data is not displayed.
+   */
+  const handleFileChange = useCallback(
+    (path: string | null) => {
+      updateSettings({ cookies_path: path });
+      setValidation(null);
+      setCopySuccess(false);
+    },
+    [updateSettings],
+  );
+
+  /* ---- Render ---- */
   return (
     <div className="space-y-6 max-w-xl">
-      {/* Instructions */}
+      {/* ============================================================
+          Section 1: Header with Status Badge
+          Shows the tab title alongside the current cookie status
+          so the user can see the state at a glance.
+          ============================================================ */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <Cookie size={18} className="text-accent" />
+          <h3 className="text-sm font-medium text-content-primary">
+            Authentication Cookies
+          </h3>
+        </div>
+        <StatusBadge status={cookieStatus} />
+      </div>
+
+      {/* ============================================================
+          Section 2: Introductory Information Box
+          Brief explanation of why cookies are needed and what format
+          is expected. Rendered with a shield icon for visual emphasis.
+          ============================================================ */}
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated">
         <div className="flex items-start gap-3">
           <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
@@ -65,67 +622,142 @@ export function CookiesTab() {
         </div>
       </div>
 
-      {/* Cookie file picker */}
+      {/* ============================================================
+          Section 3: Expandable Browser Instructions
+          Collapsible accordion with per-browser step-by-step guides
+          for exporting cookies in Netscape format.
+          ============================================================ */}
+      <BrowserInstructions />
+
+      {/* ============================================================
+          Section 4: Cookie File Picker
+          Lets the user browse for and select their cookies.txt file.
+          Clearing the selection also resets validation state.
+          ============================================================ */}
       <FilePickerButton
         label="Cookies File"
         description="Path to the Netscape-format cookies.txt file"
         value={settings.cookies_path}
-        onChange={(path) => {
-          updateSettings({ cookies_path: path });
-          setValidation(null);
-        }}
+        onChange={handleFileChange}
         placeholder="No cookies file selected"
         filters={[{ name: 'Text Files', extensions: ['txt'] }]}
       />
 
-      {/* Validate button */}
+      {/* ============================================================
+          Section 5: Action Buttons Row
+          Contains the "Validate Cookies" button and, when a file is
+          selected, a "Copy Cookie Path" button. Buttons are laid out
+          horizontally with a gap.
+          ============================================================ */}
       {settings.cookies_path && (
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={isValidating}
-          onClick={handleValidate}
-        >
-          Validate Cookies
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Validate button -- triggers backend validation */}
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={isValidating}
+            onClick={handleValidate}
+          >
+            Validate Cookies
+          </Button>
+
+          {/* Copy path button -- copies the file path to clipboard */}
+          <Tooltip
+            content={copySuccess ? 'Copied!' : 'Copy file path to clipboard'}
+            position="top"
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Copy size={14} />}
+              onClick={handleCopyPath}
+            >
+              {copySuccess ? 'Copied!' : 'Copy Cookie Path'}
+            </Button>
+          </Tooltip>
+        </div>
       )}
 
-      {/* Validation results */}
+      {/* ============================================================
+          Section 6: Validation Results Panel
+          Shown only after a successful validation call. Contains:
+          - Pass/fail header with icon.
+          - Cookie count summary.
+          - Detected domains list.
+          - Expiry warning (if applicable).
+          - Additional backend warnings.
+          ============================================================ */}
       {validation && (
         <div
-          className={`p-4 rounded-platform border ${
-            validation.valid
+          className={`p-4 rounded-platform border space-y-4 ${
+            validation.valid && !validation.expired
               ? 'border-status-success bg-green-50 dark:bg-green-950'
-              : 'border-status-error bg-red-50 dark:bg-red-950'
+              : validation.expired
+                ? 'border-status-warning bg-yellow-50 dark:bg-yellow-950'
+                : 'border-status-error bg-red-50 dark:bg-red-950'
           }`}
         >
-          {/* Header */}
-          <div className="flex items-center gap-2 mb-2">
-            {validation.valid ? (
+          {/* ---- Result header (pass / fail / expired icon + label) ---- */}
+          <div className="flex items-center gap-2">
+            {validation.valid && !validation.expired ? (
               <CheckCircle size={16} className="text-status-success" />
+            ) : validation.expired ? (
+              <AlertTriangle size={16} className="text-status-warning" />
             ) : (
-              <AlertTriangle size={16} className="text-status-error" />
+              <XCircle size={16} className="text-status-error" />
             )}
             <span className="text-sm font-medium text-content-primary">
-              {validation.valid ? 'Cookies Valid' : 'Cookies Invalid'}
+              {validation.valid && !validation.expired
+                ? 'Cookies Valid'
+                : validation.expired
+                  ? 'Cookies Expired'
+                  : 'Cookies Invalid'}
             </span>
           </div>
 
-          {/* Details */}
+          {/* ---- Cookie count summary ---- */}
           <div className="text-xs text-content-secondary space-y-1 ml-6">
-            <p>{validation.cookie_count} total cookies found</p>
-            <p>{validation.apple_music_cookies} Apple Music cookies</p>
-            {validation.expired && (
-              <p className="text-status-warning">
-                Warning: Some cookies may be expired
-              </p>
-            )}
-            {validation.warnings.map((warning, i) => (
-              <p key={i} className="text-status-warning">
-                {warning}
-              </p>
-            ))}
+            <p>
+              <span className="font-medium">{validation.cookie_count}</span>{' '}
+              total cookies found
+            </p>
+            <p>
+              <span className="font-medium">{validation.apple_music_cookies}</span>{' '}
+              Apple Music cookies
+            </p>
           </div>
+
+          {/* ---- Detected domains list ---- */}
+          {validation.domains.length > 0 && (
+            <div className="ml-6">
+              <DetectedDomains domains={validation.domains} />
+            </div>
+          )}
+
+          {/* ---- Expiry warning with estimated days ---- */}
+          {(validation.expired || validation.warnings.length > 0) && (
+            <div className="ml-6">
+              <ExpiryWarning
+                expired={validation.expired}
+                warnings={validation.warnings}
+              />
+            </div>
+          )}
+
+          {/* ---- Additional backend warnings ---- */}
+          {validation.warnings.length > 0 && (
+            <div className="text-xs text-content-secondary space-y-1 ml-6">
+              {validation.warnings.map((warning, i) => (
+                <div key={i} className="flex items-start gap-1.5">
+                  <AlertTriangle
+                    size={12}
+                    className="text-status-warning flex-shrink-0 mt-0.5"
+                  />
+                  <p className="text-status-warning">{warning}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

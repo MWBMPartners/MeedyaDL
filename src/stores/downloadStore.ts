@@ -35,10 +35,22 @@ interface DownloadState {
   setOverrideOptions: (options: GamdlOptions | null) => void;
   /** Submit the current URL for download */
   submitDownload: () => Promise<string>;
+  /** Cancel an active or queued download */
+  cancelDownload: (downloadId: string) => Promise<void>;
+  /** Retry a failed or cancelled download */
+  retryDownload: (downloadId: string) => Promise<void>;
+  /** Clear all completed/failed/cancelled items from the queue */
+  clearFinished: () => Promise<number>;
   /** Refresh the queue status from the backend */
   refreshQueue: () => Promise<void>;
   /** Handle a GAMDL progress event from the backend */
   handleProgressEvent: (progress: GamdlProgress) => void;
+  /** Handle a download-complete event from the backend */
+  handleDownloadComplete: (downloadId: string) => void;
+  /** Handle a download-error event from the backend */
+  handleDownloadError: (downloadId: string, error: string) => void;
+  /** Handle a download-cancelled event from the backend */
+  handleDownloadCancelled: (downloadId: string) => void;
   /** Clear the URL input */
   clearInput: () => void;
 }
@@ -95,6 +107,38 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     }
   },
 
+  cancelDownload: async (downloadId) => {
+    try {
+      await commands.cancelDownload(downloadId);
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  retryDownload: async (downloadId) => {
+    try {
+      await commands.retryDownload(downloadId);
+      // Refresh to get the updated queue state
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  clearFinished: async () => {
+    try {
+      const removed = await commands.clearQueue();
+      // Refresh the queue after clearing
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+      return removed;
+    } catch (e) {
+      set({ error: String(e) });
+      return 0;
+    }
+  },
+
   refreshQueue: async () => {
     try {
       const status = await commands.getQueueStatus();
@@ -140,6 +184,39 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         items[idx] = item;
       }
 
+      return { queueItems: items };
+    });
+  },
+
+  handleDownloadComplete: (downloadId) => {
+    set((state) => {
+      const items = state.queueItems.map((item) =>
+        item.id === downloadId
+          ? { ...item, state: 'complete' as const, progress: 100 }
+          : item,
+      );
+      return { queueItems: items };
+    });
+  },
+
+  handleDownloadError: (downloadId, error) => {
+    set((state) => {
+      const items = state.queueItems.map((item) =>
+        item.id === downloadId
+          ? { ...item, state: 'error' as const, error }
+          : item,
+      );
+      return { queueItems: items };
+    });
+  },
+
+  handleDownloadCancelled: (downloadId) => {
+    set((state) => {
+      const items = state.queueItems.map((item) =>
+        item.id === downloadId
+          ? { ...item, state: 'cancelled' as const }
+          : item,
+      );
       return { queueItems: items };
     });
   },

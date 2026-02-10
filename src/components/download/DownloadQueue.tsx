@@ -10,7 +10,6 @@
 import { useEffect } from 'react';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { useDownloadStore } from '@/stores/downloadStore';
-import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { Button } from '@/components/common';
 import { PageHeader } from '@/components/layout';
@@ -19,10 +18,14 @@ import { QueueItem } from './QueueItem';
 /**
  * Renders the download queue page showing all download items
  * with their current status, progress, and available actions.
+ * Supports cancel, retry, remove, and clear-all operations.
  */
 export function DownloadQueue() {
   const queueItems = useDownloadStore((s) => s.queueItems);
   const refreshQueue = useDownloadStore((s) => s.refreshQueue);
+  const cancelDownload = useDownloadStore((s) => s.cancelDownload);
+  const retryDownload = useDownloadStore((s) => s.retryDownload);
+  const clearFinished = useDownloadStore((s) => s.clearFinished);
   const addToast = useUiStore((s) => s.addToast);
 
   /* Refresh queue status on mount and periodically */
@@ -35,26 +38,37 @@ export function DownloadQueue() {
   /** Cancel an active download */
   const handleCancel = async (id: string) => {
     try {
-      await commands.cancelDownload(id);
-      await refreshQueue();
+      await cancelDownload(id);
       addToast('Download cancelled', 'info');
     } catch {
       addToast('Failed to cancel download', 'error');
     }
   };
 
-  /** Remove a completed/failed item from the queue display */
-  const handleRemove = (id: string) => {
-    /* For now, just refresh the queue - the backend handles cleanup */
-    void id;
-    refreshQueue();
+  /** Retry a failed or cancelled download */
+  const handleRetry = async (id: string) => {
+    try {
+      await retryDownload(id);
+      addToast('Download requeued', 'info');
+    } catch {
+      addToast('Failed to retry download', 'error');
+    }
   };
 
-  /** Clear all completed items from the list */
-  const completedItems = queueItems.filter(
+  /** Clear all completed, failed, and cancelled items from the queue */
+  const handleClearAll = async () => {
+    try {
+      const removed = await clearFinished();
+      addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
+    } catch {
+      addToast('Failed to clear queue', 'error');
+    }
+  };
+
+  /** Count of finished items (eligible for clear) */
+  const finishedCount = queueItems.filter(
     (i) => i.state === 'complete' || i.state === 'error' || i.state === 'cancelled',
-  );
-  const hasCompletedItems = completedItems.length > 0;
+  ).length;
 
   return (
     <div className="flex flex-col h-full">
@@ -63,18 +77,15 @@ export function DownloadQueue() {
         subtitle={`${queueItems.length} item${queueItems.length !== 1 ? 's' : ''} in queue`}
         actions={
           <div className="flex gap-2">
-            {/* Clear completed items */}
-            {hasCompletedItems && (
+            {/* Clear completed/failed/cancelled items */}
+            {finishedCount > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
                 icon={<Trash2 size={14} />}
-                onClick={() => {
-                  refreshQueue();
-                  addToast('Queue cleared', 'info');
-                }}
+                onClick={handleClearAll}
               >
-                Clear Completed
+                Clear Finished ({finishedCount})
               </Button>
             )}
 
@@ -109,7 +120,7 @@ export function DownloadQueue() {
                 key={item.id}
                 item={item}
                 onCancel={handleCancel}
-                onRemove={handleRemove}
+                onRetry={handleRetry}
               />
             ))}
           </div>

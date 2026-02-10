@@ -27,6 +27,11 @@ pub fn run() {
 
     // Build and run the Tauri application
     tauri::Builder::default()
+        // --- Managed State ---
+        // Register the download queue as Tauri managed state so it can be
+        // injected into command handlers via State<'_, QueueHandle>.
+        .manage(services::download_queue::new_queue_handle())
+
         // --- Plugin Registration ---
         // Each plugin extends Tauri with additional capabilities that can be
         // used from both the Rust backend and the TypeScript frontend.
@@ -63,15 +68,21 @@ pub fn run() {
             commands::settings::save_settings,
             commands::settings::validate_cookies_file,
             commands::settings::get_default_output_path,
-            // GAMDL download commands
+            // GAMDL download and queue management commands
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
+            commands::gamdl::retry_download,
+            commands::gamdl::clear_queue,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
             commands::credentials::delete_credential,
+            // Update checking commands
+            commands::updates::check_all_updates,
+            commands::updates::upgrade_gamdl,
+            commands::updates::check_component_update,
         ])
 
         // --- Application Lifecycle ---
@@ -92,6 +103,97 @@ pub fn run() {
             } else {
                 log::info!("App data directory: {}", app_data_dir.display());
             }
+
+            // --- System Tray Setup ---
+            // Import tray and menu types at point of use to keep top-level imports minimal
+            use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState};
+            use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+            use tauri::Manager;
+            use tauri::Emitter;
+
+            // Build the tray menu items
+            // "Show Window" — brings the main window to focus
+            let show_item = MenuItemBuilder::with_id("show", "Show Window")
+                .build(app)?;
+
+            // First separator — visually groups window controls from status info
+            let separator1 = PredefinedMenuItem::separator(app)?;
+
+            // "Downloads: None" — disabled info item that displays current download status.
+            // The frontend can update this text via the tray menu API as downloads progress.
+            let downloads_item = MenuItemBuilder::with_id("downloads_status", "Downloads: None")
+                .enabled(false)
+                .build(app)?;
+
+            // Second separator — visually groups status info from application actions
+            let separator2 = PredefinedMenuItem::separator(app)?;
+
+            // "Check for Updates" — triggers an update check for the application and GAMDL
+            let updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates")
+                .build(app)?;
+
+            // "Quit GAMDL" — cleanly exits the application
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit GAMDL")
+                .build(app)?;
+
+            // Assemble the tray context menu from the items defined above
+            let tray_menu = MenuBuilder::new(app)
+                .item(&show_item)
+                .item(&separator1)
+                .item(&downloads_item)
+                .item(&separator2)
+                .item(&updates_item)
+                .item(&quit_item)
+                .build()?;
+
+            // Build the tray icon, attach the menu, and register event handlers.
+            // The leading underscore keeps the binding alive without triggering an
+            // unused-variable warning — dropping the TrayIcon would remove it from
+            // the system tray.
+            let _tray = TrayIconBuilder::new()
+                .menu(&tray_menu)
+                // Handle clicks on tray menu items
+                .on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        // Show and focus the main window
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        // Trigger an update check by emitting an event to the frontend
+                        "check_updates" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.emit("tray-check-updates", ());
+                            }
+                        }
+                        // Cleanly exit the application
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                // Handle direct clicks on the tray icon itself (not the menu).
+                // A left-click toggles window visibility: shows and focuses the
+                // window if it is hidden, or brings it to focus if already visible.
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            log::info!("System tray icon initialized");
 
             Ok(())
         })

@@ -327,3 +327,52 @@ export type SetupStep =
   | 'dependencies'
   | 'cookies'
   | 'complete';
+
+// ============================================================
+// Music Service Types (extensibility architecture)
+// ============================================================
+
+/** Identifies which music service a download targets */
+export type MusicServiceId = 'apple-music' | 'youtube-music' | 'spotify';
+
+/** Display labels for music services */
+export const MUSIC_SERVICE_LABELS: Record<MusicServiceId, string> = {
+  'apple-music': 'Apple Music',
+  'youtube-music': 'YouTube Music',
+  spotify: 'Spotify',
+};
+
+/** Capabilities that a music service may support */
+export interface ServiceCapabilities {
+  supports_lossless: boolean;
+  supports_spatial_audio: boolean;
+  supports_music_videos: boolean;
+  supports_lyrics: boolean;
+  supports_cover_art: boolean;
+  requires_cookies: boolean;
+  requires_oauth: boolean;
+  supported_content_types: string[];
+}
+
+// ============================================================
+// Update Types
+// ============================================================
+
+/** Update status for a single application component */
+export interface ComponentUpdate {
+  name: string;
+  current_version: string | null;
+  latest_version: string | null;
+  update_available: boolean;
+  is_compatible: boolean;
+  description: string | null;
+  release_url: string | null;
+}
+
+/** Combined update check result for all components */
+export interface UpdateCheckResult {
+  checked_at: string;
+  has_updates: boolean;
+  components: ComponentUpdate[];
+  errors: string[];
+}

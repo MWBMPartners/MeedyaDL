@@ -10,11 +10,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AppSettings,
+  ComponentUpdate,
   CookieValidation,
   DependencyStatus,
   DownloadRequest,
   PlatformInfo,
   QueueStatus,
+  UpdateCheckResult,
 } from '@/types';
 
 // ============================================================
@@ -103,6 +105,16 @@ export function cancelDownload(downloadId: string): Promise<void> {
   return invoke<void>('cancel_download', { downloadId });
 }
 
+/** Retries a failed or cancelled download (resets to queued with fresh options) */
+export function retryDownload(downloadId: string): Promise<void> {
+  return invoke<void>('retry_download', { downloadId });
+}
+
+/** Clears all completed, failed, and cancelled items from the queue */
+export function clearQueue(): Promise<number> {
+  return invoke<number>('clear_queue');
+}
+
 /** Returns the current status of the download queue */
 export function getQueueStatus(): Promise<QueueStatus> {
   return invoke<QueueStatus>('get_queue_status');
@@ -130,4 +142,23 @@ export function getCredential(key: string): Promise<string | null> {
 /** Deletes a credential from the OS keychain */
 export function deleteCredential(key: string): Promise<void> {
   return invoke<void>('delete_credential', { key });
+}
+
+// ============================================================
+// Update Commands
+// ============================================================
+
+/** Checks for updates to all application components (GAMDL, app, Python) */
+export function checkAllUpdates(): Promise<UpdateCheckResult> {
+  return invoke<UpdateCheckResult>('check_all_updates');
+}
+
+/** Upgrades GAMDL to the latest compatible version via pip */
+export function upgradeGamdl(): Promise<string> {
+  return invoke<string>('upgrade_gamdl');
+}
+
+/** Checks the update status of a specific component by name */
+export function checkComponentUpdate(name: string): Promise<ComponentUpdate> {
+  return invoke<ComponentUpdate>('check_component_update', { name });
 }
