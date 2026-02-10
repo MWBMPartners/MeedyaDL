@@ -235,7 +235,7 @@ pub fn get_target_python_version() -> &'static str {
 ///
 /// # Arguments
 /// * `python_dir` - The directory where Python is installed
-pub async fn get_installed_python_version(python_dir: &PathBuf) -> Option<String> {
+pub async fn get_installed_python_version(python_dir: &std::path::Path) -> Option<String> {
     let python_bin = crate::utils::platform::get_python_binary_path(python_dir);
     if !python_bin.exists() {
         return None;

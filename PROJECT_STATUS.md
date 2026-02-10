@@ -10,7 +10,7 @@
 
 ## Overall Status
 
-### Phase 5 — Advanced Features (Complete)
+### Phase 6 — Polish & Release (In Progress)
 
 ---
 
@@ -82,9 +82,15 @@
 - [x] Future service architecture trait (MusicService trait, MusicServiceId enum, ServiceCapabilities)
 - [x] Frontend extensibility types (MusicServiceId, ServiceCapabilities, MUSIC_SERVICE_LABELS)
 
-### Phase 6: Polish & Release
+### Phase 6: Polish & Release (IN PROGRESS)
 
-- [ ] SVG icon creation
+- [x] SVG icon creation and PNG/ICO/ICNS generation from source SVG
+- [x] ESLint 9.x flat config setup
+- [x] Vitest configuration with Tauri mocks and test setup
+- [x] URL parser unit tests (13 tests)
+- [x] Fix Rust clippy warnings (new_without_default, field_reassign, ptr_arg)
+- [x] Fix CI workflow (add lint step, fix test discovery)
+- [x] Fix changelog workflow (remove unnecessary GitHub API calls)
 - [ ] Platform testing
 - [ ] Complete help documentation
 - [ ] Release workflow testing
@@ -101,7 +107,7 @@ _None at this time._
 
 ## Last Updated
 
-2026-02-09
+2026-02-10
 
 ---
 

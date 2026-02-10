@@ -67,6 +67,12 @@ pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
 
+impl Default for DownloadQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DownloadQueue {
     /// Creates a new empty download queue.
     pub fn new() -> Self {
@@ -413,6 +419,7 @@ impl DownloadQueue {
 ///
 /// Per-download overrides take priority. For any field that is None
 /// in the override, the global setting value is used.
+#[allow(clippy::field_reassign_with_default)]
 fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
     let mut options = GamdlOptions::default();
 

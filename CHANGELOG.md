@@ -7,6 +7,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### Phase 6: Polish & Release
+
+- App icon generated from SVG source with proper RGBA PNGs, ICO, and ICNS
+- ESLint 9.x flat config for TypeScript + React linting
+- Vitest test framework with jsdom environment, Tauri API mocks, and path aliases
+- URL parser unit tests (13 tests covering all content types)
+- Fixed 4 Rust clippy warnings (new_without_default, field_reassign_with_default, ptr_arg)
+- CI workflow updated with ESLint lint step
+- Changelog workflow fixed (removed unnecessary GitHub API metadata fetching)
+- Icon generation script (`scripts/generate-icons.mjs`) for reproducible builds
+
 ### Phase 5: Advanced Features
 
 - Auto-update checker service checking GAMDL (PyPI), app (GitHub Releases), and Python versions
