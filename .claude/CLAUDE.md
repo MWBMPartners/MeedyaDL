@@ -39,7 +39,7 @@ scripts/                # Build utilities (copyright year updater)
 - **Phase 3** (COMPLETE): Core UI - Zustand stores, layout, download form, settings pages, setup wizard, help viewer
 - **Phase 4** (COMPLETE): Download system - Queue manager, fallback quality chain, progress tracking, retry/clear
 - **Phase 5** (COMPLETE): Advanced features - Cookie import, auto-updates, help search, system tray, service architecture
-- **Phase 6** (NEXT): Polish & release - Icons, testing, docs, release workflow
+- **Phase 6** (IN PROGRESS): Polish & release - Icons, CI fixes, testing, docs, release workflow
 
 ## Conventions
 
@@ -64,6 +64,6 @@ cargo tauri build    # Build release binary
 ## Important Notes
 
 - Rust env may need: `source "$HOME/.cargo/env"`
-- Icons in `src-tauri/icons/` are placeholder RGBA PNGs - replace with real SVG-derived icons in Phase 6
+- Icons generated from `assets/icons/app-icon.svg` via `scripts/generate-icons.mjs` (requires `sharp` — install temporarily with `npm i sharp`)
 - All settings stored as JSON in platform app data directory
 - GAMDL config.ini is synced from GUI settings
