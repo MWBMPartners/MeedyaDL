@@ -36,7 +36,8 @@ jobs:
           fetch-depth: 0  # Full history for conventional commit parsing
 
       # Step 2: Generate CHANGELOG.md using git-cliff
-      # git-cliff parses conventional commits and produces a formatted changelog
+      # git-cliff parses conventional commits and produces a formatted changelog.
+      # Uses --no-remote to skip GitHub API calls (our template doesn't need PR/issue data).
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
         id: git-cliff
@@ -45,7 +46,6 @@ jobs:
           args: --verbose
         env:
           OUTPUT: CHANGELOG.md
-          GITHUB_REPO: ${{ github.repository }}
 
       # Step 3: Commit and push the updated CHANGELOG.md
       - name: Commit changelog

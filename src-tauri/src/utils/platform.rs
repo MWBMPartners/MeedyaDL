@@ -6,7 +6,7 @@
 // in a self-contained directory within the OS app data location
 // to avoid conflicts with system installations.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 /// Returns the root application data directory for gamdl-GUI.
@@ -47,7 +47,7 @@ pub fn get_python_dir(app: &AppHandle) -> PathBuf {
 ///
 /// - macOS/Linux: {python_dir}/bin/python3
 /// - Windows: {python_dir}/python.exe
-pub fn get_python_binary_path(python_dir: &PathBuf) -> PathBuf {
+pub fn get_python_binary_path(python_dir: &Path) -> PathBuf {
     if cfg!(target_os = "windows") {
         // Windows: Python executable is at the root of the installation
         python_dir.join("python.exe")
@@ -61,7 +61,7 @@ pub fn get_python_binary_path(python_dir: &PathBuf) -> PathBuf {
 ///
 /// - macOS/Linux: {python_dir}/bin/pip3
 /// - Windows: {python_dir}/Scripts/pip.exe
-pub fn get_pip_binary_path(python_dir: &PathBuf) -> PathBuf {
+pub fn get_pip_binary_path(python_dir: &Path) -> PathBuf {
     if cfg!(target_os = "windows") {
         python_dir.join("Scripts").join("pip.exe")
     } else {
