@@ -238,6 +238,23 @@ pub async fn run_gamdl(
     }
 }
 
+/// Public entry point for build_gamdl_command, used by download_queue.
+///
+/// Constructs a `tokio::process::Command` that runs:
+/// `{python} -m gamdl {urls...} {--option value...}`
+///
+/// # Arguments
+/// * `app` - The Tauri app handle (for path resolution)
+/// * `urls` - Apple Music URLs to download
+/// * `options` - GAMDL CLI options
+pub fn build_gamdl_command_public(
+    app: &AppHandle,
+    urls: &[String],
+    options: &GamdlOptions,
+) -> Result<Command, String> {
+    build_gamdl_command(app, urls, options)
+}
+
 /// Builds the complete GAMDL command with all arguments.
 ///
 /// Constructs a `tokio::process::Command` that runs:

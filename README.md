@@ -172,45 +172,70 @@ The built application will be in `src-tauri/target/release/bundle/`.
 
 ```
 gamdl-GUI/
-├── src/                        # 🌐 React Frontend
-│   ├── App.tsx                 #    Root component
+├── src/                        # React Frontend
+│   ├── App.tsx                 #    Root component with routing & event listeners
 │   ├── main.tsx                #    Entry point
+│   ├── components/             #    UI components
+│   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
+│   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
+│   │   ├── download/           #    DownloadForm, DownloadQueue, QueueItem
+│   │   ├── settings/           #    SettingsPage + 9 tab components
+│   │   ├── setup/              #    SetupWizard + 6 step components
+│   │   └── help/               #    HelpViewer with markdown rendering
+│   ├── stores/                 #    Zustand state stores
+│   │   ├── uiStore.ts          #    Navigation, toasts, sidebar state
+│   │   ├── settingsStore.ts    #    App settings load/save
+│   │   ├── downloadStore.ts    #    Queue, progress, cancel/retry/clear
+│   │   ├── dependencyStore.ts  #    Tool installation status
+│   │   ├── setupStore.ts       #    Setup wizard step tracking
+│   │   └── updateStore.ts      #    Update checking and notification
+│   ├── lib/                    #    Utility modules
+│   │   ├── tauri-commands.ts   #    Type-safe IPC wrappers
+│   │   ├── url-parser.ts       #    Apple Music URL detection
+│   │   └── quality-chains.ts   #    Fallback codec/resolution chains
+│   ├── types/                  #    TypeScript types (mirrors Rust models)
 │   ├── hooks/                  #    Custom React hooks
 │   │   └── usePlatform.ts      #    Platform detection
-│   └── styles/                 #    CSS & Themes
-│       ├── globals.css          #    Global styles
-│       └── themes/              #    Platform-adaptive themes
-│           ├── base.css         #    Shared design tokens
-│           ├── macos.css        #    macOS Liquid Glass
-│           ├── windows.css      #    Windows Fluent
-│           └── linux.css        #    Linux Adwaita
-├── src-tauri/                  # 🦀 Rust Backend
+│   └── styles/themes/          #    Platform-adaptive CSS
+│       ├── base.css            #    Shared design tokens
+│       ├── macos.css           #    macOS Liquid Glass
+│       ├── windows.css         #    Windows Fluent
+│       └── linux.css           #    Linux Adwaita
+├── src-tauri/                  # Rust Backend
 │   ├── Cargo.toml              #    Rust dependencies
 │   ├── tauri.conf.json         #    Tauri configuration
 │   └── src/
 │       ├── main.rs             #    Application entry point
-│       ├── lib.rs              #    Plugin & command registration
+│       ├── lib.rs              #    Plugin, state & command registration
 │       ├── commands/           #    IPC command handlers
 │       │   ├── system.rs       #    Platform info
-│       │   ├── dependencies.rs #    Python/GAMDL management
+│       │   ├── dependencies.rs #    Python/GAMDL/tool management
 │       │   ├── settings.rs     #    App settings
-│       │   ├── gamdl.rs        #    Download orchestration
-│       │   └── credentials.rs  #    Secure storage
+│       │   ├── gamdl.rs        #    Download queue orchestration
+│       │   ├── credentials.rs  #    Secure keychain storage
+│       │   └── updates.rs      #    Update checking commands
 │       ├── models/             #    Data structures
-│       │   ├── download.rs     #    Download queue items
-│       │   ├── gamdl_options.rs#    GAMDL CLI options
-│       │   ├── settings.rs     #    App configuration
-│       │   └── dependency.rs   #    Dependency status
-│       ├── utils/              #    Utility modules
-│       │   ├── platform.rs     #    OS detection & paths
-│       │   ├── archive.rs      #    ZIP/tar extraction
-│       │   └── process.rs      #    Child process management
-│       └── services/           #    Business logic services
-├── .github/workflows/          # 🔄 CI/CD
+│       │   ├── download.rs     #    Download request, state, queue status
+│       │   ├── gamdl_options.rs#    All GAMDL CLI options as typed enums
+│       │   ├── settings.rs     #    App configuration with defaults
+│       │   ├── dependency.rs   #    Dependency status tracking
+│       │   └── music_service.rs#    Service trait (extensibility)
+│       ├── services/           #    Business logic
+│       │   ├── python_manager.rs    # Portable Python download/install
+│       │   ├── gamdl_service.rs     # GAMDL CLI wrapper & subprocess
+│       │   ├── dependency_manager.rs# Tool download/install per platform
+│       │   ├── config_service.rs    # JSON settings + INI sync
+│       │   ├── download_queue.rs    # Queue manager with fallback/retry
+│       │   └── update_checker.rs    # Version update checker
+│       └── utils/              #    Utility modules
+│           ├── platform.rs     #    OS detection & paths
+│           ├── archive.rs      #    ZIP/tar extraction
+│           └── process.rs      #    GAMDL output parser & error classifier
+├── .github/workflows/          # CI/CD
 │   ├── ci.yml                  #    Test & lint on push/PR
 │   ├── release.yml             #    Build & publish releases
 │   └── changelog.yml           #    Auto-generate changelogs
-├── scripts/                    # 🛠️ Utility scripts
+├── scripts/                    # Utility scripts
 ├── index.html                  #    Vite entry HTML
 ├── package.json                #    Node.js config
 ├── tailwind.config.js          #    Tailwind CSS config
@@ -303,11 +328,15 @@ refactor(backend): simplify dependency management
 - [x] Tauri 2.0 + React 19 foundation
 - [x] Platform-adaptive UI themes (macOS, Windows, Linux)
 - [x] Rust backend with IPC command system
-- [x] Dependency management (Python, GAMDL)
+- [x] Dependency management (Python, GAMDL, FFmpeg, mp4decrypt)
 - [x] CI/CD pipeline (GitHub Actions)
-- [ ] Full download workflow with queue
-- [ ] Settings UI with live preview
-- [ ] Setup wizard
+- [x] Full download workflow with queue, fallback quality, and retry
+- [x] Settings UI with 9 configuration tabs
+- [x] First-run setup wizard (6 steps)
+- [x] In-app help viewer with 9 topics and search
+- [x] Cookie import with validation UI (step-by-step instructions, domain/expiry display)
+- [x] Auto-update checker (GAMDL, app, Python) with notification banner
+- [x] System tray integration (show, status, updates, quit)
 
 ### Future
 - 🎵 **YouTube Music support** via [gytmdl](https://github.com/glomatico/gytmdl) integration

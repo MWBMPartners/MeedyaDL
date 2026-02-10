@@ -27,8 +27,8 @@ interface QueueItemProps {
   item: QueueItemStatus;
   /** Called when the cancel button is clicked */
   onCancel: (id: string) => void;
-  /** Called when the remove button is clicked */
-  onRemove: (id: string) => void;
+  /** Called when the retry button is clicked for failed/cancelled downloads */
+  onRetry: (id: string) => void;
 }
 
 /** Icon and color mapping for each download state */
@@ -68,11 +68,10 @@ const STATE_CONFIG: Record<
  * @param onCancel - Handler for cancel button
  * @param onRemove - Handler for remove button
  */
-export function QueueItem({ item, onCancel, onRemove }: QueueItemProps) {
+export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
   const config = STATE_CONFIG[item.state];
   const StateIcon = config.icon;
   const isActive = item.state === 'downloading' || item.state === 'processing';
-  const isDone = item.state === 'complete' || item.state === 'error' || item.state === 'cancelled';
 
   /**
    * Opens the output folder in the native file manager.
@@ -138,8 +137,8 @@ export function QueueItem({ item, onCancel, onRemove }: QueueItemProps) {
             </button>
           )}
 
-          {/* Cancel button for active downloads */}
-          {isActive && (
+          {/* Cancel button for active or queued downloads */}
+          {(isActive || item.state === 'queued') && (
             <button
               onClick={() => onCancel(item.id)}
               className="p-1.5 rounded-platform text-content-tertiary hover:text-status-error hover:bg-surface-elevated transition-colors"
@@ -149,25 +148,14 @@ export function QueueItem({ item, onCancel, onRemove }: QueueItemProps) {
             </button>
           )}
 
-          {/* Retry button for failed downloads */}
-          {item.state === 'error' && (
+          {/* Retry button for failed or cancelled downloads */}
+          {(item.state === 'error' || item.state === 'cancelled') && (
             <button
-              onClick={() => onRemove(item.id)}
+              onClick={() => onRetry(item.id)}
               className="p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
               title="Retry"
             >
               <RotateCcw size={14} />
-            </button>
-          )}
-
-          {/* Remove button for completed/failed/cancelled items */}
-          {isDone && (
-            <button
-              onClick={() => onRemove(item.id)}
-              className="p-1.5 rounded-platform text-content-tertiary hover:text-status-error hover:bg-surface-elevated transition-colors"
-              title="Remove"
-            >
-              <X size={14} />
             </button>
           )}
         </div>

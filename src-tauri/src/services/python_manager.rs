@@ -224,6 +224,25 @@ pub fn expected_python_version() -> &'static str {
     PYTHON_VERSION
 }
 
+/// Returns the target Python version constant.
+/// Used by the update checker to compare installed vs available.
+pub fn get_target_python_version() -> &'static str {
+    PYTHON_VERSION
+}
+
+/// Returns the installed Python version by running the binary.
+/// Returns None if Python is not installed or the binary fails.
+///
+/// # Arguments
+/// * `python_dir` - The directory where Python is installed
+pub async fn get_installed_python_version(python_dir: &PathBuf) -> Option<String> {
+    let python_bin = crate::utils::platform::get_python_binary_path(python_dir);
+    if !python_bin.exists() {
+        return None;
+    }
+    get_python_version_from_binary(&python_bin).await.ok()
+}
+
 /// Removes the portable Python installation.
 ///
 /// Used when the user wants to reinstall Python or the installation
