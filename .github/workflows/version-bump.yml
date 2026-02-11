@@ -1,0 +1,127 @@
+# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Version Bump & Release Trigger Workflow for gamdl-GUI
+# =======================================================
+#
+# This workflow automates the entire release process with a single command:
+#   1. Bumps the version in all source files (package.json, tauri.conf.json, Cargo.toml, Cargo.lock)
+#   2. Commits the version bump with a conventional commit message
+#   3. Creates an annotated git tag (e.g., v1.2.0)
+#   4. Pushes both the commit and tag to origin
+#   5. The tag push automatically triggers the Release workflow (release.yml)
+#
+# Usage (GitHub CLI):
+#   gh workflow run "Version Bump" -f bump=patch     # 0.1.0 → 0.1.1
+#   gh workflow run "Version Bump" -f bump=minor     # 0.1.0 → 0.2.0
+#   gh workflow run "Version Bump" -f bump=major     # 0.1.0 → 1.0.0
+#   gh workflow run "Version Bump" -f bump=1.0.0     # Explicit version
+#
+# Or trigger from the GitHub Actions UI → "Version Bump" → "Run workflow".
+#
+# IMPORTANT PREREQUISITE:
+#   This workflow requires a Personal Access Token (PAT) stored as the
+#   repository secret `RELEASE_PAT`. This is necessary because pushes made
+#   with the default GITHUB_TOKEN do NOT trigger other workflows (GitHub's
+#   infinite-loop prevention). The PAT allows the tag push to trigger release.yml.
+#
+#   To set up:
+#     1. Go to GitHub → Settings → Developer Settings → Personal Access Tokens
+#     2. Create a fine-grained token with "Contents: Read and write" permission
+#        for the gamdl-GUI repository
+#     3. Add it as a repository secret named RELEASE_PAT:
+#        Repository → Settings → Secrets and variables → Actions → New repository secret
+#
+# The version bump commit uses the message "chore(release): vX.Y.Z" which is
+# filtered out of the changelog by cliff.toml's commit_parsers configuration.
+#
+# @see .github/workflows/release.yml -- The release workflow triggered by the tag push
+# @see scripts/bump-version.mjs -- The version bump script that updates all files
+# @see cliff.toml -- Changelog config that filters chore(release) commits
+
+name: Version Bump
+
+# ============================================================
+# Trigger: Manual dispatch only
+# ============================================================
+# workflow_dispatch allows triggering from the GitHub UI or gh CLI.
+# The 'bump' input accepts: major, minor, patch, or an explicit version.
+# @see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Bump type (major, minor, patch) or explicit version (e.g., 1.2.0)'
+        required: true
+        type: string
+
+# permissions: contents: write is required to push commits and tags.
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    name: Bump Version & Tag
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the full repository history.
+      # fetch-depth: 0 ensures all tags are available for accurate version parsing.
+      # The RELEASE_PAT token is used instead of GITHUB_TOKEN so that the push
+      # in step 5 triggers the release workflow (release.yml).
+      # @see https://github.com/actions/checkout
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      # Step 2: Set up Node.js to run the version bump script.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      # Step 3: Run the bump script to update all version files.
+      # The script updates package.json, tauri.conf.json, Cargo.toml, and Cargo.lock,
+      # then prints the new version to stdout which we capture as a step output.
+      - name: Bump version
+        id: bump
+        run: |
+          NEW_VERSION=$(node scripts/bump-version.mjs "${{ inputs.bump }}")
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumped version to v$NEW_VERSION"
+
+      # Step 4: Commit the version bump and create an annotated tag.
+      # The commit message "chore(release): vX.Y.Z" is filtered by cliff.toml
+      # so it never appears in the auto-generated CHANGELOG.md.
+      # The annotated tag (not lightweight) is recognized by git-cliff as a
+      # version boundary for grouping changelog entries.
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
+          git tag -a "v${{ steps.bump.outputs.version }}" -m "Release v${{ steps.bump.outputs.version }}"
+
+      # Step 5: Push the commit and tag to origin.
+      # The commit push goes first to ensure the tagged commit exists on the remote.
+      # The tag push then triggers release.yml (because we used RELEASE_PAT, not GITHUB_TOKEN).
+      # This ordering also prevents the [skip ci] pitfall: the tag points at our
+      # version bump commit, not at the changelog bot's subsequent [skip ci] commit.
+      - name: Push commit and tag
+        run: |
+          git push origin main
+          git push origin "v${{ steps.bump.outputs.version }}"
+
+      # Step 6: Print a summary for the workflow run log.
+      - name: Summary
+        run: |
+          echo "### Version Bump Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **New version**: v${{ steps.bump.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag**: v${{ steps.bump.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Release workflow**: Should be triggered automatically" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Check the [Release workflow](../release.yml) for build status." >> "$GITHUB_STEP_SUMMARY"
