@@ -400,3 +400,279 @@ pub fn get_default_output_path() -> Result<String, String> {
         .map(|s| s.to_string())
         .ok_or_else(|| "Failed to convert output path to string".to_string())
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create default settings for testing
+    fn default_settings() -> AppSettings {
+        AppSettings::default()
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: section header
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_starts_with_gamdl_section() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.starts_with("[gamdl]\n"));
+    }
+
+    #[test]
+    fn ini_ends_with_newline() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.ends_with('\n'));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: audio codec
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_contains_default_song_codec() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("song-codec = alac"));
+    }
+
+    #[test]
+    fn ini_uses_custom_song_codec() {
+        let mut settings = default_settings();
+        settings.default_song_codec =
+            crate::models::gamdl_options::SongCodec::Aac;
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("song-codec = aac"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: video resolution
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_contains_video_resolution() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("music-video-resolution = 2160p"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: lyrics
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_contains_lyrics_format() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("synced-lyrics-format = lrc"));
+    }
+
+    #[test]
+    fn ini_omits_no_synced_lyrics_when_false() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("no-synced-lyrics"));
+    }
+
+    #[test]
+    fn ini_includes_no_synced_lyrics_when_true() {
+        let mut settings = default_settings();
+        settings.no_synced_lyrics = true;
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("no-synced-lyrics"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: cover art
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_includes_save_cover_when_true() {
+        let settings = default_settings(); // save_cover defaults to true
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("save-cover"));
+    }
+
+    #[test]
+    fn ini_omits_save_cover_when_false() {
+        let mut settings = default_settings();
+        settings.save_cover = false;
+        let ini = settings_to_ini(&settings);
+        // Should not contain bare "save-cover" (but may contain "cover-format")
+        assert!(!ini.lines().any(|l| l.trim() == "save-cover"));
+    }
+
+    #[test]
+    fn ini_formats_cover_size_as_wxh() {
+        let settings = default_settings(); // cover_size defaults to 1200
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("cover-size = 1200x1200"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: optional paths
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_omits_cookies_path_when_none() {
+        let settings = default_settings(); // cookies_path defaults to None
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("cookies-path"));
+    }
+
+    #[test]
+    fn ini_includes_cookies_path_when_set() {
+        let mut settings = default_settings();
+        settings.cookies_path = Some("/home/user/cookies.txt".to_string());
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("cookies-path = /home/user/cookies.txt"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: output path
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_omits_output_path_when_empty() {
+        let settings = default_settings(); // output_path defaults to ""
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("output-path"));
+    }
+
+    #[test]
+    fn ini_includes_output_path_when_set() {
+        let mut settings = default_settings();
+        settings.output_path = "/tmp/music".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("output-path = /tmp/music"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: boolean flags
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_omits_overwrite_when_false() {
+        let settings = default_settings(); // overwrite defaults to false
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.lines().any(|l| l.trim() == "overwrite"));
+    }
+
+    #[test]
+    fn ini_includes_overwrite_when_true() {
+        let mut settings = default_settings();
+        settings.overwrite = true;
+        let ini = settings_to_ini(&settings);
+        assert!(ini.lines().any(|l| l.trim() == "overwrite"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: wrapper
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_omits_wrapper_when_disabled() {
+        let settings = default_settings(); // use_wrapper defaults to false
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("use-wrapper"));
+        assert!(!ini.contains("wrapper-account-url"));
+    }
+
+    #[test]
+    fn ini_includes_wrapper_when_enabled() {
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_account_url = "http://localhost:9999".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.lines().any(|l| l.trim() == "use-wrapper"));
+        assert!(ini.contains("wrapper-account-url = http://localhost:9999"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: templates
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_includes_album_folder_template() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("album-folder-template = {album_artist}/{album}"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: language
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_includes_language() {
+        let settings = default_settings();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("language = en-US"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: truncate
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_omits_truncate_when_none() {
+        let settings = default_settings(); // truncate defaults to None
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("truncate"));
+    }
+
+    #[test]
+    fn ini_includes_truncate_when_set() {
+        let mut settings = default_settings();
+        settings.truncate = Some(200);
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("truncate = 200"));
+    }
+
+    // ----------------------------------------------------------
+    // get_default_output_path
+    // ----------------------------------------------------------
+
+    #[test]
+    fn default_output_path_ends_with_apple_music() {
+        // This test should work on all platforms since dirs::audio_dir()
+        // or dirs::home_dir() should return a valid path.
+        let result = get_default_output_path();
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        assert!(path.ends_with("Apple Music"));
+    }
+
+    // ----------------------------------------------------------
+    // AppSettings serde roundtrip
+    // ----------------------------------------------------------
+
+    #[test]
+    fn settings_serde_roundtrip() {
+        let settings = default_settings();
+        let json = serde_json::to_string_pretty(&settings).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+
+        // Compare a representative sample of fields
+        assert_eq!(
+            deserialized.default_song_codec,
+            settings.default_song_codec
+        );
+        assert_eq!(deserialized.output_path, settings.output_path);
+        assert_eq!(deserialized.save_cover, settings.save_cover);
+        assert_eq!(deserialized.cover_size, settings.cover_size);
+        assert_eq!(deserialized.language, settings.language);
+        assert_eq!(deserialized.fallback_enabled, settings.fallback_enabled);
+        assert_eq!(
+            deserialized.music_fallback_chain,
+            settings.music_fallback_chain
+        );
+    }
+}
