@@ -54,6 +54,7 @@ src-tauri/target/
 *.pem
 *.key
 cookies.txt
+auth/
 
 # ============================================================
 # Operating System
