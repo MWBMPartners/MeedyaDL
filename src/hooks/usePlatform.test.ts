@@ -80,14 +80,19 @@ describe('usePlatform', () => {
      * the Tauri plugin is not available. The hook should catch the error
      * and fall back to navigator.userAgent analysis.
      *
-     * In jsdom on macOS, the default userAgent includes "darwin" (e.g.,
-     * "Mozilla/5.0 (darwin) ..."). The hook's fallback checks for "mac"
-     * first, then "win" -- since "darwin" contains "win" but not "mac",
-     * the fallback detects 'windows'. This is a known edge case in the
-     * fallback path (real macOS browsers use "Macintosh" which contains "mac").
+     * We explicitly set navigator.userAgent to a known Windows UA string
+     * so the test is deterministic regardless of the CI runner's OS
+     * (jsdom's default userAgent varies by host platform).
      */
     vi.doMock('@tauri-apps/plugin-os', () => {
       throw new Error('Cannot find module');
+    });
+
+    /* Set a deterministic Windows userAgent for the fallback path */
+    const originalUserAgent = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      configurable: true,
     });
 
     /* Re-import to pick up the throwing mock */
@@ -98,10 +103,15 @@ describe('usePlatform', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    /* "darwin" in jsdom userAgent contains "win", so fallback detects 'windows' */
+    /* The mocked userAgent contains "win", so fallback detects 'windows' */
     expect(result.current.platform).toBe('windows');
     expect(result.current.isWindows).toBe(true);
 
+    /* Restore original userAgent and unmock the plugin */
+    Object.defineProperty(navigator, 'userAgent', {
+      value: originalUserAgent,
+      configurable: true,
+    });
     vi.doUnmock('@tauri-apps/plugin-os');
   });
 });
