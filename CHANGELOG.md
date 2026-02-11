@@ -59,6 +59,15 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Fixed CI badge (GitHub-native workflow badge URL)
 - Fixed broken `docs/Project_Plan.md` link (now points to root `Project_Plan.md`)
 
+#### Copyright Year Automation
+
+- Expanded `scripts/update-copyright-year.sh` to cover all 121 files with copyright headers
+- Added coverage for markdown, YAML, shell scripts, JS/MJS, TOML, SVG, HTML, and Claude context files
+- Auto-detects macOS vs Linux for correct `sed -i` syntax
+- Self-corruption guard: excludes itself from bulk find/sed and updates only its own copyright header via targeted line-number sed
+- Fixed `Cargo.toml` section headers and `tauri.conf.json` comment fields broken by commenting agents
+- Fixed 3 Rust clippy `doc_overindented_list_items` warnings and 1 failing doctest
+
 ### Phase 5: Advanced Features
 >>>>>>> 118f489 (Enhance documentation and comments across configuration files)
 
