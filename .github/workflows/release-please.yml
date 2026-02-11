@@ -1,0 +1,147 @@
+# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Release Please Workflow for gamdl-GUI
+# =======================================
+#
+# This workflow uses Google's release-please to automate versioning and releases.
+# When conventional commits land on main (directly or via PR merge), release-please
+# either creates or updates a "Release PR" that bumps versions across all source files.
+#
+# When the Release PR is merged, release-please:
+#   1. Creates an annotated git tag (e.g., v0.1.2)
+#   2. The tag push triggers the existing release.yml workflow
+#   3. release.yml builds all 7 platform targets and creates a draft GitHub Release
+#
+# Conventional commit mapping:
+#   feat:     → patch bump (while < v1.0.0, configured via bump-minor-pre-major)
+#   fix:      → patch bump
+#   feat!:    → minor bump (while < v1.0.0; would be major after v1.0.0)
+#   BREAKING CHANGE: → minor bump (while < v1.0.0)
+#
+# Version files updated by release-please:
+#   - package.json              -- Native (node release-type)
+#   - src-tauri/tauri.conf.json -- Via extra-files (JSON jsonpath)
+#   - src-tauri/Cargo.toml      -- Via extra-files (TOML jsonpath)
+#   - src-tauri/Cargo.lock      -- Via cargo generate-lockfile (workflow step)
+#
+# IMPORTANT:
+#   - Uses RELEASE_PAT (not GITHUB_TOKEN) so the tag push triggers release.yml
+#   - git-cliff owns CHANGELOG.md -- release-please has skip-changelog: true
+#   - Cargo.lock cannot use release-please annotations (cargo strips comments),
+#     so a separate workflow step regenerates it from the updated Cargo.toml
+#
+# For non-standard releases (explicit version, hotfix), use the manual override:
+#   gh workflow run "Version Bump" -f bump=<major|minor|patch|X.Y.Z>
+#
+# @see release-please-config.json -- Release-please configuration
+# @see .release-please-manifest.json -- Version tracking manifest
+# @see .github/workflows/release.yml -- Build workflow triggered by the tag
+# @see .github/workflows/version-bump.yml -- Manual override for non-standard releases
+# @see cliff.toml -- Changelog config (independent of release-please)
+# @see https://github.com/googleapis/release-please-action -- Action documentation
+
+name: Release Please
+
+# ============================================================
+# Trigger: Run on every push to main
+# ============================================================
+# release-please scans new commits for conventional commit messages and
+# determines whether a version bump is needed. If so, it creates or updates
+# a Release PR. When that PR is merged, it creates the version tag.
+on:
+  push:
+    branches: [main]
+
+# permissions: contents: write is needed for creating tags and releases.
+# permissions: pull-requests: write is needed for creating and updating the Release PR.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Run release-please.
+      # On regular pushes: analyzes conventional commits since the last release
+      # and creates or updates a Release PR with version bumps.
+      # When the Release PR is merged: creates a git tag and GitHub Release object.
+      #
+      # The RELEASE_PAT token is critical here. GitHub's default GITHUB_TOKEN
+      # does not trigger other workflows when it pushes tags (infinite-loop prevention).
+      # The PAT allows the tag push to trigger release.yml.
+      #
+      # @see https://github.com/googleapis/release-please-action
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Step 2: If a Release PR was just created, update Cargo.lock.
+      # release-please updates Cargo.toml via TOML jsonpath, but cannot reliably
+      # update Cargo.lock (cargo strips TOML comments, and lock file jsonpath
+      # filters are unreliable for multi-package lock files).
+      #
+      # Instead, we check out the Release PR branch, run `cargo generate-lockfile`
+      # to regenerate Cargo.lock from the updated Cargo.toml, and push the change
+      # back to the PR branch.
+      #
+      # This step only runs when release-please has created/updated a PR
+      # (prs_created is true). It does NOT run when a release was just created
+      # (the PR was merged and the tag was pushed).
+      - name: Checkout Release PR branch
+        if: steps.release.outputs.prs_created == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: release-please--branches--main
+          token: ${{ secrets.RELEASE_PAT }}
+
+      # Step 3: Set up Rust toolchain for Cargo.lock regeneration.
+      # Only the stable toolchain is needed — no specific target required since
+      # we're only regenerating the lock file, not compiling.
+      - name: Setup Rust
+        if: steps.release.outputs.prs_created == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      # Step 4: Regenerate Cargo.lock from the updated Cargo.toml.
+      # `cargo generate-lockfile` reads Cargo.toml and produces a fresh Cargo.lock
+      # with the correct version for gamdl-gui. This is more reliable than trying
+      # to regex-replace the version in the lock file.
+      - name: Regenerate Cargo.lock
+        if: steps.release.outputs.prs_created == 'true'
+        working-directory: src-tauri
+        run: cargo generate-lockfile
+
+      # Step 5: Commit and push the updated Cargo.lock back to the Release PR branch.
+      # The `git diff --staged --quiet` check ensures we only commit if there are
+      # actual changes (avoids empty commits if Cargo.lock was already correct).
+      - name: Commit Cargo.lock update
+        if: steps.release.outputs.prs_created == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/Cargo.lock
+          git diff --staged --quiet || git commit -m "chore(release): update Cargo.lock"
+          git push
+
+      # Step 6: Print a summary of what release-please did in this run.
+      # This appears in the GitHub Actions UI under the workflow run summary.
+      - name: Summary
+        run: |
+          echo "### Release Please Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.release.outputs.release_created }}" = "true" ]; then
+            echo "- **Release created**: v${{ steps.release.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Tag**: ${{ steps.release.outputs.tag_name }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- **Release workflow**: Should be triggered by the tag push" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.release.outputs.prs_created }}" = "true" ]; then
+            echo "- **Release PR created/updated**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Cargo.lock has been regenerated on the PR branch" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No release actions taken (no releasable commits since last release)" >> "$GITHUB_STEP_SUMMARY"
+          fi
