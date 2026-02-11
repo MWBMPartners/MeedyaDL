@@ -6,8 +6,21 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Integrate release-please for automated release PRs
+
+Add Google's release-please to automatically create Release PRs when
+  conventional commits land on main. When merged, the PR creates a tag
+  that triggers the existing 7-platform release build. git-cliff continues
+  to own CHANGELOG.md (release-please has skip-changelog: true). The
+  manual version-bump workflow is preserved as an override for non-standard
+  releases.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
