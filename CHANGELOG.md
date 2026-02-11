@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Resolve ESLint no-explicit-any error in Modal.test.tsx
+
+Replace `any` type with `Record<string, unknown>` for the lucide-react
+  X icon mock props to satisfy @typescript-eslint/no-explicit-any rule.
+
+
+## [0.1.0] - 2026-02-11
+
 ### ✨ Features
 
 - Initialize GAMDL GUI application with Tauri and React
@@ -50,6 +60,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
