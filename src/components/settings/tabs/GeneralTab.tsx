@@ -7,6 +7,10 @@
  * Renders the "General" tab within the {@link SettingsPage} component.
  * This tab exposes the most commonly adjusted settings:
  *
+ *   - **Theme** -- Dark, light, or auto (follow OS). Maps to
+ *     `settings.theme_override` (null = auto, 'light', or 'dark').
+ *     The useTheme hook applies the appropriate CSS class to <html>.
+ *
  *   - **Output Directory** -- Where downloaded files are saved. Uses
  *     the Tauri file dialog to let the user browse for a directory.
  *     Maps to `settings.output_path` in the Zustand store and the
@@ -55,6 +59,26 @@ import { Toggle, FilePickerButton, Select } from '@/components/common';
  * Each entry maps an ISO locale code (BCP 47) to a human-readable label.
  * The selected value is passed directly to GAMDL's `--language` flag.
  */
+/**
+ * Theme mode options for the appearance selector dropdown.
+ *
+ * - 'auto': Follow the operating system's dark/light preference (default).
+ *           Internally stored as `null` in settings.theme_override.
+ * - 'light': Force light mode regardless of OS setting.
+ * - 'dark': Force dark mode regardless of OS setting.
+ *
+ * The useTheme hook in App.tsx reads the selected value and applies the
+ * appropriate CSS class ('theme-light' or 'theme-dark') to the <html> element.
+ *
+ * @see src/hooks/useTheme.ts -- Hook that applies the theme class
+ * @see src/styles/themes/base.css -- CSS rules that respond to the class
+ */
+const THEME_OPTIONS = [
+  { value: 'auto', label: 'Auto (System)' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
 const LANGUAGE_OPTIONS = [
   { value: 'en-US', label: 'English (US)' },
   { value: 'en-GB', label: 'English (UK)' },
@@ -102,6 +126,31 @@ export function GeneralTab() {
           onChange={(path) => updateSettings({ output_path: path || '' })}
           directory
           placeholder="Default: ~/Music/Apple Music"
+        />
+      </div>
+
+      {/* Section: Appearance */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-content-primary mb-4">
+          Appearance
+        </h3>
+
+        {/*
+          * Theme mode selector -- controls dark/light/auto appearance.
+          * The 'auto' option maps to null in theme_override (follow OS).
+          * 'light' and 'dark' are stored as strings that the useTheme hook
+          * reads to apply the corresponding CSS class to <html>.
+          */}
+        <Select
+          label="Theme"
+          description="Choose between light and dark mode, or follow your OS setting"
+          options={THEME_OPTIONS}
+          value={settings.theme_override || 'auto'}
+          onChange={(e) =>
+            updateSettings({
+              theme_override: e.target.value === 'auto' ? null : e.target.value,
+            })
+          }
         />
       </div>
 

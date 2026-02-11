@@ -121,7 +121,7 @@
  * @see https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/named-colors.html
  * ============================================================ */
 @media (prefers-color-scheme: dark) {
-  .platform-linux {
+  .platform-linux:not(.theme-light) {
     /* Sidebar: Dark gray matching Adwaita dark sidebar color */
     --sidebar-bg: #242424;                         /* @sidebar_bg_color equivalent */
     --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay: 5% */
@@ -148,6 +148,20 @@
     /* Inverse text for buttons on accent backgrounds */
     --text-inverse: #1e1e1e;
   }
+}
+
+/* Manual dark mode override for Linux -- see base.css for full explanation */
+.platform-linux.theme-dark {
+  --sidebar-bg: #242424;
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-active: rgba(255, 255, 255, 0.08);
+  --sidebar-border: #3d3d3d;
+  --accent: #62a0ea;
+  --accent-hover: #3584e4;
+  --surface-primary: #1e1e1e;
+  --surface-secondary: #242424;
+  --surface-elevated: #303030;
+  --text-inverse: #1e1e1e;
 }
 
 /* ============================================================

@@ -62,6 +62,14 @@ import { listen } from '@tauri-apps/api/event';
  */
 import { usePlatform } from './hooks/usePlatform';
 
+/**
+ * Custom hook for dark/light/auto theme override management.
+ * Syncs the `theme_override` setting to CSS classes on <html>, enabling
+ * manual override of the OS color scheme preference.
+ * @see ./hooks/useTheme.ts for implementation details
+ */
+import { useTheme } from './hooks/useTheme';
+
 /* ─── Zustand Stores ─────────────────────────────────────────────────── */
 /*
  * Each store is a Zustand slice providing global state and actions.
@@ -163,6 +171,16 @@ function App() {
    * @see ./hooks/usePlatform.ts
    */
   const { platform, isLoading: platformLoading } = usePlatform();
+
+  /*
+   * ─── Theme Override ─────────────────────────────────────────────────
+   * useTheme() reads the `theme_override` setting from the settings store
+   * and applies the appropriate CSS class ('theme-dark' or 'theme-light')
+   * to the <html> element. When set to null (auto), no class is applied
+   * and the OS media query controls dark/light mode.
+   * @see ./hooks/useTheme.ts
+   */
+  useTheme();
 
   /*
    * ─── Local State ───────────────────────────────────────────────────
