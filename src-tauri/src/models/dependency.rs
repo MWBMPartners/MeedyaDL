@@ -200,3 +200,230 @@ pub struct UpdateInfo {
     /// itself is updated.
     pub compatible: bool,
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------
+    // DependencyInstallStatus serde serialization
+    // ----------------------------------------------------------
+
+    /// Verifies that `DependencyInstallStatus::NotInstalled` serializes
+    /// to `"not_installed"` as expected by the React frontend's
+    /// TypeScript union type.
+    #[test]
+    fn dependency_status_not_installed_serializes_correctly() {
+        let json = serde_json::to_string(&DependencyInstallStatus::NotInstalled).unwrap();
+        assert_eq!(json, "\"not_installed\"");
+    }
+
+    /// Verifies that `DependencyInstallStatus::Installing` serializes
+    /// to `"installing"` for the setup wizard's progress spinner.
+    #[test]
+    fn dependency_status_installing_serializes_correctly() {
+        let json = serde_json::to_string(&DependencyInstallStatus::Installing).unwrap();
+        assert_eq!(json, "\"installing\"");
+    }
+
+    /// Verifies that `DependencyInstallStatus::Installed` serializes
+    /// to `"installed"` for the setup wizard's completion badge.
+    #[test]
+    fn dependency_status_installed_serializes_correctly() {
+        let json = serde_json::to_string(&DependencyInstallStatus::Installed).unwrap();
+        assert_eq!(json, "\"installed\"");
+    }
+
+    /// Verifies that `DependencyInstallStatus::Error` serializes
+    /// to `"error"` for the setup wizard's error/retry display.
+    #[test]
+    fn dependency_status_error_serializes_correctly() {
+        let json = serde_json::to_string(&DependencyInstallStatus::Error).unwrap();
+        assert_eq!(json, "\"error\"");
+    }
+
+    /// Verifies that all `DependencyInstallStatus` variants survive a
+    /// full serde roundtrip (serialize then deserialize) without
+    /// data loss, ensuring consistent IPC communication.
+    #[test]
+    fn dependency_status_serde_roundtrip_all_variants() {
+        let variants = vec![
+            DependencyInstallStatus::NotInstalled,
+            DependencyInstallStatus::Installing,
+            DependencyInstallStatus::Installed,
+            DependencyInstallStatus::Error,
+        ];
+
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: DependencyInstallStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                deserialized, variant,
+                "Roundtrip failed for {:?} (json: {})",
+                variant, json
+            );
+        }
+    }
+
+    // ----------------------------------------------------------
+    // DependencyInfo serde roundtrip
+    // ----------------------------------------------------------
+
+    /// Verifies that a fully populated `DependencyInfo` with all
+    /// optional fields set survives a serde roundtrip, ensuring the
+    /// setup wizard receives complete dependency information.
+    #[test]
+    fn dependency_info_serde_roundtrip_all_fields_populated() {
+        let info = DependencyInfo {
+            name: "Python 3.12".to_string(),
+            required: true,
+            status: DependencyInstallStatus::Installed,
+            version: Some("3.12.4".to_string()),
+            path: Some("/opt/python/bin/python3".to_string()),
+            latest_version: Some("3.12.5".to_string()),
+            update_available: true,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: DependencyInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.name, "Python 3.12");
+        assert!(deserialized.required);
+        assert_eq!(deserialized.status, DependencyInstallStatus::Installed);
+        assert_eq!(deserialized.version, Some("3.12.4".to_string()));
+        assert_eq!(deserialized.path, Some("/opt/python/bin/python3".to_string()));
+        assert_eq!(deserialized.latest_version, Some("3.12.5".to_string()));
+        assert!(deserialized.update_available);
+    }
+
+    /// Verifies that a `DependencyInfo` with all optional fields set
+    /// to `None` (representing a not-yet-installed dependency) survives
+    /// a serde roundtrip correctly, as the setup wizard must handle
+    /// this state for initial installation.
+    #[test]
+    fn dependency_info_serde_roundtrip_optional_fields_none() {
+        let info = DependencyInfo {
+            name: "FFmpeg".to_string(),
+            required: true,
+            status: DependencyInstallStatus::NotInstalled,
+            version: None,
+            path: None,
+            latest_version: None,
+            update_available: false,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: DependencyInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.name, "FFmpeg");
+        assert!(deserialized.required);
+        assert_eq!(deserialized.status, DependencyInstallStatus::NotInstalled);
+        assert!(deserialized.version.is_none());
+        assert!(deserialized.path.is_none());
+        assert!(deserialized.latest_version.is_none());
+        assert!(!deserialized.update_available);
+    }
+
+    /// Verifies that an optional dependency (not required for basic
+    /// functionality) serializes with `required: false` and the
+    /// correct status, ensuring the setup wizard can distinguish
+    /// required from optional dependencies.
+    #[test]
+    fn dependency_info_optional_dependency() {
+        let info = DependencyInfo {
+            name: "mp4decrypt".to_string(),
+            required: false,
+            status: DependencyInstallStatus::NotInstalled,
+            version: None,
+            path: None,
+            latest_version: None,
+            update_available: false,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: DependencyInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.name, "mp4decrypt");
+        assert!(!deserialized.required);
+    }
+
+    // ----------------------------------------------------------
+    // UpdateInfo serde roundtrip
+    // ----------------------------------------------------------
+
+    /// Verifies that a fully populated `UpdateInfo` with download URL
+    /// and release notes survives a serde roundtrip, ensuring the
+    /// update notification panel receives all information needed to
+    /// display and execute the update.
+    #[test]
+    fn update_info_serde_roundtrip_all_fields() {
+        let info = UpdateInfo {
+            name: "GAMDL".to_string(),
+            current_version: "2024.05.20".to_string(),
+            latest_version: "2024.06.15".to_string(),
+            download_url: Some("https://github.com/glomatico/gamdl/releases/download/v2024.06.15/gamdl-2024.06.15.tar.gz".to_string()),
+            release_notes: Some("Bug fixes and performance improvements.".to_string()),
+            compatible: true,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: UpdateInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.name, "GAMDL");
+        assert_eq!(deserialized.current_version, "2024.05.20");
+        assert_eq!(deserialized.latest_version, "2024.06.15");
+        assert!(deserialized.download_url.is_some());
+        assert!(deserialized.release_notes.is_some());
+        assert!(deserialized.compatible);
+    }
+
+    /// Verifies that an `UpdateInfo` for a pip-managed package (where
+    /// `download_url` and `release_notes` are `None`) survives a serde
+    /// roundtrip correctly.
+    #[test]
+    fn update_info_serde_roundtrip_optional_fields_none() {
+        let info = UpdateInfo {
+            name: "Python".to_string(),
+            current_version: "3.12.4".to_string(),
+            latest_version: "3.12.5".to_string(),
+            download_url: None,
+            release_notes: None,
+            compatible: true,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: UpdateInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.name, "Python");
+        assert_eq!(deserialized.current_version, "3.12.4");
+        assert_eq!(deserialized.latest_version, "3.12.5");
+        assert!(deserialized.download_url.is_none());
+        assert!(deserialized.release_notes.is_none());
+        assert!(deserialized.compatible);
+    }
+
+    /// Verifies that an incompatible `UpdateInfo` (where a major version
+    /// bump would break GUI integration) correctly preserves the
+    /// `compatible: false` flag through a serde roundtrip.
+    #[test]
+    fn update_info_incompatible_update() {
+        let info = UpdateInfo {
+            name: "FFmpeg".to_string(),
+            current_version: "6.1".to_string(),
+            latest_version: "7.0".to_string(),
+            download_url: Some("https://example.com/ffmpeg-7.0.tar.gz".to_string()),
+            release_notes: Some("Major version bump with breaking API changes.".to_string()),
+            compatible: false,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: UpdateInfo = serde_json::from_str(&json).unwrap();
+
+        assert!(!deserialized.compatible);
+        assert_eq!(deserialized.latest_version, "7.0");
+    }
+}

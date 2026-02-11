@@ -238,3 +238,153 @@ pub fn get_gamdl_data_dir(app: &AppHandle) -> PathBuf {
 pub fn get_gamdl_config_path(app: &AppHandle) -> PathBuf {
     get_gamdl_data_dir(app).join("config.ini")
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // ----------------------------------------------------------
+    // get_python_binary_path
+    // ----------------------------------------------------------
+
+    /// Verifies that `get_python_binary_path` returns the correct
+    /// platform-specific path relative to the given Python directory.
+    /// On macOS/Linux the binary should be at `bin/python3`; on
+    /// Windows it should be at `python.exe` in the root.
+    #[test]
+    fn python_binary_path_has_correct_suffix() {
+        let base = Path::new("/opt/python");
+        let result = get_python_binary_path(base);
+
+        if cfg!(target_os = "windows") {
+            assert!(
+                result.ends_with("python.exe"),
+                "On Windows, python binary path should end with 'python.exe', got: {:?}",
+                result
+            );
+        } else {
+            assert!(
+                result.ends_with("bin/python3"),
+                "On macOS/Linux, python binary path should end with 'bin/python3', got: {:?}",
+                result
+            );
+        }
+    }
+
+    /// Verifies that `get_python_binary_path` correctly joins the
+    /// base directory with the platform-specific binary location,
+    /// producing a full absolute path.
+    #[test]
+    fn python_binary_path_includes_base_dir() {
+        let base = Path::new("/opt/python");
+        let result = get_python_binary_path(base);
+
+        assert!(
+            result.starts_with(base),
+            "Python binary path should start with the base directory, got: {:?}",
+            result
+        );
+    }
+
+    /// Verifies that `get_python_binary_path` works correctly with
+    /// a Windows-style base path (for cross-platform path construction).
+    #[test]
+    fn python_binary_path_with_windows_style_base() {
+        let base = Path::new("C:\\Python");
+        let result = get_python_binary_path(base);
+
+        assert!(
+            result.starts_with(base),
+            "Python binary path should start with the Windows base directory, got: {:?}",
+            result
+        );
+    }
+
+    // ----------------------------------------------------------
+    // get_pip_binary_path
+    // ----------------------------------------------------------
+
+    /// Verifies that `get_pip_binary_path` returns the correct
+    /// platform-specific path relative to the given Python directory.
+    /// On macOS/Linux the binary should be at `bin/pip3`; on
+    /// Windows it should be at `Scripts/pip.exe`.
+    #[test]
+    fn pip_binary_path_has_correct_suffix() {
+        let base = Path::new("/opt/python");
+        let result = get_pip_binary_path(base);
+
+        if cfg!(target_os = "windows") {
+            assert!(
+                result.ends_with("Scripts/pip.exe") || result.ends_with("Scripts\\pip.exe"),
+                "On Windows, pip binary path should end with 'Scripts/pip.exe', got: {:?}",
+                result
+            );
+        } else {
+            assert!(
+                result.ends_with("bin/pip3"),
+                "On macOS/Linux, pip binary path should end with 'bin/pip3', got: {:?}",
+                result
+            );
+        }
+    }
+
+    /// Verifies that `get_pip_binary_path` correctly joins the
+    /// base directory with the platform-specific binary location,
+    /// producing a full path rooted at the given directory.
+    #[test]
+    fn pip_binary_path_includes_base_dir() {
+        let base = Path::new("/opt/python");
+        let result = get_pip_binary_path(base);
+
+        assert!(
+            result.starts_with(base),
+            "Pip binary path should start with the base directory, got: {:?}",
+            result
+        );
+    }
+
+    /// Verifies that `get_pip_binary_path` works correctly with
+    /// a Windows-style base path (for cross-platform path construction).
+    #[test]
+    fn pip_binary_path_with_windows_style_base() {
+        let base = Path::new("C:\\Python");
+        let result = get_pip_binary_path(base);
+
+        assert!(
+            result.starts_with(base),
+            "Pip binary path should start with the Windows base directory, got: {:?}",
+            result
+        );
+    }
+
+    /// Verifies that both `get_python_binary_path` and `get_pip_binary_path`
+    /// share the same parent directory structure on Unix platforms
+    /// (both live under `bin/`), ensuring consistent installation layout.
+    #[test]
+    fn python_and_pip_share_parent_directory() {
+        let base = Path::new("/opt/python");
+        let python_path = get_python_binary_path(base);
+        let pip_path = get_pip_binary_path(base);
+
+        let python_parent = python_path.parent().expect("python path should have a parent");
+        let pip_parent = pip_path.parent().expect("pip path should have a parent");
+
+        if cfg!(target_os = "windows") {
+            // On Windows, python.exe is at root and pip.exe is in Scripts/
+            // so parents will differ -- just verify they share the same root
+            assert!(python_path.starts_with(base));
+            assert!(pip_path.starts_with(base));
+        } else {
+            // On Unix, both should be in the bin/ subdirectory
+            assert_eq!(
+                python_parent, pip_parent,
+                "On Unix, python3 and pip3 should share the same parent directory (bin/)"
+            );
+        }
+    }
+}

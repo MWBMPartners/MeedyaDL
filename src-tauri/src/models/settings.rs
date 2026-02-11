@@ -432,3 +432,257 @@ impl Default for AppSettings {
         }
     }
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------
+    // AppSettings::default() -- audio quality defaults
+    // ----------------------------------------------------------
+
+    /// Verifies that the default song codec is ALAC (lossless), matching
+    /// the project brief's requirement to default to maximum audio quality.
+    #[test]
+    fn default_song_codec_is_alac() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.default_song_codec, SongCodec::Alac);
+    }
+
+    // ----------------------------------------------------------
+    // AppSettings::default() -- video quality defaults
+    // ----------------------------------------------------------
+
+    /// Verifies that the default video resolution is 2160p (4K UHD),
+    /// matching the project brief's requirement for highest video quality.
+    #[test]
+    fn default_video_resolution_is_2160p() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.default_video_resolution, VideoResolution::P2160);
+    }
+
+    // ----------------------------------------------------------
+    // AppSettings::default() -- fallback system
+    // ----------------------------------------------------------
+
+    /// Verifies that the fallback quality system is enabled by default,
+    /// ensuring downloads succeed even when the preferred codec or
+    /// resolution is not available for a given track.
+    #[test]
+    fn default_fallback_enabled_is_true() {
+        let settings = AppSettings::default();
+        assert!(settings.fallback_enabled);
+    }
+
+    /// Verifies that the default music fallback chain contains exactly
+    /// 6 codecs (ALAC -> Atmos -> AC3 -> AAC Binaural -> AAC -> AAC Legacy),
+    /// matching the project brief's specified fallback order.
+    #[test]
+    fn default_music_fallback_chain_has_correct_length() {
+        let settings = AppSettings::default();
+        assert_eq!(
+            settings.music_fallback_chain.len(),
+            6,
+            "Music fallback chain should have 6 entries, got: {}",
+            settings.music_fallback_chain.len()
+        );
+    }
+
+    /// Verifies that the default music fallback chain starts with ALAC
+    /// (highest quality) and ends with AAC Legacy (broadest compatibility),
+    /// descending through the quality tiers as specified in the project brief.
+    #[test]
+    fn default_music_fallback_chain_order() {
+        let settings = AppSettings::default();
+        let chain = &settings.music_fallback_chain;
+        assert_eq!(chain[0], SongCodec::Alac);
+        assert_eq!(chain[1], SongCodec::Atmos);
+        assert_eq!(chain[2], SongCodec::Ac3);
+        assert_eq!(chain[3], SongCodec::AacBinaural);
+        assert_eq!(chain[4], SongCodec::Aac);
+        assert_eq!(chain[5], SongCodec::AacLegacy);
+    }
+
+    /// Verifies that the default video fallback chain contains exactly
+    /// 8 resolutions (2160p down to 240p), covering every resolution
+    /// Apple Music offers in descending order.
+    #[test]
+    fn default_video_fallback_chain_has_correct_length() {
+        let settings = AppSettings::default();
+        assert_eq!(
+            settings.video_fallback_chain.len(),
+            8,
+            "Video fallback chain should have 8 entries, got: {}",
+            settings.video_fallback_chain.len()
+        );
+    }
+
+    /// Verifies that the default video fallback chain is ordered from
+    /// highest resolution (2160p/4K) to lowest (240p), ensuring the
+    /// download manager tries the best quality first.
+    #[test]
+    fn default_video_fallback_chain_order() {
+        let settings = AppSettings::default();
+        let chain = &settings.video_fallback_chain;
+        assert_eq!(chain[0], VideoResolution::P2160);
+        assert_eq!(chain[1], VideoResolution::P1440);
+        assert_eq!(chain[2], VideoResolution::P1080);
+        assert_eq!(chain[3], VideoResolution::P720);
+        assert_eq!(chain[4], VideoResolution::P540);
+        assert_eq!(chain[5], VideoResolution::P480);
+        assert_eq!(chain[6], VideoResolution::P360);
+        assert_eq!(chain[7], VideoResolution::P240);
+    }
+
+    // ----------------------------------------------------------
+    // AppSettings::default() -- general settings
+    // ----------------------------------------------------------
+
+    /// Verifies that the default language is "en-US" (English, United States),
+    /// which controls the metadata language returned by the Apple Music API.
+    #[test]
+    fn default_language_is_en_us() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.language, "en-US");
+    }
+
+    /// Verifies that the default output path is an empty string, which
+    /// signals the app to use the platform's default Music directory
+    /// (resolved at runtime via `dirs::audio_dir()` or equivalent).
+    #[test]
+    fn default_output_path_is_empty() {
+        let settings = AppSettings::default();
+        assert!(
+            settings.output_path.is_empty(),
+            "Default output_path should be empty, got: {:?}",
+            settings.output_path
+        );
+    }
+
+    // ----------------------------------------------------------
+    // AppSettings serde roundtrip
+    // ----------------------------------------------------------
+
+    /// Verifies that the complete `AppSettings::default()` struct
+    /// survives a full serde roundtrip (serialize to JSON, then
+    /// deserialize back), ensuring all fields are correctly preserved
+    /// when persisting to disk and sending over the IPC bridge.
+    #[test]
+    fn app_settings_serde_roundtrip_preserves_all_fields() {
+        let settings = AppSettings::default();
+        let json = serde_json::to_string(&settings).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+
+        // General
+        assert_eq!(deserialized.output_path, settings.output_path);
+        assert_eq!(deserialized.language, settings.language);
+        assert_eq!(deserialized.overwrite, settings.overwrite);
+        assert_eq!(deserialized.auto_check_updates, settings.auto_check_updates);
+
+        // Audio quality
+        assert_eq!(deserialized.default_song_codec, settings.default_song_codec);
+
+        // Video quality
+        assert_eq!(deserialized.default_video_resolution, settings.default_video_resolution);
+        assert_eq!(deserialized.default_video_codec_priority, settings.default_video_codec_priority);
+        assert_eq!(deserialized.default_video_remux_format, settings.default_video_remux_format);
+
+        // Fallback
+        assert_eq!(deserialized.fallback_enabled, settings.fallback_enabled);
+        assert_eq!(deserialized.music_fallback_chain.len(), settings.music_fallback_chain.len());
+        assert_eq!(deserialized.video_fallback_chain.len(), settings.video_fallback_chain.len());
+
+        // Lyrics
+        assert_eq!(deserialized.synced_lyrics_format, settings.synced_lyrics_format);
+        assert_eq!(deserialized.no_synced_lyrics, settings.no_synced_lyrics);
+        assert_eq!(deserialized.synced_lyrics_only, settings.synced_lyrics_only);
+
+        // Cover art
+        assert_eq!(deserialized.save_cover, settings.save_cover);
+        assert_eq!(deserialized.cover_format, settings.cover_format);
+        assert_eq!(deserialized.cover_size, settings.cover_size);
+
+        // Templates
+        assert_eq!(deserialized.album_folder_template, settings.album_folder_template);
+        assert_eq!(deserialized.compilation_folder_template, settings.compilation_folder_template);
+        assert_eq!(deserialized.playlist_file_template, settings.playlist_file_template);
+
+        // Advanced
+        assert_eq!(deserialized.download_mode, settings.download_mode);
+        assert_eq!(deserialized.remux_mode, settings.remux_mode);
+        assert_eq!(deserialized.use_wrapper, settings.use_wrapper);
+        assert_eq!(deserialized.wrapper_account_url, settings.wrapper_account_url);
+
+        // UI state
+        assert_eq!(deserialized.sidebar_collapsed, settings.sidebar_collapsed);
+        assert_eq!(deserialized.theme_override, settings.theme_override);
+    }
+
+    /// Verifies that all `Option<String>` fields in `AppSettings`
+    /// correctly handle the `None` case through a serde roundtrip,
+    /// ensuring null JSON values are properly deserialized.
+    #[test]
+    fn app_settings_serde_handles_optional_fields_as_none() {
+        let settings = AppSettings::default();
+        let json = serde_json::to_string(&settings).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+
+        // All tool paths should be None by default
+        assert!(deserialized.cookies_path.is_none());
+        assert!(deserialized.ffmpeg_path.is_none());
+        assert!(deserialized.mp4decrypt_path.is_none());
+        assert!(deserialized.mp4box_path.is_none());
+        assert!(deserialized.nm3u8dlre_path.is_none());
+        assert!(deserialized.amdecrypt_path.is_none());
+        assert!(deserialized.truncate.is_none());
+        assert!(deserialized.theme_override.is_none());
+    }
+
+    /// Verifies that `AppSettings` with all optional fields set to
+    /// `Some(...)` values survives a serde roundtrip, ensuring custom
+    /// tool paths and overrides are correctly persisted.
+    #[test]
+    fn app_settings_serde_handles_optional_fields_as_some() {
+        let mut settings = AppSettings::default();
+        settings.cookies_path = Some("/path/to/cookies.txt".to_string());
+        settings.ffmpeg_path = Some("/usr/local/bin/ffmpeg".to_string());
+        settings.mp4decrypt_path = Some("/usr/local/bin/mp4decrypt".to_string());
+        settings.mp4box_path = Some("/usr/local/bin/mp4box".to_string());
+        settings.nm3u8dlre_path = Some("/usr/local/bin/N_m3u8DL-RE".to_string());
+        settings.amdecrypt_path = Some("/usr/local/bin/amdecrypt".to_string());
+        settings.truncate = Some(200);
+        settings.theme_override = Some("dark".to_string());
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.cookies_path, Some("/path/to/cookies.txt".to_string()));
+        assert_eq!(deserialized.ffmpeg_path, Some("/usr/local/bin/ffmpeg".to_string()));
+        assert_eq!(deserialized.mp4decrypt_path, Some("/usr/local/bin/mp4decrypt".to_string()));
+        assert_eq!(deserialized.mp4box_path, Some("/usr/local/bin/mp4box".to_string()));
+        assert_eq!(deserialized.nm3u8dlre_path, Some("/usr/local/bin/N_m3u8DL-RE".to_string()));
+        assert_eq!(deserialized.amdecrypt_path, Some("/usr/local/bin/amdecrypt".to_string()));
+        assert_eq!(deserialized.truncate, Some(200));
+        assert_eq!(deserialized.theme_override, Some("dark".to_string()));
+    }
+
+    /// Verifies that the default settings do not enable overwrite mode,
+    /// preventing accidental data loss on first launch.
+    #[test]
+    fn default_overwrite_is_false() {
+        let settings = AppSettings::default();
+        assert!(!settings.overwrite);
+    }
+
+    /// Verifies that auto-update checking is enabled by default so
+    /// users receive security and bug fix notifications on startup.
+    #[test]
+    fn default_auto_check_updates_is_true() {
+        let settings = AppSettings::default();
+        assert!(settings.auto_check_updates);
+    }
+}
