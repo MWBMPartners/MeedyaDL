@@ -10,7 +10,7 @@
 
 ## Overall Status
 
-### Phase 6 — Polish & Release (In Progress)
+### Phase 6 — Polish & Release (COMPLETE)
 
 ---
 
@@ -82,7 +82,7 @@
 - [x] Future service architecture trait (MusicService trait, MusicServiceId enum, ServiceCapabilities)
 - [x] Frontend extensibility types (MusicServiceId, ServiceCapabilities, MUSIC_SERVICE_LABELS)
 
-### Phase 6: Polish & Release (IN PROGRESS)
+### Phase 6: Polish & Release (COMPLETE)
 
 - [x] SVG icon creation and PNG/ICO/ICNS generation from source SVG
 - [x] ESLint 9.x flat config setup
@@ -94,9 +94,9 @@
 - [x] Detailed code comments on all 70+ source files (Rust backend, React frontend, config, scripts, workflows, CSS)
 - [x] Complete help documentation (10 topics with full content: Getting Started, Downloading Music/Videos, Lyrics & Metadata, Quality Settings, Fallback Quality, Cookie Management, Troubleshooting, FAQ)
 - [x] README finalization (fixed badges for private repo, fixed broken Project_Plan link)
-- [ ] Platform testing
-- [ ] Release workflow testing
-- [ ] Copyright year automation
+- [x] Platform testing (macOS Apple Silicon: frontend builds, Rust release compiles in 2m05s, GAMDL.app bundle created)
+- [x] Release workflow review (CI and Release workflows verified: matrix builds, concurrency, caching, Linux deps, artifact upload)
+- [x] Copyright year automation (expanded script to cover all 121 files, auto-detect macOS/Linux, self-corruption guard)
 
 ---
 
@@ -108,7 +108,7 @@ _None at this time._
 
 ## Last Updated
 
-2026-02-10
+2026-02-11
 
 ---
 
