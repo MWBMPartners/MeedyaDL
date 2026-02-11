@@ -2,70 +2,166 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Linux theme overrides.
- * Applies a clean, neutral design using the system default font stack.
- * Follows GNOME/Adwaita design conventions with subtle adaptations
- * for a familiar desktop Linux experience. Also serves as the
- * default theme for Raspberry Pi and other Linux variants.
+ * Linux Theme -- GNOME/Adwaita Design Overrides
+ * ================================================
+ *
+ * This file overrides the base theme tokens (base.css) to match GNOME's Adwaita
+ * design language, which is the most common desktop style on Linux. Key characteristics:
+ *
+ *   - System font stack: Respects the user's desktop font configuration
+ *     (Cantarell on GNOME, Noto Sans on KDE, or whatever the user has set)
+ *   - Clean, neutral aesthetics: No translucency effects or heavy gradients
+ *   - GNOME blue accent: Adwaita's signature blue (#3584e4)
+ *   - Moderate border radii: 6px (same as base, between macOS 8px and Windows 4px)
+ *   - Focus ring: Colored outline ring (not glow like macOS, not underline like Windows)
+ *   - Flat buttons: No gradients, solid accent backgrounds
+ *
+ * This theme also serves as the default for:
+ *   - Raspberry Pi (Raspberry Pi OS uses a GTK-based desktop)
+ *   - Other Linux distributions (Ubuntu, Fedora, Arch, etc.)
+ *   - Chromebook Linux environments (Crostini)
+ *
+ * Activation:
+ *   This file takes effect when the <html> element has the class "platform-linux",
+ *   applied by the React app after detecting Linux via tauri-plugin-os.
+ *
+ * Related files:
+ *   - src/styles/themes/base.css    -- Default token values overridden here
+ *   - src/styles/themes/macos.css   -- macOS Liquid Glass counterpart
+ *   - src/styles/themes/windows.css -- Windows Fluent Design counterpart
+ *   - tailwind.config.js            -- Tailwind classes that consume these CSS variables
+ *
+ * @see https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/named-colors.html -- Adwaita named colors
+ * @see https://developer.gnome.org/hig/ -- GNOME Human Interface Guidelines
+ * @see https://blogs.gnome.org/aday/2021/01/28/the-big-picture/ -- Adwaita design philosophy
  */
 
 /* ============================================================
- * Linux Light Mode
+ * Linux Light Mode Token Overrides
+ *
+ * .platform-linux targets <html class="platform-linux">.
+ * These values override the :root defaults from base.css.
  * ============================================================ */
 .platform-linux {
-  /* System font stack (respects user's desktop font settings) */
+  /*
+   * System font stack for Linux.
+   * Uses system-ui as the primary choice, which resolves to whatever the user's
+   * desktop environment has configured as the default font. Common resolutions:
+   *   - GNOME: Cantarell (the Adwaita system font)
+   *   - KDE Plasma: Noto Sans
+   *   - XFCE: Noto Sans or Liberation Sans
+   *   - Ubuntu: Ubuntu font
+   *
+   * Explicit fallbacks are listed in order of commonality on Linux desktops.
+   *
+   * @see https://developer.gnome.org/hig/reference/typography.html -- GNOME typography
+   */
   --font-family: system-ui, 'Cantarell', 'Noto Sans', 'Liberation Sans',
     sans-serif;
 
-  /* GNOME/Adwaita-style rounded corners */
-  --radius: 6px;
-  --radius-sm: 4px;
-  --radius-lg: 12px;
+  /*
+   * Border radii: GNOME/Adwaita style.
+   * GTK 4 / libadwaita uses 6px for most controls and 12px for dialogs,
+   * which matches our base.css defaults. We re-declare them here explicitly
+   * so the Linux theme is self-documenting and doesn't silently depend on
+   * base.css values.
+   *
+   * @see https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/style-classes.html
+   */
+  --radius: 6px;     /* Buttons, inputs, list rows (GtkButton, GtkEntry) */
+  --radius-sm: 4px;  /* Tags, badges, small inline elements */
+  --radius-lg: 12px; /* Dialogs, sheets, large cards (GtkDialog, AdwMessageDialog) */
 
-  /* Neutral sidebar */
-  --sidebar-bg: #f0f0f0;
-  --sidebar-hover: rgba(0, 0, 0, 0.05);
-  --sidebar-active: rgba(0, 0, 0, 0.08);
-  --sidebar-border: #dcdcdc;
+  /*
+   * Sidebar: Neutral light gray background.
+   * GNOME/Adwaita sidebars (GtkListBox in a side panel) use a flat, solid background
+   * without translucency or vibrancy effects. This is intentionally plain.
+   */
+  --sidebar-bg: #f0f0f0;                   /* Flat light gray (Adwaita base color) */
+  --sidebar-hover: rgba(0, 0, 0, 0.05);    /* Subtle hover: 5% black overlay */
+  --sidebar-active: rgba(0, 0, 0, 0.08);   /* Active row: 8% black overlay */
+  --sidebar-border: #dcdcdc;               /* Separator border */
 
-  /* Adwaita blue accent */
+  /*
+   * Adwaita accent blue.
+   * #3584e4 is GNOME's default accent color (@accent_bg_color in Adwaita).
+   * #1c71d8 is the darker hover variant (@accent_bg_color darkened).
+   * GNOME 43+ allows users to customize the accent color in Settings;
+   * in a production app, we would read the actual GTK accent via CSS env variables.
+   *
+   * @see https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/named-colors.html#accent-colors
+   */
   --accent: #3584e4;
   --accent-hover: #1c71d8;
 
-  /* Surfaces */
-  --surface-primary: #fafafa;
-  --surface-secondary: #f0f0f0;
-  --surface-elevated: #ffffff;
+  /*
+   * Surface colors: Simple hierarchy without warm/cool tinting.
+   * Linux follows the most straightforward light/elevation pattern:
+   *   primary (#fafafa) < secondary (#f0f0f0 = sidebar) < elevated (#ffffff = cards)
+   */
+  --surface-primary: #fafafa;   /* Main content background */
+  --surface-secondary: #f0f0f0; /* Grouped sections, matches sidebar for consistency */
+  --surface-elevated: #ffffff;  /* Cards and dialogs: pure white */
 
-  /* Shadows */
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 3px 10px rgba(0, 0, 0, 0.15);
+  /*
+   * Shadows: Moderate depth, matching GTK's shadow conventions.
+   * Adwaita uses relatively subtle shadows compared to macOS, with
+   * single-layer definitions (no multi-layer border effects).
+   */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);     /* Standard elevation */
+  --shadow-lg: 0 3px 10px rgba(0, 0, 0, 0.15); /* Dialog/popup elevation */
 }
 
-/* Linux Dark Mode */
+/* ============================================================
+ * Linux Dark Mode Token Overrides
+ *
+ * GNOME's Adwaita dark theme (since GNOME 42 / libadwaita 1.0) uses
+ * a warm dark palette with blue accents that become lighter for contrast.
+ *
+ * @see https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/named-colors.html
+ * ============================================================ */
 @media (prefers-color-scheme: dark) {
   .platform-linux {
-    --sidebar-bg: #242424;
-    --sidebar-hover: rgba(255, 255, 255, 0.05);
-    --sidebar-active: rgba(255, 255, 255, 0.08);
-    --sidebar-border: #3d3d3d;
+    /* Sidebar: Dark gray matching Adwaita dark sidebar color */
+    --sidebar-bg: #242424;                         /* @sidebar_bg_color equivalent */
+    --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay: 5% */
+    --sidebar-active: rgba(255, 255, 255, 0.08);  /* White overlay: 8% */
+    --sidebar-border: #3d3d3d;                     /* Visible but subtle */
 
+    /*
+     * Dark mode accent: Lighter blue for contrast against dark backgrounds.
+     * #62a0ea is Adwaita's dark mode accent (@accent_bg_color in dark).
+     * Hover reverts to the light mode blue (#3584e4) as it's darker and
+     * creates a "pressed" visual effect against the lighter default.
+     */
     --accent: #62a0ea;
     --accent-hover: #3584e4;
 
-    --surface-primary: #1e1e1e;
-    --surface-secondary: #242424;
-    --surface-elevated: #303030;
+    /*
+     * Dark surfaces: GNOME uses slightly warm dark grays.
+     * #1e1e1e is the standard Adwaita dark background (@window_bg_color dark).
+     */
+    --surface-primary: #1e1e1e;   /* Main dark background */
+    --surface-secondary: #242424; /* Grouped sections */
+    --surface-elevated: #303030;  /* Cards and dialogs: lighter for elevation */
 
+    /* Inverse text for buttons on accent backgrounds */
     --text-inverse: #1e1e1e;
   }
 }
 
 /* ============================================================
- * Linux-specific UI Adjustments
+ * Linux-specific UI Component Styles
  * ============================================================ */
 
-/* GNOME-style focus ring */
+/*
+ * Focus ring: GNOME uses a solid colored outline (box-shadow) around focused elements.
+ * 2px width at full accent color opacity (unlike macOS 3px at 30% opacity).
+ * This creates a crisp, well-defined focus indicator that matches GTK's GtkEntry
+ * focus appearance. Border color also changes to accent for a unified look.
+ *
+ * @see https://developer.gnome.org/hig/patterns/feedback/focus.html
+ */
 .platform-linux input:focus,
 .platform-linux select:focus,
 .platform-linux textarea:focus {
@@ -73,7 +169,14 @@
   border-color: var(--accent);
 }
 
-/* Flat button style (Adwaita buttons are less rounded) */
+/*
+ * Flat button style: Adwaita buttons are flat with solid backgrounds.
+ * No gradient (macOS) or special weight (Windows). The border-radius
+ * uses the platform variable for consistency. GTK buttons (GtkButton)
+ * have the same visual treatment.
+ *
+ * @see https://developer.gnome.org/hig/patterns/controls/buttons.html
+ */
 .platform-linux button.bg-accent {
   border-radius: var(--radius);
 }

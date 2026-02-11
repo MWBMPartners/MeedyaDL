@@ -1,6 +1,6 @@
 <!--
   gamdl-GUI Help Documentation
-  Copyright (c) 2024 MWBM Partners Ltd
+  Copyright (c) 2024-2026 MWBM Partners Ltd
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -18,14 +18,13 @@ gamdl-GUI uses your Apple Music browser cookies to authenticate with Apple's ser
 
 ## Why Cookies Are Needed
 
-> *Explanation of why cookie-based authentication is used.*
+Apple Music requires authentication to access its content. gamdl-GUI uses browser cookies -- specifically session tokens -- to authenticate with Apple's servers. This approach means:
 
-Placeholder for details on:
+- **Your Apple ID password is never stored or transmitted by the app.** gamdl-GUI only uses the session tokens contained in cookies that your browser created when you signed in to Apple Music.
+- **Cookies act as proof of your active session.** When you sign in to music.apple.com in your browser, Apple creates session cookies. gamdl-GUI uses these same cookies to make requests on your behalf.
+- **Cookies are stored locally on your machine.** They are saved as a plain text file in the app's data directory. They are never uploaded or sent to any third-party server.
 
-- How Apple Music authentication works
-- Why cookies are the method used for authentication
-- What data the cookies contain (session tokens, not your password)
-- Privacy considerations and how cookies are stored locally
+This is the same authentication method used by other tools that interact with Apple Music, and it avoids the need to handle or store your Apple ID credentials directly.
 
 ---
 
@@ -35,42 +34,59 @@ Placeholder for details on:
 
 - You must be signed in to [music.apple.com](https://music.apple.com) in your browser
 - You must have an active Apple Music subscription
-- A browser extension or developer tool for exporting cookies
+- A browser extension for exporting cookies (see browser-specific instructions below)
 
-### Using a Browser Extension
+### Cookie File Format
 
-> *Step-by-step instructions for exporting cookies using a browser extension.*
+gamdl-GUI accepts cookies in the **Netscape/Mozilla cookie file format**. This is a plain text, tab-separated format and is the standard format exported by browser cookie extensions. A valid cookie file typically starts with the following header line:
 
-Placeholder for detailed instructions covering:
+```text
+# Netscape HTTP Cookie File
+```
 
-1. Installing a cookie export extension (e.g., "Get cookies.txt" or similar)
-2. Navigating to music.apple.com
-3. Activating the extension to export cookies
-4. Saving the cookie file in the correct format
+Each subsequent line contains a single cookie with tab-separated fields (domain, flag, path, secure, expiry, name, value). You do not need to edit this file manually -- the browser extensions listed below produce files in the correct format automatically.
+
+### Required Domains
+
+Your exported cookie file must include cookies for the following domains:
+
+- `music.apple.com`
+- `.apple.com`
+
+gamdl-GUI validates these domains on import and will warn you if required domains are missing.
 
 ### From Chrome
 
-> *Chrome-specific cookie export instructions.*
-
-Placeholder for Chrome-specific steps, including any relevant developer tools methods.
+1. Install the **"Get cookies.txt LOCALLY"** extension from the [Chrome Web Store](https://chromewebstore.google.com).
+2. Navigate to [music.apple.com](https://music.apple.com) and sign in with your Apple ID.
+3. Once signed in, click the extension icon in the Chrome toolbar.
+4. Click **"Export"** to save the file as `cookies.txt`.
+5. The exported file will be in Netscape format and saved to your Downloads folder.
 
 ### From Firefox
 
-> *Firefox-specific cookie export instructions.*
-
-Placeholder for Firefox-specific steps, including any relevant developer tools methods.
+1. Install the **"cookies.txt"** add-on from [Firefox Add-ons](https://addons.mozilla.org).
+2. Navigate to [music.apple.com](https://music.apple.com) and sign in with your Apple ID.
+3. Once signed in, click the extension icon in the Firefox toolbar.
+4. Select **"Current Site"** to export only the cookies for Apple Music.
+5. Click export to save the file. The file will be in Netscape format.
 
 ### From Safari
 
-> *Safari-specific cookie export instructions.*
+Safari does not have a direct cookie export extension equivalent to the Chrome or Firefox options. There are two alternatives:
 
-Placeholder for Safari-specific steps, noting any macOS-specific considerations.
+- **Use a different browser.** The simplest approach is to sign in to music.apple.com in Chrome, Firefox, or Edge, and use one of the extensions listed above to export your cookies.
+- **Use Web Inspector.** Open Safari, go to the **Develop** menu > **Show Web Inspector** > **Storage** > **Cookies**. From here you can view cookies, but you would need to manually assemble them into Netscape format, which is not recommended.
+
+For the easiest experience, use Chrome or Firefox for cookie export.
 
 ### From Edge
 
-> *Microsoft Edge-specific cookie export instructions.*
-
-Placeholder for Edge-specific steps.
+1. Install **"Get cookies.txt LOCALLY"** from the [Edge Add-ons store](https://microsoftedge.microsoft.com/addons) (this is the same extension available for Chrome).
+2. Navigate to [music.apple.com](https://music.apple.com) and sign in with your Apple ID.
+3. Once signed in, click the extension icon in the Edge toolbar.
+4. Click **"Export"** to save the file as `cookies.txt`.
+5. The process is identical to Chrome.
 
 ---
 
@@ -78,31 +94,33 @@ Placeholder for Edge-specific steps.
 
 ### Using the Import Dialog
 
-> *How to import your exported cookie file into gamdl-GUI.*
+You can import cookies in two places:
 
-Placeholder for step-by-step instructions:
+- **During first-run setup:** The setup wizard presents cookie import at **Step 5**. Follow the on-screen prompts.
+- **From Settings:** Go to **Settings > Cookies** tab at any time.
 
-1. Open gamdl-GUI
-2. Navigate to the cookie settings (describe where this is in the UI)
-3. Click the import button
-4. Select your exported cookie file
-5. Verify that the cookies were imported successfully
+To import your cookie file:
 
-### Cookie File Formats
-
-> *Details on the cookie file formats accepted by gamdl-GUI.*
-
-Placeholder for information on supported formats (e.g., Netscape cookie format, JSON, etc.) and any format conversion that may be necessary.
+1. Open gamdl-GUI.
+2. Navigate to **Settings > Cookies** tab (or reach Step 5 of the first-run setup wizard).
+3. Click the **"Import Cookie File"** button.
+4. In the file picker, select your exported `cookies.txt` file.
+5. gamdl-GUI will automatically:
+   - Validate the file format (must be Netscape/Mozilla format).
+   - Check for required Apple Music domains (`music.apple.com` and `.apple.com`).
+   - Show expiry warnings if any cookies are near expiration.
 
 ### Verifying Cookie Validity
 
-> *How to check whether your imported cookies are still valid.*
+After a successful import, the Cookies tab displays a validation summary with the following information:
 
-Placeholder for details on:
-
-- The cookie validation indicator in gamdl-GUI
-- How to test cookies without starting a full download
-- What a valid vs. expired cookie status looks like in the UI
+- **Domain badges** -- Shows which Apple domains are present in the cookie file (e.g., `music.apple.com`, `.apple.com`).
+- **Expiry status** -- Indicates whether your cookies are valid, expiring soon, or expired:
+  - **Green** -- Cookies are valid and not near expiry.
+  - **Yellow** -- Cookies are expiring soon. You should re-export and re-import soon.
+  - **Red** -- Cookies have expired. You must re-export and re-import before downloads will work.
+- **Cookie count** -- The total number of cookies found in the imported file.
+- **File path** -- The location where the cookie file is stored. You can copy this path to your clipboard.
 
 ---
 
@@ -110,24 +128,23 @@ Placeholder for details on:
 
 ### How Long Do Cookies Last?
 
-> *Information on cookie expiration timelines.*
+Apple Music cookies typically last **1 to 12 months**, depending on the specific cookie type. However, cookies may expire earlier than expected if:
 
-Placeholder for details on:
+- You **sign out** of Apple Music in your browser.
+- You **change your Apple ID password**.
+- Apple **rotates session tokens** on their end.
+- The cookie is a short-lived session cookie rather than a persistent one.
 
-- Typical Apple Music cookie lifespan
-- Factors that can cause cookies to expire early (e.g., signing out of Apple Music in the browser, changing your Apple ID password)
-- Warning signs that your cookies are about to expire
+gamdl-GUI monitors cookie expiry dates and warns you when cookies are approaching expiration, so you can proactively refresh them before downloads start failing.
 
 ### Renewing Expired Cookies
 
-> *Step-by-step process for replacing expired cookies.*
+When your cookies expire or are approaching expiry, follow these steps:
 
-Placeholder for instructions on:
-
-1. Recognizing that your cookies have expired (error messages, failed downloads)
-2. Signing back into music.apple.com in your browser
-3. Re-exporting cookies using the same process described above
-4. Re-importing the fresh cookies into gamdl-GUI
+1. **Sign in** to [music.apple.com](https://music.apple.com) in your browser. Make sure you are fully signed in and can browse music.
+2. **Re-export** your cookies using the same browser extension you used before (see the browser-specific instructions above).
+3. **Re-import** the new cookie file in gamdl-GUI by going to **Settings > Cookies** tab and clicking **"Import Cookie File"**.
+4. The new cookie file replaces the old one. Verify that the status indicator shows green.
 
 ---
 
@@ -135,25 +152,31 @@ Placeholder for instructions on:
 
 ### Common Error Messages
 
-> *Cookie-related error messages and what they mean.*
-
-Placeholder for a list of common error messages related to cookies, such as:
-
-- "Authentication failed" -- cookies are invalid or expired
-- "Cookie file not found" -- the cookie file path is incorrect
-- "Invalid cookie format" -- the cookie file is in an unsupported format
+| Error Message | Cause | Solution |
+| --- | --- | --- |
+| **"Authentication failed"** | Cookies are expired or invalid. | Sign in to music.apple.com in your browser, re-export your cookies, and re-import them into gamdl-GUI. |
+| **"Cookie file not found"** | The cookie file was moved, renamed, or deleted from disk. | Re-import your cookie file from **Settings > Cookies** tab. If you no longer have the file, re-export from your browser. |
+| **"Invalid cookie format"** | The file is not in Netscape/Mozilla cookie format. | Make sure you are using a supported browser extension (see above). The file should begin with `# Netscape HTTP Cookie File`. Do not edit the file manually. |
 
 ### Cookies Expire Quickly
 
-> *What to do if your cookies keep expiring sooner than expected.*
+If your cookies seem to expire much sooner than expected:
 
-Placeholder for troubleshooting steps when cookies have a very short lifespan.
+- **Check that you are not signing out** of Apple Music in your browser after exporting. Signing out can invalidate session cookies immediately.
+- **Avoid changing your Apple ID password** unless necessary, as this will invalidate existing sessions.
+- **Re-export from a fresh sign-in session.** Close all browser windows, open a new window, sign in to music.apple.com, and export cookies. This ensures you get the freshest tokens.
+- **Use a persistent sign-in.** When signing in to music.apple.com, look for a "Keep me signed in" or "Remember me" option if available.
 
 ### Downloads Fail Despite Valid Cookies
 
-> *Troubleshooting downloads that fail even when cookies appear valid.*
+If the cookie status shows green but downloads still fail:
 
-Placeholder for steps to diagnose issues where cookies seem valid but downloads still fail. See also [Troubleshooting](troubleshooting.md) for general error resolution.
+- **Re-export and re-import** your cookies as a first step -- the status indicator may not catch all edge cases.
+- **Check your Apple Music subscription** is still active by visiting music.apple.com in your browser.
+- **Check your internet connection** and ensure Apple's servers are reachable.
+- **Review the application logs** for more detailed error information.
+
+See also [Troubleshooting](troubleshooting.md) for general error resolution and log file locations.
 
 ---
 
@@ -161,24 +184,19 @@ Placeholder for steps to diagnose issues where cookies seem valid but downloads 
 
 ### How Cookies Are Stored
 
-> *Details on how gamdl-GUI stores your cookies locally.*
-
-Placeholder for information on:
-
-- Where cookie data is stored on disk
-- Whether cookies are encrypted at rest
-- How to manually delete stored cookies
+- Cookies are stored as a **plain text file** in the app's private data directory on your machine.
+- The exact file path is displayed in **Settings > Cookies** tab, and you can copy it to your clipboard from there.
+- Credentials for other services (not Apple Music cookies) use the **OS keychain** for secure storage:
+  - **macOS:** Keychain
+  - **Windows:** Credential Manager
+  - **Linux:** Secret Service
 
 ### Best Practices
 
-> *Recommendations for keeping your cookies and account secure.*
-
-Placeholder for security best practices such as:
-
-- Never sharing your cookie file with others
-- Storing cookie files securely
-- Periodically refreshing cookies
-- What to do if you suspect your cookies have been compromised
+- **Never share your cookie file with anyone.** Your cookie file grants access to your Apple Music account. Treat it like a password.
+- **Do not upload your cookie file** to cloud storage, paste it into chat messages, or include it in bug reports.
+- **Refresh cookies proactively.** When gamdl-GUI shows a yellow expiry warning, re-export and re-import before they expire completely.
+- **If you suspect your cookies have been compromised**, sign out of Apple Music in your browser immediately (this invalidates the session), change your Apple ID password, then sign back in and export fresh cookies.
 
 ---
 

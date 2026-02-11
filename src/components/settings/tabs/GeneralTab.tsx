@@ -2,14 +2,59 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * General settings tab.
- * Contains output path, language, overwrite mode, and update check settings.
+ * @file GeneralTab.tsx -- General preferences settings tab.
+ *
+ * Renders the "General" tab within the {@link SettingsPage} component.
+ * This tab exposes the most commonly adjusted settings:
+ *
+ *   - **Output Directory** -- Where downloaded files are saved. Uses
+ *     the Tauri file dialog to let the user browse for a directory.
+ *     Maps to `settings.output_path` in the Zustand store and the
+ *     Rust backend's `AppSettings.output_path` field.
+ *
+ *   - **Metadata Language** -- Preferred language for track and album
+ *     metadata returned by the Apple Music API. Maps to
+ *     `settings.language` (ISO locale code, e.g., `"en-US"`).
+ *
+ *   - **Overwrite Existing Files** -- Whether to re-download and replace
+ *     files that already exist in the output directory. Maps to
+ *     `settings.overwrite`.
+ *
+ *   - **Auto-Check for Updates** -- Whether the application checks for
+ *     GAMDL and tool updates on startup. Maps to
+ *     `settings.auto_check_updates`.
+ *
+ * ## Store Connection
+ *
+ * This component reads from and writes to the Zustand `settingsStore`.
+ * It uses:
+ *   - `useSettingsStore((s) => s.settings)` -- read the current settings object.
+ *   - `useSettingsStore((s) => s.updateSettings)` -- apply a partial settings
+ *     patch, which sets `isDirty = true` in the store so the parent
+ *     {@link SettingsPage} knows unsaved changes exist.
+ *
+ * @see {@link ../SettingsPage.tsx}        -- Parent container that renders this tab
+ * @see {@link @/stores/settingsStore.ts}  -- Zustand store backing this component
+ * @see {@link https://react.dev/}         -- React documentation
+ * @see {@link https://v2.tauri.app/}      -- Tauri 2.0 framework
  */
 
+// Zustand store providing the shared settings state and mutation function.
+// All settings tabs read from the same store instance, ensuring changes
+// in one tab are immediately reflected if the user switches tabs.
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// Shared form control components:
+// - Toggle: renders a labelled on/off switch
+// - FilePickerButton: renders a button that opens the Tauri native file dialog
+// - Select: renders a labelled <select> dropdown
 import { Toggle, FilePickerButton, Select } from '@/components/common';
 
-/** Available languages for GAMDL's metadata language preference */
+/**
+ * Available language options for GAMDL's metadata language preference.
+ * Each entry maps an ISO locale code (BCP 47) to a human-readable label.
+ * The selected value is passed directly to GAMDL's `--language` flag.
+ */
 const LANGUAGE_OPTIONS = [
   { value: 'en-US', label: 'English (US)' },
   { value: 'en-GB', label: 'English (UK)' },
@@ -26,11 +71,19 @@ const LANGUAGE_OPTIONS = [
 ];
 
 /**
- * Renders the General settings tab with output path, language,
- * overwrite toggle, and auto-update toggle.
+ * GeneralTab -- Renders the General settings tab.
+ *
+ * Displays four settings controls in two visual sections ("Output" and
+ * "Preferences"). Each control's `onChange` handler calls `updateSettings`
+ * with a partial patch object to update only the changed field.
+ *
+ * This component does not manage its own state -- it is a pure
+ * "controlled" form that reads from and writes to the Zustand store.
  */
 export function GeneralTab() {
+  /** The full settings object (read-only snapshot from the store) */
   const settings = useSettingsStore((s) => s.settings);
+  /** Applies a partial update to the settings; sets isDirty = true in the store */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (

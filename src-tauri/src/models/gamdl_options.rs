@@ -6,41 +6,121 @@
 // option supported by GAMDL. These types ensure type safety when
 // constructing CLI commands and are shared with the frontend via
 // serialization for the settings and download option UIs.
+//
+// ## Architecture
+//
+// The types in this module serve three roles:
+// 1. **Settings persistence** -- serialized to/from JSON via serde for
+//    the `AppSettings` struct in `settings.rs`.
+// 2. **Frontend communication** -- exposed over the Tauri IPC bridge so
+//    the React UI can present dropdowns/options with correct values.
+// 3. **CLI argument generation** -- the `to_cli_args()` method on
+//    `GamdlOptions` converts typed Rust values into the exact strings
+//    that the `gamdl` Python CLI expects on the command line.
+//
+// ## References
+//
+// - GAMDL CLI source and docs: <https://github.com/glomatico/gamdl>
+// - serde derive macros: <https://docs.rs/serde/latest/serde/>
+// - serde rename_all attribute: <https://serde.rs/container-attrs.html#rename_all>
 
 use serde::{Deserialize, Serialize};
 
-/// All audio codec options supported by GAMDL's --song-codec flag.
-/// Listed in the order recommended for the default fallback chain.
+/// All audio codec options supported by GAMDL's `--song-codec` flag.
+///
+/// These codecs correspond to the stream types available on Apple Music.
+/// Listed in the order recommended for the default fallback chain (highest
+/// quality first). The fallback chain is configured in `AppSettings::music_fallback_chain`
+/// (see `settings.rs`) and controls automatic retry with a lower-quality codec
+/// when the preferred one is unavailable for a given track.
+///
+/// ## Codec categories
+///
+/// | Category      | Variants                                             | Typical use case                |
+/// |---------------|------------------------------------------------------|---------------------------------|
+/// | Lossless      | `Alac`                                               | Audiophiles, archival           |
+/// | Spatial/Atmos | `Atmos`, `Ac3`                                       | Surround sound systems          |
+/// | AAC (standard)| `Aac`, `AacLegacy`, `AacBinaural`                    | General listening                |
+/// | AAC-HE        | `AacHe`, `AacHeLegacy`, `AacHeBinaural`, etc.        | Low bandwidth / experimental    |
+///
+/// ## Serialization
+///
+/// `#[serde(rename_all = "kebab-case")]` means `AacBinaural` serializes to
+/// `"aac-binaural"` in JSON -- matching both the GAMDL CLI flag values and
+/// the frontend's expectation. See <https://serde.rs/container-attrs.html#rename_all>.
+///
+/// ## Reference
+///
+/// - GAMDL `--song-codec` flag: <https://github.com/glomatico/gamdl#usage>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SongCodec {
-    /// Apple Lossless Audio Codec - highest quality (24-bit/192kHz)
+    /// Apple Lossless Audio Codec (ALAC) -- the highest-quality option.
+    /// Delivers up to 24-bit/192 kHz lossless audio. Files are larger but
+    /// bit-perfect. Requires Apple Music lossless tier. This is the default
+    /// codec in `AppSettings` because the project brief prioritises quality.
     Alac,
-    /// Dolby Atmos spatial audio (requires wrapper for reliable access)
+
+    /// Dolby Atmos spatial audio stream. Produces immersive multi-channel
+    /// audio encoded with Dolby's object-based format. Note: reliable access
+    /// typically requires the wrapper/amdecrypt authentication pathway
+    /// (`GamdlOptions::use_wrapper`).
     Atmos,
-    /// Dolby Digital AC-3 codec
+
+    /// Dolby Digital (AC-3) codec. A legacy surround-sound format that is
+    /// widely supported by home theatre receivers. Lower quality than Atmos
+    /// but broader hardware compatibility.
     Ac3,
-    /// AAC with binaural spatial processing (256kbps)
+
+    /// AAC at 256 kbps with Apple's binaural spatial processing applied.
+    /// Simulates surround sound over standard stereo headphones using
+    /// head-related transfer functions (HRTF).
     AacBinaural,
-    /// Standard AAC (256kbps at up to 48kHz)
+
+    /// Standard AAC (Advanced Audio Coding) at 256 kbps, sampled at up to
+    /// 48 kHz. This is the default lossy codec Apple Music uses for streaming
+    /// and is a good balance of quality and file size.
     Aac,
-    /// Legacy AAC (256kbps at up to 44.1kHz) - most compatible
+
+    /// Legacy AAC at 256 kbps, capped at 44.1 kHz sample rate. Provided
+    /// for maximum compatibility with older devices and players that do
+    /// not support 48 kHz AAC.
     AacLegacy,
-    /// AAC-HE (High Efficiency) - 64kbps at 44.1kHz
+
+    /// AAC High Efficiency (HE-AAC) legacy variant at 64 kbps / 44.1 kHz.
+    /// Uses Spectral Band Replication (SBR) to achieve acceptable quality
+    /// at very low bitrates. Primarily useful for bandwidth-constrained use.
     AacHeLegacy,
-    /// AAC-HE variant (experimental)
+
+    /// AAC-HE (High Efficiency) -- experimental variant. Not widely tested;
+    /// may not be available for all tracks. Use with caution.
     AacHe,
-    /// AAC downmix variant (experimental)
+
+    /// AAC downmix variant (experimental). Folds surround channels down
+    /// to stereo. Useful when the source is multi-channel but the listener
+    /// only has stereo playback.
     AacDownmix,
-    /// AAC-HE with binaural processing (experimental)
+
+    /// AAC-HE with binaural spatial processing (experimental). Combines
+    /// the low-bitrate HE-AAC codec with Apple's HRTF binaural rendering.
     AacHeBinaural,
-    /// AAC-HE downmix variant (experimental)
+
+    /// AAC-HE downmix variant (experimental). Combines HE-AAC encoding
+    /// with a stereo downmix of multi-channel sources.
     AacHeDownmix,
 }
 
 impl SongCodec {
-    /// Converts the enum variant to the exact CLI string GAMDL expects.
-    /// These must match GAMDL's --song-codec accepted values exactly.
+    /// Converts the enum variant to the exact CLI string that the GAMDL
+    /// Python CLI expects as the argument to `--song-codec`.
+    ///
+    /// These strings are defined in GAMDL's source at
+    /// <https://github.com/glomatico/gamdl> and must be kept in sync
+    /// whenever GAMDL adds or renames codec identifiers.
+    ///
+    /// Note: although serde's `rename_all = "kebab-case"` produces
+    /// identical strings for JSON serialization, we maintain an explicit
+    /// mapping here so that CLI generation is decoupled from serde config.
     pub fn to_cli_string(&self) -> &str {
         match self {
             SongCodec::Alac => "alac",
@@ -58,6 +138,12 @@ impl SongCodec {
     }
 
     /// Human-readable display name for the UI dropdown/selector.
+    ///
+    /// These labels are shown in the React frontend's codec selection
+    /// dropdown (see `src/components/settings/AudioQuality.tsx`).
+    /// They include the bitrate and sample-rate characteristics so the
+    /// user can make an informed choice without needing to look up the
+    /// codec specifications.
     pub fn display_name(&self) -> &str {
         match self {
             SongCodec::Alac => "Lossless (ALAC)",
@@ -75,39 +161,76 @@ impl SongCodec {
     }
 }
 
-/// Video resolution options for GAMDL's --music-video-resolution flag.
-/// Listed from highest to lowest quality.
+/// Video resolution options for GAMDL's `--music-video-resolution` flag.
+///
+/// Listed from highest to lowest quality. Resolutions above 1080p require
+/// the H.265 (HEVC) codec; lower resolutions are available with H.264 (AVC).
+/// The video codec priority is controlled separately via
+/// `GamdlOptions::music_video_codec_priority`.
+///
+/// The fallback chain in `AppSettings::video_fallback_chain` (see `settings.rs`)
+/// tries these resolutions in descending order when the preferred resolution
+/// is not available for a given music video.
+///
+/// ## Serialization
+///
+/// Each variant uses `#[serde(rename = "...")]` to produce the exact string
+/// GAMDL expects (e.g., `"2160p"`) because serde's `rename_all = "lowercase"`
+/// would yield `"p2160"` instead.
+///
+/// ## Reference
+///
+/// - GAMDL `--music-video-resolution` flag: <https://github.com/glomatico/gamdl#usage>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VideoResolution {
-    /// 4K Ultra HD (2160p) - requires H.265 codec
+    /// 4K Ultra HD (2160p / 3840x2160). Requires H.265 codec. Produces the
+    /// highest quality video output but also the largest file sizes.
     #[serde(rename = "2160p")]
     P2160,
-    /// Quad HD (1440p) - requires H.265 codec
+
+    /// Quad HD (1440p / 2560x1440). Requires H.265 codec. A middle ground
+    /// between 4K and Full HD.
     #[serde(rename = "1440p")]
     P1440,
-    /// Full HD (1080p) - available with both H.264 and H.265
+
+    /// Full HD (1080p / 1920x1080). Available with both H.264 and H.265.
+    /// This is the highest resolution that H.264 supports on Apple Music.
     #[serde(rename = "1080p")]
     P1080,
-    /// HD (720p) - H.264 only
+
+    /// HD (720p / 1280x720). H.264 only. Standard HD quality suitable for
+    /// most screens.
     #[serde(rename = "720p")]
     P720,
-    /// qHD (540p) - H.264 only
+
+    /// qHD (540p / 960x540). H.264 only. A step below standard HD.
     #[serde(rename = "540p")]
     P540,
-    /// Standard definition (480p) - H.264 only
+
+    /// Standard definition (480p / 854x480). H.264 only. DVD-equivalent
+    /// quality.
     #[serde(rename = "480p")]
     P480,
-    /// Low definition (360p) - H.264 only
+
+    /// Low definition (360p / 640x360). H.264 only. Suitable for very
+    /// small screens or bandwidth-constrained situations.
     #[serde(rename = "360p")]
     P360,
-    /// Lowest quality (240p) - H.264 only
+
+    /// Lowest quality (240p / 426x240). H.264 only. Minimal bandwidth
+    /// usage; only useful for previewing content.
     #[serde(rename = "240p")]
     P240,
 }
 
 impl VideoResolution {
-    /// Converts to the CLI string GAMDL expects for --music-video-resolution.
+    /// Converts to the CLI string GAMDL expects for `--music-video-resolution`.
+    ///
+    /// The returned value (e.g., `"1080p"`) is passed directly as the argument
+    /// to the GAMDL subprocess. These strings are identical to the serde
+    /// rename values but maintained explicitly for the same decoupling reason
+    /// as `SongCodec::to_cli_string()`.
     pub fn to_cli_string(&self) -> &str {
         match self {
             VideoResolution::P2160 => "2160p",
@@ -122,20 +245,38 @@ impl VideoResolution {
     }
 }
 
-/// Synced lyrics format options for GAMDL's --synced-lyrics-format flag.
+/// Synced lyrics format options for GAMDL's `--synced-lyrics-format` flag.
+///
+/// GAMDL can download time-synced lyrics alongside audio. The format
+/// controls how those lyrics are stored on disk. The default in
+/// `AppSettings` is `Lrc` for songs and `Ttml` for music videos
+/// (the video download path overrides this at download time).
+///
+/// ## Reference
+///
+/// - GAMDL lyrics options: <https://github.com/glomatico/gamdl#usage>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LyricsFormat {
-    /// LRC format - timestamped lyrics (default for music)
+    /// LRC format -- the most common timestamped lyrics format, widely
+    /// supported by music players (foobar2000, MusicBee, etc.). Each line
+    /// has a `[mm:ss.xx]` timestamp prefix. Default for song downloads.
     Lrc,
-    /// SRT subtitle format
+
+    /// SRT (SubRip) subtitle format. Numbered entries with
+    /// `HH:MM:SS,mmm --> HH:MM:SS,mmm` timestamps. More common in
+    /// video contexts; included here for users who prefer SRT tooling.
     Srt,
-    /// TTML format - Timed Text Markup Language (default for videos)
+
+    /// TTML (Timed Text Markup Language) -- an XML-based subtitle format
+    /// standardised by the W3C. Apple Music natively provides lyrics in
+    /// TTML, so this option downloads the raw format without conversion.
+    /// Default for music video downloads.
     Ttml,
 }
 
 impl LyricsFormat {
-    /// Converts to the CLI string GAMDL expects.
+    /// Converts to the CLI string GAMDL expects for `--synced-lyrics-format`.
     pub fn to_cli_string(&self) -> &str {
         match self {
             LyricsFormat::Lrc => "lrc",
@@ -145,20 +286,35 @@ impl LyricsFormat {
     }
 }
 
-/// Cover art image format options for GAMDL's --cover-format flag.
+/// Cover art image format options for GAMDL's `--cover-format` flag.
+///
+/// Controls the format of the album artwork saved alongside downloads.
+/// The default in `AppSettings` is `Raw` (original quality), matching
+/// the project brief's preference for maximum fidelity.
+///
+/// ## Reference
+///
+/// - GAMDL `--cover-format` flag: <https://github.com/glomatico/gamdl#usage>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CoverFormat {
-    /// JPEG format - smaller file size, lossy compression
+    /// JPEG format -- lossy compression, smaller file size (~100-300 KB
+    /// for a 1200x1200 image). Good default for space-conscious users.
     Jpg,
-    /// PNG format - lossless, larger file size
+
+    /// PNG format -- lossless compression, larger file size (~1-3 MB).
+    /// Preserves every pixel but requires more storage.
     Png,
-    /// Raw format - original format as provided by the artist
+
+    /// Raw format -- downloads the artwork in whatever format Apple Music
+    /// serves (typically JPEG at very high quality). No conversion is
+    /// applied. This is the project default because it preserves the
+    /// original artwork fidelity.
     Raw,
 }
 
 impl CoverFormat {
-    /// Converts to the CLI string GAMDL expects.
+    /// Converts to the CLI string GAMDL expects for `--cover-format`.
     pub fn to_cli_string(&self) -> &str {
         match self {
             CoverFormat::Jpg => "jpg",
@@ -168,45 +324,120 @@ impl CoverFormat {
     }
 }
 
-/// Download mode options for GAMDL's --download-mode flag.
+/// Download mode options for GAMDL's `--download-mode` flag.
+///
+/// Controls which external tool GAMDL uses to fetch HLS/DASH streams
+/// from Apple Music's CDN. The choice affects download speed, reliability,
+/// and which optional dependencies are required.
+///
+/// ## Reference
+///
+/// - yt-dlp: <https://github.com/yt-dlp/yt-dlp>
+/// - N_m3u8DL-RE: <https://github.com/nilaoda/N_m3u8DL-RE>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DownloadMode {
-    /// Use yt-dlp for downloading (default, most compatible)
+    /// Use yt-dlp for downloading. This is the default and most compatible
+    /// option. yt-dlp is a Python-based tool that handles HLS stream
+    /// downloading and is installed automatically as a GAMDL dependency.
+    /// See `DependencyInfo` in `dependency.rs` for installation tracking.
     Ytdlp,
-    /// Use N_m3u8DL-RE for downloading (faster alternative)
+
+    /// Use N_m3u8DL-RE for downloading. A compiled binary alternative that
+    /// can be faster than yt-dlp for HLS streams. Requires separate
+    /// installation (tracked as an optional dependency in `dependency.rs`).
     Nm3u8dlre,
 }
 
-/// Remux mode options for GAMDL's --remux-mode flag.
+/// Remux mode options for GAMDL's `--remux-mode` flag.
+///
+/// After downloading encrypted stream segments, GAMDL decrypts and remuxes
+/// them into the final container format. This enum controls which tool
+/// performs that remuxing step.
+///
+/// ## Reference
+///
+/// - FFmpeg: <https://ffmpeg.org/>
+/// - MP4Box (GPAC): <https://github.com/gpac/gpac/wiki/MP4Box>
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RemuxMode {
-    /// Use FFmpeg for remuxing (default)
+    /// Use FFmpeg for remuxing (default). FFmpeg is a required dependency
+    /// (see `dependency.rs`) and handles both audio and video remuxing
+    /// reliably. It is also used for format conversion when needed.
     Ffmpeg,
-    /// Use MP4Box for remuxing (alternative)
+
+    /// Use MP4Box (from GPAC) for remuxing. An alternative to FFmpeg that
+    /// some users prefer for MP4 container manipulation. MP4Box is tracked
+    /// as an optional dependency in `dependency.rs`.
     Mp4box,
 }
 
-/// Log level options for GAMDL's --log-level flag.
+/// Log level options for GAMDL's `--log-level` flag.
+///
+/// Controls the verbosity of GAMDL's stdout/stderr output, which the
+/// download manager in `commands/download.rs` parses for progress events.
+/// Higher verbosity levels produce more output and can slow down parsing.
+///
+/// ## Serialization
+///
+/// `#[serde(rename_all = "UPPERCASE")]` ensures these serialize to
+/// `"DEBUG"`, `"INFO"`, etc. -- matching Python's standard logging levels
+/// that GAMDL uses internally.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum LogLevel {
+    /// Most verbose. Logs every HTTP request, decryption step, and internal
+    /// state change. Useful for troubleshooting download failures.
     Debug,
+
+    /// Standard operational messages. Logs track names, progress, and
+    /// completion. This is the recommended level for normal use.
     Info,
+
+    /// Only logs warnings and errors. Suppresses normal progress output.
     Warning,
+
+    /// Only logs fatal errors. Minimal output.
     Error,
 }
 
 /// Complete set of GAMDL CLI options.
 ///
-/// This struct maps to every flag and argument GAMDL supports.
-/// All fields are Optional because:
-/// 1. For global settings, only user-configured fields are set (rest use GAMDL defaults)
-/// 2. For per-download overrides, only overridden fields are set (rest inherit from globals)
+/// This struct is the central data structure for constructing GAMDL CLI
+/// invocations. It maps 1:1 to the flags and arguments that the `gamdl`
+/// Python CLI accepts on the command line.
 ///
-/// The `to_cli_args()` method converts this struct into a Vec<String> of
-/// CLI arguments that can be passed directly to GAMDL's subprocess.
+/// ## Why all fields are `Option<T>`
+///
+/// Every field is `Option` to support a two-layer configuration model:
+///
+/// 1. **Global settings** (`AppSettings` in `settings.rs`) -- the user's
+///    default preferences. When converting `AppSettings` into a
+///    `GamdlOptions`, all configured fields become `Some(...)`.
+/// 2. **Per-download overrides** (`DownloadRequest::options` in `download.rs`)
+///    -- the user can tweak individual options for a specific download. Only
+///    the overridden fields are `Some(...)`; the rest are `None`, meaning
+///    "inherit from global settings".
+///
+/// Before spawning the GAMDL subprocess, the download manager merges the
+/// per-download overrides on top of the global options (per-download wins),
+/// then calls `to_cli_args()` on the merged result.
+///
+/// ## Serialization
+///
+/// The struct derives both `Serialize` and `Deserialize` via serde
+/// (<https://docs.rs/serde/latest/serde/>) so it can be:
+/// - Persisted as part of `AppSettings` JSON.
+/// - Passed over the Tauri IPC bridge to/from the React frontend.
+/// - Included in `DownloadRequest` payloads.
+///
+/// `#[derive(Default)]` initializes all fields to `None`, which is the
+/// correct starting state for a blank per-download override.
+///
+/// ## Reference
+///
+/// - GAMDL CLI usage and all flags: <https://github.com/glomatico/gamdl#usage>
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GamdlOptions {
     // --- Audio Quality ---
@@ -325,16 +556,34 @@ pub struct GamdlOptions {
 impl GamdlOptions {
     /// Converts the options struct into a vector of CLI argument strings.
     ///
-    /// Only fields that are Some() generate CLI flags. This allows
-    /// selective overriding: global settings set all fields, per-download
-    /// overrides only set changed fields, and the merge happens before
-    /// calling this method.
+    /// Only fields that are `Some(...)` generate CLI flags. `None` fields
+    /// are silently skipped, allowing GAMDL to use its own built-in defaults
+    /// for those options. This design supports the two-layer merge strategy
+    /// described in the struct-level documentation above.
     ///
-    /// The returned vector can be passed directly to Command::args().
+    /// ## Mapping rules
+    ///
+    /// | Rust type                | CLI pattern                        | Example                                 |
+    /// |--------------------------|------------------------------------|------------------------------------------|
+    /// | `Option<SomeEnum>`       | `--flag <enum.to_cli_string()>`    | `--song-codec alac`                      |
+    /// | `Option<String>`         | `--flag <value>`                   | `--language en-US`                       |
+    /// | `Option<u32>`            | `--flag <value.to_string()>`       | `--truncate 200`                         |
+    /// | `Option<bool>` = `true`  | `--flag` (presence = enabled)      | `--overwrite`                            |
+    /// | `Option<bool>` = `false` | *(omitted entirely)*               | *(GAMDL's default is used)*              |
+    ///
+    /// The returned `Vec<String>` is passed directly to
+    /// `std::process::Command::args()` when spawning the GAMDL subprocess.
+    ///
+    /// ## Reference
+    ///
+    /// - `std::process::Command::args`: <https://doc.rust-lang.org/std/process/struct.Command.html#method.args>
     pub fn to_cli_args(&self) -> Vec<String> {
+        // Pre-allocate with a reasonable capacity to avoid frequent reallocation.
+        // Most invocations produce 10-30 arguments.
         let mut args = Vec::new();
 
         // --- Audio Quality ---
+        // Enum-valued option: push the flag name, then the CLI string representation.
         if let Some(ref codec) = self.song_codec {
             args.push("--song-codec".to_string());
             args.push(codec.to_cli_string().to_string());
@@ -357,6 +606,9 @@ impl GamdlOptions {
             args.push("--uploaded-video-quality".to_string());
             args.push(quality.clone());
         }
+        // Boolean flag pattern: only emit the flag when the value is explicitly
+        // `Some(true)`. `Some(false)` and `None` both result in omission,
+        // meaning GAMDL uses its default behavior (music video skip enabled).
         if self.disable_music_video_skip == Some(true) {
             args.push("--disable-music-video-skip".to_string());
         }
@@ -381,6 +633,9 @@ impl GamdlOptions {
             args.push("--cover-format".to_string());
             args.push(format.to_cli_string().to_string());
         }
+        // Special formatting: GAMDL expects cover size as "WIDTHxHEIGHT" but
+        // we store a single u32 because cover art is always square. The
+        // format!() call duplicates the value to produce e.g. "1200x1200".
         if let Some(size) = self.cover_size {
             args.push("--cover-size".to_string());
             args.push(format!("{}x{}", size, size));
@@ -497,6 +752,10 @@ impl GamdlOptions {
         }
 
         // --- Modes ---
+        // Inline match: for enums with only two variants and trivial string
+        // mappings, we use an inline match instead of calling a to_cli_string()
+        // method. This keeps the CLI string right next to the flag name for
+        // easy verification against GAMDL's docs.
         if let Some(ref mode) = self.download_mode {
             args.push("--download-mode".to_string());
             args.push(match mode {
@@ -513,6 +772,7 @@ impl GamdlOptions {
         }
 
         // --- Other ---
+        // Log level uses Python's standard level names in UPPERCASE.
         if let Some(ref level) = self.log_level {
             args.push("--log-level".to_string());
             args.push(match level {
@@ -528,6 +788,9 @@ impl GamdlOptions {
         if self.save_playlist == Some(true) {
             args.push("--save-playlist".to_string());
         }
+        // When set, GAMDL ignores its own ~/.gamdl/config.json. We typically
+        // enable this so that the GUI's settings are the sole source of truth
+        // and do not conflict with a user's pre-existing GAMDL config.
         if self.no_config_file == Some(true) {
             args.push("--no-config-file".to_string());
         }

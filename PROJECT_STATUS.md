@@ -91,10 +91,11 @@
 - [x] Fix Rust clippy warnings (new_without_default, field_reassign, ptr_arg)
 - [x] Fix CI workflow (add lint step, fix test discovery)
 - [x] Fix changelog workflow (remove unnecessary GitHub API calls)
+- [x] Detailed code comments on all 70+ source files (Rust backend, React frontend, config, scripts, workflows, CSS)
+- [x] Complete help documentation (10 topics with full content: Getting Started, Downloading Music/Videos, Lyrics & Metadata, Quality Settings, Fallback Quality, Cookie Management, Troubleshooting, FAQ)
+- [x] README finalization (fixed badges for private repo, fixed broken Project_Plan link)
 - [ ] Platform testing
-- [ ] Complete help documentation
 - [ ] Release workflow testing
-- [ ] README finalization
 - [ ] Copyright year automation
 
 ---
