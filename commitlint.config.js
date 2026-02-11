@@ -2,32 +2,90 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Commitlint configuration for enforcing conventional commit messages.
- * Commit messages must follow the format: type(scope): description
- * Example: feat(download): add fallback quality chain support
+ * Commitlint Configuration for gamdl-GUI
+ * ========================================
+ *
+ * Commitlint enforces the Conventional Commits specification on all commit messages.
+ * This ensures a standardized commit history that can be automatically parsed by:
+ *   - git-cliff (cliff.toml) -- to generate CHANGELOG.md from commit messages
+ *   - Semantic versioning tools -- to determine version bumps (feat = minor, fix = patch)
+ *   - GitHub Release notes -- structured release documentation
+ *
+ * Commit message format:
+ *   type(scope): description
+ *
+ * Examples:
+ *   feat(download): add fallback quality chain support
+ *   fix(auth): handle expired cookie refresh on macOS Keychain
+ *   docs(readme): update installation instructions for Linux
+ *   refactor(queue): extract download state machine into separate module
+ *
+ * Commitlint is typically invoked via a Git commit-msg hook (set up by Husky or
+ * lefthook) which runs automatically before each commit is finalized.
+ *
+ * Related config files:
+ *   - cliff.toml               -- git-cliff uses the same commit types for changelog grouping
+ *   - .github/workflows/ci.yml -- CI may validate commit messages on PRs
+ *   - package.json             -- Contains the commitlint and @commitlint/config-conventional deps
+ *
+ * @see https://commitlint.js.org/ -- Commitlint documentation
+ * @see https://commitlint.js.org/reference/rules -- All available rules
+ * @see https://www.conventionalcommits.org/en/v1.0.0/ -- Conventional Commits specification
+ * @see https://github.com/conventional-changelog/commitlint -- GitHub repository
  */
 
 export default {
-  // Extend the standard conventional commit configuration
+  /**
+   * extends -- Inherit rules from a shareable configuration.
+   *
+   * @commitlint/config-conventional provides a comprehensive ruleset based on the
+   * Conventional Commits spec, including:
+   *   - type-enum: Restrict commit types to a known list
+   *   - type-case: Require lowercase type (e.g., 'feat' not 'Feat')
+   *   - type-empty: Require a type to be present
+   *   - scope-case: Require lowercase scope
+   *   - subject-case: Disallow starting with uppercase
+   *   - subject-empty: Require a description after the type
+   *   - subject-full-stop: Disallow ending with a period
+   *   - header-max-length: Limit header to 100 characters
+   *   - body-leading-blank: Require blank line between header and body
+   *   - footer-leading-blank: Require blank line before footer
+   *
+   * @see https://github.com/conventional-changelog/commitlint/tree/master/%40commitlint/config-conventional
+   */
   extends: ['@commitlint/config-conventional'],
 
   rules: {
-    // Enforce specific commit type prefixes
+    /**
+     * type-enum -- Restricts the commit type to an explicit allowlist.
+     *
+     * Rule tuple format: [severity, applicability, value]
+     *   - severity: 2 = error (blocks the commit), 1 = warning, 0 = disabled
+     *   - applicability: 'always' = rule must be satisfied, 'never' = rule must NOT be satisfied
+     *   - value: Array of allowed type strings
+     *
+     * These types are kept in sync with the commit_parsers in cliff.toml so that
+     * every allowed commit type maps to a changelog section. If you add a type here,
+     * also add a corresponding parser in cliff.toml.
+     *
+     * @see https://commitlint.js.org/reference/rules#type-enum
+     * @see cliff.toml -- commit_parsers array must match these types
+     */
     'type-enum': [
-      2, // Error level (block commit)
+      2, // Error level: commits with unlisted types are rejected
       'always',
       [
-        'feat',     // New feature
-        'fix',      // Bug fix
-        'docs',     // Documentation only
-        'style',    // Formatting, no code change
-        'refactor', // Code restructuring, no behavior change
-        'perf',     // Performance improvement
-        'test',     // Adding or fixing tests
-        'build',    // Build system or dependency changes
-        'ci',       // CI/CD pipeline changes
-        'chore',    // Maintenance tasks
-        'revert',   // Revert a previous commit
+        'feat',     // New feature (maps to "Features" in changelog, triggers minor version bump)
+        'fix',      // Bug fix (maps to "Bug Fixes" in changelog, triggers patch version bump)
+        'docs',     // Documentation-only changes (README, comments, JSDoc)
+        'style',    // Code style/formatting changes (whitespace, semicolons, no logic change)
+        'refactor', // Code restructuring without behavior change (rename, extract, simplify)
+        'perf',     // Performance improvement (optimization, caching, algorithm change)
+        'test',     // Adding or updating tests (unit tests, integration tests, test fixtures)
+        'build',    // Build system or dependency changes (npm, Cargo.toml, Vite config)
+        'ci',       // CI/CD pipeline changes (GitHub Actions workflows, scripts)
+        'chore',    // Maintenance tasks (tooling, config, no production code change)
+        'revert',   // Revert a previous commit (auto-generated by `git revert`)
       ],
     ],
   },

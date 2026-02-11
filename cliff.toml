@@ -1,11 +1,34 @@
 # Copyright (c) 2024-2026 MWBM Partners Ltd
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# git-cliff configuration for automated CHANGELOG.md generation.
-# Parses conventional commit messages and groups them by type.
+# git-cliff Configuration for gamdl-GUI Changelog Generation
+# ===========================================================
+#
+# git-cliff parses conventional commit messages from the Git history and generates
+# a structured CHANGELOG.md file. It is invoked:
+#   1. Automatically by the .github/workflows/changelog.yml GitHub Action on every push to main
+#   2. Manually via `git cliff` CLI during development (optional)
+#
+# The generated changelog groups commits by type (features, fixes, etc.) and formats
+# them with version headers, dates, and scope annotations.
+#
+# Related config files:
+#   - commitlint.config.js             -- Enforces the same commit types at commit time
+#   - .github/workflows/changelog.yml  -- Workflow that runs git-cliff and commits CHANGELOG.md
+#   - .github/workflows/release.yml    -- Release notes reference the generated CHANGELOG.md
+#
+# @see https://git-cliff.org/docs/configuration -- git-cliff configuration reference
+# @see https://git-cliff.org/docs/templating -- Tera template syntax used in body/header/footer
+# @see https://www.conventionalcommits.org/en/v1.0.0/ -- Conventional Commits spec
 
+# ============================================================
+# [changelog] -- Controls the output format of CHANGELOG.md
+# ============================================================
 [changelog]
-# Template for the changelog header
+
+# header -- Static text prepended to the top of the changelog file (rendered once).
+# Uses Tera template syntax (similar to Jinja2). Triple-quoted strings for multi-line.
+# @see https://git-cliff.org/docs/configuration/changelog#header
 header = """
 # Changelog
 
@@ -14,7 +37,26 @@ All notable changes to **GAMDL GUI** are documented in this file.
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
 """
-# Template for each release section
+
+# body -- Template rendered for each version/release section.
+#
+# Template variables available:
+#   - version: The Git tag (e.g., "v0.1.0"), or empty for unreleased commits
+#   - timestamp: Unix timestamp of the tag, formatted with date() filter
+#   - commits: Array of parsed commit objects, each with:
+#     - group: The group name assigned by commit_parsers (e.g., "Features")
+#     - scope: Optional scope from "type(scope): message" format
+#     - message: The commit subject line
+#     - body: Optional commit body text
+#     - breaking: Boolean indicating a BREAKING CHANGE
+#
+# The HTML comments (<!-- 0 -->, <!-- 1 -->, etc.) in group names are used for
+# sorting: groups are ordered alphabetically, and the HTML comments ensure they
+# appear in the desired order (Features first, then Bug Fixes, etc.). The
+# `striptags` filter removes them from the rendered output.
+#
+# @see https://git-cliff.org/docs/configuration/changelog#body
+# @see https://keats.github.io/tera/docs/ -- Tera template engine docs
 body = """
 {% if version %}\
     ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
@@ -31,41 +73,97 @@ body = """
     {% endfor %}
 {% endfor %}\n
 """
-# Template for the changelog footer
+
+# footer -- Static text appended to the bottom of the changelog file (rendered once).
+# @see https://git-cliff.org/docs/configuration/changelog#footer
 footer = """
 ---
 *Generated with [git-cliff](https://git-cliff.org/)*
 """
-# Remove leading and trailing whitespace from the changelog
+
+# trim -- When true, removes leading/trailing whitespace from each rendered template section.
+# Prevents extra blank lines that accumulate from template whitespace handling.
+# @see https://git-cliff.org/docs/configuration/changelog#trim
 trim = true
 
+# ============================================================
+# [git] -- Controls how git-cliff reads and parses the Git history
+# ============================================================
 [git]
-# Parse conventional commits
+
+# conventional_commits -- When true, parse commit messages using the Conventional Commits spec.
+# Extracts type, scope, breaking change markers, and description from the commit subject.
+# Format: "type(scope): description" or "type!: description" (breaking)
+# @see https://git-cliff.org/docs/configuration/git#conventional_commits
 conventional_commits = true
+
+# filter_unconventional -- When true, exclude commits that don't follow the conventional format.
+# Commits like "WIP" or "misc changes" will be silently dropped from the changelog.
+# @see https://git-cliff.org/docs/configuration/git#filter_unconventional
 filter_unconventional = true
+
+# split_commits -- When false, each commit appears in exactly one group.
+# When true, a commit with multiple types or scopes could appear in multiple groups.
+# @see https://git-cliff.org/docs/configuration/git#split_commits
 split_commits = false
 
-# Map commit types to changelog section names
+# commit_parsers -- Rules for assigning commits to changelog groups (sections).
+#
+# Each parser is tried in order. The first matching rule wins. Rules can:
+#   - Assign a commit to a 'group' (section heading in the changelog)
+#   - Skip a commit entirely with 'skip = true'
+#   - Match on 'message' (commit subject) or 'body' (commit body) using regex
+#
+# The HTML comments (<!-- N -->) prefix each group name to control sort order:
+#   - Groups are sorted alphabetically in the rendered output
+#   - "<!-- 0 -->..." sorts before "<!-- 1 -->..." etc.
+#   - The striptags filter in the body template removes these invisible prefixes
+#
+# These types must match the type-enum list in commitlint.config.js.
+#
+# @see https://git-cliff.org/docs/configuration/git#commit_parsers
 commit_parsers = [
-    { message = "^feat", group = "<!-- 0 -->✨ Features" },
-    { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
-    { message = "^doc", group = "<!-- 2 -->📚 Documentation" },
-    { message = "^perf", group = "<!-- 3 -->⚡ Performance" },
-    { message = "^refactor", group = "<!-- 4 -->🔧 Refactoring" },
-    { message = "^style", group = "<!-- 5 -->🎨 Styling" },
-    { message = "^test", group = "<!-- 6 -->🧪 Testing" },
-    { message = "^build", group = "<!-- 7 -->📦 Build System" },
-    { message = "^ci", group = "<!-- 8 -->🔄 CI/CD" },
-    { message = "^chore\\(release\\)", skip = true },
-    { message = "^chore\\(deps\\)", skip = true },
-    { message = "^chore\\(pr\\)", skip = true },
-    { message = "^chore", group = "<!-- 9 -->🧹 Maintenance" },
-    { body = ".*security", group = "<!-- 10 -->🔒 Security" },
+    # --- Visible changelog groups (ordered by importance) ---
+    { message = "^feat", group = "<!-- 0 -->✨ Features" },        # New features
+    { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },        # Bug fixes
+    { message = "^doc", group = "<!-- 2 -->📚 Documentation" },     # Docs changes
+    { message = "^perf", group = "<!-- 3 -->⚡ Performance" },      # Performance improvements
+    { message = "^refactor", group = "<!-- 4 -->🔧 Refactoring" },  # Code restructuring
+    { message = "^style", group = "<!-- 5 -->🎨 Styling" },         # Code style/formatting
+    { message = "^test", group = "<!-- 6 -->🧪 Testing" },          # Test additions/changes
+    { message = "^build", group = "<!-- 7 -->📦 Build System" },    # Build/dependency changes
+    { message = "^ci", group = "<!-- 8 -->🔄 CI/CD" },              # CI pipeline changes
+
+    # --- Skipped commit types (noise reduction) ---
+    { message = "^chore\\(release\\)", skip = true },  # Release chores (version bumps)
+    { message = "^chore\\(deps\\)", skip = true },     # Dependency updates (automated)
+    { message = "^chore\\(pr\\)", skip = true },       # PR-related chores (merge commits)
+
+    # --- Catch-all for remaining chore commits ---
+    { message = "^chore", group = "<!-- 9 -->🧹 Maintenance" },     # General maintenance
+
+    # --- Body-based matchers (checked after subject matchers) ---
+    { body = ".*security", group = "<!-- 10 -->🔒 Security" },      # Security-related (any type)
 ]
-# Protect email addresses
+
+# protect_breaking_commits -- When true, breaking change commits are never filtered out.
+# Currently false because we don't have filters that would accidentally skip them.
+# @see https://git-cliff.org/docs/configuration/git#protect_breaking_commits
 protect_breaking_commits = false
+
+# filter_commits -- When true, applies the commit_preprocessors filters.
+# Currently false; all conventional commits pass through to commit_parsers.
+# @see https://git-cliff.org/docs/configuration/git#filter_commits
 filter_commits = false
-# Tag pattern for version extraction
+
+# tag_pattern -- Regex pattern to identify version tags in the Git history.
+# Matches tags like v0.1.0, v1.0.0-beta.1, v2.3.4-rc.2, etc.
+# Tags not matching this pattern are ignored (e.g., "release-candidate", "deploy-2024").
+# @see https://git-cliff.org/docs/configuration/git#tag_pattern
 tag_pattern = "v[0-9].*"
-# Sort commits by oldest first within each group
+
+# sort_commits -- Order of commits within each group section.
+# "oldest" = chronological order (oldest commit first, newest last).
+# Alternative: "newest" = reverse chronological (newest first).
+# @see https://git-cliff.org/docs/configuration/git#sort_commits
 sort_commits = "oldest"

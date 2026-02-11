@@ -2,44 +2,98 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * GAMDL installation step of the setup wizard.
- * Checks if GAMDL is installed in the portable Python, and if not,
- * installs it via pip.
+ * @file GamdlStep.tsx -- GAMDL package installation step of the setup wizard.
+ *
+ * Renders the "GAMDL" step within the {@link SetupWizard}. This step ensures
+ * that the GAMDL Python package (the Apple Music download engine) is installed
+ * into the portable Python environment set up in the previous step.
+ *
+ * ## Behaviour
+ *
+ * 1. **On mount**, calls `checkGamdl()` to detect whether GAMDL is already
+ *    installed by running `pip show gamdl` in the portable Python.
+ *
+ * 2. **If GAMDL is found**, displays version info and auto-completes.
+ *
+ * 3. **If not found**, shows an "Install GAMDL" button that runs
+ *    `pip install gamdl` in the portable Python via the Rust backend.
+ *
+ * ## Dependencies
+ *
+ * This step requires Python to be installed first (previous wizard step).
+ * The dependency store's `installGamdl` action targets the portable Python
+ * that was set up during the Python step.
+ *
+ * ## Store Connections
+ *
+ * - **dependencyStore**: `gamdl` status, `checkGamdl`, `installGamdl`,
+ *   `isChecking`, `isInstalling`, `error`.
+ * - **setupStore**: `completeStep('gamdl')`, `setStepError`.
+ *
+ * @see {@link ../SetupWizard.tsx}             -- Parent wizard container
+ * @see {@link ./PythonStep.tsx}               -- Previous step (Python must be installed first)
+ * @see {@link @/stores/dependencyStore.ts}    -- Manages dependency status
+ * @see {@link @/stores/setupStore.ts}         -- Manages wizard step state
  */
 
+// React useEffect for checking status on mount and auto-completing.
 import { useEffect } from 'react';
+
+// Lucide icons for status display and the install button.
 import { CheckCircle, Download } from 'lucide-react';
+
+// Zustand stores for dependency tracking and wizard step management.
 import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
+
+// Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
 
 /**
- * Renders the GAMDL installation step. Shows current status and
- * provides an install button if GAMDL is not yet available.
+ * GamdlStep -- Renders the GAMDL installation step.
+ *
+ * Structurally identical to {@link PythonStep} but targets the GAMDL
+ * Python package instead of the Python runtime. Displays one of three
+ * states: checking, installed (success), or not installed (install button).
  */
 export function GamdlStep() {
+  // --- Dependency store selectors ---
+  /** GAMDL installation status (null until checked) */
   const gamdl = useDependencyStore((s) => s.gamdl);
+  /** True while the backend is checking GAMDL availability */
   const isChecking = useDependencyStore((s) => s.isChecking);
+  /** True while the GAMDL pip install is in progress */
   const isInstalling = useDependencyStore((s) => s.isInstalling);
+  /** Triggers the backend check for GAMDL */
   const checkGamdl = useDependencyStore((s) => s.checkGamdl);
+  /** Triggers the GAMDL pip installation */
   const installGamdl = useDependencyStore((s) => s.installGamdl);
+  /** Error message from the most recent operation */
   const error = useDependencyStore((s) => s.error);
+
+  // --- Setup store selectors ---
+  /** Marks the 'gamdl' step as completed */
   const completeStep = useSetupStore((s) => s.completeStep);
+  /** Records an error for the current step */
   const setStepError = useSetupStore((s) => s.setStepError);
 
-  /* Check GAMDL status on mount */
+  /** Check GAMDL status on mount */
   useEffect(() => {
     checkGamdl();
   }, [checkGamdl]);
 
-  /* Mark step as complete when GAMDL is installed */
+  /** Auto-complete when GAMDL is detected as installed */
   useEffect(() => {
     if (gamdl?.installed) {
       completeStep('gamdl');
     }
   }, [gamdl, completeStep]);
 
-  /** Handle GAMDL installation */
+  /**
+   * Handles the "Install GAMDL" button click.
+   * Calls the dependency store's installGamdl action, which invokes
+   * `pip install gamdl` in the portable Python via Tauri IPC.
+   */
   const handleInstall = async () => {
     try {
       await installGamdl();

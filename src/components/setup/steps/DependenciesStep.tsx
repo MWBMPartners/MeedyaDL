@@ -2,43 +2,111 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Dependencies installation step of the setup wizard.
- * Shows the status of all external tool dependencies (FFmpeg, mp4decrypt, etc.)
- * and provides install buttons for each. Auto-completes when all required
- * dependencies are installed.
+ * @file DependenciesStep.tsx -- External tool dependencies installation step.
+ *
+ * Renders the "Tools" step within the {@link SetupWizard}. This step shows
+ * a list of all external tool dependencies that GAMDL requires or can
+ * optionally use, along with their installation status and individual
+ * install buttons.
+ *
+ * ## Tool List
+ *
+ * The dependency store provides a `tools` array of `DependencyStatus`
+ * objects, each containing:
+ *   - `name`: Tool name (e.g., "FFmpeg", "mp4decrypt")
+ *   - `installed`: Boolean indicating whether the tool is available
+ *   - `version`: Detected version string (if installed)
+ *   - `required`: Whether the tool is required (vs. optional)
+ *
+ * ## Completion Detection
+ *
+ * This step auto-completes when **all required tools** are installed.
+ * Optional tools do not block progression. The `useEffect` hook checks
+ * this condition whenever the `tools` array changes (e.g., after an
+ * installation finishes and triggers a status re-check).
+ *
+ * ## "Install All" Behaviour
+ *
+ * The "Install All" button iterates over missing tools **sequentially**
+ * (not in parallel) using a `for...of` loop with `await`. If one tool
+ * fails to install, the loop catches the error and continues with the
+ * next tool. This ensures partial progress is preserved.
+ *
+ * ## Visual States
+ *
+ * Each tool row shows one of three status icons:
+ *   - Green checkmark: Installed
+ *   - Red X circle: Required but not installed
+ *   - Grey alert circle: Optional and not installed
+ *
+ * ## Store Connections
+ *
+ * - **dependencyStore**: `tools` array, `checkAll`, `installTool`,
+ *   `isChecking`, `isInstalling`, `installingName`, `error`.
+ * - **setupStore**: `completeStep('dependencies')`.
+ *
+ * @see {@link ../SetupWizard.tsx}             -- Parent wizard container
+ * @see {@link @/stores/dependencyStore.ts}    -- Manages dependency status
+ * @see {@link @/stores/setupStore.ts}         -- Manages wizard step state
  */
 
+// React useEffect for checking dependencies on mount and auto-completing.
 import { useEffect } from 'react';
+
+// Lucide icons for the three tool status states and install button.
 import {
-  CheckCircle,
-  XCircle,
-  Download,
-  AlertCircle,
+  CheckCircle,   // Installed (green)
+  XCircle,       // Required but missing (red)
+  Download,      // Install button icon
+  AlertCircle,   // Optional and missing (grey)
 } from 'lucide-react';
+
+// Zustand stores for dependency tracking and wizard step management.
 import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
+
+// Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
 
 /**
- * Renders the dependencies step showing all tool statuses with
- * individual install buttons.
+ * DependenciesStep -- Renders the external tools installation step.
+ *
+ * Shows all tools in a vertical list with status indicators and install
+ * buttons. An "Install All" button at the top installs all missing tools
+ * sequentially. Auto-completes when all required tools are installed.
  */
 export function DependenciesStep() {
+  // --- Dependency store selectors ---
+  /** Array of tool dependency statuses */
   const tools = useDependencyStore((s) => s.tools);
+  /** True while the backend is checking tool availability */
   const isChecking = useDependencyStore((s) => s.isChecking);
+  /** True while any tool installation is in progress */
   const isInstalling = useDependencyStore((s) => s.isInstalling);
+  /** Name of the tool currently being installed (for button label) */
   const installingName = useDependencyStore((s) => s.installingName);
+  /** Triggers status checks for all tools at once */
   const checkAll = useDependencyStore((s) => s.checkAll);
+  /** Triggers installation of a specific tool by name */
   const installTool = useDependencyStore((s) => s.installTool);
+  /** Error message from the most recent operation */
   const error = useDependencyStore((s) => s.error);
+
+  // --- Setup store selectors ---
+  /** Marks the 'dependencies' step as completed */
   const completeStep = useSetupStore((s) => s.completeStep);
 
-  /* Check all dependencies on mount */
+  /** Check all dependency statuses on mount */
   useEffect(() => {
     checkAll();
   }, [checkAll]);
 
-  /* Auto-complete when all required tools are installed */
+  /**
+   * Auto-complete the step when all REQUIRED tools are installed.
+   * Filters the tools array to only required tools, then checks that
+   * the array is non-empty (tools have been loaded) and every required
+   * tool has `installed: true`.
+   */
   useEffect(() => {
     const requiredTools = tools.filter((t) => t.required);
     const allInstalled = requiredTools.length > 0 && requiredTools.every((t) => t.installed);
@@ -47,18 +115,25 @@ export function DependenciesStep() {
     }
   }, [tools, completeStep]);
 
-  /** Install all missing tools sequentially */
+  /**
+   * Installs all missing tools sequentially.
+   * Uses a for...of loop with await to ensure tools are installed one
+   * at a time (some may depend on others, and sequential installation
+   * avoids resource contention). Errors are caught per-tool so that a
+   * failure in one tool does not prevent the rest from being installed.
+   */
   const handleInstallAll = async () => {
     const missing = tools.filter((t) => !t.installed);
     for (const tool of missing) {
       try {
         await installTool(tool.name);
       } catch {
-        /* Continue with next tool even if one fails */
+        /* Continue with the next tool even if this one fails */
       }
     }
   };
 
+  /** Count of tools that are not yet installed (drives "Install All" button label) */
   const missingCount = tools.filter((t) => !t.installed).length;
 
   return (

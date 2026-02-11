@@ -2,76 +2,188 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Windows theme overrides.
- * Applies Segoe UI Variable font, Mica/Acrylic-inspired material effects,
- * and Windows 11 Fluent Design geometry to match the native Windows
- * design language within a WebView.
+ * Windows Theme -- Fluent Design Overrides
+ * ==========================================
+ *
+ * This file overrides the base theme tokens (base.css) to match Microsoft's
+ * Windows 11 Fluent Design System within a Tauri WebView. Key characteristics:
+ *
+ *   - Segoe UI Variable: Windows 11's variable-weight system font
+ *   - Mica material: Subtle desktop wallpaper tint (approximated with solid colors)
+ *   - Acrylic material: Noise texture overlay on translucent surfaces
+ *   - Smaller border radii: Windows 11 uses 4px corners (vs macOS 8px)
+ *   - Reveal highlight: Directional light effect on hover (approximated with gradient)
+ *   - Bottom-accent focus: Windows uses a colored bottom border instead of a glow ring
+ *
+ * About Mica and Acrylic materials:
+ *   Windows 11 introduced "Mica" (a subtle tint from the desktop wallpaper) and
+ *   updated "Acrylic" (frosted glass with noise). True Mica requires native DWMAPI
+ *   calls (DwmSetWindowAttribute), which Tauri's WebView doesn't expose. We approximate
+ *   Mica with solid colors and Acrylic with a faint SVG noise overlay.
+ *
+ * Activation:
+ *   This file takes effect when the <html> element has the class "platform-windows",
+ *   applied by the React app after detecting Windows via tauri-plugin-os.
+ *
+ * Related files:
+ *   - src/styles/themes/base.css   -- Default token values overridden here
+ *   - src/styles/themes/macos.css  -- macOS Liquid Glass counterpart
+ *   - src/styles/themes/linux.css  -- Linux Adwaita counterpart
+ *   - tailwind.config.js           -- Tailwind classes that consume these CSS variables
+ *
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/ -- Windows App Design guidelines
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/style/mica -- Mica material
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic -- Acrylic material
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/signature-experiences/typography -- Segoe UI Variable
  */
 
 /* ============================================================
- * Windows Light Mode
+ * Windows Light Mode Token Overrides
+ *
+ * .platform-windows targets <html class="platform-windows">.
+ * These values override the :root defaults from base.css.
  * ============================================================ */
 .platform-windows {
-  /* Segoe UI Variable (Windows 11) with fallbacks */
+  /*
+   * Segoe UI Variable: Windows 11's new variable-weight font.
+   * Segoe UI Variable combines Regular, Semibold, and Bold weights into a
+   * single font file with continuous weight variation. Falls back to
+   * standard Segoe UI (Windows 10) and then system-ui.
+   *
+   * @see https://learn.microsoft.com/en-us/windows/apps/design/signature-experiences/typography
+   */
   --font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 
-  /* Windows 11 rounded corners (slightly less rounded than macOS) */
-  --radius: 4px;
-  --radius-sm: 2px;
-  --radius-lg: 8px;
+  /*
+   * Windows 11 border radii: More subtle than macOS.
+   * Windows 11 introduced rounded corners (previously all squared) but uses
+   * smaller values (4px for controls, 8px for flyouts/dialogs) compared to
+   * macOS (8px controls, 12px dialogs).
+   *
+   * @see https://learn.microsoft.com/en-us/windows/apps/design/style/rounded-corner
+   */
+  --radius: 4px;     /* Standard controls: buttons, inputs, menu items */
+  --radius-sm: 2px;  /* Small elements: badges, pills, inline buttons */
+  --radius-lg: 8px;  /* Dialogs, flyouts, teaching tips, large cards */
 
-  /* Mica-style sidebar background (subtle tint) */
-  --sidebar-bg: #f3f3f3;
-  --sidebar-hover: rgba(0, 0, 0, 0.04);
-  --sidebar-active: rgba(0, 0, 0, 0.06);
-  --sidebar-border: #e5e5e5;
+  /*
+   * Sidebar: Solid Mica-inspired background.
+   * Native Windows Mica material samples and tints the desktop wallpaper.
+   * Since WebView can't access the wallpaper, we use a solid light gray (#f3f3f3)
+   * that matches the typical Mica appearance on light wallpapers.
+   *
+   * @see https://learn.microsoft.com/en-us/windows/apps/design/style/mica
+   */
+  --sidebar-bg: #f3f3f3;                   /* Mica light base color */
+  --sidebar-hover: rgba(0, 0, 0, 0.04);    /* Subtle hover: 4% black overlay */
+  --sidebar-active: rgba(0, 0, 0, 0.06);   /* Active: 6% black overlay */
+  --sidebar-border: #e5e5e5;               /* Solid border (not translucent like macOS) */
 
-  /* Windows accent blue */
+  /*
+   * Windows accent blue.
+   * #0067c0 is the default Windows 11 accent color (users can customize this in Settings).
+   * In a production app, we would read the actual user accent from the Windows API.
+   * #1975ca is a lightened variant for hover/pressed states.
+   */
   --accent: #0067c0;
   --accent-hover: #1975ca;
 
-  /* Surfaces with slight warmth */
-  --surface-primary: #fafafa;
-  --surface-secondary: #f3f3f3;
-  --surface-elevated: #ffffff;
+  /*
+   * Surface colors: Windows uses a warm off-white for the main background
+   * (not pure white) and pure white for elevated content (cards, panels).
+   * This inverted relationship (elevated = brighter) is the opposite of macOS
+   * where elevated = slightly darker.
+   */
+  --surface-primary: #fafafa;   /* Main background: warm off-white */
+  --surface-secondary: #f3f3f3; /* Grouped sections: matches sidebar */
+  --surface-elevated: #ffffff;  /* Cards/modals: pure white (appears "raised") */
 
-  /* Windows-style shadows */
-  --shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.14);
+  /*
+   * Windows shadow style: Sharper and more defined than macOS.
+   * Fluent Design uses single-layer shadows with more blur and less spread,
+   * creating a cleaner, more geometric shadow appearance.
+   *
+   * @see https://learn.microsoft.com/en-us/windows/apps/design/style/elevation
+   */
+  --shadow: 0 1px 4px rgba(0, 0, 0, 0.08);     /* Rest elevation (cards) */
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.14);  /* Flyout elevation (dialogs, popups) */
 }
 
-/* Windows Dark Mode */
+/* ============================================================
+ * Windows Dark Mode Token Overrides
+ *
+ * Windows dark mode uses cooler grays (not as warm as macOS dark)
+ * and a brighter, more saturated accent blue for contrast.
+ * ============================================================ */
 @media (prefers-color-scheme: dark) {
   .platform-windows {
-    /* Mica dark material */
-    --sidebar-bg: #202020;
-    --sidebar-hover: rgba(255, 255, 255, 0.05);
-    --sidebar-active: rgba(255, 255, 255, 0.08);
-    --sidebar-border: #333333;
+    /*
+     * Mica Dark material approximation.
+     * Dark Mica uses very dark grays that allow a faint wallpaper tint to show through.
+     * #202020 approximates the Mica dark base without wallpaper integration.
+     */
+    --sidebar-bg: #202020;                         /* Mica dark base */
+    --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay hover: 5% */
+    --sidebar-active: rgba(255, 255, 255, 0.08);  /* White overlay active: 8% */
+    --sidebar-border: #333333;                     /* Visible but subtle border */
 
+    /*
+     * Dark mode accent: Much brighter cyan-blue for visibility.
+     * #4cc2ff is the Windows 11 dark mode accent (increased luminance).
+     * #60cdff is the hover variant (even brighter).
+     */
     --accent: #4cc2ff;
     --accent-hover: #60cdff;
 
-    --surface-primary: #1a1a1a;
-    --surface-secondary: #202020;
-    --surface-elevated: #2a2a2a;
+    /*
+     * Dark surfaces: Progressively lighter for elevation hierarchy.
+     * primary (#1a1a1a) < secondary (#202020) < elevated (#2a2a2a)
+     */
+    --surface-primary: #1a1a1a;   /* Main dark background */
+    --surface-secondary: #202020; /* Grouped sections */
+    --surface-elevated: #2a2a2a;  /* Cards/modals: slightly lighter for depth */
 
+    /* Inverse text: Dark text on bright accent buttons */
     --text-inverse: #1a1a1a;
 
+    /* Stronger shadows in dark mode for visibility */
     --shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.3);
   }
 }
 
 /* ============================================================
- * Acrylic/Mica Visual Effects
+ * Acrylic Material Effect (Noise Overlay)
+ * -----------------------------------------
+ * Windows Acrylic material includes a subtle noise texture layer that
+ * adds visual depth and helps mask color banding in translucent surfaces.
+ *
+ * Since we can't use the native Acrylic compositor, we approximate the
+ * noise effect with a tiny SVG pattern (4x4 pixels of 1% black) tiled
+ * as a background-image. This is nearly imperceptible but adds the subtle
+ * texture that distinguishes Windows surfaces from flat solid colors.
+ *
+ * The SVG is encoded inline as a data URI to avoid an additional HTTP request.
+ *
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic
  * ============================================================ */
 .platform-windows aside {
-  /* Subtle Acrylic-like noise overlay */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23000' opacity='0.01'/%3E%3C/svg%3E");
 }
 
-/* Windows-style focus indicator (solid underline) */
+/* ============================================================
+ * Windows-specific UI Component Styles
+ * ============================================================ */
+
+/*
+ * Focus indicator: Windows uses an accent-colored bottom border on focused inputs.
+ * This is distinct from macOS (full glow ring) and Linux (outline ring).
+ * The bottom border "underlines" the input, drawing attention to the text area
+ * without surrounding the entire field. box-shadow: none removes any inherited
+ * focus ring from the base styles.
+ *
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/controls/text-box
+ */
 .platform-windows input:focus,
 .platform-windows select:focus,
 .platform-windows textarea:focus {
@@ -79,13 +191,29 @@
   box-shadow: none;
 }
 
-/* Windows-style primary button */
+/*
+ * Primary button styling: Windows buttons use semibold (600) weight text
+ * and the platform radius. Unlike macOS (gradient), Windows buttons are flat
+ * with solid accent backgrounds.
+ *
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/controls/buttons
+ */
 .platform-windows button.bg-accent {
   border-radius: var(--radius);
-  font-weight: 600;
+  font-weight: 600;  /* Segoe UI Variable Semibold */
 }
 
-/* Windows reveal hover effect on nav items */
+/*
+ * Reveal highlight: Windows Fluent Design's "reveal" effect.
+ * When hovering over navigation items, a directional light gradient appears
+ * from the top-left corner, simulating a light source that "reveals" the surface.
+ * This is an approximation of the native Reveal Highlight (XAML) effect.
+ *
+ * The gradient goes from a faint white (6% opacity) at the top-left corner
+ * to transparent at the center, creating a spotlight-like appearance.
+ *
+ * @see https://learn.microsoft.com/en-us/windows/apps/design/style/reveal
+ */
 .platform-windows nav button:hover {
   background: linear-gradient(
     135deg,

@@ -2,77 +2,173 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * macOS theme overrides.
- * Applies San Francisco font, Liquid Glass-inspired visual effects,
- * and macOS-specific spacing and geometry to match the native
- * macOS design language as closely as possible within a WebView.
+ * macOS Theme -- Liquid Glass Design Overrides
+ * ==============================================
  *
- * Liquid Glass effects use backdrop-filter for blur/transparency.
- * Note: True Liquid Glass requires native macOS APIs; this CSS
- * provides a close visual approximation.
+ * This file overrides the base theme tokens (base.css) to match the macOS
+ * design language as closely as possible within a Tauri WebView. Key characteristics:
+ *
+ *   - San Francisco font: Apple's system font designed for on-screen legibility
+ *   - Liquid Glass / Glassmorphism: Frosted glass blur effects on surfaces (backdrop-filter)
+ *   - Vibrancy: Semi-transparent sidebar that shows blurred content behind it
+ *   - Larger border radii: macOS uses more rounded corners than Windows/Linux
+ *   - Soft shadows: Multi-layer shadows with subtle border effects
+ *   - Blue accent: Apple's system blue (#007aff light, #0a84ff dark)
+ *
+ * About Liquid Glass:
+ *   Apple's Liquid Glass design (introduced in macOS 26 Tahoe / iOS 26) uses native
+ *   NSVisualEffectView for true system-level glass effects. Since Tauri renders in a
+ *   WebView, we approximate this using CSS backdrop-filter with blur and saturation.
+ *   The result is visually similar but does not integrate with the native compositor.
+ *
+ * Activation:
+ *   This file takes effect when the <html> element has the class "platform-macos",
+ *   which is applied by the React app after detecting macOS via tauri-plugin-os.
+ *
+ * Related files:
+ *   - src/styles/themes/base.css    -- Default token values overridden here
+ *   - src/styles/themes/windows.css -- Windows Fluent Design counterpart
+ *   - src/styles/themes/linux.css   -- Linux Adwaita counterpart
+ *   - tailwind.config.js            -- Tailwind classes that consume these CSS variables
+ *
+ * @see https://developer.apple.com/design/human-interface-guidelines/color -- Apple HIG colors
+ * @see https://developer.apple.com/design/human-interface-guidelines/materials -- Vibrancy/materials
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter -- backdrop-filter reference
  */
 
 /* ============================================================
- * macOS Light Mode
+ * macOS Light Mode Token Overrides
+ *
+ * The .platform-macos selector targets the <html> element with this class.
+ * CSS custom properties set here override the :root defaults from base.css
+ * via inheritance (child elements inherit the closest ancestor's value).
  * ============================================================ */
 .platform-macos {
-  /* San Francisco system font */
+  /*
+   * San Francisco font stack.
+   * -apple-system: WebKit alias for the San Francisco system font
+   * BlinkMacSystemFont: Chrome/Chromium alias for the same font
+   * SF Pro Display/Text: Explicit names for when the system aliases don't work
+   * Helvetica Neue: Pre-San Francisco macOS font (fallback for older systems)
+   *
+   * @see https://developer.apple.com/fonts/ -- Apple's San Francisco font family
+   */
   --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display',
     'SF Pro Text', 'Helvetica Neue', sans-serif;
 
-  /* macOS-style rounded corners (larger radius for glass effect) */
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-lg: 12px;
+  /*
+   * macOS border radii: Larger and more rounded than other platforms.
+   * macOS UI elements (buttons, text fields, popovers) use generously
+   * rounded corners, especially in the Liquid Glass era. These values
+   * approximate the native NSRoundedBezelStyle and sheet corners.
+   */
+  --radius: 8px;     /* Buttons, text fields, small cards */
+  --radius-sm: 6px;  /* Badges, tags, segmented controls */
+  --radius-lg: 12px; /* Sheets, popovers, large cards, modal dialogs */
 
-  /* Sidebar with vibrancy/translucent effect */
-  --sidebar-bg: rgba(245, 245, 245, 0.7);
-  --sidebar-hover: rgba(0, 0, 0, 0.04);
-  --sidebar-active: rgba(0, 0, 0, 0.07);
-  --sidebar-border: rgba(0, 0, 0, 0.08);
+  /*
+   * Sidebar: Semi-transparent background for the vibrancy/glass effect.
+   * rgba(245, 245, 245, 0.7) = light gray at 70% opacity, allowing content
+   * behind the sidebar to show through (when combined with backdrop-filter below).
+   * Native macOS sidebars use NSVisualEffectView with .sidebar material.
+   */
+  --sidebar-bg: rgba(245, 245, 245, 0.7);     /* 70% opaque light gray (vibrancy base) */
+  --sidebar-hover: rgba(0, 0, 0, 0.04);        /* Very subtle hover: 4% black overlay */
+  --sidebar-active: rgba(0, 0, 0, 0.07);       /* Active state: 7% black overlay */
+  --sidebar-border: rgba(0, 0, 0, 0.08);       /* Translucent border for glass look */
 
-  /* macOS accent blue */
+  /*
+   * macOS system accent blue.
+   * #007aff is Apple's standard system blue (NSColor.systemBlue in light mode).
+   * #0062cc is a darkened variant for hover/pressed states.
+   */
   --accent: #007aff;
   --accent-hover: #0062cc;
 
-  /* Softer shadows for macOS glass morphism */
+  /*
+   * macOS Liquid Glass shadow style: Soft, multi-layer shadows.
+   * The first shadow provides the main depth effect (very subtle blur).
+   * The second shadow (0 0 0 0.5px) creates a thin "border" effect using
+   * box-shadow, which is how macOS renders the thin outline around glass surfaces
+   * without using an actual CSS border.
+   */
   --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
-/* macOS Dark Mode */
+/* ============================================================
+ * macOS Dark Mode Token Overrides
+ *
+ * Triggered by the OS dark mode preference. These selectors combine
+ * the platform class with the media query, ensuring only macOS dark
+ * mode users get these values (not Windows/Linux dark mode users).
+ * ============================================================ */
 @media (prefers-color-scheme: dark) {
   .platform-macos {
-    --sidebar-bg: rgba(28, 28, 30, 0.75);
-    --sidebar-hover: rgba(255, 255, 255, 0.05);
-    --sidebar-active: rgba(255, 255, 255, 0.08);
-    --sidebar-border: rgba(255, 255, 255, 0.06);
+    /* Sidebar: Darker translucent base for dark mode vibrancy */
+    --sidebar-bg: rgba(28, 28, 30, 0.75);         /* Dark gray at 75% opacity */
+    --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay at 5% (reversed from light) */
+    --sidebar-active: rgba(255, 255, 255, 0.08);  /* White overlay at 8% for active item */
+    --sidebar-border: rgba(255, 255, 255, 0.06);  /* Subtle white border for glass edge */
 
-    --accent: #0a84ff;
-    --accent-hover: #409cff;
+    /* Dark mode accent: Brighter blue for visibility against dark backgrounds */
+    --accent: #0a84ff;   /* NSColor.systemBlue in dark mode (higher luminance) */
+    --accent-hover: #409cff; /* Even brighter hover state */
 
+    /* Dark mode shadows: Higher opacity because shadows are harder to see on dark surfaces */
     --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
     --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
   }
 }
 
 /* ============================================================
- * Liquid Glass Visual Effects
- * Applied to sidebar and elevated surfaces for the glass look
+ * Liquid Glass Visual Effects (backdrop-filter)
+ * -----------------------------------------------
+ * These rules apply the frosted glass blur effect to specific surfaces.
+ * backdrop-filter blurs the content BEHIND the element, creating the
+ * translucent glass appearance when combined with a semi-transparent background.
+ *
+ * The saturate() function increases color saturation of the blurred backdrop,
+ * making it more vibrant (similar to Apple's NSVisualEffectView behavior).
+ *
+ * -webkit-backdrop-filter is required for Safari/WebKit compatibility
+ * (Tauri's WebView on macOS is WebKit-based).
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter
  * ============================================================ */
+
+/*
+ * Sidebar (<aside> element): Heavy glass blur.
+ * blur(20px) creates a strong frosted glass effect.
+ * saturate(180%) makes the blurred background colors more vivid.
+ * This matches the vibrancy effect of native macOS sidebar panels.
+ */
 .platform-macos aside {
-  /* Backdrop blur creates the frosted glass effect */
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
-/* Elevated cards and modals get a subtle glass effect */
+/*
+ * Elevated surfaces (cards, modals): Lighter glass blur.
+ * blur(10px) is less aggressive than the sidebar (content should still be readable).
+ * saturate(150%) provides subtle vibrancy without overwhelming the card content.
+ * Targets elements using Tailwind's bg-surface-elevated class.
+ */
 .platform-macos .bg-surface-elevated {
   backdrop-filter: blur(10px) saturate(150%);
   -webkit-backdrop-filter: blur(10px) saturate(150%);
 }
 
-/* macOS-style focus ring (blue glow) */
+/* ============================================================
+ * macOS-specific UI Component Styles
+ * ============================================================ */
+
+/*
+ * Focus ring: macOS uses a blue glow (box-shadow) around focused form elements.
+ * This replicates the native NSTextField/NSButton focus ring appearance.
+ * 3px spread at 30% opacity creates the characteristic macOS blue glow.
+ * The border-color change makes the input border match the accent color.
+ */
 .platform-macos input:focus,
 .platform-macos select:focus,
 .platform-macos textarea:focus {
@@ -80,16 +176,30 @@
   border-color: var(--accent);
 }
 
-/* macOS-style button with subtle gradient */
+/*
+ * Primary button gradient: macOS buttons have a subtle top-to-bottom gradient
+ * that creates a slight 3D/glass appearance. The lighter shade on top simulates
+ * a light source above, matching the native NSButton appearance.
+ */
 .platform-macos button.bg-accent {
   background: linear-gradient(180deg, #0a84ff 0%, #007aff 100%);
 }
 
+/* Hover state: Brighter gradient for visual feedback */
 .platform-macos button.bg-accent:hover {
   background: linear-gradient(180deg, #409cff 0%, #0a84ff 100%);
 }
 
-/* Account for macOS traffic light buttons (window controls) overlap */
+/*
+ * Traffic light button spacing: macOS "traffic light" window controls
+ * (close, minimize, maximize) are positioned at the top-left of the window.
+ * When using Tauri's native decorations, the sidebar header needs extra
+ * top padding (38px) to prevent content from being obscured by or overlapping
+ * with these controls. This value accounts for the typical traffic light
+ * height (~14px) plus macOS title bar spacing.
+ *
+ * @see https://v2.tauri.app/learn/window-customization/ -- Tauri window customization
+ */
 .platform-macos .sidebar-header {
-  padding-top: 38px; /* Space for traffic lights in overlay title bar */
+  padding-top: 38px;
 }

@@ -2,21 +2,71 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Subprocess output parsing utilities.
-// Parses GAMDL's stdout/stderr output into structured events that the
-// frontend can display as progress bars, track info, and status messages.
-// Uses regex patterns to match yt-dlp download progress, GAMDL track
-// information, post-processing steps, and error messages.
+// ======================================
+//
+// When GAMDL runs as a subprocess, it (and its internal yt-dlp dependency)
+// writes progress and status information to stdout/stderr in various
+// human-readable formats. This module parses those raw text lines into
+// structured `GamdlOutputEvent` values that the React frontend can
+// consume to render:
+//   - A progress bar with percentage, speed, and ETA
+//   - Track title/artist information
+//   - Post-processing step names (Remuxing, Tagging, etc.)
+//   - Error messages with classification (auth, network, codec, etc.)
+//   - Download completion with the output file path
+//
+// The parsing is regex-based. Each regex is compiled **once** using
+// `std::sync::LazyLock` (stabilised in Rust 1.80) and reused for every
+// line, amortising the compilation cost across the application's lifetime.
+//
+// Data flow:
+//   GAMDL subprocess stdout/stderr
+//     -> `services::gamdl_service` reads each line
+//     -> `parse_gamdl_output(line)` returns a `GamdlOutputEvent`
+//     -> event is serialised as JSON and emitted to the frontend via
+//        Tauri's event system (`window.emit("gamdl-output", event)`)
+//     -> React `useEffect` listener updates the download queue UI
+//
+// Reference: https://docs.rs/regex/latest/regex/
+// Reference: https://v2.tauri.app/develop/calling-rust/#events
+// Reference: https://doc.rust-lang.org/std/sync/struct.LazyLock.html
 
 use regex::Regex;
+// `Serialize` is needed because `GamdlOutputEvent` is sent over Tauri's
+// IPC as JSON. The `#[serde(tag = "type")]` attribute makes the JSON
+// output an externally tagged enum: `{ "type": "download_progress", ... }`.
+// Reference: https://serde.rs/enum-representations.html
 use serde::Serialize;
+// `LazyLock` is a thread-safe lazy initialisation primitive. The value
+// is computed on first access and then cached for all subsequent accesses.
+// Unlike `lazy_static!`, it is part of the standard library (since 1.80).
+// Reference: https://doc.rust-lang.org/std/sync/struct.LazyLock.html
 use std::sync::LazyLock;
 
 // ============================================================
-// Compiled regex patterns (initialized once, reused for every line)
+// Compiled regex patterns (initialised once via LazyLock, reused for
+// every line of GAMDL output throughout the application's lifetime)
 // ============================================================
+//
+// Each `static LazyLock<Regex>` compiles the regex on first access.
+// Subsequent calls to `.captures()` or `.is_match()` use the compiled
+// automaton directly, making per-line matching very fast.
+//
+// Reference: https://docs.rs/regex/latest/regex/struct.Regex.html
 
 /// Matches yt-dlp-style download progress output.
-/// Example: "[download]  45.2% of ~  5.12MiB at  2.51MiB/s ETA 00:01"
+///
+/// Capture groups:
+///   1. `percent`  -- e.g. "45.2"
+///   2. `size`     -- e.g. "5.12MiB" (total or estimated with ~)
+///   3. `speed`    -- e.g. "2.51MiB/s"
+///   4. `eta`      -- e.g. "00:01"
+///
+/// Example input: `[download]  45.2% of ~  5.12MiB at  2.51MiB/s ETA 00:01`
+///
+/// The `~?` makes the tilde optional (yt-dlp uses `~` for estimated sizes).
+/// `\S+` matches any non-whitespace sequence, which is flexible enough to
+/// handle varying size/speed/time formats.
 static PROGRESS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"\[download\]\s+(\d+\.?\d*)%\s+of\s+~?\s*(\S+)\s+at\s+(\S+)\s+ETA\s+(\S+)",
@@ -24,29 +74,65 @@ static PROGRESS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     .expect("Invalid progress regex")
 });
 
-/// Matches yt-dlp-style download completion output.
-/// Example: "[download] 100% of 5.12MiB in 00:02"
+/// Matches yt-dlp-style download completion output (100% reached).
+///
+/// Capture groups:
+///   1. `size`     -- e.g. "5.12MiB" (final size)
+///   2. `duration` -- e.g. "00:02" (total download time)
+///
+/// Example input: `[download] 100% of 5.12MiB in 00:02`
+///
+/// This is a separate pattern from `PROGRESS_REGEX` because the 100%
+/// completion line uses "in" instead of "at ... ETA ..." syntax.
 static PROGRESS_COMPLETE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\[download\]\s+100%\s+of\s+(\S+)\s+in\s+(\S+)")
         .expect("Invalid progress complete regex")
 });
 
 /// Matches GAMDL track information lines.
-/// Example: "Getting song: Song Title by Artist Name"
-/// Example: "Getting track 3 of 12: Song Title"
+///
+/// Capture groups:
+///   1. `type`  -- either "song" or "track N of M" (e.g. "track 3 of 12")
+///   2. `info`  -- the rest of the line (title, possibly "Title by Artist")
+///
+/// Example inputs:
+///   - `Getting song: Song Title by Artist Name`
+///   - `Getting track 3 of 12: Song Title`
+///
+/// The alternation `(song|track\s+\d+\s+of\s+\d+)` handles both
+/// single-track and album-track formats that GAMDL outputs.
 static TRACK_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"Getting\s+(song|track\s+\d+\s+of\s+\d+):\s+(.+)")
         .expect("Invalid track info regex")
 });
 
 /// Matches GAMDL "Saved to" completion lines.
-/// Example: "Saved to: /path/to/output/file.m4a"
+///
+/// Capture groups:
+///   1. `path` -- the output file path (e.g. "/path/to/output/file.m4a")
+///
+/// Example input: `Saved to: /path/to/output/file.m4a`
+///
+/// The `(?i)` flag makes the match case-insensitive ("Saved", "saved",
+/// "SAVED" all match). The `:?` makes the colon optional to handle
+/// minor formatting variations across GAMDL versions.
 static SAVED_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)saved\s+to:?\s+(.+)").expect("Invalid saved regex")
 });
 
-/// Matches lines containing explicit error indicators.
-/// Looks for "ERROR:", "Error:", or "error:" prefixes
+/// Matches lines containing explicit error indicators at the start.
+///
+/// Capture groups:
+///   1. `message` -- the error message text after the prefix
+///
+/// Example inputs:
+///   - `ERROR: Unable to download webpage`
+///   - `Error: cookies file not found`
+///   - `error: network timeout`
+///
+/// The `(?i)` flag makes the match case-insensitive. The `^` anchor
+/// ensures this only matches errors at the start of a line (not
+/// "no error occurred" mid-line). The `:?` makes the colon optional.
 static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:ERROR|error|Error):?\s+(.+)").expect("Invalid error regex")
 });
@@ -54,9 +140,26 @@ static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 // ============================================================
 // Event types emitted to the frontend
 // ============================================================
+//
+// These events cross the Rust -> TypeScript boundary via Tauri's event
+// system. The `Serialize` derive generates JSON like:
+//   { "type": "download_progress", "percent": 45.2, "speed": "2.51MiB/s", "eta": "00:01" }
+//
+// The `#[serde(tag = "type")]` attribute uses "internally tagged" enum
+// representation: the discriminant becomes a `"type"` field in the JSON
+// object, and the variant fields are flattened into the same object.
+// The `rename_all = "snake_case"` converts PascalCase variant names to
+// snake_case (e.g., `DownloadProgress` -> `"download_progress"`).
+//
+// Reference: https://serde.rs/enum-representations.html#internally-tagged
 
-/// A structured event parsed from a line of GAMDL's stdout/stderr output.
-/// The frontend listens for these events to update the download progress UI.
+/// A structured event parsed from a single line of GAMDL's stdout/stderr
+/// output. The frontend listens for these events (via `listen("gamdl-output")`)
+/// to update the download progress UI in real time.
+///
+/// Each variant corresponds to a different kind of output line. The parser
+/// ([`parse_gamdl_output`]) tries patterns in priority order and returns
+/// the first match, or `Unknown` if no pattern matches.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GamdlOutputEvent {
@@ -135,16 +238,24 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         };
     }
 
-    // Priority 1: yt-dlp download progress (most frequent during downloads)
+    // Priority 1: yt-dlp download progress (most frequent during downloads).
+    // Checked first because during an active download, the vast majority of
+    // output lines are progress updates. Matching this first avoids running
+    // all other regex patterns on every progress line.
     if let Some(captures) = PROGRESS_REGEX.captures(trimmed) {
+        // Extract capture group 1 (percent) and parse as f64.
+        // `.and_then()` chains the Option: if the group exists, try parsing.
+        // Falls back to 0.0 if the group is missing or unparseable.
         let percent = captures
             .get(1)
             .and_then(|m| m.as_str().parse::<f64>().ok())
             .unwrap_or(0.0);
+        // Capture group 3 = download speed (e.g. "2.51MiB/s")
         let speed = captures
             .get(3)
             .map(|m| m.as_str().to_string())
             .unwrap_or_default();
+        // Capture group 4 = estimated time remaining (e.g. "00:01")
         let eta = captures
             .get(4)
             .map(|m| m.as_str().to_string())
@@ -165,14 +276,21 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         };
     }
 
-    // Priority 3: Track information from GAMDL
+    // Priority 3: Track information from GAMDL.
+    // When GAMDL starts processing a new track, it prints a line like
+    // "Getting song: Title by Artist" or "Getting track 3 of 12: Title".
     if let Some(captures) = TRACK_INFO_REGEX.captures(trimmed) {
+        // Capture group 2 contains the info string after the colon.
         let info = captures
             .get(2)
             .map(|m| m.as_str().to_string())
             .unwrap_or_default();
 
-        // Try to split "Title by Artist" format
+        // Attempt to split "Title by Artist" using the **last** occurrence
+        // of " by " (via `rfind`). Using the last occurrence handles cases
+        // where the title itself contains " by " (e.g. "Stand by Me by
+        // Ben E. King"). If no " by " separator is found, the entire info
+        // string is treated as the title with an empty artist.
         let (title, artist) = if let Some(idx) = info.rfind(" by ") {
             (info[..idx].to_string(), info[idx + 4..].to_string())
         } else {
@@ -182,6 +300,8 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         return GamdlOutputEvent::TrackInfo {
             title,
             artist,
+            // Album info typically comes from a separate GAMDL output line
+            // and is not available in the "Getting song/track" line.
             album: String::new(),
         };
     }
@@ -195,7 +315,16 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         return GamdlOutputEvent::Error { message };
     }
 
-    // Priority 5: Post-processing steps (remuxing, tagging, embedding artwork)
+    // Priority 5: Post-processing steps (remuxing, tagging, embedding artwork).
+    // After the raw download completes, GAMDL runs post-processing steps:
+    //   - Remuxing:   converting container format (e.g. WebM -> M4A)
+    //   - Tagging:    writing ID3/MP4 metadata tags
+    //   - Embedding:  adding album artwork to the output file
+    //   - Applying:   applying ReplayGain or other audio adjustments
+    //   - Converting: converting between audio codecs
+    //   - Decrypting: decrypting DRM-protected streams via mp4decrypt
+    // These are matched by simple prefix checks (no regex needed) since
+    // GAMDL always starts these lines with the step name.
     if trimmed.starts_with("Remuxing")
         || trimmed.starts_with("Tagging")
         || trimmed.starts_with("Embedding")
@@ -217,7 +346,19 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         return GamdlOutputEvent::Complete { path };
     }
 
-    // Priority 7: Common error patterns (case-insensitive)
+    // Priority 7: Common error patterns detected by keyword matching.
+    // These catch errors that don't have an explicit "ERROR:" prefix but
+    // contain well-known error indicators. The lowercase conversion ensures
+    // case-insensitive matching without regex overhead.
+    //
+    // Keywords:
+    //   - "failed"           -- generic failure messages from any tool
+    //   - "not found"        -- missing files, URLs, or resources
+    //   - "permission denied"-- filesystem permission errors
+    //   - "codec not available" -- requested audio/video codec not offered
+    //   - "no entry"         -- missing archive entries or config keys
+    //   - "traceback"        -- Python stack traces from GAMDL/yt-dlp
+    //   - "exception"        -- Python exception messages
     let lower = trimmed.to_lowercase();
     if lower.contains("failed")
         || lower.contains("not found")
@@ -240,63 +381,103 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
 
 /// Checks if a GAMDL error message indicates a codec-related failure.
 ///
-/// This is used by the fallback quality system to decide whether to retry
-/// with a different audio codec or video resolution. Codec errors mean the
-/// content is not available in the requested format and a fallback should
-/// be attempted. Other errors (network, auth, not-found) should not trigger
-/// codec fallback.
+/// This is used by the **fallback quality system** in `services::download_queue`
+/// to decide whether to retry the download with a different audio codec or
+/// video resolution. The quality fallback chain is:
+///   AAC-HE -> AAC-LC -> (give up)   for audio
+///   2160p  -> 1080p  -> 720p        for video (music videos)
+///
+/// Codec errors mean the content is not available in the requested format
+/// on the server side, so retrying with the same format would fail again.
+/// Other error types (network, auth, not-found) are transient or
+/// configuration issues and should **not** trigger codec fallback.
 ///
 /// # Arguments
-/// * `error_message` - The error message to classify
+/// * `error_message` - The error message string to classify.
 ///
 /// # Returns
-/// `true` if the error is codec-related and fallback should be attempted
+/// `true` if the error is codec-related and a quality fallback should be
+/// attempted; `false` otherwise.
+///
+/// # Connection
+/// Called by `services::download_queue` after a download fails, before
+/// deciding whether to enqueue a retry with a lower-quality codec.
 pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
-    lower.contains("codec not available")
-        || lower.contains("no matching codec")
-        || lower.contains("format not available")
-        || lower.contains("unable to find matching codec")
-        || lower.contains("requested codec")
-        || lower.contains("drm")
+    lower.contains("codec not available")      // yt-dlp: requested codec not in manifest
+        || lower.contains("no matching codec") // GAMDL: no codec matches quality preference
+        || lower.contains("format not available") // yt-dlp: requested format ID not found
+        || lower.contains("unable to find matching codec") // GAMDL variant
+        || lower.contains("requested codec")   // GAMDL: "requested codec X not available"
+        || lower.contains("drm")               // DRM-protected content (cannot be decoded)
 }
 
-/// Classifies an error message into a category for the UI.
+/// Classifies an error message into a named category for the React UI.
 ///
-/// Error categories determine which icon/color to show in the queue UI
-/// and whether automatic retry/fallback is appropriate.
+/// Error categories serve two purposes:
+///   1. **Visual feedback** -- the React download queue component uses the
+///      category to select an icon, colour, and user-friendly description.
+///   2. **Retry logic** -- the download queue manager checks the category
+///      to decide whether automatic retry or quality fallback is appropriate
+///      (e.g., "auth" errors should not be retried automatically, but
+///      "network" errors might be).
+///
+/// Categories are returned as `&'static str` (compile-time string literals)
+/// to avoid heap allocation. The frontend matches on these exact strings.
+///
+/// # Category mapping
+/// | Category       | Keywords matched                          | Retry? |
+/// |----------------|-------------------------------------------|--------|
+/// | `"auth"`       | cookie, auth, login                       | No     |
+/// | `"network"`    | network, timeout, connection, dns         | Yes    |
+/// | `"codec"`      | (delegated to `is_codec_error`)           | Fallback|
+/// | `"not_found"`  | not found, 404, no results                | No     |
+/// | `"rate_limit"` | rate limit, 429, too many                 | Delayed|
+/// | `"tool"`       | ffmpeg, mp4decrypt, mp4box, nm3u8dl       | No     |
+/// | `"unknown"`    | (default)                                 | No     |
 ///
 /// # Arguments
-/// * `error_message` - The error message to classify
+/// * `error_message` - The error message string to classify.
 ///
 /// # Returns
-/// A string identifier for the error category
+/// A `&'static str` category identifier.
+///
+/// # Connection
+/// Called by `services::download_queue` and `commands::gamdl` when reporting
+/// errors to the frontend.
 pub fn classify_error(error_message: &str) -> &'static str {
     let lower = error_message.to_lowercase();
 
+    // Authentication / cookie errors: user needs to provide valid credentials.
     if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
-        "auth" // Authentication/cookie error
+        "auth"
+    // Network errors: transient, may resolve on retry.
     } else if lower.contains("network")
         || lower.contains("timeout")
         || lower.contains("connection")
         || lower.contains("dns")
     {
-        "network" // Network connectivity error
+        "network"
+    // Codec/format errors: the requested quality is not available; try fallback.
     } else if is_codec_error(error_message) {
-        "codec" // Codec/format availability error
+        "codec"
+    // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results")
     {
-        "not_found" // Content not found
+        "not_found"
+    // Rate limiting: the server is throttling requests; retry after delay.
     } else if lower.contains("rate limit") || lower.contains("429") || lower.contains("too many")
     {
-        "rate_limit" // Rate limiting
+        "rate_limit"
+    // External tool errors: FFmpeg, mp4decrypt, etc. failed during post-processing.
     } else if lower.contains("ffmpeg")
         || lower.contains("mp4decrypt")
         || lower.contains("mp4box")
         || lower.contains("nm3u8dl")
     {
-        "tool" // External tool error
+        "tool"
+    // Default: unclassified error.
     } else {
-        "unknown" // Unclassified error
+        "unknown"
     }
 }

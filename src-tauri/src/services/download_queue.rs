@@ -5,19 +5,98 @@
 // Manages a queue of download jobs with concurrent execution limits,
 // automatic processing of queued items, fallback quality retries,
 // and child process tracking for cancellation support.
+//
+// ## Architecture Overview
+//
+// The download queue is the central orchestrator for all GAMDL downloads.
+// It sits between the frontend (React) and the GAMDL subprocess execution:
+//
+// ```
+// Frontend (React)                  Download Queue                    GAMDL Process
+// ================                  ==============                    =============
+// "Add to Queue" button  -->  enqueue() --> QueueItem (Queued)
+//                             process_queue() --> next_pending()
+//                                                    |
+//                             run_download_with_events() --> spawn GAMDL
+//                                    |                          |
+//                             update_item_progress() <-- parse stdout/stderr
+//                                    |
+//                             emit("gamdl-output") --> frontend listener
+//                                    |
+//                             on_task_finished() --> process_queue() (cascade)
+// ```
+//
+// ## Key Design Decisions
+//
+// 1. **Arc<Mutex<DownloadQueue>>**: The queue is wrapped in Arc<Mutex<>> for
+//    thread-safe access from multiple Tauri command handlers and background tasks.
+//    Ref: https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html
+//
+// 2. **VecDeque for FIFO ordering**: Items are processed front-to-back, with
+//    new items added to the back. This provides natural queue ordering.
+//
+// 3. **Recursive process_queue()**: After each download completes, process_queue()
+//    is called again to start the next item, creating a cascade effect.
+//    Uses Pin<Box<dyn Future>> to support this recursive async pattern.
+//
+// 4. **Fallback codec chains**: When a download fails with a codec error, the
+//    queue automatically retries with the next codec in the fallback chain
+//    (e.g., alac -> aac-he -> aac-binaural). Configurable in settings.
+//
+// 5. **Network retries**: Network errors trigger automatic retries (up to 3 by default)
+//    with the same options, giving transient errors a chance to resolve.
+//
+// 6. **Cancellation polling**: Running downloads are checked for cancellation every
+//    250ms via try_wait() + is_cancelled(). The process is killed on cancellation.
+//
+// ## Event Emission Pattern
+//
+// Real-time progress is reported to the frontend via Tauri's event system:
+// - "download-started" - Emitted when a queued item begins downloading
+// - "gamdl-output" - Emitted for each parsed line of GAMDL output (progress, track info, etc.)
+// - "download-complete" - Emitted when a download finishes successfully
+// - "download-error" - Emitted when a download fails (includes error category for UI routing)
+// Ref: https://v2.tauri.app/develop/calling-rust/#events
+//
+// ## References
+//
+// - Tokio Mutex (async-aware): https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html
+// - Tokio process spawning: https://docs.rs/tokio/latest/tokio/process/
+// - Pin and Box for recursive futures: https://doc.rust-lang.org/std/pin/
+// - Tauri event system: https://v2.tauri.app/develop/calling-rust/#events
 
 use std::collections::VecDeque;
+// Future and Pin are needed for the recursive async pattern in process_queue().
+// Recursive async functions cannot use normal `async fn` syntax because the
+// compiler cannot determine the size of the future at compile time.
+// Instead, we return Pin<Box<dyn Future<Output = ()> + Send>>.
+// Ref: https://doc.rust-lang.org/std/pin/index.html
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+// Tokio's Mutex is used instead of std::sync::Mutex because the lock is held
+// across .await points. std::sync::Mutex would block the entire thread;
+// tokio::sync::Mutex yields the task instead.
+// Ref: https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html
 use tokio::sync::Mutex;
 
+// Emitter trait provides app.emit() for sending events to the frontend.
 use tauri::{AppHandle, Emitter};
 
+// DownloadRequest: The user's download request from the frontend (URLs + optional overrides).
+// DownloadState: Enum of lifecycle states (Queued, Downloading, Processing, Complete, Error, Cancelled).
+// QueueItemStatus: The public-facing status struct sent to the frontend for UI rendering.
 use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
+// GamdlOptions: Typed representation of GAMDL CLI arguments, used as the "effective" options
+// after merging per-download overrides with global settings.
 use crate::models::gamdl_options::GamdlOptions;
+// AppSettings: The full application settings, used for merging defaults and fallback chain config.
 use crate::models::settings::AppSettings;
+// config_service: Used to load settings during fallback decisions.
+// gamdl_service: Provides build_gamdl_command_public() and GamdlProgress for subprocess execution.
 use crate::services::{config_service, gamdl_service};
+// process: Provides parse_gamdl_output() for parsing GAMDL output lines and
+// classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
 
 // ============================================================
@@ -25,19 +104,29 @@ use crate::utils::process;
 // ============================================================
 
 /// Internal representation of a download job in the queue.
-/// Contains the public status plus additional tracking fields
-/// that are not exposed to the frontend.
+///
+/// Contains the public-facing QueueItemStatus (sent to the frontend) plus
+/// additional private tracking fields used by the queue manager for retry
+/// and fallback logic. The frontend never sees fallback_index or
+/// network_retries_left directly.
 #[derive(Debug, Clone)]
 struct QueueItem {
-    /// Public status sent to the frontend
+    /// Public status sent to the frontend via get_status().
+    /// This is the serializable subset of the item's state.
     pub status: QueueItemStatus,
-    /// The original download request (URLs + options)
+    /// The original download request as submitted by the user.
+    /// Preserved for retry operations (retry resets options from this).
     pub request: DownloadRequest,
-    /// Merged GAMDL options (user overrides merged with global settings)
+    /// Merged GAMDL options (user overrides merged with global settings).
+    /// These are the "effective" options passed to GAMDL for this download.
+    /// Updated during fallback (e.g., codec changes from alac to aac-he).
     pub merged_options: GamdlOptions,
-    /// Index into the fallback chain (0 = preferred codec, 1 = first fallback, etc.)
+    /// Index into the settings.music_fallback_chain array.
+    /// 0 = preferred codec (initial attempt), 1 = first fallback, etc.
+    /// Incremented by try_fallback() on codec-related errors.
     pub fallback_index: usize,
-    /// Number of network retry attempts remaining
+    /// Number of network retry attempts remaining before giving up.
+    /// Decremented by try_network_retry() on network-related errors.
     pub network_retries_left: u32,
 }
 
@@ -47,22 +136,40 @@ struct QueueItem {
 
 /// The download queue manager. Wrapped in Arc<Mutex<>> for thread-safe
 /// access from multiple Tauri commands and background tasks.
+///
+/// The queue manages the full lifecycle of downloads:
+/// Queued -> Downloading -> Processing -> Complete (happy path)
+/// Queued -> Downloading -> Error -> (retry/fallback) -> Queued (retry path)
+/// Queued -> Cancelled (user cancellation)
+///
+/// Only `max_concurrent` downloads run simultaneously. When a download
+/// finishes, the queue automatically starts the next queued item.
 #[derive(Debug)]
 pub struct DownloadQueue {
-    /// The queue of download jobs (front = next to process)
+    /// The queue of download jobs (front = next to process).
+    /// VecDeque allows efficient push_back (enqueue) and iteration
+    /// to find the next Queued item.
     items: VecDeque<QueueItem>,
-    /// Maximum number of concurrent downloads
+    /// Maximum number of concurrent downloads (default: 1).
+    /// Limiting to 1 avoids Apple Music rate limiting and reduces
+    /// memory usage from concurrent GAMDL processes.
     max_concurrent: usize,
-    /// Number of currently active downloads
+    /// Number of currently active (Downloading/Processing) downloads.
+    /// Incremented by next_pending(), decremented by on_task_finished().
     active_count: usize,
-    /// Maximum number of network retry attempts per download
+    /// Maximum number of network retry attempts per download (default: 3).
+    /// Each download starts with this many retries; decremented on network errors.
     max_network_retries: u32,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
+/// This type alias is used throughout the codebase when accessing the queue.
+/// Tauri's `State<QueueHandle>` injector provides this to command handlers.
+/// Ref: https://v2.tauri.app/develop/calling-rust/#accessing-managed-state
 pub type QueueHandle = Arc<Mutex<DownloadQueue>>;
 
 /// Creates a new queue handle for use as Tauri managed state.
+/// Called once during app initialization (typically in main.rs setup).
 pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
@@ -97,9 +204,14 @@ impl DownloadQueue {
     /// # Returns
     /// The unique download ID for tracking this job.
     pub fn enqueue(&mut self, request: DownloadRequest, settings: &AppSettings) -> String {
+        // Generate a unique download ID using UUID v4.
+        // This ID is used to track the download across the queue, events, and frontend.
         let download_id = uuid::Uuid::new_v4().to_string();
 
-        // Merge per-download overrides with global settings to produce final options
+        // Merge per-download overrides (from the frontend's "custom options" UI)
+        // with global settings to produce the final set of GAMDL options.
+        // For example, a user might override the codec for a specific download
+        // while keeping the global output path from settings.
         let merged_options = merge_options(request.options.as_ref(), settings);
 
         let item = QueueItem {
@@ -141,14 +253,18 @@ impl DownloadQueue {
         download_id
     }
 
-    /// Returns the public status of all queue items.
+    /// Returns the public status of all queue items for display in the frontend.
+    /// The frontend calls this (via a Tauri command) to render the queue list.
+    /// Returns cloned statuses to avoid holding the lock during serialization.
     pub fn get_status(&self) -> Vec<QueueItemStatus> {
         self.items.iter().map(|item| item.status.clone()).collect()
     }
 
-    /// Returns summary counts for the queue.
+    /// Returns summary counts for the queue: (total, active, queued, completed, failed).
+    /// Used by the frontend to display queue statistics in the header/badge.
     pub fn get_counts(&self) -> (usize, usize, usize, usize, usize) {
         let total = self.items.len();
+        // Active includes both Downloading and Processing states
         let active = self.items.iter().filter(|i| {
             i.status.state == DownloadState::Downloading
                 || i.status.state == DownloadState::Processing
@@ -220,6 +336,16 @@ impl DownloadQueue {
     }
 
     /// Updates progress information for a queue item based on a parsed GAMDL event.
+    ///
+    /// Called by the stdout/stderr reader tasks in run_download_with_events()
+    /// each time a line is parsed from GAMDL's output. The event type determines
+    /// which status fields are updated:
+    ///
+    /// - DownloadProgress: Updates percentage, speed, ETA (shown in progress bar)
+    /// - TrackInfo: Updates current track name (shown above progress bar)
+    /// - ProcessingStep: Transitions state to Processing (e.g., remuxing, tagging)
+    /// - Complete: Sets output path and 100% progress
+    /// - Error: Records the error message for display
     pub fn update_item_progress(
         &mut self,
         download_id: &str,
@@ -228,12 +354,14 @@ impl DownloadQueue {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             match event {
                 process::GamdlOutputEvent::DownloadProgress { percent, speed, eta } => {
+                    // Update real-time progress metrics from GAMDL's tqdm-style progress bar
                     item.status.progress = *percent;
                     item.status.speed = Some(speed.clone());
                     item.status.eta = Some(eta.clone());
                     item.status.state = DownloadState::Downloading;
                 }
                 process::GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                    // Format the current track as "Artist - Title" or just "Title"
                     let track_name = if artist.is_empty() {
                         title.clone()
                     } else {
@@ -242,13 +370,19 @@ impl DownloadQueue {
                     item.status.current_track = Some(track_name);
                 }
                 process::GamdlOutputEvent::ProcessingStep { .. } => {
+                    // Processing state covers post-download steps like remuxing,
+                    // metadata tagging, and cover art embedding
                     item.status.state = DownloadState::Processing;
                 }
                 process::GamdlOutputEvent::Complete { path } => {
+                    // Set the output file/directory path for the "Open" button in the UI
                     item.status.output_path = Some(path.clone());
                     item.status.progress = 100.0;
                 }
                 process::GamdlOutputEvent::Error { message } => {
+                    // Record the error but don't change state yet — the process
+                    // may still be running and the error handling in process_queue()
+                    // will determine the final state (retry, fallback, or Error).
                     item.status.error = Some(message.clone());
                 }
                 _ => {}
@@ -274,6 +408,15 @@ impl DownloadQueue {
 
     /// Checks if a download should attempt a fallback codec/resolution.
     ///
+    /// The fallback chain is defined in AppSettings::music_fallback_chain, e.g.:
+    /// `[Alac, AacHe, AacBinaural]`
+    ///
+    /// On each codec error, we advance to the next codec in the chain.
+    /// This handles the case where Apple Music doesn't offer a track in the
+    /// user's preferred codec (e.g., ALAC not available for all tracks).
+    ///
+    /// The item is reset to Queued state so process_queue() will pick it up again.
+    ///
     /// # Returns
     /// `Some(new_options)` if fallback should be attempted, `None` if all fallbacks exhausted.
     pub fn try_fallback(
@@ -283,22 +426,24 @@ impl DownloadQueue {
     ) -> Option<GamdlOptions> {
         let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
 
-        // Only attempt fallback if enabled in settings
+        // Only attempt fallback if the user has enabled it in settings
         if !settings.fallback_enabled {
             return None;
         }
 
-        // Try the next codec in the music fallback chain
+        // Advance to the next codec in the fallback chain
         item.fallback_index += 1;
 
         if item.fallback_index < settings.music_fallback_chain.len() {
+            // Get the next codec to try from the fallback chain
             let next_codec = &settings.music_fallback_chain[item.fallback_index];
             let mut new_options = item.merged_options.clone();
             new_options.song_codec = Some(next_codec.clone());
 
-            // Update tracking info
+            // Update tracking info for the frontend to display
             item.status.codec_used = Some(next_codec.to_cli_string().to_string());
             item.status.fallback_occurred = true;
+            // Reset the item to Queued so process_queue() will start it again
             item.status.state = DownloadState::Queued;
             item.status.error = None;
             item.status.progress = 0.0;
@@ -312,6 +457,8 @@ impl DownloadQueue {
 
             Some(new_options)
         } else {
+            // All codecs in the fallback chain have been tried and failed.
+            // The download will remain in the Error state.
             log::info!(
                 "Download {} exhausted all fallback codecs",
                 download_id
@@ -347,16 +494,28 @@ impl DownloadQueue {
     }
 
     /// Gets the next queued item's download ID and options for execution.
-    /// Returns None if no queued items or max concurrent limit reached.
+    ///
+    /// This is the "scheduler" — it decides whether a new download can start.
+    /// Returns None if:
+    /// - No items are in the Queued state
+    /// - The max concurrent limit has been reached
+    ///
+    /// When an item is selected, it transitions from Queued -> Downloading
+    /// and the active count is incremented. The caller (process_queue) must
+    /// eventually call on_task_finished() when the download completes.
     pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions)> {
+        // Check if we're at the concurrent download limit
         if self.active_count >= self.max_concurrent {
             return None;
         }
 
+        // Find the first Queued item (FIFO order from VecDeque front)
         let item = self.items.iter_mut().find(|i| i.status.state == DownloadState::Queued)?;
+        // Transition to Downloading and increment active count
         item.status.state = DownloadState::Downloading;
         self.active_count += 1;
 
+        // Return the data needed to start the download
         Some((
             item.status.id.clone(),
             item.status.urls.clone(),
@@ -366,14 +525,19 @@ impl DownloadQueue {
 
     /// Called when a download task finishes (success, error, or cancel).
     /// Decrements the active count so new downloads can start.
+    /// This must be called exactly once per next_pending() call to keep
+    /// the active_count accurate. The guard `if self.active_count > 0`
+    /// prevents underflow in edge cases.
     pub fn on_task_finished(&mut self) {
         if self.active_count > 0 {
             self.active_count -= 1;
         }
     }
 
-    /// Checks if a download is still active (not cancelled).
-    /// Used by running tasks to detect if they should abort.
+    /// Checks if a download has been cancelled by the user.
+    /// Called by the cancellation polling loop in run_download_with_events()
+    /// every 250ms to detect if the user cancelled while the process is running.
+    /// If true, the caller should kill the GAMDL subprocess.
     pub fn is_cancelled(&self, download_id: &str) -> bool {
         self.items
             .iter()
@@ -382,15 +546,27 @@ impl DownloadQueue {
             .unwrap_or(false)
     }
 
-    /// Retries a failed download by resetting its state to Queued.
-    /// Returns true if the item was found and reset.
+    /// Retries a failed or cancelled download by fully resetting it to the Queued state.
+    ///
+    /// This is a "full reset" — the download starts from scratch with fresh options
+    /// (re-merged from the original request + current settings), a reset fallback
+    /// index, and full network retry budget. This differs from automatic retries
+    /// (try_fallback, try_network_retry) which only adjust specific fields.
+    ///
+    /// Called by the frontend's "Retry" button via a Tauri command.
+    ///
+    /// # Returns
+    /// `true` if the item was found and reset, `false` otherwise.
     pub fn retry(&mut self, download_id: &str, settings: &AppSettings) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if item.status.state == DownloadState::Error || item.status.state == DownloadState::Cancelled {
-                // Reset to initial state with fresh options
+                // Re-merge options from the original request with current settings.
+                // This picks up any settings changes the user made since the original attempt.
                 item.merged_options = merge_options(item.request.options.as_ref(), settings);
+                // Reset fallback and retry counters to their initial values
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
+                // Reset status fields for a fresh start
                 item.status.state = DownloadState::Queued;
                 item.status.error = None;
                 item.status.progress = 0.0;
@@ -417,13 +593,21 @@ impl DownloadQueue {
 /// Merges per-download option overrides with the global app settings
 /// to produce the final set of GAMDL CLI options.
 ///
-/// Per-download overrides take priority. For any field that is None
-/// in the override, the global setting value is used.
+/// The merge follows a two-layer priority system:
+/// 1. **Global settings** (from AppSettings) form the base layer
+/// 2. **Per-download overrides** (from the frontend) override specific fields
+///
+/// This allows users to set global defaults (e.g., always use ALAC) while
+/// still customizing individual downloads (e.g., this one in AAC-HE).
+///
+/// The resulting GamdlOptions struct is what actually gets passed to
+/// `gamdl_service::build_gamdl_command_public()` to construct the CLI command.
 #[allow(clippy::field_reassign_with_default)]
 fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
     let mut options = GamdlOptions::default();
 
-    // Apply global settings as the base
+    // === Layer 1: Apply global settings as the base ===
+    // These come from the user's saved settings (settings.json).
     options.song_codec = Some(settings.default_song_codec.clone());
     options.music_video_resolution = Some(settings.default_video_resolution.clone());
     options.music_video_codec_priority = Some(settings.default_video_codec_priority.clone());
@@ -468,7 +652,9 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         options.exclude_tags = Some(settings.exclude_tags.join(","));
     }
 
-    // Apply per-download overrides (these take priority over globals)
+    // === Layer 2: Apply per-download overrides (highest priority) ===
+    // Only non-None fields from the override replace the global values.
+    // This selective merge allows partial overrides (e.g., only change codec).
     if let Some(overrides) = overrides {
         if overrides.song_codec.is_some() {
             options.song_codec = overrides.song_codec.clone();
@@ -514,28 +700,34 @@ pub fn process_queue(
     queue: QueueHandle,
 ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     Box::pin(async move {
-    // Get the next pending item (returns None if max concurrent reached or no items)
+    // Acquire the queue lock briefly to check for the next pending item.
+    // The lock is released immediately after to avoid holding it during the download.
     let pending = {
         let mut q = queue.lock().await;
         q.next_pending()
     };
 
+    // If no items are pending (queue empty or max concurrent reached), exit.
     let Some((download_id, urls, options)) = pending else {
         return;
     };
 
     log::info!("Processing download {}", download_id);
 
-    // Notify the frontend that processing has started
+    // Notify the frontend that this download is starting.
+    // The frontend uses this event to transition the download card's UI state.
     let _ = app.emit("download-started", &download_id);
 
-    // Spawn the download in a background task
+    // Spawn the download in a separate tokio task so it runs independently.
+    // This allows process_queue() to return immediately while the download runs.
     let app_clone = app.clone();
     let queue_clone = queue.clone();
     let dl_id = download_id.clone();
 
     tokio::spawn(async move {
-        // Run the GAMDL download
+        // Run the GAMDL download with real-time event forwarding.
+        // This function handles subprocess spawning, output parsing,
+        // and cancellation polling. See run_download_with_events() below.
         let result = run_download_with_events(
             &app_clone,
             &dl_id,
@@ -545,29 +737,36 @@ pub fn process_queue(
         )
         .await;
 
-        // Handle the result
+        // Handle the result of the download attempt
         match result {
             Ok(()) => {
+                // === Success path ===
                 let mut q = queue_clone.lock().await;
                 q.set_complete(&dl_id);
-                q.on_task_finished();
+                q.on_task_finished(); // Free a concurrent download slot
                 log::info!("Download {} completed successfully", dl_id);
+                // Notify frontend of successful completion
                 let _ = app_clone.emit("download-complete", &dl_id);
             }
             Err(error_msg) => {
+                // === Error path ===
+                // Classify the error to determine the appropriate retry strategy.
+                // process::classify_error() returns "codec", "network", or "unknown".
                 let error_category = process::classify_error(&error_msg);
                 log::error!("Download {} failed ({}): {}", dl_id, error_category, error_msg);
 
-                // Determine if we should retry or fallback
+                // Determine if we should retry or fallback based on error category
                 let should_retry = match error_category {
                     "codec" => {
-                        // Load settings for fallback chain
+                        // Codec error: the requested audio codec isn't available for this track.
+                        // Try the next codec in the fallback chain (e.g., alac -> aac-he).
                         let settings = load_settings_for_queue(&app_clone).await;
                         let mut q = queue_clone.lock().await;
                         q.set_error(&dl_id, &error_msg);
                         q.on_task_finished();
 
                         if let Some(_new_options) = q.try_fallback(&dl_id, &settings) {
+                            // try_fallback resets the item to Queued with the new codec
                             log::info!("Download {} will retry with fallback codec", dl_id);
                             true
                         } else {
@@ -575,11 +774,14 @@ pub fn process_queue(
                         }
                     }
                     "network" => {
+                        // Network error: transient connection issue.
+                        // Retry with the same options (up to max_network_retries times).
                         let mut q = queue_clone.lock().await;
                         q.set_error(&dl_id, &error_msg);
                         q.on_task_finished();
 
                         if q.try_network_retry(&dl_id) {
+                            // try_network_retry resets the item to Queued with same options
                             log::info!("Download {} will retry (network error)", dl_id);
                             true
                         } else {
@@ -587,7 +789,8 @@ pub fn process_queue(
                         }
                     }
                     _ => {
-                        // Non-retriable error
+                        // Non-retriable error (e.g., authentication, invalid URL).
+                        // Mark as failed and don't retry.
                         let mut q = queue_clone.lock().await;
                         q.set_error(&dl_id, &error_msg);
                         q.on_task_finished();
@@ -595,6 +798,7 @@ pub fn process_queue(
                     }
                 };
 
+                // If no retry will occur, notify the frontend of the final error
                 if !should_retry {
                     let _ = app_clone.emit(
                         "download-error",
@@ -608,7 +812,9 @@ pub fn process_queue(
             }
         }
 
-        // Process the next item in the queue (cascade)
+        // Cascade: process the next item in the queue.
+        // This recursive call ensures continuous queue processing — when one
+        // download finishes, the next one starts automatically.
         process_queue(app_clone, queue_clone).await;
     });
     }) // close Box::pin(async move {
@@ -616,6 +822,19 @@ pub fn process_queue(
 
 /// Runs a GAMDL download while forwarding parsed events to both
 /// the queue item (for status tracking) and the frontend (for UI updates).
+///
+/// This is the queue's version of `gamdl_service::run_gamdl()`, with two
+/// key differences:
+/// 1. It updates the queue item's progress (for status queries)
+/// 2. It polls for cancellation every 250ms (for user cancel support)
+///
+/// The function builds the GAMDL command, spawns it with piped stdio,
+/// starts two reader tasks (stdout + stderr), and enters a poll loop
+/// that alternates between checking for process exit and cancellation.
+///
+/// Error messages from GAMDL's output are collected in a Vec<String>
+/// (behind Arc<Mutex>) so the last error can be used as the failure
+/// message if the process exits with a non-zero code.
 async fn run_download_with_events(
     app: &AppHandle,
     download_id: &str,
@@ -651,7 +870,10 @@ async fn run_download_with_events(
         .take()
         .ok_or_else(|| "Failed to capture GAMDL stderr".to_string())?;
 
-    // Collect error messages for fallback decision
+    // Collect error messages from GAMDL's output for post-process error reporting.
+    // These are shared between the stdout and stderr reader tasks via Arc<Mutex>.
+    // After the process exits, the last collected error is used as the failure message,
+    // which is more informative than just the exit code.
     let collected_errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     // Spawn stdout reader
@@ -721,26 +943,36 @@ async fn run_download_with_events(
         })
     };
 
-    // Periodically check for cancellation while waiting for the process
+    // Cancellation polling loop: alternate between checking for user cancellation
+    // and checking if the GAMDL process has exited naturally.
+    // This loop runs every 250ms and provides responsive cancellation support
+    // without consuming excessive CPU.
     let status = loop {
-        // Check if the download was cancelled
+        // Step 1: Check if the user cancelled this download.
+        // The cancel() method on the queue sets the item's state to Cancelled,
+        // which we detect here. The lock is held very briefly (just a read check).
         {
             let q = queue.lock().await;
             if q.is_cancelled(download_id) {
                 log::info!("Download {} cancelled, killing process", download_id);
+                // Kill the GAMDL process and wait for cleanup
                 let _ = child.kill().await;
                 let _ = child.wait().await;
+                // Wait for reader tasks to finish draining any buffered output
                 let _ = stdout_task.await;
                 let _ = stderr_task.await;
                 return Err("Download cancelled by user".to_string());
             }
         }
 
-        // Check if the process has exited
+        // Step 2: Check if the process has exited (non-blocking check).
+        // try_wait() returns Ok(Some(status)) if the process has exited,
+        // Ok(None) if it's still running, or Err on OS-level error.
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
-                // Process still running, wait a bit before checking again
+                // Process still running — sleep briefly before next poll iteration.
+                // 250ms provides a good balance between responsiveness and CPU usage.
                 tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
             }
             Err(e) => return Err(format!("Failed to wait for GAMDL process: {}", e)),
@@ -751,22 +983,34 @@ async fn run_download_with_events(
     let _ = stdout_task.await;
     let _ = stderr_task.await;
 
-    // Check the exit status
+    // Check the exit status and construct an appropriate error message.
     if status.success() {
         Ok(())
     } else {
-        // Use collected errors for a meaningful error message
+        // Use the last collected error message from GAMDL's output for a meaningful
+        // error message. This is more informative than just "exited with code N".
+        // The error message is also used by classify_error() to determine the
+        // retry/fallback strategy (codec error vs network error vs unknown).
         let errors = collected_errors.lock().await;
         if let Some(last_error) = errors.last() {
             Err(last_error.clone())
         } else {
+            // Fallback to exit code if no error messages were collected
+            // (e.g., GAMDL crashed without printing an error)
             let code = status.code().unwrap_or(-1);
             Err(format!("GAMDL process exited with code {}", code))
         }
     }
 }
 
-/// Loads the current app settings (used by queue processing for fallback decisions).
+/// Loads the current app settings for use during queue processing decisions.
+///
+/// This is called during the error handling path of process_queue() to
+/// access the fallback chain configuration. It uses config_service::load_settings()
+/// rather than cached settings to ensure the latest user preferences are used
+/// (the user might change settings while downloads are running).
+///
+/// Returns AppSettings::default() on load failure to avoid blocking queue processing.
 async fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
     match config_service::load_settings(app) {
         Ok(settings) => settings,

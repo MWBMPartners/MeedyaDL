@@ -2,109 +2,257 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Base theme CSS custom properties.
- * Defines the default design token values that all platform themes build upon.
- * Platform-specific themes (macos.css, windows.css, linux.css) override
- * these properties to achieve native-feeling UI on each OS.
+ * Base Theme -- Default CSS Custom Properties (Design Tokens)
+ * =============================================================
  *
- * This file sets a neutral, light theme as the default.
+ * This file defines the foundational design tokens for the gamdl-GUI application
+ * using CSS custom properties (CSS variables). These tokens are the "API" between
+ * the design system and the application UI:
+ *
+ *   Tailwind classes (tailwind.config.js)
+ *       --> reference CSS variables (e.g., var(--accent))
+ *           --> defined HERE as defaults on :root
+ *               --> OVERRIDDEN by platform themes (macos.css, windows.css, linux.css)
+ *
+ * Token Categories:
+ *   1. Typography  -- Font family, base sizes
+ *   2. Sidebar     -- Left navigation panel colors
+ *   3. Surfaces    -- Background colors for content areas and overlays
+ *   4. Accent      -- Interactive/brand color (buttons, links, selections)
+ *   5. Text        -- Text colors at different emphasis levels
+ *   6. Status      -- Semantic feedback colors (success, warning, error, info)
+ *   7. Borders     -- Divider and outline colors
+ *   8. Geometry    -- Border radius values (corner rounding)
+ *   9. Shadows     -- Box shadow definitions for elevation
+ *   10. Transitions -- Animation timing presets
+ *
+ * The base values defined here use a neutral palette that serves as:
+ *   - The default when no platform class is applied (should never happen in practice)
+ *   - A fallback if a platform theme forgets to override a specific token
+ *   - The starting point for the dark mode overrides at the bottom of this file
+ *
+ * How platform theming works:
+ *   At runtime, the React app detects the OS via tauri-plugin-os and applies
+ *   a class like "platform-macos" to the <html> element. The platform CSS files
+ *   use that class as a selector (e.g., `.platform-macos { --accent: #007aff; }`)
+ *   to override the variables defined here. Because CSS custom property inheritance
+ *   flows down the DOM tree, all child elements automatically pick up the new values.
+ *
+ * Related files:
+ *   - src/styles/themes/macos.css   -- macOS Liquid Glass overrides
+ *   - src/styles/themes/windows.css -- Windows Fluent Design overrides
+ *   - src/styles/themes/linux.css   -- Linux Adwaita overrides
+ *   - tailwind.config.js            -- Maps these variables to Tailwind utility classes
+ *   - src/styles/globals.css        -- Uses these variables in base element styles
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/Using_CSS_custom_properties
+ * @see https://tailwindcss.com/docs/customizing-colors -- How Tailwind uses CSS variables
  */
 
+/* ============================================================
+ * Light Mode Defaults (applied to :root, the <html> element)
+ *
+ * :root is the highest specificity selector for CSS variables.
+ * Platform themes override these by using more specific selectors
+ * (e.g., .platform-macos:root or .platform-macos with inheritance).
+ * ============================================================ */
 :root {
   /* ---- Typography ---- */
-  /* Default system font stack (overridden per platform) */
+  /*
+   * --font-family: The primary font stack for all body text.
+   * Uses a cascading fallback strategy to find the best system font:
+   *   - system-ui     -- The OS default UI font (resolves to San Francisco on macOS, Segoe UI on Windows)
+   *   - -apple-system -- WebKit-specific alias for San Francisco (older Safari compatibility)
+   *   - 'Segoe UI'    -- Windows system font (explicit for cross-platform SSR/testing)
+   *   - Roboto        -- Android/ChromeOS default (for web previews)
+   *   - sans-serif    -- Ultimate fallback
+   *
+   * Platform themes override this with more specific font stacks.
+   * Referenced by: body { font-family: var(--font-family); } in globals.css
+   */
   --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /*
+   * Base font sizes for consistent typography scaling.
+   * --font-size-base: Default body text size (14px is standard for desktop apps)
+   * --font-size-sm:   Small text for captions, metadata, timestamps
+   * --font-size-lg:   Large text for section headers, titles
+   */
   --font-size-base: 14px;
   --font-size-sm: 12px;
   --font-size-lg: 16px;
 
   /* ---- Colors: Sidebar ---- */
-  --sidebar-bg: #f5f5f5;
-  --sidebar-hover: rgba(0, 0, 0, 0.05);
-  --sidebar-active: rgba(0, 0, 0, 0.08);
-  --sidebar-text: #555555;
-  --sidebar-text-active: #1a1a1a;
-  --sidebar-border: #e0e0e0;
+  /*
+   * Sidebar is the left navigation panel containing section links.
+   * These tokens control its background, hover/active states, text, and border.
+   *
+   * Referenced by Tailwind classes: bg-sidebar-bg, hover:bg-sidebar-hover,
+   * bg-sidebar-active, text-sidebar-text, text-sidebar-text-active, border-sidebar-border
+   */
+  --sidebar-bg: #f5f5f5;                  /* Panel background: light gray */
+  --sidebar-hover: rgba(0, 0, 0, 0.05);   /* Subtle darken on hover (5% black overlay) */
+  --sidebar-active: rgba(0, 0, 0, 0.08);  /* Slightly stronger for active/selected item */
+  --sidebar-text: #555555;                 /* Default nav item text: medium gray */
+  --sidebar-text-active: #1a1a1a;          /* Active nav item text: near-black for emphasis */
+  --sidebar-border: #e0e0e0;              /* Right border separating sidebar from content */
 
   /* ---- Colors: Surfaces ---- */
-  --surface-primary: #ffffff;
-  --surface-secondary: #fafafa;
-  --surface-elevated: #f8f8f8;
-  --surface-overlay: rgba(0, 0, 0, 0.5);
+  /*
+   * Surface colors define the background hierarchy of the application.
+   * Lower surfaces (primary) sit behind higher surfaces (elevated).
+   * This creates a visual depth/layering effect.
+   *
+   * Referenced by: bg-surface-primary, bg-surface-secondary, bg-surface-elevated, bg-surface-overlay
+   */
+  --surface-primary: #ffffff;              /* Main content background: pure white */
+  --surface-secondary: #fafafa;            /* Grouped/alternate content sections: off-white */
+  --surface-elevated: #f8f8f8;             /* Cards, modals, raised panels: slightly gray */
+  --surface-overlay: rgba(0, 0, 0, 0.5);  /* Semi-transparent backdrop behind modals (50% black) */
 
   /* ---- Colors: Accent ---- */
-  --accent: #007aff;
-  --accent-hover: #0062cc;
-  --accent-light: rgba(0, 122, 255, 0.1);
+  /*
+   * Accent is the primary interactive color used for buttons, links, active indicators,
+   * and focus states. Each platform defines its own accent blue:
+   *   - macOS: #007aff (Apple's system blue)
+   *   - Windows: #0067c0 (Microsoft's accent blue)
+   *   - Linux: #3584e4 (GNOME Adwaita blue)
+   *
+   * The base default uses Apple's blue as a reasonable cross-platform choice.
+   * Referenced by: bg-accent, hover:bg-accent-hover, bg-accent-light, text-accent
+   */
+  --accent: #007aff;                             /* Primary action color: Apple blue */
+  --accent-hover: #0062cc;                        /* Darker shade for hover state */
+  --accent-light: rgba(0, 122, 255, 0.1);        /* 10% opacity tint for subtle backgrounds */
 
   /* ---- Colors: Text ---- */
-  --text-primary: #1a1a1a;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
-  --text-inverse: #ffffff;
+  /*
+   * Text colors at three emphasis levels plus an inverse variant.
+   * Using a hierarchy of emphasis avoids the "wall of black text" effect and
+   * guides the user's eye to the most important information.
+   *
+   * Referenced by: text-content-primary, text-content-secondary, text-content-tertiary, text-content-inverse
+   */
+  --text-primary: #1a1a1a;    /* Highest emphasis: headings, body text, labels */
+  --text-secondary: #666666;  /* Medium emphasis: descriptions, metadata, supporting text */
+  --text-tertiary: #999999;   /* Low emphasis: placeholders, hints, disabled text */
+  --text-inverse: #ffffff;    /* Text on colored backgrounds (e.g., white text on accent buttons) */
 
   /* ---- Colors: Status ---- */
-  --status-success: #34c759;
-  --status-warning: #ff9500;
-  --status-error: #ff3b30;
-  --status-info: #007aff;
+  /*
+   * Semantic status colors for communicating feedback to the user.
+   * Used consistently across the download queue, settings validation, and notifications.
+   *
+   * These colors follow accessibility guidelines for sufficient contrast ratios
+   * against both light and dark backgrounds (WCAG AA at minimum).
+   *
+   * Referenced by: text-status-success, bg-status-error, border-status-warning, text-status-info
+   */
+  --status-success: #34c759;  /* Completed downloads, valid inputs (green) */
+  --status-warning: #ff9500;  /* Warnings, pending actions (orange) */
+  --status-error: #ff3b30;    /* Failed downloads, validation errors (red) */
+  --status-info: #007aff;     /* Informational messages, active downloads (blue, matches accent) */
 
   /* ---- Colors: Borders ---- */
-  --border: #d1d1d6;
-  --border-light: #e5e5ea;
-  --border-strong: #aeaeb2;
+  /*
+   * Border colors at three intensity levels for visual separation.
+   *
+   * Referenced by: border-border (default), border-border-light, border-border-strong
+   */
+  --border: #d1d1d6;          /* Standard borders: inputs, cards, table dividers */
+  --border-light: #e5e5ea;    /* Subtle dividers: between list items, section separators */
+  --border-strong: #aeaeb2;   /* Emphasized borders: focused inputs, important dividers */
 
   /* ---- Geometry ---- */
-  --radius: 6px;
-  --radius-sm: 4px;
-  --radius-lg: 10px;
+  /*
+   * Border radius tokens for consistent corner rounding across the UI.
+   * Each platform has different conventions:
+   *   - macOS: Larger radii (8px+) for the Liquid Glass rounded aesthetic
+   *   - Windows: Smaller radii (4px) for Fluent Design's sharper look
+   *   - Linux: Moderate radii (6px) matching GNOME/Adwaita
+   *
+   * Referenced by: rounded-platform, rounded-platform-sm, rounded-platform-lg
+   */
+  --radius: 6px;      /* Default radius for buttons, inputs, small cards */
+  --radius-sm: 4px;   /* Smaller radius for badges, tags, inline elements */
+  --radius-lg: 10px;  /* Larger radius for modal dialogs, large cards, panels */
 
   /* ---- Shadows ---- */
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);
+  /*
+   * Box shadow presets for creating visual elevation/depth.
+   * Platform themes customize these to match their native shadow style:
+   *   - macOS: Soft, multi-layer shadows with subtle border effects
+   *   - Windows: Sharper, more defined shadows (Fluent elevation)
+   *   - Linux: Moderate depth shadows (GTK style)
+   *
+   * Referenced by: shadow-platform, shadow-platform-lg
+   */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);       /* Standard elevation: cards, dropdowns */
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);   /* Higher elevation: modals, floating panels */
 
   /* ---- Transitions ---- */
+  /*
+   * Animation timing presets for consistent motion across the UI.
+   * --transition-fast:   Quick interactions (hover, focus, toggle)
+   * --transition-normal: Standard transitions (panel open/close, navigation)
+   *
+   * These use the CSS 'ease' timing function (equivalent to cubic-bezier(0.25, 0.1, 0.25, 1.0))
+   * which provides a natural deceleration curve.
+   */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
 }
 
 /* ============================================================
- * Dark mode support (follows OS preference)
+ * Dark Mode Overrides
+ * --------------------
+ * Automatically activates when the user's OS is set to dark mode.
+ * Uses the prefers-color-scheme media query which is supported by
+ * all modern browsers and Tauri's WebView.
+ *
+ * Only the tokens that change between light/dark are overridden here.
+ * Tokens like --radius and --transition-* remain unchanged.
+ *
+ * Platform themes (macos.css, windows.css, linux.css) also define their
+ * own dark mode overrides using the same media query with their
+ * platform-specific class selector, giving them higher specificity.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme
  * ============================================================ */
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Sidebar */
-    --sidebar-bg: #1c1c1e;
-    --sidebar-hover: rgba(255, 255, 255, 0.06);
-    --sidebar-active: rgba(255, 255, 255, 0.1);
-    --sidebar-text: #a0a0a0;
-    --sidebar-text-active: #ffffff;
-    --sidebar-border: #2c2c2e;
+    /* Sidebar -- Dark backgrounds with light text and white translucent hover effects */
+    --sidebar-bg: #1c1c1e;                       /* Dark gray background (Apple's system gray 6) */
+    --sidebar-hover: rgba(255, 255, 255, 0.06);  /* White overlay at 6% opacity on hover */
+    --sidebar-active: rgba(255, 255, 255, 0.1);  /* White overlay at 10% opacity for active item */
+    --sidebar-text: #a0a0a0;                      /* Medium gray text for nav items */
+    --sidebar-text-active: #ffffff;               /* Pure white for active/selected item */
+    --sidebar-border: #2c2c2e;                    /* Slightly lighter than sidebar bg for visibility */
 
-    /* Surfaces */
-    --surface-primary: #000000;
-    --surface-secondary: #1c1c1e;
-    --surface-elevated: #2c2c2e;
-    --surface-overlay: rgba(0, 0, 0, 0.7);
+    /* Surfaces -- Dark backgrounds progressing from darkest (primary) to lighter (elevated) */
+    --surface-primary: #000000;                   /* True black main background */
+    --surface-secondary: #1c1c1e;                 /* Slightly elevated content sections */
+    --surface-elevated: #2c2c2e;                  /* Cards and modals: lighter for perceived depth */
+    --surface-overlay: rgba(0, 0, 0, 0.7);        /* Darker overlay in dark mode for contrast */
 
-    /* Accent (stays blue in dark mode) */
-    --accent: #0a84ff;
-    --accent-hover: #409cff;
-    --accent-light: rgba(10, 132, 255, 0.15);
+    /* Accent -- Brighter blue in dark mode for visibility against dark backgrounds */
+    --accent: #0a84ff;                             /* iOS dark mode blue (higher luminance than light mode) */
+    --accent-hover: #409cff;                       /* Even brighter on hover for clear feedback */
+    --accent-light: rgba(10, 132, 255, 0.15);     /* 15% opacity tint (slightly more visible in dark) */
 
-    /* Text */
-    --text-primary: #ffffff;
-    --text-secondary: #a0a0a0;
-    --text-tertiary: #666666;
-    --text-inverse: #000000;
+    /* Text -- Inverted from light mode (white primary, gray secondary) */
+    --text-primary: #ffffff;                       /* White text on dark backgrounds */
+    --text-secondary: #a0a0a0;                     /* Medium gray for secondary content */
+    --text-tertiary: #666666;                      /* Dark gray for hints and placeholders */
+    --text-inverse: #000000;                       /* Black text on colored (accent) backgrounds */
 
-    /* Borders */
-    --border: #3a3a3c;
-    --border-light: #2c2c2e;
-    --border-strong: #545458;
+    /* Borders -- Lighter borders for visibility against dark backgrounds */
+    --border: #3a3a3c;                             /* Standard border: visible but subtle */
+    --border-light: #2c2c2e;                       /* Subtle dividers (barely visible) */
+    --border-strong: #545458;                      /* Emphasized borders for focus states */
 
-    /* Shadows (less visible in dark mode) */
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+    /* Shadows -- Stronger opacity in dark mode because shadows are less visible on dark surfaces */
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);       /* 30% opacity (vs 10% in light mode) */
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);   /* 40% opacity (vs 15% in light mode) */
   }
 }

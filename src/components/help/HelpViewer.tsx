@@ -2,38 +2,120 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Help viewer component.
- * Renders a sidebar navigation of help topics and a Markdown content viewer.
- * Help content is loaded from bundled markdown files.
- * Uses react-markdown with remark-gfm for GitHub-flavored markdown rendering.
+ * @file HelpViewer.tsx -- Help documentation viewer with search.
  *
- * Enhanced features:
- * - Search bar with real-time filtering of help topics by label and content
- * - Highlighted search matches in sidebar labels
- * - Result count display when searching
- * - Keyboard shortcut hint (Ctrl/Cmd+K) for future shortcut support
- * - Clear search button
+ * Renders the "Help" page within the main application. The component
+ * provides a two-column layout:
+ *
+ *   - **Left sidebar** -- Searchable list of help topics, each with an
+ *     icon and label. Clicking a topic displays its content in the viewer.
+ *   - **Right content area** -- Renders the selected topic's Markdown
+ *     content using `react-markdown` with the `remark-gfm` plugin.
+ *
+ * ## Search Feature
+ *
+ * The sidebar includes a text input that filters topics in real-time:
+ *   - Filters by topic label AND topic content (case-insensitive).
+ *   - Matched portions of the label are highlighted with `<mark>` elements
+ *     via the `HighlightedLabel` sub-component.
+ *   - A result count is displayed below the search input.
+ *   - A clear (X) button resets the search when text is entered.
+ *   - A keyboard shortcut hint (Cmd+K / Ctrl+K) is shown as a visual
+ *     placeholder for future shortcut implementation.
+ *
+ * ## Help Topics
+ *
+ * Topics are defined as a static `HELP_TOPICS` array of `HelpTopic`
+ * objects, each containing an ID, label, icon, and inline Markdown string.
+ * Topics cover: Getting Started, Downloading, Settings, Cookies, Tools,
+ * Audio Codecs, Music Videos, Troubleshooting, and About.
+ *
+ * ## Markdown Rendering
+ *
+ * Content is rendered using:
+ *   - `react-markdown` (v9+) -- Core Markdown-to-React renderer
+ *     @see {@link https://www.npmjs.com/package/react-markdown}
+ *   - `remark-gfm` -- Plugin for GitHub Flavored Markdown support
+ *     (tables, strikethrough, task lists, autolinks)
+ *     @see {@link https://www.npmjs.com/package/remark-gfm}
+ *
+ * Tailwind CSS `prose` classes from `@tailwindcss/typography` provide
+ * typographic styling with automatic dark mode support via `dark:prose-invert`.
+ *
+ * ## Sub-components (file-private)
+ *
+ * - `isMacPlatform()` -- Detects macOS for modifier key display.
+ * - `escapeRegExp()` -- Escapes regex special characters in search queries.
+ * - `HighlightedLabel` -- Renders a label with search matches highlighted.
+ *
+ * ## Store Connections
+ *
+ * This component does NOT connect to any Zustand stores. It is entirely
+ * self-contained with local state for the active topic and search query.
+ *
+ * @see {@link https://www.npmjs.com/package/react-markdown}  -- react-markdown
+ * @see {@link https://www.npmjs.com/package/remark-gfm}      -- remark-gfm plugin
+ * @see {@link https://react.dev/reference/react/useState}     -- React useState
+ * @see {@link https://react.dev/reference/react/useMemo}      -- React useMemo
+ * @see {@link https://react.dev/reference/react/useCallback}  -- React useCallback
+ * @see {@link https://lucide.dev/}                            -- Lucide icon library
  */
 
+// React hooks: useState for active topic and search state, useMemo for
+// memoized filtering and platform detection, useCallback for stable handlers.
 import { useState, useMemo, useCallback } from 'react';
+
+/**
+ * react-markdown -- Renders Markdown strings as React components.
+ * Used to display help topic content in the right-side viewer pane.
+ * @see https://www.npmjs.com/package/react-markdown
+ * @see https://github.com/remarkjs/react-markdown
+ */
 import ReactMarkdown from 'react-markdown';
+
+/**
+ * remark-gfm -- Remark plugin that adds support for GitHub Flavored
+ * Markdown (GFM) extensions: tables, strikethrough (~text~), task
+ * lists (- [x] item), and autolinks. Passed to ReactMarkdown's
+ * `remarkPlugins` prop.
+ * @see https://www.npmjs.com/package/remark-gfm
+ * @see https://github.github.com/gfm/
+ */
 import remarkGfm from 'remark-gfm';
+
+// Lucide icons for each help topic in the sidebar.
+// Each topic has a dedicated icon for quick visual identification.
 import {
-  BookOpen,
-  Download,
-  Settings,
-  Cookie,
-  Wrench,
-  Music,
-  Video,
-  HelpCircle,
-  FileText,
-  Search,
-  X,
+  BookOpen,     // "Getting Started" topic
+  Download,     // "Downloading" topic
+  Settings,     // "Settings" topic
+  Cookie,       // "Cookies" topic
+  Wrench,       // "Tools" topic
+  Music,        // "Audio Codecs" topic
+  Video,        // "Music Videos" topic
+  HelpCircle,   // "Troubleshooting" topic
+  FileText,     // "About" topic
+  Search,       // Search icon in the sidebar search bar
+  X,            // Clear search button icon
 } from 'lucide-react';
+
+// Shared layout component for the page header.
 import { PageHeader } from '@/components/layout';
 
-/** Help topic definition */
+/**
+ * Shape of a single help topic entry.
+ *
+ * @property id      - Unique identifier used for the React `key` prop and
+ *                     for tracking the active topic in component state.
+ * @property label   - Short display name shown in the sidebar navigation.
+ *                     Also searched when the user types in the search bar.
+ * @property icon    - Lucide icon component rendered next to the label in
+ *                     the sidebar. Typed as `typeof BookOpen` (all Lucide
+ *                     icons share the same component signature).
+ * @property content - Full Markdown content string rendered in the viewer
+ *                     pane when this topic is selected. Also searched
+ *                     when the user types in the search bar.
+ */
 interface HelpTopic {
   id: string;
   label: string;
@@ -41,7 +123,18 @@ interface HelpTopic {
   content: string;
 }
 
-/** Built-in help topics with inline content */
+/**
+ * Static array of all built-in help topics.
+ *
+ * Each topic contains inline Markdown content rather than loading from
+ * external files. This approach keeps help content bundled with the
+ * application and eliminates the need for async file loading.
+ *
+ * Topics are displayed in the sidebar in the order they appear in this
+ * array. The order is intentional: Getting Started and Downloading come
+ * first as the most common entry points, followed by reference material
+ * (Settings, Cookies, Tools, Codecs, Videos), troubleshooting, and About.
+ */
 const HELP_TOPICS: HelpTopic[] = [
   {
     id: 'getting-started',

@@ -1,43 +1,108 @@
 # Copyright (c) 2024-2026 MWBM Partners Ltd
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Automated changelog generation workflow.
-# Generates CHANGELOG.md from conventional commit messages whenever
-# changes are pushed to the main branch. Uses git-cliff for parsing
-# commits and producing a well-formatted changelog.
+# Automated Changelog Generation Workflow for gamdl-GUI
+# =======================================================
 #
-# This ensures CHANGELOG.md is always up-to-date without manual intervention.
+# This GitHub Actions workflow automatically generates and commits an up-to-date
+# CHANGELOG.md file whenever changes are pushed to the main branch. It uses
+# git-cliff to parse conventional commit messages and produce a well-formatted,
+# grouped changelog.
+#
+# How it works:
+#   1. Triggered on push to main (excluding CHANGELOG.md changes to avoid infinite loops)
+#   2. Checks out the FULL git history (fetch-depth: 0) so git-cliff can see all commits
+#   3. Runs git-cliff with the cliff.toml configuration to regenerate CHANGELOG.md
+#   4. If CHANGELOG.md changed, commits and pushes the update with "[skip ci]" to prevent loops
+#
+# Infinite loop prevention:
+#   Two mechanisms prevent this workflow from triggering itself:
+#   1. paths-ignore: ['CHANGELOG.md'] -- Ignores pushes that only modify CHANGELOG.md
+#   2. "[skip ci]" in the commit message -- GitHub Actions skips workflows for [skip ci] commits
+#
+# The generated CHANGELOG.md is committed by the github-actions[bot] user,
+# which is GitHub's official bot account for Actions-generated commits.
+#
+# Related config files:
+#   - cliff.toml                -- git-cliff configuration (template, commit parsers, sorting)
+#   - commitlint.config.js      -- Ensures commits follow the conventional format that git-cliff expects
+#   - .github/workflows/release.yml -- Release notes reference the generated CHANGELOG.md
+#
+# @see https://github.com/orhun/git-cliff-action -- git-cliff GitHub Action
+# @see https://git-cliff.org/docs/ -- git-cliff documentation
+# @see https://docs.github.com/en/actions -- GitHub Actions documentation
 
+# Workflow display name in the GitHub Actions UI
 name: Changelog
 
+# ============================================================
+# Trigger: Run on pushes to main, excluding CHANGELOG.md changes
+# ============================================================
 on:
   push:
     branches: [main]
-    # Only run when actual code/config changes are pushed (not docs-only)
+    # paths-ignore prevents this workflow from triggering when ONLY CHANGELOG.md is modified.
+    # This is the primary mechanism for preventing an infinite loop:
+    #   1. Developer pushes code to main --> this workflow runs
+    #   2. Workflow regenerates CHANGELOG.md and pushes it
+    #   3. The push in step 2 only changes CHANGELOG.md --> paths-ignore prevents re-trigger
+    #
+    # @see https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#onpushpull_requestpull_request_targetpathspaths-ignore
     paths-ignore:
-      - 'CHANGELOG.md'  # Avoid infinite loop
+      - 'CHANGELOG.md'
 
+# permissions: contents: write allows the workflow to push commits back to the repository.
+# Required for the "Commit changelog" step which runs git push.
+# @see https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token
 permissions:
   contents: write
 
 jobs:
   # ============================================================
-  # Generate and commit CHANGELOG.md
+  # Generate and Commit CHANGELOG.md
   # ============================================================
   changelog:
     name: Generate Changelog
+    # Runs on ubuntu-latest (cheapest and fastest runner for this simple job).
+    # No platform-specific dependencies are needed -- git-cliff is a single binary.
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Check out the full git history (needed for changelog generation)
+      # Step 1: Check out the full git history.
+      # fetch-depth: 0 clones ALL commits (not just the latest) because git-cliff
+      # needs the complete history to:
+      #   - Parse conventional commit messages from all commits since the last tag
+      #   - Group commits by version tags (v0.1.0, v0.2.0, etc.)
+      #   - Generate a complete changelog spanning all releases
+      #
+      # Default fetch-depth: 1 (shallow clone) would only give the latest commit,
+      # resulting in an incomplete changelog.
+      #
+      # @see https://github.com/actions/checkout#fetch-all-history-for-all-tags-and-branches
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for conventional commit parsing
+          fetch-depth: 0
 
-      # Step 2: Generate CHANGELOG.md using git-cliff
-      # git-cliff parses conventional commits and produces a formatted changelog.
-      # Uses --no-remote to skip GitHub API calls (our template doesn't need PR/issue data).
+      # Step 2: Generate CHANGELOG.md using git-cliff.
+      # The orhun/git-cliff-action@v4 installs git-cliff and runs it with the
+      # specified configuration file (cliff.toml).
+      #
+      # Inputs:
+      #   config: cliff.toml -- Path to the git-cliff configuration file that defines
+      #           the changelog template, commit parsers, and sorting rules
+      #   args: --verbose    -- Print debug information about commit parsing
+      #
+      # Environment:
+      #   OUTPUT: CHANGELOG.md -- The output file path for the generated changelog.
+      #           git-cliff writes the complete changelog to this file (replacing
+      #           any existing content).
+      #
+      # The step ID 'git-cliff' makes the action's outputs available to later steps
+      # (e.g., steps.git-cliff.outputs.changelog for the generated content).
+      #
+      # @see https://github.com/orhun/git-cliff-action -- Action documentation
+      # @see https://git-cliff.org/docs/usage/cli -- CLI options reference
       - name: Generate changelog
         uses: orhun/git-cliff-action@v4
         id: git-cliff
@@ -47,7 +112,23 @@ jobs:
         env:
           OUTPUT: CHANGELOG.md
 
-      # Step 3: Commit and push the updated CHANGELOG.md
+      # Step 3: Commit and push the updated CHANGELOG.md.
+      # This step:
+      #   1. Configures git with the GitHub Actions bot identity
+      #   2. Stages CHANGELOG.md
+      #   3. Checks if there are actual changes (git diff --staged --quiet)
+      #   4. If changes exist, creates a commit with "[skip ci]" to prevent loops
+      #   5. Pushes the commit to the main branch
+      #
+      # The "docs: update CHANGELOG.md" commit message follows the conventional
+      # commits format (type: description) and will appear in the next changelog
+      # generation under the "Documentation" section -- unless we add a skip rule
+      # for it in cliff.toml's commit_parsers.
+      #
+      # "[skip ci]" in the commit message tells GitHub Actions to NOT trigger
+      # any workflows for this push, providing a second layer of infinite loop prevention.
+      #
+      # @see https://docs.github.com/en/actions/managing-workflow-runs/skipping-workflow-runs
       - name: Commit changelog
         run: |
           git config user.name "github-actions[bot]"

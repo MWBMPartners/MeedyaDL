@@ -1,72 +1,142 @@
 # Copyright (c) 2024-2026 MWBM Partners Ltd
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Continuous Integration workflow for gamdl-GUI.
-# Runs on every push and pull request to verify code quality:
-# - TypeScript type checking and linting
-# - Frontend unit tests (Vitest)
-# - Rust compilation check (cargo check)
-# - Rust linting (clippy)
-# - Rust unit tests
+# Continuous Integration (CI) Workflow for gamdl-GUI
+# ===================================================
 #
-# Uses a build matrix to test on macOS, Windows, and Linux.
+# This GitHub Actions workflow validates code quality on every push and pull request.
+# It runs two independent job groups in parallel:
+#
+#   1. Frontend (Node.js/TypeScript/React):
+#      - ESLint linting (eslint.config.js rules)
+#      - TypeScript type checking (tsconfig.json)
+#      - Vitest unit tests (vitest.config.ts)
+#
+#   2. Backend (Rust/Tauri):
+#      - cargo check (compilation verification)
+#      - cargo clippy (Rust linter with warnings-as-errors)
+#      - cargo test (Rust unit tests)
+#
+# Both job groups run on a 3x3 matrix across macOS, Windows, and Linux to catch
+# platform-specific issues. The frontend and backend jobs run independently
+# (no dependency between them) for maximum parallelism.
+#
+# Cost Optimization:
+#   - 'fail-fast: false' ensures all matrix combinations run even if one fails,
+#     giving a complete picture of what's broken across platforms.
+#   - npm and Cargo caches reduce reinstallation time on subsequent runs.
+#   - Concurrency groups cancel in-progress runs when new commits are pushed.
+#
+# Related config files:
+#   - eslint.config.js    -- Defines the lint rules enforced by 'npm run lint'
+#   - vitest.config.ts    -- Test runner configuration for 'npm run test'
+#   - tsconfig.json       -- TypeScript options for 'npm run type-check'
+#   - src-tauri/Cargo.toml -- Rust dependencies compiled by cargo check/clippy/test
+#
+# @see https://docs.github.com/en/actions -- GitHub Actions documentation
+# @see https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions -- Workflow syntax
+# @see https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs -- Matrix strategy
 
+# Workflow display name in the GitHub Actions UI
 name: CI
 
+# ============================================================
+# Trigger Events
+# ============================================================
+# @see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows
 on:
+  # Run on pushes to main and develop branches (direct commits and merged PRs)
   push:
     branches: [main, develop]
+  # Run on pull requests targeting main (validates PR code before merge)
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for the same branch/PR
+# ============================================================
+# Concurrency Control
+# ============================================================
+# Prevents multiple CI runs from executing simultaneously for the same branch/PR.
+# If a new commit is pushed while a CI run is in progress, the in-progress run
+# is cancelled and a new run starts. This saves CI minutes and avoids stale results.
+#
+# The group key combines the workflow name and git ref (branch name or PR number)
+# to scope cancellation to the same context.
+#
+# @see https://docs.github.com/en/actions/using-jobs/using-concurrency
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   # ============================================================
-  # Frontend checks (TypeScript, lint, test)
+  # Frontend Job: TypeScript/React Quality Checks
   # ============================================================
+  # Validates the React frontend code across all three target platforms.
+  # These checks don't require Rust or Tauri -- they only test the
+  # TypeScript/React code and can run with just Node.js.
   frontend:
     name: Frontend (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+
+    # Matrix strategy: Run on all three platforms in parallel.
+    # @see https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs
     strategy:
+      # fail-fast: false -- Don't cancel other matrix jobs when one fails.
+      # We want to see results from ALL platforms, not just the first failure.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # Step 1: Check out the repository code
+      # Step 1: Check out the repository code.
+      # actions/checkout@v4 clones the repo at the commit that triggered this workflow.
+      # @see https://github.com/actions/checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js LTS with npm cache
+      # Step 2: Set up Node.js LTS with npm dependency caching.
+      # 'lts/*' automatically selects the latest LTS version (currently Node 22.x).
+      # 'cache: npm' caches ~/.npm to speed up npm ci on subsequent runs.
+      # @see https://github.com/actions/setup-node
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
 
-      # Step 3: Install npm dependencies
+      # Step 3: Install npm dependencies using a clean install.
+      # 'npm ci' (clean install) is preferred over 'npm install' in CI because:
+      #   - It uses the exact versions from package-lock.json (no version drift)
+      #   - It deletes node_modules/ first for a deterministic install
+      #   - It fails if package-lock.json is out of sync with package.json
       - name: Install dependencies
         run: npm ci
 
-      # Step 4: Run ESLint linting
+      # Step 4: Run ESLint linting.
+      # Checks all TypeScript/TSX files against rules defined in eslint.config.js.
+      # Catches: unused variables, incorrect hook usage, type safety issues, etc.
       - name: Lint
         run: npm run lint
 
-      # Step 5: Run TypeScript type checking
+      # Step 5: Run TypeScript type checking.
+      # Runs 'tsc --noEmit' to verify all TypeScript types are correct without
+      # producing output files. Catches: type mismatches, missing imports, etc.
       - name: Type check
         run: npm run type-check
 
-      # Step 6: Run frontend unit tests
+      # Step 6: Run frontend unit tests.
+      # Executes Vitest with the configuration from vitest.config.ts.
+      # Tests run in a jsdom environment simulating browser DOM APIs.
       - name: Run tests
         run: npm run test
 
   # ============================================================
-  # Rust backend checks (compile, lint, test)
+  # Backend Job: Rust/Tauri Quality Checks
   # ============================================================
+  # Validates the Rust backend code. This job requires additional setup:
+  #   - Linux: System libraries for WebKit and GTK (Tauri's WebView dependencies)
+  #   - All platforms: Node.js + npm (Tauri's build script runs the frontend build)
+  #   - Rust toolchain with clippy component
   backend:
     name: Backend (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -76,11 +146,21 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # Step 1: Check out the repository code
+      # Step 1: Check out the repository code.
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Install Linux system dependencies required by Tauri
+      # Step 2: Install Linux system dependencies required by Tauri.
+      # These are C/C++ libraries that Tauri's Rust code links against.
+      # Only runs on Linux (macOS and Windows have these built-in).
+      #   - libwebkit2gtk-4.1-dev: WebView rendering engine (GTK WebKit)
+      #   - libappindicator3-dev: System tray icon support
+      #   - librsvg2-dev: SVG rendering (used by Tauri for icon processing)
+      #   - patchelf: ELF binary patching (used by AppImage bundler)
+      #   - libssl-dev: OpenSSL development headers (for reqwest HTTPS)
+      #   - libgtk-3-dev: GTK 3 development headers (Tauri's window toolkit)
+      #
+      # @see https://v2.tauri.app/start/prerequisites/#linux -- Tauri Linux prerequisites
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -93,44 +173,65 @@ jobs:
             libssl-dev \
             libgtk-3-dev
 
-      # Step 3: Set up Rust toolchain with caching
+      # Step 3: Set up the Rust stable toolchain with clippy.
+      # dtolnay/rust-toolchain@stable installs the latest stable Rust compiler.
+      # The 'clippy' component is the Rust linter, added for the clippy step below.
+      # @see https://github.com/dtolnay/rust-toolchain
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
 
-      # Step 4: Cache Rust compilation artifacts for faster builds
+      # Step 4: Cache Rust compilation artifacts for faster builds.
+      # Caches the target/ directory within src-tauri/ (the Cargo workspace).
+      # This can save 5-15 minutes on subsequent runs by reusing compiled dependencies.
+      # @see https://github.com/Swatinem/rust-cache
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      # Step 5: Set up Node.js (needed for Tauri's frontend build)
+      # Step 5: Set up Node.js (required because Tauri's build process runs the frontend build).
+      # Even though we're testing the backend, Tauri's cargo check/build requires
+      # the frontend dist/ directory to exist (referenced in tauri.conf.json).
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
 
-      # Step 6: Install npm dependencies (Tauri build depends on frontend)
+      # Step 6: Install npm dependencies.
+      # Needed for step 7 (building the frontend).
       - name: Install npm dependencies
         run: npm ci
 
-      # Step 7: Build the frontend (Tauri needs dist/ to exist)
+      # Step 7: Build the frontend.
+      # Runs 'vite build' to generate the dist/ directory with compiled HTML/JS/CSS.
+      # Tauri's build script (tauri-build) validates that frontendDist ("../dist") exists,
+      # and cargo check would fail without it.
       - name: Build frontend
         run: npm run build
 
-      # Step 8: Check Rust compilation
+      # Step 8: Verify Rust compilation.
+      # 'cargo check' runs the compiler without producing a binary -- much faster than
+      # 'cargo build' but still validates all types, lifetimes, and borrow checking.
+      # This catches compilation errors without the full link step.
       - name: Cargo check
         working-directory: src-tauri
         run: cargo check
 
-      # Step 9: Run Rust linter (clippy)
+      # Step 9: Run the Rust linter (clippy).
+      # Clippy catches common mistakes, performance issues, and style problems.
+      # '-- -D warnings' promotes all clippy warnings to errors, failing the build
+      # on any warning. This enforces a high code quality bar.
+      # @see https://rust-lang.github.io/rust-clippy/ -- Clippy lint list
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
 
-      # Step 10: Run Rust unit tests
+      # Step 10: Run Rust unit tests.
+      # Executes all #[test] functions in the src-tauri/src/ directory.
+      # Tests run in a single-threaded or parallel mode (Cargo's default).
       - name: Cargo test
         working-directory: src-tauri
         run: cargo test

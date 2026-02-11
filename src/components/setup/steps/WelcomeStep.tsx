@@ -2,23 +2,61 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Welcome step of the setup wizard.
- * Introduces the application and explains what the setup process will do.
- * Auto-completes on mount since there's nothing to configure.
+ * @file WelcomeStep.tsx -- Welcome screen step of the setup wizard.
+ *
+ * Renders the introductory screen that the user sees when the setup wizard
+ * first appears. This step serves a purely informational purpose: it
+ * introduces the application, explains what the wizard will do, and lists
+ * the steps ahead.
+ *
+ * ## Auto-completion
+ *
+ * Since no user action is required on this step, it automatically calls
+ * `completeStep('welcome')` in a `useEffect` on mount. This enables the
+ * "Continue" button in the parent {@link SetupWizard} immediately.
+ *
+ * ## Store Connection
+ *
+ * - **setupStore**: Calls `completeStep('welcome')` to unblock navigation.
+ *
+ * @see {@link ../SetupWizard.tsx}         -- Parent wizard container
+ * @see {@link @/stores/setupStore.ts}     -- Zustand store for wizard state
+ * @see {@link https://react.dev/reference/react/useEffect} -- useEffect hook
  */
 
+// React useEffect for auto-completing the step on mount.
 import { useEffect } from 'react';
+
+// Download icon used as the application logo placeholder.
 import { Download } from 'lucide-react';
+
+// Zustand store providing the completeStep action.
 import { useSetupStore } from '@/stores/setupStore';
 
 /**
- * Renders the welcome step with app introduction and setup overview.
- * Automatically marks itself as completed so the user can proceed.
+ * WelcomeStep -- Renders the welcome screen.
+ *
+ * Layout:
+ *   1. Large app icon (Download icon in an accent-coloured rounded square)
+ *   2. Welcome heading and subtitle
+ *   3. Numbered list of setup steps the wizard will perform
+ *   4. Footnote about sandboxed installation
+ *
+ * The component calls `completeStep('welcome')` on mount to signal the
+ * parent wizard that this step's requirements are satisfied (there are
+ * none), enabling the "Continue" button.
  */
 export function WelcomeStep() {
+  /** Marks a wizard step as completed in the setupStore */
   const completeStep = useSetupStore((s) => s.completeStep);
 
-  /* Auto-complete this step on mount (no action required from the user) */
+  /**
+   * Auto-complete this step on mount.
+   * The Welcome step has no requirements -- it is purely informational.
+   * Calling completeStep('welcome') adds 'welcome' to the completedSteps
+   * set, which enables the "Continue" button in the wizard footer.
+   * @see https://react.dev/reference/react/useEffect
+   */
   useEffect(() => {
     completeStep('welcome');
   }, [completeStep]);

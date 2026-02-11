@@ -1,16 +1,52 @@
 # Copyright (c) 2024-2026 MWBM Partners Ltd
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Release build workflow for gamdl-GUI.
-# Triggered when a version tag (v*) is pushed. Builds platform-specific
-# installers for macOS (DMG), Windows (MSI/NSIS), and Linux (DEB/AppImage),
-# then publishes them as a draft GitHub Release.
+# Release Build Workflow for gamdl-GUI
+# ======================================
 #
-# Tag format: v0.1.0, v1.0.0-beta.1, etc.
-# The version number is extracted from the tag and used in the release.
+# This GitHub Actions workflow builds platform-specific installers and publishes
+# them as a draft GitHub Release. It is triggered when a version tag is pushed.
+#
+# Trigger: Push a tag matching 'v*' (e.g., git tag v0.1.0 && git push --tags)
+#   - Semver tags:    v0.1.0, v1.0.0, v2.3.4
+#   - Pre-release:    v1.0.0-alpha.1, v1.0.0-beta.2, v1.0.0-rc.1
+#
+# Build matrix (3 platform builds run in parallel):
+#   1. macOS Apple Silicon (aarch64-apple-darwin)
+#      --> Produces: .dmg (disk image), .app (app bundle)
+#   2. Windows x64 (x86_64-pc-windows-msvc)
+#      --> Produces: .msi (Windows Installer), .exe (NSIS installer)
+#   3. Linux x64 (native architecture)
+#      --> Produces: .deb (Debian package), .AppImage (portable)
+#
+# The tauri-apps/tauri-action handles the entire build and upload pipeline:
+#   1. Builds the frontend (npm run build --> vite build)
+#   2. Compiles the Rust backend in release mode (cargo build --release --target ...)
+#   3. Packages the binary into platform-specific installers
+#   4. Creates a GitHub Release (or updates an existing draft) and uploads the artifacts
+#
+# The release is created as a DRAFT so maintainers can review release notes
+# and artifacts before making it public.
+#
+# Related config files:
+#   - src-tauri/tauri.conf.json -- Bundle configuration (icon, copyright, description, platform settings)
+#   - src-tauri/Cargo.toml      -- Rust dependencies and package metadata
+#   - cliff.toml                -- Changelog config (referenced in release notes)
+#   - .github/workflows/changelog.yml -- Keeps CHANGELOG.md up to date
+#
+# @see https://docs.github.com/en/actions -- GitHub Actions documentation
+# @see https://github.com/tauri-apps/tauri-action -- Tauri GitHub Action (handles build + release upload)
+# @see https://v2.tauri.app/distribute/ -- Tauri distribution guide
 
+# Workflow display name in the GitHub Actions UI
 name: Release
 
+# ============================================================
+# Trigger: Run only when a version tag is pushed
+# ============================================================
+# The 'v*' pattern matches tags like v0.1.0, v1.0.0-beta.1, etc.
+# This workflow does NOT run on regular pushes or pull requests.
+# @see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#push
 on:
   push:
     tags:
@@ -18,29 +54,50 @@ on:
 
 jobs:
   # ============================================================
-  # Build and publish release for all platforms
+  # Build and Publish Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
+
+    # permissions: contents: write is required for the tauri-action to:
+    #   - Create the GitHub Release
+    #   - Upload release assets (installers)
+    # This uses the automatic GITHUB_TOKEN, no PAT needed.
+    # @see https://docs.github.com/en/actions/security-guides/automatic-token-authentication
     permissions:
       contents: write
+
     strategy:
+      # fail-fast: false -- Build all platforms even if one fails.
+      # A macOS build failure shouldn't prevent the Windows and Linux builds
+      # from completing (they might succeed and be usable).
       fail-fast: false
+
+      # Matrix defines the platform-specific build configurations.
+      # Each entry produces a separate parallel job.
       matrix:
         settings:
-          # macOS Apple Silicon (ARM64) - MANDATORY
+          # macOS Apple Silicon (ARM64)
+          # aarch64-apple-darwin targets Apple M1/M2/M3 chips.
+          # macos-latest runners are ARM64 by default (since GitHub Actions M1 runners).
+          # Produces: GAMDL_x.x.x_aarch64.dmg and GAMDL.app
           - name: macOS (Apple Silicon)
             os: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_target: aarch64-apple-darwin
 
-          # Windows x64 - MANDATORY
+          # Windows x64
+          # x86_64-pc-windows-msvc targets 64-bit Windows with MSVC toolchain.
+          # Produces: GAMDL_x.x.x_x64-setup.exe (NSIS) and GAMDL_x.x.x_x64_en-US.msi
           - name: Windows (x64)
             os: windows-latest
             args: '--target x86_64-pc-windows-msvc'
             rust_target: x86_64-pc-windows-msvc
 
           # Linux x64
+          # Uses the default target triple for ubuntu-latest (x86_64-unknown-linux-gnu).
+          # Empty args/rust_target means "build for the host architecture".
+          # Produces: gamdl_x.x.x_amd64.deb and gamdl_x.x.x_amd64.AppImage
           - name: Linux (x64)
             os: ubuntu-latest
             args: ''
@@ -49,30 +106,39 @@ jobs:
     runs-on: ${{ matrix.settings.os }}
 
     steps:
-      # Step 1: Check out the repository code
+      # Step 1: Check out the repository code at the tagged commit.
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js LTS with npm cache
+      # Step 2: Set up Node.js LTS with npm dependency caching.
+      # Required for building the frontend (Vite build) before Tauri packaging.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
 
-      # Step 3: Set up Rust stable toolchain
+      # Step 3: Set up Rust stable toolchain with the target platform.
+      # The 'targets' input installs the cross-compilation target triple.
+      # For macOS (aarch64) and Windows (x86_64-msvc), this ensures the correct
+      # standard library is available. Linux uses the default host target.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.settings.rust_target }}
 
-      # Step 4: Cache Rust compilation artifacts
+      # Step 4: Cache Rust compilation artifacts.
+      # Release builds compile all dependencies from scratch with optimizations,
+      # which takes 15-30 minutes without caching. The cache saves most of this time.
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      # Step 5: Install Linux system dependencies for Tauri
+      # Step 5: Install Linux system dependencies for Tauri.
+      # Same dependencies as ci.yml -- required for compiling the Rust backend
+      # which links against WebKit, GTK, and other native libraries.
+      # @see https://v2.tauri.app/start/prerequisites/#linux
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -85,16 +151,32 @@ jobs:
             libssl-dev \
             libgtk-3-dev
 
-      # Step 6: Install npm dependencies
+      # Step 6: Install npm dependencies.
+      # 'npm ci' ensures a clean, reproducible install from package-lock.json.
       - name: Install npm dependencies
         run: npm ci
 
-      # Step 7: Build the application and create release bundles
-      # Uses the official Tauri GitHub Action which handles:
-      # - Building the frontend (npm run build)
-      # - Building the Rust backend (cargo build --release)
-      # - Packaging into platform-specific installers
-      # - Uploading to GitHub Release
+      # Step 7: Build the application and create release bundles.
+      # The tauri-apps/tauri-action@v0 performs the complete build pipeline:
+      #
+      #   1. Frontend: Runs 'npm run build' (Vite production build)
+      #   2. Backend:  Runs 'cargo build --release' with the target from matrix.settings.args
+      #   3. Bundle:   Creates platform installers per tauri.conf.json "bundle" settings
+      #   4. Release:  Creates/updates a GitHub Release and uploads installer files
+      #
+      # Environment:
+      #   GITHUB_TOKEN -- Authenticates with GitHub API for release creation and asset upload.
+      #                   This is the automatic token provided by GitHub Actions.
+      #
+      # Inputs:
+      #   tagName     -- The Git tag that triggered this build (e.g., "v0.1.0")
+      #   releaseName -- Human-readable release title shown on GitHub
+      #   releaseBody -- Markdown content for the release description
+      #   releaseDraft -- true = creates a draft release (not public until manually published)
+      #   prerelease  -- false = marks this as a stable release (not pre-release)
+      #   args        -- Extra arguments passed to 'cargo tauri build' (e.g., --target)
+      #
+      # @see https://github.com/tauri-apps/tauri-action -- Action documentation
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
