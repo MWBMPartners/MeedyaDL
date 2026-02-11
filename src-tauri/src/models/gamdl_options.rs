@@ -798,3 +798,268 @@ impl GamdlOptions {
         args
     }
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------
+    // SongCodec::to_cli_string
+    // ----------------------------------------------------------
+
+    #[test]
+    fn song_codec_cli_strings() {
+        assert_eq!(SongCodec::Alac.to_cli_string(), "alac");
+        assert_eq!(SongCodec::Atmos.to_cli_string(), "atmos");
+        assert_eq!(SongCodec::Ac3.to_cli_string(), "ac3");
+        assert_eq!(SongCodec::AacBinaural.to_cli_string(), "aac-binaural");
+        assert_eq!(SongCodec::Aac.to_cli_string(), "aac");
+        assert_eq!(SongCodec::AacLegacy.to_cli_string(), "aac-legacy");
+        assert_eq!(SongCodec::AacHeLegacy.to_cli_string(), "aac-he-legacy");
+        assert_eq!(SongCodec::AacHe.to_cli_string(), "aac-he");
+        assert_eq!(SongCodec::AacDownmix.to_cli_string(), "aac-downmix");
+        assert_eq!(SongCodec::AacHeBinaural.to_cli_string(), "aac-he-binaural");
+        assert_eq!(SongCodec::AacHeDownmix.to_cli_string(), "aac-he-downmix");
+    }
+
+    // ----------------------------------------------------------
+    // VideoResolution::to_cli_string
+    // ----------------------------------------------------------
+
+    #[test]
+    fn video_resolution_cli_strings() {
+        assert_eq!(VideoResolution::P2160.to_cli_string(), "2160p");
+        assert_eq!(VideoResolution::P1440.to_cli_string(), "1440p");
+        assert_eq!(VideoResolution::P1080.to_cli_string(), "1080p");
+        assert_eq!(VideoResolution::P720.to_cli_string(), "720p");
+        assert_eq!(VideoResolution::P540.to_cli_string(), "540p");
+        assert_eq!(VideoResolution::P480.to_cli_string(), "480p");
+        assert_eq!(VideoResolution::P360.to_cli_string(), "360p");
+        assert_eq!(VideoResolution::P240.to_cli_string(), "240p");
+    }
+
+    // ----------------------------------------------------------
+    // LyricsFormat::to_cli_string
+    // ----------------------------------------------------------
+
+    #[test]
+    fn lyrics_format_cli_strings() {
+        assert_eq!(LyricsFormat::Lrc.to_cli_string(), "lrc");
+        assert_eq!(LyricsFormat::Srt.to_cli_string(), "srt");
+        assert_eq!(LyricsFormat::Ttml.to_cli_string(), "ttml");
+    }
+
+    // ----------------------------------------------------------
+    // CoverFormat::to_cli_string
+    // ----------------------------------------------------------
+
+    #[test]
+    fn cover_format_cli_strings() {
+        assert_eq!(CoverFormat::Jpg.to_cli_string(), "jpg");
+        assert_eq!(CoverFormat::Png.to_cli_string(), "png");
+        assert_eq!(CoverFormat::Raw.to_cli_string(), "raw");
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- empty (all None)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn empty_options_produce_no_args() {
+        let options = GamdlOptions::default();
+        assert!(options.to_cli_args().is_empty());
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- enum-valued options
+    // ----------------------------------------------------------
+
+    #[test]
+    fn song_codec_option() {
+        let options = GamdlOptions {
+            song_codec: Some(SongCodec::Alac),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--song-codec", "alac"]);
+    }
+
+    #[test]
+    fn video_resolution_option() {
+        let options = GamdlOptions {
+            music_video_resolution: Some(VideoResolution::P1080),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--music-video-resolution", "1080p"]);
+    }
+
+    #[test]
+    fn lyrics_format_option() {
+        let options = GamdlOptions {
+            synced_lyrics_format: Some(LyricsFormat::Ttml),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--synced-lyrics-format", "ttml"]);
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- boolean flags
+    // ----------------------------------------------------------
+
+    #[test]
+    fn boolean_true_emits_flag() {
+        let options = GamdlOptions {
+            overwrite: Some(true),
+            ..Default::default()
+        };
+        assert!(options.to_cli_args().contains(&"--overwrite".to_string()));
+    }
+
+    #[test]
+    fn boolean_false_omits_flag() {
+        let options = GamdlOptions {
+            overwrite: Some(false),
+            ..Default::default()
+        };
+        assert!(!options.to_cli_args().contains(&"--overwrite".to_string()));
+    }
+
+    #[test]
+    fn boolean_none_omits_flag() {
+        let options = GamdlOptions {
+            overwrite: None,
+            ..Default::default()
+        };
+        assert!(!options.to_cli_args().contains(&"--overwrite".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- cover size formatting
+    // ----------------------------------------------------------
+
+    #[test]
+    fn cover_size_formatted_as_wxh() {
+        let options = GamdlOptions {
+            cover_size: Some(1200),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(args.contains(&"--cover-size".to_string()));
+        assert!(args.contains(&"1200x1200".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- string-valued options
+    // ----------------------------------------------------------
+
+    #[test]
+    fn output_path_option() {
+        let options = GamdlOptions {
+            output_path: Some("/tmp/music".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--output-path", "/tmp/music"]);
+    }
+
+    #[test]
+    fn language_option() {
+        let options = GamdlOptions {
+            language: Some("ja-JP".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--language", "ja-JP"]);
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- mode enums
+    // ----------------------------------------------------------
+
+    #[test]
+    fn download_mode_ytdlp() {
+        let options = GamdlOptions {
+            download_mode: Some(DownloadMode::Ytdlp),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--download-mode", "ytdlp"]);
+    }
+
+    #[test]
+    fn download_mode_nm3u8dlre() {
+        let options = GamdlOptions {
+            download_mode: Some(DownloadMode::Nm3u8dlre),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--download-mode", "nm3u8dlre"]);
+    }
+
+    #[test]
+    fn log_level_debug() {
+        let options = GamdlOptions {
+            log_level: Some(LogLevel::Debug),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--log-level", "DEBUG"]);
+    }
+
+    // ----------------------------------------------------------
+    // GamdlOptions::to_cli_args -- multiple options combined
+    // ----------------------------------------------------------
+
+    #[test]
+    fn multiple_options_combined() {
+        let options = GamdlOptions {
+            song_codec: Some(SongCodec::Aac),
+            save_cover: Some(true),
+            cover_format: Some(CoverFormat::Jpg),
+            overwrite: Some(true),
+            language: Some("en-US".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+
+        // Verify all expected flags are present
+        assert!(args.contains(&"--song-codec".to_string()));
+        assert!(args.contains(&"aac".to_string()));
+        assert!(args.contains(&"--save-cover".to_string()));
+        assert!(args.contains(&"--cover-format".to_string()));
+        assert!(args.contains(&"jpg".to_string()));
+        assert!(args.contains(&"--overwrite".to_string()));
+        assert!(args.contains(&"--language".to_string()));
+        assert!(args.contains(&"en-US".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // Serde roundtrip for SongCodec
+    // ----------------------------------------------------------
+
+    #[test]
+    fn song_codec_serde_roundtrip() {
+        let codec = SongCodec::AacBinaural;
+        let json = serde_json::to_string(&codec).unwrap();
+        assert_eq!(json, "\"aac-binaural\"");
+
+        let deserialized: SongCodec = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, codec);
+    }
+
+    #[test]
+    fn video_resolution_serde_roundtrip() {
+        let res = VideoResolution::P1080;
+        let json = serde_json::to_string(&res).unwrap();
+        assert_eq!(json, "\"1080p\"");
+
+        let deserialized: VideoResolution = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, res);
+    }
+}
