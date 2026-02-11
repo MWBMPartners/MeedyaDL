@@ -116,7 +116,7 @@
  * and a brighter, more saturated accent blue for contrast.
  * ============================================================ */
 @media (prefers-color-scheme: dark) {
-  .platform-windows {
+  .platform-windows:not(.theme-light) {
     /*
      * Mica Dark material approximation.
      * Dark Mica uses very dark grays that allow a faint wallpaper tint to show through.
@@ -150,6 +150,22 @@
     --shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.3);
   }
+}
+
+/* Manual dark mode override for Windows -- see base.css for full explanation */
+.platform-windows.theme-dark {
+  --sidebar-bg: #202020;
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-active: rgba(255, 255, 255, 0.08);
+  --sidebar-border: #333333;
+  --accent: #4cc2ff;
+  --accent-hover: #60cdff;
+  --surface-primary: #1a1a1a;
+  --surface-secondary: #202020;
+  --surface-elevated: #2a2a2a;
+  --text-inverse: #1a1a1a;
+  --shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 /* ============================================================

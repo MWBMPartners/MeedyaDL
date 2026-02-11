@@ -104,7 +104,7 @@
  * mode users get these values (not Windows/Linux dark mode users).
  * ============================================================ */
 @media (prefers-color-scheme: dark) {
-  .platform-macos {
+  .platform-macos:not(.theme-light) {
     /* Sidebar: Darker translucent base for dark mode vibrancy */
     --sidebar-bg: rgba(28, 28, 30, 0.75);         /* Dark gray at 75% opacity */
     --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay at 5% (reversed from light) */
@@ -119,6 +119,18 @@
     --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
     --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
   }
+}
+
+/* Manual dark mode override for macOS -- see base.css for full explanation */
+.platform-macos.theme-dark {
+  --sidebar-bg: rgba(28, 28, 30, 0.75);
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-active: rgba(255, 255, 255, 0.08);
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
 }
 
 /* ============================================================
