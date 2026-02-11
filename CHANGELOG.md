@@ -4,6 +4,16 @@ All notable changes to **GAMDL GUI** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Add auth/ to .gitignore to prevent secret leaks
+
 ## [0.1.1] - 2026-02-11
 
 ### ✨ Features
