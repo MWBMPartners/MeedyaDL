@@ -11,13 +11,24 @@
 #   - Semver tags:    v0.1.0, v1.0.0, v2.3.4
 #   - Pre-release:    v1.0.0-alpha.1, v1.0.0-beta.2, v1.0.0-rc.1
 #
-# Build matrix (3 platform builds run in parallel):
-#   1. macOS Apple Silicon (aarch64-apple-darwin)
-#      --> Produces: .dmg (disk image), .app (app bundle)
-#   2. Windows x64 (x86_64-pc-windows-msvc)
-#      --> Produces: .msi (Windows Installer), .exe (NSIS installer)
-#   3. Linux x64 (native architecture)
-#      --> Produces: .deb (Debian package), .AppImage (portable)
+# Build matrix (7 platform builds run in parallel):
+#   Tier 1 — Stable (native or straightforward cross-compilation):
+#     1. macOS Apple Silicon (aarch64-apple-darwin)
+#        --> Produces: .dmg (disk image), .app (app bundle)
+#     2. Windows x64 (x86_64-pc-windows-msvc)
+#        --> Produces: .msi (Windows Installer), .exe (NSIS installer)
+#     3. Windows x86 (i686-pc-windows-msvc) — cross-compiled from x64
+#        --> Produces: .msi, .exe
+#     4. Windows ARM64 (aarch64-pc-windows-msvc) — cross-compiled from x64
+#        --> Produces: .msi, .exe
+#     5. Linux x64 (native architecture)
+#        --> Produces: .deb (Debian package), .AppImage (portable)
+#
+#   Tier 2 — Experimental (Linux ARM cross-compilation):
+#     6. Linux ARM64 (aarch64-unknown-linux-gnu) — for ARM servers and Pi 4/5 (64-bit)
+#        --> Produces: .deb
+#     7. Linux ARMv7 (armv7-unknown-linux-gnueabihf) — for Raspberry Pi (32-bit)
+#        --> Produces: .deb
 #
 # The tauri-apps/tauri-action handles the entire build and upload pipeline:
 #   1. Builds the frontend (npm run build --> vite build)
@@ -33,6 +44,7 @@
 #   - src-tauri/Cargo.toml      -- Rust dependencies and package metadata
 #   - cliff.toml                -- Changelog config (referenced in release notes)
 #   - .github/workflows/changelog.yml -- Keeps CHANGELOG.md up to date
+#   - .github/workflows/version-bump.yml -- Automated version bump that triggers this workflow
 #
 # @see https://docs.github.com/en/actions -- GitHub Actions documentation
 # @see https://github.com/tauri-apps/tauri-action -- Tauri GitHub Action (handles build + release upload)
@@ -77,16 +89,20 @@ jobs:
       # Each entry produces a separate parallel job.
       matrix:
         settings:
+          # ==========================================================
+          # Tier 1: Stable targets (native or MSVC cross-compilation)
+          # ==========================================================
+
           # macOS Apple Silicon (ARM64)
-          # aarch64-apple-darwin targets Apple M1/M2/M3 chips.
-          # macos-latest runners are ARM64 by default (since GitHub Actions M1 runners).
+          # aarch64-apple-darwin targets Apple M1/M2/M3/M4 chips.
+          # macos-latest runners are ARM64 by default.
           # Produces: GAMDL_x.x.x_aarch64.dmg and GAMDL.app
           - name: macOS (Apple Silicon)
             os: macos-latest
             args: '--target aarch64-apple-darwin'
             rust_target: aarch64-apple-darwin
 
-          # Windows x64
+          # Windows x64 (64-bit)
           # x86_64-pc-windows-msvc targets 64-bit Windows with MSVC toolchain.
           # Produces: GAMDL_x.x.x_x64-setup.exe (NSIS) and GAMDL_x.x.x_x64_en-US.msi
           - name: Windows (x64)
@@ -94,7 +110,25 @@ jobs:
             args: '--target x86_64-pc-windows-msvc'
             rust_target: x86_64-pc-windows-msvc
 
-          # Linux x64
+          # Windows x86 (32-bit) — cross-compiled from x64 runner
+          # i686-pc-windows-msvc targets 32-bit Windows. MSVC provides the x86
+          # cross-compilation toolchain natively on x64 hosts.
+          # Produces: GAMDL_x.x.x_x86-setup.exe and GAMDL_x.x.x_x86_en-US.msi
+          - name: Windows (x86)
+            os: windows-latest
+            args: '--target i686-pc-windows-msvc'
+            rust_target: i686-pc-windows-msvc
+
+          # Windows ARM64 — cross-compiled from x64 runner
+          # aarch64-pc-windows-msvc targets ARM64 Windows (Snapdragon X laptops,
+          # Surface Pro X, etc.). MSVC provides ARM64 cross-compilation toolchain.
+          # Produces: GAMDL_x.x.x_arm64-setup.exe and GAMDL_x.x.x_arm64_en-US.msi
+          - name: Windows (ARM64)
+            os: windows-latest
+            args: '--target aarch64-pc-windows-msvc'
+            rust_target: aarch64-pc-windows-msvc
+
+          # Linux x64 (64-bit)
           # Uses the default target triple for ubuntu-latest (x86_64-unknown-linux-gnu).
           # Empty args/rust_target means "build for the host architecture".
           # Produces: gamdl_x.x.x_amd64.deb and gamdl_x.x.x_amd64.AppImage
@@ -103,7 +137,42 @@ jobs:
             args: ''
             rust_target: ''
 
+          # ==========================================================
+          # Tier 2: Experimental targets (Linux ARM cross-compilation)
+          # ==========================================================
+          # These targets use multi-arch apt to install ARM system libraries
+          # and a cross-compilation toolchain. They are marked as experimental
+          # because ARM webkit2gtk packages may have availability issues.
+
+          # Linux ARM64 — for ARM servers, Raspberry Pi 4/5 (64-bit OS)
+          # Cross-compiled from x64 ubuntu-latest using gcc-aarch64-linux-gnu.
+          # Produces: gamdl_x.x.x_arm64.deb
+          - name: Linux (ARM64)
+            os: ubuntu-latest
+            args: '--target aarch64-unknown-linux-gnu'
+            rust_target: aarch64-unknown-linux-gnu
+            cross_arch: arm64
+            cross_gcc: gcc-aarch64-linux-gnu
+            cross_linker: aarch64-linux-gnu-gcc
+            cross_pkg_config_prefix: aarch64-linux-gnu
+
+          # Linux ARMv7 — for Raspberry Pi (32-bit Raspberry Pi OS)
+          # Cross-compiled from x64 ubuntu-latest using gcc-arm-linux-gnueabihf.
+          # Produces: gamdl_x.x.x_armhf.deb
+          - name: Linux (ARMv7)
+            os: ubuntu-latest
+            args: '--target armv7-unknown-linux-gnueabihf'
+            rust_target: armv7-unknown-linux-gnueabihf
+            cross_arch: armhf
+            cross_gcc: gcc-arm-linux-gnueabihf
+            cross_linker: arm-linux-gnueabihf-gcc
+            cross_pkg_config_prefix: arm-linux-gnueabihf
+
     runs-on: ${{ matrix.settings.os }}
+
+    # Linux ARM builds are experimental — allow them to fail without
+    # blocking the overall release. All Tier 1 builds must succeed.
+    continue-on-error: ${{ matrix.settings.cross_arch != '' }}
 
     steps:
       # Step 1: Check out the repository code at the tagged commit.
@@ -135,12 +204,13 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Step 5: Install Linux system dependencies for Tauri.
+      # Step 5: Install Linux system dependencies for native x64 builds.
       # Same dependencies as ci.yml -- required for compiling the Rust backend
       # which links against WebKit, GTK, and other native libraries.
+      # Only runs for the native Linux x64 build (not ARM cross-compilation).
       # @see https://v2.tauri.app/start/prerequisites/#linux
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.settings.cross_arch == ''
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -151,12 +221,77 @@ jobs:
             libssl-dev \
             libgtk-3-dev
 
-      # Step 6: Install npm dependencies.
+      # Step 6: Set up Linux ARM cross-compilation environment.
+      # This step configures multi-arch apt, installs ARM system libraries,
+      # and sets up the cross-compilation toolchain. Only runs for ARM targets.
+      #
+      # The approach:
+      #   1. Add the ARM architecture to dpkg (arm64 or armhf)
+      #   2. Add Ubuntu ARM ports repository for ARM packages
+      #   3. Pin x86_64 packages to the default repo to avoid conflicts
+      #   4. Install the cross-compiler (gcc-aarch64-linux-gnu or gcc-arm-linux-gnueabihf)
+      #   5. Install ARM versions of Tauri's system dependencies (webkit2gtk, gtk3, etc.)
+      - name: Setup Linux ARM cross-compilation
+        if: matrix.settings.cross_arch != ''
+        env:
+          CROSS_ARCH: ${{ matrix.settings.cross_arch }}
+          CROSS_GCC: ${{ matrix.settings.cross_gcc }}
+        run: |
+          # Add the ARM architecture so apt can install ARM packages
+          sudo dpkg --add-architecture $CROSS_ARCH
+
+          # Add Ubuntu ports repository for ARM packages.
+          # The standard archive only has amd64/i386; ARM packages come from ports.
+          CODENAME=$(lsb_release -cs)
+          sudo tee /etc/apt/sources.list.d/arm-cross.list << EOF
+          deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME main restricted universe
+          deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-updates main restricted universe
+          deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-security main restricted universe
+          EOF
+
+          # Pin the default sources to amd64 only to prevent architecture conflicts
+          sudo tee /etc/apt/apt.conf.d/99-cross-arch << EOF
+          APT::Architectures:: "amd64";
+          APT::Architectures:: "$CROSS_ARCH";
+          EOF
+
+          sudo apt-get update
+
+          # Install the cross-compilation toolchain
+          sudo apt-get install -y $CROSS_GCC
+
+          # Install ARM versions of Tauri's native library dependencies.
+          # The :$CROSS_ARCH suffix tells apt to install the ARM variant.
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev:$CROSS_ARCH \
+            libappindicator3-dev:$CROSS_ARCH \
+            librsvg2-dev:$CROSS_ARCH \
+            patchelf \
+            libssl-dev:$CROSS_ARCH \
+            libgtk-3-dev:$CROSS_ARCH
+
+      # Step 7: Configure cross-compilation environment variables.
+      # These environment variables tell Cargo and pkg-config how to find
+      # the ARM libraries and which linker to use for the target architecture.
+      - name: Configure cross-compilation env
+        if: matrix.settings.cross_arch != ''
+        run: |
+          # Tell Cargo which linker to use for the target triple.
+          # The env var name is CARGO_TARGET_<TRIPLE>_LINKER with dashes replaced by underscores.
+          TARGET_UPPER=$(echo "${{ matrix.settings.rust_target }}" | tr '[:lower:]-' '[:upper:]_')
+          echo "CARGO_TARGET_${TARGET_UPPER}_LINKER=${{ matrix.settings.cross_linker }}" >> "$GITHUB_ENV"
+
+          # Configure pkg-config to find ARM libraries instead of host x86_64 ones.
+          echo "PKG_CONFIG_PATH=/usr/lib/${{ matrix.settings.cross_pkg_config_prefix }}/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_SYSROOT_DIR=/" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> "$GITHUB_ENV"
+
+      # Step 8: Install npm dependencies.
       # 'npm ci' ensures a clean, reproducible install from package-lock.json.
       - name: Install npm dependencies
         run: npm ci
 
-      # Step 7: Build the application and create release bundles.
+      # Step 9: Build the application and create release bundles.
       # The tauri-apps/tauri-action@v0 performs the complete build pipeline:
       #
       #   1. Frontend: Runs 'npm run build' (Vite production build)
@@ -190,11 +325,15 @@ jobs:
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
 
             ### Downloads
-            | Platform | File |
-            |----------|------|
-            | macOS (Apple Silicon) | `.dmg` |
-            | Windows (x64) | `.msi` / `.exe` |
-            | Linux (x64) | `.deb` / `.AppImage` |
+            | Platform | Architecture | File |
+            |----------|-------------|------|
+            | macOS | Apple Silicon (ARM64) | `.dmg` |
+            | Windows | x64 (64-bit) | `.msi` / `.exe` |
+            | Windows | x86 (32-bit) | `.msi` / `.exe` |
+            | Windows | ARM64 | `.msi` / `.exe` |
+            | Linux | x64 (64-bit) | `.deb` / `.AppImage` |
+            | Linux | ARM64 (Pi 4/5, 64-bit) | `.deb` *(experimental)* |
+            | Linux | ARMv7 (Pi, 32-bit) | `.deb` *(experimental)* |
 
             ### First-Time Users
             On first launch, the app will download Python and GAMDL automatically.
