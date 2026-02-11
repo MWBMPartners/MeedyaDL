@@ -335,6 +335,17 @@ jobs:
             | Linux | ARM64 (Pi 4/5, 64-bit) | `.deb` *(experimental)* |
             | Linux | ARMv7 (Pi, 32-bit) | `.deb` *(experimental)* |
 
+            ### macOS Users
+            macOS may show **"GAMDL is damaged and can't be opened"** because the app
+            is not code-signed with an Apple Developer certificate. To fix this, run
+            the following command in Terminal after downloading:
+
+            ```
+            xattr -cr /Applications/GAMDL.app
+            ```
+
+            Then open the app normally.
+
             ### First-Time Users
             On first launch, the app will download Python and GAMDL automatically.
             You will also need Apple Music cookies exported from your browser.
