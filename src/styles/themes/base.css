@@ -217,10 +217,16 @@
  * own dark mode overrides using the same media query with their
  * platform-specific class selector, giving them higher specificity.
  *
+ * The `:not(.theme-light)` guard on the :root selector prevents these dark overrides
+ * from applying when the user has manually selected "Light" mode in Settings > General.
+ * Without this guard, the media query would override the user's light preference whenever
+ * the OS is in dark mode, because media queries apply regardless of class-based state.
+ *
  * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/:not -- :not() pseudo-class
  * ============================================================ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.theme-light) {
     /* Sidebar -- Dark backgrounds with light text and white translucent hover effects */
     --sidebar-bg: #1c1c1e;                       /* Dark gray background (Apple's system gray 6) */
     --sidebar-hover: rgba(255, 255, 255, 0.06);  /* White overlay at 6% opacity on hover */
@@ -255,4 +261,74 @@
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);       /* 30% opacity (vs 10% in light mode) */
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);   /* 40% opacity (vs 15% in light mode) */
   }
+}
+
+/* ============================================================
+ * Manual Dark Mode Override (class-based)
+ * -----------------------------------------
+ * Activates when the user selects "Dark" in Settings > General > Theme.
+ * The useTheme hook adds `class="theme-dark"` to the <html> element.
+ *
+ * This block duplicates the dark mode variables from the media query above
+ * so they apply regardless of the OS color scheme preference. The class
+ * selector `html.theme-dark` has higher specificity (0,1,1) than the
+ * media query's `:root` (0,0,1), so it correctly overrides light defaults.
+ *
+ * The `color-scheme: dark` property tells the browser to render native
+ * form controls (inputs, scrollbars, checkboxes) in their dark variants.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/color-scheme
+ * @see src/hooks/useTheme.ts -- Hook that manages this class
+ * ============================================================ */
+html.theme-dark {
+  color-scheme: dark;
+
+  --sidebar-bg: #1c1c1e;
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
+  --sidebar-active: rgba(255, 255, 255, 0.1);
+  --sidebar-text: #a0a0a0;
+  --sidebar-text-active: #ffffff;
+  --sidebar-border: #2c2c2e;
+
+  --surface-primary: #000000;
+  --surface-secondary: #1c1c1e;
+  --surface-elevated: #2c2c2e;
+  --surface-overlay: rgba(0, 0, 0, 0.7);
+
+  --accent: #0a84ff;
+  --accent-hover: #409cff;
+  --accent-light: rgba(10, 132, 255, 0.15);
+
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #666666;
+  --text-inverse: #000000;
+
+  --border: #3a3a3c;
+  --border-light: #2c2c2e;
+  --border-strong: #545458;
+
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================================
+ * Manual Light Mode Override (class-based)
+ * ------------------------------------------
+ * Activates when the user selects "Light" in Settings > General > Theme
+ * while their OS is in dark mode. The `color-scheme: light` property
+ * ensures native form controls remain in their light variants.
+ *
+ * Light mode values don't need to be re-declared here because:
+ * 1. The `:not(.theme-light)` guard on the media query prevents dark
+ *    overrides from applying.
+ * 2. The base :root light defaults automatically remain in effect.
+ *
+ * Only `color-scheme` needs to be set explicitly to override the
+ * browser's automatic dark rendering of native controls.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/color-scheme
+ * ============================================================ */
+html.theme-light {
+  color-scheme: light;
 }
