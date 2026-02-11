@@ -379,6 +379,340 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     }
 }
 
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------
+    // parse_gamdl_output: Progress events
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parses_ytdlp_progress_line() {
+        let line = "[download]  45.2% of ~  5.12MiB at  2.51MiB/s ETA 00:01";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::DownloadProgress {
+                percent,
+                speed,
+                eta,
+            } => {
+                assert!((percent - 45.2).abs() < 0.01);
+                assert_eq!(speed, "2.51MiB/s");
+                assert_eq!(eta, "00:01");
+            }
+            other => panic!("Expected DownloadProgress, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_ytdlp_progress_without_tilde() {
+        let line = "[download]  78.0% of 12.34MiB at 5.00MiB/s ETA 00:03";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::DownloadProgress { percent, .. } => {
+                assert!((percent - 78.0).abs() < 0.01);
+            }
+            other => panic!("Expected DownloadProgress, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_ytdlp_100_percent_completion() {
+        let line = "[download] 100% of 5.12MiB in 00:02";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::DownloadProgress { percent, eta, .. } => {
+                assert!((percent - 100.0).abs() < 0.01);
+                assert_eq!(eta, "00:00");
+            }
+            other => panic!("Expected DownloadProgress, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------
+    // parse_gamdl_output: Track info
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parses_song_track_info_with_artist() {
+        let line = "Getting song: Anti-Hero by Taylor Swift";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                assert_eq!(title, "Anti-Hero");
+                assert_eq!(artist, "Taylor Swift");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_track_info_without_artist() {
+        let line = "Getting song: Bohemian Rhapsody";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                assert_eq!(title, "Bohemian Rhapsody");
+                assert_eq!(artist, "");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_numbered_track_info() {
+        let line = "Getting track 3 of 12: Song Title by Artist";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                assert_eq!(title, "Song Title");
+                assert_eq!(artist, "Artist");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn handles_title_containing_by() {
+        // "Stand by Me by Ben E. King" -- the last "by" is the separator
+        let line = "Getting song: Stand by Me by Ben E. King";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                assert_eq!(title, "Stand by Me");
+                assert_eq!(artist, "Ben E. King");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------
+    // parse_gamdl_output: Error detection
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parses_error_prefix() {
+        let line = "ERROR: Unable to download webpage";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert_eq!(message, "Unable to download webpage");
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_error_case_insensitive() {
+        let line = "error: something went wrong";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert_eq!(message, "something went wrong");
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_keyword_error_failed() {
+        let line = "Download failed for track 5";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert_eq!(message, "Download failed for track 5");
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_keyword_error_traceback() {
+        let line = "Traceback (most recent call last):";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("Traceback"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------
+    // parse_gamdl_output: Processing steps
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parses_remuxing_step() {
+        let line = "Remuxing to M4A";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::ProcessingStep { step } => {
+                assert_eq!(step, "Remuxing to M4A");
+            }
+            other => panic!("Expected ProcessingStep, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_tagging_step() {
+        let line = "Tagging track 5 of 12";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::ProcessingStep { step } => {
+                assert!(step.starts_with("Tagging"));
+            }
+            other => panic!("Expected ProcessingStep, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_decrypting_step() {
+        let line = "Decrypting with mp4decrypt";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::ProcessingStep { step } => {
+                assert!(step.starts_with("Decrypting"));
+            }
+            other => panic!("Expected ProcessingStep, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------
+    // parse_gamdl_output: Completion
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parses_saved_to_path() {
+        let line = "Saved to: /path/to/output/song.m4a";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Complete { path } => {
+                assert_eq!(path, "/path/to/output/song.m4a");
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_saved_to_case_insensitive() {
+        let line = "SAVED TO /another/path.m4a";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Complete { path } => {
+                assert_eq!(path, "/another/path.m4a");
+            }
+            other => panic!("Expected Complete, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------
+    // parse_gamdl_output: Unknown
+    // ----------------------------------------------------------
+
+    #[test]
+    fn returns_unknown_for_unrecognized_line() {
+        let line = "Some random log output that doesn't match anything";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Unknown { raw } => {
+                assert_eq!(raw, line);
+            }
+            other => panic!("Expected Unknown, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn returns_unknown_for_empty_line() {
+        match parse_gamdl_output("") {
+            GamdlOutputEvent::Unknown { raw } => {
+                assert_eq!(raw, "");
+            }
+            other => panic!("Expected Unknown, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn trims_whitespace_before_parsing() {
+        let line = "  Remuxing to M4A  ";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::ProcessingStep { step } => {
+                assert_eq!(step, "Remuxing to M4A");
+            }
+            other => panic!("Expected ProcessingStep, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------
+    // is_codec_error
+    // ----------------------------------------------------------
+
+    #[test]
+    fn detects_codec_not_available() {
+        assert!(is_codec_error("Codec not available for this track"));
+    }
+
+    #[test]
+    fn detects_no_matching_codec() {
+        assert!(is_codec_error("No matching codec found"));
+    }
+
+    #[test]
+    fn detects_format_not_available() {
+        assert!(is_codec_error("Format not available: alac"));
+    }
+
+    #[test]
+    fn detects_drm_error() {
+        assert!(is_codec_error("DRM protected content cannot be processed"));
+    }
+
+    #[test]
+    fn does_not_detect_network_error_as_codec() {
+        assert!(!is_codec_error("Network timeout occurred"));
+    }
+
+    #[test]
+    fn does_not_detect_auth_error_as_codec() {
+        assert!(!is_codec_error("Cookie authentication failed"));
+    }
+
+    // ----------------------------------------------------------
+    // classify_error
+    // ----------------------------------------------------------
+
+    #[test]
+    fn classifies_auth_errors() {
+        assert_eq!(classify_error("Cookie file expired"), "auth");
+        assert_eq!(classify_error("Authentication failed"), "auth");
+        assert_eq!(classify_error("Login required"), "auth");
+    }
+
+    #[test]
+    fn classifies_network_errors() {
+        assert_eq!(classify_error("Network timeout"), "network");
+        assert_eq!(classify_error("Connection refused"), "network");
+        assert_eq!(classify_error("DNS resolution failed"), "network");
+    }
+
+    #[test]
+    fn classifies_codec_errors() {
+        assert_eq!(classify_error("Codec not available"), "codec");
+        assert_eq!(classify_error("No matching codec"), "codec");
+    }
+
+    #[test]
+    fn classifies_not_found_errors() {
+        assert_eq!(classify_error("Resource not found"), "not_found");
+        assert_eq!(classify_error("HTTP 404 error"), "not_found");
+    }
+
+    #[test]
+    fn classifies_rate_limit_errors() {
+        assert_eq!(classify_error("Rate limit exceeded"), "rate_limit");
+        assert_eq!(classify_error("HTTP 429 too many requests"), "rate_limit");
+    }
+
+    #[test]
+    fn classifies_tool_errors() {
+        assert_eq!(classify_error("FFmpeg process crashed"), "tool");
+        assert_eq!(classify_error("mp4decrypt returned error"), "tool");
+    }
+
+    #[test]
+    fn classifies_unknown_errors() {
+        assert_eq!(classify_error("Something completely unexpected"), "unknown");
+    }
+}
+
 /// Checks if a GAMDL error message indicates a codec-related failure.
 ///
 /// This is used by the **fallback quality system** in `services::download_queue`
