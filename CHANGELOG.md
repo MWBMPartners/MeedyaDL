@@ -6,6 +6,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add release automation and expand to 7 platform targets
+
+Add one-command release automation via Version Bump workflow
+  (workflow_dispatch) that bumps versions across all source files,
+  commits, tags, and triggers the release build. Expand the release
+  build matrix from 3 to 7 platform targets: macOS ARM64, Windows
+  x64/x86/ARM64, Linux x64/ARM64/ARMv7 (Raspberry Pi).
+
+
 ### 🐛 Bug Fixes
 
 - Make usePlatform fallback test deterministic across CI runners
@@ -18,6 +29,7 @@ Mock navigator.userAgent with a known Windows UA string instead of
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.1.0] - 2026-02-11
