@@ -22,6 +22,12 @@ Add Google's release-please to automatically create Release PRs when
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add macOS Gatekeeper fix to release notes
+
+Unsigned apps trigger macOS Gatekeeper's "damaged" warning. Add
+  instructions to run xattr -cr to remove the quarantine flag.
+
 
 ### 🧹 Maintenance
 
