@@ -8,11 +8,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
-- Resolve ESLint no-explicit-any error in Modal.test.tsx
+- Make usePlatform fallback test deterministic across CI runners
 
-Replace `any` type with `Record<string, unknown>` for the lucide-react
-  X icon mock props to satisfy @typescript-eslint/no-explicit-any rule.
+Mock navigator.userAgent with a known Windows UA string instead of
+  relying on the host platform's default jsdom userAgent. This fixes
+  the test failure on Ubuntu runners where the userAgent contains
+  "linux" instead of "darwin".
 
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
 
 ## [0.1.0] - 2026-02-11
 
@@ -57,6 +63,14 @@ Replace `any` type with `Record<string, unknown>` for the lucide-react
 - Implement icon generation script, ESLint configuration, and Vitest setup for testing
 - Automate copyright year updates across all source files and enhance script functionality
 - Implement theme management with useTheme hook and update styles for dark/light modes
+
+### 🐛 Bug Fixes
+
+- Resolve ESLint no-explicit-any error in Modal.test.tsx
+
+Replace `any` type with `Record<string, unknown>` for the lucide-react
+  X icon mock props to satisfy @typescript-eslint/no-explicit-any rule.
+
 
 ### 📚 Documentation
 
