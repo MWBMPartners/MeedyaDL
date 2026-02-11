@@ -26,7 +26,7 @@ import { Modal } from '@/components/common/Modal';
  * props still work correctly.
  */
 vi.mock('lucide-react', () => ({
-  X: (props: any) => <span data-testid="x-icon" {...props} />,
+  X: (props: Record<string, unknown>) => <span data-testid="x-icon" {...props} />,
 }));
 
 describe('Modal', () => {
