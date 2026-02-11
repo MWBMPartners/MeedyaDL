@@ -227,3 +227,245 @@ pub struct QueueItemStatus {
     /// for calculating elapsed time.
     pub created_at: String,
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------
+    // DownloadState serde serialization
+    // ----------------------------------------------------------
+
+    /// Verifies that `DownloadState::Queued` serializes to the
+    /// snake_case string `"queued"` as expected by the React frontend.
+    #[test]
+    fn download_state_queued_serializes_correctly() {
+        let json = serde_json::to_string(&DownloadState::Queued).unwrap();
+        assert_eq!(json, "\"queued\"");
+    }
+
+    /// Verifies that `DownloadState::Downloading` serializes to
+    /// `"downloading"` for the frontend status badge rendering.
+    #[test]
+    fn download_state_downloading_serializes_correctly() {
+        let json = serde_json::to_string(&DownloadState::Downloading).unwrap();
+        assert_eq!(json, "\"downloading\"");
+    }
+
+    /// Verifies that `DownloadState::Processing` serializes to
+    /// `"processing"` for the frontend progress indicator.
+    #[test]
+    fn download_state_processing_serializes_correctly() {
+        let json = serde_json::to_string(&DownloadState::Processing).unwrap();
+        assert_eq!(json, "\"processing\"");
+    }
+
+    /// Verifies that `DownloadState::Complete` serializes to
+    /// `"complete"` for the frontend completion indicator.
+    #[test]
+    fn download_state_complete_serializes_correctly() {
+        let json = serde_json::to_string(&DownloadState::Complete).unwrap();
+        assert_eq!(json, "\"complete\"");
+    }
+
+    /// Verifies that `DownloadState::Error` serializes to
+    /// `"error"` for the frontend error display.
+    #[test]
+    fn download_state_error_serializes_correctly() {
+        let json = serde_json::to_string(&DownloadState::Error).unwrap();
+        assert_eq!(json, "\"error\"");
+    }
+
+    /// Verifies that `DownloadState::Cancelled` serializes to
+    /// `"cancelled"` for the frontend cancellation indicator.
+    #[test]
+    fn download_state_cancelled_serializes_correctly() {
+        let json = serde_json::to_string(&DownloadState::Cancelled).unwrap();
+        assert_eq!(json, "\"cancelled\"");
+    }
+
+    /// Verifies that all `DownloadState` variants survive a full
+    /// serde roundtrip (serialize to JSON, then deserialize back)
+    /// without data loss or corruption.
+    #[test]
+    fn download_state_serde_roundtrip_all_variants() {
+        let variants = vec![
+            DownloadState::Queued,
+            DownloadState::Downloading,
+            DownloadState::Processing,
+            DownloadState::Complete,
+            DownloadState::Error,
+            DownloadState::Cancelled,
+        ];
+
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: DownloadState = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                deserialized, variant,
+                "Roundtrip failed for {:?} (json: {})",
+                variant, json
+            );
+        }
+    }
+
+    // ----------------------------------------------------------
+    // DownloadRequest serde roundtrip
+    // ----------------------------------------------------------
+
+    /// Verifies that a `DownloadRequest` with URLs but no per-download
+    /// options survives a serde roundtrip, ensuring the `options: None`
+    /// case is handled correctly.
+    #[test]
+    fn download_request_serde_roundtrip_without_options() {
+        let request = DownloadRequest {
+            urls: vec![
+                "https://music.apple.com/us/album/example/123456789".to_string(),
+                "https://music.apple.com/us/album/another/987654321".to_string(),
+            ],
+            options: None,
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: DownloadRequest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.urls, request.urls);
+        assert!(deserialized.options.is_none());
+    }
+
+    /// Verifies that a `DownloadRequest` with both URLs and per-download
+    /// option overrides survives a serde roundtrip, preserving the
+    /// nested `GamdlOptions` structure.
+    #[test]
+    fn download_request_serde_roundtrip_with_options() {
+        let request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/111".to_string()],
+            options: Some(GamdlOptions {
+                song_codec: Some(super::super::gamdl_options::SongCodec::Alac),
+                overwrite: Some(true),
+                ..Default::default()
+            }),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let deserialized: DownloadRequest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.urls.len(), 1);
+        assert!(deserialized.options.is_some());
+        let opts = deserialized.options.unwrap();
+        assert_eq!(opts.song_codec, Some(super::super::gamdl_options::SongCodec::Alac));
+        assert_eq!(opts.overwrite, Some(true));
+    }
+
+    // ----------------------------------------------------------
+    // QueueItemStatus serde roundtrip
+    // ----------------------------------------------------------
+
+    /// Verifies that a fully populated `QueueItemStatus` with all
+    /// optional fields set survives a serde roundtrip, ensuring no
+    /// field data is lost during serialization.
+    #[test]
+    fn queue_item_status_serde_roundtrip_all_fields() {
+        let status = QueueItemStatus {
+            id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            state: DownloadState::Downloading,
+            progress: 42.5,
+            current_track: Some("Track Name".to_string()),
+            total_tracks: Some(12),
+            completed_tracks: Some(5),
+            speed: Some("2.5 MB/s".to_string()),
+            eta: Some("00:45".to_string()),
+            error: None,
+            output_path: None,
+            codec_used: Some("alac".to_string()),
+            fallback_occurred: false,
+            created_at: "2025-01-15T10:30:00.000Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        let deserialized: QueueItemStatus = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.id, status.id);
+        assert_eq!(deserialized.urls, status.urls);
+        assert_eq!(deserialized.state, status.state);
+        assert!((deserialized.progress - status.progress).abs() < f64::EPSILON);
+        assert_eq!(deserialized.current_track, status.current_track);
+        assert_eq!(deserialized.total_tracks, status.total_tracks);
+        assert_eq!(deserialized.completed_tracks, status.completed_tracks);
+        assert_eq!(deserialized.speed, status.speed);
+        assert_eq!(deserialized.eta, status.eta);
+        assert_eq!(deserialized.error, status.error);
+        assert_eq!(deserialized.output_path, status.output_path);
+        assert_eq!(deserialized.codec_used, status.codec_used);
+        assert_eq!(deserialized.fallback_occurred, status.fallback_occurred);
+        assert_eq!(deserialized.created_at, status.created_at);
+    }
+
+    /// Verifies that a `QueueItemStatus` in the error terminal state
+    /// with an error message and all progress fields as `None` survives
+    /// a serde roundtrip correctly.
+    #[test]
+    fn queue_item_status_serde_roundtrip_error_state() {
+        let status = QueueItemStatus {
+            id: "error-item-id".to_string(),
+            urls: vec!["https://music.apple.com/us/album/fail/999".to_string()],
+            state: DownloadState::Error,
+            progress: 0.0,
+            current_track: None,
+            total_tracks: None,
+            completed_tracks: None,
+            speed: None,
+            eta: None,
+            error: Some("Network timeout after 30 seconds".to_string()),
+            output_path: None,
+            codec_used: None,
+            fallback_occurred: false,
+            created_at: "2025-02-01T08:00:00.000Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        let deserialized: QueueItemStatus = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.state, DownloadState::Error);
+        assert_eq!(deserialized.error, Some("Network timeout after 30 seconds".to_string()));
+        assert!(deserialized.current_track.is_none());
+        assert!(deserialized.speed.is_none());
+    }
+
+    /// Verifies that a `QueueItemStatus` in the complete terminal state
+    /// with an output path and codec information survives a serde
+    /// roundtrip, including the fallback_occurred flag.
+    #[test]
+    fn queue_item_status_serde_roundtrip_complete_with_fallback() {
+        let status = QueueItemStatus {
+            id: "complete-item-id".to_string(),
+            urls: vec!["https://music.apple.com/us/album/done/555".to_string()],
+            state: DownloadState::Complete,
+            progress: 100.0,
+            current_track: None,
+            total_tracks: Some(1),
+            completed_tracks: Some(1),
+            speed: None,
+            eta: None,
+            error: None,
+            output_path: Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()),
+            codec_used: Some("aac".to_string()),
+            fallback_occurred: true,
+            created_at: "2025-03-10T14:22:00.000Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        let deserialized: QueueItemStatus = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.state, DownloadState::Complete);
+        assert_eq!(deserialized.output_path, Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()));
+        assert_eq!(deserialized.codec_used, Some("aac".to_string()));
+        assert!(deserialized.fallback_occurred);
+        assert!((deserialized.progress - 100.0).abs() < f64::EPSILON);
+    }
+}

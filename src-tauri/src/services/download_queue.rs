@@ -1020,3 +1020,1327 @@ async fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
         }
     }
 }
+
+// ============================================================
+// Unit Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::download::{DownloadRequest, DownloadState};
+    use crate::models::gamdl_options::{GamdlOptions, SongCodec};
+    use crate::models::settings::AppSettings;
+    use crate::utils::process::GamdlOutputEvent;
+
+    // ----------------------------------------------------------
+    // Test Helpers
+    // ----------------------------------------------------------
+
+    /// Creates default AppSettings suitable for test use.
+    /// The returned settings have sensible defaults matching AppSettings::default(),
+    /// which includes fallback_enabled=true and a full music_fallback_chain.
+    fn test_settings() -> AppSettings {
+        AppSettings::default()
+    }
+
+    /// Creates a minimal DownloadRequest with a single URL and no overrides.
+    /// The URL is a placeholder Apple Music URL for test purposes only.
+    fn test_request() -> DownloadRequest {
+        DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test-song/123456789".to_string()],
+            options: None,
+        }
+    }
+
+    /// Creates a DownloadRequest with per-download codec override.
+    fn test_request_with_codec_override(codec: SongCodec) -> DownloadRequest {
+        let mut opts = GamdlOptions::default();
+        opts.song_codec = Some(codec);
+        DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/999".to_string()],
+            options: Some(opts),
+        }
+    }
+
+    /// Helper: enqueues a single item and returns its download ID.
+    fn enqueue_one(queue: &mut DownloadQueue) -> String {
+        let settings = test_settings();
+        queue.enqueue(test_request(), &settings)
+    }
+
+    /// Helper: enqueues N items and returns their download IDs.
+    fn enqueue_n(queue: &mut DownloadQueue, n: usize) -> Vec<String> {
+        let settings = test_settings();
+        (0..n)
+            .map(|_| queue.enqueue(test_request(), &settings))
+            .collect()
+    }
+
+    // ==========================================================
+    // 1. new() tests
+    // ==========================================================
+
+    /// Verifies that DownloadQueue::new() creates an empty queue with no items,
+    /// zero active count, and default concurrency settings.
+    #[test]
+    fn new_creates_empty_queue() {
+        let queue = DownloadQueue::new();
+        assert!(queue.items.is_empty(), "New queue should have no items");
+        assert_eq!(queue.active_count, 0, "New queue should have zero active count");
+        assert_eq!(queue.max_concurrent, 1, "Default max_concurrent should be 1");
+        assert_eq!(queue.max_network_retries, 3, "Default max_network_retries should be 3");
+    }
+
+    /// Verifies that the Default trait implementation delegates to new().
+    #[test]
+    fn default_delegates_to_new() {
+        let queue = DownloadQueue::default();
+        assert!(queue.items.is_empty());
+        assert_eq!(queue.active_count, 0);
+        assert_eq!(queue.max_concurrent, 1);
+    }
+
+    // ==========================================================
+    // 2. enqueue() tests
+    // ==========================================================
+
+    /// Verifies that enqueue() returns a unique download ID (UUID v4 format)
+    /// and that successive calls produce different IDs.
+    #[test]
+    fn enqueue_returns_unique_ids() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+
+        let id1 = queue.enqueue(test_request(), &settings);
+        let id2 = queue.enqueue(test_request(), &settings);
+
+        assert!(!id1.is_empty(), "Download ID should not be empty");
+        assert!(!id2.is_empty(), "Download ID should not be empty");
+        assert_ne!(id1, id2, "Each enqueue should produce a unique ID");
+    }
+
+    /// Verifies that an enqueued item starts in the Queued state and appears
+    /// in the status list with correct initial fields.
+    #[test]
+    fn enqueue_sets_queued_state() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = test_request();
+        let expected_url = request.urls[0].clone();
+
+        let id = queue.enqueue(request, &settings);
+        let statuses = queue.get_status();
+
+        assert_eq!(statuses.len(), 1, "Queue should have exactly one item");
+        let status = &statuses[0];
+        assert_eq!(status.id, id);
+        assert_eq!(status.state, DownloadState::Queued);
+        assert_eq!(status.urls, vec![expected_url]);
+        assert_eq!(status.progress, 0.0);
+        assert!(status.current_track.is_none());
+        assert!(status.error.is_none());
+        assert!(status.output_path.is_none());
+        assert!(!status.fallback_occurred);
+    }
+
+    /// Verifies that enqueue() merges global settings into the item's options.
+    /// Since merge_options is private, we test it indirectly: the enqueued item's
+    /// codec_used field should reflect the default settings codec (ALAC).
+    #[test]
+    fn enqueue_merges_default_settings() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+
+        let _id = queue.enqueue(test_request(), &settings);
+        let statuses = queue.get_status();
+
+        assert_eq!(
+            statuses[0].codec_used.as_deref(),
+            Some("alac"),
+            "Default codec should be ALAC from settings"
+        );
+    }
+
+    /// Verifies that per-download codec overrides take precedence over
+    /// global settings when enqueuing. This indirectly tests merge_options().
+    #[test]
+    fn enqueue_applies_per_download_overrides() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = test_request_with_codec_override(SongCodec::Aac);
+
+        let _id = queue.enqueue(request, &settings);
+        let statuses = queue.get_status();
+
+        assert_eq!(
+            statuses[0].codec_used.as_deref(),
+            Some("aac"),
+            "Per-download override should replace default ALAC with AAC"
+        );
+    }
+
+    /// Verifies that multiple items can be enqueued and they all appear in
+    /// the status list in FIFO order.
+    #[test]
+    fn enqueue_preserves_fifo_order() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+        let statuses = queue.get_status();
+
+        assert_eq!(statuses.len(), 3);
+        assert_eq!(statuses[0].id, ids[0], "First enqueued should be first in status");
+        assert_eq!(statuses[1].id, ids[1]);
+        assert_eq!(statuses[2].id, ids[2], "Last enqueued should be last in status");
+    }
+
+    /// Verifies that enqueue sets the network_retries_left field to
+    /// the queue's max_network_retries value (tested via try_network_retry).
+    #[test]
+    fn enqueue_sets_network_retries_from_queue_config() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        // Exhaust all 3 retries
+        assert!(queue.try_network_retry(&id), "Should succeed on retry 1 of 3");
+        // Need to set back to Error/Queued for next retry test, but try_network_retry
+        // itself resets to Queued. We need to simulate re-error.
+        // Actually try_network_retry sets to Queued. Let's set back to error.
+        queue.set_error(&id, "network error");
+        assert!(queue.try_network_retry(&id), "Should succeed on retry 2 of 3");
+        queue.set_error(&id, "network error");
+        assert!(queue.try_network_retry(&id), "Should succeed on retry 3 of 3");
+        queue.set_error(&id, "network error");
+        assert!(!queue.try_network_retry(&id), "Should fail after 3 retries exhausted");
+    }
+
+    // ==========================================================
+    // 3. get_status() tests
+    // ==========================================================
+
+    /// Verifies that get_status() returns an empty vector when the queue
+    /// has no items.
+    #[test]
+    fn get_status_empty_queue() {
+        let queue = DownloadQueue::new();
+        let statuses = queue.get_status();
+        assert!(statuses.is_empty(), "Empty queue should return empty status vec");
+    }
+
+    /// Verifies that get_status() returns all items in the queue, each with
+    /// the correct state and URL information.
+    #[test]
+    fn get_status_returns_all_items() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 4);
+        let statuses = queue.get_status();
+
+        assert_eq!(statuses.len(), 4);
+        for (i, status) in statuses.iter().enumerate() {
+            assert_eq!(status.id, ids[i]);
+            assert_eq!(status.state, DownloadState::Queued);
+        }
+    }
+
+    /// Verifies that get_status() returns cloned data (modifications to the
+    /// returned vec do not affect the queue).
+    #[test]
+    fn get_status_returns_cloned_data() {
+        let mut queue = DownloadQueue::new();
+        let _id = enqueue_one(&mut queue);
+
+        let statuses1 = queue.get_status();
+        let statuses2 = queue.get_status();
+
+        assert_eq!(statuses1.len(), statuses2.len());
+        assert_eq!(statuses1[0].id, statuses2[0].id);
+    }
+
+    // ==========================================================
+    // 4. get_counts() tests
+    // ==========================================================
+
+    /// Verifies that get_counts() returns all zeros for an empty queue.
+    /// Returns tuple: (total, active, queued, completed, failed).
+    #[test]
+    fn get_counts_empty_queue() {
+        let queue = DownloadQueue::new();
+        assert_eq!(queue.get_counts(), (0, 0, 0, 0, 0));
+    }
+
+    /// Verifies that get_counts() correctly counts items in different states.
+    /// Sets up items in Queued, Downloading, Complete, and Error states
+    /// and checks that each counter is accurate.
+    #[test]
+    fn get_counts_various_states() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 5);
+
+        // Leave ids[0] as Queued
+        // Set ids[1] to Downloading via next_pending
+        let _ = queue.next_pending(); // ids[0] becomes Downloading
+        // Set ids[2] to Complete
+        queue.set_complete(&ids[2]);
+        // Set ids[3] to Error
+        queue.set_error(&ids[3], "test error");
+        // ids[4] stays Queued
+
+        // ids[0]=Downloading, ids[1]=Queued, ids[2]=Complete, ids[3]=Error, ids[4]=Queued
+        let (total, active, queued, completed, failed) = queue.get_counts();
+        assert_eq!(total, 5, "Total should be 5");
+        assert_eq!(active, 1, "One item is Downloading");
+        assert_eq!(queued, 2, "Two items are Queued (ids[1] and ids[4])");
+        assert_eq!(completed, 1, "One item is Complete");
+        assert_eq!(failed, 1, "One item is Error");
+    }
+
+    /// Verifies that get_counts() counts Processing state items as active.
+    #[test]
+    fn get_counts_processing_counted_as_active() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 2);
+
+        queue.update_item_state(&ids[0], DownloadState::Processing);
+
+        let (total, active, queued, _completed, _failed) = queue.get_counts();
+        assert_eq!(total, 2);
+        assert_eq!(active, 1, "Processing items should count as active");
+        assert_eq!(queued, 1);
+    }
+
+    // ==========================================================
+    // 5. cancel() tests
+    // ==========================================================
+
+    /// Verifies that cancelling a Queued item sets its state to Cancelled
+    /// and returns true.
+    #[test]
+    fn cancel_queued_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let result = queue.cancel(&id);
+        assert!(result, "cancel() should return true for Queued items");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "Cancelled queued item should be in Cancelled state"
+        );
+    }
+
+    /// Verifies that cancelling a Downloading item sets its state to Cancelled
+    /// and returns true. The active_count is NOT decremented here; that happens
+    /// when the running task detects cancellation and calls on_task_finished().
+    #[test]
+    fn cancel_downloading_item() {
+        let mut queue = DownloadQueue::new();
+        let _id = enqueue_one(&mut queue);
+
+        // Move to Downloading state via next_pending
+        let (dl_id, _, _) = queue.next_pending().expect("Should have a pending item");
+        assert_eq!(queue.active_count, 1);
+
+        let result = queue.cancel(&dl_id);
+        assert!(result, "cancel() should return true for Downloading items");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Cancelled);
+        // active_count is NOT decremented by cancel() -- that's the task's job
+        assert_eq!(queue.active_count, 1, "active_count should not be decremented by cancel()");
+    }
+
+    /// Verifies that cancelling a Processing item sets its state to Cancelled
+    /// and returns true.
+    #[test]
+    fn cancel_processing_item() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 1);
+        queue.update_item_state(&ids[0], DownloadState::Processing);
+
+        let result = queue.cancel(&ids[0]);
+        assert!(result, "cancel() should return true for Processing items");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Cancelled);
+    }
+
+    /// Verifies that cancel() returns false for items already in a terminal
+    /// state (Complete, Error, Cancelled).
+    #[test]
+    fn cancel_returns_false_for_terminal_states() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+
+        queue.set_complete(&ids[0]);
+        queue.set_error(&ids[1], "some error");
+        queue.cancel(&ids[2]); // First cancel succeeds
+
+        assert!(!queue.cancel(&ids[0]), "Should return false for Complete item");
+        assert!(!queue.cancel(&ids[1]), "Should return false for Error item");
+        assert!(!queue.cancel(&ids[2]), "Should return false for already Cancelled item");
+    }
+
+    /// Verifies that cancel() returns false for a non-existent download ID.
+    #[test]
+    fn cancel_returns_false_for_nonexistent_id() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_one(&mut queue);
+
+        assert!(!queue.cancel("nonexistent-id-12345"), "Should return false for unknown ID");
+    }
+
+    // ==========================================================
+    // 6. clear_finished() tests
+    // ==========================================================
+
+    /// Verifies that clear_finished() removes items in terminal states
+    /// (Complete, Error, Cancelled) and keeps items in active/pending states.
+    #[test]
+    fn clear_finished_removes_terminal_keeps_active() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 5);
+
+        // ids[0] = Queued (keep)
+        // ids[1] = Downloading (keep)
+        queue.update_item_state(&ids[1], DownloadState::Downloading);
+        // ids[2] = Complete (remove)
+        queue.set_complete(&ids[2]);
+        // ids[3] = Error (remove)
+        queue.set_error(&ids[3], "error msg");
+        // ids[4] = Cancelled (remove)
+        queue.cancel(&ids[4]);
+
+        let removed = queue.clear_finished();
+
+        assert_eq!(removed, 3, "Should remove 3 terminal items");
+        let statuses = queue.get_status();
+        assert_eq!(statuses.len(), 2, "Should have 2 remaining items");
+        assert_eq!(statuses[0].id, ids[0], "Queued item should remain");
+        assert_eq!(statuses[1].id, ids[1], "Downloading item should remain");
+    }
+
+    /// Verifies that clear_finished() returns 0 when there are no terminal items.
+    #[test]
+    fn clear_finished_returns_zero_when_nothing_to_clear() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_n(&mut queue, 3);
+
+        let removed = queue.clear_finished();
+        assert_eq!(removed, 0, "Nothing should be removed when all items are Queued");
+        assert_eq!(queue.get_status().len(), 3, "All items should remain");
+    }
+
+    /// Verifies that clear_finished() works correctly on an empty queue.
+    #[test]
+    fn clear_finished_on_empty_queue() {
+        let mut queue = DownloadQueue::new();
+        let removed = queue.clear_finished();
+        assert_eq!(removed, 0, "Should return 0 for empty queue");
+    }
+
+    // ==========================================================
+    // 7. next_pending() tests
+    // ==========================================================
+
+    /// Verifies that next_pending() returns None for an empty queue.
+    #[test]
+    fn next_pending_empty_queue() {
+        let mut queue = DownloadQueue::new();
+        assert!(queue.next_pending().is_none(), "Empty queue should return None");
+    }
+
+    /// Verifies that next_pending() returns the first Queued item, transitions
+    /// it to Downloading, and increments active_count.
+    #[test]
+    fn next_pending_returns_first_queued_item() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+
+        let result = queue.next_pending();
+        assert!(result.is_some(), "Should return Some for non-empty queue");
+
+        let (dl_id, urls, _options) = result.unwrap();
+        assert_eq!(dl_id, ids[0], "Should return the first queued item");
+        assert_eq!(urls.len(), 1, "Should include the URLs from the request");
+        assert_eq!(queue.active_count, 1, "active_count should be incremented to 1");
+
+        // Verify the item's state changed to Downloading
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Downloading);
+        assert_eq!(statuses[1].state, DownloadState::Queued, "Other items should remain Queued");
+    }
+
+    /// Verifies that next_pending() returns None when max_concurrent is reached.
+    /// Default max_concurrent is 1, so after one next_pending(), the next call
+    /// should return None even if there are queued items.
+    #[test]
+    fn next_pending_respects_max_concurrent() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_n(&mut queue, 3);
+
+        // First call succeeds (active_count goes from 0 to 1)
+        let first = queue.next_pending();
+        assert!(first.is_some(), "First next_pending should succeed");
+
+        // Second call should return None (active_count == max_concurrent == 1)
+        let second = queue.next_pending();
+        assert!(
+            second.is_none(),
+            "Second next_pending should return None when at max_concurrent"
+        );
+    }
+
+    /// Verifies that next_pending() skips non-Queued items and finds the first
+    /// Queued item in the deque.
+    #[test]
+    fn next_pending_skips_non_queued_items() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+
+        // Set first item to Complete (not Queued)
+        queue.set_complete(&ids[0]);
+        // Set second item to Error
+        queue.set_error(&ids[1], "error");
+
+        // next_pending should skip ids[0] and ids[1], returning ids[2]
+        let result = queue.next_pending();
+        assert!(result.is_some());
+        let (dl_id, _, _) = result.unwrap();
+        assert_eq!(dl_id, ids[2], "Should return the first Queued item, skipping terminal items");
+    }
+
+    /// Verifies that next_pending() returns the merged GamdlOptions for the item.
+    #[test]
+    fn next_pending_returns_merged_options() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = test_request_with_codec_override(SongCodec::AacHe);
+        let _id = queue.enqueue(request, &settings);
+
+        let (_, _, options) = queue.next_pending().expect("Should return pending item");
+        assert_eq!(
+            options.song_codec,
+            Some(SongCodec::AacHe),
+            "Returned options should reflect the per-download override"
+        );
+    }
+
+    // ==========================================================
+    // 8. on_task_finished() tests
+    // ==========================================================
+
+    /// Verifies that on_task_finished() decrements active_count.
+    #[test]
+    fn on_task_finished_decrements_active_count() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_one(&mut queue);
+        let _ = queue.next_pending(); // active_count = 1
+
+        assert_eq!(queue.active_count, 1);
+        queue.on_task_finished();
+        assert_eq!(queue.active_count, 0, "active_count should be 0 after on_task_finished");
+    }
+
+    /// Verifies that on_task_finished() does not underflow below zero.
+    /// Calling it when active_count is already 0 should be a no-op.
+    #[test]
+    fn on_task_finished_does_not_underflow() {
+        let mut queue = DownloadQueue::new();
+        assert_eq!(queue.active_count, 0);
+
+        queue.on_task_finished();
+        assert_eq!(queue.active_count, 0, "active_count should not go below 0");
+
+        // Call it multiple times to be sure
+        queue.on_task_finished();
+        queue.on_task_finished();
+        assert_eq!(queue.active_count, 0);
+    }
+
+    /// Verifies that after on_task_finished(), the queue can start new items
+    /// since a concurrent slot has been freed.
+    #[test]
+    fn on_task_finished_frees_slot_for_next_pending() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 2);
+
+        // Start first item
+        let first = queue.next_pending();
+        assert!(first.is_some());
+        // Verify second item can't start yet
+        assert!(queue.next_pending().is_none(), "Should be at max_concurrent");
+
+        // Finish first task
+        queue.on_task_finished();
+
+        // Now second item should be startable
+        let second = queue.next_pending();
+        assert!(second.is_some(), "Should be able to start next item after finishing");
+        let (dl_id, _, _) = second.unwrap();
+        assert_eq!(dl_id, ids[1]);
+    }
+
+    // ==========================================================
+    // 9. is_cancelled() tests
+    // ==========================================================
+
+    /// Verifies that is_cancelled() returns true for cancelled items.
+    #[test]
+    fn is_cancelled_returns_true_for_cancelled() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.cancel(&id);
+
+        assert!(queue.is_cancelled(&id), "Should return true for cancelled item");
+    }
+
+    /// Verifies that is_cancelled() returns false for non-cancelled items
+    /// in various states (Queued, Downloading, Complete, Error).
+    #[test]
+    fn is_cancelled_returns_false_for_non_cancelled() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 4);
+
+        // ids[0] = Queued
+        assert!(!queue.is_cancelled(&ids[0]), "Queued item should not be cancelled");
+
+        // ids[1] = Downloading (via update_item_state)
+        queue.update_item_state(&ids[1], DownloadState::Downloading);
+        assert!(!queue.is_cancelled(&ids[1]), "Downloading item should not be cancelled");
+
+        // ids[2] = Complete
+        queue.set_complete(&ids[2]);
+        assert!(!queue.is_cancelled(&ids[2]), "Complete item should not be cancelled");
+
+        // ids[3] = Error
+        queue.set_error(&ids[3], "error");
+        assert!(!queue.is_cancelled(&ids[3]), "Error item should not be cancelled");
+    }
+
+    /// Verifies that is_cancelled() returns false for a non-existent download ID.
+    #[test]
+    fn is_cancelled_returns_false_for_nonexistent_id() {
+        let queue = DownloadQueue::new();
+        assert!(
+            !queue.is_cancelled("does-not-exist"),
+            "Should return false for unknown ID"
+        );
+    }
+
+    // ==========================================================
+    // 10. update_item_progress() tests
+    // ==========================================================
+
+    /// Verifies that a DownloadProgress event updates the item's progress,
+    /// speed, eta, and sets state to Downloading.
+    #[test]
+    fn update_item_progress_download_progress() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::DownloadProgress {
+            percent: 45.5,
+            speed: "2.5MiB/s".to_string(),
+            eta: "00:30".to_string(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        let s = &statuses[0];
+        assert!((s.progress - 45.5).abs() < 0.001, "Progress should be 45.5");
+        assert_eq!(s.speed.as_deref(), Some("2.5MiB/s"));
+        assert_eq!(s.eta.as_deref(), Some("00:30"));
+        assert_eq!(s.state, DownloadState::Downloading);
+    }
+
+    /// Verifies that a TrackInfo event updates the current_track field
+    /// with the formatted "Artist - Title" string.
+    #[test]
+    fn update_item_progress_track_info_with_artist() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Anti-Hero".to_string(),
+            artist: "Taylor Swift".to_string(),
+            album: String::new(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].current_track.as_deref(),
+            Some("Taylor Swift - Anti-Hero"),
+            "Should format as 'Artist - Title'"
+        );
+    }
+
+    /// Verifies that a TrackInfo event with an empty artist just uses the title.
+    #[test]
+    fn update_item_progress_track_info_without_artist() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Bohemian Rhapsody".to_string(),
+            artist: String::new(),
+            album: String::new(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].current_track.as_deref(),
+            Some("Bohemian Rhapsody"),
+            "Should use title only when artist is empty"
+        );
+    }
+
+    /// Verifies that a ProcessingStep event sets the state to Processing.
+    #[test]
+    fn update_item_progress_processing_step() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::ProcessingStep {
+            step: "Remuxing to M4A".to_string(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Processing,
+            "ProcessingStep event should set state to Processing"
+        );
+    }
+
+    /// Verifies that a Complete event sets the output_path and progress to 100%.
+    #[test]
+    fn update_item_progress_complete() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::Complete {
+            path: "/output/song.m4a".to_string(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].output_path.as_deref(),
+            Some("/output/song.m4a"),
+            "Complete event should set output_path"
+        );
+        assert!(
+            (statuses[0].progress - 100.0).abs() < 0.001,
+            "Complete event should set progress to 100%"
+        );
+    }
+
+    /// Verifies that an Error event sets the error field on the item.
+    #[test]
+    fn update_item_progress_error() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::Error {
+            message: "Codec not available".to_string(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].error.as_deref(),
+            Some("Codec not available"),
+            "Error event should set the error field"
+        );
+        // Note: Error event does NOT change state -- that's handled by set_error()
+        // after the process exits and retry/fallback logic is evaluated.
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Queued,
+            "Error event should NOT change state (that's set_error's job)"
+        );
+    }
+
+    /// Verifies that an Unknown event does not change any item fields.
+    #[test]
+    fn update_item_progress_unknown_event_is_no_op() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::Unknown {
+            raw: "some random output".to_string(),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Queued, "Unknown event should not change state");
+        assert_eq!(statuses[0].progress, 0.0, "Unknown event should not change progress");
+    }
+
+    /// Verifies that update_item_progress is a no-op for non-existent IDs
+    /// (does not panic).
+    #[test]
+    fn update_item_progress_nonexistent_id_is_safe() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::DownloadProgress {
+            percent: 50.0,
+            speed: "1MiB/s".to_string(),
+            eta: "00:10".to_string(),
+        };
+        // Should not panic
+        queue.update_item_progress("nonexistent-id", &event);
+
+        // Original item should be unchanged
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].progress, 0.0);
+    }
+
+    // ==========================================================
+    // 11. set_error() and set_complete() tests
+    // ==========================================================
+
+    /// Verifies that set_error() sets the state to Error and records the
+    /// error message.
+    #[test]
+    fn set_error_sets_state_and_message() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_error(&id, "Network timeout occurred");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Error);
+        assert_eq!(
+            statuses[0].error.as_deref(),
+            Some("Network timeout occurred")
+        );
+    }
+
+    /// Verifies that set_error() is a no-op for non-existent IDs.
+    #[test]
+    fn set_error_nonexistent_id_is_safe() {
+        let mut queue = DownloadQueue::new();
+        // Should not panic
+        queue.set_error("nonexistent", "some error");
+    }
+
+    /// Verifies that set_complete() sets the state to Complete and progress
+    /// to 100%.
+    #[test]
+    fn set_complete_sets_state_and_progress() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_complete(&id);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Complete);
+        assert!(
+            (statuses[0].progress - 100.0).abs() < 0.001,
+            "set_complete should set progress to 100%"
+        );
+    }
+
+    /// Verifies that set_complete() is a no-op for non-existent IDs.
+    #[test]
+    fn set_complete_nonexistent_id_is_safe() {
+        let mut queue = DownloadQueue::new();
+        // Should not panic
+        queue.set_complete("nonexistent");
+    }
+
+    // ==========================================================
+    // 12. try_network_retry() tests
+    // ==========================================================
+
+    /// Verifies that try_network_retry() resets the item to Queued state when
+    /// retries remain, and decrements the retry counter.
+    #[test]
+    fn try_network_retry_resets_to_queued_when_retries_remain() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        // Simulate an error state
+        queue.set_error(&id, "Network timeout");
+
+        let result = queue.try_network_retry(&id);
+        assert!(result, "Should return true when retries remain");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Queued,
+            "Should reset to Queued for retry"
+        );
+        assert!(
+            statuses[0].error.is_none(),
+            "Error should be cleared on retry"
+        );
+        assert_eq!(statuses[0].progress, 0.0, "Progress should reset to 0");
+    }
+
+    /// Verifies that try_network_retry() returns false when all retries have
+    /// been exhausted (default: 3 retries).
+    #[test]
+    fn try_network_retry_returns_false_when_exhausted() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        // Use up all 3 retries
+        for _ in 0..3 {
+            queue.set_error(&id, "network error");
+            let ok = queue.try_network_retry(&id);
+            assert!(ok, "Should succeed while retries remain");
+        }
+
+        // 4th attempt should fail
+        queue.set_error(&id, "network error");
+        let result = queue.try_network_retry(&id);
+        assert!(!result, "Should return false after all retries exhausted");
+    }
+
+    /// Verifies that try_network_retry() returns false for a non-existent ID.
+    #[test]
+    fn try_network_retry_nonexistent_id() {
+        let mut queue = DownloadQueue::new();
+        assert!(!queue.try_network_retry("nonexistent"));
+    }
+
+    // ==========================================================
+    // 13. try_fallback() tests
+    // ==========================================================
+
+    /// Verifies that try_fallback() returns new options with the next codec in
+    /// the fallback chain, resets the item to Queued, and marks fallback_occurred.
+    #[test]
+    fn try_fallback_returns_next_codec_in_chain() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Simulate an error requiring fallback
+        queue.set_error(&id, "Codec not available");
+
+        // First fallback: chain[0] = Alac (initial), so next = chain[1] = Atmos
+        let result = queue.try_fallback(&id, &settings);
+        assert!(result.is_some(), "First fallback should succeed");
+
+        let new_opts = result.unwrap();
+        assert_eq!(
+            new_opts.song_codec,
+            Some(SongCodec::Atmos),
+            "First fallback should be Atmos (index 1 in chain)"
+        );
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Queued, "Should reset to Queued");
+        assert!(statuses[0].fallback_occurred, "Should mark fallback_occurred as true");
+        assert_eq!(statuses[0].codec_used.as_deref(), Some("atmos"));
+        assert!(statuses[0].error.is_none(), "Error should be cleared on fallback");
+        assert_eq!(statuses[0].progress, 0.0, "Progress should be reset");
+    }
+
+    /// Verifies that try_fallback() returns None when all codecs in the
+    /// fallback chain have been exhausted.
+    #[test]
+    fn try_fallback_returns_none_when_chain_exhausted() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        // Use a short chain for testing
+        settings.music_fallback_chain = vec![SongCodec::Alac, SongCodec::Aac];
+        let id = queue.enqueue(test_request(), &settings);
+
+        // First fallback: Alac (0) -> Aac (1)
+        queue.set_error(&id, "codec error");
+        let result1 = queue.try_fallback(&id, &settings);
+        assert!(result1.is_some(), "First fallback to Aac should succeed");
+
+        // Second fallback: chain exhausted (index 2 >= chain.len() of 2)
+        queue.set_error(&id, "codec error again");
+        let result2 = queue.try_fallback(&id, &settings);
+        assert!(result2.is_none(), "Should return None when chain exhausted");
+    }
+
+    /// Verifies that try_fallback() returns None when fallback is disabled
+    /// in settings, regardless of chain contents.
+    #[test]
+    fn try_fallback_returns_none_when_disabled() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.fallback_enabled = false;
+        let id = queue.enqueue(test_request(), &settings);
+
+        queue.set_error(&id, "codec error");
+        let result = queue.try_fallback(&id, &settings);
+        assert!(
+            result.is_none(),
+            "Should return None when fallback_enabled is false"
+        );
+    }
+
+    /// Verifies that try_fallback() returns None for a non-existent ID.
+    #[test]
+    fn try_fallback_nonexistent_id() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let result = queue.try_fallback("nonexistent", &settings);
+        assert!(result.is_none());
+    }
+
+    /// Verifies that multiple successive fallbacks advance through the entire
+    /// fallback chain correctly.
+    #[test]
+    fn try_fallback_advances_through_full_chain() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.music_fallback_chain = vec![
+            SongCodec::Alac,
+            SongCodec::Atmos,
+            SongCodec::Aac,
+        ];
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Fallback 1: Alac -> Atmos
+        queue.set_error(&id, "codec error");
+        let r1 = queue.try_fallback(&id, &settings);
+        assert_eq!(r1.unwrap().song_codec, Some(SongCodec::Atmos));
+
+        // Fallback 2: Atmos -> Aac
+        queue.set_error(&id, "codec error");
+        let r2 = queue.try_fallback(&id, &settings);
+        assert_eq!(r2.unwrap().song_codec, Some(SongCodec::Aac));
+
+        // Fallback 3: exhausted
+        queue.set_error(&id, "codec error");
+        let r3 = queue.try_fallback(&id, &settings);
+        assert!(r3.is_none(), "Chain should be exhausted after 3 codecs");
+    }
+
+    // ==========================================================
+    // 14. retry() tests
+    // ==========================================================
+
+    /// Verifies that retry() resets an errored item fully to Queued state
+    /// with fresh options, reset counters, and cleared error/progress.
+    #[test]
+    fn retry_resets_errored_item_to_queued() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        queue.set_error(&id, "Download failed");
+
+        let result = queue.retry(&id, &settings);
+        assert!(result, "retry() should return true for Error items");
+
+        let statuses = queue.get_status();
+        let s = &statuses[0];
+        assert_eq!(s.state, DownloadState::Queued, "Should be reset to Queued");
+        assert!(s.error.is_none(), "Error should be cleared");
+        assert_eq!(s.progress, 0.0, "Progress should be reset");
+        assert!(!s.fallback_occurred, "fallback_occurred should be reset");
+        assert_eq!(
+            s.codec_used.as_deref(),
+            Some("alac"),
+            "Codec should be re-merged from settings"
+        );
+    }
+
+    /// Verifies that retry() resets a cancelled item to Queued state.
+    #[test]
+    fn retry_resets_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        queue.cancel(&id);
+        assert_eq!(queue.get_status()[0].state, DownloadState::Cancelled);
+
+        let result = queue.retry(&id, &settings);
+        assert!(result, "retry() should return true for Cancelled items");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Queued);
+    }
+
+    /// Verifies that retry() returns false for non-terminal states (Queued,
+    /// Downloading, Processing, Complete).
+    #[test]
+    fn retry_returns_false_for_non_terminal_states() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let ids = enqueue_n(&mut queue, 4);
+
+        // ids[0] = Queued
+        assert!(!queue.retry(&ids[0], &settings), "Should not retry Queued item");
+
+        // ids[1] = Downloading
+        queue.update_item_state(&ids[1], DownloadState::Downloading);
+        assert!(!queue.retry(&ids[1], &settings), "Should not retry Downloading item");
+
+        // ids[2] = Processing
+        queue.update_item_state(&ids[2], DownloadState::Processing);
+        assert!(!queue.retry(&ids[2], &settings), "Should not retry Processing item");
+
+        // ids[3] = Complete
+        queue.set_complete(&ids[3]);
+        assert!(!queue.retry(&ids[3], &settings), "Should not retry Complete item");
+    }
+
+    /// Verifies that retry() returns false for a non-existent download ID.
+    #[test]
+    fn retry_returns_false_for_nonexistent_id() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        assert!(!queue.retry("nonexistent", &settings));
+    }
+
+    /// Verifies that retry() re-merges options from the original request
+    /// with the current settings. This means if settings changed between the
+    /// original enqueue and the retry, the retry picks up the new settings.
+    #[test]
+    fn retry_remerges_options_from_original_request() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = test_request_with_codec_override(SongCodec::AacHe);
+        let id = queue.enqueue(request, &settings);
+
+        queue.set_error(&id, "error");
+
+        // Retry with the same settings
+        let result = queue.retry(&id, &settings);
+        assert!(result);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].codec_used.as_deref(),
+            Some("aac-he"),
+            "Retry should preserve the original per-download override"
+        );
+    }
+
+    /// Verifies that retry() resets the network retries counter and fallback
+    /// index, which can be verified by subsequent try_network_retry calls
+    /// succeeding again after a retry.
+    #[test]
+    fn retry_resets_retry_counters() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Exhaust network retries
+        for _ in 0..3 {
+            queue.set_error(&id, "network");
+            queue.try_network_retry(&id);
+        }
+        queue.set_error(&id, "network");
+        assert!(!queue.try_network_retry(&id), "Retries should be exhausted");
+
+        // Now use retry() to do a full reset
+        queue.set_error(&id, "network");
+        queue.retry(&id, &settings);
+
+        // Network retries should be available again
+        queue.set_error(&id, "network");
+        assert!(
+            queue.try_network_retry(&id),
+            "After retry(), network retries should be reset to max"
+        );
+    }
+
+    // ==========================================================
+    // update_item_state() tests
+    // ==========================================================
+
+    /// Verifies that update_item_state() changes the state of the item.
+    #[test]
+    fn update_item_state_changes_state() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.update_item_state(&id, DownloadState::Downloading);
+        assert_eq!(queue.get_status()[0].state, DownloadState::Downloading);
+
+        queue.update_item_state(&id, DownloadState::Processing);
+        assert_eq!(queue.get_status()[0].state, DownloadState::Processing);
+    }
+
+    /// Verifies that update_item_state() is a no-op for non-existent IDs.
+    #[test]
+    fn update_item_state_nonexistent_id_is_safe() {
+        let mut queue = DownloadQueue::new();
+        // Should not panic
+        queue.update_item_state("nonexistent", DownloadState::Downloading);
+    }
+
+    // ==========================================================
+    // new_queue_handle() test
+    // ==========================================================
+
+    /// Verifies that new_queue_handle() creates an Arc<Mutex<DownloadQueue>>
+    /// that can be locked and used.
+    #[tokio::test]
+    async fn new_queue_handle_creates_usable_handle() {
+        let handle = new_queue_handle();
+        let queue = handle.lock().await;
+        assert!(queue.items.is_empty(), "New queue handle should wrap an empty queue");
+        assert_eq!(queue.get_counts(), (0, 0, 0, 0, 0));
+    }
+
+    // ==========================================================
+    // Integration / workflow tests
+    // ==========================================================
+
+    /// Simulates a full download lifecycle: enqueue -> next_pending (Downloading)
+    /// -> progress updates -> set_complete -> on_task_finished. Verifies state
+    /// transitions at each step.
+    #[test]
+    fn full_lifecycle_happy_path() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Step 1: Item is Queued
+        assert_eq!(queue.get_status()[0].state, DownloadState::Queued);
+
+        // Step 2: Start downloading
+        let (dl_id, _, _) = queue.next_pending().unwrap();
+        assert_eq!(dl_id, id);
+        assert_eq!(queue.get_status()[0].state, DownloadState::Downloading);
+        assert_eq!(queue.active_count, 1);
+
+        // Step 3: Progress updates
+        queue.update_item_progress(
+            &id,
+            &GamdlOutputEvent::TrackInfo {
+                title: "Test Song".to_string(),
+                artist: "Test Artist".to_string(),
+                album: String::new(),
+            },
+        );
+        queue.update_item_progress(
+            &id,
+            &GamdlOutputEvent::DownloadProgress {
+                percent: 50.0,
+                speed: "5MiB/s".to_string(),
+                eta: "00:10".to_string(),
+            },
+        );
+        assert!((queue.get_status()[0].progress - 50.0).abs() < 0.001);
+        assert_eq!(
+            queue.get_status()[0].current_track.as_deref(),
+            Some("Test Artist - Test Song")
+        );
+
+        // Step 4: Processing
+        queue.update_item_progress(
+            &id,
+            &GamdlOutputEvent::ProcessingStep {
+                step: "Remuxing to M4A".to_string(),
+            },
+        );
+        assert_eq!(queue.get_status()[0].state, DownloadState::Processing);
+
+        // Step 5: Complete
+        queue.update_item_progress(
+            &id,
+            &GamdlOutputEvent::Complete {
+                path: "/output/test.m4a".to_string(),
+            },
+        );
+        queue.set_complete(&id);
+        queue.on_task_finished();
+
+        let final_status = &queue.get_status()[0];
+        assert_eq!(final_status.state, DownloadState::Complete);
+        assert!((final_status.progress - 100.0).abs() < 0.001);
+        assert_eq!(final_status.output_path.as_deref(), Some("/output/test.m4a"));
+        assert_eq!(queue.active_count, 0);
+    }
+
+    /// Simulates a download that fails with a codec error and successfully
+    /// falls back to the next codec in the chain.
+    #[test]
+    fn lifecycle_with_codec_fallback() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.music_fallback_chain = vec![SongCodec::Alac, SongCodec::Aac, SongCodec::AacLegacy];
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Start and fail with codec error
+        let _ = queue.next_pending();
+        queue.set_error(&id, "Codec not available for ALAC");
+        queue.on_task_finished();
+
+        // Fallback to AAC
+        let fallback = queue.try_fallback(&id, &settings);
+        assert!(fallback.is_some());
+        assert_eq!(fallback.unwrap().song_codec, Some(SongCodec::Aac));
+
+        // Item should be re-queued
+        assert_eq!(queue.get_status()[0].state, DownloadState::Queued);
+        assert!(queue.get_status()[0].fallback_occurred);
+    }
+
+    /// Simulates a download that fails with a network error and retries
+    /// successfully.
+    #[test]
+    fn lifecycle_with_network_retry() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        // Start and fail with network error
+        let _ = queue.next_pending();
+        queue.set_error(&id, "Network timeout");
+        queue.on_task_finished();
+
+        // Network retry should succeed
+        let retried = queue.try_network_retry(&id);
+        assert!(retried);
+
+        // Item should be re-queued
+        let s = &queue.get_status()[0];
+        assert_eq!(s.state, DownloadState::Queued);
+        assert!(s.error.is_none());
+        assert_eq!(s.progress, 0.0);
+    }
+
+    /// Verifies that multiple items can cycle through the queue when only
+    /// one concurrent slot is available. The second item should start only
+    /// after the first completes.
+    #[test]
+    fn sequential_processing_with_single_concurrency() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+
+        // Start first item
+        let (id1, _, _) = queue.next_pending().unwrap();
+        assert_eq!(id1, ids[0]);
+
+        // Can't start second while first is running
+        assert!(queue.next_pending().is_none());
+
+        // Finish first
+        queue.set_complete(&ids[0]);
+        queue.on_task_finished();
+
+        // Now second can start
+        let (id2, _, _) = queue.next_pending().unwrap();
+        assert_eq!(id2, ids[1]);
+
+        // Finish second
+        queue.set_complete(&ids[1]);
+        queue.on_task_finished();
+
+        // Third can start
+        let (id3, _, _) = queue.next_pending().unwrap();
+        assert_eq!(id3, ids[2]);
+    }
+}
