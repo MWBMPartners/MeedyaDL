@@ -136,6 +136,7 @@ commit_parsers = [
 
     # --- Skipped commit types (noise reduction) ---
     { message = "^chore\\(release\\)", skip = true },  # Release chores (version bumps)
+    { message = "^chore\\(main\\): release", skip = true },  # Release-please version bumps
     { message = "^chore\\(deps\\)", skip = true },     # Dependency updates (automated)
     { message = "^chore\\(pr\\)", skip = true },       # PR-related chores (merge commits)
 

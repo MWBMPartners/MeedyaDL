@@ -1,8 +1,16 @@
 # Copyright (c) 2024-2026 MWBM Partners Ltd
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Version Bump & Release Trigger Workflow for gamdl-GUI
-# =======================================================
+# Version Bump & Release Trigger Workflow for gamdl-GUI (MANUAL OVERRIDE)
+# =========================================================================
+#
+# NOTE: For normal releases, use the automated release-please workflow
+# (release-please.yml) which creates Release PRs from conventional commits.
+#
+# Use this workflow when you need to:
+#   - Force a specific version number (e.g., 1.0.0 for a major launch)
+#   - Bypass the Release PR process for hotfixes
+#   - Recover from a failed automated release
 #
 # This workflow automates the entire release process with a single command:
 #   1. Bumps the version in all source files (package.json, tauri.conf.json, Cargo.toml, Cargo.lock)
