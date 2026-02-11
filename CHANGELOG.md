@@ -4,7 +4,7 @@ All notable changes to **GAMDL GUI** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.1.1] - 2026-02-11
 
 ### ✨ Features
 
@@ -29,6 +29,7 @@ Mock navigator.userAgent with a known Windows UA string instead of
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
