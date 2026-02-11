@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MWBMPartners/gamdl-GUI/releases"><img src="https://img.shields.io/github/v/release/MWBMPartners/gamdl-GUI?style=flat-square&label=Version&color=blue" alt="Version"></a>
+  <a href="https://github.com/MWBMPartners/gamdl-GUI/releases"><img src="https://img.shields.io/badge/Version-0.1.0--dev-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
-  <a href="https://github.com/MWBMPartners/gamdl-GUI/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/MWBMPartners/gamdl-GUI/ci.yml?style=flat-square&label=CI" alt="CI Status"></a>
+  <a href="https://github.com/MWBMPartners/gamdl-GUI/actions/workflows/ci.yml"><img src="https://github.com/MWBMPartners/gamdl-GUI/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
 </p>
 
@@ -375,7 +375,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 ## 📖 Additional Documentation
 
-For the full implementation plan, architecture decisions, and development phases, see the [Project Plan](docs/Project_Plan.md).
+For the full implementation plan, architecture decisions, and development phases, see the [Project Plan](Project_Plan.md).
 
 ---
 

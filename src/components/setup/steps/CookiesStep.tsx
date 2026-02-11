@@ -2,55 +2,134 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Cookies import step of the setup wizard.
- * Guides the user through importing their Apple Music cookies for
- * authentication. Provides file picker, validation, and instructions.
+ * @file CookiesStep.tsx -- Cookie import step of the setup wizard.
+ *
+ * Renders the "Cookies" step within the {@link SetupWizard}. This step
+ * guides the user through importing their Apple Music authentication
+ * cookies, which GAMDL needs to access protected content.
+ *
+ * ## Behaviour
+ *
+ * 1. Displays instructions on how to export cookies from a browser.
+ * 2. Provides a FilePickerButton to select the exported cookies.txt file.
+ * 3. Offers a "Validate Cookies" button that sends the file to the Rust
+ *    backend for validation via the `validate_cookies_file` Tauri command.
+ * 4. Shows validation results (pass/fail, cookie count, warnings).
+ * 5. Provides a "Skip for Now" button that completes the step without
+ *    cookies, allowing the user to configure them later in Settings.
+ *
+ * ## Completion Detection
+ *
+ * The step can be completed in two ways:
+ *   - **Validation success**: When `validation.valid` is true, the step
+ *     auto-completes via a useEffect hook.
+ *   - **Skip**: When the user clicks "Skip for Now", `completeStep('cookies')`
+ *     is called directly.
+ *
+ * ## Differences from CookiesTab
+ *
+ * This component is a simplified version of the settings-page CookiesTab.
+ * It omits the status badge, detected domains, expiry warning, and per-browser
+ * accordion instructions in favour of a compact inline instruction list.
+ * The full-featured version is available in Settings after setup completes.
+ *
+ * ## Store Connections
+ *
+ * - **settingsStore**: Reads/writes `settings.cookies_path`.
+ * - **setupStore**: `completeStep('cookies')`.
+ * - **Tauri commands**: `validateCookiesFile` for backend validation.
+ *
+ * @see {@link ../SetupWizard.tsx}                             -- Parent wizard container
+ * @see {@link ../../settings/tabs/CookiesTab.tsx}             -- Full-featured cookies settings
+ * @see {@link @/stores/settingsStore.ts}                      -- Zustand store for settings
+ * @see {@link @/stores/setupStore.ts}                         -- Zustand store for wizard state
+ * @see {@link @/lib/tauri-commands.ts}                        -- Tauri IPC command wrappers
  */
 
+// React hooks for local state and auto-completion effects.
 import { useState, useEffect } from 'react';
+
+// Lucide icons for the instruction card and validation results.
 import {
-  Shield,
-  CheckCircle,
-  AlertTriangle,
+  Shield,         // Authentication context icon
+  CheckCircle,    // Valid cookies indicator
+  AlertTriangle,  // Invalid cookies indicator
 } from 'lucide-react';
+
+// Zustand stores for reading/writing cookies path and managing wizard state.
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSetupStore } from '@/stores/setupStore';
+
+// Tauri IPC command wrappers for cookie file validation.
 import * as commands from '@/lib/tauri-commands';
+
+// Shared UI components for the file picker and action buttons.
 import { FilePickerButton, Button } from '@/components/common';
+
+// TypeScript type for the cookie validation result.
 import type { CookieValidation } from '@/types';
 
 /**
- * Renders the cookie import step with instructions, file picker,
- * validation, and skip option.
+ * CookiesStep -- Renders the cookie import step.
+ *
+ * Layout:
+ *   1. Heading and description
+ *   2. Instructions card with numbered steps
+ *   3. File picker for the cookies.txt file
+ *   4. "Validate Cookies" and "Skip for Now" buttons
+ *   5. Validation results panel (if validation has been run)
  */
 export function CookiesStep() {
+  // --- Store bindings ---
+  /** Current settings (for reading cookies_path) */
   const settings = useSettingsStore((s) => s.settings);
+  /** Partial-update function for persisting the cookies path */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  /** Marks the 'cookies' wizard step as completed */
   const completeStep = useSetupStore((s) => s.completeStep);
+
+  // --- Local state ---
+  /** Result of the most recent cookie validation (null = not yet validated) */
   const [validation, setValidation] = useState<CookieValidation | null>(null);
+  /** Whether a validation request is currently in-flight */
   const [isValidating, setIsValidating] = useState(false);
 
-  /* Auto-complete if cookies are already configured and valid */
+  /**
+   * Auto-complete this step when validation succeeds.
+   * Watches the `validation` state -- when the backend reports the cookies
+   * are valid, the step is automatically marked as completed, enabling
+   * the "Continue" button in the wizard footer.
+   */
   useEffect(() => {
     if (validation?.valid) {
       completeStep('cookies');
     }
   }, [validation, completeStep]);
 
-  /** Validate the selected cookies file */
+  /**
+   * Validates the selected cookies file via the Rust backend.
+   * Sends the file path to the `validate_cookies_file` Tauri IPC command
+   * and stores the result in local state. On error, clears the validation
+   * state so stale results are not displayed.
+   */
   const handleValidate = async () => {
-    if (!settings.cookies_path) return;
+    if (!settings.cookies_path) return; // Guard: no file selected
     setIsValidating(true);
     try {
       const result = await commands.validateCookiesFile(settings.cookies_path);
       setValidation(result);
     } catch {
-      setValidation(null);
+      setValidation(null); // Clear stale results on error
     }
     setIsValidating(false);
   };
 
-  /** Skip cookie import (can be set up later in Settings) */
+  /**
+   * Skips the cookie import step.
+   * The user can configure cookies later from Settings > Cookies.
+   * Calling completeStep directly enables the "Continue" button
+   * without requiring valid cookies.
+   */
   const handleSkip = () => {
     completeStep('cookies');
   };

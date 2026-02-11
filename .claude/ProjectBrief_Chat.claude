@@ -57,14 +57,18 @@ The project will be hosted in a Git repot, via GitHub. Please also setup some of
 
 * Release/version numbering management
 * Release build creation to automate (where possible) creation of downloadable release builds by users
+* Setup for managing project milestones, wiki/support articles and reporting/managing issues within GitHub
 
 Where possible, i would prefer a single codebase for all platforms, but if this compromises any of the above requirements, please use different codesbases if necessary!
 
 Where graphics are used in the application, please use vector graphics over others to keep graphic file sizes smaller, but also allow high quality scaling. This also goes for graphics that need to be created.
+Any UI elements should also contain support for dark/light mode with automatic switching based on OS settings. Additional theme support can also be added (maybe later?)
 
-There maay be other files already in the project folder from previous iterations. I'm happy for these to be overwritten/updated. Any existing files/folders that are no longer required can (and should) be deleted if they do not fit in the new current project (structure).
+There may be other files already in the project folder from previous iterations. I'm happy for these to be overwritten/updated. Any existing files/folders that are no longer required can (and should) be deleted if they do not fit in the new current project (structure).
 
-PLease produce ALL code with user-readable code formatting (linebrakes, indentation etc), and include DETAILED comments for code (if possible every line of code) to assist with learning, future code maintenance and code understanding.
+Application coding should be modular, to help make maintenance simpler, and more maintainable.
+
+PLease produce ALL code with user-readable code formatting (linebrakes, indentation etc), and include DETAILED comments/annotations for code (if possible every line of code) to assist with learning, future code maintenance and code understanding.
 
 Please also include comments in the code including license/copyright and author info.
 License should be in line with GAMDL source project and the other components/libraries used. We do not want this project to conflict with any of those.

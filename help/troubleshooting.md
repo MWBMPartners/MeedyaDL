@@ -1,10 +1,10 @@
 <!--
   gamdl-GUI Help Documentation
-  Copyright (c) 2024 MWBM Partners Ltd
+  Copyright (c) 2024-2026 MWBM Partners Ltd
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :wrench: Troubleshooting
+# Troubleshooting
 
 This guide covers common errors you may encounter while using gamdl-GUI, along with their solutions and guidance on finding and interpreting log files.
 
@@ -12,62 +12,89 @@ This guide covers common errors you may encounter while using gamdl-GUI, along w
 
 ## Overview
 
-If gamdl-GUI is not working as expected, this page will help you diagnose and resolve the issue. Start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
+gamdl-GUI classifies errors into the following categories: **auth**, **network**, **codec**, **not_found**, **rate_limit**, **tool**, and **unknown**. When an error occurs, the application identifies which category it belongs to and displays an appropriate message with guidance. If gamdl-GUI is not working as expected, start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
 
 ---
 
 ## Common Errors and Solutions
 
-### Authentication / Cookie Errors
+### Authentication / Cookie Errors (auth)
 
 #### "Authentication failed"
 
-> *Cause and resolution for authentication failures.*
+Your Apple Music cookies have expired or are invalid. This is the most common error and typically happens when your browser session with Apple Music has ended since you last exported cookies.
 
-Placeholder for details on:
-
-- **Cause:** Your Apple Music cookies are invalid, expired, or missing.
-- **Solution:** Re-export and re-import your cookies. See [Cookie Management](cookie-management.md) for detailed instructions.
+- **Cause:** The cookies that gamdl-GUI uses to authenticate with Apple Music are expired, revoked, or were not exported correctly.
+- **Solution:** Re-export your cookies from your browser and re-import them into gamdl-GUI. Open your browser, sign in to Apple Music if needed, export the cookies, then go to **Settings > Cookies** in gamdl-GUI and import the new cookie file. See [Cookie Management](cookie-management.md) for step-by-step instructions.
 
 #### "Cookie file not found"
 
-> *Cause and resolution for missing cookie files.*
+The cookie file that gamdl-GUI is configured to use does not exist at the expected path. This can happen if the file was moved, deleted, or if the path was entered incorrectly.
 
-Placeholder for details on:
-
-- **Cause:** The cookie file path configured in gamdl-GUI points to a file that no longer exists.
-- **Solution:** Re-import your cookie file or verify the file path in settings.
+- **Cause:** The cookie file path stored in gamdl-GUI's settings points to a file that no longer exists or is inaccessible.
+- **Solution:** Re-import your cookie file via **Settings > Cookies** tab. This will update the stored path to the correct location. If you need to export cookies again, see [Cookie Management](cookie-management.md).
 
 ---
 
-### Download Errors
+### Network Errors (network)
 
-#### "Track not available"
+Network errors include connection timeouts, DNS resolution failures, and server-side errors from Apple Music. gamdl-GUI automatically retries network errors up to **3 times** with exponential backoff before reporting a failure, so if you see a network error, it means multiple attempts have already been made.
 
-> *Cause and resolution for unavailable track errors.*
+#### Connection Timeout / DNS Failure
 
-Placeholder for details on:
+- **Cause:** Your internet connection is down, unstable, or a DNS server is unreachable.
+- **Solution:** Check your internet connection. Try loading `https://music.apple.com` in your browser to verify connectivity to Apple's servers. If your connection is working but the error persists, try again in a few minutes as Apple's servers may be experiencing temporary issues.
 
-- **Cause:** The requested track may not be available in your region, may have been removed from Apple Music, or may not be available at the requested quality level.
-- **Solution:** Try a different quality setting, check regional availability, or verify the URL is correct. See [Fallback Quality](fallback-quality.md) for quality-related options.
+#### Server Errors (HTTP 5xx)
 
-#### "Download failed" (generic)
+- **Cause:** Apple Music's servers are experiencing problems or undergoing maintenance.
+- **Solution:** Wait a few minutes and try again. You can check [Apple's System Status page](https://www.apple.com/support/systemstatus/) to see if Apple Music is experiencing a known outage.
 
-> *Cause and resolution for generic download failures.*
+#### Firewall and Proxy Configuration
 
-Placeholder for details on:
+If you are behind a corporate firewall or use a proxy, gamdl-GUI needs to be able to reach Apple Music's servers. The application respects the system proxy settings on all platforms. If you are using a VPN, ensure it does not interfere with connections to Apple's content delivery servers.
 
-- **Cause:** Various reasons including network issues, server errors, or disk space problems.
-- **Solution:** Check your internet connection, verify available disk space, and consult the log files for specific error details.
+---
 
-#### "Decryption failed"
+### Codec / Quality Errors (codec)
 
-> *Cause and resolution for decryption errors.*
+#### "Requested quality not available"
 
-Placeholder for details on:
+Not all content on Apple Music is available in every codec and resolution. Some tracks may only be available in specific formats.
 
-- **Cause:** The content could not be decrypted, possibly due to expired cookies or a DRM issue.
-- **Solution:** Refresh your cookies (see [Cookie Management](cookie-management.md)) and try again.
+- **Cause:** The specific codec or quality level you requested is not available for this particular content on Apple Music.
+- **Solution:** Enable fallback quality in **Settings > Fallback** tab so that gamdl-GUI automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
+
+---
+
+### Not Found Errors (not_found)
+
+#### Content Not Found
+
+- **Cause:** The content has been removed from Apple Music, the URL is invalid or malformed, or the content is not available in your configured region.
+- **Solution:** Verify that the URL is correct by opening it directly in your browser at `https://music.apple.com`. If the content no longer appears on Apple Music, it has been removed by the rights holder and cannot be downloaded.
+
+---
+
+### Rate Limit Errors (rate_limit)
+
+#### Too Many Requests
+
+Apple Music limits the number of requests that can be made in a given time period. If you are downloading many items simultaneously, you may hit this limit.
+
+- **Cause:** Too many requests have been sent to Apple Music's servers in a short period of time.
+- **Solution:** Reduce the number of concurrent downloads in **Settings > General** tab. Wait a few minutes before retrying, as the rate limit will reset automatically. If you are downloading a large playlist or discography, consider reducing concurrency to 2-3 simultaneous downloads to avoid triggering rate limits.
+
+---
+
+### Tool Errors (tool)
+
+#### Missing Dependencies
+
+gamdl-GUI relies on external tools such as **FFmpeg** and **mp4decrypt** to process downloaded content. If these tools are missing or corrupted, you will see a tool error.
+
+- **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
+- **Solution:** Go to **Settings > Advanced > Re-run Setup** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
 
 ---
 
@@ -75,53 +102,77 @@ Placeholder for details on:
 
 #### gamdl-GUI Won't Launch
 
-> *Steps to resolve application startup failures.*
+##### macOS
 
-Placeholder for platform-specific troubleshooting:
+macOS Gatekeeper blocks applications that are not signed with an Apple Developer certificate. Since gamdl-GUI is not distributed through the Mac App Store, you may need to explicitly allow it.
 
-- **macOS:** Gatekeeper issues, permissions, and how to allow the app in System Settings
-- **Windows:** SmartScreen warnings, missing runtime dependencies
-- **Linux:** Missing system libraries, permissions issues
+- **Solution:**
+  1. Right-click (or Control-click) the gamdl-GUI app and select **Open** from the context menu.
+  2. In the dialog that appears, click **Open** to confirm.
+  3. If that does not work, go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the gamdl-GUI message.
+  4. You may need to repeat this process twice on the first launch.
+
+##### Windows
+
+Windows SmartScreen may block the installer or the application from running because it is not recognized.
+
+- **Solution:**
+  1. When the SmartScreen dialog appears, click **More info**.
+  2. Click **Run anyway** to proceed.
+  3. If the MSI installer fails to run or install correctly, download and use the .exe (NSIS) installer instead, which may have better compatibility with your system configuration.
+
+##### Linux
+
+gamdl-GUI requires certain system libraries that may not be installed by default on all Linux distributions.
+
+- **Solution:**
+  1. Install the required system libraries:
+
+     ```bash
+     sudo apt-get install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+     ```
+
+  2. If you are using the AppImage distribution, make sure it is executable:
+
+     ```bash
+     chmod +x gamdl-GUI.AppImage
+     ```
+
+     Then run it directly: `./gamdl-GUI.AppImage`
+  3. On non-Debian-based distributions, use your package manager to install the equivalent packages (e.g., `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
 
 #### GAMDL Backend Not Found
 
-> *Cause and resolution when the GAMDL command-line tool cannot be located.*
+The embedded Python environment or the GAMDL package itself is corrupted, incomplete, or missing from the expected location.
 
-Placeholder for details on:
-
-- **Cause:** The GAMDL binary is not installed or not in the expected location.
-- **Solution:** Verify GAMDL installation and configure the path in gamdl-GUI settings.
+- **Cause:** The bundled Python installation or the GAMDL package has been corrupted, was not installed correctly during initial setup, or was accidentally deleted.
+- **Solution:** Go to **Settings > Advanced > Re-run Setup**. This will re-download and install both the embedded Python environment and the GAMDL package from scratch without affecting your cookies, settings, or downloaded files.
 
 #### Settings Not Saving
 
-> *Cause and resolution for settings persistence issues.*
+Changes to settings are not persisted between application restarts.
 
-Placeholder for details on:
+- **Cause:** The application data directory or the settings file within it does not have the correct file permissions, preventing gamdl-GUI from writing changes.
+- **Solution:** Verify that the app data directory is writable by your user account. The settings file is located at:
 
-- **Cause:** File permission issues or corrupted settings store.
-- **Solution:** Steps to reset or repair the settings file.
+  | Platform | Settings Directory |
+  | --- | --- |
+  | macOS | `~/Library/Application Support/com.mwbm.gamdl-gui/` |
+  | Windows | `%APPDATA%/com.mwbm.gamdl-gui/` |
+  | Linux | `~/.local/share/com.mwbm.gamdl-gui/` |
+
+  If fixing permissions does not help, try deleting the `settings.json` file in that directory to reset all settings to their defaults. gamdl-GUI will recreate the file on next launch.
 
 ---
 
 ### Quality and Format Errors
 
-#### "Requested quality not available"
-
-> *Cause and resolution for quality availability issues.*
-
-Placeholder for details on:
-
-- **Cause:** The specific quality/codec combination requested is not available for this content.
-- **Solution:** Enable fallback quality (see [Fallback Quality](fallback-quality.md)) or manually select a different quality (see [Quality Settings](quality-settings.md)).
-
 #### Output File Won't Play
 
-> *Troubleshooting playback issues with downloaded files.*
+After downloading, the file does not play in your media player.
 
-Placeholder for details on:
-
-- **Cause:** Your media player may not support the codec or container format.
-- **Solution:** Try a different media player, or re-download in a more compatible format.
+- **Cause:** Your media player does not support the codec or container format of the downloaded file. This is especially common with lossless (ALAC) or high-resolution formats.
+- **Solution:** Use [VLC](https://www.videolan.org/vlc/), which supports virtually all audio and video codecs. If you need files that are compatible with the widest range of players and devices, re-download the content in **AAC** format, which is the most universally supported audio format.
 
 ---
 
@@ -129,69 +180,63 @@ Placeholder for details on:
 
 ### Log File Locations
 
-> *Where to find gamdl-GUI log files on each platform.*
-
-Placeholder for platform-specific log file paths:
+gamdl-GUI writes log files to the application data directory on each platform:
 
 | Platform | Log File Location |
-|----------|-------------------|
-| macOS    | *TBD* |
-| Windows  | *TBD* |
-| Linux    | *TBD* |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.mwbm.gamdl-gui/logs/` |
+| Windows | `%APPDATA%/com.mwbm.gamdl-gui/logs/` |
+| Linux | `~/.local/share/com.mwbm.gamdl-gui/logs/` |
 
 ### Reading Log Files
 
-> *How to interpret the information in log files.*
+Log entries are prefixed with a timestamp, log level, and module name. The log levels indicate the severity of each message:
 
-Placeholder for details on:
+| Level | Meaning |
+| --- | --- |
+| **ERROR** | Something failed. An operation could not be completed. These entries are the most important to look at when diagnosing problems. |
+| **WARN** | A potential issue was detected, but the operation may still have succeeded. Worth reviewing if something seems wrong. |
+| **INFO** | Normal operational messages. These confirm that the application is working as expected (e.g., download started, download completed). |
+| **DEBUG** | Detailed diagnostic information intended for developers and advanced troubleshooting. Only visible when verbose logging is enabled. |
 
-- Log level meanings (DEBUG, INFO, WARN, ERROR)
-- How to find the relevant error in a log file
-- Timestamps and how to correlate log entries with download attempts
-- What information to include when reporting a bug
+When diagnosing a problem, search the log file for **ERROR** entries first. The timestamp on the error entry will help you correlate it with the specific download attempt that failed. Look at the lines immediately before the error for additional context about what the application was doing when the failure occurred.
 
 ### Enabling Verbose Logging
 
-> *How to enable more detailed logging for advanced troubleshooting.*
+By default, gamdl-GUI logs at the **INFO** level. To capture more detailed diagnostic information, set the `RUST_LOG` environment variable to `debug` before launching the application:
 
-Placeholder for instructions on enabling debug-level logging to capture more diagnostic information.
+**macOS / Linux (Terminal):**
 
----
+```bash
+RUST_LOG=debug /path/to/gamdl-GUI
+```
 
-## Network Issues
+**Windows (Command Prompt):**
 
-### Firewall and Proxy Configuration
+```batch
+set RUST_LOG=debug
+gamdl-GUI.exe
+```
 
-> *How to configure gamdl-GUI to work behind firewalls or proxies.*
+**Windows (PowerShell):**
 
-Placeholder for details on:
+```powershell
+$env:RUST_LOG="debug"
+.\gamdl-GUI.exe
+```
 
-- Network ports used by gamdl-GUI
-- Proxy configuration options
-- VPN compatibility considerations
-
-### Slow Downloads
-
-> *Troubleshooting slow download speeds.*
-
-Placeholder for tips on:
-
-- Checking your internet connection speed
-- Reducing simultaneous downloads
-- Identifying ISP throttling or network congestion
+Verbose logging produces significantly more output and may cause log files to grow quickly. Only enable it when actively troubleshooting an issue, and remember to disable it afterward by launching the application normally without the environment variable.
 
 ---
 
 ## Reporting a Bug
 
-> *How to report a bug or issue with gamdl-GUI.*
+If you encounter a problem that is not covered in this guide, or if the suggested solutions do not resolve your issue, please report it as a bug:
 
-Placeholder for instructions on:
-
-1. Gathering relevant information (application version, OS, log files, steps to reproduce)
-2. Where to submit bug reports (GitHub Issues, etc.)
-3. What information to include in a bug report
-4. How to attach log files
+1. **Note the app version.** You can find this in **Settings > About** or in the application title bar.
+2. **Copy relevant log entries.** Open the log file (see [Log File Locations](#log-file-locations) above) and copy the ERROR entries along with the surrounding context lines. If possible, enable verbose logging, reproduce the issue, and include the debug-level log entries.
+3. **Note the steps to reproduce.** Write down exactly what you did that triggered the error, including the URL you were trying to download, the quality settings you had selected, and any other relevant configuration.
+4. **Open an issue on the GitHub repository.** Include the app version, your operating system and version, the log entries, and the reproduction steps. The more detail you provide, the faster the issue can be diagnosed and resolved.
 
 ---
 

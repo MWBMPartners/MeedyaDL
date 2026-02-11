@@ -2,20 +2,73 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Templates settings tab.
- * Configures file and folder naming templates used by GAMDL when
- * organizing downloaded files. Supports GAMDL's template variables.
+ * @file TemplatesTab.tsx -- File and folder naming template settings tab.
+ *
+ * Renders the "Templates" tab within the {@link SettingsPage} component.
+ * GAMDL uses Python-style format strings to determine how downloaded files
+ * and folders are named. This tab exposes all available template settings
+ * with a reference card showing the available variables.
+ *
+ * ## Template Variables
+ *
+ * Templates use curly-brace placeholders that are replaced at download time:
+ *
+ * | Variable              | Description                              |
+ * |-----------------------|------------------------------------------|
+ * | `{artist}`            | Track artist name                        |
+ * | `{album_artist}`      | Album artist name                        |
+ * | `{album}`             | Album title                              |
+ * | `{title}`             | Track title                              |
+ * | `{track:02d}`         | Track number, zero-padded to 2 digits    |
+ * | `{disc}`              | Disc number                              |
+ * | `{year}`              | Release year                             |
+ * | `{genre}`             | Genre                                    |
+ * | `{playlist_artist}`   | Playlist curator name                    |
+ * | `{playlist_title}`    | Playlist title                           |
+ *
+ * ## Settings Mapping
+ *
+ * | UI Label              | Setting Key                     | GAMDL Flag                      |
+ * |-----------------------|---------------------------------|---------------------------------|
+ * | Album Folder          | album_folder_template           | --album-folder-template         |
+ * | Compilation Folder    | compilation_folder_template     | --compilation-folder-template   |
+ * | No Album Folder       | no_album_folder_template        | --no-album-folder-template      |
+ * | Single Disc File      | single_disc_file_template       | --single-disc-file-template     |
+ * | Multi Disc File       | multi_disc_file_template        | --multi-disc-file-template      |
+ * | No Album File         | no_album_file_template          | --no-album-file-template        |
+ * | Playlist File         | playlist_file_template          | --playlist-file-template        |
+ *
+ * ## Store Connection
+ *
+ * Reads and writes the Zustand `settingsStore`.
+ *
+ * @see {@link ../SettingsPage.tsx}        -- Parent container
+ * @see {@link @/stores/settingsStore.ts}  -- Zustand store
  */
 
+// Zustand store for reading/writing template settings.
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// Shared Input component for text-based template fields.
 import { Input } from '@/components/common';
 
 /**
- * Renders the Templates settings tab with input fields for all
- * folder and file naming templates.
+ * TemplatesTab -- Renders the Templates settings tab.
+ *
+ * Organised into three sections:
+ *   1. **Template Variable Reference** -- An info card listing all available
+ *      placeholder variables for quick reference while editing templates.
+ *   2. **Folder Templates** -- Input fields for album, compilation, and
+ *      no-album folder naming patterns.
+ *   3. **File Templates** -- Input fields for single-disc, multi-disc,
+ *      no-album, and playlist file naming patterns.
+ *
+ * Each Input's onChange passes the raw string value to `updateSettings`.
  */
 export function TemplatesTab() {
+  /** Current settings snapshot */
   const settings = useSettingsStore((s) => s.settings);
+  /** Partial-update function for persisting template changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (

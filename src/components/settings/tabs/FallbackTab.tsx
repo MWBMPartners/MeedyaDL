@@ -2,22 +2,83 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Fallback chain settings tab.
- * Allows users to reorder the audio and video fallback chains using
- * drag-and-drop. When a preferred codec/resolution is unavailable,
- * GAMDL retries with the next item in the chain.
+ * @file FallbackTab.tsx -- Drag-to-reorder fallback chain settings tab.
+ *
+ * Renders the "Fallback" tab within the {@link SettingsPage} component.
+ * When a preferred audio codec or video resolution is unavailable for a
+ * given track, GAMDL automatically tries the next option in the fallback
+ * chain. This tab lets users reorder the chains to control retry priority.
+ *
+ * ## Fallback Chain Concept
+ *
+ * Each chain is an ordered array of codec/resolution identifiers stored in
+ * the settings:
+ *   - `settings.music_fallback_chain: SongCodec[]` -- audio fallback order
+ *   - `settings.video_fallback_chain: VideoResolution[]` -- video fallback order
+ *
+ * Items at the top of the list are tried first. When the user clicks the
+ * up/down arrow buttons, the item swaps position with its neighbour and
+ * the new order is persisted to the store.
+ *
+ * ## Implementation Note
+ *
+ * The original design called for @dnd-kit drag-and-drop support (see
+ * {@link https://docs.dndkit.com/}), but the current implementation uses
+ * simple up/down buttons for reordering. The grip handle icon
+ * (`GripVertical`) remains as a visual affordance indicating that the
+ * items are reorderable. A future iteration may add full drag-and-drop
+ * via @dnd-kit's `useSortable` hook.
+ *
+ * ## Sub-component
+ *
+ * `FallbackChainList<T>` is a generic reorderable list component used for
+ * both the audio and video chains. It is parameterised on the item type
+ * (`SongCodec` or `VideoResolution`) and receives the label map for
+ * display text.
+ *
+ * ## Store Connection
+ *
+ * Reads and writes the Zustand `settingsStore` via:
+ *   - `settings.music_fallback_chain` / `settings.video_fallback_chain`
+ *   - `updateSettings({ music_fallback_chain: ... })` / `updateSettings({ video_fallback_chain: ... })`
+ *
+ * @see {@link https://docs.dndkit.com/}            -- @dnd-kit documentation (future integration)
+ * @see {@link ../SettingsPage.tsx}                  -- Parent container
+ * @see {@link @/stores/settingsStore.ts}            -- Zustand store
+ * @see {@link @/types/index.ts}                     -- SongCodec, VideoResolution types
  */
 
+// React useState for tracking which chain section (audio/video) is active.
 import { useState } from 'react';
+
+// Lucide icons: GripVertical for the drag handle, ArrowUp/ArrowDown for reorder buttons.
 import { GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
+
+// Zustand store for reading and writing the fallback chain settings.
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// Label maps that convert codec/resolution identifiers to human-readable names.
 import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
 import type { SongCodec, VideoResolution } from '@/types';
+
+// Shared Button component used for the audio/video chain toggle tabs.
 import { Button } from '@/components/common';
 
 /**
- * Reorderable list component for a fallback chain.
- * Shows numbered items with up/down buttons for reordering.
+ * FallbackChainList -- Generic reorderable list for a fallback chain.
+ *
+ * Renders a vertical list of items with numbered priority indicators and
+ * up/down arrow buttons for reordering. The component is generic over
+ * `T extends string`, allowing it to work with both `SongCodec` and
+ * `VideoResolution` union types.
+ *
+ * @typeParam T - The union type of the chain items (e.g., SongCodec).
+ *
+ * @param items    - The ordered array of chain items (highest priority first).
+ * @param labels   - A Record mapping each item value to its display name.
+ * @param onChange - Callback invoked with the new array whenever an item
+ *                   is moved. The parent is responsible for persisting the
+ *                   updated order to the settings store.
  */
 function FallbackChainList<T extends string>({
   items,
@@ -28,17 +89,24 @@ function FallbackChainList<T extends string>({
   labels: Record<T, string>;
   onChange: (items: T[]) => void;
 }) {
-  /** Move an item up in the list */
+  /**
+   * Moves the item at `index` one position up (towards higher priority).
+   * No-op if the item is already at the top of the list.
+   * Uses array destructuring swap to avoid a temporary variable.
+   */
   const moveUp = (index: number) => {
-    if (index === 0) return;
-    const newItems = [...items];
-    [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
-    onChange(newItems);
+    if (index === 0) return; // Already at highest priority; nothing to do
+    const newItems = [...items]; // Shallow clone to avoid mutating the prop
+    [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]; // Swap
+    onChange(newItems); // Notify parent of the new order
   };
 
-  /** Move an item down in the list */
+  /**
+   * Moves the item at `index` one position down (towards lower priority).
+   * No-op if the item is already at the bottom of the list.
+   */
   const moveDown = (index: number) => {
-    if (index === items.length - 1) return;
+    if (index === items.length - 1) return; // Already at lowest priority
     const newItems = [...items];
     [newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]];
     onChange(newItems);
@@ -90,15 +158,31 @@ function FallbackChainList<T extends string>({
 }
 
 /**
- * Renders the Fallback settings tab with reorderable audio and video
- * fallback chains. Items are tried top-to-bottom when the preferred
- * codec/resolution is unavailable.
+ * FallbackTab -- Main exported component for the Fallback settings tab.
+ *
+ * Contains two sub-sections accessible via toggle buttons:
+ *   1. **Audio Fallback** -- Reorderable list of `SongCodec` values
+ *      stored in `settings.music_fallback_chain`.
+ *   2. **Video Fallback** -- Reorderable list of `VideoResolution` values
+ *      stored in `settings.video_fallback_chain`.
+ *
+ * Only one chain is displayed at a time, controlled by the `activeChain`
+ * local state. This keeps the UI focused and prevents the tab from
+ * becoming too tall.
+ *
+ * The top-of-tab description paragraph explains the fallback concept to
+ * the user: items at the top of the chain are tried first.
  */
 export function FallbackTab() {
+  /** Current settings snapshot */
   const settings = useSettingsStore((s) => s.settings);
+  /** Partial-update function for persisting chain reorders */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  /* Track which chain section is expanded */
+  /**
+   * Tracks which chain section is currently visible: 'music' (audio codecs)
+   * or 'video' (video resolutions). Defaults to 'music'.
+   */
   const [activeChain, setActiveChain] = useState<'music' | 'video'>('music');
 
   return (

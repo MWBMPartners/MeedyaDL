@@ -6,10 +6,55 @@
 // by GAMDL: FFmpeg (required), mp4decrypt, N_m3u8DL-RE, and MP4Box
 // (optional). Each tool is downloaded from its official release source
 // and installed to {app_data}/tools/{tool_name}/.
+//
+// ## Architecture Overview
+//
+// External tools are binary dependencies that GAMDL invokes as subprocesses
+// during the download pipeline. This service handles their lifecycle:
+//
+// ```
+// Setup Wizard UI --> install_tool("ffmpeg")
+//                        |
+//                     get_tool_download_url() --> platform-specific URL
+//                        |
+//                     archive::download_and_extract() --> {app_data}/tools/ffmpeg/
+//                        |
+//                     find_binary_recursive() --> locate binary in extracted dir
+//                        |
+//                     set_executable() + get_tool_version() --> verify working
+// ```
+//
+// ## Tool Inventory
+//
+// | Tool        | Required | Source                        | Purpose                     |
+// |-------------|----------|-------------------------------|-----------------------------|
+// | FFmpeg      | Yes      | BtbN/FFmpeg-Builds, evermeet  | Audio/video remuxing        |
+// | mp4decrypt  | No       | Bento4 SDK                    | DRM decryption              |
+// | N_m3u8DL-RE | No       | nilaoda/N_m3u8DL-RE           | HLS/DASH stream downloading |
+// | MP4Box      | No       | GPAC project                  | Alternative MP4 muxing      |
+//
+// ## Cross-Platform URL Selection
+//
+// Each tool has a dedicated URL resolver function (get_ffmpeg_url, etc.) that
+// maps (OS, architecture) to the correct pre-built binary archive URL. The
+// functions handle platform-specific quirks (e.g., macOS FFmpeg from evermeet.cx,
+// MP4Box requiring Homebrew on macOS).
+//
+// ## References
+//
+// - Reqwest HTTP client for downloads: https://docs.rs/reqwest/latest/reqwest/
+// - FFmpeg builds: https://github.com/BtbN/FFmpeg-Builds (Linux/Windows), https://evermeet.cx/ffmpeg/ (macOS)
+// - Bento4 (mp4decrypt): https://www.bento4.com/
+// - N_m3u8DL-RE: https://github.com/nilaoda/N_m3u8DL-RE
+// - GPAC (MP4Box): https://gpac.io/
+// - Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/
 
 use std::path::PathBuf;
 use tauri::AppHandle;
 
+// `archive` provides download_and_extract() for streaming HTTP download + archive extraction,
+// and set_executable() for chmod +x on Unix systems.
+// `platform` provides get_tools_dir() for resolving the {app_data}/tools/ directory.
 use crate::utils::{archive, platform};
 
 // ============================================================
@@ -17,20 +62,29 @@ use crate::utils::{archive, platform};
 // ============================================================
 
 /// Metadata for a downloadable tool dependency.
+///
+/// This struct describes a tool that GAMDL may need at runtime.
+/// The metadata is used by the setup wizard UI to display tool names,
+/// descriptions, and required/optional status. The `id` field is used
+/// as the tool's directory name and identifier in all API calls.
 #[derive(Debug, Clone)]
 pub struct ToolInfo {
-    /// Human-readable display name (e.g., "FFmpeg")
+    /// Human-readable display name shown in the UI (e.g., "FFmpeg")
     pub name: &'static str,
-    /// Short identifier used for directory names (e.g., "ffmpeg")
+    /// Short machine-readable identifier used for directory names and API calls.
+    /// Must match the tool_id parameter used in install_tool(), get_tool_binary_path(), etc.
     pub id: &'static str,
-    /// Whether this tool is required for basic GAMDL functionality
+    /// Whether this tool is required for basic GAMDL functionality.
+    /// The setup wizard highlights required tools and blocks completion until they're installed.
     pub required: bool,
-    /// Brief description of what the tool is used for
+    /// Brief description of what the tool is used for (shown in the setup wizard).
     pub description: &'static str,
 }
 
 /// All external tool dependencies and their metadata.
-/// FFmpeg is required; the others are optional but enable additional features.
+/// FFmpeg is required for all audio/video operations; the others are optional
+/// and enable additional features (DRM decryption, alternative downloaders).
+/// This list is returned by get_all_tools() for the setup wizard UI.
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "FFmpeg",
@@ -70,9 +124,14 @@ const TOOLS: &[ToolInfo] = &[
 /// * `Ok((url, format))` - The download URL and archive format
 /// * `Err(message)` - If no pre-built binary is available for this platform
 fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    // Detect the current OS and architecture at compile time via std::env::consts.
+    // OS values: "macos", "windows", "linux"
+    // ARCH values: "x86_64", "aarch64"
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
+    // Dispatch to the tool-specific URL resolver.
+    // Each resolver handles platform-specific URL construction and format selection.
     match tool_id {
         "ffmpeg" => get_ffmpeg_url(os, arch),
         "mp4decrypt" => get_mp4decrypt_url(os, arch),
@@ -89,19 +148,28 @@ fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::ArchiveForma
 /// - macOS: evermeet.cx static builds (x86_64) or osxcross builds (aarch64)
 fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     match (os, arch) {
+        // Linux x86_64: BtbN/FFmpeg-Builds provides GPL-licensed static builds.
+        // These are self-contained binaries with no external dependencies.
+        // The "latest" tag always points to the most recent master build.
+        // Ref: https://github.com/BtbN/FFmpeg-Builds
         ("linux", "x86_64") => Ok((
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
                 .to_string(),
-            archive::ArchiveFormat::TarGz, // NOTE: actually tar.xz, handled by extraction
+            archive::ArchiveFormat::TarGz, // NOTE: actually tar.xz, handled by the extraction utility
         )),
+        // Windows x86_64 and aarch64: BtbN builds (x64 binary, runs on ARM64 via emulation).
+        // The ZIP archive contains ffmpeg.exe, ffprobe.exe, and ffplay.exe.
         ("windows", "x86_64") | ("windows", "aarch64") => Ok((
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
                 .to_string(),
             archive::ArchiveFormat::Zip,
         )),
+        // macOS (both architectures): evermeet.cx provides x86_64 static builds.
+        // On Apple Silicon (aarch64), these run via Rosetta 2 translation.
+        // For native ARM64 builds, users can alternatively install via Homebrew
+        // (`brew install ffmpeg`) and set the path in Settings.
+        // Ref: https://evermeet.cx/ffmpeg/
         ("macos", _) => {
-            // macOS: Use evermeet.cx builds for x86_64 (runs via Rosetta on aarch64)
-            // For native aarch64, users should install FFmpeg via Homebrew
             Ok((
                 "https://evermeet.cx/ffmpeg/getrelease/zip".to_string(),
                 archive::ArchiveFormat::Zip,
@@ -116,11 +184,20 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
 
 /// Returns the mp4decrypt (Bento4) download URL for the given platform.
 ///
-/// Bento4 provides pre-built binaries on their website and GitHub.
+/// mp4decrypt is part of the Bento4 SDK, used for decrypting MPEG-CENC
+/// encrypted content. GAMDL uses it to decrypt DRM-protected Apple Music tracks.
+///
+/// Bento4 provides pre-built binaries hosted at bok.net (the Bento4 author's site).
+/// The SDK ZIP contains multiple tools; we only need the mp4decrypt binary.
+/// Ref: https://www.bento4.com/
 fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    // Map OS/arch to Bento4's platform suffix naming convention
     let platform_suffix = match (os, arch) {
+        // macOS: universal build (works on both x86_64 and aarch64 via Rosetta)
         ("macos", "x86_64") | ("macos", "aarch64") => "macosx",
+        // Linux: x86_64 only (ARM64 users would need to compile from source)
         ("linux", "x86_64") | ("linux", "aarch64") => "linux-x86_64",
+        // Windows: 32-bit suffix but the binary works on 64-bit Windows
         ("windows", "x86_64") | ("windows", "aarch64") => "win32",
         _ => {
             return Err(format!(
@@ -130,6 +207,8 @@ fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveF
         }
     };
 
+    // Bento4 SDK version 1.6.0-641 (latest stable as of writing).
+    // The ZIP contains bin/{mp4decrypt, mp4info, mp4fragment, ...}.
     Ok((
         format!(
             "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.{}.zip",
@@ -141,9 +220,15 @@ fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveF
 
 /// Returns the N_m3u8DL-RE download URL for the given platform.
 ///
-/// N_m3u8DL-RE provides pre-built binaries on their GitHub releases.
+/// N_m3u8DL-RE is a cross-platform HLS/DASH stream downloader that GAMDL
+/// can use as an alternative to its built-in downloader. It's written in C#
+/// (.NET) and provides native AOT-compiled binaries for each platform.
+///
+/// Ref: https://github.com/nilaoda/N_m3u8DL-RE
 fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
-    // N_m3u8DL-RE uses .NET runtime identifiers for their build names
+    // N_m3u8DL-RE uses .NET Runtime Identifiers (RIDs) in their release asset names.
+    // RID format: {os}-{arch} (e.g., "osx-arm64", "linux-x64", "win-x64").
+    // Ref: https://learn.microsoft.com/en-us/dotnet/core/rid-catalog
     let rid = match (os, arch) {
         ("macos", "aarch64") => "osx-arm64",
         ("macos", "x86_64") => "osx-x64",
@@ -159,12 +244,15 @@ fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFo
         }
     };
 
+    // Windows releases use ZIP; Unix releases use tar.gz
     let format = if os == "windows" {
         archive::ArchiveFormat::Zip
     } else {
         archive::ArchiveFormat::TarGz
     };
 
+    // The "latest" redirect ensures we always get the newest beta release.
+    // The archive contains a single binary: N_m3u8DL-RE (or N_m3u8DL-RE.exe on Windows).
     Ok((
         format!(
             "https://github.com/nilaoda/N_m3u8DL-RE/releases/latest/download/N_m3u8DL-RE_Beta_{}.tar.gz",
@@ -176,20 +264,30 @@ fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFo
 
 /// Returns the MP4Box (GPAC) download URL for the given platform.
 ///
-/// GPAC provides installers and pre-built binaries via their website and GitHub.
+/// MP4Box is the command-line tool from the GPAC multimedia framework.
+/// GAMDL can use it as an alternative to FFmpeg for MP4 container operations
+/// (muxing, demuxing, encryption handling).
+///
+/// GPAC provides nightly builds from their CI server at Telecom Paris.
+/// Ref: https://gpac.io/
+/// Ref: https://github.com/gpac/gpac
 fn get_mp4box_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
-    // MP4Box is part of the GPAC project; pre-built binaries vary by platform
+    // MP4Box is part of the GPAC project; pre-built binaries vary by platform.
+    // The download URLs point to nightly builds from the GPAC CI server.
     match (os, arch) {
+        // Windows: x64 build from the GPAC CI server (latest master branch)
         ("windows", "x86_64") | ("windows", "aarch64") => Ok((
             "https://download.tsi.telecom-paristech.fr/gpac/latest_builds/windows/x64/gpac-latest-master-x64.zip"
                 .to_string(),
             archive::ArchiveFormat::Zip,
         )),
+        // macOS: GPAC distributes DMG installers (not ZIP/tar.gz archives)
+        // which our archive utility can't handle. Users should install via
+        // Homebrew instead: `brew install gpac`
         ("macos", _) => {
-            // macOS: GPAC provides DMG installers, not ZIP archives.
-            // Users should install via Homebrew: `brew install gpac`
             Err("MP4Box on macOS: install via Homebrew (`brew install gpac`)".to_string())
         }
+        // Linux x86_64: tar.gz build from the GPAC CI server
         ("linux", "x86_64") => Ok((
             "https://download.tsi.telecom-paristech.fr/gpac/latest_builds/linux/x64/gpac-latest-master-x64.tar.gz"
                 .to_string(),
@@ -223,13 +321,17 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
 /// * `tool_id` - The tool identifier
 pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     let tool_dir = get_tool_dir(app, tool_id);
+    // On Windows, executables require the .exe extension
     let exe_ext = if cfg!(target_os = "windows") {
         ".exe"
     } else {
         ""
     };
 
-    // Each tool's binary has a specific name
+    // Map tool_id to the actual binary filename.
+    // Note: some tools have case-sensitive names that differ from the tool_id:
+    // - nm3u8dlre -> N_m3u8DL-RE (the binary has uppercase/mixed case)
+    // - mp4box -> MP4Box (the binary has uppercase)
     let binary_name = match tool_id {
         "ffmpeg" => format!("ffmpeg{}", exe_ext),
         "mp4decrypt" => format!("mp4decrypt{}", exe_ext),
@@ -238,6 +340,8 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
         _ => format!("{}{}", tool_id, exe_ext),
     };
 
+    // The binary is expected at {app_data}/tools/{tool_id}/{binary_name}
+    // e.g., {app_data}/tools/ffmpeg/ffmpeg
     tool_dir.join(binary_name)
 }
 
@@ -283,13 +387,18 @@ pub async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<String, Stri
     log::info!("Downloading {} from {}", tool_id, url);
     archive::download_and_extract(&url, &tool_dir, format).await?;
 
-    // Step 4: Find the binary in the extracted contents
-    // Some archives have nested directories; try to find the binary recursively
+    // Step 4: Find the binary in the extracted contents.
+    // Archives often contain nested directory structures. For example:
+    // - FFmpeg: ffmpeg-master-latest-linux64-gpl/bin/ffmpeg
+    // - Bento4: Bento4-SDK-1-6-0-641.macosx/bin/mp4decrypt
+    // We first check the expected flat location, then search recursively.
     let expected_binary = get_tool_binary_path(app, tool_id);
     if !expected_binary.exists() {
-        // Try to find the binary somewhere in the extracted directory
+        // Binary not at the expected top-level location — search recursively
+        // through the extracted directory tree to find it.
         if let Some(found) = find_binary_recursive(&tool_dir, tool_id) {
-            // Move the found binary to the expected location
+            // Copy the found binary to the expected location for consistent access.
+            // We use copy instead of rename to handle cross-filesystem scenarios.
             std::fs::copy(&found, &expected_binary).map_err(|e| {
                 format!(
                     "Failed to copy {} binary to expected location: {}",
@@ -339,30 +448,36 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
         ""
     };
 
-    // The binary names to search for (some tools have different names in archives)
+    // Build the list of possible binary filenames to search for.
+    // Some tools may have different casing in their release archives compared
+    // to what we expect, so we check multiple variants.
     let search_names: Vec<String> = match tool_id {
         "ffmpeg" => vec![format!("ffmpeg{}", exe_ext)],
         "mp4decrypt" => vec![format!("mp4decrypt{}", exe_ext)],
+        // N_m3u8DL-RE: check both the expected case and lowercase variant
         "nm3u8dlre" => vec![
             format!("N_m3u8DL-RE{}", exe_ext),
             format!("n_m3u8dl-re{}", exe_ext),
         ],
+        // MP4Box: check both the expected case and lowercase variant
         "mp4box" => vec![format!("MP4Box{}", exe_ext), format!("mp4box{}", exe_ext)],
         _ => vec![format!("{}{}", tool_id, exe_ext)],
     };
 
-    // Walk the directory tree looking for the binary
+    // Walk the directory tree depth-first looking for any matching binary.
+    // This handles archives with arbitrary nesting (e.g., Bento4 SDK has bin/ subdir).
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
+                // Check if this file matches any of our search names
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if search_names.iter().any(|s| s == name) {
                         return Some(path);
                     }
                 }
             } else if path.is_dir() {
-                // Recurse into subdirectories
+                // Recurse into subdirectories (depth-first search)
                 if let Some(found) = find_binary_recursive(&path, tool_id) {
                     return Some(found);
                 }
@@ -382,23 +497,32 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
 /// * `binary_path` - Path to the tool binary
 /// * `tool_id` - The tool identifier (for tool-specific parsing)
 async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String, String> {
-    // Different tools use different version flags
+    // Different tools use different version flags:
+    // - FFmpeg and MP4Box use single-dash "-version" (non-standard but that's how they work)
+    // - Most other tools use double-dash "--version" (GNU convention)
     let version_flag = match tool_id {
-        "ffmpeg" => "-version",
-        "mp4box" => "-version",
-        _ => "--version",
+        "ffmpeg" => "-version",   // e.g., "ffmpeg version N-112479-..."
+        "mp4box" => "-version",   // e.g., "MP4Box - GPAC version 2.4-DEV..."
+        _ => "--version",         // Standard GNU-style flag
     };
 
+    // Run the binary with the version flag and capture output.
+    // This serves as both a version check and a basic health check
+    // (verifying the binary is executable and not corrupt).
     let output = tokio::process::Command::new(binary_path)
         .arg(version_flag)
         .output()
         .await
         .map_err(|e| format!("Failed to run {} --version: {}", tool_id, e))?;
 
+    // Extract the first line of stdout as the version string.
+    // Most tools output their version on the first line of stdout.
     let stdout = String::from_utf8_lossy(&output.stdout);
     let first_line = stdout.lines().next().unwrap_or("").trim().to_string();
 
     if first_line.is_empty() {
+        // Some tools output version info to stderr (e.g., FFmpeg logs to stderr).
+        // Fall back to the first line of stderr.
         let stderr = String::from_utf8_lossy(&output.stderr);
         let first_err_line = stderr.lines().next().unwrap_or("unknown").trim().to_string();
         Ok(first_err_line)
@@ -430,11 +554,16 @@ pub fn get_all_tools() -> &'static [ToolInfo] {
     TOOLS
 }
 
-/// Removes a tool's installation directory.
+/// Removes a tool's installation directory and all its contents.
+///
+/// Used when the user wants to reinstall a tool or when the installation
+/// is detected as corrupt. Uses async filesystem operations to avoid
+/// blocking the Tokio runtime.
+/// Ref: https://docs.rs/tokio/latest/tokio/fs/fn.remove_dir_all.html
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
-/// * `tool_id` - The tool identifier
+/// * `tool_id` - The tool identifier (e.g., "ffmpeg", "mp4decrypt")
 pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String> {
     let tool_dir = get_tool_dir(app, tool_id);
 

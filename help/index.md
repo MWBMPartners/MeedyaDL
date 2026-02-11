@@ -1,6 +1,6 @@
 <!--
   gamdl-GUI Help Documentation
-  Copyright (c) 2024 MWBM Partners Ltd
+  Copyright (c) 2024-2026 MWBM Partners Ltd
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -55,6 +55,8 @@ gamdl-GUI is a multiplatform graphical user interface for GAMDL, built with [Tau
 
 ## Need More Help?
 
-> *This section will be expanded with links to community resources, issue trackers, and contact information as the project matures.*
+If you encounter an issue not covered in this documentation:
 
-If you encounter an issue not covered in this documentation, please check the [Troubleshooting](troubleshooting.md) guide or open an issue on the project's GitHub repository.
+1. Check the [Troubleshooting](troubleshooting.md) guide for common errors and solutions
+2. Review the [FAQ](faq.md) for frequently asked questions
+3. Open an issue on the [gamdl-GUI GitHub repository](https://github.com/MWBMPartners/gamdl-GUI/issues) with details about your problem, including your OS, app version, and any relevant log messages

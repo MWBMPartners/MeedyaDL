@@ -2,21 +2,59 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Paths settings tab.
- * Configures custom paths for external tool binaries (FFmpeg, mp4decrypt,
- * N_m3u8DL-RE, MP4Box, AMDecrypt). When empty, uses the managed (auto-installed)
- * versions from the app data directory.
+ * @file PathsTab.tsx -- External tool binary path configuration.
+ *
+ * Renders the "Paths" tab within the {@link SettingsPage} component.
+ * GAMDL depends on several external command-line tools for downloading,
+ * decrypting, and remuxing media files. By default, these tools are
+ * automatically managed (downloaded and installed into the application's
+ * data directory during first-run setup). This tab allows power users to
+ * override those paths with system-wide installations.
+ *
+ * ## Supported Tools
+ *
+ * | Tool          | Setting Key       | Purpose                                |
+ * |---------------|-------------------|----------------------------------------|
+ * | FFmpeg        | ffmpeg_path       | Audio/video processing and remuxing    |
+ * | mp4decrypt    | mp4decrypt_path   | Decrypting DRM-protected streams       |
+ * | N_m3u8DL-RE   | nm3u8dlre_path    | Alternative HLS stream downloader      |
+ * | MP4Box        | mp4box_path       | Alternative remux tool                 |
+ * | AMDecrypt     | amdecrypt_path    | Optional Apple Music decryption tool   |
+ *
+ * When a path is empty/null, the managed (auto-installed) version is used.
+ * Each FilePickerButton opens the Tauri native file dialog so the user can
+ * browse to the executable.
+ *
+ * ## Store Connection
+ *
+ * Reads and writes the Zustand `settingsStore` via `settings.*_path` fields
+ * and `updateSettings({ *_path: ... })`.
+ *
+ * @see {@link ../SettingsPage.tsx}        -- Parent container
+ * @see {@link @/stores/settingsStore.ts}  -- Zustand store
+ * @see {@link https://v2.tauri.app/develop/calling-rust/#commands} -- Tauri IPC commands
  */
 
+// Zustand store for reading/writing tool path settings.
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// FilePickerButton opens the Tauri native file dialog and displays the selected path.
 import { FilePickerButton } from '@/components/common';
 
 /**
- * Renders the Paths settings tab with file pickers for each external tool.
- * Empty paths use the built-in managed versions.
+ * PathsTab -- Renders the Paths settings tab.
+ *
+ * Displays one FilePickerButton per external tool, each bound to its
+ * corresponding `settings.*_path` field. The onChange handler passes the
+ * selected path (or null when cleared) directly to `updateSettings`.
+ *
+ * The placeholder text varies: managed tools show "Using managed version",
+ * while AMDecrypt (which has no auto-install) shows "Not configured".
  */
 export function PathsTab() {
+  /** Current settings snapshot */
   const settings = useSettingsStore((s) => s.settings);
+  /** Partial-update function for persisting path changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (

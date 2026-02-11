@@ -2,16 +2,51 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Lyrics settings tab.
- * Configures synced lyrics format, whether to download synced lyrics,
- * and synced-lyrics-only mode.
+ * @file LyricsTab.tsx -- Lyrics format preferences settings tab.
+ *
+ * Renders the "Lyrics" tab within the {@link SettingsPage} component.
+ * This tab configures how GAMDL handles time-synced lyrics:
+ *
+ *   - **Synced Lyrics Format** -- The file format for downloaded lyrics
+ *     files. Maps to `settings.synced_lyrics_format` and GAMDL's
+ *     `--synced-lyrics-format` flag.
+ *     Supported formats:
+ *       - LRC -- Standard lyrics format widely supported by music players
+ *       - SRT -- SubRip subtitle format (used by video players)
+ *       - TTML -- Timed Text Markup Language (Apple's native format)
+ *
+ *   - **Disable Synced Lyrics** -- When enabled, synced lyrics files are
+ *     not downloaded alongside audio tracks. Maps to
+ *     `settings.no_synced_lyrics` and GAMDL's `--no-synced-lyrics` flag.
+ *
+ *   - **Synced Lyrics Only** -- When enabled, GAMDL downloads only the
+ *     synced lyrics without downloading audio/video. Maps to
+ *     `settings.synced_lyrics_only` and GAMDL's `--synced-lyrics-only` flag.
+ *     Note: This is mutually exclusive with "Disable Synced Lyrics" in
+ *     practice, though the UI does not enforce this constraint.
+ *
+ * ## Store Connection
+ *
+ * Reads and writes the Zustand `settingsStore`.
+ *
+ * @see {@link ../SettingsPage.tsx}        -- Parent container
+ * @see {@link @/stores/settingsStore.ts}  -- Zustand store
+ * @see {@link @/types/index.ts}           -- LyricsFormat type definition
  */
 
+// Zustand store for reading/writing lyrics settings.
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// Shared form components: Select for the format dropdown, Toggle for boolean switches.
 import { Select, Toggle } from '@/components/common';
+
+// TypeScript union type for the lyrics format values.
 import type { LyricsFormat } from '@/types';
 
-/** Available synced lyrics format options */
+/**
+ * Dropdown options for the synced lyrics format selector.
+ * Each entry provides the value stored in settings and a descriptive label.
+ */
 const LYRICS_FORMAT_OPTIONS = [
   { value: 'lrc', label: 'LRC (standard lyrics format)' },
   { value: 'srt', label: 'SRT (SubRip subtitle format)' },
@@ -19,11 +54,16 @@ const LYRICS_FORMAT_OPTIONS = [
 ];
 
 /**
- * Renders the Lyrics settings tab with format selection and
- * download behavior toggles.
+ * LyricsTab -- Renders the Lyrics settings tab.
+ *
+ * Contains a single visual section ("Synced Lyrics") with three controls:
+ * a format dropdown and two toggles. All controls read from and write to
+ * the shared Zustand settings store.
  */
 export function LyricsTab() {
+  /** Current settings snapshot */
   const settings = useSettingsStore((s) => s.settings);
+  /** Partial-update function for persisting lyrics setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (

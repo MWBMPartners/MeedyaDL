@@ -2,62 +2,176 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Global styles for gamdl-GUI.
- * Contains Tailwind CSS directives and base styles that apply
- * across all platforms. Platform-specific themes override the
- * CSS custom properties defined in base.css.
+ * Global Styles for gamdl-GUI
+ * ============================
+ *
+ * This is the main CSS entry point for the application. It is imported by the
+ * React app's root component and processed by PostCSS (via Vite) through the
+ * Tailwind CSS and Autoprefixer plugins.
+ *
+ * File structure and loading order:
+ *   1. @tailwind directives (below) -- Generate Tailwind's base reset, component, and utility CSS
+ *   2. @layer base { ... }          -- Global style overrides applied to all platforms
+ *   3. @layer components { ... }    -- Reusable component CSS classes
+ *   4. @keyframes                   -- Animation definitions
+ *
+ * The @tailwind directives are processed by the tailwindcss PostCSS plugin (configured
+ * in postcss.config.js), which reads tailwind.config.js for theme tokens, content paths,
+ * and plugin configuration.
+ *
+ * Platform theming: The CSS custom properties used here (--font-family, --text-primary,
+ * --surface-primary, etc.) are defined in the theme CSS files:
+ *   - src/styles/themes/base.css    -- Default values (loaded first)
+ *   - src/styles/themes/macos.css   -- macOS overrides (via .platform-macos class)
+ *   - src/styles/themes/windows.css -- Windows overrides (via .platform-windows class)
+ *   - src/styles/themes/linux.css   -- Linux overrides (via .platform-linux class)
+ *
+ * Related config files:
+ *   - postcss.config.js    -- PostCSS plugin pipeline (tailwindcss + autoprefixer)
+ *   - tailwind.config.js   -- Tailwind theme configuration (colors, fonts, spacing)
+ *
+ * @see https://tailwindcss.com/docs/functions-and-directives -- @tailwind, @layer, @apply docs
+ * @see https://tailwindcss.com/docs/adding-base-styles -- How @layer base works
+ * @see https://tailwindcss.com/docs/adding-custom-styles -- Custom styles in Tailwind
  */
 
-/* Tailwind CSS base layer - normalizes styles across browsers */
+/*
+ * @tailwind base -- Injects Tailwind's base styles (Preflight).
+ *
+ * Preflight is a CSS reset built on modern-normalize that:
+ *   - Removes default margins on all elements
+ *   - Sets box-sizing: border-box on all elements
+ *   - Sets a consistent font-family, line-height, and font-size on html
+ *   - Resets headings to inherit font-size and font-weight
+ *   - Makes images block-level and responsive (max-width: 100%)
+ *   - Normalizes form elements across browsers
+ *
+ * Our @layer base overrides below build on top of these Preflight defaults.
+ *
+ * @see https://tailwindcss.com/docs/preflight
+ */
 @tailwind base;
 
-/* Tailwind CSS component layer - pre-built component classes */
+/*
+ * @tailwind components -- Injects Tailwind's component classes.
+ *
+ * The component layer is for class-based abstractions that are more complex
+ * than a single utility (e.g., .btn, .card, .badge). By default, Tailwind
+ * includes no component classes -- this layer is a placeholder for:
+ *   - Classes defined in our @layer components block below
+ *   - Classes from Tailwind plugins (if any were registered in tailwind.config.js)
+ *
+ * Component classes have lower specificity than utility classes, so utilities
+ * can always override them (e.g., <button class="btn bg-red-500"> works).
+ *
+ * @see https://tailwindcss.com/docs/adding-component-styles
+ */
 @tailwind components;
 
-/* Tailwind CSS utilities layer - all utility classes */
+/*
+ * @tailwind utilities -- Injects all Tailwind utility classes.
+ *
+ * This is the core of Tailwind CSS -- it generates all utility classes based on:
+ *   - The default Tailwind theme
+ *   - Custom theme extensions from tailwind.config.js (our platform colors, fonts, etc.)
+ *   - Only classes actually used in files matching the 'content' patterns in tailwind.config.js
+ *
+ * In production, unused utilities are tree-shaken (purged) for a minimal CSS bundle.
+ * In development, all utilities are available for instant HMR.
+ *
+ * @see https://tailwindcss.com/docs/utility-first
+ */
 @tailwind utilities;
 
 /* ============================================================
  * Base Layer Overrides
- * These styles apply to all platforms and set global defaults
+ * ---------------------
+ * Styles in @layer base have the lowest specificity tier (after Preflight).
+ * They set global defaults for the application's HTML elements.
+ * These styles apply to ALL platforms; platform-specific customizations
+ * are handled by the theme CSS files via CSS custom property overrides.
+ *
+ * @see https://tailwindcss.com/docs/adding-base-styles
  * ============================================================ */
 @layer base {
-  /* Ensure the entire viewport is used without scrollbars on the root */
+  /*
+   * html -- Root element configuration.
+   * overflow: hidden prevents document-level scrollbars from appearing.
+   * The application manages its own scrolling within individual panels
+   * (sidebar, content area, download queue). height: 100% ensures the
+   * root element fills the WebView viewport (required by Tauri).
+   */
   html {
     overflow: hidden;
     height: 100%;
   }
 
+  /*
+   * body -- Application shell styling.
+   * Configured to behave like a native desktop application rather than a web page.
+   */
   body {
-    /* Prevent text selection across the app UI (feels more native) */
+    /*
+     * user-select: none -- Prevents text selection on the application UI.
+     * Native desktop apps don't allow selecting button labels, sidebar text, etc.
+     * This makes the app feel more "native" and prevents accidental text selection
+     * during drag-and-drop or rapid clicking. Input fields re-enable selection below.
+     * -webkit-user-select is needed for WebKit-based browsers (Safari, Tauri's WebView).
+     */
     user-select: none;
     -webkit-user-select: none;
 
-    /* Fill the viewport */
+    /* Fill the entire WebView viewport */
     height: 100%;
     margin: 0;
     padding: 0;
 
-    /* Use the platform font defined by the active theme */
+    /*
+     * font-family -- Uses the --font-family CSS variable defined by the active platform theme.
+     * Resolves to San Francisco on macOS, Segoe UI on Windows, or system-ui on Linux.
+     * @see src/styles/themes/base.css -- Default font family definition
+     */
     font-family: var(--font-family);
 
-    /* Base text color from the active theme */
+    /*
+     * color -- Base text color from the active theme.
+     * Defaults to near-black in light mode (#1a1a1a), white in dark mode (#ffffff).
+     * All text without explicit color classes inherits this.
+     */
     color: var(--text-primary);
 
-    /* Base background from the active theme */
+    /*
+     * background-color -- Application background from the active theme.
+     * Defaults to white in light mode, black/dark-gray in dark mode.
+     * The sidebar and content areas may override this with their own background colors.
+     */
     background-color: var(--surface-primary);
 
-    /* Smooth font rendering on macOS */
+    /*
+     * Font smoothing -- Enables subpixel antialiasing for smoother text rendering.
+     * -webkit-font-smoothing: antialiased -- WebKit (macOS Safari, Tauri WebView)
+     * -moz-osx-font-smoothing: grayscale -- Firefox on macOS
+     * These have no effect on Windows/Linux but don't cause issues.
+     */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Ensure the React root fills the viewport */
+  /*
+   * #root -- The React application mount point (<div id="root"> in index.html).
+   * Must fill the full viewport height so the React layout system (Flexbox/Grid)
+   * can distribute space properly between the sidebar and content panels.
+   */
   #root {
     height: 100%;
   }
 
-  /* Allow text selection in input fields and text areas */
+  /*
+   * Re-enable text selection for editable elements.
+   * While the body disables selection for a native feel, users need to be able
+   * to select and copy text in input fields, textareas, and contenteditable regions
+   * (e.g., URL input, search box, configuration fields).
+   */
   input,
   textarea,
   [contenteditable] {
@@ -65,43 +179,79 @@
     -webkit-user-select: text;
   }
 
-  /* Remove default focus outlines; we use custom focus styles */
+  /*
+   * Remove default browser focus outlines (the blue or dotted outline).
+   * Platform themes provide their own focus indicators:
+   *   - macOS: Blue glow ring (box-shadow) in macos.css
+   *   - Windows: Bottom border accent in windows.css
+   *   - Linux: Colored ring (box-shadow) in linux.css
+   * This prevents a double-focus-indicator appearance.
+   */
   *:focus {
     outline: none;
   }
 
-  /* Scrollbar styling for a more native appearance */
+  /*
+   * Custom scrollbar styling for WebKit-based browsers (Tauri's WebView).
+   * Provides a thinner, more subtle scrollbar that matches the platform aesthetic.
+   * These pseudo-elements only work in WebKit/Blink (Chrome, Safari, Tauri);
+   * Firefox uses scrollbar-width/scrollbar-color instead (not set here).
+   *
+   * @see https://developer.mozilla.org/en-US/docs/Web/CSS/::-webkit-scrollbar
+   */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 8px;   /* Vertical scrollbar width */
+    height: 8px;  /* Horizontal scrollbar height */
   }
 
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: transparent;  /* Invisible track (no gutter background) */
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--border);
-    border-radius: 4px;
+    background-color: var(--border);  /* Thumb color matches the theme's border color */
+    border-radius: 4px;               /* Rounded ends for a modern look */
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--border-strong);
+    background-color: var(--border-strong);  /* Darker on hover for visibility feedback */
   }
 }
 
 /* ============================================================
  * Component Layer
- * Reusable component styles built on top of Tailwind
+ * ----------------
+ * Reusable CSS component classes built on top of Tailwind's utilities.
+ * These use @layer components so they can be overridden by utility classes.
+ *
+ * @see https://tailwindcss.com/docs/adding-component-styles
  * ============================================================ */
 @layer components {
-  /* Drag region for custom title bar (allows window dragging) */
+  /*
+   * .drag-region -- Makes an element a window drag handle.
+   *
+   * When applied to a region (typically the title bar area), clicking and dragging
+   * on that element will move the entire application window. This is the CSS-based
+   * approach to custom title bars in Electron/Tauri/WebView-based desktop apps.
+   *
+   * The -webkit-app-region property is a non-standard CSS property supported by
+   * WebKit/Chromium that integrates with the OS window manager.
+   *
+   * @see https://v2.tauri.app/learn/window-customization/#custom-title-bar
+   */
   .drag-region {
     -webkit-app-region: drag;
     app-region: drag;
   }
 
-  /* Exclude interactive elements from the drag region */
+  /*
+   * .no-drag -- Excludes an element from the drag region.
+   *
+   * Applied to interactive elements (buttons, inputs, links) that are visually
+   * inside the drag region but should respond to clicks instead of initiating
+   * a window drag. For example, the close/minimize/maximize buttons in a
+   * custom title bar need this class.
+   */
   .no-drag {
     -webkit-app-region: no-drag;
     app-region: no-drag;
@@ -110,10 +260,28 @@
 
 /* ============================================================
  * Keyframe Animations
- * Custom animations used by UI components
+ * --------------------
+ * Custom @keyframes animations used by UI components.
+ * These are referenced by Tailwind utility classes or inline styles.
+ *
+ * Note: These are defined outside @layer because @keyframes cannot
+ * be placed inside @layer blocks in standard CSS.
  * ============================================================ */
 
-/* Indeterminate progress bar - slides left to right repeatedly */
+/*
+ * indeterminate -- Animation for indeterminate progress bars.
+ *
+ * Creates a sliding gradient effect that moves from left to right continuously.
+ * Used when a download is in progress but the total size is unknown
+ * (e.g., during initial connection or metadata fetching).
+ *
+ * The progress bar element is a colored strip that:
+ *   - Starts fully off-screen to the left (translateX(-100%))
+ *   - Slides to 300% past its starting position (covers the full bar width)
+ *   - Loops infinitely via CSS animation-iteration-count: infinite
+ *
+ * Usage: animation: indeterminate 1.5s ease-in-out infinite;
+ */
 @keyframes indeterminate {
   0% {
     transform: translateX(-100%);

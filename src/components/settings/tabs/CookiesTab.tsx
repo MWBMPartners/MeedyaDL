@@ -2,31 +2,90 @@
  * Copyright (c) 2024-2026 MWBM Partners Ltd
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Cookies settings tab.
- * Manages the cookies file used for Apple Music authentication.
- * Supports browsing for a Netscape-format cookies file, validating it,
- * and displaying validation results including detected domains, expiry
- * warnings, and step-by-step browser export instructions.
+ * @file CookiesTab.tsx -- Cookie import and validation settings tab.
+ *
+ * Renders the "Cookies" tab within the {@link SettingsPage} component.
+ * This is one of the most feature-rich settings tabs, providing:
+ *
+ *   1. **Status badge** -- Inline indicator showing the current cookie state
+ *      (not-set, valid, invalid, or expired).
+ *   2. **Information box** -- Explains why cookies are needed for Apple Music
+ *      authentication.
+ *   3. **Browser instructions** -- Collapsible accordion with step-by-step
+ *      guides for Chrome, Firefox, Edge, and Safari.
+ *   4. **File picker** -- Lets the user browse for their cookies.txt file
+ *      using the Tauri native file dialog.
+ *   5. **Validate button** -- Sends the selected file to the Rust backend
+ *      for validation via the `validate_cookies_file` Tauri IPC command.
+ *   6. **Copy path button** -- Copies the file path to the system clipboard.
+ *   7. **Validation results panel** -- Displays cookie count, detected
+ *      domains, expiry warnings, and any additional backend warnings.
+ *
+ * ## Validation Flow
+ *
+ * 1. User selects a cookies.txt file via the FilePickerButton.
+ * 2. The path is persisted to `settings.cookies_path` in the store.
+ * 3. User clicks "Validate Cookies", which calls
+ *    `commands.validateCookiesFile(path)` (a Tauri IPC command).
+ * 4. The Rust backend reads the file, counts cookies, checks for Apple Music
+ *    domains, and returns a `CookieValidation` result.
+ * 5. The result is stored in local state and rendered in the results panel.
+ *
+ * ## Sub-components (file-private)
+ *
+ * - `StatusBadge` -- Renders the inline status indicator.
+ * - `BrowserInstructions` -- Collapsible browser-specific export guides.
+ * - `DetectedDomains` -- Renders the detected domain pills.
+ * - `ExpiryWarning` -- Renders expiry warning/error banners.
+ *
+ * ## Store Connection
+ *
+ * - **settingsStore**: Reads `settings.cookies_path`; writes via
+ *   `updateSettings({ cookies_path })`.
+ * - **Tauri commands**: Calls `validateCookiesFile` for backend validation.
+ *
+ * @see {@link ../SettingsPage.tsx}                  -- Parent container
+ * @see {@link @/stores/settingsStore.ts}            -- Zustand store
+ * @see {@link @/lib/tauri-commands.ts}              -- Tauri IPC command wrappers
+ * @see {@link @/types/index.ts}                     -- CookieValidation type
+ * @see {@link https://v2.tauri.app/develop/calling-rust/} -- Tauri command invocation
  */
 
+// React hooks: useState for local UI state, useMemo for derived values,
+// useCallback for stable handler references.
+// @see https://react.dev/reference/react/useState
+// @see https://react.dev/reference/react/useMemo
+// @see https://react.dev/reference/react/useCallback
 import { useState, useMemo, useCallback } from 'react';
+
+// Lucide icons used throughout the tab's various sub-components.
+// @see https://lucide.dev/icons/
 import {
-  Shield,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Clock,
-  Globe,
-  Cookie,
-  Info,
-  CircleDot,
+  Shield,         // Info box icon (security/authentication context)
+  AlertTriangle,  // Warning/error indicator
+  CheckCircle,    // Success indicator
+  XCircle,        // Failure indicator
+  ChevronDown,    // Expanded state arrow
+  ChevronRight,   // Collapsed state arrow
+  Copy,           // Copy-to-clipboard button icon
+  Clock,          // Expiry warning icon
+  Globe,          // Domain indicator icon
+  Cookie,         // Tab/section header icon
+  Info,           // "How to Export" section icon
+  CircleDot,      // "Not set" status icon
 } from 'lucide-react';
+
+// Zustand store for reading the cookies_path and writing path updates.
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// Tauri IPC command wrappers -- specifically `validateCookiesFile` which
+// invokes the Rust backend's cookie validation logic.
 import * as commands from '@/lib/tauri-commands';
+
+// Shared UI components used in the form controls and action buttons.
 import { FilePickerButton, Button, Tooltip } from '@/components/common';
+
+// TypeScript type for the validation result returned by the Rust backend.
 import type { CookieValidation } from '@/types';
 
 // ============================================================
