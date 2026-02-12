@@ -583,6 +583,53 @@ export interface CookieValidation {
 }
 
 // ============================================================
+// Browser Cookie Import Types
+// ============================================================
+
+/**
+ * Information about a detected browser installation.
+ *
+ * Mirrors: Rust struct `DetectedBrowser` in `src-tauri/src/services/cookie_service.rs`
+ *
+ * Returned by the `detect_browsers` IPC command. The setup wizard and
+ * settings page display these as options for auto-importing Apple Music
+ * cookies. No cookies are read during detection -- only filesystem checks
+ * for known browser profile directories.
+ */
+export interface DetectedBrowser {
+  /** Machine-readable identifier (e.g., "chrome", "firefox", "safari") */
+  id: string;
+  /** Human-readable display name (e.g., "Google Chrome") */
+  name: string;
+  /** Icon hint for the frontend (typically matches `id`) */
+  icon_hint: string;
+  /** Whether this browser requires macOS Full Disk Access to read cookies */
+  requires_fda: boolean;
+}
+
+/**
+ * Result of an automated cookie import operation.
+ *
+ * Mirrors: Rust struct `CookieImportResult` in `src-tauri/src/services/cookie_service.rs`
+ *
+ * Returned by the `import_cookies_from_browser` IPC command after extracting
+ * cookies from a browser, converting them to Netscape format, and saving
+ * the file to the app data directory.
+ */
+export interface CookieImportResult {
+  /** Whether the import completed successfully with usable Apple Music cookies */
+  success: boolean;
+  /** Total number of cookies extracted (across all matching domains) */
+  cookie_count: number;
+  /** Number of cookies specifically for Apple Music domains */
+  apple_music_cookies: number;
+  /** Warning messages (e.g., "Some cookies are expired") */
+  warnings: string[];
+  /** Absolute path where the cookies file was saved */
+  path: string;
+}
+
+// ============================================================
 // GAMDL Output Events (from subprocess parsing)
 // ============================================================
 

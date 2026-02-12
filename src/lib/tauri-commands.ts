@@ -63,8 +63,10 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   AppSettings,
   ComponentUpdate,
+  CookieImportResult,
   CookieValidation,
   DependencyStatus,
+  DetectedBrowser,
   DownloadRequest,
   PlatformInfo,
   QueueStatus,
@@ -509,4 +511,74 @@ export function upgradeGamdl(): Promise<string> {
  */
 export function checkComponentUpdate(name: string): Promise<ComponentUpdate> {
   return invoke<ComponentUpdate>('check_component_update', { name });
+}
+
+// ============================================================
+// Cookie Management Commands
+// ============================================================
+
+/**
+ * Detects which browsers are installed on the user's system.
+ *
+ * Rust handler: `detect_browsers()` in `src-tauri/src/commands/cookies.rs`
+ * Returns: `DetectedBrowser[]` with id, name, icon hint, and FDA requirement
+ *
+ * Performs lightweight filesystem checks to find browser profile directories.
+ * No cookies are read during detection, and no OS permission prompts appear.
+ *
+ * Called by: CookiesStep (SetupWizard), CookiesTab (SettingsPage)
+ *
+ * @returns Promise resolving to an array of detected browser entries
+ */
+export function detectBrowsers(): Promise<DetectedBrowser[]> {
+  return invoke<DetectedBrowser[]>('detect_browsers');
+}
+
+/**
+ * Imports Apple Music cookies from the specified browser.
+ *
+ * Rust handler: `import_cookies_from_browser()` in `src-tauri/src/commands/cookies.rs`
+ * Argument: `browserId` - machine-readable browser ID (e.g., "chrome", "firefox")
+ * Returns: `CookieImportResult` with success status, cookie counts, and file path
+ *
+ * The Rust backend extracts cookies matching Apple Music domains, converts them
+ * to Netscape format, writes to `{app_data}/cookies.txt`, and updates settings.
+ *
+ * Platform notes:
+ * - macOS (Chromium): May trigger a Keychain access prompt
+ * - macOS (Safari): Requires Full Disk Access (check first with checkFullDiskAccess)
+ * - Windows: Uses DPAPI for transparent decryption
+ * - Linux: Uses D-Bus Secret Service for key decryption
+ *
+ * Called by: CookiesStep (SetupWizard), CookiesTab (SettingsPage)
+ *
+ * @param browserId - Machine-readable browser identifier
+ * @returns Promise resolving to the import result
+ */
+export function importCookiesFromBrowser(
+  browserId: string,
+): Promise<CookieImportResult> {
+  return invoke<CookieImportResult>('import_cookies_from_browser', {
+    browserId,
+  });
+}
+
+/**
+ * Checks whether the application has macOS Full Disk Access.
+ *
+ * Rust handler: `check_full_disk_access()` in `src-tauri/src/commands/cookies.rs`
+ * Returns: boolean (true = FDA granted or not required on this platform)
+ *
+ * Safari on macOS stores cookies in a TCC-protected location. Without FDA,
+ * the app cannot read Safari's cookie database. The frontend calls this
+ * before attempting a Safari import and shows instructions if FDA is needed.
+ *
+ * On non-macOS platforms, always returns true.
+ *
+ * Called by: CookiesStep (SetupWizard) when user selects Safari
+ *
+ * @returns Promise resolving to whether FDA is granted
+ */
+export function checkFullDiskAccess(): Promise<boolean> {
+  return invoke<boolean>('check_full_disk_access');
 }

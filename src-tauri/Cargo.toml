@@ -297,3 +297,20 @@ dirs = "6"
 # @see https://docs.rs/regex/ -- regex crate documentation
 # @see https://docs.rs/regex/latest/regex/#syntax -- Supported regex syntax
 regex = "1"
+
+# ---- Browser Cookie Extraction ----
+
+# rookie -- Cross-platform browser cookie extraction library.
+# Reads cookies directly from installed browsers' local storage:
+#   - Chromium-based (Chrome, Edge, Brave, Opera, Vivaldi): decrypts cookies
+#     using OS-specific key storage (macOS Keychain, Windows DPAPI, Linux Secret Service)
+#   - Firefox: reads from SQLite cookies database
+#   - Safari (macOS only): parses Apple's binary cookie format
+#
+# Used by the automated cookie import feature to extract Apple Music
+# authentication cookies without requiring the user to manually install
+# a browser extension and export a file. Only cookies matching Apple Music
+# domains (apple.com, mzstatic.com) are extracted.
+#
+# @see https://docs.rs/rookie/ -- rookie crate documentation
+rookie = "0.5"
