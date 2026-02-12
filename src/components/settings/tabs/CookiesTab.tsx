@@ -831,33 +831,52 @@ export function CookiesTab() {
             Reads only Apple Music cookies (apple.com, mzstatic.com) from your browser. No other data is accessed.
           </p>
 
-          {/* Import result */}
-          {importResult && (
-            <div
-              className={`p-3 rounded-platform border text-xs ${
-                importResult.success
-                  ? 'border-status-success bg-green-50 dark:bg-green-950'
-                  : 'border-status-error bg-red-50 dark:bg-red-950'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                {importResult.success ? (
-                  <CheckCircle size={14} className="text-status-success" />
-                ) : (
-                  <XCircle size={14} className="text-status-error" />
+          {/* Import result -- three states: success with cookies, empty import, or failure */}
+          {importResult && (() => {
+            const hasAppleCookies = importResult.success && importResult.apple_music_cookies > 0;
+            const isEmptyImport = importResult.success && importResult.apple_music_cookies === 0;
+            return (
+              <div
+                className={`p-3 rounded-platform border text-xs ${
+                  hasAppleCookies
+                    ? 'border-status-success bg-green-50 dark:bg-green-950'
+                    : isEmptyImport
+                      ? 'border-status-warning bg-yellow-50 dark:bg-yellow-950'
+                      : 'border-status-error bg-red-50 dark:bg-red-950'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  {hasAppleCookies ? (
+                    <CheckCircle size={14} className="text-status-success" />
+                  ) : isEmptyImport ? (
+                    <AlertTriangle size={14} className="text-status-warning" />
+                  ) : (
+                    <XCircle size={14} className="text-status-error" />
+                  )}
+                  <span className="font-medium text-content-primary">
+                    {hasAppleCookies
+                      ? 'Cookies Imported'
+                      : isEmptyImport
+                        ? 'No Apple Music Cookies Found'
+                        : 'Import Failed'}
+                  </span>
+                </div>
+                {hasAppleCookies && (
+                  <p className="text-content-secondary ml-5">
+                    {importResult.apple_music_cookies} Apple Music cookies imported
+                  </p>
                 )}
-                <span className="font-medium text-content-primary">
-                  {importResult.success ? 'Cookies Imported' : 'Import Failed'}
-                </span>
+                {isEmptyImport && (
+                  <p className="text-content-secondary ml-5">
+                    Log in to music.apple.com in your browser first, then try importing again.
+                  </p>
+                )}
+                {importResult.warnings.map((w, i) => (
+                  <p key={i} className="text-status-warning ml-5">{w}</p>
+                ))}
               </div>
-              <p className="text-content-secondary ml-5">
-                {importResult.apple_music_cookies} Apple Music cookies imported
-              </p>
-              {importResult.warnings.map((w, i) => (
-                <p key={i} className="text-status-warning ml-5">{w}</p>
-              ))}
-            </div>
-          )}
+            );
+          })()}
 
           {/* Import error */}
           {importError && (
