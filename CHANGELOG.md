@@ -40,6 +40,7 @@ Fix React infinite re-render loop (error #185) that caused the UI to
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.1.2] - 2026-02-12
 
