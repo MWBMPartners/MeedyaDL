@@ -75,6 +75,69 @@ export default defineConfig({
    *
    * @see https://vite.dev/config/server-options.html#server-clearscreen
    */
+  /**
+   * envPrefix -- Environment variable prefixes exposed to the frontend code.
+   *
+   * Variables matching these prefixes are available via `import.meta.env.*`:
+   *   - 'VITE_':       Standard Vite convention for app-specific env vars
+   *   - 'TAURI_ENV_*': Tauri 2.0 injects build metadata (TAURI_ENV_PLATFORM,
+   *     TAURI_ENV_ARCH, TAURI_ENV_DEBUG, etc.) that can be used at build time
+   *     to conditionally configure the build (e.g., platform-specific targets).
+   *
+   * @see https://vite.dev/config/shared-options.html#envprefix
+   * @see https://v2.tauri.app/start/frontend/vite/ -- Tauri Vite integration
+   */
+  envPrefix: ['VITE_', 'TAURI_ENV_*'],
+
+  /**
+   * build -- Production build configuration.
+   *
+   * These settings follow the official Tauri 2.0 Vite integration guide to
+   * ensure the compiled JavaScript is compatible with each platform's WebView engine:
+   *   - macOS/Linux: WebKit (Safari-based) -- target safari13
+   *   - Windows: Chromium (Edge WebView2) -- target chrome105
+   *
+   * The TAURI_ENV_PLATFORM environment variable is set by the Tauri CLI during
+   * `cargo tauri build` and `cargo tauri dev`, allowing platform-conditional config.
+   *
+   * @see https://v2.tauri.app/start/frontend/vite/ -- Official Tauri Vite config
+   * @see https://esbuild.github.io/api/#target -- esbuild target documentation
+   */
+  build: {
+    /**
+     * target -- Browser compatibility target for esbuild output.
+     *
+     * Controls which JavaScript syntax features esbuild will downlevel:
+     *   - 'safari13': Ensures compatibility with WebKit on macOS 11+ and Linux
+     *     (WKWebView / webkit2gtk). Safari 13 was chosen by Tauri as a safe baseline.
+     *   - 'chrome105': Ensures compatibility with Edge WebView2 on Windows.
+     *     Chrome 105 matches the minimum Chromium version bundled with WebView2.
+     *
+     * Without this, Vite defaults to 'modules' (browsers supporting ES modules),
+     * which may include syntax too modern for the Tauri WebView on older OS versions.
+     */
+    target:
+      process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+
+    /**
+     * minify -- Minification strategy.
+     *
+     * In release builds (TAURI_ENV_DEBUG is unset or empty), use esbuild for
+     * fast minification. In debug builds, disable minification to preserve
+     * readable source for WebView DevTools debugging.
+     */
+    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+
+    /**
+     * sourcemap -- Generate source maps only for debug builds.
+     *
+     * Source maps add significant bundle size and expose source code structure.
+     * They are useful during development (WebKit Inspector / Chrome DevTools)
+     * but should not be included in release builds.
+     */
+    sourcemap: !!process.env.TAURI_ENV_DEBUG,
+  },
+
   clearScreen: false,
 
   server: {

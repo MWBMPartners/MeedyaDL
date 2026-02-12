@@ -51,6 +51,84 @@ import App from './App';
 import './styles/globals.css';
 
 /**
+ * Error boundary component to catch and display React render errors visually.
+ * Without this, a crash in any component would unmount the entire React tree
+ * and leave the user with a blank/black screen and no indication of what went
+ * wrong. This boundary catches the error, logs it to the console, and renders
+ * a styled error overlay with the message, name, stack trace, and component
+ * stack so the user (or developer) can diagnose the issue.
+ *
+ * Wrapped around `<App />` in the render call below.
+ * @see {@link https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary}
+ */
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null; errorInfo: React.ErrorInfo | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    this.setState({ errorInfo });
+    console.error('ErrorBoundary caught:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          padding: '24px',
+          fontFamily: 'monospace',
+          fontSize: '13px',
+          color: '#ff6b6b',
+          backgroundColor: '#1a1a2e',
+          height: '100vh',
+          overflow: 'auto',
+        }}>
+          <h1 style={{ fontSize: '18px', marginBottom: '16px', color: '#fff' }}>
+            React Error Caught
+          </h1>
+          <div style={{ marginBottom: '16px' }}>
+            <strong style={{ color: '#ffd93d' }}>Error:</strong>{' '}
+            {this.state.error?.message}
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <strong style={{ color: '#ffd93d' }}>Name:</strong>{' '}
+            {this.state.error?.name}
+          </div>
+          <div style={{ marginBottom: '16px', whiteSpace: 'pre-wrap', fontSize: '11px' }}>
+            <strong style={{ color: '#ffd93d' }}>Stack:</strong>{'\n'}
+            {this.state.error?.stack}
+          </div>
+          {this.state.errorInfo && (
+            <div style={{ whiteSpace: 'pre-wrap', fontSize: '11px' }}>
+              <strong style={{ color: '#ffd93d' }}>Component Stack:</strong>{'\n'}
+              {this.state.errorInfo.componentStack}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/**
+ * Global unhandled-rejection handler -- catches async errors that escape React's
+ * error boundary (e.g., uncaught promise rejections in event handlers or effects).
+ * Logs to the console for DevTools debugging.
+ */
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled Promise Rejection:', event.reason);
+});
+
+/**
  * Locate the root DOM mount point.
  * The `<div id="root"></div>` element is defined in the project's index.html
  * and serves as the container for the entire React component tree.
@@ -89,6 +167,8 @@ if (!rootElement) {
  */
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );
