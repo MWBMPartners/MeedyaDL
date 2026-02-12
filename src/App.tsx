@@ -210,21 +210,24 @@ function App() {
    * ─── Settings Store Selectors ──────────────────────────────────────
    * `loadSettings` triggers an IPC call to the Rust backend to fetch
    * persisted settings from disk (JSON file in the app data directory).
-   * `settings` holds the current AppSettings object after loading.
+   * `sidebarCollapsed` is the only reactive setting App.tsx needs --
+   * subscribing to the entire `settings` object would cause App (and
+   * its entire subtree) to re-render on any settings change.
    * @see ./stores/settingsStore.ts
    */
   const loadSettings = useSettingsStore((s) => s.loadSettings);
-  const settings = useSettingsStore((s) => s.settings);
+  const sidebarCollapsedSetting = useSettingsStore((s) => s.settings.sidebar_collapsed);
 
   /*
    * ─── Dependency Store Selectors ────────────────────────────────────
    * `checkAll` runs parallel IPC calls to check Python, GAMDL, and tool
-   * installation status. `isReady` is a derived getter that returns true
-   * only if all required dependencies are installed.
+   * installation status. The dependency readiness check is done imperatively
+   * via `useDependencyStore.getState()` inside Effect 2, rather than via
+   * reactive subscriptions, because App only needs to check this once at
+   * startup. The setup wizard visibility is controlled by `showSetupWizard`.
    * @see ./stores/dependencyStore.ts
    */
   const checkAll = useDependencyStore((s) => s.checkAll);
-  const isReady_deps = useDependencyStore((s) => s.isReady);
 
   /*
    * ─── Update Store Selector ─────────────────────────────────────────
@@ -331,14 +334,21 @@ function App() {
       /* Step 2: Check all dependency statuses in parallel via IPC */
       await checkAll();
 
-      /* Step 3: Show setup wizard if any required dependency is missing */
-      if (!isReady_deps()) {
+      /*
+       * Step 3: Show setup wizard if any required dependency is missing.
+       * We read the latest state imperatively via getState() rather than using
+       * the reactive selectors, because at this point the async `checkAll()`
+       * has just completed and we need the freshest snapshot.
+       */
+      const depState = useDependencyStore.getState();
+      const depsReady = !!(depState.python?.installed && depState.gamdl?.installed);
+      if (!depsReady) {
         setShowSetupWizard(true);
       }
     };
 
     initialize();
-  }, [isReady, loadSettings, checkAll, isReady_deps, setShowSetupWizard]);
+  }, [isReady, loadSettings, checkAll, setShowSetupWizard]);
 
   /*
    * ─── Effect 3: Sync Sidebar State from Settings ────────────────────
@@ -348,15 +358,15 @@ function App() {
    * to access the store imperatively (outside the React render cycle),
    * which is a valid Zustand pattern for one-off state synchronization.
    *
-   * Dependency: [settings.sidebar_collapsed] -- re-runs when settings reload.
+   * Dependency: [sidebarCollapsedSetting] -- re-runs when the setting changes.
    *
    * @see {@link https://docs.pmnd.rs/zustand/guides/practice-with-no-store-actions}
    */
   useEffect(() => {
-    if (settings.sidebar_collapsed) {
-      useUiStore.getState().setSidebarCollapsed(settings.sidebar_collapsed);
+    if (sidebarCollapsedSetting) {
+      useUiStore.getState().setSidebarCollapsed(sidebarCollapsedSetting);
     }
-  }, [settings.sidebar_collapsed]);
+  }, [sidebarCollapsedSetting]);
 
   /*
    * ─── Effect 4: Auto-Update Check and Tray Listener ─────────────────

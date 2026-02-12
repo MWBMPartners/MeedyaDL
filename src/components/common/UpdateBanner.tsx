@@ -34,6 +34,18 @@
  */
 import { ArrowUpCircle, X, ExternalLink, RefreshCw } from 'lucide-react';
 
+/**
+ * React `useMemo` hook for memoizing the derived active-updates list.
+ * Without memoization, calling `getActiveUpdates()` inside a Zustand selector
+ * creates a new array reference on every store change (via `.filter()`), which
+ * causes Zustand's `Object.is()` equality check to fail and trigger unnecessary
+ * re-renders of this component. By subscribing to the raw data (`lastResult`,
+ * `dismissed`) and computing the filtered list with `useMemo`, re-renders only
+ * happen when the underlying data actually changes.
+ * @see https://react.dev/reference/react/useMemo
+ */
+import { useMemo } from 'react';
+
 /** Zustand store for update state (available updates, dismiss, upgrade actions) */
 import { useUpdateStore } from '@/stores/updateStore';
 
@@ -61,18 +73,41 @@ export function UpdateBanner() {
    * Each selector subscribes to a single slice of state to minimise
    * unnecessary re-renders when unrelated state changes.
    *
-   * - activeUpdates: filtered list of non-dismissed, compatible updates.
-   * - dismissUpdate: action to mark a single update as dismissed by name.
-   * - upgradeGamdl: async action that runs `pip install --upgrade gamdl`
-   *   via the Rust backend and returns the new version string.
-   * - isUpgrading: boolean flag true while the upgrade is in progress.
-   * - addToast: action to display a toast notification.
+   * IMPORTANT: We subscribe to `lastResult` and `dismissed` separately
+   * instead of calling `getActiveUpdates()` inside a selector. The old
+   * pattern `(s) => s.getActiveUpdates()` called `.filter()` inside the
+   * selector, creating a new array reference on every store change. Zustand's
+   * `Object.is()` comparison always saw a new reference and triggered a
+   * re-render, even when the underlying data hadn't changed. This caused
+   * excessive re-renders that could cascade into React error #185 (maximum
+   * update depth exceeded) during the initialization sequence.
+   *
+   * By subscribing to the raw data and deriving the filtered list via
+   * `useMemo`, we only recompute when `lastResult` or `dismissed` actually
+   * change — not on every unrelated store mutation.
    */
-  const activeUpdates = useUpdateStore((s) => s.getActiveUpdates());
+  const lastResult = useUpdateStore((s) => s.lastResult);
+  const dismissed = useUpdateStore((s) => s.dismissed);
   const dismissUpdate = useUpdateStore((s) => s.dismissUpdate);
   const upgradeGamdl = useUpdateStore((s) => s.upgradeGamdl);
   const isUpgrading = useUpdateStore((s) => s.isUpgrading);
   const addToast = useUiStore((s) => s.addToast);
+
+  /**
+   * Derive the filtered active-updates list from raw store data.
+   * Only recomputes when `lastResult` or `dismissed` changes.
+   * Filters to only show updates that are available, compatible, and
+   * not dismissed by the user.
+   */
+  const activeUpdates = useMemo(() => {
+    if (!lastResult) return [];
+    return lastResult.components.filter(
+      (c) =>
+        c.update_available &&
+        c.is_compatible &&
+        !dismissed.includes(c.name),
+    );
+  }, [lastResult, dismissed]);
 
   /* Early return -- render nothing when there are no active updates */
   if (activeUpdates.length === 0) return null;

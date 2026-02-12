@@ -16,13 +16,18 @@
 #     1. macOS Apple Silicon (aarch64-apple-darwin)
 #        --> Produces: .dmg (disk image), .app (app bundle)
 #     2. Windows x64 (x86_64-pc-windows-msvc)
-#        --> Produces: .msi (Windows Installer), .exe (NSIS installer)
-#     3. Windows x86 (i686-pc-windows-msvc) — cross-compiled from x64
-#        --> Produces: .msi, .exe
-#     4. Windows ARM64 (aarch64-pc-windows-msvc) — cross-compiled from x64
-#        --> Produces: .msi, .exe
-#     5. Linux x64 (native architecture)
+#        --> Produces: .exe (NSIS installer)
+#     3. Windows ARM64 (aarch64-pc-windows-msvc) — cross-compiled from x64
+#        --> Produces: .exe (NSIS installer)
+#     4. Linux x64 (native architecture)
 #        --> Produces: .deb (Debian package), .AppImage (portable)
+#
+#   Note: Windows x86 (32-bit) is no longer built because Windows 11 is 64-bit
+#   only and Windows 10 32-bit usage is under 1%. The x64 installer also works
+#   on ARM64 devices via Windows' built-in x64 emulation layer, so ARM64 users
+#   who prefer the emulated version can use the x64 installer directly.
+#   WiX .msi installers are not produced because NSIS .exe is more capable,
+#   is the only format that supports ARM64, and reduces artifact clutter.
 #
 #   Tier 2 — Experimental (Linux ARM cross-compilation):
 #     6. Linux ARM64 (aarch64-unknown-linux-gnu) — for ARM servers and Pi 4/5 (64-bit)
@@ -104,28 +109,22 @@ jobs:
 
           # Windows x64 (64-bit)
           # x86_64-pc-windows-msvc targets 64-bit Windows with MSVC toolchain.
-          # Produces: GAMDL_x.x.x_x64-setup.exe (NSIS) and GAMDL_x.x.x_x64_en-US.msi
+          # --bundles nsis: Only build NSIS installer (skip WiX .msi).
+          # Also works on ARM64 Windows via the built-in x64 emulation layer.
+          # Produces: GAMDL_x.x.x_x64-setup.exe (NSIS)
           - name: Windows (x64)
             os: windows-latest
-            args: '--target x86_64-pc-windows-msvc'
+            args: '--target x86_64-pc-windows-msvc --bundles nsis'
             rust_target: x86_64-pc-windows-msvc
-
-          # Windows x86 (32-bit) — cross-compiled from x64 runner
-          # i686-pc-windows-msvc targets 32-bit Windows. MSVC provides the x86
-          # cross-compilation toolchain natively on x64 hosts.
-          # Produces: GAMDL_x.x.x_x86-setup.exe and GAMDL_x.x.x_x86_en-US.msi
-          - name: Windows (x86)
-            os: windows-latest
-            args: '--target i686-pc-windows-msvc'
-            rust_target: i686-pc-windows-msvc
 
           # Windows ARM64 — cross-compiled from x64 runner
           # aarch64-pc-windows-msvc targets ARM64 Windows (Snapdragon X laptops,
           # Surface Pro X, etc.). MSVC provides ARM64 cross-compilation toolchain.
-          # Produces: GAMDL_x.x.x_arm64-setup.exe and GAMDL_x.x.x_arm64_en-US.msi
+          # --bundles nsis: Only build NSIS installer (skip WiX .msi).
+          # Produces: GAMDL_x.x.x_arm64-setup.exe (NSIS)
           - name: Windows (ARM64)
             os: windows-latest
-            args: '--target aarch64-pc-windows-msvc'
+            args: '--target aarch64-pc-windows-msvc --bundles nsis'
             rust_target: aarch64-pc-windows-msvc
 
           # Linux x64 (64-bit)
@@ -328,12 +327,13 @@ jobs:
             | Platform | Architecture | File |
             |----------|-------------|------|
             | macOS | Apple Silicon (ARM64) | `.dmg` |
-            | Windows | x64 (64-bit) | `.msi` / `.exe` |
-            | Windows | x86 (32-bit) | `.msi` / `.exe` |
-            | Windows | ARM64 | `.msi` / `.exe` |
+            | Windows | x64 (64-bit) | `.exe` |
+            | Windows | ARM64 (Snapdragon X) | `.exe` |
             | Linux | x64 (64-bit) | `.deb` / `.AppImage` |
             | Linux | ARM64 (Pi 4/5, 64-bit) | `.deb` *(experimental)* |
             | Linux | ARMv7 (Pi, 32-bit) | `.deb` *(experimental)* |
+
+            > **Windows ARM64 users**: The x64 installer also works on ARM64 via Windows' built-in emulation.
 
             ### macOS Users
             macOS may show **"GAMDL is damaged and can't be opened"** because the app

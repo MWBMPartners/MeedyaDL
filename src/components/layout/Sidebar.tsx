@@ -144,11 +144,18 @@ export function Sidebar() {
   /** Toggles the sidebar between expanded and collapsed modes. */
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   /**
-   * Returns `true` if all required dependencies (Python + GAMDL) are installed.
-   * Used to render the green "Ready" or yellow "Setup Required" status dot.
-   * @see useDependencyStore.isReady in @/stores/dependencyStore.ts
+   * Dependency status for Python and GAMDL -- the two required dependencies.
+   * We subscribe to the individual status objects (not the `isReady()` getter
+   * function) so that the Sidebar re-renders when dependency status actually
+   * changes. The previous pattern `(s) => s.isReady` subscribed to the
+   * function reference (which is stable/constant), meaning the status dot
+   * would never update reactively.
+   * @see useDependencyStore in @/stores/dependencyStore.ts
    */
-  const isReady = useDependencyStore((s) => s.isReady);
+  const python = useDependencyStore((s) => s.python);
+  const gamdl = useDependencyStore((s) => s.gamdl);
+  /** Derived readiness check: both Python and GAMDL must be installed. */
+  const isReady = !!(python?.installed && gamdl?.installed);
   /**
    * Platform detection -- `isMacOS` is used to add extra top padding in the
    * header area so the macOS traffic-light buttons do not overlap the logo.
@@ -304,28 +311,28 @@ export function Sidebar() {
          * ("Ready" or "Setup Required"). In collapsed mode, the dot
          * is wrapped in a right-aligned Tooltip.
          *
-         * `isReady()` is a derived getter from the dependency store
-         * that checks `python?.installed && gamdl?.installed`.
-         * @see useDependencyStore.isReady in @/stores/dependencyStore.ts
+         * `isReady` is a derived boolean computed from the `python` and
+         * `gamdl` status objects subscribed to above.
+         * @see useDependencyStore in @/stores/dependencyStore.ts
          */}
         {!sidebarCollapsed ? (
           <div className="flex items-center gap-2 text-xs text-content-tertiary">
             <span
               className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                isReady() ? 'bg-status-success' : 'bg-status-warning'
+                isReady ? 'bg-status-success' : 'bg-status-warning'
               }`}
             />
-            {isReady() ? 'Ready' : 'Setup Required'}
+            {isReady ? 'Ready' : 'Setup Required'}
           </div>
         ) : (
           <Tooltip
-            content={isReady() ? 'Ready' : 'Setup Required'}
+            content={isReady ? 'Ready' : 'Setup Required'}
             position="right"
           >
             <div className="flex justify-center">
               <span
                 className={`w-2 h-2 rounded-full ${
-                  isReady() ? 'bg-status-success' : 'bg-status-warning'
+                  isReady ? 'bg-status-success' : 'bg-status-warning'
                 }`}
               />
             </div>
