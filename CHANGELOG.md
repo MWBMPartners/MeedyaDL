@@ -50,7 +50,6 @@ Fix React infinite re-render loop (error #185) that caused the UI to
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
 
 ## [0.1.2] - 2026-02-12
 
@@ -68,8 +67,6 @@ Add Google's release-please to automatically create Release PRs when
 
 ### 📚 Documentation
 
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Add macOS Gatekeeper fix to release notes
 
@@ -107,8 +104,6 @@ Mock navigator.userAgent with a known Windows UA string instead of
 
 ### 📚 Documentation
 
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.1.0] - 2026-02-11
@@ -165,9 +160,6 @@ Replace `any` type with `Record<string, unknown>` for the lucide-react
 
 ### 📚 Documentation
 
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ---

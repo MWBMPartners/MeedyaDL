@@ -120,12 +120,69 @@ class ErrorBoundary extends React.Component<
 }
 
 /**
- * Global unhandled-rejection handler -- catches async errors that escape React's
- * error boundary (e.g., uncaught promise rejections in event handlers or effects).
- * Logs to the console for DevTools debugging.
+ * Global error handlers -- catch errors that escape React's error boundary.
+ *
+ * React's ErrorBoundary only catches errors during rendering, lifecycle methods,
+ * and constructors. These two global handlers cover everything else:
+ *
+ * 1. `window.onerror` -- synchronous JS runtime errors (e.g., reference errors
+ *    in setTimeout callbacks, inline event handlers, or third-party scripts).
+ * 2. `unhandledrejection` -- async errors from uncaught promise rejections
+ *    (e.g., failed IPC calls where the caller forgot try/catch, or fire-and-forget
+ *    async functions that throw).
+ *
+ * Both handlers surface the error as a visible toast notification so the user
+ * knows something went wrong, rather than the app silently misbehaving.
+ * The toast is dispatched via Zustand's imperative `getState()` API since these
+ * handlers run outside of React's component tree.
+ *
+ * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/Window/error_event}
+ * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/Window/unhandledrejection_event}
+ */
+
+/**
+ * Synchronous JS error handler. Catches runtime errors that occur outside of
+ * React's render cycle (setTimeout, requestAnimationFrame, inline handlers, etc.).
+ * Returns `true` to suppress the default browser error logging (we log ourselves).
+ */
+window.onerror = (message, source, lineno, colno, error) => {
+  const errorMessage = error?.message || String(message);
+  console.error('Global error:', errorMessage, { source, lineno, colno, error });
+
+  // Surface the error to the user via toast (lazy-import to avoid circular deps)
+  try {
+    const { useUiStore } = require('./stores/uiStore');
+    useUiStore.getState().addToast(
+      `Unexpected error: ${errorMessage}`,
+      'error',
+      8000,
+    );
+  } catch {
+    // Store not available yet (app still booting) -- console.error above is enough
+  }
+};
+
+/**
+ * Unhandled promise rejection handler. Catches async errors that escape both
+ * React's error boundary and component-level try/catch blocks.
+ * Surfaces the error as a toast notification so the user sees feedback.
  */
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled Promise Rejection:', event.reason);
+  const reason = event.reason;
+  const errorMessage = reason instanceof Error ? reason.message : String(reason);
+  console.error('Unhandled Promise Rejection:', reason);
+
+  // Surface the error to the user via toast
+  try {
+    const { useUiStore } = require('./stores/uiStore');
+    useUiStore.getState().addToast(
+      `Async error: ${errorMessage}`,
+      'error',
+      8000,
+    );
+  } catch {
+    // Store not available yet (app still booting) -- console.error above is enough
+  }
 });
 
 /**
