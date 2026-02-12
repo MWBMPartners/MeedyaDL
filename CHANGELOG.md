@@ -6,6 +6,43 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Resolve blank screen on macOS/Windows release builds
+
+Fix React infinite re-render loop (error #185) that caused the UI to
+  flash briefly then go blank in production builds. Three root causes:
+
+  1. UpdateBanner: Zustand selector called getActiveUpdates() which uses
+     .filter(), creating a new array reference on every store change.
+     Zustand's Object.is() equality check always saw a new reference,
+     triggering cascading re-renders. Fixed by subscribing to raw data
+     (lastResult, dismissed) and deriving via useMemo.
+
+  2. Sidebar: Subscribed to isReady function reference (always stable)
+     instead of actual dependency state. The status dot never updated.
+     Fixed by subscribing to python/gamdl status objects directly.
+
+  3. App.tsx: Subscribed to entire settings object, causing full subtree
+     re-renders on any settings change. Narrowed to sidebar_collapsed.
+     Also replaced reactive isReady subscription with imperative
+     getState() check in initialization effect.
+
+  Additional changes:
+  - Add CSP connect-src for Tauri IPC (ipc: http://ipc.localhost)
+  - Add ErrorBoundary to main.tsx for visible crash diagnostics
+  - Add Vite build config (target, envPrefix) per Tauri 2.0 guide
+  - Enable devtools Cargo feature for WebView inspection
+  - Open DevTools automatically in debug builds
+  - Simplify Windows release: drop x86, produce only NSIS .exe (no .msi)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.1.2] - 2026-02-12
+
 ### ✨ Features
 
 - Integrate release-please for automated release PRs
