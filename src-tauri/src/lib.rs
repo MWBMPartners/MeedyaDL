@@ -213,6 +213,10 @@ pub fn run() {
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,
             commands::updates::check_component_update,
+            // Cookie management commands (browser detection, auto-import)
+            commands::cookies::detect_browsers,
+            commands::cookies::import_cookies_from_browser,
+            commands::cookies::check_full_disk_access,
         ])
 
         // ---------------------------------------------------------------

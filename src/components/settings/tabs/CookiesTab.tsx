@@ -56,7 +56,7 @@
 // @see https://react.dev/reference/react/useState
 // @see https://react.dev/reference/react/useMemo
 // @see https://react.dev/reference/react/useCallback
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 
 // Lucide icons used throughout the tab's various sub-components.
 // @see https://lucide.dev/icons/
@@ -73,6 +73,7 @@ import {
   Cookie,         // Tab/section header icon
   Info,           // "How to Export" section icon
   CircleDot,      // "Not set" status icon
+  Loader2,        // Loading spinner
 } from 'lucide-react';
 
 // Zustand store for reading the cookies_path and writing path updates.
@@ -85,8 +86,11 @@ import * as commands from '@/lib/tauri-commands';
 // Shared UI components used in the form controls and action buttons.
 import { FilePickerButton, Button, Tooltip } from '@/components/common';
 
-// TypeScript type for the validation result returned by the Rust backend.
-import type { CookieValidation } from '@/types';
+// TypeScript types for cookie data.
+import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
+
+// Platform detection hook for macOS-specific UI.
+import { usePlatform } from '@/hooks/usePlatform';
 
 // ============================================================
 // Constants
@@ -568,6 +572,23 @@ export function CookiesTab() {
    */
   const [copySuccess, setCopySuccess] = useState(false);
 
+  /* ---- Auto-import state ---- */
+  /** List of detected browsers for auto-import */
+  const [browsers, setBrowsers] = useState<DetectedBrowser[]>([]);
+  /** Whether browser detection is in progress */
+  const [isDetecting, setIsDetecting] = useState(true);
+  /** Whether a cookie import is in progress */
+  const [isImporting, setIsImporting] = useState(false);
+  /** Which browser is currently selected in the dropdown */
+  const [selectedBrowser, setSelectedBrowser] = useState<string>('');
+  /** Result of the most recent auto-import */
+  const [importResult, setImportResult] = useState<CookieImportResult | null>(null);
+  /** Error message from a failed import */
+  const [importError, setImportError] = useState<string | null>(null);
+
+  /* ---- Platform detection ---- */
+  const { platform } = usePlatform();
+
   /* ---- Derived values ---- */
   /**
    * Compute the overall cookie status from the current path and
@@ -578,7 +599,81 @@ export function CookiesTab() {
     [settings.cookies_path, validation],
   );
 
+  /* ---- Effects ---- */
+
+  /**
+   * Detect installed browsers on mount for the auto-import dropdown.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    async function detect() {
+      try {
+        const detected = await commands.detectBrowsers();
+        if (!cancelled) {
+          setBrowsers(detected);
+          // Pre-select the first browser if available
+          if (detected.length > 0) {
+            setSelectedBrowser(detected[0].id);
+          }
+        }
+      } catch {
+        // Browser detection failed -- auto-import section will be hidden
+      }
+      if (!cancelled) {
+        setIsDetecting(false);
+      }
+    }
+    detect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /* ---- Handlers ---- */
+
+  /**
+   * Handles the auto-import button click. Extracts cookies from the
+   * selected browser and updates settings on success.
+   */
+  const handleBrowserImport = useCallback(async () => {
+    if (!selectedBrowser) return;
+
+    // Safari on macOS: check FDA first
+    if (selectedBrowser === 'safari' && platform === 'macos') {
+      try {
+        const hasFda = await commands.checkFullDiskAccess();
+        if (!hasFda) {
+          setImportError(
+            'Safari requires Full Disk Access. Go to System Settings > Privacy & Security > Full Disk Access and add GAMDL.',
+          );
+          return;
+        }
+      } catch {
+        setImportError('Unable to check Full Disk Access status.');
+        return;
+      }
+    }
+
+    setIsImporting(true);
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      const result = await commands.importCookiesFromBrowser(selectedBrowser);
+      setImportResult(result);
+
+      // Update settings store if import was successful
+      if (result.success && result.path) {
+        updateSettings({ cookies_path: result.path });
+        setValidation(null); // Clear manual validation since we have fresh cookies
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setImportError(message);
+    }
+
+    setIsImporting(false);
+  }, [selectedBrowser, platform, updateSettings]);
 
   /**
    * Validates the currently selected cookies file by invoking the
@@ -682,7 +777,110 @@ export function CookiesTab() {
       </div>
 
       {/* ============================================================
-          Section 3: Expandable Browser Instructions
+          Section 2.5: Auto-Import from Browser
+          Quick re-import option for when cookies expire. Shows a
+          browser dropdown and an import button.
+          ============================================================ */}
+      {!isDetecting && browsers.length > 0 && (
+        <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
+          <div className="flex items-center gap-2.5 mb-2">
+            <Globe size={16} className="text-accent flex-shrink-0" />
+            <h4 className="text-xs font-medium text-content-primary">
+              Import from Browser
+            </h4>
+          </div>
+
+          {/* Browser selector and import button */}
+          <div className="flex items-center gap-2">
+            <select
+              aria-label="Select browser for cookie import"
+              className="
+                flex-1 px-3 py-1.5 text-sm rounded-platform
+                border border-border-light bg-surface-primary
+                text-content-primary
+                focus:outline-none focus:ring-2 focus:ring-accent/50
+              "
+              value={selectedBrowser}
+              onChange={(e) => {
+                setSelectedBrowser(e.target.value);
+                setImportResult(null);
+                setImportError(null);
+              }}
+              disabled={isImporting}
+            >
+              {browsers.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.requires_fda ? ' (requires Full Disk Access)' : ''}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={isImporting}
+              onClick={handleBrowserImport}
+              disabled={!selectedBrowser}
+            >
+              Import Cookies
+            </Button>
+          </div>
+
+          {/* Privacy notice */}
+          <p className="text-xs text-content-tertiary">
+            Reads only Apple Music cookies (apple.com, mzstatic.com) from your browser. No other data is accessed.
+          </p>
+
+          {/* Import result */}
+          {importResult && (
+            <div
+              className={`p-3 rounded-platform border text-xs ${
+                importResult.success
+                  ? 'border-status-success bg-green-50 dark:bg-green-950'
+                  : 'border-status-error bg-red-50 dark:bg-red-950'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                {importResult.success ? (
+                  <CheckCircle size={14} className="text-status-success" />
+                ) : (
+                  <XCircle size={14} className="text-status-error" />
+                )}
+                <span className="font-medium text-content-primary">
+                  {importResult.success ? 'Cookies Imported' : 'Import Failed'}
+                </span>
+              </div>
+              <p className="text-content-secondary ml-5">
+                {importResult.apple_music_cookies} Apple Music cookies imported
+              </p>
+              {importResult.warnings.map((w, i) => (
+                <p key={i} className="text-status-warning ml-5">{w}</p>
+              ))}
+            </div>
+          )}
+
+          {/* Import error */}
+          {importError && (
+            <div className="p-3 rounded-platform border border-status-error bg-red-50 dark:bg-red-950 text-xs">
+              <div className="flex items-center gap-1.5">
+                <XCircle size={14} className="text-status-error flex-shrink-0" />
+                <p className="text-status-error">{importError}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading indicator for browser detection */}
+      {isDetecting && (
+        <div className="flex items-center gap-2 py-2 text-xs text-content-tertiary">
+          <Loader2 size={14} className="animate-spin" />
+          Detecting browsers...
+        </div>
+      )}
+
+      {/* ============================================================
+          Section 3: Expandable Browser Instructions (Manual Import)
           Collapsible accordion with per-browser step-by-step guides
           for exporting cookies in Netscape format.
           ============================================================ */}
