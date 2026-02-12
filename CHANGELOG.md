@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Update version to 0.1.3 in Cargo.lock and enhance project documentation
+
+## [0.1.3] - 2026-02-12
+
 ### 🐛 Bug Fixes
 
 - Resolve blank screen on macOS/Windows release builds
