@@ -223,27 +223,62 @@ function ImportResultPanel({
 }: {
   result: CookieImportResult;
 }) {
+  /* Determine display state: success with cookies, success but empty, or failure */
+  const hasAppleCookies = result.success && result.apple_music_cookies > 0;
+  const isEmptyImport = result.success && result.apple_music_cookies === 0;
+
   return (
     <div
       className={`p-4 rounded-platform border ${
-        result.success
+        hasAppleCookies
           ? 'border-status-success bg-green-50 dark:bg-green-950'
-          : 'border-status-error bg-red-50 dark:bg-red-950'
+          : isEmptyImport
+            ? 'border-status-warning bg-yellow-50 dark:bg-yellow-950'
+            : 'border-status-error bg-red-50 dark:bg-red-950'
       }`}
     >
       <div className="flex items-center gap-2 mb-2">
-        {result.success ? (
+        {hasAppleCookies ? (
           <CheckCircle size={16} className="text-status-success" />
+        ) : isEmptyImport ? (
+          <AlertTriangle size={16} className="text-status-warning" />
         ) : (
           <XCircle size={16} className="text-status-error" />
         )}
         <span className="text-sm font-medium text-content-primary">
-          {result.success ? 'Cookies Imported Successfully' : 'Import Failed'}
+          {hasAppleCookies
+            ? 'Cookies Imported Successfully'
+            : isEmptyImport
+              ? 'No Apple Music Cookies Found'
+              : 'Import Failed'}
         </span>
       </div>
       <div className="text-xs text-content-secondary space-y-1 ml-6">
-        <p>{result.apple_music_cookies} Apple Music cookies imported</p>
-        <p>{result.cookie_count} total cookies extracted</p>
+        {hasAppleCookies && (
+          <>
+            <p>{result.apple_music_cookies} Apple Music cookies imported</p>
+            <p>{result.cookie_count} total cookies extracted</p>
+          </>
+        )}
+        {isEmptyImport && (
+          <>
+            <p>
+              This browser has no Apple Music cookies. Make sure you are logged
+              in to{' '}
+              <span className="font-medium text-content-primary">
+                music.apple.com
+              </span>{' '}
+              in your browser, then try again.
+            </p>
+            <p className="mt-1">
+              Tip: Visit music.apple.com, sign in with your Apple ID, then
+              come back here and click Import again.
+            </p>
+          </>
+        )}
+        {!result.success && (
+          <p>{result.warnings.length > 0 ? result.warnings[0] : 'Cookie extraction failed.'}</p>
+        )}
         {result.warnings.map((w, i) => (
           <p key={i} className="text-status-warning">
             {w}
@@ -343,10 +378,13 @@ export function CookiesStep() {
   }, []);
 
   /**
-   * Auto-complete this step when auto-import succeeds.
+   * Auto-complete this step when auto-import succeeds AND Apple Music
+   * cookies were actually found. An import with 0 Apple Music cookies
+   * is technically "successful" (no errors) but shouldn't complete the
+   * step because GAMDL won't be able to authenticate.
    */
   useEffect(() => {
-    if (importResult?.success) {
+    if (importResult?.success && importResult.apple_music_cookies > 0) {
       completeStep('cookies');
     }
   }, [importResult, completeStep]);

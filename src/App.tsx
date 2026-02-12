@@ -456,8 +456,14 @@ function App() {
       try {
         /* Subscribe to gamdl-output events with typed payload */
         unlisten = await listen<GamdlProgress>('gamdl-output', (event) => {
-          /* Delegate to the download store to update queue item state */
-          handleProgressEvent(event.payload);
+          /* Delegate to the download store to update queue item state.
+           * Wrapped in try/catch because event handler errors are NOT caught
+           * by React's ErrorBoundary (they run outside the render cycle). */
+          try {
+            handleProgressEvent(event.payload);
+          } catch (err) {
+            console.error('Error in gamdl-output handler:', err);
+          }
         });
       } catch {
         /* Tauri API unavailable (running in browser dev mode) */
@@ -508,18 +514,30 @@ function App() {
 
     const setupListeners = async () => {
       try {
-        /* 1. Download completed successfully */
+        /* 1. Download completed successfully.
+         * All lifecycle handlers are wrapped in try/catch because event handler
+         * errors run outside React's render cycle and won't be caught by the
+         * ErrorBoundary. Without this, a single handler crash would silently
+         * break download status updates for the rest of the session. */
         unlistenComplete = await listen<string>('download-complete', (event) => {
-          handleDownloadComplete(event.payload); // payload is the download_id string
-          refreshQueue(); // re-fetch full queue to sync UI with backend state
+          try {
+            handleDownloadComplete(event.payload);
+            refreshQueue();
+          } catch (err) {
+            console.error('Error in download-complete handler:', err);
+          }
         });
 
         /* 2. Download failed with an error */
         unlistenError = await listen<{ download_id: string; error: string }>(
           'download-error',
           (event) => {
-            handleDownloadError(event.payload.download_id, event.payload.error);
-            refreshQueue();
+            try {
+              handleDownloadError(event.payload.download_id, event.payload.error);
+              refreshQueue();
+            } catch (err) {
+              console.error('Error in download-error handler:', err);
+            }
           },
         );
 
@@ -527,13 +545,21 @@ function App() {
         unlistenCancelled = await listen<string>(
           'download-cancelled',
           (event) => {
-            handleDownloadCancelled(event.payload); // payload is the download_id string
+            try {
+              handleDownloadCancelled(event.payload);
+            } catch (err) {
+              console.error('Error in download-cancelled handler:', err);
+            }
           },
         );
 
         /* 4. New download queued or existing one retried */
         unlistenQueued = await listen('download-queued', () => {
-          refreshQueue(); // re-fetch to pick up the new/retried item
+          try {
+            refreshQueue();
+          } catch (err) {
+            console.error('Error in download-queued handler:', err);
+          }
         });
       } catch {
         /* Tauri API unavailable (running in browser dev mode) */

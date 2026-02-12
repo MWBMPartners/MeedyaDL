@@ -29,7 +29,7 @@
  *
  *  - {@link useDownloadStore} -- URL input state, validation state,
  *    override options, and the `submitDownload()` action.
- *  - {@link useSettingsStore} -- reads `settings.default_song_codec` to
+ *  - {@link useSettingsStore} -- reads `defaultSongCodec` to
  *    display the current default in the quality overrides section.
  *  - {@link useUiStore}       -- `addToast()` for success/error notifications.
  *
@@ -206,10 +206,14 @@ export function DownloadForm() {
   /** Sets (or clears) per-download quality overrides. */
   const setOverrideOptions = useDownloadStore((s) => s.setOverrideOptions);
   /**
-   * Global application settings -- used here to display the current
-   * default codec in the quality overrides section header.
+   * Narrow Zustand selectors for the two settings fields actually used by
+   * this component. Subscribing to the full `settings` object would cause
+   * DownloadForm to re-render on ANY setting change (language, lyrics,
+   * output dir, etc.), which is wasteful and risks re-render loops.
+   * @see debugging.md -- "Key Zustand Lesson" on selector anti-patterns
    */
-  const settings = useSettingsStore((s) => s.settings);
+  const defaultSongCodec = useSettingsStore((s) => s.settings.default_song_codec);
+  const defaultVideoResolution = useSettingsStore((s) => s.settings.default_video_resolution);
   /** Shows a toast notification (success/error) after submission. */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -453,7 +457,7 @@ export function DownloadForm() {
             <span>
               Quality Overrides{' '}
               <span className="text-content-tertiary">
-                (default: {SONG_CODEC_LABELS[settings.default_song_codec]})
+                (default: {SONG_CODEC_LABELS[defaultSongCodec]})
               </span>
             </span>
             {/* Chevron icon flips based on expand/collapse state */}
@@ -505,7 +509,7 @@ export function DownloadForm() {
                * Populated from `VIDEO_RESOLUTION_LABELS` (e.g., '2160p' -> '4K (2160p)').
                * Works identically to the audio codec dropdown above.
                * The resolution value is cast to the `VideoResolution` type
-               * via `as typeof settings.default_video_resolution`.
+               * via `as typeof defaultVideoResolution`.
                */}
               <Select
                 label="Video Resolution"
@@ -518,7 +522,7 @@ export function DownloadForm() {
                     res
                       ? {
                           ...overrideOptions,
-                          music_video_resolution: res as typeof settings.default_video_resolution,
+                          music_video_resolution: res as typeof defaultVideoResolution,
                         }
                       : null,
                   );
