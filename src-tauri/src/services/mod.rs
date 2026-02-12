@@ -82,3 +82,12 @@ pub mod download_queue;
 /// Releases (for Python, FFmpeg, mp4decrypt, etc.) to determine whether
 /// newer versions are available, and provides an upgrade function for GAMDL.
 pub mod update_checker;
+
+/// Browser cookie extraction service: detects installed browsers,
+/// extracts Apple Music cookies using the `rookie` crate, converts
+/// them to Netscape format, and saves them to the app data directory.
+///
+/// Handles platform-specific concerns: macOS Keychain access for
+/// Chromium browsers, Full Disk Access detection for Safari, Windows
+/// DPAPI decryption, and Linux D-Bus Secret Service integration.
+pub mod cookie_service;

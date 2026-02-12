@@ -74,3 +74,9 @@ pub mod credentials;
 /// Provides `check_all_updates`, `upgrade_gamdl`, and
 /// `check_component_update`. Delegates to `services::update_checker`.
 pub mod updates;
+
+/// Cookie management commands (browser detection, auto-import, FDA check).
+///
+/// Provides `detect_browsers`, `import_cookies_from_browser`, and
+/// `check_full_disk_access`. Delegates to `services::cookie_service`.
+pub mod cookies;
