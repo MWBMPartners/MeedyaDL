@@ -238,6 +238,18 @@ pub fn run() {
                 std::env::consts::ARCH,
             );
 
+            // Open WebView DevTools in debug builds or when devtools feature is enabled.
+            // This allows inspecting the DOM, Console, and Network tabs to diagnose
+            // rendering issues. In release builds, devtools are available via the
+            // "devtools" Cargo feature flag but not opened automatically.
+            #[cfg(debug_assertions)]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
+
             // Ensure the application data directory exists
             // This is where Python, GAMDL, tools, and settings are stored
             let app_data_dir = utils::platform::get_app_data_dir(app.handle());

@@ -77,7 +77,7 @@ tauri-build = { version = "2", features = [] }
 # Feature "tray-icon": Enables system tray icon support (menu bar on macOS,
 # notification area on Windows/Linux). Configured in tauri.conf.json "trayIcon".
 # @see https://v2.tauri.app/reference/rust/tauri/
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "devtools"] }
 
 # tauri-plugin-shell -- Execute shell commands and manage child processes.
 # Used to spawn the GAMDL Python process, capture stdout/stderr for progress
