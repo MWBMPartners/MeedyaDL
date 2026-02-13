@@ -6,8 +6,32 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add browser cookie extraction service and auto-import functionality
+
+- Introduced `cookie_service` module for extracting Apple Music cookies from installed browsers.
+  - Implemented auto-import feature in `CookiesTab` and `CookiesStep` components, allowing users to extract cookies with a single click.
+  - Added platform-specific handling for macOS (Keychain access and Full Disk Access for Safari).
+  - Enhanced user interface with loading indicators, error handling, and validation results for cookie imports.
+  - Updated TypeScript types to support new cookie import functionalities, including `DetectedBrowser` and `CookieImportResult`.
+  - Refactored existing components to accommodate the new auto-import feature and improve user experience.
+
+- Add embedded Apple Music login window service and UI integration
+
+- Introduced `login_window_service` to manage Apple Music authentication via an embedded webview.
+  - Updated `CookiesTab` and `CookiesStep` components to support direct login, including event handling for cookie extraction.
+  - Enhanced user experience with loading states and manual extraction options.
+  - Added Tauri commands for opening, extracting cookies from, and closing the login window.
+
+
+### 🐛 Bug Fixes
+
+- Enhance error handling and improve cookie import feedback
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
@@ -50,6 +74,7 @@ Fix React infinite re-render loop (error #185) that caused the UI to
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.1.2] - 2026-02-12
 
@@ -67,6 +92,8 @@ Add Google's release-please to automatically create Release PRs when
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Add macOS Gatekeeper fix to release notes
 
@@ -104,6 +131,8 @@ Mock navigator.userAgent with a known Windows UA string instead of
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.1.0] - 2026-02-11
@@ -160,6 +189,9 @@ Replace `any` type with `Record<string, unknown>` for the lucide-react
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ---
