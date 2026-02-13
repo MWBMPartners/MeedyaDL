@@ -217,6 +217,10 @@ pub fn run() {
             commands::cookies::detect_browsers,
             commands::cookies::import_cookies_from_browser,
             commands::cookies::check_full_disk_access,
+            // Embedded Apple Music login window commands
+            commands::login_window::open_apple_login,
+            commands::login_window::extract_login_cookies,
+            commands::login_window::close_apple_login,
         ])
 
         // ---------------------------------------------------------------
