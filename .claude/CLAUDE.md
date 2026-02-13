@@ -98,6 +98,20 @@ For this project (component name from `package.json` `name` field):
 
 The `.release-please-manifest.json` must match the current version to avoid release-please trying to create releases from an old version.
 
+## Planned Service Integrations
+
+| Milestone | Version | Service | Engine | Key Notes |
+|-----------|---------|---------|--------|-----------|
+| M7 | v0.4.0 | Spotify | [votify](https://github.com/glomatico/votify) | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support |
+| M8 | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | pip install, shared with BBC iPlayer; video-first service with format selection |
+| M9 | v0.6.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Reuses yt-dlp from M8; region-restricted (UK VPN may be required) |
+
+Architectural changes planned across milestones:
+- **Rename `MusicService` → `MediaService`** (trait, enum, types) since BBC iPlayer and YouTube aren't music-only
+- **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine
+- **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service)
+- **Shared dependency management** — yt-dlp installed once, shared by YouTube and BBC iPlayer
+
 ## Build Targets
 
 | Platform | Architecture | Format | Notes |

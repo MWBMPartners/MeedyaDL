@@ -114,6 +114,16 @@
 - [x] Manual workflow dispatch (workflow_dispatch on CI, Changelog, Release Please for conserving Actions minutes)
 - [x] Fix release-please branch naming (release-please--branches--main--components--meedyadl)
 
+### Planned Milestones
+
+| Milestone | Version | Service | Engine | Status |
+| --------- | ------- | ------- | ------ | ------ |
+| **M7** | v0.4.0 | Spotify | votify | Planned |
+| **M8** | v0.5.0 | YouTube | yt-dlp | Planned |
+| **M9** | v0.6.0 | BBC iPlayer | yt-dlp / get_iplayer | Planned |
+
+Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. The existing `MusicService` trait will be renamed to `MediaService` to accommodate non-music services. See [Project Plan](Project_Plan.md) for full milestone details.
+
 ---
 
 ## Known Issues / Blockers
