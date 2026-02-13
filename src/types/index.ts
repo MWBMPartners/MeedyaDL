@@ -563,6 +563,44 @@ export interface QueueStatus {
 }
 
 // ============================================================
+// Queue Export/Import Types
+// ============================================================
+
+/**
+ * Top-level schema for a `.meedyadl` queue export file.
+ *
+ * Mirrors: Rust struct `QueueExportFile` in `src-tauri/src/services/download_queue.rs`
+ *
+ * Used for cross-device queue transfer: export on one machine, import on another.
+ * The `version` field enables forward-compatible schema evolution.
+ */
+export interface QueueExportFile {
+  /** Schema version (always 1 for the initial format) */
+  version: number;
+  /** Application identifier (always "MeedyaDL") */
+  app: string;
+  /** ISO 8601 timestamp of when the export was created */
+  exported_at: string;
+  /** The queue items included in the export */
+  items: ExportedItem[];
+}
+
+/**
+ * A single item within a `.meedyadl` export file.
+ *
+ * Mirrors: Rust struct `ExportedItem` in `src-tauri/src/services/download_queue.rs`
+ *
+ * Contains only URLs and per-download overrides; the importing device
+ * merges these with its own global settings on import.
+ */
+export interface ExportedItem {
+  /** Apple Music URL(s) for this download */
+  urls: string[];
+  /** Per-download quality/format overrides (null = use importing device's defaults) */
+  options: GamdlOptions | null;
+}
+
+// ============================================================
 // Dependency Types
 // ============================================================
 

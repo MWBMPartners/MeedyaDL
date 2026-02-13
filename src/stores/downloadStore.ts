@@ -192,6 +192,22 @@ interface DownloadState {
    */
   refreshQueue: () => Promise<void>;
 
+  /**
+   * Export the current queue to a `.meedyadl` file via a native save dialog.
+   * IPC call: `commands.exportQueue()` -> Rust `export_queue`
+   * Only non-terminal items (queued/active) are exported.
+   * @returns The count of items exported
+   */
+  exportQueue: () => Promise<number>;
+
+  /**
+   * Import queue items from a `.meedyadl` file via a native file picker.
+   * IPC call: `commands.importQueue()` -> Rust `import_queue`
+   * Imported items are enqueued and processing starts automatically.
+   * @returns The count of items imported
+   */
+  importQueue: () => Promise<number>;
+
   // ---------------------------------------------------------------------------
   // Tauri event handlers (called by event listeners, NOT by components directly)
   // ---------------------------------------------------------------------------
@@ -407,6 +423,39 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       set({ queueItems: status.items });
     } catch (e) {
       set({ error: String(e) });
+    }
+  },
+
+  /**
+   * Export the current queue to a `.meedyadl` file.
+   * IPC call: `commands.exportQueue()` -> Rust `export_queue`
+   * Opens a native save dialog. Returns the count of exported items.
+   */
+  exportQueue: async () => {
+    try {
+      const count = await commands.exportQueue();
+      return count;
+    } catch (e) {
+      set({ error: String(e) });
+      return 0;
+    }
+  },
+
+  /**
+   * Import queue items from a `.meedyadl` file.
+   * IPC call: `commands.importQueue()` -> Rust `import_queue`
+   * Opens a native file picker. Refreshes the queue after import.
+   */
+  importQueue: async () => {
+    try {
+      const count = await commands.importQueue();
+      // Refresh the queue to include the newly imported items
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+      return count;
+    } catch (e) {
+      set({ error: String(e) });
+      return 0;
     }
   },
 

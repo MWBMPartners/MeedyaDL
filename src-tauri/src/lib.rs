@@ -205,6 +205,9 @@ pub fn run() {
             commands::gamdl::clear_queue,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
+            // Queue export/import commands
+            commands::gamdl::export_queue,
+            commands::gamdl::import_queue,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
@@ -390,6 +393,61 @@ pub fn run() {
                 .build(app)?;
 
             log::info!("System tray icon initialized");
+
+            // -------------------------------------------------------
+            // Queue Persistence: Restore on Startup
+            // -------------------------------------------------------
+            // Load any persisted queue items from `queue.json` (written
+            // after every queue mutation in the previous session). If items
+            // exist, restore them to the queue in Queued state and start
+            // processing after a short delay (2 seconds) to give the
+            // frontend event listeners time to initialise.
+            //
+            // This provides crash recovery: if the app closes (or crashes)
+            // while downloads are queued/active, those items are restored
+            // and automatically resumed on next launch.
+            {
+                let app_handle = app.handle().clone();
+                let persisted_items = services::download_queue::load_queue_from_disk(&app_handle);
+                if !persisted_items.is_empty() {
+                    let count = persisted_items.len();
+                    let settings = services::config_service::load_settings(&app_handle)
+                        .unwrap_or_default();
+
+                    // Get the queue handle from managed state
+                    use tauri::Manager;
+                    let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> =
+                        app.state();
+                    let queue_arc = queue_handle.inner().clone();
+
+                    // Restore items synchronously (we can block briefly in setup)
+                    {
+                        let rt = tokio::runtime::Handle::current();
+                        rt.block_on(async {
+                            let mut q = queue_arc.lock().await;
+                            q.restore_items(persisted_items, &settings);
+                        });
+                    }
+
+                    log::info!(
+                        "Queue restored: {} item(s) will resume after frontend initialises",
+                        count
+                    );
+
+                    // Spawn a delayed task to start processing the restored queue.
+                    // The 2-second delay ensures the frontend's Tauri event listeners
+                    // are registered before downloads start emitting events.
+                    let queue_for_processing = queue_arc;
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        services::download_queue::process_queue(
+                            app_handle,
+                            queue_for_processing,
+                        )
+                        .await;
+                    });
+                }
+            }
 
             Ok(())
         })
