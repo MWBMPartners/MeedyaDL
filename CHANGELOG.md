@@ -46,7 +46,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Updated `README.md` feature list, version badge, roadmap, and project structure tree.
 - Updated `PROJECT_STATUS.md` with new feature entries and workflow improvements.
 - Updated `.claude/CLAUDE.md` architecture notes with companion mode, codec suffix, metadata tagging, skip-ci workflow, and release-please branch naming.
-- Updated `Project_Plan.md` with post-release v0.2.0-v0.3.0 features.
+- Updated `Project_Plan.md` with post-release v0.2.0-v0.3.0 features and future roadmap milestones (Spotify v0.4.0, YouTube v0.5.0, BBC iPlayer v0.6.0).
+- Updated `README.md` roadmap with planned milestone table and beyond-v0.6.0 future section.
+- Updated `PROJECT_STATUS.md` with planned milestones table.
+- Updated `.claude/CLAUDE.md` with planned service integration notes.
 
 ## [0.1.4] - 2026-02-12
 
