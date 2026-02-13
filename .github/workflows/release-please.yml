@@ -98,7 +98,11 @@ jobs:
         if: steps.release.outputs.prs_created == 'true'
         uses: actions/checkout@v4
         with:
-          ref: release-please--branches--main
+          # release-please branch naming: release-please--branches--{target}--components--{component}
+          # Component name comes from package.json "name" field (meedyadl).
+          # Previously this was hardcoded as "release-please--branches--main" which
+          # doesn't match the actual branch and caused checkout failures.
+          ref: release-please--branches--main--components--meedyadl
           token: ${{ secrets.RELEASE_PAT }}
 
       # Step 3: Set up Rust toolchain for Cargo.lock regeneration.
