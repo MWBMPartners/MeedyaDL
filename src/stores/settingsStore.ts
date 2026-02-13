@@ -93,6 +93,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   save_cover: true,              // Save album artwork alongside audio files
   cover_format: 'raw',           // Keep original artwork format (usually JPEG from Apple)
   cover_size: 10000,             // Request maximum available artwork resolution from Apple CDN
+  // Animated artwork (motion cover art) -- requires MusicKit credentials
+  animated_artwork_enabled: false, // Disabled by default; needs Apple Developer setup
+  musickit_team_id: null,          // Apple Developer Team ID (10-char)
+  musickit_key_id: null,           // MusicKit private key identifier (10-char)
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',

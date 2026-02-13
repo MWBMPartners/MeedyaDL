@@ -86,3 +86,10 @@ pub mod cookies;
 /// Provides `open_apple_login`, `extract_login_cookies`, and
 /// `close_apple_login`. Delegates to `services::login_window_service`.
 pub mod login_window;
+
+/// Animated artwork download commands (manual trigger for album artwork).
+///
+/// Provides `download_animated_artwork` for explicitly fetching animated
+/// cover art from Apple Music for a specific album. Delegates to
+/// `services::animated_artwork_service` for the actual API query and download.
+pub mod artwork;

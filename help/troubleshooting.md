@@ -119,7 +119,7 @@ Windows SmartScreen may block the installer or the application from running beca
 - **Solution:**
   1. When the SmartScreen dialog appears, click **More info**.
   2. Click **Run anyway** to proceed.
-  3. If the MSI installer fails to run or install correctly, download and use the .exe (NSIS) installer instead, which may have better compatibility with your system configuration.
+  3. If the installer fails to run or install correctly, try downloading the installer again. If the issue persists, check that your system meets the minimum requirements (Windows 10 or later).
 
 ##### Linux
 

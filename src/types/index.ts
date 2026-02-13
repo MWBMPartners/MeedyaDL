@@ -359,6 +359,12 @@ export interface AppSettings {
   cover_format: CoverFormat;
   /** Default pixel dimensions for cover art */
   cover_size: number;
+  /** Whether to download animated cover art (motion artwork) from Apple Music */
+  animated_artwork_enabled: boolean;
+  /** Apple MusicKit Team ID for API authentication (10-char, e.g. "ABCDE12345") */
+  musickit_team_id: string | null;
+  /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */
+  musickit_key_id: string | null;
   /** Template for album folder naming */
   album_folder_template: string;
   /** Template for compilation album folder naming */
@@ -893,4 +899,24 @@ export interface UpdateCheckResult {
   components: ComponentUpdate[];
   /** Non-fatal error messages from the update check process */
   errors: string[];
+}
+
+// ============================================================
+// Animated Artwork Types
+// ============================================================
+
+/**
+ * Result of an animated artwork download attempt.
+ *
+ * Mirrors: Rust struct `ArtworkResult` in
+ * `src-tauri/src/services/animated_artwork_service.rs`
+ *
+ * Returned by the `download_animated_artwork` Tauri command after
+ * attempting to fetch and save animated cover art for an album.
+ */
+export interface ArtworkResult {
+  /** Whether the square (1:1) animated cover was downloaded as FrontCover.mp4 */
+  square_downloaded: boolean;
+  /** Whether the portrait (3:4) animated cover was downloaded as PortraitCover.mp4 */
+  portrait_downloaded: boolean;
 }

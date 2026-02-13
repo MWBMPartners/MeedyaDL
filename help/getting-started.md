@@ -17,7 +17,7 @@ This guide walks you through the first-time setup of MeedyaDL, from system requi
 MeedyaDL is available on the following platforms:
 
 - **macOS 11.0+** (Big Sur or later) -- Apple Silicon (.dmg)
-- **Windows x64 / ARM64** -- Installer (.msi) or portable executable (.exe)
+- **Windows x64 / ARM64** -- NSIS installer (.exe)
 - **Linux x64** -- Debian package (.deb) or AppImage (.AppImage)
 - **Raspberry Pi** -- ARM64 (64-bit Raspberry Pi OS)
 
@@ -33,7 +33,7 @@ MeedyaDL has **no special software prerequisites**. All dependencies -- includin
 The only things you need before using MeedyaDL are:
 
 - A valid Apple Music subscription for accessing content
-- A supported web browser (Safari, Chrome, Firefox, Edge, etc.) for exporting your Apple Music cookies (see [Cookie Management](cookie-management.md))
+- A way to provide your Apple Music cookies -- either via the built-in login window, browser auto-import, or manual export from a browser extension (see [Cookie Management](cookie-management.md))
 
 ---
 
@@ -56,7 +56,7 @@ You only need to do this once. Subsequent launches will work normally.
 
 ### Windows
 
-1. Download the `.msi` installer (recommended) or the standalone `.exe` for your architecture (x64 or ARM64).
+1. Download the `.exe` installer for your architecture (x64 or ARM64).
 2. Run the installer and follow the on-screen prompts.
 3. Launch MeedyaDL from the Start Menu or desktop shortcut.
 
@@ -102,17 +102,15 @@ The wizard handles everything automatically. Simply follow the prompts and wait 
 
 ### Setting Up Cookies
 
-Before you can download any content, you must provide your Apple Music cookies. These cookies authenticate MeedyaDL with Apple Music on your behalf.
+Before you can download any content, you must provide your Apple Music cookies. These cookies authenticate MeedyaDL with Apple Music on your behalf. MeedyaDL offers three ways to set up cookies:
 
-You need to export your Apple Music cookies from your web browser in **Netscape cookie format**. This is a standard format supported by browser extensions such as "Get cookies.txt LOCALLY" or "cookies.txt".
+1. **Built-in Apple Music login** (easiest) -- Sign in to Apple Music directly within the app. MeedyaDL opens a login window, you sign in with your Apple ID, and the cookies are extracted automatically. No browser extensions needed.
 
-To export your cookies:
+2. **Browser auto-import** -- MeedyaDL can detect installed browsers (Chrome, Firefox, Edge, Safari, etc.) and automatically extract your Apple Music cookies from them. You must already be signed in to music.apple.com in that browser.
 
-1. Log in to [Apple Music](https://music.apple.com) in your web browser.
-2. Use a cookie export extension to save your cookies in Netscape format.
-3. Import the cookie file when prompted by the setup wizard, or at any time via the application's cookie management interface.
+3. **Manual cookie file import** -- Export your cookies from your browser in **Netscape cookie format** using a browser extension such as "Get cookies.txt LOCALLY" or "cookies.txt", then import the file into MeedyaDL.
 
-For detailed instructions, supported browsers, and troubleshooting cookie issues, see [Cookie Management](cookie-management.md).
+For detailed instructions on all three methods, supported browsers, and troubleshooting cookie issues, see [Cookie Management](cookie-management.md).
 
 ### Choosing an Output Directory
 
@@ -126,7 +124,7 @@ To change the output directory:
 
 ### Configuring Default Quality
 
-The default audio codec is **AAC**, which provides good quality at reasonable file sizes and is widely compatible.
+The default audio codec is **ALAC** (Apple Lossless), which provides the highest quality lossless audio. If you prefer smaller file sizes, you can switch to AAC.
 
 To change the default quality:
 

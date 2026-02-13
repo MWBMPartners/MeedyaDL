@@ -6,11 +6,11 @@
 
 ## Current Version
 
-**v0.1.0** (Pre-release)
+**v0.1.3** (Released 2026-02-12)
 
 ## Overall Status
 
-### Phase 6 — Polish & Release (COMPLETE)
+### All 6 Phases COMPLETE + Post-Release Features
 
 ---
 
@@ -55,7 +55,7 @@
 - [x] Download form (URL input with content-type detection, quality overrides)
 - [x] Settings pages (9 tabs: General, Quality, Fallback, Paths, Cookies, Lyrics, Cover Art, Templates, Advanced)
 - [x] First-run setup wizard (6 steps: Welcome, Python, GAMDL, Dependencies, Cookies, Complete)
-- [x] Help viewer (9 topics with sidebar navigation, ReactMarkdown rendering)
+- [x] Help viewer (11 topics with sidebar navigation, ReactMarkdown rendering)
 - [x] URL parser (Apple Music content type detection)
 - [x] App.tsx routing (setup wizard vs main app, event listeners)
 
@@ -92,11 +92,20 @@
 - [x] Fix CI workflow (add lint step, fix test discovery)
 - [x] Fix changelog workflow (remove unnecessary GitHub API calls)
 - [x] Detailed code comments on all 70+ source files (Rust backend, React frontend, config, scripts, workflows, CSS)
-- [x] Complete help documentation (10 topics with full content: Getting Started, Downloading Music/Videos, Lyrics & Metadata, Quality Settings, Fallback Quality, Cookie Management, Troubleshooting, FAQ)
+- [x] Complete help documentation (11 topics with full content: Getting Started, Downloading Music/Videos, Lyrics & Metadata, Quality Settings, Fallback Quality, Cookie Management, Animated Artwork, Troubleshooting, FAQ)
 - [x] README finalization (fixed badges for private repo, fixed broken Project_Plan link)
 - [x] Platform testing (macOS Apple Silicon: frontend builds, Rust release compiles in 2m05s, GAMDL.app bundle created)
 - [x] Release workflow review (CI and Release workflows verified: matrix builds, concurrency, caching, Linux deps, artifact upload)
 - [x] Copyright year automation (expanded script to cover all 121 files, auto-detect macOS/Linux, self-corruption guard)
+
+### Post-Release Features (v0.1.1 — v0.1.3)
+
+- [x] Browser cookie auto-import service (detect installed browsers, extract cookies automatically)
+- [x] Embedded Apple Music login window (sign in directly in-app, extract cookies from webview)
+- [x] Enhanced error handling and cookie import feedback
+- [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4, PortraitCover.mp4)
+- [x] MusicKit credential management (Team ID, Key ID in settings; private key in OS keychain)
+- [x] Animated artwork help documentation page
 
 ---
 
@@ -108,7 +117,7 @@ _None at this time._
 
 ## Last Updated
 
-2026-02-11
+2026-02-12
 
 ---
 

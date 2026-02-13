@@ -101,7 +101,7 @@ When a download completes successfully, the item is marked as finished in the qu
 
 | Error Type | Cause | Resolution |
 | --- | --- | --- |
-| **auth** | Cookie is expired or invalid | Re-authenticate by updating your cookie in Settings. See [Authentication](authentication.md). |
+| **auth** | Cookie is expired or invalid | Re-authenticate by updating your cookie in Settings. See [Cookie Management](cookie-management.md). |
 | **network** | Connection timeout or server error | Network errors automatically retry 3 times with exponential backoff. If all retries fail, check your internet connection and use Retry. |
 | **codec** | Selected audio quality is unavailable for this track | The fallback chain runs automatically. If all codecs fail, the track may not be available in any downloadable format. |
 | **not_found** | Content has been removed from Apple Music | The song, album, or playlist no longer exists on Apple Music. No action can resolve this. |
@@ -160,7 +160,7 @@ When a fallback occurs, the queue item displays a fallback indicator so you know
 
 ## Tips and Best Practices
 
-- **Check cookie validity before large batch downloads.** If your authentication cookie has expired mid-way through a large playlist or artist download, all remaining tracks will fail with an auth error. Verify your cookie is current before starting. See [Authentication](authentication.md).
+- **Check cookie validity before large batch downloads.** If your authentication cookie has expired mid-way through a large playlist or artist download, all remaining tracks will fail with an auth error. Verify your cookie is current before starting. See [Cookie Management](cookie-management.md).
 - **Use ALAC for archival, AAC for everyday listening.** ALAC provides lossless quality but produces larger files (typically 30--50 MB per track). AAC at 256 kbps is effectively transparent for most listeners and uses roughly 7--10 MB per track.
 - **Albums download all tracks as a batch.** Submitting an album URL is more efficient than submitting individual song URLs, because metadata is fetched once for the whole album rather than per-track.
 - **Monitor the fallback indicator.** If you see frequent fallbacks, the codec you selected may not be widely available. Consider switching your default codec in [Quality Settings](quality-settings.md).

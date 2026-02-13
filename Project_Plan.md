@@ -25,14 +25,14 @@
 
 ### Platform Support
 
-| Platform | Architecture | Status | Priority |
-|----------|-------------|--------|----------|
-| macOS | Apple Silicon (ARM64) | 🟡 In Progress | Mandatory |
-| Windows | x64 | 🟡 In Progress | Mandatory |
-| Windows | ARM64 | 🔲 Planned | Mandatory |
-| Windows | x86 | 🔲 Planned | Mandatory |
-| Linux | x64 | 🔲 Planned | Good to have |
-| Raspberry Pi | ARM64 | 🔲 Planned | Good to have |
+| Platform | Architecture | Status | Format |
+|----------|-------------|--------|--------|
+| macOS | Apple Silicon (ARM64) | ✅ Complete | `.dmg` |
+| Windows | x64 (64-bit) | ✅ Complete | `.exe` (NSIS) |
+| Windows | ARM64 | ✅ Complete | `.exe` (NSIS) |
+| Linux | x64 | ✅ Complete | `.deb`, `.AppImage` |
+| Linux | ARM64 | ✅ Complete | `.deb` |
+| Linux | ARMv7 | ✅ Complete | `.deb` |
 
 ---
 
@@ -58,7 +58,7 @@ Replaced the old PyQt5 prototype with a modern Tauri 2.0 + React + TypeScript sc
 
 ## 🔧 Phase 2: Core Backend (Rust/Tauri)
 
-**Status:** 🔲 Planned
+**Status:** ✅ Complete
 
 Build the Rust services that power the application: Python management, GAMDL installation, dependency downloads, CLI command construction, settings, and credential storage.
 
@@ -101,7 +101,7 @@ Build the Rust services that power the application: Python management, GAMDL ins
 
 ## 🎨 Phase 3: Core UI
 
-**Status:** 🔲 Planned
+**Status:** ✅ Complete
 
 Build the React frontend with platform-adaptive styling, navigation, download form, settings, and first-run setup wizard.
 
@@ -135,7 +135,7 @@ Build the React frontend with platform-adaptive styling, navigation, download fo
 
 ## ⬇️ Phase 4: Download System
 
-**Status:** 🔲 Planned
+**Status:** ✅ Complete
 
 Implement the download queue, fallback quality architecture, progress tracking, and error handling.
 
@@ -176,12 +176,12 @@ Default video fallback chain:
 
 ## 🚀 Phase 5: Advanced Features
 
-**Status:** 🔲 Planned
+**Status:** ✅ Complete
 
 ### Key Deliverables
 - **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
 - **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
-- **In-App Help System** - Markdown renderer, search, 10 help topics
+- **In-App Help System** - Markdown renderer, search, 11 help topics
 - **System Tray** - Minimize to tray, download count badge
 - **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
 
@@ -189,14 +189,28 @@ Default video fallback chain:
 
 ## ✨ Phase 6: Polish & Release
 
-**Status:** 🔲 Planned
+**Status:** ✅ Complete
 
 ### Key Deliverables
 - SVG icon set (app icon + UI icons)
 - Platform testing (macOS, Windows, Linux)
-- Complete help documentation
-- Release workflow verification
-- README with screenshots
+- Complete help documentation (11 topics)
+- Release workflow verification (release-please v4)
+- README with badges and project structure
+
+---
+
+## 🆕 Post-Release Features (v0.1.1 — v0.1.3)
+
+**Status:** ✅ Complete
+
+### Deliverables
+- **Browser cookie auto-import** - Detect installed browsers, extract Apple Music cookies automatically
+- **Embedded Apple Music login window** - Sign in directly within the app to extract cookies (no browser extension needed)
+- **Enhanced error handling** - Improved cookie import feedback and error messages
+- **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, PortraitCover.mp4) via FFmpeg HLS conversion
+- **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
+- **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
 
 ---
 
@@ -221,4 +235,4 @@ The architecture is designed with a `MusicService` trait pattern to support addi
 
 ---
 
-*Last updated: 2026-02-09*
+*Last updated: 2026-02-12*
