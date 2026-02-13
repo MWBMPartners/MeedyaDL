@@ -92,7 +92,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   synced_lyrics_only: false,     // Also download plain-text lyrics
   save_cover: true,              // Save album artwork alongside audio files
   cover_format: 'raw',           // Keep original artwork format (usually JPEG from Apple)
-  cover_size: 1200,              // Artwork dimensions in pixels (1200x1200)
+  cover_size: 10000,             // Request maximum available artwork resolution from Apple CDN
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
@@ -113,6 +113,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   use_wrapper: false,            // Whether to use a remote account wrapper service
   wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
   truncate: null,                // Max filename length in characters; null = no truncation
+  fetch_extra_tags: true,        // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [],              // Metadata tags to exclude from output files
   sidebar_collapsed: false,      // UI preference: sidebar expanded by default
   theme_override: null,          // null = follow OS theme; 'light' or 'dark' to override

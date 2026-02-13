@@ -265,7 +265,7 @@ fn settings_to_ini(settings: &AppSettings) -> String {
         "cover-format = {}",
         settings.cover_format.to_cli_string()
     ));
-    // Cover size as WxH (GAMDL uses square covers, e.g., "1200x1200").
+    // Cover size as WxH (GAMDL uses square covers, e.g., "10000x10000").
     lines.push(format!(
         "cover-size = {}x{}",
         settings.cover_size, settings.cover_size
@@ -289,6 +289,11 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
     lines.push(format!("language = {}", settings.language));
+    // Boolean flag: when present, GAMDL fetches extra metadata tags
+    // (normalization info, smooth playback data, etc.) from Apple Music.
+    if settings.fetch_extra_tags {
+        lines.push("fetch-extra-tags".to_string());
+    }
 
     // === Templates ===
     // Output path templates use Python format strings with metadata placeholders.
@@ -511,9 +516,9 @@ mod tests {
 
     #[test]
     fn ini_formats_cover_size_as_wxh() {
-        let settings = default_settings(); // cover_size defaults to 1200
+        let settings = default_settings(); // cover_size defaults to 10000
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("cover-size = 1200x1200"));
+        assert!(ini.contains("cover-size = 10000x10000"));
     }
 
     // ----------------------------------------------------------

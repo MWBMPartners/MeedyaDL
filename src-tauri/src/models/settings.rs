@@ -173,8 +173,9 @@ pub struct AppSettings {
     pub cover_format: CoverFormat,
 
     /// Cover art dimensions in pixels. The image is always square, so
-    /// a value of 1200 produces a 1200x1200 image. Maps to
-    /// `GamdlOptions::cover_size` (which formats it as `"1200x1200"`
+    /// a value of 10000 requests 10000x10000 — Apple Music's CDN returns
+    /// the highest available resolution (typically up to ~3000x3000).
+    /// Maps to `GamdlOptions::cover_size` (which formats it as `"WxH"`
     /// for the CLI).
     pub cover_size: u32,
 
@@ -273,6 +274,12 @@ pub struct AppSettings {
     /// for tracks with very long titles that would exceed filesystem
     /// limits. Maps to `GamdlOptions::truncate`.
     pub truncate: Option<u32>,
+
+    /// Whether to fetch extra metadata tags (normalization, smooth playback
+    /// info, etc.) from Apple Music. When `true`, GAMDL makes additional API
+    /// calls to retrieve richer metadata. Maps to `GamdlOptions::fetch_extra_tags`
+    /// / GAMDL `--fetch-extra-tags`.
+    pub fetch_extra_tags: bool,
 
     /// Tags to exclude from metadata embedding. Each entry is a tag name
     /// (e.g., `"lyrics"`, `"comment"`). Stored as a `Vec` in settings
@@ -382,9 +389,10 @@ impl Default for AppSettings {
             save_cover: true,
             // Raw = original quality from Apple Music (no re-encoding).
             cover_format: CoverFormat::Raw,
-            // 1200px is a good balance: large enough for Retina displays,
-            // not so large that it wastes bandwidth/storage.
-            cover_size: 1200,
+            // 10000px requests the highest available resolution from Apple Music's
+            // CDN. The CDN returns the largest version it has (typically 3000x3000),
+            // so this effectively means "give me the best you have".
+            cover_size: 10000,
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization.
@@ -421,6 +429,9 @@ impl Default for AppSettings {
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
+            // Fetch extra metadata (normalization, smooth playback info, etc.)
+            // by default. Richer metadata is worth the small extra API overhead.
+            fetch_extra_tags: true,
             // No tags excluded by default -- embed all available metadata.
             exclude_tags: Vec::new(),
 
@@ -616,6 +627,7 @@ mod tests {
         assert_eq!(deserialized.remux_mode, settings.remux_mode);
         assert_eq!(deserialized.use_wrapper, settings.use_wrapper);
         assert_eq!(deserialized.wrapper_account_url, settings.wrapper_account_url);
+        assert_eq!(deserialized.fetch_extra_tags, settings.fetch_extra_tags);
 
         // UI state
         assert_eq!(deserialized.sidebar_collapsed, settings.sidebar_collapsed);
