@@ -6,7 +6,7 @@
 
 ## Current Version
 
-**v0.1.3** (Released 2026-02-12)
+**v0.3.0** (2026-02-13)
 
 ## Overall Status
 
@@ -109,6 +109,8 @@
 - [x] Configurable companion downloads (4 modes: Disabled, Atmos→ALAC, Atmos→ALAC+Lossy, Specialist→Lossy; with [Lossless]/[Dolby Atmos] file suffixes)
 - [x] Embed lyrics and keep sidecar (ensures both embedded lyrics and sidecar files for max compatibility)
 - [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos via mp4ameta freeform atoms)
+- [x] Queue persistence and crash recovery (queue.json auto-save after every mutation; auto-resume on startup)
+- [x] Queue export/import (.meedyadl file format with native save/open dialogs; cross-device transfer)
 
 ---
 
@@ -120,7 +122,7 @@ _None at this time._
 
 ## Last Updated
 
-2026-02-12
+2026-02-13
 
 ---
 

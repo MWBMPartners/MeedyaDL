@@ -48,7 +48,7 @@ import { useEffect } from 'react';
  * - `RefreshCw` -- manual refresh button (@see https://lucide.dev/icons/refresh-cw)
  * - `Trash2`    -- "Clear Finished" button (@see https://lucide.dev/icons/trash-2)
  */
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { Download, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 /**
  * Zustand store hooks.
@@ -126,6 +126,18 @@ export function DownloadQueue() {
    */
   const clearFinished = useDownloadStore((s) => s.clearFinished);
 
+  /**
+   * Exports the current queue to a `.meedyadl` file via a native save dialog.
+   * Only non-terminal items (queued/active) are included in the export.
+   */
+  const exportQueue = useDownloadStore((s) => s.exportQueue);
+
+  /**
+   * Imports queue items from a `.meedyadl` file via a native file picker.
+   * Imported items are enqueued and processing starts automatically.
+   */
+  const importQueue = useDownloadStore((s) => s.importQueue);
+
   /** Shows a toast notification for action feedback. */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -187,6 +199,36 @@ export function DownloadQueue() {
   };
 
   /**
+   * Export the current queue to a `.meedyadl` file.
+   * Wraps `exportQueue()` with toast feedback showing the count exported.
+   */
+  const handleExport = async () => {
+    try {
+      const count = await exportQueue();
+      if (count > 0) {
+        addToast(`Exported ${count} item${count !== 1 ? 's' : ''}`, 'success');
+      }
+    } catch {
+      addToast('Failed to export queue', 'error');
+    }
+  };
+
+  /**
+   * Import queue items from a `.meedyadl` file.
+   * Wraps `importQueue()` with toast feedback showing the count imported.
+   */
+  const handleImport = async () => {
+    try {
+      const count = await importQueue();
+      if (count > 0) {
+        addToast(`Imported ${count} item${count !== 1 ? 's' : ''}`, 'success');
+      }
+    } catch {
+      addToast('Failed to import queue', 'error');
+    }
+  };
+
+  /**
    * Clear all finished items (complete, error, cancelled) from the queue.
    * Wraps `clearFinished()` with toast feedback showing the count removed.
    */
@@ -212,6 +254,15 @@ export function DownloadQueue() {
     (i) => i.state === 'complete' || i.state === 'error' || i.state === 'cancelled',
   ).length;
 
+  /**
+   * Count of items eligible for export: non-terminal items that are
+   * queued, downloading, or processing. The Export button is only
+   * shown when this count is greater than zero.
+   */
+  const exportableCount = queueItems.filter(
+    (i) => i.state === 'queued' || i.state === 'downloading' || i.state === 'processing',
+  ).length;
+
   // ---------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------
@@ -231,6 +282,34 @@ export function DownloadQueue() {
         subtitle={`${queueItems.length} item${queueItems.length !== 1 ? 's' : ''} in queue`}
         actions={
           <div className="flex gap-2">
+            {/*
+             * "Import" button -- always shown, opens a native file picker
+             * to import queue items from a .meedyadl file.
+             */}
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Download size={14} />}
+              onClick={handleImport}
+            >
+              Import
+            </Button>
+
+            {/*
+             * "Export" button -- only rendered when there are non-terminal
+             * items to export (queued/downloading/processing).
+             */}
+            {exportableCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Upload size={14} />}
+                onClick={handleExport}
+              >
+                Export ({exportableCount})
+              </Button>
+            )}
+
             {/*
              * "Clear Finished" button -- only rendered when there are
              * completed, errored, or cancelled items to clear.

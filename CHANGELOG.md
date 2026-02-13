@@ -6,7 +6,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-02-13
+## [0.3.0] - 2026-02-13
 
 ### ✨ Features
 
@@ -25,11 +25,15 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Fix ESLint `no-unused-vars` warning: `defaultVideoResolution` in DownloadForm.tsx was only used as a type reference — replaced with direct `VideoResolution` type import.
 - Fix ESLint `no-require-imports` errors: converted `require()` calls in `main.tsx` global error handlers to `import()` dynamic imports.
 
+- **Queue persistence and crash recovery** — the download queue is now automatically saved to disk (`queue.json`) after every state change. If the app closes or crashes while downloads are queued or active, those items are restored and auto-resumed on next launch. Completed, failed, and cancelled items are cleared on restart (only pending items are persisted).
+
+- **Queue export/import** — export the current download queue to a `.meedyadl` file (JSON-based, custom extension) and import it on another MeedyaDL instance. Useful for transferring download lists between devices. Exported items contain only URLs and per-download overrides; the importing device merges them with its own global settings.
+
 ### 🧹 Maintenance
 
 - Added `mp4ameta` v0.13 dependency for M4A metadata tag writing.
 - Added `metadata_tag_service.rs` service module for post-download custom tagging.
-- Bumped version from 0.1.4 to 0.2.1.
+- Bumped version from 0.1.4 to 0.3.0.
 
 ### 📚 Documentation
 
