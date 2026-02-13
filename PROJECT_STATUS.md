@@ -6,7 +6,7 @@
 
 ## Current Version
 
-**v0.3.0** (2026-02-13)
+**v0.3.1** (2026-02-13)
 
 ## Overall Status
 
@@ -98,7 +98,7 @@
 - [x] Release workflow review (CI and Release workflows verified: matrix builds, concurrency, caching, Linux deps, artifact upload)
 - [x] Copyright year automation (expanded script to cover all 121 files, auto-detect macOS/Linux, self-corruption guard)
 
-### Post-Release Features (v0.1.1 — v0.3.0)
+### Post-Release Features (v0.1.1 — v0.3.1)
 
 - [x] Browser cookie auto-import service (detect installed browsers, extract cookies automatically)
 - [x] Embedded Apple Music login window (sign in directly in-app, extract cookies from webview)
@@ -106,6 +106,7 @@
 - [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4, PortraitCover.mp4)
 - [x] MusicKit credential management (Team ID, Key ID in settings; private key in OS keychain)
 - [x] Animated artwork help documentation page
+- [x] Hidden animated artwork files (OS-level hidden attribute: macOS `chflags hidden`, Windows `attrib +H`, Linux `.` prefix rename; configurable toggle, default on)
 - [x] Configurable companion downloads (4 modes: Disabled, Atmos→ALAC, Atmos→ALAC+Lossy, Specialist→Lossy; with [Lossless]/[Dolby Atmos] file suffixes)
 - [x] Embed lyrics and keep sidecar (ensures both embedded lyrics and sidecar files for max compatibility)
 - [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos via mp4ameta freeform atoms)

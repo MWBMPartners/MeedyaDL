@@ -295,6 +295,19 @@ pub struct AppSettings {
     /// `musickit_key_id`, and a private key stored in the OS keychain).
     pub animated_artwork_enabled: bool,
 
+    /// Whether to set the OS "hidden" attribute on downloaded animated
+    /// artwork files (FrontCover.mp4, PortraitCover.mp4). When `true`
+    /// (default), files are hidden from default file browser views but
+    /// still accessible to media players and scripts that reference them
+    /// by name.
+    ///
+    /// Platform behavior:
+    /// - **macOS**: Uses `chflags hidden` — files hidden in Finder, original name preserved.
+    /// - **Windows**: Uses `attrib +H` — files hidden in Explorer, original name preserved.
+    /// - **Linux**: Renames files with a `.` prefix (e.g., `.FrontCover.mp4`) — the only
+    ///   cross-compatible hiding mechanism on Linux.
+    pub hide_animated_artwork: bool,
+
     /// Apple MusicKit Team ID for API authentication. This is the
     /// 10-character team identifier from the Apple Developer portal
     /// (e.g., `"ABCDE12345"`). Required when `animated_artwork_enabled`
@@ -540,6 +553,9 @@ impl Default for AppSettings {
             // Users must configure MusicKit Team ID, Key ID, and private key
             // in Settings > Cover Art before animated artwork can be fetched.
             animated_artwork_enabled: false,
+            // Hide animated artwork files by default to keep album folders clean.
+            // Files remain accessible by name for media players and scripts.
+            hide_animated_artwork: true,
             musickit_team_id: None,
             musickit_key_id: None,
 
@@ -771,6 +787,7 @@ mod tests {
 
         // Animated artwork
         assert_eq!(deserialized.animated_artwork_enabled, settings.animated_artwork_enabled);
+        assert_eq!(deserialized.hide_animated_artwork, settings.hide_animated_artwork);
         assert_eq!(deserialized.musickit_team_id, settings.musickit_team_id);
         assert_eq!(deserialized.musickit_key_id, settings.musickit_key_id);
 
