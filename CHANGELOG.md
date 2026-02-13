@@ -6,63 +6,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
-## [0.3.1] - 2026-02-13
-
-### ✨ Features
-
-- **Hidden animated artwork files** — animated cover art files (`FrontCover.mp4`, `PortraitCover.mp4`) are now hidden by default on the local filesystem after download. This keeps album folders clean while preserving the files for media players and scripts. Platform-specific behavior: macOS uses `chflags hidden`, Windows uses `attrib +H` (both preserve original filenames), Linux renames with a `.` prefix. Configurable via a new "Hide Animated Artwork Files" toggle in Settings > Cover Art.
-
-### 🧹 Maintenance
-
-- Bumped version from 0.3.0 to 0.3.1.
-
-## [0.3.0] - 2026-02-13
-
-### ✨ Features
-
-- **Configurable companion downloads** — new `CompanionMode` setting in Settings > Quality with four modes: **Disabled** (no companions), **Atmos → Lossless** (default: Atmos downloads also get ALAC), **Atmos → Lossless + Lossy** (Atmos gets ALAC + AAC; ALAC gets AAC), and **Specialist → Lossy** (Atmos or ALAC get AAC). Specialist formats get filename suffixes (`[Lossless]` for ALAC, `[Dolby Atmos]` for Atmos); the most universal companion uses clean filenames. Replaces the previous boolean toggle with a granular dropdown.
-
-- **Codec-based filename suffix system** — generic suffix system via `codec_suffix()` and `apply_codec_suffix()` in `download_queue.rs`. ALAC files get `[Lossless]`, Dolby Atmos files get `[Dolby Atmos]`, and lossy codecs use clean filenames. Applied during both primary downloads and fallback chain retries.
-
-- **Custom metadata tagging** — after GAMDL writes standard Apple Music metadata, MeedyaDL injects codec-identification freeform atoms into downloaded M4A files via the `mp4ameta` crate. Now also applies to companion downloads (e.g., ALAC companions get `isLossless=Y`):
-  - ALAC files: `----:com.apple.iTunes:isLossless` → `Y`
-  - Dolby Atmos files: `----:com.apple.iTunes:SpatialType` → `Dolby Atmos` and `----:MeedyaMeta:SpatialType` → `Dolby Atmos`
-
-- **Lyrics embed + sidecar** — new "Embed Lyrics and Keep Sidecar" toggle in Settings > Lyrics. When enabled (default), lyrics are both embedded in audio file metadata AND saved as separate sidecar files. Overrides the "Disable Synced Lyrics" toggle when active.
-
-- **Queue persistence and crash recovery** — the download queue is now automatically saved to disk (`queue.json`) after every state change. If the app closes or crashes while downloads are queued or active, those items are restored and auto-resumed on next launch. Completed, failed, and cancelled items are cleared on restart (only pending items are persisted).
-
-- **Queue export/import** — export the current download queue to a `.meedyadl` file (JSON-based, custom extension) and import it on another MeedyaDL instance. Useful for transferring download lists between devices. Exported items contain only URLs and per-download overrides; the importing device merges them with its own global settings.
-
-- **Manual workflow dispatch** — all three GitHub Actions workflows (CI, Changelog, Release Please) now support `workflow_dispatch` triggers, enabling manual runs via the GitHub UI or `gh workflow run` CLI. Useful for conserving Actions minutes during rapid development by pushing with `[skip ci]` and triggering validation manually when ready.
-
-### 🐛 Bug Fixes
-
-- Fix ESLint `no-unused-vars` warning: `defaultVideoResolution` in DownloadForm.tsx was only used as a type reference — replaced with direct `VideoResolution` type import.
-- Fix ESLint `no-require-imports` errors: converted `require()` calls in `main.tsx` global error handlers to `import()` dynamic imports.
-- Fix release-please workflow checkout failure: branch ref was hardcoded as `release-please--branches--main` but release-please v4 creates branches named `release-please--branches--main--components--meedyadl` (component name from `package.json`).
-
-### 🧹 Maintenance
-
-- Added `mp4ameta` v0.13 dependency for M4A metadata tag writing.
-- Added `metadata_tag_service.rs` service module for post-download custom tagging.
-- Bumped version from 0.1.4 to 0.3.0.
-
-### 📚 Documentation
-
-- Updated `help/quality-settings.md` with configurable companion mode documentation.
-- Updated `help/downloading-music.md` with companion download modes, queue persistence, and export/import.
-- Updated `help/lyrics-and-metadata.md` with embed + sidecar toggle details.
-- Updated `README.md` feature list, version badge, roadmap, and project structure tree.
-- Updated `PROJECT_STATUS.md` with new feature entries and workflow improvements.
-- Updated `.claude/CLAUDE.md` architecture notes with companion mode, codec suffix, metadata tagging, skip-ci workflow, and release-please branch naming.
-- Updated `Project_Plan.md` with post-release v0.2.0-v0.3.0 features and future roadmap milestones (Spotify v0.4.0, YouTube v0.5.0, BBC iPlayer v0.6.0).
-- Updated `README.md` roadmap with planned milestone table and beyond-v0.6.0 future section.
-- Updated `PROJECT_STATUS.md` with planned milestones table.
-- Updated `.claude/CLAUDE.md` with planned service integration notes.
-
-## [0.1.4] - 2026-02-12
-
 ### ✨ Features
 
 - Add browser cookie extraction service and auto-import functionality
@@ -91,13 +34,39 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Enhanced settings store to manage new animated artwork settings and added corresponding TypeScript types.
   - Added unit tests for URL parsing and JWT generation related to animated artwork functionality.
 
+- Add metadata tagging service for M4A files
+
+- Implemented `metadata_tag_service.rs` to inject custom codec metadata tags into downloaded M4A files.
+  - Added tagging for ALAC (`isLossless = Y`) and Dolby Atmos (`SpatialType = Dolby Atmos`) in both Apple iTunes and MeedyaMeta namespaces.
+  - Updated `mod.rs` to include the new metadata tagging service.
+  - Bumped version to 0.2.1 in `tauri.conf.json`.
+  - Enhanced `DownloadForm.tsx` to support new codec and video resolution types.
+  - Introduced "Embed Lyrics and Keep Sidecar" toggle in `LyricsTab.tsx` for better lyrics management.
+  - Added companion download mode settings in `QualityTab.tsx` to control automatic multi-format downloads.
+  - Updated settings store to include new settings for companion mode and lyrics embedding.
+  - Expanded type definitions in `index.ts` to include `CompanionMode` and associated labels.
+  - Updated tests in `settingsStore.test.ts` to reflect new default settings.
+
+- Implement queue persistence and export/import functionality
+
+- Added queue persistence to save the download queue to disk after every mutation, enabling crash recovery.
+  - Introduced export/import features for the download queue using a `.meedyadl` file format, allowing users to transfer their queue between devices.
+  - Updated relevant documentation and user interface to reflect new features.
+  - Enhanced the download queue management with improved state handling and user notifications.
+
+- Enhance workflows with manual dispatch and update changelog for queue features
+- Update project documentation with planned service integrations and milestones for Spotify, YouTube, and BBC iPlayer
+- Add multi-track muxing feature to project plan and README
+- Implement hidden animated artwork files feature with OS-level hiding options
 
 ### 🐛 Bug Fixes
 
 - Enhance error handling and improve cookie import feedback
+- Update release-please branch reference to match actual branch naming
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
