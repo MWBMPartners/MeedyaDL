@@ -27,6 +27,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 - [:control_knobs: Quality Settings](quality-settings.md) -- Understanding audio codecs, video codecs, and format differences.
 - [:arrows_counterclockwise: Fallback Quality](fallback-quality.md) -- How fallback quality chains work and how to configure priority orders.
 - [:cookie: Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
+- [:film_frames: Animated Artwork](animated-artwork.md) -- Downloading animated cover art from Apple Music using MusicKit credentials.
 
 ### Support
 
@@ -47,7 +48,7 @@ If you are new to MeedyaDL, we recommend starting with the [Getting Started](get
 
 MeedyaDL is a multiplatform graphical user interface for GAMDL, built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It provides a user-friendly way to interact with the GAMDL command-line tool for downloading content from Apple Music.
 
-- **Version:** 0.1.0
+- **Version:** 0.1.3
 - **License:** MIT
 - **Author:** MeedyaDL
 

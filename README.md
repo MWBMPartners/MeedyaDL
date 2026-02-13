@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.1.0--dev-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.1.3-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
@@ -34,9 +34,9 @@
 
 ### 🎶 Music Downloads
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music
-- **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC
-- **Download queue management** with drag-and-drop reordering
-- **Concurrent downloads** for faster batch processing
+- **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
+- **Download queue management** with concurrent processing
+- **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API
 
 ### 📝 Metadata & Extras
 - **Lyrics support** — embed or save as LRC, SRT, or TTML formats
@@ -44,7 +44,9 @@
 - **Rich metadata tagging** powered by GAMDL
 
 ### 🔐 Authentication & Security
-- **Cookie management** for Apple Music authentication
+- **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
+- **Built-in Apple Music login** — sign in directly within the app to extract cookies (no browser extension needed)
+- **Cookie file import** — manual Netscape-format cookie import with domain/expiry validation
 - **Secure credential storage** via OS-native keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 
 ### 🖥️ Platform-Adaptive UI
@@ -55,21 +57,21 @@
 ### ⚙️ Quality of Life
 - **Auto-update checking** — stay on the latest version
 - **First-run setup wizard** — installs Python and GAMDL automatically
-- **Built-in help documentation** accessible in-app
+- **Built-in help documentation** — 11 topics with search, accessible in-app
 - **System tray support** for background operation
 
 ---
 
 ## 💻 Supported Platforms
 
-| Platform | Architecture | Format |
-|----------|-------------|--------|
-| 🍎 **macOS** | Apple Silicon (arm64) | `.dmg` |
-| 🪟 **Windows** | x64, ARM64 | `.msi`, `.exe` |
-| 🐧 **Linux** | x64 | `.deb`, `.AppImage` |
-| 🍓 **Raspberry Pi** | ARM64 | `.deb`, `.AppImage` |
-
-> **Note:** macOS requires version 11.0 (Big Sur) or later.
+| Platform | Architecture | Format | Notes |
+|----------|-------------|--------|-------|
+| 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | Requires macOS 11.0 (Big Sur) or later |
+| 🪟 **Windows** | x64 (64-bit) | `.exe` (NSIS) | Also works on ARM64 via emulation |
+| 🪟 **Windows** | ARM64 | `.exe` (NSIS) | Native ARM64 build |
+| 🐧 **Linux** | x64 | `.deb`, `.AppImage` | Also works on ChromeOS via Crostini |
+| 🐧 **Linux** | ARM64 | `.deb` | Raspberry Pi 4/5, ARM servers |
+| 🐧 **Linux** | ARMv7 | `.deb` | Raspberry Pi 32-bit (experimental) |
 
 ---
 
@@ -107,7 +109,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 1. **Download** the latest release for your platform from the [Releases](https://github.com/MeedyaDL/MeedyaDL/releases) page.
 2. **Install** using your platform's standard method:
    - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
-   - **Windows**: Run the `.msi` installer
+   - **Windows**: Run the `.exe` installer
    - **Linux**: Install the `.deb` or run the `.AppImage`
 3. **Launch** the application.
 
@@ -213,7 +215,10 @@ MeedyaDL/
 │       │   ├── settings.rs     #    App settings
 │       │   ├── gamdl.rs        #    Download queue orchestration
 │       │   ├── credentials.rs  #    Secure keychain storage
-│       │   └── updates.rs      #    Update checking commands
+│       │   ├── updates.rs      #    Update checking commands
+│       │   ├── cookies.rs      #    Browser cookie extraction
+│       │   ├── login_window.rs #    Embedded Apple Music login
+│       │   └── artwork.rs      #    Animated artwork download
 │       ├── models/             #    Data structures
 │       │   ├── download.rs     #    Download request, state, queue status
 │       │   ├── gamdl_options.rs#    All GAMDL CLI options as typed enums
@@ -226,14 +231,19 @@ MeedyaDL/
 │       │   ├── dependency_manager.rs# Tool download/install per platform
 │       │   ├── config_service.rs    # JSON settings + INI sync
 │       │   ├── download_queue.rs    # Queue manager with fallback/retry
-│       │   └── update_checker.rs    # Version update checker
+│       │   ├── update_checker.rs    # Version update checker
+│       │   ├── cookie_service.rs    # Browser cookie extraction
+│       │   ├── login_window_service.rs # Embedded Apple Music login
+│       │   └── animated_artwork_service.rs # MusicKit animated cover art
 │       └── utils/              #    Utility modules
 │           ├── platform.rs     #    OS detection & paths
 │           ├── archive.rs      #    ZIP/tar extraction
 │           └── process.rs      #    GAMDL output parser & error classifier
+├── help/                       # Markdown help documentation (11 topics)
 ├── .github/workflows/          # CI/CD
 │   ├── ci.yml                  #    Test & lint on push/PR
 │   ├── release.yml             #    Build & publish releases
+│   ├── release-please.yml      #    Automated version bumps & release PRs
 │   └── changelog.yml           #    Auto-generate changelogs
 ├── scripts/                    # Utility scripts
 ├── index.html                  #    Vite entry HTML
@@ -329,14 +339,17 @@ refactor(backend): simplify dependency management
 - [x] Platform-adaptive UI themes (macOS, Windows, Linux)
 - [x] Rust backend with IPC command system
 - [x] Dependency management (Python, GAMDL, FFmpeg, mp4decrypt)
-- [x] CI/CD pipeline (GitHub Actions)
+- [x] CI/CD pipeline (GitHub Actions + release-please)
 - [x] Full download workflow with queue, fallback quality, and retry
 - [x] Settings UI with 9 configuration tabs
 - [x] First-run setup wizard (6 steps)
-- [x] In-app help viewer with 9 topics and search
+- [x] In-app help viewer with 11 topics and search
 - [x] Cookie import with validation UI (step-by-step instructions, domain/expiry display)
+- [x] Browser cookie auto-import (detect installed browsers, extract cookies automatically)
+- [x] Built-in Apple Music login window (sign in directly, extract cookies from webview)
 - [x] Auto-update checker (GAMDL, app, Python) with notification banner
 - [x] System tray integration (show, status, updates, quit)
+- [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4 / PortraitCover.mp4)
 
 ### Future
 - 🎵 **YouTube Music support** via [gytmdl](https://github.com/glomatico/gytmdl) integration
