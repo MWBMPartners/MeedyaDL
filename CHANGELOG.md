@@ -24,6 +24,7 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Enhanced user experience with loading states and manual extraction options.
   - Added Tauri commands for opening, extracting cookies from, and closing the login window.
 
+- Add support for fetching extra metadata tags and update cover size to max resolution
 
 ### 🐛 Bug Fixes
 
@@ -31,6 +32,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
