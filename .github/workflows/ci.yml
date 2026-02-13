@@ -51,6 +51,11 @@ on:
   # Run on pull requests targeting main (validates PR code before merge)
   pull_request:
     branches: [main]
+  # Allow manual trigger from GitHub UI or CLI (gh workflow run "CI")
+  # Useful for conserving Actions minutes during rapid development:
+  #   1. Push commits with "[skip ci]" in the message to skip auto-triggers
+  #   2. When ready to validate, manually trigger this workflow
+  workflow_dispatch:
 
 # ============================================================
 # Concurrency Control

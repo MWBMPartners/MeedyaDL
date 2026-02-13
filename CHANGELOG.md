@@ -20,14 +20,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **Lyrics embed + sidecar** — new "Embed Lyrics and Keep Sidecar" toggle in Settings > Lyrics. When enabled (default), lyrics are both embedded in audio file metadata AND saved as separate sidecar files. Overrides the "Disable Synced Lyrics" toggle when active.
 
+- **Queue persistence and crash recovery** — the download queue is now automatically saved to disk (`queue.json`) after every state change. If the app closes or crashes while downloads are queued or active, those items are restored and auto-resumed on next launch. Completed, failed, and cancelled items are cleared on restart (only pending items are persisted).
+
+- **Queue export/import** — export the current download queue to a `.meedyadl` file (JSON-based, custom extension) and import it on another MeedyaDL instance. Useful for transferring download lists between devices. Exported items contain only URLs and per-download overrides; the importing device merges them with its own global settings.
+
+- **Manual workflow dispatch** — all three GitHub Actions workflows (CI, Changelog, Release Please) now support `workflow_dispatch` triggers, enabling manual runs via the GitHub UI or `gh workflow run` CLI. Useful for conserving Actions minutes during rapid development by pushing with `[skip ci]` and triggering validation manually when ready.
+
 ### 🐛 Bug Fixes
 
 - Fix ESLint `no-unused-vars` warning: `defaultVideoResolution` in DownloadForm.tsx was only used as a type reference — replaced with direct `VideoResolution` type import.
 - Fix ESLint `no-require-imports` errors: converted `require()` calls in `main.tsx` global error handlers to `import()` dynamic imports.
-
-- **Queue persistence and crash recovery** — the download queue is now automatically saved to disk (`queue.json`) after every state change. If the app closes or crashes while downloads are queued or active, those items are restored and auto-resumed on next launch. Completed, failed, and cancelled items are cleared on restart (only pending items are persisted).
-
-- **Queue export/import** — export the current download queue to a `.meedyadl` file (JSON-based, custom extension) and import it on another MeedyaDL instance. Useful for transferring download lists between devices. Exported items contain only URLs and per-download overrides; the importing device merges them with its own global settings.
+- Fix release-please workflow checkout failure: branch ref was hardcoded as `release-please--branches--main` but release-please v4 creates branches named `release-please--branches--main--components--meedyadl` (component name from `package.json`).
 
 ### 🧹 Maintenance
 
@@ -38,11 +41,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - Updated `help/quality-settings.md` with configurable companion mode documentation.
-- Updated `help/downloading-music.md` with companion download modes.
+- Updated `help/downloading-music.md` with companion download modes, queue persistence, and export/import.
 - Updated `help/lyrics-and-metadata.md` with embed + sidecar toggle details.
-- Updated `README.md` feature list with configurable companions and lyrics embed + sidecar.
-- Updated `PROJECT_STATUS.md` with new feature entries.
-- Updated `.claude/CLAUDE.md` architecture notes with companion mode, codec suffix, and metadata tagging.
+- Updated `README.md` feature list, version badge, roadmap, and project structure tree.
+- Updated `PROJECT_STATUS.md` with new feature entries and workflow improvements.
+- Updated `.claude/CLAUDE.md` architecture notes with companion mode, codec suffix, metadata tagging, skip-ci workflow, and release-please branch naming.
+- Updated `Project_Plan.md` with post-release v0.2.0-v0.3.0 features.
 
 ## [0.1.4] - 2026-02-12
 
