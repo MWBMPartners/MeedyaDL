@@ -25,6 +25,15 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Added Tauri commands for opening, extracting cookies from, and closing the login window.
 
 - Add support for fetching extra metadata tags and update cover size to max resolution
+- Add animated artwork download service for Apple Music
+
+- Implemented `animated_artwork_service` to download animated cover art (motion artwork) from Apple Music's catalog API.
+  - Added functionality to parse Apple Music URLs, generate MusicKit Developer Tokens, and download HLS streams using FFmpeg.
+  - Integrated animated artwork download into the download queue process, allowing for background downloading after album downloads.
+  - Updated settings UI to include options for enabling animated artwork downloads and entering MusicKit credentials (Team ID, Key ID, and private key).
+  - Enhanced settings store to manage new animated artwork settings and added corresponding TypeScript types.
+  - Added unit tests for URL parsing and JWT generation related to animated artwork functionality.
+
 
 ### 🐛 Bug Fixes
 
@@ -32,6 +41,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
