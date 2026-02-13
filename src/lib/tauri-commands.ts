@@ -406,6 +406,40 @@ export function checkGamdlUpdate(): Promise<string> {
   return invoke<string>('check_gamdl_update');
 }
 
+/**
+ * Exports the current download queue to a `.meedyadl` file.
+ *
+ * Rust handler: `export_queue()` in `src-tauri/src/commands/gamdl.rs`
+ * Returns: number of items exported
+ *
+ * Opens a native save dialog with the `.meedyadl` file filter.
+ * Only non-terminal items (queued/active) are exported.
+ *
+ * Called by: downloadStore.exportQueue()
+ *
+ * @returns Promise resolving to the count of exported items
+ */
+export function exportQueue(): Promise<number> {
+  return invoke<number>('export_queue');
+}
+
+/**
+ * Imports download queue items from a `.meedyadl` file.
+ *
+ * Rust handler: `import_queue()` in `src-tauri/src/commands/gamdl.rs`
+ * Returns: number of items imported
+ *
+ * Opens a native file picker dialog with the `.meedyadl` file filter.
+ * Imported items are enqueued as new downloads and processing starts.
+ *
+ * Called by: downloadStore.importQueue()
+ *
+ * @returns Promise resolving to the count of imported items
+ */
+export function importQueue(): Promise<number> {
+  return invoke<number>('import_queue');
+}
+
 // ============================================================
 // Credential Commands
 // ============================================================

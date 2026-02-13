@@ -128,14 +128,16 @@ pub async fn start_download(
 
     log::info!("Download {} queued", download_id);
 
+    // Persist the updated queue to disk for crash recovery.
+    // This ensures the new item survives an unexpected app close/crash.
+    let queue_handle = queue.inner().clone();
+    download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
     // Emit a Tauri event to notify the frontend that the download has been queued.
     // The frontend listens for "download-queued" events to refresh the queue UI.
     app.emit("download-queued", &download_id)
         .map_err(|e| format!("Failed to emit event: {}", e))?;
 
-    // Clone the Arc<Mutex<...>> handle so we can pass it to process_queue().
-    // State::inner() returns a reference to the inner Arc, which we clone.
-    let queue_handle = queue.inner().clone();
     // Trigger queue processing — this will start the download immediately if
     // there are available concurrency slots, or leave it queued for later.
     download_queue::process_queue(app, queue_handle).await;
@@ -181,6 +183,10 @@ pub async fn cancel_download(
     };
 
     if cancelled {
+        // Persist the updated queue (cancelled item removed from active set)
+        let queue_handle = queue.inner().clone();
+        download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
         // Notify the frontend so it can update the item's UI state immediately.
         // We use `let _ =` to ignore emission errors — the cancellation itself
         // already succeeded, so a failed event is non-critical.
@@ -234,9 +240,12 @@ pub async fn retry_download(
     };
 
     if retried {
+        // Persist the updated queue (retried item now Queued again)
+        let queue_handle = queue.inner().clone();
+        download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
         // Notify frontend and kick off queue processing, same as start_download()
         let _ = app.emit("download-queued", &download_id);
-        let queue_handle = queue.inner().clone();
         download_queue::process_queue(app, queue_handle).await;
         Ok(())
     } else {
@@ -259,11 +268,20 @@ pub async fn retry_download(
 /// * `Ok(usize)` - The number of items that were removed from the queue.
 #[tauri::command]
 pub async fn clear_queue(
+    app: AppHandle,
     queue: State<'_, QueueHandle>,
 ) -> Result<usize, String> {
-    let mut q = queue.lock().await;
-    // clear_finished() drains all terminal-state items and returns the count
-    Ok(q.clear_finished())
+    let removed = {
+        let mut q = queue.lock().await;
+        // clear_finished() drains all terminal-state items and returns the count
+        q.clear_finished()
+    };
+
+    // Persist the updated queue (or clear the file if nothing remains)
+    let queue_handle = queue.inner().clone();
+    download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+    Ok(removed)
 }
 
 /// Returns the current status of all items in the download queue.
@@ -322,4 +340,138 @@ pub async fn check_gamdl_update() -> Result<String, String> {
     // Delegates to the gamdl_service which handles the HTTP request and
     // JSON parsing of the PyPI API response.
     crate::services::gamdl_service::check_latest_gamdl_version().await
+}
+
+/// Exports the current download queue to a `.meedyadl` file.
+///
+/// **Frontend caller:** `exportQueue()` in `src/lib/tauri-commands.ts`
+///
+/// Opens a native "Save As" dialog with the `.meedyadl` file filter.
+/// Only non-terminal items (Queued/Downloading/Processing) are exported.
+/// The exported file is a JSON document with the `QueueExportFile` schema.
+///
+/// # Returns
+/// * `Ok(usize)` - The number of items exported.
+/// * `Err(String)` - No items to export, dialog cancelled, or write error.
+#[tauri::command]
+pub async fn export_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<usize, String> {
+    // Get exportable items (non-terminal)
+    let items = {
+        let q = queue.lock().await;
+        q.get_exportable_items()
+    };
+
+    if items.is_empty() {
+        return Err("No items to export".to_string());
+    }
+
+    let count = items.len();
+
+    // Build the export file structure
+    let export_file = download_queue::QueueExportFile {
+        version: 1,
+        app: "MeedyaDL".to_string(),
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        items,
+    };
+
+    // Serialize to pretty-printed JSON
+    let json = serde_json::to_string_pretty(&export_file)
+        .map_err(|e| format!("Failed to serialize queue: {}", e))?;
+
+    // Open a native save dialog with the .meedyadl file filter
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("MeedyaDL Queue", &["meedyadl"])
+        .set_file_name("queue.meedyadl")
+        .blocking_save_file();
+
+    match file_path {
+        Some(path) => {
+            std::fs::write(path.as_path().unwrap(), json)
+                .map_err(|e| format!("Failed to write export file: {}", e))?;
+            log::info!("Exported {} queue item(s) to file", count);
+            Ok(count)
+        }
+        None => Err("Export cancelled".to_string()),
+    }
+}
+
+/// Imports download queue items from a `.meedyadl` file.
+///
+/// **Frontend caller:** `importQueue()` in `src/lib/tauri-commands.ts`
+///
+/// Opens a native file picker dialog with the `.meedyadl` file filter.
+/// Imported items are enqueued as new downloads and queue processing is
+/// started. The queue is persisted to disk after import.
+///
+/// # Returns
+/// * `Ok(usize)` - The number of items imported.
+/// * `Err(String)` - Dialog cancelled, invalid file, or parse error.
+#[tauri::command]
+pub async fn import_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<usize, String> {
+    // Open a native file picker with the .meedyadl file filter
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("MeedyaDL Queue", &["meedyadl"])
+        .blocking_pick_file();
+
+    let path = match file_path {
+        Some(p) => p,
+        None => return Err("Import cancelled".to_string()),
+    };
+
+    // Read and parse the export file
+    let json = std::fs::read_to_string(path.as_path().unwrap())
+        .map_err(|e| format!("Failed to read import file: {}", e))?;
+
+    let export_file: download_queue::QueueExportFile = serde_json::from_str(&json)
+        .map_err(|e| format!("Invalid queue file format: {}", e))?;
+
+    // Validate schema version
+    if export_file.version != 1 {
+        return Err(format!(
+            "Unsupported queue file version: {} (expected 1)",
+            export_file.version
+        ));
+    }
+
+    if export_file.items.is_empty() {
+        return Err("Queue file contains no items".to_string());
+    }
+
+    // Load current settings for option merging on the importing device
+    let settings = crate::services::config_service::load_settings(&app)
+        .unwrap_or_default();
+
+    // Import items into the queue
+    let count = {
+        let mut q = queue.lock().await;
+        let ids = q.import_items(export_file.items, &settings);
+        ids.len()
+    };
+
+    // Persist the updated queue
+    let queue_handle = queue.inner().clone();
+    download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+    // Notify the frontend that items were imported
+    let _ = app.emit("queue-imported", count);
+
+    log::info!("Imported {} queue item(s) from file", count);
+
+    // Start processing the imported items
+    download_queue::process_queue(app, queue_handle).await;
+
+    Ok(count)
 }

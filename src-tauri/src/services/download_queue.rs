@@ -134,6 +134,60 @@ struct QueueItem {
 }
 
 // ============================================================
+// Persistence types (crash recovery + export/import)
+// ============================================================
+
+/// Persistable snapshot of a queue item, saved to `queue.json` for crash recovery.
+///
+/// Only items in non-terminal states (Queued/Downloading/Processing) are persisted;
+/// terminal states (Complete, Error, Cancelled) are discarded on restart.
+///
+/// The original `DownloadRequest` is preserved so that on restore, options are
+/// re-merged with the current device's settings (rather than using stale merged
+/// options from the previous session).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PersistedQueueItem {
+    /// The unique download ID (UUID v4), matching the original QueueItem's ID.
+    pub id: String,
+    /// The original download request as submitted by the user (URLs + optional overrides).
+    pub request: DownloadRequest,
+    /// ISO 8601 timestamp of when the download was originally queued.
+    pub created_at: String,
+}
+
+/// Top-level schema for a `.meedyadl` export file (JSON content inside).
+///
+/// Used for cross-device queue transfer: export on one machine, import on another.
+/// The `version` field enables forward-compatible schema evolution — importers
+/// should reject files with `version > 1` until a newer schema is defined.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct QueueExportFile {
+    /// Schema version (always 1 for the initial format).
+    pub version: u32,
+    /// Application identifier (always "MeedyaDL").
+    pub app: String,
+    /// ISO 8601 timestamp of when the export was created.
+    pub exported_at: String,
+    /// The queue items included in the export.
+    pub items: Vec<ExportedItem>,
+}
+
+/// A single item within a `.meedyadl` export file.
+///
+/// Contains only the URLs and per-download overrides; the importing device
+/// merges these with its own global settings on import. This means an export
+/// created with ALAC settings can be imported on a device configured for AAC
+/// and the import will respect the importing device's defaults (unless the
+/// original download had explicit per-download overrides).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedItem {
+    /// Apple Music URL(s) for this download.
+    pub urls: Vec<String>,
+    /// Per-download quality/format overrides (None = use importing device's defaults).
+    pub options: Option<GamdlOptions>,
+}
+
+// ============================================================
 // Download queue manager
 // ============================================================
 
@@ -594,6 +648,144 @@ impl DownloadQueue {
         }
         false
     }
+
+    // ==========================================================
+    // Persistence and export/import methods
+    // ==========================================================
+
+    /// Returns persistable snapshots of all non-terminal queue items.
+    ///
+    /// Called by `save_queue_to_disk()` to capture queue state for crash recovery.
+    /// Only items in Queued, Downloading, or Processing states are included;
+    /// completed/failed/cancelled items are not persisted (they are cleared
+    /// on restart per the user's preference).
+    pub fn get_persistable_items(&self) -> Vec<PersistedQueueItem> {
+        self.items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.status.state,
+                    DownloadState::Queued
+                        | DownloadState::Downloading
+                        | DownloadState::Processing
+                )
+            })
+            .map(|item| PersistedQueueItem {
+                id: item.status.id.clone(),
+                request: item.request.clone(),
+                created_at: item.status.created_at.clone(),
+            })
+            .collect()
+    }
+
+    /// Restores items from persisted data, re-merging with current settings.
+    ///
+    /// Called during startup to recover the queue after a crash or app close.
+    /// All restored items are set to the Queued state regardless of their
+    /// previous state (a Downloading item that was interrupted should be
+    /// re-downloaded from scratch). Options are re-merged with the current
+    /// device's settings so any changes made since the last session are
+    /// picked up.
+    ///
+    /// # Arguments
+    /// * `persisted` - The items loaded from `queue.json`
+    /// * `settings` - The current app settings for option merging
+    pub fn restore_items(
+        &mut self,
+        persisted: Vec<PersistedQueueItem>,
+        settings: &AppSettings,
+    ) {
+        for p in persisted {
+            // Re-merge the original request's overrides with the current settings.
+            // This ensures setting changes made between sessions are respected.
+            let merged_options = merge_options(p.request.options.as_ref(), settings);
+            let item = QueueItem {
+                status: QueueItemStatus {
+                    id: p.id.clone(),
+                    urls: p.request.urls.clone(),
+                    state: DownloadState::Queued,
+                    progress: 0.0,
+                    current_track: None,
+                    total_tracks: None,
+                    completed_tracks: None,
+                    speed: None,
+                    eta: None,
+                    error: None,
+                    output_path: None,
+                    codec_used: Some(
+                        merged_options
+                            .song_codec
+                            .as_ref()
+                            .map(|c| c.to_cli_string().to_string())
+                            .unwrap_or_else(|| {
+                                settings.default_song_codec.to_cli_string().to_string()
+                            }),
+                    ),
+                    fallback_occurred: false,
+                    created_at: p.created_at,
+                },
+                request: p.request,
+                merged_options,
+                fallback_index: 0,
+                network_retries_left: self.max_network_retries,
+            };
+            self.items.push_back(item);
+        }
+        if !self.items.is_empty() {
+            log::info!(
+                "Restored {} item(s) from queue persistence",
+                self.items.len()
+            );
+        }
+    }
+
+    /// Returns exportable items for the `.meedyadl` export file format.
+    ///
+    /// Includes all non-terminal items (Queued/Downloading/Processing).
+    /// Each item contains only the original URLs and per-download overrides,
+    /// so the importing device will merge them with its own settings.
+    pub fn get_exportable_items(&self) -> Vec<ExportedItem> {
+        self.items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.status.state,
+                    DownloadState::Queued
+                        | DownloadState::Downloading
+                        | DownloadState::Processing
+                )
+            })
+            .map(|item| ExportedItem {
+                urls: item.request.urls.clone(),
+                options: item.request.options.clone(),
+            })
+            .collect()
+    }
+
+    /// Imports items from an export file, enqueuing each as a new download.
+    ///
+    /// Each imported item is treated as a fresh download request: a new UUID
+    /// is generated, options are merged with the importing device's current
+    /// settings, and the item is placed at the back of the queue.
+    ///
+    /// # Returns
+    /// The download IDs of the newly created queue items.
+    pub fn import_items(
+        &mut self,
+        items: Vec<ExportedItem>,
+        settings: &AppSettings,
+    ) -> Vec<String> {
+        items
+            .into_iter()
+            .map(|exported| {
+                let request = DownloadRequest {
+                    urls: exported.urls,
+                    options: exported.options,
+                };
+                self.enqueue(request, settings)
+            })
+            .collect()
+    }
 }
 
 // ============================================================
@@ -1035,6 +1227,12 @@ pub fn process_queue(
                     )
                 };
                 log::info!("Download {} completed successfully", dl_id);
+
+                // Persist queue state: completed item is now in terminal state,
+                // so it will be excluded from the persistence file (only
+                // Queued/Downloading/Processing items are persisted).
+                save_queue_to_disk(&app_clone, &queue_clone).await;
+
                 // Notify frontend of successful completion
                 let _ = app_clone.emit("download-complete", &dl_id);
 
@@ -1346,6 +1544,9 @@ pub fn process_queue(
                     }
                 };
 
+                // Persist queue state after error handling (whether retrying or terminal)
+                save_queue_to_disk(&app_clone, &queue_clone).await;
+
                 // If no retry will occur, notify the frontend of the final error
                 if !should_retry {
                     let _ = app_clone.emit(
@@ -1567,6 +1768,76 @@ async fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
             AppSettings::default()
         }
     }
+}
+
+// ============================================================
+// Queue persistence: save/load/clear (crash recovery)
+// ============================================================
+
+/// Saves the current queue state to disk for crash recovery.
+///
+/// Writes only non-terminal items (Queued/Downloading/Processing) to
+/// `{app_data_dir}/queue.json` as a JSON array of `PersistedQueueItem`.
+///
+/// Uses a clone-then-release pattern: persistable items are cloned while
+/// the Mutex lock is held, then the lock is released before performing
+/// file I/O. This avoids holding the lock during potentially slow disk writes.
+///
+/// Called after every queue mutation (enqueue, cancel, retry, clear, fallback,
+/// network retry, completion, error) to ensure the on-disk state is always
+/// up-to-date for crash recovery.
+pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
+    // Clone persistable items while holding the lock (very fast — just cloning URLs + IDs)
+    let items = {
+        let q = queue.lock().await;
+        q.get_persistable_items()
+    };
+
+    // Write to disk after releasing the lock
+    let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
+    match serde_json::to_string_pretty(&items) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&queue_path, json) {
+                log::debug!("Failed to save queue to disk: {}", e);
+            }
+        }
+        Err(e) => {
+            log::debug!("Failed to serialize queue: {}", e);
+        }
+    }
+}
+
+/// Loads persisted queue items from disk.
+///
+/// Returns an empty `Vec` on missing or invalid file (graceful degradation
+/// for first run or file corruption). This is intentional: the queue should
+/// start empty rather than crash if persistence data is unavailable.
+pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
+    let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
+    match std::fs::read_to_string(&queue_path) {
+        Ok(json) => match serde_json::from_str::<Vec<PersistedQueueItem>>(&json) {
+            Ok(items) => {
+                if !items.is_empty() {
+                    log::info!("Loaded {} persisted queue item(s) from disk", items.len());
+                }
+                items
+            }
+            Err(e) => {
+                log::debug!("Failed to parse queue.json: {}", e);
+                vec![]
+            }
+        },
+        Err(_) => vec![], // File doesn't exist (first run) — not an error
+    }
+}
+
+/// Deletes the `queue.json` persistence file.
+///
+/// Called when the queue is intentionally cleared to avoid restoring
+/// stale items on next startup.
+pub fn clear_queue_file(app: &AppHandle) {
+    let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
+    let _ = std::fs::remove_file(queue_path);
 }
 
 // ============================================================

@@ -86,6 +86,38 @@ The following queue actions are available:
 - **Cancel** -- stops the active download immediately and marks it as cancelled
 - **Retry** -- re-queues a failed download so it can be attempted again
 - **Clear Finished** -- removes all completed and failed items from the queue list, keeping only pending and active items
+- **Export** -- saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
+- **Import** -- loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
+
+### Queue Persistence and Crash Recovery
+
+MeedyaDL automatically saves the download queue to disk after every state change. If the app is closed or crashes while downloads are queued or in progress, those items are automatically restored and resumed on the next launch. This means you never lose your download queue due to an unexpected shutdown.
+
+**How it works:**
+
+- The queue state is saved to a `queue.json` file in the app's data directory after every mutation (enqueue, cancel, retry, clear, completion, error, or fallback)
+- Only non-terminal items (queued, downloading, or processing) are persisted. Completed, failed, and cancelled items are cleared on restart
+- When the app launches and finds a saved queue, it restores the items and automatically begins processing after a short delay (to allow the UI to initialize)
+- No manual action is required -- recovery is fully automatic
+
+### Queue Export and Import
+
+You can transfer your download queue between devices or MeedyaDL installations using the export/import feature.
+
+**Exporting:**
+
+1. Click the **Export** button in the queue header (shown when there are active or pending items)
+2. Choose a save location in the native file dialog -- the default filename is `queue.meedyadl`
+3. The exported file contains the URLs and any per-download quality overrides, but not your global settings
+
+**Importing:**
+
+1. Click the **Import** button in the queue header
+2. Select a `.meedyadl` file from the native file picker
+3. The imported items are added to your current queue and begin processing immediately
+4. Each imported item uses your device's global settings as the base, with any per-download overrides from the export applied on top
+
+This is useful for transferring download lists between a desktop and laptop, sharing playlists with others, or backing up a download queue before reinstalling the app.
 
 ---
 
@@ -171,6 +203,8 @@ MeedyaDL can automatically download additional format versions alongside your pr
 - **Albums download all tracks as a batch.** Submitting an album URL is more efficient than submitting individual song URLs, because metadata is fetched once for the whole album rather than per-track.
 - **Monitor the fallback indicator.** If you see frequent fallbacks, the codec you selected may not be widely available. Consider switching your default codec in [Quality Settings](quality-settings.md).
 - **Reduce concurrency if you encounter rate limits.** Downloading many items simultaneously can trigger Apple Music's rate limiting. Lowering the concurrency limit in Settings helps avoid this.
+- **Your queue survives app restarts.** If you need to close the app while downloads are pending, they will automatically resume on the next launch. There is no need to manually save or re-enter URLs.
+- **Use export/import to transfer queues between devices.** If you set up downloads on one machine and want to continue on another, export the queue to a `.meedyadl` file and import it on the other device. The imported items will use the destination device's quality settings.
 
 ---
 
