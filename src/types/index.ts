@@ -229,7 +229,7 @@ export interface GamdlOptions {
   save_cover?: boolean;
   /** Image format for saved cover art */
   cover_format?: CoverFormat;
-  /** Pixel dimensions for cover art (e.g., 1200 for 1200x1200) */
+  /** Pixel dimensions for cover art (e.g., 10000 to request max available) */
   cover_size?: number;
   /** Output directory for downloaded files */
   output_path?: string;
@@ -395,6 +395,8 @@ export interface AppSettings {
   wrapper_account_url: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
+  /** Whether to fetch extra metadata tags (normalization, smooth playback) */
+  fetch_extra_tags: boolean;
   /** List of metadata tags to exclude from output files */
   exclude_tags: string[];
   /** Whether the sidebar is in collapsed (icon-only) mode */
