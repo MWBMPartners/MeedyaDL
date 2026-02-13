@@ -361,9 +361,20 @@ refactor(backend): simplify dependency management
 - [x] Queue export/import (transfer queue between devices via `.meedyadl` files)
 - [x] Manual workflow dispatch (`workflow_dispatch` on all CI/CD workflows for conserving Actions minutes)
 
-### Future
-- 🎵 **YouTube Music support** via [gytmdl](https://github.com/glomatico/gytmdl) integration
-- 🟢 **Spotify support** via [votify](https://github.com/glomatico/votify) integration
+### Planned Milestones
+
+| Milestone | Version | Service | Engine | Status |
+| --------- | ------- | ------- | ------ | ------ |
+| **M7** | v0.4.0 | Spotify | [votify](https://github.com/glomatico/votify) | Planned |
+| **M8** | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Planned |
+| **M9** | v0.6.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Planned |
+
+Each milestone adds a new media service behind the existing `MusicService` trait (to be renamed `MediaService`), with its own CLI subprocess engine, URL parser, settings tab, and help documentation. See [Project Plan](Project_Plan.md) for full milestone details.
+
+### Future (Beyond v0.6.0)
+
+- 🎵 **YouTube Music** via [gytmdl](https://github.com/glomatico/gytmdl) integration
+- 🔌 **Integration API** for third-party scripts and automation
 - 🌍 **Localization** (i18n) for multiple languages
 - 📊 **Download history** and statistics
 - 🎨 **Custom themes** and accent color picker

@@ -223,22 +223,199 @@ Default video fallback chain:
 
 ## 🔮 Future Roadmap
 
-| Feature | Service | Library | Status |
-|---------|---------|---------|--------|
-| YouTube Music downloads | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
-| Spotify downloads | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
-| Integration API | External apps | Custom | 🔲 Planned |
+### Overview
 
-The architecture is designed with a `MusicService` trait pattern to support adding new music platforms without restructuring the codebase.
+| Milestone | Version | Service | Backend Tool | Status |
+|-----------|---------|---------|-------------|--------|
+| Milestone 7 | v0.4.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
+| Milestone 8 | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
+| Milestone 9 | v0.6.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
+| Future | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
+| Future | TBD | Integration API | Custom | 🔲 Planned |
+
+The architecture is designed with a `MusicService` trait pattern (`src-tauri/src/models/music_service.rs`) to support adding new platforms without restructuring the codebase. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime.
+
+---
+
+### Milestone 7 — Spotify Support (v0.4.0)
+
+**Status:** 🔲 Planned
+
+Spotify integration via [votify](https://github.com/glomatico/votify), a Python CLI tool by the same developer as GAMDL. Follows the identical subprocess pattern (`python -m votify ...`), making it the natural first service to add.
+
+#### Spotify Architecture Changes
+
+- Add `Spotify` variant to `MusicServiceId` enum
+- Update `url_domains()` to match `open.spotify.com`
+- Update `pip_package()` to return `"votify"`
+- Generalise download queue to route by `MusicServiceId` (currently hardcoded for GAMDL)
+
+#### Spotify Backend
+
+- 🔲 `services/votify_service.rs` — votify CLI wrapper (install, version check, subprocess execution)
+- 🔲 `commands/spotify.rs` — Spotify-specific IPC commands
+- 🔲 votify installation in dependency manager (pip install alongside GAMDL)
+- 🔲 Spotify OAuth authentication flow (votify uses OAuth, not cookies)
+- 🔲 Spotify quality options: OGG Vorbis 320kbps, AAC 256kbps, AAC 128kbps
+- 🔲 Spotify fallback quality chain
+- 🔲 Spotify URL parsing (tracks, albums, playlists, artists, podcasts)
+- 🔲 Multi-service queue routing (service detection from URL → correct CLI tool)
+
+#### Spotify Frontend
+
+- 🔲 Update URL parser to detect `open.spotify.com` URLs
+- 🔲 Spotify-specific quality selector (no lossless, no spatial, no video options)
+- 🔲 Spotify authentication UI (OAuth flow, not cookie import)
+- 🔲 Service indicator in download form showing detected service
+- 🔲 Settings tab additions for Spotify-specific options
+- 🔲 Update setup wizard to optionally install votify
+
+#### Spotify Capabilities
+
+| Feature        | Supported                                    |
+| -------------- | -------------------------------------------- |
+| Lossless audio | No                                           |
+| Spatial audio  | No                                           |
+| Music videos   | No                                           |
+| Synced lyrics  | Yes                                          |
+| Cover art      | Yes                                          |
+| Auth method    | OAuth                                        |
+| Content types  | Songs, Albums, Playlists, Artists, Podcasts  |
+
+---
+
+### Milestone 8 — YouTube Support (v0.5.0)
+
+**Status:** 🔲 Planned
+
+YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 9.
+
+#### YouTube Architecture Changes
+
+- Add `YouTube` variant to `MusicServiceId` enum (or introduce a broader `MediaServiceId`)
+- Update `url_domains()` to match `youtube.com`, `youtu.be`, `music.youtube.com`
+- yt-dlp is not a pip package in the same pattern as GAMDL/votify — it's a standalone binary (or pip-installable). Decide: pip install or binary download via dependency manager
+- Extend download queue to handle video-only, audio-only, and video+audio downloads
+
+#### YouTube Backend
+
+- 🔲 `services/ytdlp_service.rs` — yt-dlp CLI wrapper (install, version check, subprocess execution)
+- 🔲 `commands/youtube.rs` — YouTube-specific IPC commands
+- 🔲 yt-dlp installation (pip install or binary download per platform)
+- 🔲 YouTube authentication (optional; cookies for age-restricted/private content)
+- 🔲 Video quality options: 2160p, 1440p, 1080p, 720p, 480p, 360p, 240p (H.264/H.265)
+- 🔲 Audio quality options: best audio, Opus, AAC, MP3 (yt-dlp format selection)
+- 🔲 Audio-only extraction mode (download audio stream without video)
+- 🔲 YouTube URL parsing (videos, shorts, playlists, channels, mixes)
+- 🔲 Progress tracking (yt-dlp stdout parsing for download percentage)
+- 🔲 Thumbnail/artwork download
+
+#### YouTube Frontend
+
+- 🔲 Update URL parser to detect `youtube.com`, `youtu.be`, `music.youtube.com` URLs
+- 🔲 YouTube-specific quality selector (video resolution + codec + audio format)
+- 🔲 Audio-only toggle in download form (extract audio without video container)
+- 🔲 YouTube authentication UI (optional cookie import for restricted content)
+- 🔲 Settings tab additions for YouTube-specific options (preferred format, audio extraction default)
+- 🔲 Update setup wizard to optionally install yt-dlp
+
+#### YouTube Capabilities
+
+| Feature                | Supported                                               |
+| ---------------------- | ------------------------------------------------------- |
+| Lossless audio         | No (Opus up to 251kbps)                                 |
+| Spatial audio          | No                                                      |
+| Music videos           | Yes                                                     |
+| Synced lyrics          | No (auto-generated subtitles via yt-dlp)                |
+| Cover art / thumbnails | Yes                                                     |
+| Auth method            | Cookies (optional)                                      |
+| Content types          | Videos, Shorts, Playlists, Channels, Music, Mixes       |
+
+---
+
+### Milestone 9 — BBC iPlayer Support (v0.6.0)
+
+**Status:** 🔲 Planned
+
+BBC iPlayer integration for downloading TV programmes, films, and radio shows. Reuses yt-dlp from Milestone 8 (which already supports BBC iPlayer) or uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as a dedicated alternative.
+
+**Important:** BBC iPlayer content is geographically restricted to the United Kingdom. Users outside the UK will need a VPN or BBC account with UK access.
+
+#### BBC iPlayer Architecture Changes
+
+- Add `BbcIPlayer` variant to `MusicServiceId` (or broader `MediaServiceId` if refactored in Milestone 8)
+- Update `url_domains()` to match `bbc.co.uk/iplayer`, `bbc.co.uk/sounds`
+- Extend content type detection for TV-specific models (series, episodes, categories)
+- Consider renaming `MusicService` trait to `MediaService` to reflect non-music services
+
+#### BBC iPlayer Backend
+
+- 🔲 BBC iPlayer service module (wrapper around yt-dlp with iPlayer-specific options, or get_iplayer)
+- 🔲 `commands/iplayer.rs` — BBC iPlayer-specific IPC commands
+- 🔲 BBC iPlayer URL parsing (programmes, series, episodes, films, radio/sounds)
+- 🔲 Video quality options: HD (720p/1080p), SD (576p) — limited by BBC encoding
+- 🔲 Audio/radio download support (BBC Sounds / Radio programmes)
+- 🔲 Subtitle download (SRT — BBC provides subtitles for most content)
+- 🔲 BBC iPlayer authentication (BBC account sign-in for full access)
+- 🔲 Geographic availability detection and user warnings
+
+#### BBC iPlayer Frontend
+
+- 🔲 Update URL parser to detect `bbc.co.uk/iplayer` and `bbc.co.uk/sounds` URLs
+- 🔲 BBC iPlayer-specific quality selector (HD/SD for video, audio bitrate for radio)
+- 🔲 BBC iPlayer authentication UI (account sign-in)
+- 🔲 Subtitle toggle for BBC programmes
+- 🔲 Geographic restriction warning banner
+- 🔲 Settings tab additions for BBC iPlayer-specific options
+
+#### BBC iPlayer Capabilities
+
+| Feature                | Supported                                                     |
+| ---------------------- | ------------------------------------------------------------- |
+| HD video               | Yes (720p/1080p)                                              |
+| 4K video               | No (not available on iPlayer)                                 |
+| Radio / audio          | Yes (BBC Sounds)                                              |
+| Subtitles              | Yes (SRT)                                                     |
+| Cover art / thumbnails | Yes                                                           |
+| Auth method            | BBC account                                                   |
+| Content types          | TV Programmes, Films, Series, Episodes, Radio, Podcasts       |
+| Geographic restriction | UK only                                                       |
+
+---
+
+### Cross-Cutting Architectural Work
+
+These tasks span multiple milestones and should be addressed incrementally:
+
+- 🔲 **Multi-service download queue** — generalise `download_queue.rs` to dispatch to the correct CLI tool based on detected service
+- 🔲 **Service registry** — dynamic service registration in `lib.rs` setup instead of hardcoded GAMDL references
+- 🔲 **Per-service settings** — migrate flat `AppSettings` to `Vec<ServiceConfig>` for per-service output paths, auth, and quality defaults
+- 🔲 **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services
+- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M8) and BBC iPlayer (M9); install once, share across services
+- 🔲 **Service-aware fallback chains** — each service defines its own quality fallback chain based on available codecs
+- 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)
+
+---
+
+### Future (Beyond v0.6.0)
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔲 Planned |
+| **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔲 Planned |
+| **Localization (i18n)** | Multi-language UI support | 🔲 Planned |
+| **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
+| **Custom themes** | User-defined accent colours and theme presets | 🔲 Planned |
 
 ---
 
 ## 📝 Notes
 
-- **GAMDL is called as a CLI subprocess** (`python -m gamdl ...`) to maintain MIT license compatibility
-- **All dependencies are self-contained** in the app data directory - no system-wide installations
+- **All CLI tools are called as subprocesses** (`python -m gamdl`, `python -m votify`, `yt-dlp`, etc.) to maintain license compatibility
+- **All dependencies are self-contained** in the app data directory — no system-wide installations
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
+- **yt-dlp is shared** between YouTube (M8) and BBC iPlayer (M9) — install once, configure per-service
 
 ---
 
