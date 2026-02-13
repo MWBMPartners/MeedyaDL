@@ -404,6 +404,8 @@ export interface AppSettings {
   cover_size: number;
   /** Whether to download animated cover art (motion artwork) from Apple Music */
   animated_artwork_enabled: boolean;
+  /** Whether to set the OS "hidden" attribute on animated artwork files */
+  hide_animated_artwork: boolean;
   /** Apple MusicKit Team ID for API authentication (10-char, e.g. "ABCDE12345") */
   musickit_team_id: string | null;
   /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */

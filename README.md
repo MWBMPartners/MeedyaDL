@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.0-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.1-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
@@ -38,7 +38,7 @@
 - **Companion downloads** — configurable multi-format downloads: automatically download ALAC and/or lossy AAC companions alongside Dolby Atmos or ALAC primary downloads (4 modes: Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy)
 - **Persistent download queue** — queue survives app close/crash; auto-resumes on restart
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
-- **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API
+- **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
 
 ### 📝 Metadata & Extras
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
@@ -338,7 +338,7 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### Current (v0.3.0)
+### Current (v0.3.1)
 - [x] Tauri 2.0 + React 19 foundation
 - [x] Platform-adaptive UI themes (macOS, Windows, Linux)
 - [x] Rust backend with IPC command system
@@ -354,6 +354,7 @@ refactor(backend): simplify dependency management
 - [x] Auto-update checker (GAMDL, app, Python) with notification banner
 - [x] System tray integration (show, status, updates, quit)
 - [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4 / PortraitCover.mp4)
+- [x] Hidden animated artwork files (OS-level hidden attribute: macOS `chflags hidden`, Windows `attrib +H`, Linux `.` prefix)
 - [x] Configurable companion downloads (4 modes: Disabled, Atmos to Lossless, Atmos to Lossless+Lossy, Specialist to Lossy)
 - [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos)
 - [x] Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
@@ -415,5 +416,5 @@ For the full implementation plan, architecture decisions, and development phases
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/MeedyaDL">MeedyaDL</a>
+  Made with ❤️ by MeedyaDL
 </p>
