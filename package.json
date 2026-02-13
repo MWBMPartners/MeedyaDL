@@ -1,7 +1,7 @@
 {
   "name": "gamdl-gui",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A multiplatform graphical user interface for GAMDL (Apple Music downloader)",
   "author": "MWBM Partners Ltd",
   "license": "MIT",
