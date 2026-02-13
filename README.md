@@ -378,6 +378,7 @@ Each milestone adds a new media service behind the existing `MusicService` trait
 - 🌍 **Localization** (i18n) for multiple languages
 - 📊 **Download history** and statistics
 - 🎨 **Custom themes** and accent color picker
+- 🎚️ **Multi-track muxing** — combine companion downloads (Atmos + AC3 + AAC) into a single MP4 with multiple audio streams
 
 ---
 

@@ -406,6 +406,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 | **Localization (i18n)** | Multi-language UI support | 🔲 Planned |
 | **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
 | **Custom themes** | User-defined accent colours and theme presets | 🔲 Planned |
+| **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback. Power-user option — requires player support for MP4 alternate audio tracks (standard for video, limited for music players) | 🔲 Planned |
 
 ---
 
