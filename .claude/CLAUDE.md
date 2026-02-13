@@ -63,12 +63,40 @@ scripts/                # Build utilities (copyright year updater, version bump)
 Push fix:/feat: commits directly to main
   → release-please creates/updates a Release PR (bumps versions)
   → User reviews and merges the Release PR
-  → release-please creates tag (e.g., v0.1.3) using RELEASE_PAT
+  → release-please creates tag (e.g., v0.3.0) using RELEASE_PAT
   → release.yml triggers → 6 platform builds → draft GitHub Release
   → changelog.yml triggers → git-cliff regenerates CHANGELOG.md
 ```
 
 Manual override: `version-bump.yml` + `scripts/bump-version.mjs` for non-standard releases.
+
+### Conserving GitHub Actions Minutes
+
+All workflows (CI, Changelog, Release Please) support both automatic (`on: push`) and manual (`workflow_dispatch`) triggers.
+
+During rapid development, add `[skip ci]` to commit messages to prevent auto-triggering:
+
+```bash
+git commit -m "feat: add queue persistence [skip ci]"
+```
+
+When ready to validate, manually trigger via CLI or GitHub UI:
+
+```bash
+gh workflow run "CI" --ref main
+gh workflow run "Release Please" --ref main
+gh workflow run "Changelog" --ref main
+```
+
+### Release Please Branch Naming
+
+Release-please v4 creates PR branches with the format:
+`release-please--branches--{target}--components--{component}`
+
+For this project (component name from `package.json` `name` field):
+`release-please--branches--main--components--meedyadl`
+
+The `.release-please-manifest.json` must match the current version to avoid release-please trying to create releases from an old version.
 
 ## Build Targets
 

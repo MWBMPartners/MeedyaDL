@@ -200,7 +200,7 @@ Default video fallback chain:
 
 ---
 
-## 🆕 Post-Release Features (v0.1.1 — v0.1.3)
+## 🆕 Post-Release Features (v0.1.1 — v0.3.0)
 
 **Status:** ✅ Complete
 
@@ -211,6 +211,13 @@ Default video fallback chain:
 - **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, PortraitCover.mp4) via FFmpeg HLS conversion
 - **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
 - **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
+- **Configurable companion downloads** - 4 modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy) with [Lossless]/[Dolby Atmos] file suffixes
+- **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
+- **Custom codec metadata tagging** - ALAC: `isLossless=Y`; Atmos: `SpatialType=Dolby Atmos` via mp4ameta freeform atoms
+- **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup
+- **Queue export/import** - `.meedyadl` file format with native save/open dialogs for cross-device transfer
+- **Manual workflow dispatch** - `workflow_dispatch` on CI, Changelog, Release Please for conserving Actions minutes
+- **Release-please branch fix** - Corrected branch naming to `release-please--branches--main--components--meedyadl`
 
 ---
 
@@ -235,4 +242,4 @@ The architecture is designed with a `MusicService` trait pattern to support addi
 
 ---
 
-*Last updated: 2026-02-12*
+*Last updated: 2026-02-13*

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.1.3-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.0-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
@@ -237,7 +237,8 @@ MeedyaDL/
 │       │   ├── update_checker.rs    # Version update checker
 │       │   ├── cookie_service.rs    # Browser cookie extraction
 │       │   ├── login_window_service.rs # Embedded Apple Music login
-│       │   └── animated_artwork_service.rs # MusicKit animated cover art
+│       │   ├── animated_artwork_service.rs # MusicKit animated cover art
+│       │   └── metadata_tag_service.rs    # Custom M4A codec metadata tagging
 │       └── utils/              #    Utility modules
 │           ├── platform.rs     #    OS detection & paths
 │           ├── archive.rs      #    ZIP/tar extraction
@@ -337,7 +338,7 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### Current (v0.1.x)
+### Current (v0.3.0)
 - [x] Tauri 2.0 + React 19 foundation
 - [x] Platform-adaptive UI themes (macOS, Windows, Linux)
 - [x] Rust backend with IPC command system
@@ -353,6 +354,12 @@ refactor(backend): simplify dependency management
 - [x] Auto-update checker (GAMDL, app, Python) with notification banner
 - [x] System tray integration (show, status, updates, quit)
 - [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4 / PortraitCover.mp4)
+- [x] Configurable companion downloads (4 modes: Disabled, Atmos to Lossless, Atmos to Lossless+Lossy, Specialist to Lossy)
+- [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos)
+- [x] Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
+- [x] Queue persistence and crash recovery (auto-save to disk, auto-resume on restart)
+- [x] Queue export/import (transfer queue between devices via `.meedyadl` files)
+- [x] Manual workflow dispatch (`workflow_dispatch` on all CI/CD workflows for conserving Actions minutes)
 
 ### Future
 - 🎵 **YouTube Music support** via [gytmdl](https://github.com/glomatico/gytmdl) integration

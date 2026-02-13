@@ -98,7 +98,7 @@
 - [x] Release workflow review (CI and Release workflows verified: matrix builds, concurrency, caching, Linux deps, artifact upload)
 - [x] Copyright year automation (expanded script to cover all 121 files, auto-detect macOS/Linux, self-corruption guard)
 
-### Post-Release Features (v0.1.1 — v0.1.3)
+### Post-Release Features (v0.1.1 — v0.3.0)
 
 - [x] Browser cookie auto-import service (detect installed browsers, extract cookies automatically)
 - [x] Embedded Apple Music login window (sign in directly in-app, extract cookies from webview)
@@ -111,6 +111,8 @@
 - [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos via mp4ameta freeform atoms)
 - [x] Queue persistence and crash recovery (queue.json auto-save after every mutation; auto-resume on startup)
 - [x] Queue export/import (.meedyadl file format with native save/open dialogs; cross-device transfer)
+- [x] Manual workflow dispatch (workflow_dispatch on CI, Changelog, Release Please for conserving Actions minutes)
+- [x] Fix release-please branch naming (release-please--branches--main--components--meedyadl)
 
 ---
 
