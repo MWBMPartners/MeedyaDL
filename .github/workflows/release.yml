@@ -68,6 +68,10 @@ on:
   push:
     tags:
       - 'v*'
+  # Allow manual trigger for re-running builds when tag push events are missed
+  # (e.g., after billing blocks or tag re-pushes). Usage:
+  #   gh workflow run "Release" --ref v0.3.1
+  workflow_dispatch:
 
 jobs:
   # ============================================================
