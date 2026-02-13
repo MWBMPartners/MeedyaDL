@@ -1558,6 +1558,7 @@ version = "0.1.3"
 dependencies = [
  "chrono",
  "configparser",
+ "cookie",
  "dirs",
  "env_logger",
  "flate2",
@@ -1579,6 +1580,7 @@ dependencies = [
  "tauri-plugin-store",
  "thiserror 2.0.18",
  "tokio",
+ "url",
  "uuid",
  "zip",
 ]

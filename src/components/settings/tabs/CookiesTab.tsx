@@ -11,14 +11,18 @@
  *      (not-set, valid, invalid, or expired).
  *   2. **Information box** -- Explains why cookies are needed for Apple Music
  *      authentication.
- *   3. **Browser instructions** -- Collapsible accordion with step-by-step
+ *   3. **Auto-import from browser** -- Dropdown with detected browsers and
+ *      one-click cookie extraction via the `rookie` crate.
+ *   4. **Sign in with Apple Music** -- Opens an embedded browser window for
+ *      direct Apple Music login when no browser cookies exist.
+ *   5. **Browser instructions** -- Collapsible accordion with step-by-step
  *      guides for Chrome, Firefox, Edge, and Safari.
- *   4. **File picker** -- Lets the user browse for their cookies.txt file
+ *   6. **File picker** -- Lets the user browse for their cookies.txt file
  *      using the Tauri native file dialog.
- *   5. **Validate button** -- Sends the selected file to the Rust backend
+ *   7. **Validate button** -- Sends the selected file to the Rust backend
  *      for validation via the `validate_cookies_file` Tauri IPC command.
- *   6. **Copy path button** -- Copies the file path to the system clipboard.
- *   7. **Validation results panel** -- Displays cookie count, detected
+ *   8. **Copy path button** -- Copies the file path to the system clipboard.
+ *   9. **Validation results panel** -- Displays cookie count, detected
  *      domains, expiry warnings, and any additional backend warnings.
  *
  * ## Validation Flow
@@ -42,7 +46,11 @@
  *
  * - **settingsStore**: Reads `settings.cookies_path`; writes via
  *   `updateSettings({ cookies_path })`.
- * - **Tauri commands**: Calls `validateCookiesFile` for backend validation.
+ * - **Tauri commands**: Calls `validateCookiesFile`, `detectBrowsers`,
+ *   `importCookiesFromBrowser`, `openAppleLogin`, `extractLoginCookies`,
+ *   `closeAppleLogin` for backend operations.
+ * - **Tauri events**: Listens for `login-cookies-extracted` and
+ *   `login-window-closed` events from the embedded login browser.
  *
  * @see {@link ../SettingsPage.tsx}                  -- Parent container
  * @see {@link @/stores/settingsStore.ts}            -- Zustand store
@@ -74,7 +82,11 @@ import {
   Info,           // "How to Export" section icon
   CircleDot,      // "Not set" status icon
   Loader2,        // Loading spinner
+  LogIn,          // Sign-in icon for embedded browser login
 } from 'lucide-react';
+
+// Tauri event listener for receiving events from the Rust backend.
+import { listen } from '@tauri-apps/api/event';
 
 // Zustand store for reading the cookies_path and writing path updates.
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -586,6 +598,12 @@ export function CookiesTab() {
   /** Error message from a failed import */
   const [importError, setImportError] = useState<string | null>(null);
 
+  /* ---- Embedded login window state ---- */
+  /** Whether the embedded login browser window is currently open */
+  const [isLoginWindowOpen, setIsLoginWindowOpen] = useState(false);
+  /** Whether cookie extraction from the login window is in progress */
+  const [isExtractingFromLogin, setIsExtractingFromLogin] = useState(false);
+
   /* ---- Platform detection ---- */
   const { platform } = usePlatform();
 
@@ -626,6 +644,70 @@ export function CookiesTab() {
     detect();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Listen for the "login-cookies-extracted" event from the Rust backend.
+   * Emitted when the embedded login window detects successful Apple Music
+   * authentication and extracts cookies automatically.
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    async function setup() {
+      try {
+        unlisten = await listen<CookieImportResult>(
+          'login-cookies-extracted',
+          (event) => {
+            try {
+              setImportResult(event.payload);
+              setIsLoginWindowOpen(false);
+              setIsExtractingFromLogin(false);
+
+              // Update settings if cookies were saved successfully
+              if (event.payload.success && event.payload.path) {
+                updateSettings({ cookies_path: event.payload.path });
+                setValidation(null); // Clear manual validation for fresh cookies
+              }
+            } catch (err) {
+              console.error('Error handling login-cookies-extracted:', err);
+            }
+          },
+        );
+      } catch (err) {
+        console.warn('[CookiesTab] Failed to listen for login events:', err);
+      }
+    }
+
+    setup();
+    return () => {
+      unlisten?.();
+    };
+  }, [updateSettings]);
+
+  /**
+   * Listen for the "login-window-closed" event from the Rust backend.
+   * Emitted when the login window is closed (by user or programmatically).
+   * Resets the login window state so the UI shows the correct buttons.
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    async function setup() {
+      try {
+        unlisten = await listen('login-window-closed', () => {
+          setIsLoginWindowOpen(false);
+          setIsExtractingFromLogin(false);
+        });
+      } catch (err) {
+        console.warn('[CookiesTab] Failed to listen for login-window-closed:', err);
+      }
+    }
+
+    setup();
+    return () => {
+      unlisten?.();
     };
   }, []);
 
@@ -674,6 +756,63 @@ export function CookiesTab() {
 
     setIsImporting(false);
   }, [selectedBrowser, platform, updateSettings]);
+
+  /**
+   * Opens the embedded Apple Music login browser window.
+   * Calls the Rust backend to create a secondary webview that loads
+   * music.apple.com, allowing the user to sign in directly.
+   */
+  const handleOpenLoginWindow = useCallback(async () => {
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      await commands.openAppleLogin();
+      setIsLoginWindowOpen(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setImportError(message);
+    }
+  }, []);
+
+  /**
+   * Manually triggers cookie extraction from the login window.
+   * Fallback for when automatic detection doesn't fire.
+   */
+  const handleManualExtract = useCallback(async () => {
+    setIsExtractingFromLogin(true);
+    setImportError(null);
+
+    try {
+      const result = await commands.extractLoginCookies();
+      setImportResult(result);
+      setIsLoginWindowOpen(false);
+      setIsExtractingFromLogin(false);
+
+      if (result.success && result.path) {
+        updateSettings({ cookies_path: result.path });
+        setValidation(null);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setImportError(message);
+      setIsExtractingFromLogin(false);
+    }
+  }, [updateSettings]);
+
+  /**
+   * Cancels the embedded login flow by closing the login window
+   * and resetting login-related state.
+   */
+  const handleCancelLogin = useCallback(async () => {
+    try {
+      await commands.closeAppleLogin();
+    } catch {
+      // Silent failure -- window may already be closed
+    }
+    setIsLoginWindowOpen(false);
+    setIsExtractingFromLogin(false);
+  }, []);
 
   /**
    * Validates the currently selected cookies file by invoking the
@@ -887,6 +1026,58 @@ export function CookiesTab() {
               </div>
             </div>
           )}
+
+          {/* Sign in with Apple Music (embedded login browser) */}
+          <div className="pt-2 border-t border-border-light">
+            {!isLoginWindowOpen ? (
+              /* Show the "Sign in" option when login window is not open */
+              <>
+                <p className="text-xs text-content-tertiary mb-2">
+                  Or sign in directly:
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleOpenLoginWindow}
+                  disabled={isImporting}
+                >
+                  <LogIn size={14} className="mr-1.5" />
+                  Sign in with Apple Music
+                </Button>
+              </>
+            ) : (
+              /* Show the "Waiting for login..." state when login window is open */
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-accent" />
+                  <span className="text-xs font-medium text-content-primary">
+                    Signing in...
+                  </span>
+                </div>
+                <p className="text-xs text-content-tertiary">
+                  Sign in with your Apple ID in the browser window, then return here.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={isExtractingFromLogin}
+                    onClick={handleManualExtract}
+                  >
+                    I&apos;ve signed in
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelLogin}
+                    disabled={isExtractingFromLogin}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

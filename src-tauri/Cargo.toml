@@ -314,3 +314,25 @@ regex = "1"
 #
 # @see https://docs.rs/rookie/ -- rookie crate documentation
 rookie = "0.5"
+
+# ---- Cookie Parsing (for webview cookie extraction) ----
+
+# cookie -- HTTP cookie parsing and serialization library.
+# Used by the embedded login window service to work with cookies extracted
+# from Tauri's webview via `cookies_for_url()`. The Tauri API returns
+# `Vec<cookie::Cookie<'static>>` structs, and this crate provides the
+# Cookie type definition, field accessors (name, value, domain, path,
+# secure, expires), and the Expiration enum for expiry handling.
+#
+# While `cookie` is already a transitive dependency through Tauri, we
+# declare it explicitly since we use its types directly in our code.
+# @see https://docs.rs/cookie/ -- cookie crate documentation
+cookie = "0.18"
+
+# url -- URL parsing and manipulation library.
+# Used by the login window service to construct `url::Url` values for
+# Tauri's `cookies_for_url()` API, which requires a parsed URL object
+# (not a string). Also a transitive dependency through Tauri and reqwest,
+# declared explicitly for direct usage clarity.
+# @see https://docs.rs/url/ -- url crate documentation
+url = "2"
