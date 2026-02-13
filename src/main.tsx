@@ -1,10 +1,10 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/main.tsx - React application entry point
  *
- * This is the top-level entry point for the gamdl-GUI React application.
+ * This is the top-level entry point for the MeedyaDL React application.
  * Vite uses this file as the JavaScript module entry (configured in index.html
  * via `<script type="module" src="/src/main.tsx">`).
  *

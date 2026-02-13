@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Settings and configuration service.
@@ -69,9 +69,9 @@ use crate::utils::platform;
 /// * `Err(message)` - If the settings file exists but couldn't be parsed
 pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // Resolve the settings file path: {app_data_dir}/settings.json
-    // On macOS: ~/Library/Application Support/com.gamdl-gui.app/settings.json
-    // On Windows: %APPDATA%\com.gamdl-gui.app\settings.json
-    // On Linux: ~/.config/com.gamdl-gui.app/settings.json
+    // On macOS: ~/Library/Application Support/io.github.meedyadl/settings.json
+    // On Windows: %APPDATA%\io.github.meedyadl\settings.json
+    // On Linux: ~/.config/io.github.meedyadl/settings.json
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
     if settings_path.exists() {

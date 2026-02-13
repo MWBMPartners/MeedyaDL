@@ -1,8 +1,8 @@
 #!/bin/bash
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Copyright Year Updater for gamdl-GUI
+# Copyright Year Updater for MeedyaDL
 # ======================================
 #
 # Updates the copyright end-year across all source files in the project

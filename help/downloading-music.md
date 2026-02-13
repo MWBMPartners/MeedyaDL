@@ -1,28 +1,28 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # :musical_note: Downloading Music
 
-This guide explains how to download songs, albums, playlists, and artist discographies from Apple Music using gamdl-GUI.
+This guide explains how to download songs, albums, playlists, and artist discographies from Apple Music using MeedyaDL.
 
 ---
 
 ## Overview
 
-gamdl-GUI supports downloading audio content from Apple Music by accepting URLs and processing them through the GAMDL backend. You can download individual songs, full albums, entire playlists, or an artist's complete catalog. Simply paste a URL from `music.apple.com` into the download form, choose your preferred audio quality, and the app handles the rest -- including metadata embedding, lyrics, and automatic quality fallback when a codec is unavailable.
+MeedyaDL supports downloading audio content from Apple Music by accepting URLs and processing them through the GAMDL backend. You can download individual songs, full albums, entire playlists, or an artist's complete catalog. Simply paste a URL from `music.apple.com` into the download form, choose your preferred audio quality, and the app handles the rest -- including metadata embedding, lyrics, and automatic quality fallback when a codec is unavailable.
 
 ---
 
 ## Supported URL Types
 
-gamdl-GUI auto-detects the content type from the URL path. The following URL types from `music.apple.com` are supported:
+MeedyaDL auto-detects the content type from the URL path. The following URL types from `music.apple.com` are supported:
 
 ### Songs
 
-URLs containing `/song/` download a single track. To get a song URL, open the track in Apple Music (web or app), click the share/copy-link option, and paste the URL into gamdl-GUI. The app will fetch metadata, download the audio in your selected codec, embed tags and artwork, and save the file to your configured output directory.
+URLs containing `/song/` download a single track. To get a song URL, open the track in Apple Music (web or app), click the share/copy-link option, and paste the URL into MeedyaDL. The app will fetch metadata, download the audio in your selected codec, embed tags and artwork, and save the file to your configured output directory.
 
 **Example URL format:** `https://music.apple.com/us/song/track-name/1234567890`
 
@@ -91,7 +91,7 @@ The following queue actions are available:
 
 ## Download Progress and Status
 
-gamdl-GUI provides real-time progress tracking by parsing output from the GAMDL CLI backend. While a download is active, you can see:
+MeedyaDL provides real-time progress tracking by parsing output from the GAMDL CLI backend. While a download is active, you can see:
 
 - **Current track** -- the name of the track being processed, updated as the queue moves through an album or playlist
 - **Download percentage** -- a progress bar showing how far the current item has progressed
@@ -150,7 +150,7 @@ For full details on metadata and lyrics configuration, see [Lyrics and Metadata]
 
 ## Fallback Quality
 
-If the codec you selected is not available for a particular track, gamdl-GUI automatically tries alternative codecs using a fallback chain. The default music fallback chain is:
+If the codec you selected is not available for a particular track, MeedyaDL automatically tries alternative codecs using a fallback chain. The default music fallback chain is:
 
 ALAC -> Atmos -> AC3 -> AAC Binaural -> AAC -> AAC Legacy
 

@@ -1,10 +1,10 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Platform utilities for OS detection and path resolution.
 // =========================================================
 //
-// gamdl-GUI ships a fully self-contained environment: its own portable
+// MeedyaDL ships a fully self-contained environment: its own portable
 // Python runtime, its own GAMDL installation (via pip), and its own
 // copies of external tools (FFmpeg, mp4decrypt, etc.). This avoids
 // conflicts with any system-level Python or tool installations the user
@@ -12,9 +12,9 @@
 //
 // All of this data lives under a single root directory that varies by
 // operating system:
-//   - macOS:   ~/Library/Application Support/com.mwbmpartners.gamdl-gui/
-//   - Windows: %APPDATA%\com.mwbmpartners.gamdl-gui\
-//   - Linux:   ~/.local/share/com.mwbmpartners.gamdl-gui/
+//   - macOS:   ~/Library/Application Support/io.github.meedyadl/
+//   - Windows: %APPDATA%\io.github.meedyadl\
+//   - Linux:   ~/.local/share/io.github.meedyadl/
 //
 // The functions in this module resolve paths relative to that root. They
 // are used by the `services` layer (python_manager, dependency_manager,
@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 // Reference: https://docs.rs/tauri/latest/tauri/trait.Manager.html
 use tauri::{AppHandle, Manager};
 
-/// Returns the root application data directory for gamdl-GUI.
+/// Returns the root application data directory for MeedyaDL.
 ///
 /// This is the self-contained directory where all application data lives:
 /// - Python runtime
@@ -54,9 +54,9 @@ use tauri::{AppHandle, Manager};
 /// - GAMDL configuration
 ///
 /// Platform-specific locations:
-/// - macOS:   `~/Library/Application Support/com.mwbmpartners.gamdl-gui/`
-/// - Windows: `%APPDATA%\com.mwbmpartners.gamdl-gui\`
-/// - Linux:   `~/.local/share/com.mwbmpartners.gamdl-gui/`
+/// - macOS:   `~/Library/Application Support/io.github.meedyadl/`
+/// - Windows: `%APPDATA%\io.github.meedyadl\`
+/// - Linux:   `~/.local/share/io.github.meedyadl/`
 ///
 /// # Fallback behaviour
 /// If Tauri's path resolver fails (which should not happen in normal
@@ -76,7 +76,7 @@ use tauri::{AppHandle, Manager};
 /// - `PathResolver::app_data_dir()`: <https://docs.rs/tauri/latest/tauri/path/struct.PathResolver.html>
 pub fn get_app_data_dir(app: &AppHandle) -> PathBuf {
     // Tauri's `app.path().app_data_dir()` reads the `identifier` field from
-    // `tauri.conf.json` (e.g., "com.mwbmpartners.gamdl-gui") and appends it
+    // `tauri.conf.json` (e.g., "io.github.meedyadl") and appends it
     // to the OS-standard application data directory.
     app.path()
         .app_data_dir()
@@ -88,7 +88,7 @@ pub fn get_app_data_dir(app: &AppHandle) -> PathBuf {
             // Reference: https://docs.rs/dirs/latest/dirs/fn.data_dir.html
             dirs::data_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("com.mwbmpartners.gamdl-gui")
+                .join("io.github.meedyadl")
         })
 }
 

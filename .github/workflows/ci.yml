@@ -1,7 +1,7 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Continuous Integration (CI) Workflow for gamdl-GUI
+# Continuous Integration (CI) Workflow for MeedyaDL
 # ===================================================
 #
 # This GitHub Actions workflow validates code quality on every push and pull request.

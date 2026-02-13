@@ -1,7 +1,7 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Icon Generation Script for gamdl-GUI
+// Icon Generation Script for MeedyaDL
 // ======================================
 //
 // This script converts the source SVG icon (assets/icons/app-icon.svg) into all

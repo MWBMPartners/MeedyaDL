@@ -1,8 +1,8 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file src/App.tsx - Root application component for gamdl-GUI
+ * @file src/App.tsx - Root application component for MeedyaDL
  *
  * This is the top-level React component rendered by main.tsx. It orchestrates
  * the entire application lifecycle from first paint to steady-state operation.
@@ -590,7 +590,7 @@ function App() {
   if (!isReady) {
     return (
       <div className="flex items-center justify-center h-screen bg-surface-primary">
-        <LoadingSpinner size="lg" label="Loading GAMDL..." />
+        <LoadingSpinner size="lg" label="Loading MeedyaDL..." />
       </div>
     );
   }

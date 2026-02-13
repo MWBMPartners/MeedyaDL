@@ -1,7 +1,7 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Cargo.toml -- Rust Package Manifest for gamdl-GUI Tauri Backend
+# Cargo.toml -- Rust Package Manifest for MeedyaDL Tauri Backend
 # ================================================================
 #
 # This file defines the Rust package metadata and all dependencies for the
@@ -32,17 +32,17 @@
 # @see https://doc.rust-lang.org/cargo/reference/manifest.html#the-package-section
 [package]
 # name -- The crate name. Used as the binary name and in `cargo build` output.
-name = "gamdl-gui"
+name = "meedyadl"
 # version -- Semantic version. Should stay in sync with tauri.conf.json "version" and package.json.
 version = "0.1.3"
 # description -- Short description shown on crates.io and in `cargo search` results.
-description = "A multiplatform GUI for GAMDL (Apple Music downloader)"
+description = "A multiplatform media downloader"
 # authors -- Package authors. Used in bundle metadata (installers, About dialogs).
-authors = ["MWBM Partners Ltd"]
+authors = ["MeedyaDL"]
 # license -- SPDX license identifier. MIT is permissive, allowing commercial and private use.
 license = "MIT"
 # repository -- URL to the source code. Included in bundle metadata and crates.io listings.
-repository = "https://github.com/MWBM-Partners-Ltd/gamdl-GUI"
+repository = "https://github.com/MeedyaDL/MeedyaDL"
 # edition -- Rust edition to use. 2021 enables let-else, edition-specific lints, and module changes.
 # @see https://doc.rust-lang.org/edition-guide/editions/
 edition = "2021"
@@ -255,7 +255,7 @@ log = "0.4"
 # env_logger -- Logger implementation that reads the RUST_LOG environment variable.
 # Configures which log levels and modules to display. Examples:
 #   RUST_LOG=debug        -- Show all debug and above
-#   RUST_LOG=gamdl_gui=trace,tauri=warn -- Verbose app logs, quiet Tauri logs
+#   RUST_LOG=meedyadl=trace,tauri=warn -- Verbose app logs, quiet Tauri logs
 # Outputs to stderr with timestamps, module paths, and colored levels in dev.
 # @see https://docs.rs/env_logger/ -- env_logger documentation
 env_logger = "0.11"

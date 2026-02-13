@@ -1,26 +1,26 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # :question: Frequently Asked Questions
 
-Answers to the most commonly asked questions about gamdl-GUI.
+Answers to the most commonly asked questions about MeedyaDL.
 
 ---
 
 ## General Questions
 
-### What is gamdl-GUI?
+### What is MeedyaDL?
 
-gamdl-GUI is a multiplatform graphical user interface for GAMDL, built with Tauri 2.0, React, and TypeScript. It provides a user-friendly way to download songs, albums, playlists, artist discographies, and music videos from Apple Music, with options for quality, format, lyrics, and metadata. gamdl-GUI is open-source software developed by MWBM Partners Ltd and released under the MIT License.
+MeedyaDL is a multiplatform graphical user interface for GAMDL, built with Tauri 2.0, React, and TypeScript. It provides a user-friendly way to download songs, albums, playlists, artist discographies, and music videos from Apple Music, with options for quality, format, lyrics, and metadata. MeedyaDL is open-source software developed by MeedyaDL and released under the MIT License.
 
 For more information, see [Getting Started](getting-started.md).
 
-### What platforms does gamdl-GUI support?
+### What platforms does MeedyaDL support?
 
-gamdl-GUI supports the following platforms:
+MeedyaDL supports the following platforms:
 
 - **macOS** 11.0 (Big Sur) or later -- Apple Silicon (M-series)
 - **Windows** -- x64 and ARM64
@@ -31,11 +31,11 @@ See [Getting Started](getting-started.md) for installation instructions on each 
 
 ### Do I need an Apple Music subscription?
 
-Yes, a valid Apple Music subscription is required to use gamdl-GUI. Any subscription tier that grants access to the Apple Music catalog will work. The subscription is used for authentication via cookies -- without an active subscription, the app cannot access content from Apple's servers.
+Yes, a valid Apple Music subscription is required to use MeedyaDL. Any subscription tier that grants access to the Apple Music catalog will work. The subscription is used for authentication via cookies -- without an active subscription, the app cannot access content from Apple's servers.
 
-### Is gamdl-GUI free?
+### Is MeedyaDL free?
 
-Yes. gamdl-GUI is free and open-source software licensed under the MIT License. It is free to use, modify, and distribute. There are no paid tiers, subscriptions, or in-app purchases. You do, however, need your own Apple Music subscription separately.
+Yes. MeedyaDL is free and open-source software licensed under the MIT License. It is free to use, modify, and distribute. There are no paid tiers, subscriptions, or in-app purchases. You do, however, need your own Apple Music subscription separately.
 
 ---
 
@@ -49,21 +49,21 @@ For full details on how to export and import cookies, see [Cookie Management](co
 
 ### How often do I need to refresh my cookies?
 
-Cookies typically remain valid for 1 to 12 months, depending on your browser and session settings. gamdl-GUI displays expiry warnings within the app when your cookies are approaching expiration or have already expired. When that happens, simply re-export your cookies from your browser and re-import them into gamdl-GUI.
+Cookies typically remain valid for 1 to 12 months, depending on your browser and session settings. MeedyaDL displays expiry warnings within the app when your cookies are approaching expiration or have already expired. When that happens, simply re-export your cookies from your browser and re-import them into MeedyaDL.
 
 See [Cookie Management](cookie-management.md) for detailed guidance on the export and import process.
 
 ### Is my Apple ID password stored anywhere?
 
-No. Never. gamdl-GUI never sees, stores, or transmits your Apple ID password. Authentication is handled entirely through browser cookies, which contain session tokens rather than your credentials. Your password remains solely within your browser and Apple's servers.
+No. Never. MeedyaDL never sees, stores, or transmits your Apple ID password. Authentication is handled entirely through browser cookies, which contain session tokens rather than your credentials. Your password remains solely within your browser and Apple's servers.
 
 ---
 
 ## Downloads
 
-### What can I download with gamdl-GUI?
+### What can I download with MeedyaDL?
 
-gamdl-GUI supports downloading the following content types from Apple Music:
+MeedyaDL supports downloading the following content types from Apple Music:
 
 - Individual songs
 - Full albums
@@ -75,7 +75,7 @@ See [Downloading Music](downloading-music.md) and [Downloading Videos](downloadi
 
 ### What audio formats are supported?
 
-gamdl-GUI supports the following audio formats:
+MeedyaDL supports the following audio formats:
 
 - **AAC** -- 256 kbps lossy compression, the standard Apple Music format
 - **AAC-HE** -- High Efficiency AAC for lower bitrate streaming
@@ -101,7 +101,7 @@ See [Getting Started](getting-started.md) for initial configuration.
 
 ### Can I download content from regions other than my own?
 
-Content availability depends on your Apple Music account's region. The app downloads whatever content is available to your account. If a song, album, or music video is not available in your region's Apple Music catalog, it will not be accessible for download through gamdl-GUI.
+Content availability depends on your Apple Music account's region. The app downloads whatever content is available to your account. If a song, album, or music video is not available in your region's Apple Music catalog, it will not be accessible for download through MeedyaDL.
 
 ---
 
@@ -120,7 +120,7 @@ See [Quality Settings](quality-settings.md) for a full comparison of all quality
 
 ### What happens if my preferred quality is not available?
 
-gamdl-GUI includes a fallback quality system that automatically selects the next best available quality when your preferred option is unavailable. The fallback chain is configurable, so you control which alternatives the app tries and in what order. See [Fallback Quality](fallback-quality.md) for details on how this works and how to configure it.
+MeedyaDL includes a fallback quality system that automatically selects the next best available quality when your preferred option is unavailable. The fallback chain is configurable, so you control which alternatives the app tries and in what order. See [Fallback Quality](fallback-quality.md) for details on how this works and how to configure it.
 
 ### What is the difference between AAC and ALAC?
 
@@ -133,17 +133,17 @@ For a full comparison of all supported formats, see [Quality Settings](quality-s
 
 ## Lyrics and Metadata
 
-### Does gamdl-GUI download lyrics?
+### Does MeedyaDL download lyrics?
 
-Yes, gamdl-GUI can download synchronized lyrics in several formats including LRC, SRT, and TTML. Lyric download preferences are configurable in **Settings > Lyrics** tab. See [Lyrics and Metadata](lyrics-and-metadata.md) for details on configuring lyric downloads and choosing the right format.
+Yes, MeedyaDL can download synchronized lyrics in several formats including LRC, SRT, and TTML. Lyric download preferences are configurable in **Settings > Lyrics** tab. See [Lyrics and Metadata](lyrics-and-metadata.md) for details on configuring lyric downloads and choosing the right format.
 
 ### Is metadata automatically added to downloaded files?
 
-Yes, gamdl-GUI automatically embeds metadata into downloaded files, including title, artist, album, album artwork, track numbers, disc numbers, genre, release date, and more. See [Lyrics and Metadata](lyrics-and-metadata.md) for a full list of embedded metadata fields.
+Yes, MeedyaDL automatically embeds metadata into downloaded files, including title, artist, album, album artwork, track numbers, disc numbers, genre, release date, and more. See [Lyrics and Metadata](lyrics-and-metadata.md) for a full list of embedded metadata fields.
 
 ### Can I edit metadata after downloading?
 
-gamdl-GUI does not include a built-in metadata editor. If you need to modify metadata after downloading, use a third-party metadata editing tool such as:
+MeedyaDL does not include a built-in metadata editor. If you need to modify metadata after downloading, use a third-party metadata editing tool such as:
 
 - **[MusicBrainz Picard](https://picard.musicbrainz.org/)** -- Free, open-source, cross-platform music tagger with database lookup
 - **[Mp3tag](https://www.mp3tag.de/)** -- Powerful metadata editor for Windows (also available on macOS)
@@ -155,21 +155,21 @@ gamdl-GUI does not include a built-in metadata editor. If you need to modify met
 
 ### What is Tauri?
 
-[Tauri](https://tauri.app/) is the application framework used to build gamdl-GUI. Similar in concept to Electron, but significantly lighter and more efficient, Tauri uses a Rust backend combined with a web-based frontend (React and TypeScript in gamdl-GUI's case). This approach results in small, fast, native desktop applications with low memory and disk usage compared to Electron-based alternatives.
+[Tauri](https://tauri.app/) is the application framework used to build MeedyaDL. Similar in concept to Electron, but significantly lighter and more efficient, Tauri uses a Rust backend combined with a web-based frontend (React and TypeScript in MeedyaDL's case). This approach results in small, fast, native desktop applications with low memory and disk usage compared to Electron-based alternatives.
 
 ### What is GAMDL?
 
-GAMDL is a command-line Apple Music download tool created by glomatico. It handles the core download functionality -- authentication, content fetching, decryption, and file writing. gamdl-GUI provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during gamdl-GUI's first-run setup, so you do not need to install it separately.
+GAMDL is a command-line Apple Music download tool created by glomatico. It handles the core download functionality -- authentication, content fetching, decryption, and file writing. MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately.
 
-### Can I use gamdl-GUI and the GAMDL CLI at the same time?
+### Can I use MeedyaDL and the GAMDL CLI at the same time?
 
 This is not recommended. Running the GUI and CLI simultaneously may cause conflicts over shared cookie files or output directories, leading to authentication errors or corrupted downloads. Use one at a time to avoid issues.
 
-### How do I update gamdl-GUI?
+### How do I update MeedyaDL?
 
-gamdl-GUI checks for updates automatically in two ways:
+MeedyaDL checks for updates automatically in two ways:
 
-- **App updates**: The application checks GitHub Releases for new versions of gamdl-GUI itself. When an update is available, a banner appears in the app with upgrade and dismiss actions.
+- **App updates**: The application checks GitHub Releases for new versions of MeedyaDL itself. When an update is available, a banner appears in the app with upgrade and dismiss actions.
 - **GAMDL updates**: The app checks PyPI for new versions of the GAMDL backend. When an update is available, GAMDL can be upgraded with one click directly from the update banner.
 
 No manual intervention is needed -- simply follow the prompts when the update banner appears.
@@ -190,7 +190,7 @@ Try these steps in order:
 
 ### Where can I get more help?
 
-If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MWBM-Partners-Ltd/gamdl-GUI/issues) page for support.
+If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MeedyaDL/MeedyaDL/issues) page for support.
 
 ---
 

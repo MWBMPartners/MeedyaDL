@@ -1,18 +1,18 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # :clapper: Downloading Videos
 
-This guide explains how to download music videos and post videos from Apple Music using gamdl-GUI, including how to configure video quality options.
+This guide explains how to download music videos and post videos from Apple Music using MeedyaDL, including how to configure video quality options.
 
 ---
 
 ## Overview
 
-In addition to audio content, gamdl-GUI supports downloading video content from Apple Music. This includes official music videos and post videos (short-form promotional content). Video downloads use the same queue system as music downloads, so you can mix audio and video items in a single session.
+In addition to audio content, MeedyaDL supports downloading video content from Apple Music. This includes official music videos and post videos (short-form promotional content). Video downloads use the same queue system as music downloads, so you can mix audio and video items in a single session.
 
 ---
 
@@ -31,7 +31,7 @@ To download a music video:
    https://music.apple.com/us/music-video/example-title/1234567890
    ```
 
-3. Paste the URL into the gamdl-GUI URL input field.
+3. Paste the URL into the MeedyaDL URL input field.
 
 The app auto-detects the content as a video based on the `/music-video/` segment in the URL path. No manual selection of content type is needed.
 
@@ -39,7 +39,7 @@ Music video downloads produce an MP4 file in the `.m4v` container format, with t
 
 ### Post Videos
 
-Post videos are a sub-type of music video content on Apple Music. They are typically shorter promotional clips or behind-the-scenes footage published by artists. Post videos are handled identically to music videos within gamdl-GUI -- you simply paste the URL and the app processes it using the same video pipeline.
+Post videos are a sub-type of music video content on Apple Music. They are typically shorter promotional clips or behind-the-scenes footage published by artists. Post videos are handled identically to music videos within MeedyaDL -- you simply paste the URL and the app processes it using the same video pipeline.
 
 ---
 
@@ -47,7 +47,7 @@ Post videos are a sub-type of music video content on Apple Music. They are typic
 
 ### Available Resolutions
 
-gamdl-GUI supports the following video resolutions, listed from highest to lowest:
+MeedyaDL supports the following video resolutions, listed from highest to lowest:
 
 | Resolution | Label    | Typical Use Case                              |
 |------------|----------|-----------------------------------------------|
@@ -79,7 +79,7 @@ The audio track embedded within a downloaded video uses the same audio codec set
 ### Step-by-Step Process
 
 1. **Copy the video URL** -- Open Apple Music in your browser, navigate to the music video, and copy the URL from the address bar.
-2. **Paste the URL** -- In gamdl-GUI, paste the URL into the URL input field.
+2. **Paste the URL** -- In MeedyaDL, paste the URL into the URL input field.
 3. **Auto-detection** -- The app automatically detects that the URL points to video content by recognizing the `/music-video/` path segment. No manual content type selection is required.
 4. **Configure quality** -- Set your preferred video resolution and codec in the Settings before downloading, or use the defaults.
 5. **Start the download** -- Click the download button. The video is added to the download queue.
@@ -87,7 +87,7 @@ The audio track embedded within a downloaded video uses the same audio codec set
 
 ### Selecting Quality Before Download
 
-Video quality preferences are configured in **Settings** before you begin downloading. Set your preferred resolution and codec, and gamdl-GUI will use those settings for all subsequent video downloads.
+Video quality preferences are configured in **Settings** before you begin downloading. Set your preferred resolution and codec, and MeedyaDL will use those settings for all subsequent video downloads.
 
 If your preferred resolution is not available for a particular video, the app automatically falls back to the next lower resolution using this chain:
 

@@ -1,20 +1,20 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # Quality Settings
 
-This guide provides a comprehensive overview of the audio and video quality options available in gamdl-GUI, including codec differences and format trade-offs.
+This guide provides a comprehensive overview of the audio and video quality options available in MeedyaDL, including codec differences and format trade-offs.
 
 ---
 
 ## Overview
 
-gamdl-GUI gives you control over the quality and format of your downloaded content. Understanding the available options helps you choose the right balance between audio/video fidelity, file size, and compatibility with your playback devices.
+MeedyaDL gives you control over the quality and format of your downloaded content. Understanding the available options helps you choose the right balance between audio/video fidelity, file size, and compatibility with your playback devices.
 
-The quality settings in gamdl-GUI map directly to the codec and resolution options supported by the underlying GAMDL command-line tool. Each audio codec and video resolution has distinct characteristics that make it better suited to certain listening or viewing scenarios.
+The quality settings in MeedyaDL map directly to the codec and resolution options supported by the underlying GAMDL command-line tool. Each audio codec and video resolution has distinct characteristics that make it better suited to certain listening or viewing scenarios.
 
 ---
 
@@ -68,7 +68,7 @@ AAC Legacy uses an older AAC encoding profile designed for maximum compatibility
 
 ### ALAC (Apple Lossless Audio Codec)
 
-ALAC is a lossless audio codec developed by Apple. It compresses audio data without discarding any information, meaning the decoded audio is bit-for-bit identical to the original source. This is the highest-fidelity audio option available in gamdl-GUI.
+ALAC is a lossless audio codec developed by Apple. It compresses audio data without discarding any information, meaning the decoded audio is bit-for-bit identical to the original source. This is the highest-fidelity audio option available in MeedyaDL.
 
 - **Type:** Lossless compression
 - **Container:** `.m4a`
@@ -152,7 +152,7 @@ H.265, also known as High Efficiency Video Coding (HEVC), is the successor to H.
 
 ## Video Resolution Options
 
-gamdl-GUI supports the following video resolutions, listed from highest to lowest quality:
+MeedyaDL supports the following video resolutions, listed from highest to lowest quality:
 
 - **2160p (4K Ultra HD)** -- The highest available resolution. Four times the pixel count of 1080p (3840x2160). Ideal for large screens and displays that support 4K. Produces the largest files
 - **1440p (2K QHD)** -- Quad HD resolution (2560x1440). A step above Full HD with noticeably sharper detail on larger monitors
@@ -185,7 +185,7 @@ The table below summarizes typical file sizes for common resolution and codec co
 
 ---
 
-## Configuring Quality in gamdl-GUI
+## Configuring Quality in MeedyaDL
 
 ### Setting Default Quality
 
@@ -212,7 +212,7 @@ The per-download override applies only to that specific download. Your global de
 
 ### Quality Fallback
 
-When your preferred quality is not available for a particular track or video, gamdl-GUI automatically falls back to the next best available option. For example, if you request ALAC 24/192 but the content is only available at 24/96, gamdl-GUI will download the 24/96 version rather than failing.
+When your preferred quality is not available for a particular track or video, MeedyaDL automatically falls back to the next best available option. For example, if you request ALAC 24/192 but the content is only available at 24/96, MeedyaDL will download the 24/96 version rather than failing.
 
 For full details on how fallback chains work and how to configure fallback behavior, see [Fallback Quality](fallback-quality.md).
 

@@ -1,18 +1,18 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # :pencil2: Lyrics and Metadata
 
-This guide explains how gamdl-GUI handles lyrics in various formats and how metadata is embedded into downloaded files.
+This guide explains how MeedyaDL handles lyrics in various formats and how metadata is embedded into downloaded files.
 
 ---
 
 ## Overview
 
-gamdl-GUI can download synchronized lyrics alongside your music and embed rich metadata (title, artist, album art, etc.) directly into downloaded files. This ensures your media library is well-organized and your music player can display lyrics in real time.
+MeedyaDL can download synchronized lyrics alongside your music and embed rich metadata (title, artist, album art, etc.) directly into downloaded files. This ensures your media library is well-organized and your music player can display lyrics in real time.
 
 ---
 
@@ -20,7 +20,7 @@ gamdl-GUI can download synchronized lyrics alongside your music and embed rich m
 
 ### LRC (LyRiCs)
 
-LRC is a time-stamped text format and the default lyric format for songs downloaded with gamdl-GUI. Each line in an LRC file pairs a timestamp with the corresponding lyric text:
+LRC is a time-stamped text format and the default lyric format for songs downloaded with MeedyaDL. Each line in an LRC file pairs a timestamp with the corresponding lyric text:
 
 ```
 [00:12.34] First line of the song
@@ -57,7 +57,7 @@ Second line of the song
 
 ### TTML (Timed Text Markup Language)
 
-TTML is an XML-based timed text format used natively by Apple Music. It is the default lyric format for music videos downloaded with gamdl-GUI:
+TTML is an XML-based timed text format used natively by Apple Music. It is the default lyric format for music videos downloaded with MeedyaDL:
 
 ```xml
 <tt xmlns="http://www.w3.org/ns/ttml">
@@ -83,7 +83,7 @@ TTML is an XML-based timed text format used natively by Apple Music. It is the d
 
 ### Enabling and Disabling Lyrics
 
-Lyric downloads are controlled from **Settings > Lyrics**. In this tab you will find a toggle to enable or disable lyric downloads globally. When enabled, gamdl-GUI will attempt to fetch synchronized lyrics for every track it downloads. When disabled, no lyric files will be created and no lyrics will be embedded.
+Lyric downloads are controlled from **Settings > Lyrics**. In this tab you will find a toggle to enable or disable lyric downloads globally. When enabled, MeedyaDL will attempt to fetch synchronized lyrics for every track it downloads. When disabled, no lyric files will be created and no lyrics will be embedded.
 
 ### Choosing a Lyric Format
 
@@ -121,7 +121,7 @@ This convention ensures that most media players will automatically detect and lo
 
 ### What Metadata Is Embedded
 
-gamdl-GUI embeds the following metadata fields into every downloaded file:
+MeedyaDL embeds the following metadata fields into every downloaded file:
 
 | Field | Description |
 |-------|-------------|
@@ -158,7 +158,7 @@ MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files.
 
 ### Artwork Resolution
 
-gamdl-GUI downloads album artwork at the full resolution available from Apple Music, which can be up to **3000x3000 pixels**. This ensures your library has the highest quality cover art possible.
+MeedyaDL downloads album artwork at the full resolution available from Apple Music, which can be up to **3000x3000 pixels**. This ensures your library has the highest quality cover art possible.
 
 Artwork configuration is found in **Settings > Cover Art**, where you can choose:
 
@@ -180,7 +180,7 @@ This is useful for media players and library managers (such as Plex, Jellyfin, o
 
 ### Lyrics Not Available
 
-Not all tracks on Apple Music have synchronized lyrics. If gamdl-GUI does not download a lyric file for a particular track, it is most likely because lyrics are not available for that track in Apple Music's catalog. There is no workaround for this within gamdl-GUI.
+Not all tracks on Apple Music have synchronized lyrics. If MeedyaDL does not download a lyric file for a particular track, it is most likely because lyrics are not available for that track in Apple Music's catalog. There is no workaround for this within MeedyaDL.
 
 ### Album Artwork Not Displaying
 
@@ -197,7 +197,7 @@ If metadata fields appear empty in your media player, ensure that the player sup
 
 ### Encoding Issues with Special Characters
 
-gamdl-GUI handles UTF-8 encoding automatically for all lyrics and metadata. If you see garbled or incorrect characters, the issue is likely with your media player's text encoding settings rather than with the downloaded files. Check that your player is configured to use UTF-8 encoding for metadata display.
+MeedyaDL handles UTF-8 encoding automatically for all lyrics and metadata. If you see garbled or incorrect characters, the issue is likely with your media player's text encoding settings rather than with the downloaded files. Check that your player is configured to use UTF-8 encoding for metadata display.
 
 For general troubleshooting, see [Troubleshooting](troubleshooting.md).
 

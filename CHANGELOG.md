@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **GAMDL GUI** are documented in this file.
+All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 /**
  * @file downloadStore.ts -- Download Queue State Management Store
  * @license MIT -- See LICENSE file in the project root.

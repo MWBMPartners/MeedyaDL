@@ -1,7 +1,7 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Release Build Workflow for gamdl-GUI
+# Release Build Workflow for MeedyaDL
 # ======================================
 #
 # This GitHub Actions workflow builds platform-specific installers and publishes
@@ -101,7 +101,7 @@ jobs:
           # macOS Apple Silicon (ARM64)
           # aarch64-apple-darwin targets Apple M1/M2/M3/M4 chips.
           # macos-latest runners are ARM64 by default.
-          # Produces: GAMDL_x.x.x_aarch64.dmg and GAMDL.app
+          # Produces: MeedyaDL_x.x.x_aarch64.dmg and MeedyaDL.app
           - name: macOS (Apple Silicon)
             os: macos-latest
             args: '--target aarch64-apple-darwin'
@@ -111,7 +111,7 @@ jobs:
           # x86_64-pc-windows-msvc targets 64-bit Windows with MSVC toolchain.
           # --bundles nsis: Only build NSIS installer (skip WiX .msi).
           # Also works on ARM64 Windows via the built-in x64 emulation layer.
-          # Produces: GAMDL_x.x.x_x64-setup.exe (NSIS)
+          # Produces: MeedyaDL_x.x.x_x64-setup.exe (NSIS)
           - name: Windows (x64)
             os: windows-latest
             args: '--target x86_64-pc-windows-msvc --bundles nsis'
@@ -121,7 +121,7 @@ jobs:
           # aarch64-pc-windows-msvc targets ARM64 Windows (Snapdragon X laptops,
           # Surface Pro X, etc.). MSVC provides ARM64 cross-compilation toolchain.
           # --bundles nsis: Only build NSIS installer (skip WiX .msi).
-          # Produces: GAMDL_x.x.x_arm64-setup.exe (NSIS)
+          # Produces: MeedyaDL_x.x.x_arm64-setup.exe (NSIS)
           - name: Windows (ARM64)
             os: windows-latest
             args: '--target aarch64-pc-windows-msvc --bundles nsis'
@@ -317,9 +317,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'GAMDL GUI ${{ github.ref_name }}'
+          releaseName: 'MeedyaDL ${{ github.ref_name }}'
           releaseBody: |
-            ## GAMDL GUI ${{ github.ref_name }}
+            ## MeedyaDL ${{ github.ref_name }}
 
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
 
@@ -336,12 +336,12 @@ jobs:
             > **Windows ARM64 users**: The x64 installer also works on ARM64 via Windows' built-in emulation.
 
             ### macOS Users
-            macOS may show **"GAMDL is damaged and can't be opened"** because the app
+            macOS may show **"MeedyaDL is damaged and can't be opened"** because the app
             is not code-signed with an Apple Developer certificate. To fix this, run
             the following command in Terminal after downloading:
 
             ```
-            xattr -cr /Applications/GAMDL.app
+            xattr -cr /Applications/MeedyaDL.app
             ```
 
             Then open the app normally.

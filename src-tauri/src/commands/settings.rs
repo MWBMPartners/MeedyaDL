@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Settings management IPC commands.

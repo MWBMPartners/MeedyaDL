@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Embedded Apple Music login window service.
@@ -529,7 +529,7 @@ fn webview_cookies_to_netscape(cookies: &[&cookie::Cookie]) -> String {
 
     // Standard Netscape cookie file header (same as cookie_service)
     lines.push("# Netscape HTTP Cookie File".to_string());
-    lines.push("# Extracted by gamdl-GUI from embedded browser login".to_string());
+    lines.push("# Extracted by MeedyaDL from embedded browser login".to_string());
     lines.push(String::new()); // Empty line after header
 
     for cookie in cookies {

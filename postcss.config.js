@@ -1,8 +1,8 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * PostCSS Configuration for gamdl-GUI
+ * PostCSS Configuration for MeedyaDL
  * ====================================
  *
  * PostCSS is a CSS processing pipeline that Vite invokes automatically for every

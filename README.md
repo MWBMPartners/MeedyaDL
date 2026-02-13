@@ -1,17 +1,17 @@
 <p align="center">
-  <h1 align="center">🎵 GAMDL GUI</h1>
+  <h1 align="center">🎵 MeedyaDL</h1>
   <p align="center">
-    <strong>A beautiful, multiplatform graphical interface for <a href="https://github.com/glomatico/gamdl">GAMDL</a> — the Apple Music downloader</strong>
+    <strong>A multiplatform media downloader</strong>
   </p>
   <p align="center">
-    Download songs, albums, playlists, music videos, and entire artist discographies from Apple Music with ease.
+    Download songs, albums, playlists, music videos, and more from your favourite media services with ease.
   </p>
 </p>
 
 <p align="center">
-  <a href="https://github.com/MWBMPartners/gamdl-GUI/releases"><img src="https://img.shields.io/badge/Version-0.1.0--dev-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.1.0--dev-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
-  <a href="https://github.com/MWBMPartners/gamdl-GUI/actions/workflows/ci.yml"><img src="https://github.com/MWBMPartners/gamdl-GUI/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
 </p>
 
@@ -75,7 +75,7 @@
 
 ## 🏗️ Architecture
 
-GAMDL GUI is built with a modern, performance-first tech stack:
+MeedyaDL is built with a modern, performance-first tech stack:
 
 ```
 ┌─────────────────────────────────────────┐
@@ -104,9 +104,9 @@ GAMDL GUI is built with a modern, performance-first tech stack:
 
 ### Installation
 
-1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/gamdl-GUI/releases) page.
+1. **Download** the latest release for your platform from the [Releases](https://github.com/MeedyaDL/MeedyaDL/releases) page.
 2. **Install** using your platform's standard method:
-   - **macOS**: Open the `.dmg` and drag GAMDL to Applications
+   - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
    - **Windows**: Run the `.msi` installer
    - **Linux**: Install the `.deb` or run the `.AppImage`
 3. **Launch** the application.
@@ -151,8 +151,8 @@ sudo apt-get install -y \
 
 ```bash
 # Clone the repository
-git clone https://github.com/MWBMPartners/gamdl-GUI.git
-cd gamdl-GUI
+git clone https://github.com/MeedyaDL/MeedyaDL.git
+cd MeedyaDL
 
 # Install frontend dependencies
 npm install
@@ -171,7 +171,7 @@ The built application will be in `src-tauri/target/release/bundle/`.
 ## 📁 Project Structure
 
 ```
-gamdl-GUI/
+MeedyaDL/
 ├── src/                        # React Frontend
 │   ├── App.tsx                 #    Root component with routing & event listeners
 │   ├── main.tsx                #    Entry point
@@ -352,7 +352,7 @@ refactor(backend): simplify dependency management
 ```
 MIT License
 
-Copyright (c) 2024-2026 MWBM Partners Ltd
+Copyright (c) 2024-2026 MeedyaDL
 ```
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.
@@ -380,5 +380,5 @@ For the full implementation plan, architecture decisions, and development phases
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/MWBMPartners">MWBM Partners Ltd</a>
+  Made with ❤️ by <a href="https://github.com/MeedyaDL">MeedyaDL</a>
 </p>
