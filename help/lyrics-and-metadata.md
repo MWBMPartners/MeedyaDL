@@ -97,7 +97,9 @@ In **Settings > Lyrics**, you can select your preferred default lyric output for
 
 **Guidance:** Choose **LRC** if you primarily listen to music on desktop or mobile players. Choose **SRT** if you download music videos and want subtitles that work everywhere. Choose **TTML** if you need the original Apple Music lyric format for specialized processing.
 
-The Lyrics tab also provides an option to **embed lyrics directly into the media file** rather than (or in addition to) saving them as a sidecar file. When embedding is enabled, the lyric text is written into the file's metadata tags so that players can display lyrics without needing a separate file.
+The Lyrics tab also provides an **Embed Lyrics and Keep Sidecar** toggle. When enabled (which is the default), MeedyaDL ensures that lyrics are both embedded in the audio file's metadata tags AND saved as a separate sidecar file. This provides maximum compatibility: players that read embedded lyrics will find them in the file's metadata, while players that look for external lyrics files will find the sidecar file alongside the audio.
+
+When the "Embed Lyrics and Keep Sidecar" toggle is enabled, the "Disable Synced Lyrics" option is overridden (greyed out), because the feature requires sidecar files to be created. If you want manual control over embedding and sidecar behavior independently, disable this toggle.
 
 ### Lyric File Placement
 
@@ -151,6 +153,25 @@ In both formats, artwork is embedded as a binary image atom directly within the 
 ### Video File Metadata
 
 MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files. All metadata fields listed above are embedded in the video container using iTunes-style atoms. See also [Downloading Videos](downloading-videos.md) for video-specific output information.
+
+### Custom Codec Metadata Tags
+
+In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL injects custom freeform atoms into M4A files to identify the codec quality tier. These tags are written automatically after each download completes and allow downstream tools, scripts, and media library managers to programmatically distinguish between lossy, lossless, and spatial audio files.
+
+| Codec | Tag (Namespace:Name) | Value |
+| ----- | -------------------- | ----- |
+| **ALAC (Lossless)** | `com.apple.iTunes:isLossless` | `Y` |
+| **Dolby Atmos** | `com.apple.iTunes:SpatialType` | `Dolby Atmos` |
+| **Dolby Atmos** | `MeedyaMeta:SpatialType` | `Dolby Atmos` |
+| **AAC, AC3, etc.** | *(none)* | *(no custom tags)* |
+
+**Technical details:**
+
+- Tags are stored as MP4 freeform atoms (the `----` box type), which is the standard mechanism for custom metadata in the iTunes/M4A ecosystem.
+- The `com.apple.iTunes` namespace follows the same convention used by Apple and third-party tools like iTunes, MusicBrainz Picard, and Mp3tag.
+- The `MeedyaMeta` namespace is a MeedyaDL-branded namespace, ensuring these tags are clearly identifiable and don't collide with any future Apple-defined atoms.
+- Only the M4A container metadata is modified -- the audio stream data (ALAC, EC-3, AAC) is never touched.
+- Lossy codecs (AAC, AC3, AAC-HE, etc.) do not receive any custom tags.
 
 ---
 

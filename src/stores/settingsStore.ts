@@ -87,6 +87,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     '360p',   // Low
     '240p',   // Lowest
   ],
+  companion_mode: 'atmos_to_lossless', // Atmos → also download ALAC companion (default)
+  embed_lyrics_and_sidecar: true,  // Embed lyrics in metadata AND keep sidecar files
   synced_lyrics_format: 'lrc',   // Default lyrics format (LRC is most widely supported)
   no_synced_lyrics: false,       // Do download synced lyrics
   synced_lyrics_only: false,     // Also download plain-text lyrics

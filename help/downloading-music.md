@@ -144,6 +144,8 @@ Lyrics downloading is configurable in **Settings > Lyrics tab**. The default for
 - **SRT** -- SubRip subtitle format
 - **TTML** -- Timed Text Markup Language (Apple's native lyrics format)
 
+By default, the **Embed Lyrics and Keep Sidecar** option is enabled. This ensures lyrics are both embedded in the audio file's metadata tags and saved as a separate sidecar file (e.g., `.lrc`), providing maximum compatibility across different media players.
+
 For full details on metadata and lyrics configuration, see [Lyrics and Metadata](lyrics-and-metadata.md).
 
 ---
@@ -155,6 +157,10 @@ If the codec you selected is not available for a particular track, MeedyaDL auto
 ALAC -> Atmos -> AC3 -> AAC Binaural -> AAC -> AAC Legacy
 
 When a fallback occurs, the queue item displays a fallback indicator so you know the final codec differs from your original selection. For full details on configuring fallback behavior, see [Fallback Quality](fallback-quality.md).
+
+### Companion Downloads
+
+MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Quality controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
 
 ---
 

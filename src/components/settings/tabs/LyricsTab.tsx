@@ -74,6 +74,16 @@ export function LyricsTab() {
         </h3>
 
         <div className="space-y-4">
+          {/* Embed lyrics + keep sidecar */}
+          <Toggle
+            label="Embed Lyrics and Keep Sidecar"
+            description="Embed lyrics in audio file metadata and also save a separate lyrics file for maximum player compatibility"
+            checked={settings.embed_lyrics_and_sidecar}
+            onChange={(checked) =>
+              updateSettings({ embed_lyrics_and_sidecar: checked })
+            }
+          />
+
           {/* Synced lyrics format */}
           <Select
             label="Synced Lyrics Format"
@@ -87,14 +97,19 @@ export function LyricsTab() {
             }
           />
 
-          {/* Disable synced lyrics */}
+          {/* Disable synced lyrics -- overridden when embed+sidecar is on */}
           <Toggle
             label="Disable Synced Lyrics"
-            description="Don't download synced lyrics files alongside tracks"
+            description={
+              settings.embed_lyrics_and_sidecar
+                ? 'Overridden by "Embed Lyrics and Keep Sidecar" above'
+                : "Don't download synced lyrics files alongside tracks"
+            }
             checked={settings.no_synced_lyrics}
             onChange={(checked) =>
               updateSettings({ no_synced_lyrics: checked })
             }
+            disabled={settings.embed_lyrics_and_sidecar}
           />
 
           {/* Synced lyrics only */}

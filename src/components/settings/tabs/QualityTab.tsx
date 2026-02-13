@@ -17,6 +17,11 @@
  *     Maps to `settings.fallback_enabled`. The actual fallback order is
  *     configured in the separate {@link FallbackTab}.
  *
+ *   - **Companion Downloads** -- Controls automatic multi-format downloads.
+ *     When enabled, specialist format downloads (Dolby Atmos, ALAC) also
+ *     download companion versions in other formats. Maps to
+ *     `settings.companion_mode`.
+ *
  *   - **Default Video Resolution** -- The preferred resolution for music
  *     video downloads (e.g., 2160p for 4K). Maps to
  *     `settings.default_video_resolution`.
@@ -37,7 +42,7 @@
  * @see {@link ../SettingsPage.tsx}        -- Parent container
  * @see {@link ./FallbackTab.tsx}          -- Where the fallback chain order is configured
  * @see {@link @/stores/settingsStore.ts}  -- Zustand store
- * @see {@link @/types/index.ts}           -- SongCodec and VideoResolution type definitions
+ * @see {@link @/types/index.ts}           -- SongCodec, VideoResolution, CompanionMode types
  */
 
 // Zustand store for reading/writing quality settings.
@@ -46,22 +51,21 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // Shared form components: Select for dropdowns, Toggle for switches, Input for text fields.
 import { Select, Toggle, Input } from '@/components/common';
 
-// Label maps and type definitions for audio codecs and video resolutions.
-// SONG_CODEC_LABELS and VIDEO_RESOLUTION_LABELS are Record<T, string> maps
-// used to populate the <Select> dropdown options.
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
-import type { SongCodec, VideoResolution } from '@/types';
+// Label maps and type definitions for audio codecs, video resolutions, and companion modes.
+// These Record<T, string> maps are used to populate the <Select> dropdown options.
+import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, COMPANION_MODE_LABELS } from '@/types';
+import type { SongCodec, VideoResolution, CompanionMode } from '@/types';
 
 /**
  * QualityTab -- Renders the Quality settings tab.
  *
  * Organised into two visual sections:
- *   1. "Audio Quality" -- codec selection and fallback toggle
+ *   1. "Audio Quality" -- codec selection, fallback toggle, companion mode
  *   2. "Video Quality" -- resolution, codec priority, and remux format
  *
  * Each control's `onChange` calls `updateSettings` with a partial patch,
- * using type assertions (`as SongCodec`, `as VideoResolution`) to narrow
- * the string from the native <select> element to the expected union type.
+ * using type assertions (`as SongCodec`, `as VideoResolution`, etc.) to
+ * narrow the string from the native <select> element to the expected union type.
  */
 export function QualityTab() {
   /** Current settings snapshot from the Zustand store */
@@ -78,6 +82,13 @@ export function QualityTab() {
     value,
     label,
   }));
+
+  /**
+   * Transform companion mode labels into <Select> options.
+   */
+  const companionModeOptions = Object.entries(COMPANION_MODE_LABELS).map(
+    ([value, label]) => ({ value, label }),
+  );
 
   /**
    * Same transformation for video resolution labels.
@@ -122,6 +133,17 @@ export function QualityTab() {
           description="When the preferred codec is unavailable, automatically try the next codec in the fallback chain"
           checked={settings.fallback_enabled}
           onChange={(checked) => updateSettings({ fallback_enabled: checked })}
+        />
+
+        {/* Companion download mode */}
+        <Select
+          label="Companion Downloads"
+          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename."
+          options={companionModeOptions}
+          value={settings.companion_mode}
+          onChange={(e) =>
+            updateSettings({ companion_mode: e.target.value as CompanionMode })
+          }
         />
       </div>
 
