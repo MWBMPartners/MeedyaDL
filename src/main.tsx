@@ -149,17 +149,18 @@ window.onerror = (message, source, lineno, colno, error) => {
   const errorMessage = error?.message || String(message);
   console.error('Global error:', errorMessage, { source, lineno, colno, error });
 
-  // Surface the error to the user via toast (lazy-import to avoid circular deps)
-  try {
-    const { useUiStore } = require('./stores/uiStore');
-    useUiStore.getState().addToast(
-      `Unexpected error: ${errorMessage}`,
-      'error',
-      8000,
-    );
-  } catch {
-    // Store not available yet (app still booting) -- console.error above is enough
-  }
+  // Surface the error to the user via toast (dynamic import to avoid circular deps)
+  import('./stores/uiStore')
+    .then(({ useUiStore }) => {
+      useUiStore.getState().addToast(
+        `Unexpected error: ${errorMessage}`,
+        'error',
+        8000,
+      );
+    })
+    .catch(() => {
+      // Store not available yet (app still booting) -- console.error above is enough
+    });
 };
 
 /**
@@ -172,17 +173,18 @@ window.addEventListener('unhandledrejection', (event) => {
   const errorMessage = reason instanceof Error ? reason.message : String(reason);
   console.error('Unhandled Promise Rejection:', reason);
 
-  // Surface the error to the user via toast
-  try {
-    const { useUiStore } = require('./stores/uiStore');
-    useUiStore.getState().addToast(
-      `Async error: ${errorMessage}`,
-      'error',
-      8000,
-    );
-  } catch {
-    // Store not available yet (app still booting) -- console.error above is enough
-  }
+  // Surface the error to the user via toast (dynamic import to avoid circular deps)
+  import('./stores/uiStore')
+    .then(({ useUiStore }) => {
+      useUiStore.getState().addToast(
+        `Async error: ${errorMessage}`,
+        'error',
+        8000,
+      );
+    })
+    .catch(() => {
+      // Store not available yet (app still booting) -- console.error above is enough
+    });
 });
 
 /**

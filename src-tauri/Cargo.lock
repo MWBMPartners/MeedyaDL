@@ -2765,7 +2765,7 @@ checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
 
 [[package]]
 name = "meedyadl"
-version = "0.1.3"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "configparser",
@@ -2776,6 +2776,7 @@ dependencies = [
  "jsonwebtoken",
  "keyring",
  "log",
+ "mp4ameta",
  "regex",
  "reqwest 0.12.28",
  "rookie",
@@ -2853,6 +2854,12 @@ dependencies = [
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "mp4ameta"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "453e991b2efe96c288cbc2d03a19e353504294559ecb6c03067fff5bd824616d"
 
 [[package]]
 name = "muda"

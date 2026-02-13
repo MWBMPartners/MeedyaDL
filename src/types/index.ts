@@ -127,6 +127,28 @@ export type DownloadMode = 'ytdlp' | 'nm3u8dlre';
 export type RemuxMode = 'ffmpeg' | 'mp4box';
 
 /**
+ * Companion download mode: controls whether MeedyaDL automatically downloads
+ * additional format versions alongside the primary download.
+ *
+ * Mirrors: Rust enum `CompanionMode` in `src-tauri/src/models/settings.rs`
+ *
+ * When companions are enabled, specialist format files get a codec suffix
+ * (e.g., `[Dolby Atmos]`, `[Lossless]`) while the most universally
+ * compatible companion uses a clean filename. All versions are saved in
+ * the same album folder.
+ *
+ * - `disabled`: No companion downloads; only the selected format
+ * - `atmos_to_lossless`: [DEFAULT] Atmos → also download ALAC companion
+ * - `atmos_to_lossless_and_lossy`: Atmos → ALAC + AAC companions; ALAC → AAC companion
+ * - `specialist_to_lossy`: Atmos or ALAC → AAC companion
+ */
+export type CompanionMode =
+  | 'disabled'
+  | 'atmos_to_lossless'
+  | 'atmos_to_lossless_and_lossy'
+  | 'specialist_to_lossy';
+
+/**
  * Log level for GAMDL's `--log-level` CLI flag.
  *
  * Mirrors: Rust enum `LogLevel` in `src-tauri/src/models/settings.rs`
@@ -163,6 +185,23 @@ export const SONG_CODEC_LABELS: Record<SongCodec, string> = {
   'aac-downmix': 'AAC Downmix (Experimental)',
   'aac-he-binaural': 'AAC-HE Binaural (Experimental)',
   'aac-he-downmix': 'AAC-HE Downmix (Experimental)',
+};
+
+/**
+ * Display names for companion download modes, shown in the Quality
+ * settings tab dropdown selector.
+ *
+ * Uses `Record<CompanionMode, string>` for compile-time exhaustiveness
+ * checking -- adding a new CompanionMode variant will cause a TypeScript
+ * error until a label is added here.
+ *
+ * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type}
+ */
+export const COMPANION_MODE_LABELS: Record<CompanionMode, string> = {
+  disabled: 'Disabled (no companions)',
+  atmos_to_lossless: 'Atmos → Lossless (ALAC)',
+  atmos_to_lossless_and_lossy: 'Atmos → Lossless + Lossy; ALAC → Lossy',
+  specialist_to_lossy: 'Specialist → Lossy (AAC)',
 };
 
 /**
@@ -347,6 +386,10 @@ export interface AppSettings {
   music_fallback_chain: SongCodec[];
   /** Ordered list of resolutions to try if the primary resolution is unavailable */
   video_fallback_chain: VideoResolution[];
+  /** Companion download mode: controls automatic multi-format downloads */
+  companion_mode: CompanionMode;
+  /** Whether to both embed lyrics in file metadata AND keep sidecar lyrics files */
+  embed_lyrics_and_sidecar: boolean;
   /** Default format for synced lyrics output */
   synced_lyrics_format: LyricsFormat;
   /** Whether to skip synced lyrics by default */

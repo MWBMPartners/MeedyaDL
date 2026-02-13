@@ -96,7 +96,7 @@ import { Button, Select } from '@/components/common';
  * @see AppleMusicContentType in @/types/index.ts -- 'song' | 'album' | ... | 'unknown'
  * @see SongCodec in @/types/index.ts             -- 'alac' | 'atmos' | 'ac3' | ...
  */
-import type { AppleMusicContentType, SongCodec } from '@/types';
+import type { AppleMusicContentType, SongCodec, VideoResolution } from '@/types';
 
 /**
  * Human-readable label maps used to populate quality-override dropdowns.
@@ -213,7 +213,6 @@ export function DownloadForm() {
    * @see debugging.md -- "Key Zustand Lesson" on selector anti-patterns
    */
   const defaultSongCodec = useSettingsStore((s) => s.settings.default_song_codec);
-  const defaultVideoResolution = useSettingsStore((s) => s.settings.default_video_resolution);
   /** Shows a toast notification (success/error) after submission. */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -509,7 +508,7 @@ export function DownloadForm() {
                * Populated from `VIDEO_RESOLUTION_LABELS` (e.g., '2160p' -> '4K (2160p)').
                * Works identically to the audio codec dropdown above.
                * The resolution value is cast to the `VideoResolution` type
-               * via `as typeof defaultVideoResolution`.
+               * via `as VideoResolution`.
                */}
               <Select
                 label="Video Resolution"
@@ -522,7 +521,7 @@ export function DownloadForm() {
                     res
                       ? {
                           ...overrideOptions,
-                          music_video_resolution: res as typeof defaultVideoResolution,
+                          music_video_resolution: res as VideoResolution,
                         }
                       : null,
                   );

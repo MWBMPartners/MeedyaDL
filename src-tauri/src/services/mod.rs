@@ -20,12 +20,16 @@
 //
 // Module map:
 //   services/
-//   +-- python_manager.rs     -- Install/verify portable Python runtime
-//   +-- gamdl_service.rs      -- Install/run GAMDL, parse subprocess output
-//   +-- dependency_manager.rs -- Install external tools (FFmpeg, mp4decrypt, ...)
-//   +-- config_service.rs     -- Load/save settings, sync to GAMDL config.ini
-//   +-- download_queue.rs     -- Queue management, concurrent downloads, fallback
-//   +-- update_checker.rs     -- Version checking from PyPI and GitHub Releases
+//   +-- python_manager.rs        -- Install/verify portable Python runtime
+//   +-- gamdl_service.rs         -- Install/run GAMDL, parse subprocess output
+//   +-- dependency_manager.rs    -- Install external tools (FFmpeg, mp4decrypt, ...)
+//   +-- config_service.rs        -- Load/save settings, sync to GAMDL config.ini
+//   +-- download_queue.rs        -- Queue management, concurrent downloads, fallback
+//   +-- update_checker.rs        -- Version checking from PyPI and GitHub Releases
+//   +-- cookie_service.rs        -- Browser cookie extraction and import
+//   +-- login_window_service.rs  -- Embedded Apple Music login webview
+//   +-- animated_artwork_service -- Animated cover art via MusicKit API
+//   +-- metadata_tag_service.rs  -- Custom codec metadata tagging for M4A files
 //
 // Thread safety:
 //   Services that access shared state (like the download queue) use
@@ -111,3 +115,10 @@ pub mod login_window_service;
 /// (portrait, 3:4) alongside downloaded album files. Requires user-provided
 /// MusicKit credentials (Team ID, Key ID, private key in OS keychain).
 pub mod animated_artwork_service;
+
+/// Post-download custom metadata tagging service: injects MeedyaDL-specific
+/// freeform atoms into downloaded M4A files to identify the codec quality
+/// tier. ALAC files get `isLossless = Y`; Dolby Atmos files get
+/// `SpatialType = Dolby Atmos` in both the Apple iTunes and MeedyaMeta
+/// namespaces. Safe for all audio stream types (ALAC, EC-3, AAC).
+pub mod metadata_tag_service;

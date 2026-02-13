@@ -19,7 +19,7 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 src-tauri/src/          # Rust backend
   commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork)
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager, config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager, config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, metadata_tag_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings, setup, help)
@@ -49,6 +49,9 @@ scripts/                # Build utilities (copyright year updater, version bump)
 - **Conventional commits**: Required for automated changelog generation (release-please)
 - **GAMDL options**: All 11 audio codecs, 8 video resolutions, all CLI flags typed as Rust enums in `models/gamdl_options.rs`
 - **Fallback quality chains**: Music: ALAC→Atmos→AC3→AacBinaural→Aac→AacLegacy; Video: 2160p→...→240p
+- **Companion downloads**: Configurable via `CompanionMode` enum (Disabled / AtmosToLossless / AtmosToLosslessAndLossy / SpecialistToLossy) in `settings.rs`. Default: `AtmosToLossless` (Atmos → also download ALAC). The `plan_companions()` function in `download_queue.rs` returns a list of `CompanionTier` structs; each tier's codecs are tried in order. When companions exist, primary gets suffix (`[Dolby Atmos]` or `[Lossless]`); most universal companion uses clean filenames. Fire-and-forget background task (like animated artwork). Suffix system via `codec_suffix()`, `apply_codec_suffix()`, and `needs_primary_suffix()` in `download_queue.rs`.
+- **Custom metadata tagging**: After GAMDL writes standard tags, `metadata_tag_service.rs` injects freeform MP4 atoms via `mp4ameta` crate. ALAC → `isLossless=Y` (iTunes namespace); Atmos → `SpatialType=Dolby Atmos` (both iTunes and MeedyaMeta namespaces). Called in both the primary download success path and companion download success path.
+- **Lyrics embed + sidecar**: When enabled in settings, `merge_options()` forces `no_synced_lyrics=false` and removes `"lyrics"` from `exclude_tags` to ensure both embedded lyrics and sidecar files are created.
 - **Git operations**: Do NOT auto-commit or auto-push. Only edit files — let the user control git operations.
 - **Documentation maintenance**: When adding features, modifying settings, changing commands/services, or altering UI — update ALL affected markdown files (README.md, PROJECT_STATUS.md, Project_Plan.md, CLAUDE.md, help/*.md). This includes version numbers, file counts, feature lists, project structure trees, and help topic cross-references.
 

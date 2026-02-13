@@ -35,13 +35,15 @@
 ### 🎶 Music Downloads
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
+- **Companion downloads** — configurable multi-format downloads: automatically download ALAC and/or lossy AAC companions alongside Dolby Atmos or ALAC primary downloads (4 modes: Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy)
 - **Download queue management** with concurrent processing
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API
 
 ### 📝 Metadata & Extras
-- **Lyrics support** — embed or save as LRC, SRT, or TTML formats
+- **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
+- **Custom codec metadata** — ALAC files tagged `isLossless=Y`; Dolby Atmos files tagged `SpatialType=Dolby Atmos` for programmatic identification
 
 ### 🔐 Authentication & Security
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
