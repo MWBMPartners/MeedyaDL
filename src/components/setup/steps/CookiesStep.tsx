@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file CookiesStep.tsx -- Cookie import step of the setup wizard.
@@ -191,7 +191,7 @@ function FdaInstructionPanel({
           <p className="font-medium">Safari requires Full Disk Access</p>
           <p className="text-content-secondary text-xs">
             macOS protects Safari&apos;s cookie database. To import cookies from
-            Safari, you need to grant Full Disk Access to GAMDL.
+            Safari, you need to grant Full Disk Access to MeedyaDL.
           </p>
           <ol className="list-decimal list-inside text-xs text-content-secondary space-y-1.5 ml-1">
             <li>
@@ -205,7 +205,7 @@ function FdaInstructionPanel({
               Click the{' '}
               <span className="font-medium text-content-primary">&quot;+&quot;</span>{' '}
               button and add{' '}
-              <span className="font-medium text-content-primary">GAMDL</span>
+              <span className="font-medium text-content-primary">MeedyaDL</span>
             </li>
             <li>Return here and click &quot;Try Again&quot;</li>
           </ol>

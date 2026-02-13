@@ -1,7 +1,7 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Main entry point for the gamdl-GUI desktop application.
+// Main entry point for the MeedyaDL desktop application.
 // =========================================================
 //
 // This file is intentionally minimal. In Tauri 2.0, the recommended pattern
@@ -39,7 +39,7 @@
 ///
 /// All application setup -- plugin registration, command handler registration,
 /// tray icon construction, managed state injection, and the Tauri event loop --
-/// is delegated to [`gamdl_gui::run()`] in `lib.rs`. Keeping `main()` trivial
+/// is delegated to [`meedyadl::run()`] in `lib.rs`. Keeping `main()` trivial
 /// follows the Tauri 2.0 convention and ensures the library crate remains the
 /// single source of truth for application configuration.
 fn main() {
@@ -47,5 +47,5 @@ fn main() {
     // application with all plugins, commands, and event handlers.
     // If run() returns (which only happens on fatal startup errors),
     // the process exits with the default exit code.
-    gamdl_gui::run();
+    meedyadl::run();
 }

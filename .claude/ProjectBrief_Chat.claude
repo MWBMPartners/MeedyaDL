@@ -73,7 +73,7 @@ PLease produce ALL code with user-readable code formatting (linebrakes, indentat
 Please also include comments in the code including license/copyright and author info.
 License should be in line with GAMDL source project and the other components/libraries used. We do not want this project to conflict with any of those.
 Copyright year in source code (comments) should be auatomated, and start in 2026, endind in the <current year> with the current year being added/automated in all code without manual intervention.
-Copyright should be held with MWBM Partners Ltd.
+Copyright should be held with MeedyaDL.
 
 
 Please device a project plan, and detail this in the Project_Plan.md, and include this plan/overview in README.md

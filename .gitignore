@@ -1,5 +1,5 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
-# gamdl-GUI .gitignore
+# Copyright (c) 2024-2026 MeedyaDL
+# MeedyaDL .gitignore
 # Excludes build artifacts, dependencies, and OS-specific files
 
 # ============================================================
@@ -83,6 +83,7 @@ logs/
 tmp/
 temp/
 *.tmp
+.temp/
 
 # ============================================================
 # Legacy (from previous PyQt5 iteration)

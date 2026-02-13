@@ -1,8 +1,8 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Vitest Configuration for gamdl-GUI Frontend Tests
+ * Vitest Configuration for MeedyaDL Frontend Tests
  * ==================================================
  *
  * Vitest is the test runner for the React frontend. It is built on top of Vite,

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/lib/tauri-commands.ts - Type-safe IPC command wrappers
@@ -97,7 +97,7 @@ export function getPlatformInfo(): Promise<PlatformInfo> {
  * Returns the absolute path to the application's data directory.
  *
  * Rust handler: `get_app_data_dir()` in `src-tauri/src/commands/system.rs`
- * Returns: string (e.g., "~/Library/Application Support/com.mwbm.gamdl-gui")
+ * Returns: string (e.g., "~/Library/Application Support/io.github.meedyadl")
  *
  * The data directory stores settings.json, logs, and cached dependency binaries.
  *
@@ -501,7 +501,7 @@ export function upgradeGamdl(): Promise<string> {
  * Checks the update status of a specific component by name.
  *
  * Rust handler: `check_component_update()` in `src-tauri/src/commands/update.rs`
- * Argument: `name` - component name (e.g., "gamdl", "gamdl-gui", "python")
+ * Argument: `name` - component name (e.g., "gamdl", "meedyadl", "python")
  * Returns: `ComponentUpdate` with version comparison and release info
  *
  * Useful for checking a single component without the overhead of checking all.

@@ -1,27 +1,27 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # :cookie: Cookie Management
 
-This guide explains how to export your Apple Music cookies from a web browser, import them into gamdl-GUI, and troubleshoot common cookie-related issues.
+This guide explains how to export your Apple Music cookies from a web browser, import them into MeedyaDL, and troubleshoot common cookie-related issues.
 
 ---
 
 ## Overview
 
-gamdl-GUI uses your Apple Music browser cookies to authenticate with Apple's servers on your behalf. These cookies prove that you have a valid Apple Music subscription, allowing gamdl-GUI to access and download content. Cookies are essential for the application to function -- without valid cookies, downloads will fail.
+MeedyaDL uses your Apple Music browser cookies to authenticate with Apple's servers on your behalf. These cookies prove that you have a valid Apple Music subscription, allowing MeedyaDL to access and download content. Cookies are essential for the application to function -- without valid cookies, downloads will fail.
 
 ---
 
 ## Why Cookies Are Needed
 
-Apple Music requires authentication to access its content. gamdl-GUI uses browser cookies -- specifically session tokens -- to authenticate with Apple's servers. This approach means:
+Apple Music requires authentication to access its content. MeedyaDL uses browser cookies -- specifically session tokens -- to authenticate with Apple's servers. This approach means:
 
-- **Your Apple ID password is never stored or transmitted by the app.** gamdl-GUI only uses the session tokens contained in cookies that your browser created when you signed in to Apple Music.
-- **Cookies act as proof of your active session.** When you sign in to music.apple.com in your browser, Apple creates session cookies. gamdl-GUI uses these same cookies to make requests on your behalf.
+- **Your Apple ID password is never stored or transmitted by the app.** MeedyaDL only uses the session tokens contained in cookies that your browser created when you signed in to Apple Music.
+- **Cookies act as proof of your active session.** When you sign in to music.apple.com in your browser, Apple creates session cookies. MeedyaDL uses these same cookies to make requests on your behalf.
 - **Cookies are stored locally on your machine.** They are saved as a plain text file in the app's data directory. They are never uploaded or sent to any third-party server.
 
 This is the same authentication method used by other tools that interact with Apple Music, and it avoids the need to handle or store your Apple ID credentials directly.
@@ -38,7 +38,7 @@ This is the same authentication method used by other tools that interact with Ap
 
 ### Cookie File Format
 
-gamdl-GUI accepts cookies in the **Netscape/Mozilla cookie file format**. This is a plain text, tab-separated format and is the standard format exported by browser cookie extensions. A valid cookie file typically starts with the following header line:
+MeedyaDL accepts cookies in the **Netscape/Mozilla cookie file format**. This is a plain text, tab-separated format and is the standard format exported by browser cookie extensions. A valid cookie file typically starts with the following header line:
 
 ```text
 # Netscape HTTP Cookie File
@@ -53,7 +53,7 @@ Your exported cookie file must include cookies for the following domains:
 - `music.apple.com`
 - `.apple.com`
 
-gamdl-GUI validates these domains on import and will warn you if required domains are missing.
+MeedyaDL validates these domains on import and will warn you if required domains are missing.
 
 ### From Chrome
 
@@ -90,7 +90,7 @@ For the easiest experience, use Chrome or Firefox for cookie export.
 
 ---
 
-## Importing Cookies into gamdl-GUI
+## Importing Cookies into MeedyaDL
 
 ### Using the Import Dialog
 
@@ -101,11 +101,11 @@ You can import cookies in two places:
 
 To import your cookie file:
 
-1. Open gamdl-GUI.
+1. Open MeedyaDL.
 2. Navigate to **Settings > Cookies** tab (or reach Step 5 of the first-run setup wizard).
 3. Click the **"Import Cookie File"** button.
 4. In the file picker, select your exported `cookies.txt` file.
-5. gamdl-GUI will automatically:
+5. MeedyaDL will automatically:
    - Validate the file format (must be Netscape/Mozilla format).
    - Check for required Apple Music domains (`music.apple.com` and `.apple.com`).
    - Show expiry warnings if any cookies are near expiration.
@@ -135,7 +135,7 @@ Apple Music cookies typically last **1 to 12 months**, depending on the specific
 - Apple **rotates session tokens** on their end.
 - The cookie is a short-lived session cookie rather than a persistent one.
 
-gamdl-GUI monitors cookie expiry dates and warns you when cookies are approaching expiration, so you can proactively refresh them before downloads start failing.
+MeedyaDL monitors cookie expiry dates and warns you when cookies are approaching expiration, so you can proactively refresh them before downloads start failing.
 
 ### Renewing Expired Cookies
 
@@ -143,7 +143,7 @@ When your cookies expire or are approaching expiry, follow these steps:
 
 1. **Sign in** to [music.apple.com](https://music.apple.com) in your browser. Make sure you are fully signed in and can browse music.
 2. **Re-export** your cookies using the same browser extension you used before (see the browser-specific instructions above).
-3. **Re-import** the new cookie file in gamdl-GUI by going to **Settings > Cookies** tab and clicking **"Import Cookie File"**.
+3. **Re-import** the new cookie file in MeedyaDL by going to **Settings > Cookies** tab and clicking **"Import Cookie File"**.
 4. The new cookie file replaces the old one. Verify that the status indicator shows green.
 
 ---
@@ -154,7 +154,7 @@ When your cookies expire or are approaching expiry, follow these steps:
 
 | Error Message | Cause | Solution |
 | --- | --- | --- |
-| **"Authentication failed"** | Cookies are expired or invalid. | Sign in to music.apple.com in your browser, re-export your cookies, and re-import them into gamdl-GUI. |
+| **"Authentication failed"** | Cookies are expired or invalid. | Sign in to music.apple.com in your browser, re-export your cookies, and re-import them into MeedyaDL. |
 | **"Cookie file not found"** | The cookie file was moved, renamed, or deleted from disk. | Re-import your cookie file from **Settings > Cookies** tab. If you no longer have the file, re-export from your browser. |
 | **"Invalid cookie format"** | The file is not in Netscape/Mozilla cookie format. | Make sure you are using a supported browser extension (see above). The file should begin with `# Netscape HTTP Cookie File`. Do not edit the file manually. |
 
@@ -195,7 +195,7 @@ See also [Troubleshooting](troubleshooting.md) for general error resolution and 
 
 - **Never share your cookie file with anyone.** Your cookie file grants access to your Apple Music account. Treat it like a password.
 - **Do not upload your cookie file** to cloud storage, paste it into chat messages, or include it in bug reports.
-- **Refresh cookies proactively.** When gamdl-GUI shows a yellow expiry warning, re-export and re-import before they expire completely.
+- **Refresh cookies proactively.** When MeedyaDL shows a yellow expiry warning, re-export and re-import before they expire completely.
 - **If you suspect your cookies have been compromised**, sign out of Apple Music in your browser immediately (this invalidates the session), change your Apple ID password, then sign back in and export fresh cookies.
 
 ---

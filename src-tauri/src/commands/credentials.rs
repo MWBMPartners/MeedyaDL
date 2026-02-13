@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Secure credential storage IPC commands.
@@ -46,11 +46,11 @@
 /// - **account** = the `key` parameter passed to each command
 ///
 /// This means credentials appear in Keychain Access (macOS) as:
-///   Service: "com.mwbmpartners.gamdl-gui"
+///   Service: "io.github.meedyadl"
 ///   Account: "wrapper_url" (or whatever key was used)
 ///
 /// See: https://docs.rs/keyring/latest/keyring/struct.Entry.html
-const SERVICE_NAME: &str = "com.mwbmpartners.gamdl-gui";
+const SERVICE_NAME: &str = "io.github.meedyadl";
 
 /// Stores a credential securely in the OS keychain.
 ///

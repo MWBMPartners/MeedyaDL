@@ -1,15 +1,15 @@
-<!-- Copyright (c) 2024-2026 MWBM Partners Ltd -->
+<!-- Copyright (c) 2024-2026 MeedyaDL -->
 <!-- Licensed under the MIT License. See LICENSE file in the project root. -->
 
-# 📋 GAMDL GUI - Project Plan
+# 📋 MeedyaDL - Project Plan
 
-> Multiplatform GUI application for [GAMDL](https://github.com/glomatico/gamdl) (Apple Music downloader)
+> A multiplatform media downloader built with Tauri 2.0 + React + TypeScript
 
 ---
 
 ## 🎯 Project Overview
 
-**GAMDL GUI** provides a complete, user-friendly graphical interface for GAMDL, supporting all features of the command-line tool through an intuitive desktop application that runs on macOS, Windows, Linux, and Raspberry Pi.
+**MeedyaDL** is a multiplatform media downloader providing a user-friendly graphical interface. Currently supports Apple Music via GAMDL, with planned support for additional media services. Runs on macOS, Windows, Linux, and Raspberry Pi.
 
 ### Architecture
 

@@ -1,7 +1,7 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Version Bump Script for gamdl-GUI
+// Version Bump Script for MeedyaDL
 // ===================================
 //
 // Updates the application version across all source-of-truth files in a single
@@ -24,7 +24,7 @@
 //   - package.json              -- npm package version (.version field)
 //   - src-tauri/tauri.conf.json -- Tauri app version (.version field)
 //   - src-tauri/Cargo.toml      -- Rust crate version ([package] section)
-//   - src-tauri/Cargo.lock      -- Lock file version (gamdl-gui entry)
+//   - src-tauri/Cargo.lock      -- Lock file version (meedyadl entry)
 //
 // This script has zero external dependencies — it uses only Node.js built-ins.
 //
@@ -116,7 +116,7 @@ function updateJsonFile(filePath, newVersion) {
  * Update the version in Cargo.toml's [package] section.
  *
  * Uses a targeted regex that matches the `version = "..."` line that follows
- * `name = "gamdl-gui"` within the [package] section. This avoids accidentally
+ * `name = "meedyadl"` within the [package] section. This avoids accidentally
  * modifying dependency version fields elsewhere in the file.
  *
  * @param {string} filePath - Absolute path to Cargo.toml
@@ -127,13 +127,13 @@ function updateCargoToml(filePath, currentVersion, newVersion) {
   let content = readFileSync(filePath, 'utf-8');
 
   /*
-   * Match the version line in the [package] section (follows name = "gamdl-gui").
+   * Match the version line in the [package] section (follows name = "meedyadl").
    * Allow any number of intermediate lines (comments, blanks) between name and version,
    * since Cargo.toml may have comment lines between the two fields.
    * The [\s\S]*? is a non-greedy match for any characters including newlines.
    */
   const pattern = new RegExp(
-    `(name = "gamdl-gui"\\n[\\s\\S]*?version = ")${escapeRegex(currentVersion)}(")`
+    `(name = "meedyadl"\\n[\\s\\S]*?version = ")${escapeRegex(currentVersion)}(")`
   );
   const updated = content.replace(pattern, `$1${newVersion}$2`);
 
@@ -146,9 +146,9 @@ function updateCargoToml(filePath, currentVersion, newVersion) {
 }
 
 /**
- * Update the version in Cargo.lock for the gamdl-gui package.
+ * Update the version in Cargo.lock for the meedyadl package.
  *
- * Cargo.lock uses a similar format: `name = "gamdl-gui"` followed by
+ * Cargo.lock uses a similar format: `name = "meedyadl"` followed by
  * `version = "X.Y.Z"` on the next line. We target this specific block.
  *
  * @param {string} filePath - Absolute path to Cargo.lock
@@ -158,14 +158,14 @@ function updateCargoToml(filePath, currentVersion, newVersion) {
 function updateCargoLock(filePath, currentVersion, newVersion) {
   let content = readFileSync(filePath, 'utf-8');
 
-  /* Match the version line immediately after name = "gamdl-gui" */
+  /* Match the version line immediately after name = "meedyadl" */
   const pattern = new RegExp(
-    `(name = "gamdl-gui"\\nversion = ")${escapeRegex(currentVersion)}(")`
+    `(name = "meedyadl"\\nversion = ")${escapeRegex(currentVersion)}(")`
   );
   const updated = content.replace(pattern, `$1${newVersion}$2`);
 
   if (updated === content) {
-    console.error(`Error: Could not find gamdl-gui version "${currentVersion}" in ${filePath}`);
+    console.error(`Error: Could not find meedyadl version "${currentVersion}" in ${filePath}`);
     process.exit(1);
   }
 

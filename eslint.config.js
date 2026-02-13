@@ -1,7 +1,7 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// ESLint Flat Configuration for gamdl-GUI Frontend
+// ESLint Flat Configuration for MeedyaDL Frontend
 // =================================================
 //
 // This file uses the ESLint 9.x "flat config" format (eslint.config.js), which replaces

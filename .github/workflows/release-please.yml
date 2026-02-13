@@ -1,7 +1,7 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Release Please Workflow for gamdl-GUI
+# Release Please Workflow for MeedyaDL
 # =======================================
 #
 # This workflow uses Google's release-please to automate versioning and releases.
@@ -110,7 +110,7 @@ jobs:
 
       # Step 4: Regenerate Cargo.lock from the updated Cargo.toml.
       # `cargo generate-lockfile` reads Cargo.toml and produces a fresh Cargo.lock
-      # with the correct version for gamdl-gui. This is more reliable than trying
+      # with the correct version for meedyadl. This is more reliable than trying
       # to regex-replace the version in the lock file.
       - name: Regenerate Cargo.lock
         if: steps.release.outputs.prs_created == 'true'

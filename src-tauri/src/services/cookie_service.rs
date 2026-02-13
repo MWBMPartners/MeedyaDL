@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Browser cookie extraction service.
@@ -581,7 +581,7 @@ fn cookies_to_netscape(cookies: &[rookie::enums::Cookie]) -> String {
 
     // Standard Netscape cookie file header
     lines.push("# Netscape HTTP Cookie File".to_string());
-    lines.push("# Extracted by gamdl-GUI from browser cookies".to_string());
+    lines.push("# Extracted by MeedyaDL from browser cookies".to_string());
     lines.push(String::new()); // Empty line after header
 
     for cookie in cookies {
