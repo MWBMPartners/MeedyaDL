@@ -106,6 +106,9 @@
 - [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4, PortraitCover.mp4)
 - [x] MusicKit credential management (Team ID, Key ID in settings; private key in OS keychain)
 - [x] Animated artwork help documentation page
+- [x] Configurable companion downloads (4 modes: Disabled, Atmos→ALAC, Atmos→ALAC+Lossy, Specialist→Lossy; with [Lossless]/[Dolby Atmos] file suffixes)
+- [x] Embed lyrics and keep sidecar (ensures both embedded lyrics and sidecar files for max compatibility)
+- [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos via mp4ameta freeform atoms)
 
 ---
 

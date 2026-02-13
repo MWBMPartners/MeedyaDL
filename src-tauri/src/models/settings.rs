@@ -37,6 +37,83 @@ use super::gamdl_options::{
     CoverFormat, DownloadMode, LyricsFormat, RemuxMode, SongCodec, VideoResolution,
 };
 
+/// Companion download mode configuration.
+///
+/// Controls whether MeedyaDL automatically downloads additional format
+/// versions alongside the primary download. This allows users to have
+/// both high-fidelity (lossless/spatial) and universally compatible
+/// (lossy) versions of their music without downloading separately.
+///
+/// When companions are enabled, the primary (specialist) format receives
+/// a filename suffix (e.g., `[Dolby Atmos]`, `[Lossless]`) while the
+/// most universally compatible companion uses a clean filename. This
+/// prevents filename collisions and makes the format instantly visible
+/// in file browsers.
+///
+/// ## Serialization
+///
+/// Uses `snake_case` for JSON field values to match the project's
+/// convention for enum variants across the IPC boundary.
+///
+/// ## Example
+///
+/// In `AtmosToLossless` mode (the default), downloading an album in
+/// Dolby Atmos produces:
+/// ```text
+/// Artist/Album/
+///   01 Song Title [Dolby Atmos].m4a   ← Primary (spatial audio)
+///   01 Song Title.m4a                 ← ALAC companion (clean filename)
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompanionMode {
+    /// No companion downloads. Only the user's selected format is downloaded.
+    /// Files use clean filenames with no codec suffix.
+    Disabled,
+
+    /// **[DEFAULT]** When downloading Dolby Atmos, also download an ALAC
+    /// (lossless) companion version. ALAC and lossy codec downloads do not
+    /// trigger companions.
+    ///
+    /// File naming:
+    /// - Atmos files: `01 Song Title [Dolby Atmos].m4a`
+    /// - ALAC companion: `01 Song Title.m4a` (clean filename)
+    AtmosToLossless,
+
+    /// Maximum companion coverage. When downloading Dolby Atmos, also
+    /// download both ALAC (lossless) AND lossy AAC companions. When
+    /// downloading ALAC, also download a lossy AAC companion. Lossy
+    /// codec downloads do not trigger companions.
+    ///
+    /// File naming for Atmos primary:
+    /// - Atmos: `01 Song Title [Dolby Atmos].m4a`
+    /// - ALAC: `01 Song Title [Lossless].m4a`
+    /// - AAC: `01 Song Title.m4a` (clean filename)
+    ///
+    /// File naming for ALAC primary:
+    /// - ALAC: `01 Song Title [Lossless].m4a`
+    /// - AAC: `01 Song Title.m4a` (clean filename)
+    AtmosToLosslessAndLossy,
+
+    /// When downloading any specialist format (Dolby Atmos or ALAC), also
+    /// download a lossy AAC companion. The specialist file gets a codec
+    /// suffix; the AAC companion uses a clean filename.
+    ///
+    /// File naming:
+    /// - Atmos: `01 Song Title [Dolby Atmos].m4a`
+    /// - ALAC: `01 Song Title [Lossless].m4a`
+    /// - AAC companion: `01 Song Title.m4a` (clean filename)
+    SpecialistToLossy,
+}
+
+impl Default for CompanionMode {
+    /// Defaults to `AtmosToLossless` — the most common use case where
+    /// Atmos users also want a lossless stereo version for universal playback.
+    fn default() -> Self {
+        Self::AtmosToLossless
+    }
+}
+
 /// Complete application settings, persisted as `{app_data}/settings.json`.
 ///
 /// This struct contains all user-configurable preferences, organized into
@@ -61,6 +138,7 @@ use super::gamdl_options::{
 ///
 /// See <https://docs.rs/serde/latest/serde/> for derive macro details.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     // ================================================================
     // General
@@ -140,8 +218,32 @@ pub struct AppSettings {
     pub video_fallback_chain: Vec<VideoResolution>,
 
     // ================================================================
+    // Companion Downloads
+    // ================================================================
+
+    /// Controls whether and how MeedyaDL downloads companion format
+    /// versions alongside the primary download. When companions are enabled,
+    /// MeedyaDL triggers additional GAMDL invocations after the primary
+    /// download succeeds, downloading the same content in different codecs.
+    /// Specialist format files receive a codec suffix in their filenames
+    /// (e.g., `[Dolby Atmos]`, `[Lossless]`) while the most universally
+    /// compatible companion uses a clean filename. All versions are saved
+    /// in the same album folder. See `CompanionMode` for available modes.
+    pub companion_mode: CompanionMode,
+
+    // ================================================================
     // Lyrics
     // ================================================================
+
+    /// When enabled, ensures that lyrics are both embedded in the audio
+    /// file's metadata tags AND saved as a sidecar file (LRC/SRT/TTML).
+    /// This provides maximum compatibility: embedded lyrics for players
+    /// that support them, sidecar files for those that don't. When enabled,
+    /// this overrides `no_synced_lyrics` (forcing sidecar creation) and
+    /// removes `"lyrics"` from `exclude_tags` (forcing metadata embedding).
+    /// When disabled, lyrics behavior is controlled independently by
+    /// `no_synced_lyrics`, `synced_lyrics_format`, and `exclude_tags`.
+    pub embed_lyrics_and_sidecar: bool,
 
     /// Default format for synced lyrics files. See `LyricsFormat` in
     /// `gamdl_options.rs`. Maps to `GamdlOptions::synced_lyrics_format`.
@@ -406,7 +508,16 @@ impl Default for AppSettings {
                 VideoResolution::P240,  // 8. H.264 240p (lowest)
             ],
 
+            // --- Companion downloads ---
+            // Default: when Atmos is downloaded, also download an ALAC
+            // (lossless) companion so the user has a universally playable
+            // stereo version alongside the spatial audio version.
+            companion_mode: CompanionMode::AtmosToLossless,
+
             // --- Lyrics ---
+            // Enabled by default: embed lyrics in audio metadata AND keep
+            // sidecar files for maximum player compatibility.
+            embed_lyrics_and_sidecar: true,
             // LRC is the most widely supported format for music players.
             synced_lyrics_format: LyricsFormat::Lrc,
             // Download lyrics by default (they are small and useful).
@@ -644,6 +755,9 @@ mod tests {
         assert_eq!(deserialized.fallback_enabled, settings.fallback_enabled);
         assert_eq!(deserialized.music_fallback_chain.len(), settings.music_fallback_chain.len());
         assert_eq!(deserialized.video_fallback_chain.len(), settings.video_fallback_chain.len());
+
+        // Companion downloads
+        assert_eq!(deserialized.companion_mode, settings.companion_mode);
 
         // Lyrics
         assert_eq!(deserialized.synced_lyrics_format, settings.synced_lyrics_format);

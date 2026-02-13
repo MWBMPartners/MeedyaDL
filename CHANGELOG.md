@@ -6,6 +6,42 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-02-13
+
+### ✨ Features
+
+- **Configurable companion downloads** — new `CompanionMode` setting in Settings > Quality with four modes: **Disabled** (no companions), **Atmos → Lossless** (default: Atmos downloads also get ALAC), **Atmos → Lossless + Lossy** (Atmos gets ALAC + AAC; ALAC gets AAC), and **Specialist → Lossy** (Atmos or ALAC get AAC). Specialist formats get filename suffixes (`[Lossless]` for ALAC, `[Dolby Atmos]` for Atmos); the most universal companion uses clean filenames. Replaces the previous boolean toggle with a granular dropdown.
+
+- **Codec-based filename suffix system** — generic suffix system via `codec_suffix()` and `apply_codec_suffix()` in `download_queue.rs`. ALAC files get `[Lossless]`, Dolby Atmos files get `[Dolby Atmos]`, and lossy codecs use clean filenames. Applied during both primary downloads and fallback chain retries.
+
+- **Custom metadata tagging** — after GAMDL writes standard Apple Music metadata, MeedyaDL injects codec-identification freeform atoms into downloaded M4A files via the `mp4ameta` crate. Now also applies to companion downloads (e.g., ALAC companions get `isLossless=Y`):
+  - ALAC files: `----:com.apple.iTunes:isLossless` → `Y`
+  - Dolby Atmos files: `----:com.apple.iTunes:SpatialType` → `Dolby Atmos` and `----:MeedyaMeta:SpatialType` → `Dolby Atmos`
+
+- **Lyrics embed + sidecar** — new "Embed Lyrics and Keep Sidecar" toggle in Settings > Lyrics. When enabled (default), lyrics are both embedded in audio file metadata AND saved as separate sidecar files. Overrides the "Disable Synced Lyrics" toggle when active.
+
+### 🐛 Bug Fixes
+
+- Fix ESLint `no-unused-vars` warning: `defaultVideoResolution` in DownloadForm.tsx was only used as a type reference — replaced with direct `VideoResolution` type import.
+- Fix ESLint `no-require-imports` errors: converted `require()` calls in `main.tsx` global error handlers to `import()` dynamic imports.
+
+### 🧹 Maintenance
+
+- Added `mp4ameta` v0.13 dependency for M4A metadata tag writing.
+- Added `metadata_tag_service.rs` service module for post-download custom tagging.
+- Bumped version from 0.1.4 to 0.2.1.
+
+### 📚 Documentation
+
+- Updated `help/quality-settings.md` with configurable companion mode documentation.
+- Updated `help/downloading-music.md` with companion download modes.
+- Updated `help/lyrics-and-metadata.md` with embed + sidecar toggle details.
+- Updated `README.md` feature list with configurable companions and lyrics embed + sidecar.
+- Updated `PROJECT_STATUS.md` with new feature entries.
+- Updated `.claude/CLAUDE.md` architecture notes with companion mode, codec suffix, and metadata tagging.
+
+## [0.1.4] - 2026-02-12
+
 ### ✨ Features
 
 - Add browser cookie extraction service and auto-import functionality

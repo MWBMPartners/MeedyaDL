@@ -89,9 +89,12 @@ use tauri::{AppHandle, Emitter};
 use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // GamdlOptions: Typed representation of GAMDL CLI arguments, used as the "effective" options
 // after merging per-download overrides with global settings.
-use crate::models::gamdl_options::GamdlOptions;
+// SongCodec: Enum of audio codec options, used for companion download planning and
+// codec suffix logic.
+use crate::models::gamdl_options::{GamdlOptions, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
-use crate::models::settings::AppSettings;
+// CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
+use crate::models::settings::{AppSettings, CompanionMode};
 // config_service: Used to load settings during fallback decisions.
 // gamdl_service: Provides build_gamdl_command_public() and GamdlProgress for subprocess execution.
 use crate::services::{config_service, gamdl_service};
@@ -440,6 +443,13 @@ impl DownloadQueue {
             let mut new_options = item.merged_options.clone();
             new_options.song_codec = Some(next_codec.clone());
 
+            // If the companion mode would produce companions for this fallback
+            // codec, apply the codec suffix to file templates so the specialist
+            // format files don't collide with the companion files.
+            if needs_primary_suffix(next_codec, &settings.companion_mode) {
+                apply_codec_suffix(&mut new_options);
+            }
+
             // Update tracking info for the frontend to display
             item.status.codec_used = Some(next_codec.to_cli_string().to_string());
             item.status.fallback_occurred = true;
@@ -679,7 +689,252 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         }
     }
 
+    // === Layer 3: Lyrics embed + sidecar enforcement ===
+    // When the user has enabled "Embed Lyrics and Keep Sidecar", ensure that:
+    // 1. Lyrics are NOT excluded from metadata embedding (remove "lyrics" from
+    //    exclude_tags if present, so GAMDL embeds them in the audio file's tags).
+    // 2. Synced lyrics sidecar files are NOT disabled (force no_synced_lyrics
+    //    to false, so GAMDL creates the .lrc/.srt/.ttml sidecar alongside).
+    // This provides maximum compatibility: embedded for players that read tags,
+    // sidecar for those that look for external lyrics files.
+    if settings.embed_lyrics_and_sidecar {
+        // Remove "lyrics" from the exclude_tags comma-separated string so
+        // GAMDL embeds lyrics in the audio file's metadata atoms.
+        if let Some(ref tags) = options.exclude_tags {
+            let filtered: Vec<&str> = tags
+                .split(',')
+                .map(|t| t.trim())
+                .filter(|t| !t.eq_ignore_ascii_case("lyrics"))
+                .collect();
+            if filtered.is_empty() {
+                options.exclude_tags = None;
+            } else {
+                options.exclude_tags = Some(filtered.join(","));
+            }
+        }
+        // Force sidecar lyrics creation regardless of the no_synced_lyrics setting.
+        options.no_synced_lyrics = Some(false);
+    }
+
     options
+}
+
+// ============================================================
+// Helper: codec-based filename suffix system
+// ============================================================
+
+/// Returns the filename suffix for a given audio codec, or `None` if the
+/// codec should use a clean (unsuffixed) filename.
+///
+/// Suffix rules:
+/// - **Lossy codecs** (AAC, AAC-Legacy, AAC-Binaural, AC3, etc.) get no
+///   suffix, as they represent the "standard" download a user would expect.
+/// - **Lossless** (ALAC) gets `[Lossless]` to distinguish from lossy versions.
+/// - **Spatial audio** (Dolby Atmos) gets `[Dolby Atmos]` to clearly identify
+///   the immersive mix.
+///
+/// When companion downloads are enabled, multiple codec versions of the same
+/// track can coexist in the same album folder. The suffix prevents filename
+/// collisions and makes the format instantly visible in file browsers.
+fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
+    match codec {
+        SongCodec::Alac => Some("[Lossless]"),
+        SongCodec::Atmos => Some("[Dolby Atmos]"),
+        // Lossy, legacy, and experimental codecs use clean filenames (no suffix)
+        SongCodec::Aac
+        | SongCodec::AacLegacy
+        | SongCodec::AacBinaural
+        | SongCodec::AacHeLegacy
+        | SongCodec::AacHe
+        | SongCodec::AacDownmix
+        | SongCodec::AacHeBinaural
+        | SongCodec::AacHeDownmix
+        | SongCodec::Ac3 => None,
+    }
+}
+
+/// Determines whether the primary download's file templates should have a
+/// codec suffix applied, based on the companion mode and the download's codec.
+///
+/// A suffix is needed when the companion mode will produce at least one
+/// companion with a clean filename alongside the primary download. This
+/// prevents filename collisions in the same album directory.
+///
+/// # Rules per mode
+///
+/// | Mode                       | Atmos gets suffix? | ALAC gets suffix? | Others? |
+/// |----------------------------|--------------------|-------------------|---------|
+/// | `Disabled`                 | No                 | No                | No      |
+/// | `AtmosToLossless`          | Yes                | No                | No      |
+/// | `AtmosToLosslessAndLossy`  | Yes                | Yes               | No      |
+/// | `SpecialistToLossy`        | Yes                | Yes               | No      |
+fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
+    match mode {
+        // No companions → no suffix needed (only one version exists)
+        CompanionMode::Disabled => false,
+        // Only Atmos gets a companion (ALAC), so only Atmos needs a suffix.
+        // ALAC downloads in this mode have no companion → no suffix.
+        CompanionMode::AtmosToLossless => matches!(codec, SongCodec::Atmos),
+        // Both Atmos and ALAC get companions (at least a lossy one),
+        // so both need suffixes to coexist with the clean-filename companion.
+        CompanionMode::AtmosToLosslessAndLossy => {
+            matches!(codec, SongCodec::Atmos | SongCodec::Alac)
+        }
+        // Same as above: any specialist codec gets a lossy companion.
+        CompanionMode::SpecialistToLossy => {
+            matches!(codec, SongCodec::Atmos | SongCodec::Alac)
+        }
+    }
+}
+
+/// A planned companion download tier. Each tier represents one additional
+/// GAMDL invocation to download the same content in a different codec.
+struct CompanionTier {
+    /// Codecs to try in order for this companion tier. The first codec that
+    /// succeeds ends the tier (remaining codecs are skipped). If all fail,
+    /// the tier is skipped silently.
+    codecs_to_try: Vec<SongCodec>,
+    /// Whether to apply a codec suffix to this companion's file templates.
+    /// `true` means this companion gets a suffixed filename (e.g., `[Lossless]`);
+    /// `false` means this companion gets the clean (unsuffixed) filename.
+    apply_suffix: bool,
+}
+
+/// Plans the companion downloads to perform after a primary download
+/// succeeds, based on the companion mode and the primary codec used.
+///
+/// Returns an ordered list of `CompanionTier` structs. Each tier is
+/// processed sequentially (to avoid concurrent GAMDL processes writing to
+/// the same directory). Within a tier, codecs are tried in order until one
+/// succeeds.
+///
+/// # Examples
+///
+/// `AtmosToLossless` with primary `"atmos"`:
+/// → `[CompanionTier { codecs: [ALAC], suffix: false }]`
+///
+/// `AtmosToLosslessAndLossy` with primary `"atmos"`:
+/// → `[CompanionTier { codecs: [ALAC], suffix: true },
+///     CompanionTier { codecs: [AAC, AacLegacy], suffix: false }]`
+fn plan_companions(mode: &CompanionMode, primary_codec: &str) -> Vec<CompanionTier> {
+    match mode {
+        // No companions in any scenario
+        CompanionMode::Disabled => vec![],
+
+        // Atmos → ALAC companion (clean filename); nothing for other codecs
+        CompanionMode::AtmosToLossless => {
+            if primary_codec == "atmos" {
+                vec![CompanionTier {
+                    codecs_to_try: vec![SongCodec::Alac],
+                    apply_suffix: false, // ALAC companion gets clean filename
+                }]
+            } else {
+                vec![]
+            }
+        }
+
+        // Maximum coverage:
+        //   Atmos → ALAC [Lossless] + AAC (clean)
+        //   ALAC → AAC (clean)
+        CompanionMode::AtmosToLosslessAndLossy => {
+            if primary_codec == "atmos" {
+                vec![
+                    CompanionTier {
+                        codecs_to_try: vec![SongCodec::Alac],
+                        apply_suffix: true, // ALAC gets [Lossless] suffix (AAC exists too)
+                    },
+                    CompanionTier {
+                        codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                        apply_suffix: false, // Lossy AAC gets clean filename
+                    },
+                ]
+            } else if primary_codec == "alac" {
+                vec![CompanionTier {
+                    codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                    apply_suffix: false, // Lossy AAC gets clean filename
+                }]
+            } else {
+                vec![]
+            }
+        }
+
+        // Any specialist → lossy companion (clean filename)
+        CompanionMode::SpecialistToLossy => {
+            if primary_codec == "atmos" || primary_codec == "alac" {
+                vec![CompanionTier {
+                    codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                    apply_suffix: false, // Lossy AAC gets clean filename
+                }]
+            } else {
+                vec![]
+            }
+        }
+    }
+}
+
+/// Appends a codec-specific suffix to all file naming templates in a
+/// `GamdlOptions` struct.
+///
+/// When companion downloads are enabled, multiple codec versions of the
+/// same track land in the same album directory. To prevent filename
+/// collisions and clearly identify the format, this function appends the
+/// codec's suffix (e.g., ` [Lossless]` or ` [Dolby Atmos]`) to the
+/// filename portion of every file template.
+///
+/// The most universally compatible companion uses the original (unsuffixed)
+/// template, so it gets a "clean" filename (e.g., `01 Song Title.m4a`)
+/// while specialist formats get tagged filenames (e.g.,
+/// `01 Song Title [Lossless].m4a` or `01 Song Title [Dolby Atmos].m4a`).
+///
+/// This modifies the following templates:
+/// - `single_disc_file_template` (most common: `{track:02d} {title}`)
+/// - `multi_disc_file_template` (`{disc}-{track:02d} {title}`)
+/// - `no_album_file_template` (`{title}`)
+/// - `playlist_file_template` (`Playlists/{playlist_artist}/{playlist_title}`)
+///
+/// Returns `true` if a suffix was applied, `false` if the codec has no suffix.
+fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
+    // Determine the suffix for the current codec, if any
+    let suffix = match &options.song_codec {
+        Some(codec) => match codec_suffix(codec) {
+            Some(s) => s,
+            None => return false, // Lossy codecs get no suffix
+        },
+        None => return false, // No codec specified
+    };
+
+    // For each file template, append the suffix to the existing value.
+    // If the template is None (not set), use the GAMDL default with the suffix.
+    if let Some(ref template) = options.single_disc_file_template {
+        options.single_disc_file_template = Some(format!("{} {}", template, suffix));
+    } else {
+        options.single_disc_file_template =
+            Some(format!("{{track:02d}} {{title}} {}", suffix));
+    }
+
+    if let Some(ref template) = options.multi_disc_file_template {
+        options.multi_disc_file_template = Some(format!("{} {}", template, suffix));
+    } else {
+        options.multi_disc_file_template =
+            Some(format!("{{disc}}-{{track:02d}} {{title}} {}", suffix));
+    }
+
+    if let Some(ref template) = options.no_album_file_template {
+        options.no_album_file_template = Some(format!("{} {}", template, suffix));
+    } else {
+        options.no_album_file_template = Some(format!("{{title}} {}", suffix));
+    }
+
+    if let Some(ref template) = options.playlist_file_template {
+        options.playlist_file_template = Some(format!("{} {}", template, suffix));
+    } else {
+        options.playlist_file_template = Some(format!(
+            "Playlists/{{playlist_artist}}/{{playlist_title}} {}",
+            suffix
+        ));
+    }
+
+    true
 }
 
 // ============================================================
@@ -717,6 +972,26 @@ pub fn process_queue(
 
     log::info!("Processing download {}", download_id);
 
+    // === Codec suffix: modify file templates for companion coexistence ===
+    // When the companion mode would produce companions for this codec,
+    // add a suffix to file naming templates so specialist format files
+    // get tagged filenames (e.g., "01 Song Title [Lossless].m4a") while
+    // the companion download uses clean filenames ("01 Song Title.m4a").
+    // Keep the original (unsuffixed) options for companion downloads later.
+    let companion_base_options = options.clone();
+    let mut download_options = options;
+    let settings_for_companion = load_settings_for_queue(&app).await;
+    if let Some(ref codec) = download_options.song_codec {
+        if needs_primary_suffix(codec, &settings_for_companion.companion_mode) {
+            apply_codec_suffix(&mut download_options);
+            log::info!(
+                "Download {} using codec with file suffix (companion mode: {:?})",
+                download_id,
+                settings_for_companion.companion_mode
+            );
+        }
+    }
+
     // Notify the frontend that this download is starting.
     // The frontend uses this event to transition the download card's UI state.
     let _ = app.emit("download-started", &download_id);
@@ -735,7 +1010,7 @@ pub fn process_queue(
             &app_clone,
             &dl_id,
             &urls,
-            &options,
+            &download_options,
             &queue_clone,
         )
         .await;
@@ -744,21 +1019,70 @@ pub fn process_queue(
         match result {
             Ok(()) => {
                 // === Success path ===
-                // Read the output path before releasing the lock -- we need it
-                // for the animated artwork background task below.
-                let output_path_for_artwork = {
+                // Read the output path and codec_used before releasing the lock.
+                // We need output_path for animated artwork and metadata tagging,
+                // and codec_used for both metadata tagging and companion logic.
+                let (output_path_for_artwork, completed_codec) = {
                     let mut q = queue_clone.lock().await;
                     q.set_complete(&dl_id);
                     q.on_task_finished(); // Free a concurrent download slot
-                    // Extract output_path while we have the lock
-                    q.get_status()
-                        .iter()
-                        .find(|s| s.id == dl_id)
-                        .and_then(|s| s.output_path.clone())
+                    // Extract output_path and codec_used while we have the lock
+                    let status = q.get_status();
+                    let item = status.iter().find(|s| s.id == dl_id);
+                    (
+                        item.and_then(|s| s.output_path.clone()),
+                        item.and_then(|s| s.codec_used.clone()),
+                    )
                 };
                 log::info!("Download {} completed successfully", dl_id);
                 // Notify frontend of successful completion
                 let _ = app_clone.emit("download-complete", &dl_id);
+
+                // === Custom metadata tagging ===
+                // After GAMDL finishes writing its standard metadata, inject
+                // MeedyaDL custom tags to identify the codec quality tier:
+                //   - ALAC: isLossless = Y
+                //   - Atmos: SpatialType = Dolby Atmos (two namespaces)
+                // This runs synchronously -- file I/O is fast relative to
+                // the network download that just completed.
+                if let (Some(ref output_dir), Some(ref codec_str)) =
+                    (&output_path_for_artwork, &completed_codec)
+                {
+                    // Parse the codec string back into a SongCodec enum
+                    let codec = match codec_str.as_str() {
+                        "alac" => Some(SongCodec::Alac),
+                        "atmos" => Some(SongCodec::Atmos),
+                        _ => None, // Lossy codecs don't get custom tags
+                    };
+                    if let Some(codec) = codec {
+                        match super::metadata_tag_service::apply_codec_metadata_tags(
+                            output_dir,
+                            &codec,
+                        ) {
+                            Ok(count) if count > 0 => {
+                                log::info!(
+                                    "Tagged {} file(s) with {} metadata for {}",
+                                    count,
+                                    codec_str,
+                                    dl_id
+                                );
+                            }
+                            Ok(_) => {
+                                log::debug!(
+                                    "No M4A files to tag for {}",
+                                    dl_id
+                                );
+                            }
+                            Err(e) => {
+                                log::debug!(
+                                    "Metadata tagging failed for {}: {}",
+                                    dl_id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
 
                 // === Animated artwork (background, fire-and-forget) ===
                 // After a successful album download, check for and download
@@ -810,6 +1134,166 @@ pub fn process_queue(
                             }
                         }
                     });
+                }
+
+                // === Companion downloads (background, fire-and-forget) ===
+                // Based on the companion mode and the primary codec used,
+                // plan and execute zero or more companion download tiers.
+                // Each tier is a separate GAMDL invocation for a different
+                // codec (e.g., ALAC or AAC). Tiers run sequentially within
+                // a single background task to avoid concurrent writes to the
+                // same album directory.
+                {
+                    let companion_settings = load_settings_for_queue(&app_clone).await;
+                    let primary_codec_str = completed_codec.unwrap_or_default();
+                    let companion_tiers = plan_companions(
+                        &companion_settings.companion_mode,
+                        &primary_codec_str,
+                    );
+
+                    if !companion_tiers.is_empty() {
+                        let comp_app = app_clone.clone();
+                        let comp_urls = urls.clone();
+                        let comp_base_opts = companion_base_options.clone();
+                        let comp_dl_id = dl_id.clone();
+
+                        tokio::spawn(async move {
+                            // Process each companion tier sequentially
+                            for (tier_idx, tier) in companion_tiers.iter().enumerate() {
+                                let mut tier_succeeded = false;
+
+                                // Try each codec in the tier until one succeeds
+                                for codec in &tier.codecs_to_try {
+                                    let mut opts = comp_base_opts.clone();
+                                    opts.song_codec = Some(codec.clone());
+
+                                    // If this tier needs a suffix (e.g., ALAC
+                                    // companion in AtmosToLosslessAndLossy mode
+                                    // gets [Lossless]), apply it to the options.
+                                    if tier.apply_suffix {
+                                        apply_codec_suffix(&mut opts);
+                                    }
+                                    // If not suffixed, the base options already
+                                    // have clean (unsuffixed) templates.
+
+                                    // Build the GAMDL CLI command for the companion
+                                    let mut cmd = match gamdl_service::build_gamdl_command_public(
+                                        &comp_app,
+                                        &comp_urls,
+                                        &opts,
+                                    ) {
+                                        Ok(c) => c,
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Companion tier {}: failed to build \
+                                                 command ({}) for {}: {}",
+                                                tier_idx,
+                                                codec.to_cli_string(),
+                                                comp_dl_id,
+                                                e
+                                            );
+                                            continue; // Try next codec in tier
+                                        }
+                                    };
+
+                                    // Pipe stdout/stderr for the companion process.
+                                    // We don't parse progress events (fire-and-forget),
+                                    // but we capture output for error diagnosis.
+                                    cmd.stdout(std::process::Stdio::piped());
+                                    cmd.stderr(std::process::Stdio::piped());
+
+                                    match cmd.spawn() {
+                                        Ok(child) => {
+                                            match child.wait_with_output().await {
+                                                Ok(output) if output.status.success() => {
+                                                    log::info!(
+                                                        "Companion tier {} ({}) downloaded \
+                                                         for {}",
+                                                        tier_idx,
+                                                        codec.to_cli_string(),
+                                                        comp_dl_id
+                                                    );
+                                                    let _ = comp_app.emit(
+                                                        "companion-downloaded",
+                                                        &comp_dl_id,
+                                                    );
+
+                                                    // Apply custom metadata tags for specialist
+                                                    // companion codecs (e.g., isLossless=Y for
+                                                    // ALAC). Only ALAC and Atmos have custom
+                                                    // tags; lossy codecs return immediately.
+                                                    if let Some(ref output_dir) = opts.output_path {
+                                                        match super::metadata_tag_service::apply_codec_metadata_tags(
+                                                            output_dir,
+                                                            codec,
+                                                        ) {
+                                                            Ok(count) if count > 0 => {
+                                                                log::info!(
+                                                                    "Tagged {} companion file(s) \
+                                                                     with {} metadata for {}",
+                                                                    count,
+                                                                    codec.to_cli_string(),
+                                                                    comp_dl_id
+                                                                );
+                                                            }
+                                                            Ok(_) => {}
+                                                            Err(e) => {
+                                                                log::debug!(
+                                                                    "Companion metadata tagging \
+                                                                     failed for {}: {}",
+                                                                    comp_dl_id,
+                                                                    e
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+
+                                                    tier_succeeded = true;
+                                                    break; // This tier done, move to next
+                                                }
+                                                Ok(output) => {
+                                                    // Non-zero exit: codec may be
+                                                    // unavailable for this content
+                                                    let stderr = String::from_utf8_lossy(
+                                                        &output.stderr,
+                                                    );
+                                                    log::debug!(
+                                                        "Companion tier {} ({}) failed \
+                                                         for {}: {}",
+                                                        tier_idx,
+                                                        codec.to_cli_string(),
+                                                        comp_dl_id,
+                                                        stderr.lines().last().unwrap_or("")
+                                                    );
+                                                    // Continue to next codec in tier
+                                                }
+                                                Err(e) => {
+                                                    log::debug!(
+                                                        "Companion process error: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Failed to spawn companion: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+
+                                if !tier_succeeded {
+                                    log::debug!(
+                                        "Companion tier {} exhausted all codecs for {}",
+                                        tier_idx,
+                                        comp_dl_id
+                                    );
+                                }
+                            }
+                        });
+                    }
                 }
             }
             Err(error_msg) => {

@@ -91,6 +91,43 @@ Dolby Atmos delivers immersive spatial audio using object-based mixing. Rather t
 - **Playback requirements:** Dolby Atmos-compatible hardware or software is required for the full spatial experience. Compatible devices include Apple AirPods Pro, AirPods Max, AirPods (3rd generation and later), Dolby Atmos-enabled speakers, soundbars, and AV receivers. On unsupported devices, the content may be played as a stereo or surround downmix
 - **Best for:** Immersive listening experiences where you have compatible playback hardware. Atmos mixes can reveal new details and spatial separation in music that standard stereo cannot provide
 
+### Companion Downloads
+
+MeedyaDL can automatically download additional format versions alongside your primary download, so you have both high-fidelity files for quality hardware and universally compatible files for everything else. The **Companion Downloads** dropdown in **Settings > Quality** controls this behavior.
+
+#### Companion Modes
+
+| Mode | What It Does |
+| ---- | ------------ |
+| **Disabled** | No companion downloads. Only the selected format is downloaded. |
+| **Atmos → Lossless (ALAC)** *(default)* | When downloading Dolby Atmos, also download an ALAC (lossless) companion. ALAC downloads get no companion. |
+| **Atmos → Lossless + Lossy** | When downloading Dolby Atmos, also download both ALAC and lossy AAC companions. When downloading ALAC, also download a lossy AAC companion. |
+| **Specialist → Lossy (AAC)** | When downloading Dolby Atmos or ALAC, also download a lossy AAC companion. |
+
+#### File Naming
+
+When companion downloads are enabled, specialist format files receive a suffix in their filename to prevent collisions and clearly identify the format:
+
+- Dolby Atmos files: `01 Song Title [Dolby Atmos].m4a`
+- ALAC (lossless) files: `01 Song Title [Lossless].m4a`
+- The most universally compatible companion always uses a clean filename: `01 Song Title.m4a`
+- All versions are saved in the same album folder.
+
+**Example: "Atmos → Lossless + Lossy" mode with a Dolby Atmos primary download:**
+
+```text
+Artist/Album/
+  01 Song Title [Dolby Atmos].m4a   ← Primary (spatial audio)
+  01 Song Title [Lossless].m4a      ← ALAC companion
+  01 Song Title.m4a                 ← AAC companion (clean filename)
+```
+
+#### How It Works
+
+After a primary download completes successfully, MeedyaDL automatically spawns additional GAMDL invocations for each companion tier defined by the selected mode. Companion downloads run in the background and do not block the download queue. If a companion codec is unavailable for a particular track, MeedyaDL silently skips it without affecting the primary download status.
+
+- **Custom metadata:** MeedyaDL also writes custom metadata tags into specialist format files so downstream tools can programmatically identify the codec tier. ALAC files receive `isLossless = Y`; Dolby Atmos files receive `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#custom-codec-metadata-tags) for full details.
+
 ### AC3 (Dolby Digital)
 
 AC3, also known as Dolby Digital, is a multichannel surround-sound audio codec widely used in home theater systems.
@@ -198,6 +235,10 @@ You can set your preferred default audio codec and video resolution so that ever
 5. Click **Save** or **Apply** to store your defaults
 
 These defaults will be used for all subsequent downloads unless you override them on a per-download basis (see below).
+
+### Companion Downloads
+
+The Quality tab also includes a **Companion Downloads** dropdown. This controls whether MeedyaDL automatically downloads additional format versions alongside your primary download. The default mode (**Atmos → Lossless**) downloads an ALAC companion whenever you download Dolby Atmos content. Other modes offer more or fewer companion tiers. See [Companion Downloads](#companion-downloads) above for a full description of each mode and the file naming conventions.
 
 ### Per-Download Quality Selection
 
