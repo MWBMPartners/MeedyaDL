@@ -6,13 +6,68 @@
 
 # :cookie: Cookie Management
 
-This guide explains how to export your Apple Music cookies from a web browser, import them into MeedyaDL, and troubleshoot common cookie-related issues.
+This guide explains how to set up Apple Music authentication in MeedyaDL using cookies, including the built-in login window, browser auto-import, manual cookie export, and troubleshooting common cookie-related issues.
 
 ---
 
 ## Overview
 
 MeedyaDL uses your Apple Music browser cookies to authenticate with Apple's servers on your behalf. These cookies prove that you have a valid Apple Music subscription, allowing MeedyaDL to access and download content. Cookies are essential for the application to function -- without valid cookies, downloads will fail.
+
+MeedyaDL provides **three ways** to set up cookies, listed from easiest to most manual:
+
+1. **Built-in Apple Music login** -- Sign in directly within the app (no browser extension needed)
+2. **Browser auto-import** -- Automatically extract cookies from an installed browser
+3. **Manual cookie file import** -- Export cookies from your browser using an extension and import the file
+
+---
+
+## Built-in Apple Music Login (Recommended)
+
+The easiest way to set up cookies is to sign in to Apple Music directly within MeedyaDL. The app opens an embedded browser window where you sign in with your Apple ID, and cookies are extracted automatically.
+
+### How to Use
+
+1. Open MeedyaDL.
+2. Navigate to **Settings > Cookies** tab.
+3. Click **"Sign in to Apple Music"**.
+4. A login window opens showing the Apple Music sign-in page.
+5. Sign in with your Apple ID and password. Complete any two-factor authentication prompts if required.
+6. Once signed in successfully, MeedyaDL automatically detects the `media-user-token` cookie (which confirms authentication) and extracts all cookies from the webview.
+7. The cookies are saved in Netscape format and the login window closes automatically.
+
+This method requires no browser extensions and works on all platforms. The login window uses Tauri's native webview, which is isolated from your system browsers.
+
+---
+
+## Browser Auto-Import
+
+If you are already signed in to Apple Music in a browser on your computer, MeedyaDL can detect installed browsers and extract your Apple Music cookies automatically.
+
+### Steps
+
+1. Open MeedyaDL.
+2. Navigate to **Settings > Cookies** tab.
+3. Click **"Import from Browser"**.
+4. MeedyaDL scans for installed browsers and displays a list of detected browsers.
+5. Select the browser you are signed in to Apple Music with.
+6. MeedyaDL extracts the Apple Music cookies and saves them automatically.
+
+### Supported Browsers
+
+- **Chrome** / **Chromium**
+- **Firefox**
+- **Edge**
+- **Safari** (macOS only)
+- **Brave**
+- **Opera**
+- **Vivaldi**
+
+### Requirements
+
+- You must be **signed in to music.apple.com** in the selected browser before importing.
+- The browser must be **closed** during import on some platforms (the app will notify you if this is required).
+- On **macOS**, importing from Safari or Chrome may require **Full Disk Access** permission for MeedyaDL. The app will prompt you if this is needed and guide you through enabling it in System Settings.
 
 ---
 
@@ -28,7 +83,9 @@ This is the same authentication method used by other tools that interact with Ap
 
 ---
 
-## Exporting Cookies from Your Browser
+## Manual Cookie Export from Your Browser
+
+If you prefer to export cookies manually (or if the built-in login and browser auto-import are not available), you can use a browser extension to export your cookies and import the file into MeedyaDL.
 
 ### Prerequisites
 
@@ -139,12 +196,13 @@ MeedyaDL monitors cookie expiry dates and warns you when cookies are approaching
 
 ### Renewing Expired Cookies
 
-When your cookies expire or are approaching expiry, follow these steps:
+When your cookies expire or are approaching expiry, use any of these methods to refresh them:
 
-1. **Sign in** to [music.apple.com](https://music.apple.com) in your browser. Make sure you are fully signed in and can browse music.
-2. **Re-export** your cookies using the same browser extension you used before (see the browser-specific instructions above).
-3. **Re-import** the new cookie file in MeedyaDL by going to **Settings > Cookies** tab and clicking **"Import Cookie File"**.
-4. The new cookie file replaces the old one. Verify that the status indicator shows green.
+- **Use the built-in login** -- Go to **Settings > Cookies** and click **"Sign in to Apple Music"**. Sign in again and fresh cookies are extracted automatically.
+- **Use browser auto-import** -- If you are still signed in to music.apple.com in a browser, click **"Import from Browser"** to re-extract fresh cookies.
+- **Manual re-export** -- Re-export your cookies from your browser using the same extension you used before, then re-import the file in MeedyaDL.
+
+The new cookies replace the old ones. Verify that the status indicator shows green after renewal.
 
 ---
 

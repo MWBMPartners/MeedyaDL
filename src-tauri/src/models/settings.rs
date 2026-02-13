@@ -180,6 +180,36 @@ pub struct AppSettings {
     pub cover_size: u32,
 
     // ================================================================
+    // Animated Artwork (Motion Cover Art)
+    // ================================================================
+
+    /// Whether to download animated cover art (motion artwork) from Apple
+    /// Music after each album download. When enabled, MeedyaDL queries the
+    /// Apple Music catalog API (`extend=editorialVideo`) and saves
+    /// `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4` (portrait,
+    /// 3:4) alongside the audio files, if animated artwork is available.
+    ///
+    /// Requires valid MusicKit credentials (`musickit_team_id`,
+    /// `musickit_key_id`, and a private key stored in the OS keychain).
+    pub animated_artwork_enabled: bool,
+
+    /// Apple MusicKit Team ID for API authentication. This is the
+    /// 10-character team identifier from the Apple Developer portal
+    /// (e.g., `"ABCDE12345"`). Required when `animated_artwork_enabled`
+    /// is `true`.
+    pub musickit_team_id: Option<String>,
+
+    /// Apple MusicKit Key ID for API authentication. This is the
+    /// 10-character identifier for the MusicKit private key created in
+    /// the Apple Developer portal (e.g., `"ABC123DEFG"`). Required when
+    /// `animated_artwork_enabled` is `true`.
+    ///
+    /// **Note:** The private key itself (`.p8` file content) is stored
+    /// securely in the OS keychain under the key `"musickit_private_key"`,
+    /// NOT in this settings struct.
+    pub musickit_key_id: Option<String>,
+
+    // ================================================================
     // File/Folder Templates
     // ================================================================
     // These templates use GAMDL's placeholder syntax. Available placeholders
@@ -393,6 +423,14 @@ impl Default for AppSettings {
             // CDN. The CDN returns the largest version it has (typically 3000x3000),
             // so this effectively means "give me the best you have".
             cover_size: 10000,
+
+            // --- Animated artwork ---
+            // Disabled by default: requires Apple Developer credentials.
+            // Users must configure MusicKit Team ID, Key ID, and private key
+            // in Settings > Cover Art before animated artwork can be fetched.
+            animated_artwork_enabled: false,
+            musickit_team_id: None,
+            musickit_key_id: None,
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization.
@@ -616,6 +654,11 @@ mod tests {
         assert_eq!(deserialized.save_cover, settings.save_cover);
         assert_eq!(deserialized.cover_format, settings.cover_format);
         assert_eq!(deserialized.cover_size, settings.cover_size);
+
+        // Animated artwork
+        assert_eq!(deserialized.animated_artwork_enabled, settings.animated_artwork_enabled);
+        assert_eq!(deserialized.musickit_team_id, settings.musickit_team_id);
+        assert_eq!(deserialized.musickit_key_id, settings.musickit_key_id);
 
         // Templates
         assert_eq!(deserialized.album_folder_template, settings.album_folder_template);

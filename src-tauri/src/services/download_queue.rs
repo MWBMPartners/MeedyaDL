@@ -744,12 +744,73 @@ pub fn process_queue(
         match result {
             Ok(()) => {
                 // === Success path ===
-                let mut q = queue_clone.lock().await;
-                q.set_complete(&dl_id);
-                q.on_task_finished(); // Free a concurrent download slot
+                // Read the output path before releasing the lock -- we need it
+                // for the animated artwork background task below.
+                let output_path_for_artwork = {
+                    let mut q = queue_clone.lock().await;
+                    q.set_complete(&dl_id);
+                    q.on_task_finished(); // Free a concurrent download slot
+                    // Extract output_path while we have the lock
+                    q.get_status()
+                        .iter()
+                        .find(|s| s.id == dl_id)
+                        .and_then(|s| s.output_path.clone())
+                };
                 log::info!("Download {} completed successfully", dl_id);
                 // Notify frontend of successful completion
                 let _ = app_clone.emit("download-complete", &dl_id);
+
+                // === Animated artwork (background, fire-and-forget) ===
+                // After a successful album download, check for and download
+                // animated cover art (if enabled in settings). This runs in
+                // a separate tokio task so it doesn't block the queue from
+                // processing the next download. Failures are logged at debug
+                // level but never propagate to the user or affect the download
+                // status (Complete stays Complete).
+                if let Some(output_dir) = output_path_for_artwork {
+                    let artwork_app = app_clone.clone();
+                    let artwork_urls = urls.clone();
+                    let artwork_dl_id = dl_id.clone();
+                    tokio::spawn(async move {
+                        // Determine the album directory from the output path.
+                        // For single tracks, output_path is a file -- use its parent.
+                        // For albums, output_path is already the directory.
+                        let dir = std::path::Path::new(&output_dir);
+                        let album_dir = if dir.is_dir() {
+                            output_dir.clone()
+                        } else {
+                            dir.parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or(output_dir.clone())
+                        };
+
+                        match super::animated_artwork_service::process_album_artwork(
+                            &artwork_app,
+                            &artwork_urls,
+                            &album_dir,
+                        )
+                        .await
+                        {
+                            Ok(result) => {
+                                if result.square_downloaded || result.portrait_downloaded {
+                                    log::info!(
+                                        "Animated artwork downloaded for {}",
+                                        artwork_dl_id
+                                    );
+                                    let _ = artwork_app
+                                        .emit("artwork-downloaded", &artwork_dl_id);
+                                }
+                            }
+                            Err(e) => {
+                                log::debug!(
+                                    "Animated artwork skipped for {}: {}",
+                                    artwork_dl_id,
+                                    e
+                                );
+                            }
+                        }
+                    });
+                }
             }
             Err(error_msg) => {
                 // === Error path ===

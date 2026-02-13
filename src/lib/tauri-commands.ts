@@ -62,6 +62,7 @@ import { invoke } from '@tauri-apps/api/core';
  */
 import type {
   AppSettings,
+  ArtworkResult,
   ComponentUpdate,
   CookieImportResult,
   CookieValidation,
@@ -639,4 +640,32 @@ export function extractLoginCookies(): Promise<CookieImportResult> {
  */
 export function closeAppleLogin(): Promise<void> {
   return invoke<void>('close_apple_login');
+}
+
+// ============================================================
+// Animated Artwork Commands
+// ============================================================
+
+/**
+ * Manually triggers animated artwork download for an album.
+ *
+ * Rust handler: `download_animated_artwork()` in `src-tauri/src/commands/artwork.rs`
+ * Arguments: `urls` - Apple Music URL(s), `outputDir` - album output directory
+ * Returns: `ArtworkResult` indicating which artwork types were downloaded
+ *
+ * Queries the Apple Music catalog API for animated cover art (motion artwork)
+ * and downloads them via FFmpeg HLS-to-MP4 conversion. Requires MusicKit
+ * credentials to be configured in settings.
+ *
+ * Called by: DownloadQueue "Download Artwork" button (future), CoverArtTab
+ *
+ * @param urls - Apple Music URL(s) for the album
+ * @param outputDir - The album directory where artwork files should be saved
+ * @returns Promise resolving to the artwork download result
+ */
+export function downloadAnimatedArtwork(
+  urls: string[],
+  outputDir: string,
+): Promise<ArtworkResult> {
+  return invoke<ArtworkResult>('download_animated_artwork', { urls, outputDir });
 }

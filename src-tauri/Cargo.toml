@@ -298,6 +298,23 @@ dirs = "6"
 # @see https://docs.rs/regex/latest/regex/#syntax -- Supported regex syntax
 regex = "1"
 
+# ---- JWT Generation ----
+
+# jsonwebtoken -- JSON Web Token creation and validation.
+# Used to generate ES256-signed Apple MusicKit Developer Tokens for
+# authenticating against the Apple Music catalog API. The animated artwork
+# feature needs a short-lived JWT (signed with the user's MusicKit private
+# key) to query `amp-api.music.apple.com` for motion artwork HLS URLs.
+#
+# Features:
+#   - ES256 signing via the `ring` cryptography library
+#   - Header/claims construction with custom `kid` and `iss` fields
+#   - PEM key parsing for Apple's `.p8` PKCS#8 format
+#
+# @see https://docs.rs/jsonwebtoken/ -- jsonwebtoken API reference
+# @see https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
+jsonwebtoken = "9"
+
 # ---- Browser Cookie Extraction ----
 
 # rookie -- Cross-platform browser cookie extraction library.

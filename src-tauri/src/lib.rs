@@ -221,6 +221,8 @@ pub fn run() {
             commands::login_window::open_apple_login,
             commands::login_window::extract_login_cookies,
             commands::login_window::close_apple_login,
+            // Animated artwork download command
+            commands::artwork::download_animated_artwork,
         ])
 
         // ---------------------------------------------------------------

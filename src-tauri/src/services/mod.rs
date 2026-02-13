@@ -102,3 +102,12 @@ pub mod cookie_service;
 /// to auto-import. The login window loads `https://music.apple.com` and
 /// auto-detects successful authentication via the `media-user-token` cookie.
 pub mod login_window_service;
+
+/// Animated artwork (motion cover art) download service: queries the
+/// Apple Music catalog API for animated album covers (`editorialVideo`)
+/// and downloads them via FFmpeg HLS-to-MP4 conversion.
+///
+/// Saves `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4`
+/// (portrait, 3:4) alongside downloaded album files. Requires user-provided
+/// MusicKit credentials (Team ID, Key ID, private key in OS keychain).
+pub mod animated_artwork_service;

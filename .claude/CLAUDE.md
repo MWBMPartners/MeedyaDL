@@ -17,9 +17,9 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 
 ```
 src-tauri/src/          # Rust backend
-  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates)
+  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork)
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager, config_service, download_queue, update_checker)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager, config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings, setup, help)
@@ -28,7 +28,7 @@ src/                    # React frontend
   lib/                  # Utilities (tauri-commands, url-parser, quality-chains)
   types/                # TypeScript type definitions mirroring Rust models
   styles/themes/        # Platform CSS (base, macos, windows, linux)
-help/                   # Markdown help documentation (10 topics)
+help/                   # Markdown help documentation (11 topics)
 scripts/                # Build utilities (copyright year updater, version bump)
 .github/workflows/      # CI, Release, Release Please, Changelog workflows
 ```
@@ -50,6 +50,7 @@ scripts/                # Build utilities (copyright year updater, version bump)
 - **GAMDL options**: All 11 audio codecs, 8 video resolutions, all CLI flags typed as Rust enums in `models/gamdl_options.rs`
 - **Fallback quality chains**: Music: ALAC→Atmos→AC3→AacBinaural→Aac→AacLegacy; Video: 2160p→...→240p
 - **Git operations**: Do NOT auto-commit or auto-push. Only edit files — let the user control git operations.
+- **Documentation maintenance**: When adding features, modifying settings, changing commands/services, or altering UI — update ALL affected markdown files (README.md, PROJECT_STATUS.md, Project_Plan.md, CLAUDE.md, help/*.md). This includes version numbers, file counts, feature lists, project structure trees, and help topic cross-references.
 
 ## Release Workflow
 
