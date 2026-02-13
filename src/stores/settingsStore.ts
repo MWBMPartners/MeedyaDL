@@ -97,6 +97,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cover_size: 10000,             // Request maximum available artwork resolution from Apple CDN
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: false, // Disabled by default; needs Apple Developer setup
+  hide_animated_artwork: true,     // Hide artwork files from default file browser views
   musickit_team_id: null,          // Apple Developer Team ID (10-char)
   musickit_key_id: null,           // MusicKit private key identifier (10-char)
   // File/folder naming templates -- use GAMDL's template variable syntax

@@ -19,7 +19,7 @@ Many albums on Apple Music include animated cover art -- short, looping video cl
 | **Square** | `FrontCover.mp4` | 1:1 | 3840 x 3840 | Standard square artwork, animated |
 | **Portrait** | `PortraitCover.mp4` | 3:4 | 2048 x 2732 | Tall/vertical artwork used on mobile |
 
-Both files are saved as MP4 videos (HEVC H.265) alongside your downloaded album files.
+Both files are saved as MP4 videos (HEVC H.265) alongside your downloaded album files. By default, these files are **hidden** on your filesystem to keep album folders clean (see [File Hiding](#file-hiding) below).
 
 > **Note:** Not all albums have animated artwork. When it's not available, MeedyaDL simply skips this step -- no errors are shown.
 
@@ -105,6 +105,32 @@ Taylor Swift/
     FrontCover.mp4        <-- Square animated cover
     PortraitCover.mp4     <-- Portrait animated cover
 ```
+
+---
+
+## File Hiding
+
+By default, MeedyaDL sets the OS "hidden" attribute on animated artwork files after downloading them. This keeps your album folders clean -- you see only your music files -- while the animated artwork remains accessible to media players and scripts that reference them by name.
+
+### Platform Behavior
+
+| Platform | Mechanism | Original Filename Preserved? | How to View Hidden Files |
+| -------- | --------- | ---------------------------- | ------------------------ |
+| **macOS** | `chflags hidden` | Yes | Finder: press `Cmd + Shift + .` |
+| **Windows** | `attrib +H` | Yes | Explorer: View > Show > Hidden items |
+| **Linux** | `.` prefix rename | No (e.g., `.FrontCover.mp4`) | File manager: press `Ctrl + H` or `ls -a` |
+
+> **Note:** On Linux, the only standard mechanism for hiding files is renaming them with a `.` prefix. This means software that looks for `FrontCover.mp4` by exact name will not find the file on Linux when hiding is enabled. On macOS and Windows, the original filenames are preserved.
+
+### Disabling File Hiding
+
+If you prefer to keep animated artwork files visible:
+
+1. Go to **Settings** > **Cover Art** tab
+2. Enable **"Download Animated Cover Art"** (if not already enabled)
+3. Disable **"Hide Animated Artwork Files"**
+
+Files downloaded after this change will remain visible. Previously hidden files can be revealed using the platform-specific methods listed above.
 
 ---
 

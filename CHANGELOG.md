@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-02-13
+
+### ✨ Features
+
+- **Hidden animated artwork files** — animated cover art files (`FrontCover.mp4`, `PortraitCover.mp4`) are now hidden by default on the local filesystem after download. This keeps album folders clean while preserving the files for media players and scripts. Platform-specific behavior: macOS uses `chflags hidden`, Windows uses `attrib +H` (both preserve original filenames), Linux renames with a `.` prefix. Configurable via a new "Hide Animated Artwork Files" toggle in Settings > Cover Art.
+
+### 🧹 Maintenance
+
+- Bumped version from 0.3.0 to 0.3.1.
+
 ## [0.3.0] - 2026-02-13
 
 ### ✨ Features

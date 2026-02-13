@@ -1306,6 +1306,9 @@ pub fn process_queue(
                                 .unwrap_or(output_dir.clone())
                         };
 
+                        // Load settings to check if hiding is enabled
+                        let artwork_settings = load_settings_for_queue(&artwork_app).await;
+
                         match super::animated_artwork_service::process_album_artwork(
                             &artwork_app,
                             &artwork_urls,
@@ -1319,6 +1322,26 @@ pub fn process_queue(
                                         "Animated artwork downloaded for {}",
                                         artwork_dl_id
                                     );
+
+                                    // Hide artwork files if enabled in settings
+                                    if artwork_settings.hide_animated_artwork {
+                                        let dir = std::path::Path::new(&album_dir);
+                                        if result.square_downloaded {
+                                            if let Err(e) = super::animated_artwork_service::hide_file(
+                                                &dir.join("FrontCover.mp4"),
+                                            ).await {
+                                                log::debug!("Failed to hide FrontCover.mp4: {}", e);
+                                            }
+                                        }
+                                        if result.portrait_downloaded {
+                                            if let Err(e) = super::animated_artwork_service::hide_file(
+                                                &dir.join("PortraitCover.mp4"),
+                                            ).await {
+                                                log::debug!("Failed to hide PortraitCover.mp4: {}", e);
+                                            }
+                                        }
+                                    }
+
                                     let _ = artwork_app
                                         .emit("artwork-downloaded", &artwork_dl_id);
                                 }

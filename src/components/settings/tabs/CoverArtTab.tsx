@@ -208,6 +208,18 @@ export function CoverArtTab() {
             }
           />
 
+          {/* Hide animated artwork files toggle (only shown when enabled) */}
+          {settings.animated_artwork_enabled && (
+            <Toggle
+              label="Hide Animated Artwork Files"
+              description="Set the OS hidden attribute on FrontCover.mp4 and PortraitCover.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
+              checked={settings.hide_animated_artwork}
+              onChange={(checked) =>
+                updateSettings({ hide_animated_artwork: checked })
+              }
+            />
+          )}
+
           {/* MusicKit credential inputs (only shown when enabled) */}
           {settings.animated_artwork_enabled && (
             <>

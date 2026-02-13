@@ -489,6 +489,95 @@ async fn download_hls_to_mp4(
 }
 
 // ============================================================
+// File Hiding (Platform-Specific)
+// ============================================================
+
+/// Set the OS "hidden" attribute on an animated artwork file.
+///
+/// This keeps album folders clean by hiding companion video files from
+/// default file browser views, while preserving the original filenames
+/// on macOS and Windows so media players can still find them by name.
+///
+/// # Platform behavior
+///
+/// - **macOS**: Uses `chflags hidden` which sets the `UF_HIDDEN` flag.
+///   Files are hidden in Finder but visible with `ls -la` and retain
+///   their original filename.
+/// - **Windows**: Uses `attrib +H` which sets the Win32 hidden attribute.
+///   Files are hidden in Explorer but visible with `dir /a:h` and retain
+///   their original filename.
+/// - **Linux**: Renames the file with a `.` prefix (e.g., `FrontCover.mp4`
+///   → `.FrontCover.mp4`). This is the only standard mechanism on Linux
+///   but it changes the filename, so software looking for `FrontCover.mp4`
+///   by name will not find it.
+///
+/// # Arguments
+/// * `file_path` - Path to the file to hide
+///
+/// # Returns
+/// * `Ok(())` - File was successfully hidden
+/// * `Err(String)` - Failed to hide (logged but not propagated to user)
+pub async fn hide_file(file_path: &Path) -> Result<(), String> {
+    if !file_path.exists() {
+        return Err(format!("File does not exist: {}", file_path.display()));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: use chflags hidden to set UF_HIDDEN without renaming
+        let output = Command::new("chflags")
+            .arg("hidden")
+            .arg(file_path)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run chflags: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("chflags hidden failed: {}", stderr.trim()));
+        }
+        log::debug!("Set hidden flag on {}", file_path.display());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: use attrib +H to set the hidden attribute without renaming
+        let output = Command::new("attrib")
+            .arg("+H")
+            .arg(file_path)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run attrib: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("attrib +H failed: {}", stderr.trim()));
+        }
+        log::debug!("Set hidden attribute on {}", file_path.display());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: rename with dot prefix (only standard hiding mechanism)
+        if let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) {
+            if !filename.starts_with('.') {
+                let hidden_name = format!(".{}", filename);
+                let hidden_path = file_path.with_file_name(&hidden_name);
+                std::fs::rename(file_path, &hidden_path)
+                    .map_err(|e| format!("Failed to rename to {}: {}", hidden_name, e))?;
+                log::debug!(
+                    "Renamed {} to {} (Linux hidden)",
+                    file_path.display(),
+                    hidden_path.display()
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================
 // URL Parsing
 // ============================================================
 
