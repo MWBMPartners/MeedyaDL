@@ -647,6 +647,9 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.download_mode = Some(settings.download_mode.clone());
     options.remux_mode = Some(settings.remux_mode.clone());
 
+    // Apply metadata options
+    options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+
     // Apply exclude tags
     if !settings.exclude_tags.is_empty() {
         options.exclude_tags = Some(settings.exclude_tags.join(","));

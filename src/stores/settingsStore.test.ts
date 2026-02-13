@@ -68,6 +68,7 @@ const MOCK_SETTINGS: AppSettings = {
   use_wrapper: true,
   wrapper_account_url: 'http://localhost:9999',
   truncate: 100,
+  fetch_extra_tags: false,
   exclude_tags: ['rating'],
   sidebar_collapsed: true,
   theme_override: 'dark',
@@ -96,7 +97,7 @@ beforeEach(() => {
       synced_lyrics_only: false,
       save_cover: true,
       cover_format: 'raw',
-      cover_size: 1200,
+      cover_size: 10000,
       album_folder_template: '{album_artist}/{album}',
       compilation_folder_template: 'Compilations/{album}',
       no_album_folder_template: '{artist}/Unknown Album',
@@ -115,6 +116,7 @@ beforeEach(() => {
       use_wrapper: false,
       wrapper_account_url: 'http://127.0.0.1:30020',
       truncate: null,
+      fetch_extra_tags: true,
       exclude_tags: [],
       sidebar_collapsed: false,
       theme_override: null,
@@ -298,7 +300,7 @@ describe('settingsStore', () => {
 
       const { settings } = useSettingsStore.getState();
       expect(settings.default_song_codec).toBe('alac');
-      expect(settings.cover_size).toBe(1200);
+      expect(settings.cover_size).toBe(10000);
       expect(settings.output_path).toBe('');
     });
 
