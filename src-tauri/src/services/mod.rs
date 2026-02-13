@@ -91,3 +91,14 @@ pub mod update_checker;
 /// Chromium browsers, Full Disk Access detection for Safari, Windows
 /// DPAPI decryption, and Linux D-Bus Secret Service integration.
 pub mod cookie_service;
+
+/// Embedded Apple Music login window service: manages a secondary webview
+/// window where users can sign in to Apple Music directly. Uses Tauri's
+/// native `cookies_for_url()` API to extract authentication cookies
+/// (including HttpOnly) from the webview after login, converts them to
+/// Netscape format, and saves them for GAMDL.
+///
+/// Addresses the scenario where users have no existing browser cookies
+/// to auto-import. The login window loads `https://music.apple.com` and
+/// auto-detects successful authentication via the `media-user-token` cookie.
+pub mod login_window_service;

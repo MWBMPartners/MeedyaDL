@@ -80,3 +80,9 @@ pub mod updates;
 /// Provides `detect_browsers`, `import_cookies_from_browser`, and
 /// `check_full_disk_access`. Delegates to `services::cookie_service`.
 pub mod cookies;
+
+/// Embedded Apple Music login window commands (open, extract, close).
+///
+/// Provides `open_apple_login`, `extract_login_cookies`, and
+/// `close_apple_login`. Delegates to `services::login_window_service`.
+pub mod login_window;

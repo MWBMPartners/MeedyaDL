@@ -582,3 +582,61 @@ export function importCookiesFromBrowser(
 export function checkFullDiskAccess(): Promise<boolean> {
   return invoke<boolean>('check_full_disk_access');
 }
+
+// ============================================================
+// Login Window Commands
+// ============================================================
+
+/**
+ * Opens an embedded browser window for Apple Music login.
+ *
+ * Rust handler: `open_apple_login()` in `src-tauri/src/commands/login_window.rs`
+ *
+ * Creates a secondary webview window that loads https://music.apple.com.
+ * The user can sign in with their Apple ID. The window automatically detects
+ * when authentication cookies are set and emits a `login-cookies-extracted`
+ * event to the main window.
+ *
+ * If a login window is already open, the existing window is focused instead.
+ *
+ * Called by: CookiesStep (SetupWizard), CookiesTab (SettingsPage)
+ *
+ * @returns Promise resolving when the window is opened
+ */
+export function openAppleLogin(): Promise<void> {
+  return invoke<void>('open_apple_login');
+}
+
+/**
+ * Manually triggers cookie extraction from the login browser window.
+ *
+ * Rust handler: `extract_login_cookies()` in `src-tauri/src/commands/login_window.rs`
+ * Returns: `CookieImportResult` with success status, cookie counts, and file path
+ *
+ * This is the manual fallback for when auto-detection doesn't fire. The user
+ * clicks "I've signed in" in the frontend, which calls this command to force
+ * cookie extraction from the login webview.
+ *
+ * Called by: CookiesStep (SetupWizard), CookiesTab (SettingsPage)
+ *
+ * @returns Promise resolving to the cookie import result
+ */
+export function extractLoginCookies(): Promise<CookieImportResult> {
+  return invoke<CookieImportResult>('extract_login_cookies');
+}
+
+/**
+ * Closes the Apple Music login browser window.
+ *
+ * Rust handler: `close_apple_login()` in `src-tauri/src/commands/login_window.rs`
+ *
+ * Called when the user clicks "Cancel" to dismiss the login window.
+ * If the window is not open, this is a no-op.
+ *
+ * Called by: CookiesStep (SetupWizard), CookiesTab (SettingsPage)
+ *
+ * @returns Promise resolving when the window is closed
+ */
+export function closeAppleLogin(): Promise<void> {
+  return invoke<void>('close_apple_login');
+}
