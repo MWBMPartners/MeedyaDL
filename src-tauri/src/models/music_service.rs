@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Music service trait definition.
@@ -138,7 +138,7 @@ impl MusicServiceId {
     /// ## Example
     ///
     /// ```rust
-    /// use gamdl_gui::models::music_service::MusicServiceId;
+    /// use meedyadl::models::music_service::MusicServiceId;
     /// let id = MusicServiceId::from_url("https://music.apple.com/us/album/test/123");
     /// assert_eq!(id, Some(MusicServiceId::AppleMusic));
     /// ```

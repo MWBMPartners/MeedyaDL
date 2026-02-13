@@ -1,8 +1,8 @@
-# gamdl-GUI - Claude Code Project Context
+# MeedyaDL - Claude Code Project Context
 
 ## Project Overview
 
-A multiplatform desktop GUI for [GAMDL](https://github.com/glomatico/gamdl) (Apple Music downloader) built with **Tauri 2.0 + React + TypeScript**. Targets macOS (Apple Silicon), Windows (x64/ARM64), Linux (x64/ARM64/ARMv7), and ChromeOS (via Linux `.deb`).
+A multiplatform media downloader desktop application built with **Tauri 2.0 + React + TypeScript**. Currently supports Apple Music via [GAMDL](https://github.com/glomatico/gamdl), with planned support for additional services. Targets macOS (Apple Silicon), Windows (x64/ARM64), Linux (x64/ARM64/ARMv7), and ChromeOS (via Linux `.deb`).
 
 ## Architecture
 
@@ -44,7 +44,7 @@ scripts/                # Build utilities (copyright year updater, version bump)
 
 ## Conventions
 
-- **Copyright header**: Every source file starts with `// Copyright (c) 2024-2026 MWBM Partners Ltd` + MIT license reference
+- **Copyright header**: Every source file starts with `// Copyright (c) 2024-2026 MeedyaDL` + MIT license reference
 - **Comments**: Every function and significant code block gets detailed comments
 - **Conventional commits**: Required for automated changelog generation (release-please)
 - **GAMDL options**: All 11 audio codecs, 8 video resolutions, all CLI flags typed as Rust enums in `models/gamdl_options.rs`

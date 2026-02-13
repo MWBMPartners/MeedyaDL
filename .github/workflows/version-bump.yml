@@ -1,7 +1,7 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Version Bump & Release Trigger Workflow for gamdl-GUI (MANUAL OVERRIDE)
+# Version Bump & Release Trigger Workflow for MeedyaDL (MANUAL OVERRIDE)
 # =========================================================================
 #
 # NOTE: For normal releases, use the automated release-please workflow
@@ -36,7 +36,7 @@
 #   To set up:
 #     1. Go to GitHub → Settings → Developer Settings → Personal Access Tokens
 #     2. Create a fine-grained token with "Contents: Read and write" permission
-#        for the gamdl-GUI repository
+#        for the MeedyaDL repository
 #     3. Add it as a repository secret named RELEASE_PAT:
 #        Repository → Settings → Secrets and variables → Actions → New repository secret
 #

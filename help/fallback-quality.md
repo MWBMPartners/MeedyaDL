@@ -1,20 +1,20 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # :arrows_counterclockwise: Fallback Quality
 
-This guide explains how gamdl-GUI's quality fallback system works when your preferred audio or video quality is not available for a particular piece of content.
+This guide explains how MeedyaDL's quality fallback system works when your preferred audio or video quality is not available for a particular piece of content.
 
 ---
 
 ## Overview
 
-Not all content on Apple Music is available in every quality option. For example, a track might be available in AAC but not in ALAC, or a music video might be available in 1080p but not in 4K. The fallback quality system ensures that gamdl-GUI can still download content even when your top preference is unavailable, by automatically trying the next best option in a configurable chain.
+Not all content on Apple Music is available in every quality option. For example, a track might be available in AAC but not in ALAC, or a music video might be available in 1080p but not in 4K. The fallback quality system ensures that MeedyaDL can still download content even when your top preference is unavailable, by automatically trying the next best option in a configurable chain.
 
-When GAMDL reports a "codec unavailable" error for a track, gamdl-GUI automatically retries the download using the next codec or resolution in your configured fallback chain. This process repeats, moving down the chain, until either a successful download occurs or all options in the chain have been exhausted.
+When GAMDL reports a "codec unavailable" error for a track, MeedyaDL automatically retries the download using the next codec or resolution in your configured fallback chain. This process repeats, moving down the chain, until either a successful download occurs or all options in the chain have been exhausted.
 
 ---
 
@@ -22,7 +22,7 @@ When GAMDL reports a "codec unavailable" error for a track, gamdl-GUI automatica
 
 ### The Concept
 
-A fallback chain is an ordered list of codecs (for audio) or resolutions (for video) that gamdl-GUI will try, in sequence, when your preferred quality is not available for a given track or video. Your preferred quality is always the first item in the chain. If it fails with a "codec unavailable" error, gamdl-GUI moves to the second item, then the third, and so on.
+A fallback chain is an ordered list of codecs (for audio) or resolutions (for video) that MeedyaDL will try, in sequence, when your preferred quality is not available for a given track or video. Your preferred quality is always the first item in the chain. If it fails with a "codec unavailable" error, MeedyaDL moves to the second item, then the third, and so on.
 
 ```
 Preferred: ALAC
@@ -58,7 +58,7 @@ The default audio fallback chain, in order of priority, is:
 5. **AAC** -- Standard AAC encoding
 6. **AAC Legacy** -- Legacy AAC encoding (widest compatibility)
 
-gamdl-GUI attempts each codec in this order. If your preferred codec (the first item) is unavailable for a track, it tries the next codec in the chain, continuing until a successful download or the end of the chain is reached.
+MeedyaDL attempts each codec in this order. If your preferred codec (the first item) is unavailable for a track, it tries the next codec in the chain, continuing until a successful download or the end of the chain is reached.
 
 ### Video Fallback Chain
 
@@ -73,7 +73,7 @@ The default video fallback chain, in order of priority, is:
 7. **360p**
 8. **240p**
 
-When a requested resolution is not available, gamdl-GUI falls to the next lower resolution in the chain until it finds one that is available.
+When a requested resolution is not available, MeedyaDL falls to the next lower resolution in the chain until it finds one that is available.
 
 ---
 
@@ -128,7 +128,7 @@ See [Downloading Music](downloading-music.md) for general audio download informa
 
 ### Music Videos
 
-Video fallback works the same way, stepping through resolutions in the configured chain until an available resolution is found. For example, requesting 4K for a music video that is only available up to 1080p will cause gamdl-GUI to try 2160p, then 1440p, then 1080p, downloading at the first resolution that succeeds.
+Video fallback works the same way, stepping through resolutions in the configured chain until an available resolution is found. For example, requesting 4K for a music video that is only available up to 1080p will cause MeedyaDL to try 2160p, then 1440p, then 1080p, downloading at the first resolution that succeeds.
 
 See [Downloading Videos](downloading-videos.md) for general video download information.
 
@@ -138,7 +138,7 @@ See [Downloading Videos](downloading-videos.md) for general video download infor
 
 ### Fallback Notifications
 
-gamdl-GUI keeps you informed when a fallback occurs:
+MeedyaDL keeps you informed when a fallback occurs:
 
 - **Fallback indicator badge** -- In the download queue UI, any item that used a fallback displays a fallback indicator badge. This badge shows both the originally requested quality and the quality that was actually used for the download (e.g., "Requested: ALAC | Downloaded: AAC").
 - **Per-track visibility** -- Because fallback is per-track, you can scan the download queue to see exactly which tracks downloaded at your preferred quality and which required a fallback.
@@ -163,7 +163,7 @@ When troubleshooting quality-related issues, check the download queue's error an
 A user requests ALAC for a 6-track album. Here is what happens during the download:
 
 1. **Tracks 1-5** -- ALAC is available. All five tracks download successfully in ALAC. No fallback is needed.
-2. **Track 6** -- ALAC is not available. gamdl-GUI moves down the fallback chain:
+2. **Track 6** -- ALAC is not available. MeedyaDL moves down the fallback chain:
    - Tries **Atmos** -- codec unavailable.
    - Tries **AC3** -- codec unavailable.
    - Tries **AAC** -- available! Track 6 downloads successfully in AAC.
@@ -173,7 +173,7 @@ A user requests ALAC for a 6-track album. Here is what happens during the downlo
 
 A user requests 4K (2160p) for a music video. The video is only available up to 1080p. Here is what happens:
 
-1. gamdl-GUI attempts **2160p** -- resolution unavailable.
+1. MeedyaDL attempts **2160p** -- resolution unavailable.
 2. Falls back to **1440p** -- resolution unavailable.
 3. Falls back to **1080p** -- available! The video downloads successfully at 1080p.
 4. **Result** -- The download queue shows a fallback indicator badge on the video, indicating "Requested: 2160p | Downloaded: 1080p".

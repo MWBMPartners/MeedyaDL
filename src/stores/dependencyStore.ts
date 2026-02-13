@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 /**
  * @file dependencyStore.ts -- Dependency Checking & Installation State Store
  * @license MIT -- See LICENSE file in the project root.

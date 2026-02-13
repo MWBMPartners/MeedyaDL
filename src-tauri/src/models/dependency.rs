@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Dependency information models.
@@ -193,7 +193,7 @@ pub struct UpdateInfo {
     /// importance. `None` when release notes are not available.
     pub release_notes: Option<String>,
 
-    /// Whether this update is compatible with the current gamdl-GUI version.
+    /// Whether this update is compatible with the current MeedyaDL version.
     /// Set to `false` if a major version bump in the dependency would
     /// require changes to the GUI's integration code. When `false`, the
     /// update UI shows a warning and may block the update until the GUI

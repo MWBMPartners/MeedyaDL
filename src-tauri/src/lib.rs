@@ -1,7 +1,7 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Core library for the gamdl-GUI Tauri application.
+// Core library for the MeedyaDL Tauri application.
 // ====================================================
 //
 // This is the central wiring module that connects every part of the Rust
@@ -89,7 +89,7 @@ pub mod utils;
 pub fn run() {
     // Initialise the `env_logger` crate for structured logging.
     // During development, run with `RUST_LOG=debug cargo tauri dev` to see
-    // verbose output from all modules, or `RUST_LOG=gamdl_gui=debug` to
+    // verbose output from all modules, or `RUST_LOG=meedyadl=debug` to
     // restrict output to this crate only.
     // Reference: https://docs.rs/env_logger/latest/env_logger/
     env_logger::init();
@@ -240,7 +240,7 @@ pub fn run() {
         .setup(|app| {
             // Log application startup information
             log::info!(
-                "gamdl-GUI v{} starting on {} ({})",
+                "MeedyaDL v{} starting on {} ({})",
                 app.package_info().version,
                 std::env::consts::OS,
                 std::env::consts::ARCH,
@@ -312,7 +312,7 @@ pub fn run() {
                 .build(app)?;
 
             // "Quit GAMDL" — cleanly exits the application
-            let quit_item = MenuItemBuilder::with_id("quit", "Quit GAMDL")
+            let quit_item = MenuItemBuilder::with_id("quit", "Quit MeedyaDL")
                 .build(app)?;
 
             // Assemble the tray context menu from the items defined above
@@ -406,5 +406,5 @@ pub fn run() {
         // Reference: https://docs.rs/tauri/latest/tauri/struct.Builder.html#method.run
         // Reference: https://docs.rs/tauri/latest/tauri/macro.generate_context.html
         .run(tauri::generate_context!())
-        .expect("Failed to start gamdl-GUI application");
+        .expect("Failed to start MeedyaDL application");
 }

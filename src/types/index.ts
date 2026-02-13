@@ -1,11 +1,11 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/types/index.ts - Central TypeScript type definitions
  *
  * This file defines all TypeScript interfaces, type aliases, and constants
- * that are shared across the gamdl-GUI frontend. Every type here mirrors
+ * that are shared across the MeedyaDL frontend. Every type here mirrors
  * (or is derived from) a corresponding Rust struct/enum in the Tauri backend,
  * ensuring type safety across the IPC serialization boundary.
  *
@@ -309,7 +309,7 @@ export interface GamdlOptions {
  * Mirrors: Rust struct `AppSettings` in `src-tauri/src/models/settings.rs`
  *
  * This interface represents the full, flattened settings object stored
- * in the app's data directory (e.g., `~/Library/Application Support/gamdl-gui/settings.json`).
+ * in the app's data directory (e.g., `~/Library/Application Support/io.github.meedyadl/settings.json`).
  * Unlike `GamdlOptions` (where all fields are optional), all fields here
  * are required because the Rust backend provides defaults for every setting.
  *
@@ -856,7 +856,7 @@ export interface ServiceCapabilities {
  * component and settings page use this to show available updates.
  */
 export interface ComponentUpdate {
-  /** Component name (e.g., "gamdl", "gamdl-gui", "python") */
+  /** Component name (e.g., "gamdl", "meedyadl", "python") */
   name: string;
   /** Currently installed version, or null if not installed */
   current_version: string | null;

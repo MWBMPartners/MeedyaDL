@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // System information IPC commands.
@@ -110,9 +110,9 @@ pub fn get_platform_info() -> PlatformInfo {
 ///
 /// This is the self-contained directory where Python, GAMDL, tools,
 /// and settings are stored. The path varies by platform:
-/// - macOS: `~/Library/Application Support/com.mwbmpartners.gamdl-gui/`
-/// - Windows: `%APPDATA%/com.mwbmpartners.gamdl-gui/`
-/// - Linux: `~/.local/share/com.mwbmpartners.gamdl-gui/`
+/// - macOS: `~/Library/Application Support/io.github.meedyadl/`
+/// - Windows: `%APPDATA%/io.github.meedyadl/`
+/// - Linux: `~/.local/share/io.github.meedyadl/`
 ///
 /// The frontend uses this path for:
 /// - Displaying the data directory location in the settings page

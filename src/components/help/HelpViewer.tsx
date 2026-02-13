@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file HelpViewer.tsx -- Help documentation viewer with search.
@@ -142,9 +142,9 @@ const HELP_TOPICS: HelpTopic[] = [
     icon: BookOpen,
     content: `# Getting Started
 
-## Welcome to GAMDL
+## Welcome to MeedyaDL
 
-GAMDL is a graphical interface for downloading music and videos from Apple Music. This guide will help you get started.
+MeedyaDL is a media downloader application for downloading music and videos. This guide will help you get started.
 
 ### First-Time Setup
 
@@ -366,15 +366,15 @@ Choose the container format in **Settings > Quality**:
 
 ### Application Won't Start
 - Delete the settings file from the app data directory and restart
-- On macOS: ~/Library/Application Support/com.mwbm.gamdl-gui/
-- On Windows: %APPDATA%/com.mwbm.gamdl-gui/
-- On Linux: ~/.config/com.mwbm.gamdl-gui/`,
+- On macOS: ~/Library/Application Support/io.github.meedyadl/
+- On Windows: %APPDATA%/io.github.meedyadl/
+- On Linux: ~/.config/io.github.meedyadl/`,
   },
   {
     id: 'about',
     label: 'About',
     icon: FileText,
-    content: `# About GAMDL GUI
+    content: `# About MeedyaDL
 
 ## Version
 v0.1.0
@@ -385,11 +385,11 @@ v0.1.0
 - Built with React, TypeScript, and Rust
 
 ## License
-Copyright (c) 2024-2026 MWBM Partners Ltd
+Copyright (c) 2024-2026 MeedyaDL
 Licensed under the MIT License.
 
 ## Links
-- GitHub: github.com/MWBM-Partners-Ltd/gamdl-GUI
+- GitHub: github.com/MeedyaDL/MeedyaDL
 - GAMDL: github.com/glomatico/gamdl`,
   },
 ];
@@ -584,7 +584,7 @@ export function HelpViewer() {
       {/* Page header with title and description */}
       <PageHeader
         title="Help"
-        subtitle="Documentation and guides for using GAMDL"
+        subtitle="Documentation and guides for using MeedyaDL"
       />
 
       <div className="flex flex-1 overflow-hidden">

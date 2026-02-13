@@ -1,18 +1,18 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
 # Troubleshooting
 
-This guide covers common errors you may encounter while using gamdl-GUI, along with their solutions and guidance on finding and interpreting log files.
+This guide covers common errors you may encounter while using MeedyaDL, along with their solutions and guidance on finding and interpreting log files.
 
 ---
 
 ## Overview
 
-gamdl-GUI classifies errors into the following categories: **auth**, **network**, **codec**, **not_found**, **rate_limit**, **tool**, and **unknown**. When an error occurs, the application identifies which category it belongs to and displays an appropriate message with guidance. If gamdl-GUI is not working as expected, start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
+MeedyaDL classifies errors into the following categories: **auth**, **network**, **codec**, **not_found**, **rate_limit**, **tool**, and **unknown**. When an error occurs, the application identifies which category it belongs to and displays an appropriate message with guidance. If MeedyaDL is not working as expected, start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
 
 ---
 
@@ -24,21 +24,21 @@ gamdl-GUI classifies errors into the following categories: **auth**, **network**
 
 Your Apple Music cookies have expired or are invalid. This is the most common error and typically happens when your browser session with Apple Music has ended since you last exported cookies.
 
-- **Cause:** The cookies that gamdl-GUI uses to authenticate with Apple Music are expired, revoked, or were not exported correctly.
-- **Solution:** Re-export your cookies from your browser and re-import them into gamdl-GUI. Open your browser, sign in to Apple Music if needed, export the cookies, then go to **Settings > Cookies** in gamdl-GUI and import the new cookie file. See [Cookie Management](cookie-management.md) for step-by-step instructions.
+- **Cause:** The cookies that MeedyaDL uses to authenticate with Apple Music are expired, revoked, or were not exported correctly.
+- **Solution:** Re-export your cookies from your browser and re-import them into MeedyaDL. Open your browser, sign in to Apple Music if needed, export the cookies, then go to **Settings > Cookies** in MeedyaDL and import the new cookie file. See [Cookie Management](cookie-management.md) for step-by-step instructions.
 
 #### "Cookie file not found"
 
-The cookie file that gamdl-GUI is configured to use does not exist at the expected path. This can happen if the file was moved, deleted, or if the path was entered incorrectly.
+The cookie file that MeedyaDL is configured to use does not exist at the expected path. This can happen if the file was moved, deleted, or if the path was entered incorrectly.
 
-- **Cause:** The cookie file path stored in gamdl-GUI's settings points to a file that no longer exists or is inaccessible.
+- **Cause:** The cookie file path stored in MeedyaDL's settings points to a file that no longer exists or is inaccessible.
 - **Solution:** Re-import your cookie file via **Settings > Cookies** tab. This will update the stored path to the correct location. If you need to export cookies again, see [Cookie Management](cookie-management.md).
 
 ---
 
 ### Network Errors (network)
 
-Network errors include connection timeouts, DNS resolution failures, and server-side errors from Apple Music. gamdl-GUI automatically retries network errors up to **3 times** with exponential backoff before reporting a failure, so if you see a network error, it means multiple attempts have already been made.
+Network errors include connection timeouts, DNS resolution failures, and server-side errors from Apple Music. MeedyaDL automatically retries network errors up to **3 times** with exponential backoff before reporting a failure, so if you see a network error, it means multiple attempts have already been made.
 
 #### Connection Timeout / DNS Failure
 
@@ -52,7 +52,7 @@ Network errors include connection timeouts, DNS resolution failures, and server-
 
 #### Firewall and Proxy Configuration
 
-If you are behind a corporate firewall or use a proxy, gamdl-GUI needs to be able to reach Apple Music's servers. The application respects the system proxy settings on all platforms. If you are using a VPN, ensure it does not interfere with connections to Apple's content delivery servers.
+If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able to reach Apple Music's servers. The application respects the system proxy settings on all platforms. If you are using a VPN, ensure it does not interfere with connections to Apple's content delivery servers.
 
 ---
 
@@ -63,7 +63,7 @@ If you are behind a corporate firewall or use a proxy, gamdl-GUI needs to be abl
 Not all content on Apple Music is available in every codec and resolution. Some tracks may only be available in specific formats.
 
 - **Cause:** The specific codec or quality level you requested is not available for this particular content on Apple Music.
-- **Solution:** Enable fallback quality in **Settings > Fallback** tab so that gamdl-GUI automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
+- **Solution:** Enable fallback quality in **Settings > Fallback** tab so that MeedyaDL automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
 
 ---
 
@@ -91,7 +91,7 @@ Apple Music limits the number of requests that can be made in a given time perio
 
 #### Missing Dependencies
 
-gamdl-GUI relies on external tools such as **FFmpeg** and **mp4decrypt** to process downloaded content. If these tools are missing or corrupted, you will see a tool error.
+MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to process downloaded content. If these tools are missing or corrupted, you will see a tool error.
 
 - **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
 - **Solution:** Go to **Settings > Advanced > Re-run Setup** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
@@ -100,16 +100,16 @@ gamdl-GUI relies on external tools such as **FFmpeg** and **mp4decrypt** to proc
 
 ### Application Errors
 
-#### gamdl-GUI Won't Launch
+#### MeedyaDL Won't Launch
 
 ##### macOS
 
-macOS Gatekeeper blocks applications that are not signed with an Apple Developer certificate. Since gamdl-GUI is not distributed through the Mac App Store, you may need to explicitly allow it.
+macOS Gatekeeper blocks applications that are not signed with an Apple Developer certificate. Since MeedyaDL is not distributed through the Mac App Store, you may need to explicitly allow it.
 
 - **Solution:**
-  1. Right-click (or Control-click) the gamdl-GUI app and select **Open** from the context menu.
+  1. Right-click (or Control-click) the MeedyaDL app and select **Open** from the context menu.
   2. In the dialog that appears, click **Open** to confirm.
-  3. If that does not work, go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the gamdl-GUI message.
+  3. If that does not work, go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the MeedyaDL message.
   4. You may need to repeat this process twice on the first launch.
 
 ##### Windows
@@ -123,7 +123,7 @@ Windows SmartScreen may block the installer or the application from running beca
 
 ##### Linux
 
-gamdl-GUI requires certain system libraries that may not be installed by default on all Linux distributions.
+MeedyaDL requires certain system libraries that may not be installed by default on all Linux distributions.
 
 - **Solution:**
   1. Install the required system libraries:
@@ -135,10 +135,10 @@ gamdl-GUI requires certain system libraries that may not be installed by default
   2. If you are using the AppImage distribution, make sure it is executable:
 
      ```bash
-     chmod +x gamdl-GUI.AppImage
+     chmod +x MeedyaDL.AppImage
      ```
 
-     Then run it directly: `./gamdl-GUI.AppImage`
+     Then run it directly: `./MeedyaDL.AppImage`
   3. On non-Debian-based distributions, use your package manager to install the equivalent packages (e.g., `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
 
 #### GAMDL Backend Not Found
@@ -152,16 +152,16 @@ The embedded Python environment or the GAMDL package itself is corrupted, incomp
 
 Changes to settings are not persisted between application restarts.
 
-- **Cause:** The application data directory or the settings file within it does not have the correct file permissions, preventing gamdl-GUI from writing changes.
+- **Cause:** The application data directory or the settings file within it does not have the correct file permissions, preventing MeedyaDL from writing changes.
 - **Solution:** Verify that the app data directory is writable by your user account. The settings file is located at:
 
   | Platform | Settings Directory |
   | --- | --- |
-  | macOS | `~/Library/Application Support/com.mwbm.gamdl-gui/` |
-  | Windows | `%APPDATA%/com.mwbm.gamdl-gui/` |
-  | Linux | `~/.local/share/com.mwbm.gamdl-gui/` |
+  | macOS | `~/Library/Application Support/io.github.meedyadl/` |
+  | Windows | `%APPDATA%/io.github.meedyadl/` |
+  | Linux | `~/.local/share/io.github.meedyadl/` |
 
-  If fixing permissions does not help, try deleting the `settings.json` file in that directory to reset all settings to their defaults. gamdl-GUI will recreate the file on next launch.
+  If fixing permissions does not help, try deleting the `settings.json` file in that directory to reset all settings to their defaults. MeedyaDL will recreate the file on next launch.
 
 ---
 
@@ -180,13 +180,13 @@ After downloading, the file does not play in your media player.
 
 ### Log File Locations
 
-gamdl-GUI writes log files to the application data directory on each platform:
+MeedyaDL writes log files to the application data directory on each platform:
 
 | Platform | Log File Location |
 | --- | --- |
-| macOS | `~/Library/Application Support/com.mwbm.gamdl-gui/logs/` |
-| Windows | `%APPDATA%/com.mwbm.gamdl-gui/logs/` |
-| Linux | `~/.local/share/com.mwbm.gamdl-gui/logs/` |
+| macOS | `~/Library/Application Support/io.github.meedyadl/logs/` |
+| Windows | `%APPDATA%/io.github.meedyadl/logs/` |
+| Linux | `~/.local/share/io.github.meedyadl/logs/` |
 
 ### Reading Log Files
 
@@ -203,26 +203,26 @@ When diagnosing a problem, search the log file for **ERROR** entries first. The 
 
 ### Enabling Verbose Logging
 
-By default, gamdl-GUI logs at the **INFO** level. To capture more detailed diagnostic information, set the `RUST_LOG` environment variable to `debug` before launching the application:
+By default, MeedyaDL logs at the **INFO** level. To capture more detailed diagnostic information, set the `RUST_LOG` environment variable to `debug` before launching the application:
 
 **macOS / Linux (Terminal):**
 
 ```bash
-RUST_LOG=debug /path/to/gamdl-GUI
+RUST_LOG=debug /path/to/MeedyaDL
 ```
 
 **Windows (Command Prompt):**
 
 ```batch
 set RUST_LOG=debug
-gamdl-GUI.exe
+MeedyaDL.exe
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
 $env:RUST_LOG="debug"
-.\gamdl-GUI.exe
+.\MeedyaDL.exe
 ```
 
 Verbose logging produces significantly more output and may cause log files to grow quickly. Only enable it when actively troubleshooting an issue, and remember to disable it afterward by launching the application normally without the environment variable.

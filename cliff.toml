@@ -1,7 +1,7 @@
-# Copyright (c) 2024-2026 MWBM Partners Ltd
+# Copyright (c) 2024-2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# git-cliff Configuration for gamdl-GUI Changelog Generation
+# git-cliff Configuration for MeedyaDL Changelog Generation
 # ===========================================================
 #
 # git-cliff parses conventional commit messages from the Git history and generates
@@ -32,7 +32,7 @@
 header = """
 # Changelog
 
-All notable changes to **GAMDL GUI** are documented in this file.
+All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 

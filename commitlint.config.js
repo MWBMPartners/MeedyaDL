@@ -1,8 +1,8 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * Commitlint Configuration for gamdl-GUI
+ * Commitlint Configuration for MeedyaDL
  * ========================================
  *
  * Commitlint enforces the Conventional Commits specification on all commit messages.

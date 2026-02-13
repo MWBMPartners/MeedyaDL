@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file CookiesTab.tsx -- Cookie import and validation settings tab.
@@ -726,7 +726,7 @@ export function CookiesTab() {
         const hasFda = await commands.checkFullDiskAccess();
         if (!hasFda) {
           setImportError(
-            'Safari requires Full Disk Access. Go to System Settings > Privacy & Security > Full Disk Access and add GAMDL.',
+            'Safari requires Full Disk Access. Go to System Settings > Privacy & Security > Full Disk Access and add MeedyaDL.',
           );
           return;
         }

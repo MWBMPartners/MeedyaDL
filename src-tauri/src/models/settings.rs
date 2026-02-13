@@ -1,17 +1,17 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Application settings model.
-// Defines the complete settings structure for the gamdl-GUI application.
+// Defines the complete settings structure for the MeedyaDL application.
 // These settings are persisted as JSON in the app data directory and
 // control both the GUI behavior and the default GAMDL options.
 //
 // ## Persistence
 //
 // The settings file is stored at:
-//   - macOS:   ~/Library/Application Support/com.mwbm.gamdl-gui/settings.json
-//   - Windows: %APPDATA%/com.mwbm.gamdl-gui/settings.json
-//   - Linux:   ~/.config/com.mwbm.gamdl-gui/settings.json
+//   - macOS:   ~/Library/Application Support/io.github.meedyadl/settings.json
+//   - Windows: %APPDATA%/io.github.meedyadl/settings.json
+//   - Linux:   ~/.config/io.github.meedyadl/settings.json
 //
 // The `commands/settings.rs` Tauri commands handle loading and saving this
 // file. On first launch (or when the file is missing/corrupt), `Default::default()`

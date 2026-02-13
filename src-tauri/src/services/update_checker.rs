@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Update checker service.
@@ -66,7 +66,7 @@ use crate::utils::platform;
 /// current version, latest version, and an "Update" button if applicable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentUpdate {
-    /// Human-readable component name (e.g., "GAMDL", "Python Runtime", "GAMDL GUI")
+    /// Human-readable component name (e.g., "GAMDL", "Python Runtime", "MeedyaDL")
     pub name: String,
     /// Currently installed version (None if not installed).
     /// For GAMDL: from `pip show gamdl`. For Python: from `python --version`.
@@ -313,8 +313,8 @@ async fn check_app_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // - Accept: Request v3 JSON format
     let client = reqwest::Client::new();
     let response = client
-        .get("https://api.github.com/repos/MWBM-Partners-Ltd/gamdl-GUI/releases/latest")
-        .header("User-Agent", "gamdl-gui")
+        .get("https://api.github.com/repos/MeedyaDL/MeedyaDL/releases/latest")
+        .header("User-Agent", "meedyadl")
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -325,7 +325,7 @@ async fn check_app_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
         // This is expected for new repositories that haven't made their first release.
         if response.status().as_u16() == 404 {
             return Ok(ComponentUpdate {
-                name: "GAMDL GUI".to_string(),
+                name: "MeedyaDL".to_string(),
                 current_version: Some(current_version),
                 latest_version: None,
                 update_available: false,
@@ -371,7 +371,7 @@ async fn check_app_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     };
 
     Ok(ComponentUpdate {
-        name: "GAMDL GUI".to_string(),
+        name: "MeedyaDL".to_string(),
         current_version: Some(current_version),
         latest_version: if tag.is_empty() { None } else { Some(tag) },
         update_available,

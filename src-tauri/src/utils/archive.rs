@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Archive download and extraction utilities.
@@ -397,7 +397,7 @@ pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), Stri
 /// orchestrates the complete download-and-extract pipeline:
 ///
 /// 1. **Download** -- streams the archive from the URL to a temporary file
-///    under `{system_temp}/gamdl-gui-downloads/`. Using a dedicated temp
+///    in `{system_temp}/meedyadl-downloads/`. Using a dedicated temp
 ///    subdirectory avoids naming conflicts with other applications.
 /// 2. **Extract** -- delegates to the appropriate extractor based on `format`:
 ///    - `ArchiveFormat::Zip` -> [`extract_zip`]
@@ -429,8 +429,8 @@ pub async fn download_and_extract(
     // has no path segments (unlikely for real download URLs).
     let file_name = url.rsplit('/').next().unwrap_or("download.tmp");
 
-    // Use a gamdl-gui-specific temp directory to avoid conflicts
-    let temp_dir = std::env::temp_dir().join("gamdl-gui-downloads");
+    // Use a MeedyaDL-specific temp directory to avoid conflicts
+    let temp_dir = std::env::temp_dir().join("meedyadl-downloads");
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp directory: {}", e))?;
     let temp_file = temp_dir.join(file_name);

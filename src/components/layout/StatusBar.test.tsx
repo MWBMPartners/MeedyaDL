@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MWBM Partners Ltd
+ * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/components/layout/StatusBar.test.tsx
@@ -193,6 +193,6 @@ describe('StatusBar', () => {
   it('shows the app version string', () => {
     render(<StatusBar />);
 
-    expect(screen.getByText(/gamdl-GUI v/)).toBeInTheDocument();
+    expect(screen.getByText(/MeedyaDL v/)).toBeInTheDocument();
   });
 });

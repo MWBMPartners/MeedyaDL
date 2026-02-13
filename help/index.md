@@ -1,12 +1,12 @@
 <!--
-  gamdl-GUI Help Documentation
-  Copyright (c) 2024-2026 MWBM Partners Ltd
+  MeedyaDL Help Documentation
+  Copyright (c) 2024-2026 MeedyaDL
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :book: gamdl-GUI Help Center
+# :book: MeedyaDL Help Center
 
-Welcome to the **gamdl-GUI** help documentation. This guide covers everything you need to know about using the graphical interface for GAMDL, the Apple Music downloader.
+Welcome to the **MeedyaDL** help documentation. This guide covers everything you need to know about using MeedyaDL, a multiplatform media downloader.
 
 ---
 
@@ -14,7 +14,7 @@ Welcome to the **gamdl-GUI** help documentation. This guide covers everything yo
 
 ### Getting Up and Running
 
-- [:rocket: Getting Started](getting-started.md) -- First-time setup, system requirements, and initial configuration to get gamdl-GUI running on your machine.
+- [:rocket: Getting Started](getting-started.md) -- First-time setup, system requirements, and initial configuration to get MeedyaDL running on your machine.
 
 ### Core Features
 
@@ -26,12 +26,12 @@ Welcome to the **gamdl-GUI** help documentation. This guide covers everything yo
 
 - [:control_knobs: Quality Settings](quality-settings.md) -- Understanding audio codecs, video codecs, and format differences.
 - [:arrows_counterclockwise: Fallback Quality](fallback-quality.md) -- How fallback quality chains work and how to configure priority orders.
-- [:cookie: Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into gamdl-GUI, and troubleshooting expiry issues.
+- [:cookie: Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
 
 ### Support
 
 - [:wrench: Troubleshooting](troubleshooting.md) -- Common errors, their solutions, and where to find log files.
-- [:question: FAQ](faq.md) -- Frequently asked questions about gamdl-GUI.
+- [:question: FAQ](faq.md) -- Frequently asked questions about MeedyaDL.
 
 ---
 
@@ -39,17 +39,17 @@ Welcome to the **gamdl-GUI** help documentation. This guide covers everything yo
 
 Each help topic is a standalone page that you can read independently. Where relevant, pages cross-reference each other so you can easily navigate between related topics.
 
-If you are new to gamdl-GUI, we recommend starting with the [Getting Started](getting-started.md) guide and then reading through the topics in the order listed above.
+If you are new to MeedyaDL, we recommend starting with the [Getting Started](getting-started.md) guide and then reading through the topics in the order listed above.
 
 ---
 
-## About gamdl-GUI
+## About MeedyaDL
 
-gamdl-GUI is a multiplatform graphical user interface for GAMDL, built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It provides a user-friendly way to interact with the GAMDL command-line tool for downloading content from Apple Music.
+MeedyaDL is a multiplatform graphical user interface for GAMDL, built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It provides a user-friendly way to interact with the GAMDL command-line tool for downloading content from Apple Music.
 
 - **Version:** 0.1.0
 - **License:** MIT
-- **Author:** MWBM Partners Ltd
+- **Author:** MeedyaDL
 
 ---
 
@@ -59,4 +59,4 @@ If you encounter an issue not covered in this documentation:
 
 1. Check the [Troubleshooting](troubleshooting.md) guide for common errors and solutions
 2. Review the [FAQ](faq.md) for frequently asked questions
-3. Open an issue on the [gamdl-GUI GitHub repository](https://github.com/MWBMPartners/gamdl-GUI/issues) with details about your problem, including your OS, app version, and any relevant log messages
+3. Open an issue on the [MeedyaDL GitHub repository](https://github.com/MeedyaDL/MeedyaDL/issues) with details about your problem, including your OS, app version, and any relevant log messages

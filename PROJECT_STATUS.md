@@ -1,6 +1,6 @@
 # Project Status
 
-> **gamdl-GUI** — A cross-platform desktop GUI for GAMDL built with Tauri 2.0, React, and TypeScript.
+> **MeedyaDL** — A multiplatform media downloader built with Tauri 2.0, React, and TypeScript.
 
 ---
 
@@ -112,4 +112,4 @@ _None at this time._
 
 ---
 
-(c) 2024-2026 MWBM Partners Ltd
+(c) 2024-2026 MeedyaDL

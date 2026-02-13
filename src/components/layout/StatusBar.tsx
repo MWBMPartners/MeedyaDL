@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MWBM Partners Ltd
+// Copyright (c) 2024-2026 MeedyaDL
 /**
  * @file Status bar component.
  *
@@ -121,7 +121,7 @@ export function StatusBar() {
       </div>
 
       {/* Right section: application version string */}
-      <span>gamdl-GUI v0.1.0</span>
+      <span>MeedyaDL v0.1.0</span>
     </div>
   );
 }
