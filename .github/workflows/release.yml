@@ -70,8 +70,12 @@ on:
       - 'v*'
   # Allow manual trigger for re-running builds when tag push events are missed
   # (e.g., after billing blocks or tag re-pushes). Usage:
-  #   gh workflow run "Release" --ref v0.3.1
+  #   gh workflow run "Release" -f tag=v0.3.1
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Git tag to build and release (e.g., v0.3.1)'
+        required: true
 
 jobs:
   # ============================================================
@@ -178,9 +182,23 @@ jobs:
     continue-on-error: ${{ matrix.settings.cross_arch != '' }}
 
     steps:
+      # Step 0: Resolve the release tag.
+      # For tag pushes: github.ref_name is the tag (e.g., v0.3.1).
+      # For workflow_dispatch: the tag is provided as an input.
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       # Step 1: Check out the repository code at the tagged commit.
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
 
       # Step 2: Set up Node.js LTS with npm dependency caching.
       # Required for building the frontend (Vite build) before Tauri packaging.
@@ -327,10 +345,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'MeedyaDL ${{ github.ref_name }}'
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: 'MeedyaDL ${{ steps.tag.outputs.name }}'
           releaseBody: |
-            ## MeedyaDL ${{ github.ref_name }}
+            ## MeedyaDL ${{ steps.tag.outputs.name }}
 
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
 
