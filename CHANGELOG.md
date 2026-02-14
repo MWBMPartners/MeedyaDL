@@ -6,6 +6,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-02-14
+
 ### ✨ Features
 
 - Add browser cookie extraction service and auto-import functionality
