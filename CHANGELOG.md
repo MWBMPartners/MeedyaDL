@@ -6,104 +6,41 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
-### 📚 Documentation
-
-- Update changelog and docs with CI/workflow fixes [skip ci]
-
-Document the release-please state fix, Linux ARM cross-compilation
-  apt fix, release workflow manual dispatch with tag input, Windows
-  PowerShell shell fix, and git remote URL update.
-
-
-### 🧹 Maintenance
-
-- Update version to 0.3.2 and enhance documentation
-
-## [0.3.1] - 2026-02-14
-
-### ✨ Features
-
-- Add metadata tagging service for M4A files
-
-- Implemented `metadata_tag_service.rs` to inject custom codec metadata tags into downloaded M4A files.
-  - Added tagging for ALAC (`isLossless = Y`) and Dolby Atmos (`SpatialType = Dolby Atmos`) in both Apple iTunes and MeedyaMeta namespaces.
-  - Updated `mod.rs` to include the new metadata tagging service.
-  - Bumped version to 0.2.1 in `tauri.conf.json`.
-  - Enhanced `DownloadForm.tsx` to support new codec and video resolution types.
-  - Introduced "Embed Lyrics and Keep Sidecar" toggle in `LyricsTab.tsx` for better lyrics management.
-  - Added companion download mode settings in `QualityTab.tsx` to control automatic multi-format downloads.
-  - Updated settings store to include new settings for companion mode and lyrics embedding.
-  - Expanded type definitions in `index.ts` to include `CompanionMode` and associated labels.
-  - Updated tests in `settingsStore.test.ts` to reflect new default settings.
-
-- Implement queue persistence and export/import functionality
-
-- Added queue persistence to save the download queue to disk after every mutation, enabling crash recovery.
-  - Introduced export/import features for the download queue using a `.meedyadl` file format, allowing users to transfer their queue between devices.
-  - Updated relevant documentation and user interface to reflect new features.
-  - Enhanced the download queue management with improved state handling and user notifications.
-
-- Enhance workflows with manual dispatch and update changelog for queue features
-- Update project documentation with planned service integrations and milestones for Spotify, YouTube, and BBC iPlayer
-- Add multi-track muxing feature to project plan and README
-- Implement hidden animated artwork files feature with OS-level hiding options
+## [0.3.3] - 2026-02-14
 
 ### 🐛 Bug Fixes
 
-- Update release-please branch reference to match actual branch naming
-- Restrict default apt sources to amd64 for ARM cross-compilation [skip ci]
+- Fix tool installation failures on macOS first-run setup
 
-Ubuntu 24.04's default sources (security.ubuntu.com, archive.ubuntu.com)
-  don't host ARM packages. When dpkg --add-architecture adds arm64/armhf,
-  apt-get update tries to fetch ARM indices from these mirrors and gets
-  404 errors, causing the build to fail with exit code 100.
+  The frontend passed tool display names ("FFmpeg", "N_m3u8DL-RE", "MP4Box")
+  to the backend, which expected internal tool IDs ("ffmpeg", "nm3u8dlre",
+  "mp4box"). Added `resolve_tool_id()` function in `dependency_manager.rs`
+  to accept either form and resolve to the canonical ID. `mp4decrypt` was
+  unaffected because its name and ID are identical.
 
-  Fix by adding Architectures: amd64 to the default deb822 sources file
-  before adding the ARM ports repository. This ensures ARM packages are
-  only fetched from ports.ubuntu.com.
+- Fix mp4decrypt (Bento4) download 404 on macOS
 
-- Support manual dispatch in release workflow with tag input [skip ci]
+  The Bento4 SDK macOS binary filename changed from
+  `Bento4-SDK-1-6-0-641.macosx.zip` to
+  `Bento4-SDK-1-6-0-641.universal-apple-macosx.zip`.
+  Updated the platform suffix in `get_mp4decrypt_url()`.
 
-When triggered via workflow_dispatch, github.ref_name resolves to the
-  branch name (e.g., "main") instead of a tag. This caused tauri-action
-  to try creating a release with tag "main", which failed with
-  "Resource not accessible by integration".
+- Fix Linux ARM builds failing with AppImage exec format error
 
-  Fix by adding a required 'tag' input for workflow_dispatch and resolving
-  the effective tag name in a dedicated step. The checkout also uses the
-  tag ref to ensure the correct code version is built.
+  Cross-compiled ARM builds (ARM64, ARMv7) failed during AppImage bundling
+  because linuxdeploy's ARM64 binary can't execute on x86_64 runners (`Exec
+  format error, os error 8`). The .deb and .rpm packages built successfully.
+  Added `--bundles deb rpm` to ARM matrix entries to skip AppImage creation.
 
-- Use bash shell for tag resolution step on Windows runners [skip ci]
+### 🔧 Changes
 
-Windows runners default to PowerShell which can't parse bash syntax
-  (if [ -n ... ]). Adding shell: bash ensures the step works on all
-  platforms via Git Bash.
+- Mark mp4decrypt, N_m3u8DL-RE, and MP4Box as required tools
 
+  All four external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) are now
+  marked as required for full functionality. Previously only FFmpeg was
+  required and the other three were optional.
 
-### 📚 Documentation
-
-- Update CHANGELOG.md [skip ci]
-
-### 🧹 Maintenance
-
-- Add temporary PAT diagnostic workflow [skip ci]
-
-Temporary workflow to verify RELEASE_PAT permissions.
-  Run via: gh workflow run "Check PAT" --ref main
-  Delete after verification.
-
-- Add workflow_dispatch to release workflow [skip ci]
-
-Allow manual trigger for re-running builds when tag push events
-  are missed (e.g., after billing blocks or tag re-pushes).
-
-- Remove PAT diagnostic workflow [skip ci]
-
-RELEASE_PAT verified working — the original failure was caused by
-  billing/spending limit, not token permissions.
-
-
-## [0.1.4] - 2026-02-13
+## [0.3.2] - 2026-02-14
 
 ### ✨ Features
 

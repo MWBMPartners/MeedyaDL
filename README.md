@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.2-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.3-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
@@ -338,11 +338,11 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### Current (v0.3.2)
+### Current (v0.3.3)
 - [x] Tauri 2.0 + React 19 foundation
 - [x] Platform-adaptive UI themes (macOS, Windows, Linux)
 - [x] Rust backend with IPC command system
-- [x] Dependency management (Python, GAMDL, FFmpeg, mp4decrypt)
+- [x] Dependency management (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box)
 - [x] CI/CD pipeline (GitHub Actions + release-please)
 - [x] Full download workflow with queue, fallback quality, and retry
 - [x] Settings UI with 9 configuration tabs

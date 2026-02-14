@@ -19,7 +19,7 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 src-tauri/src/          # Rust backend
   commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork)
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager, config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, metadata_tag_service)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager [all 4 tools required], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, metadata_tag_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings, setup, help)
@@ -87,7 +87,7 @@ When ready to validate, manually trigger via CLI or GitHub UI:
 gh workflow run "CI" --ref main
 gh workflow run "Release Please" --ref main
 gh workflow run "Changelog" --ref main
-gh workflow run "Release" -f tag=v0.3.2  # Release requires a tag input
+gh workflow run "Release" -f tag=v0.3.3  # Release requires a tag input
 ```
 
 ### Release Please Branch Naming

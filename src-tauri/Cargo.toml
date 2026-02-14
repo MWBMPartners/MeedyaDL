@@ -34,7 +34,7 @@
 # name -- The crate name. Used as the binary name and in `cargo build` output.
 name = "meedyadl"
 # version -- Semantic version. Should stay in sync with tauri.conf.json "version" and package.json.
-version = "0.3.2"
+version = "0.3.3"
 # description -- Short description shown on crates.io and in `cargo search` results.
 description = "A multiplatform media downloader"
 # authors -- Package authors. Used in bundle metadata (installers, About dialogs).

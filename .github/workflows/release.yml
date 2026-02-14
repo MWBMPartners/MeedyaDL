@@ -153,10 +153,12 @@ jobs:
 
           # Linux ARM64 — for ARM servers, Raspberry Pi 4/5 (64-bit OS)
           # Cross-compiled from x64 ubuntu-latest using gcc-aarch64-linux-gnu.
-          # Produces: gamdl_x.x.x_arm64.deb
+          # --bundles deb rpm: Skip AppImage because linuxdeploy's ARM64 binary
+          # can't execute on x86_64 runners (Exec format error).
+          # Produces: MeedyaDL_x.x.x_arm64.deb, MeedyaDL-x.x.x-1.aarch64.rpm
           - name: Linux (ARM64)
             os: ubuntu-latest
-            args: '--target aarch64-unknown-linux-gnu'
+            args: '--target aarch64-unknown-linux-gnu --bundles deb rpm'
             rust_target: aarch64-unknown-linux-gnu
             cross_arch: arm64
             cross_gcc: gcc-aarch64-linux-gnu
@@ -165,10 +167,11 @@ jobs:
 
           # Linux ARMv7 — for Raspberry Pi (32-bit Raspberry Pi OS)
           # Cross-compiled from x64 ubuntu-latest using gcc-arm-linux-gnueabihf.
-          # Produces: gamdl_x.x.x_armhf.deb
+          # --bundles deb rpm: Skip AppImage (same reason as ARM64 above).
+          # Produces: MeedyaDL_x.x.x_armhf.deb, MeedyaDL-x.x.x-1.armv7hl.rpm
           - name: Linux (ARMv7)
             os: ubuntu-latest
-            args: '--target armv7-unknown-linux-gnueabihf'
+            args: '--target armv7-unknown-linux-gnueabihf --bundles deb rpm'
             rust_target: armv7-unknown-linux-gnueabihf
             cross_arch: armhf
             cross_gcc: gcc-arm-linux-gnueabihf
