@@ -112,8 +112,11 @@
 - [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos via mp4ameta freeform atoms)
 - [x] Queue persistence and crash recovery (queue.json auto-save after every mutation; auto-resume on startup)
 - [x] Queue export/import (.meedyadl file format with native save/open dialogs; cross-device transfer)
-- [x] Manual workflow dispatch (workflow_dispatch on CI, Changelog, Release Please for conserving Actions minutes)
+- [x] Manual workflow dispatch (workflow_dispatch on CI, Changelog, Release Please, Release for conserving Actions minutes)
 - [x] Fix release-please branch naming (release-please--branches--main--components--meedyadl)
+- [x] Fix release-please stuck on stale PR #4 (retroactive v0.1.4 tag/release, label update, v0.3.1 tag alignment)
+- [x] Fix Linux ARM cross-compilation (restrict default apt sources to amd64, add `ports.ubuntu.com` for ARM packages)
+- [x] Fix release workflow manual dispatch (tag input parameter, `shell: bash` for Windows compatibility, checkout by tag ref)
 
 ### Planned Milestones
 
@@ -135,7 +138,7 @@ _None at this time._
 
 ## Last Updated
 
-2026-02-13
+2026-02-14
 
 ---
 
