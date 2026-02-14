@@ -243,6 +243,19 @@ jobs:
           # Add the ARM architecture so apt can install ARM packages
           sudo dpkg --add-architecture $CROSS_ARCH
 
+          # Restrict the default Ubuntu sources to amd64 only.
+          # Ubuntu 24.04 uses deb822 format in /etc/apt/sources.list.d/ubuntu.sources.
+          # Without this, apt-get update tries to fetch ARM packages from
+          # security.ubuntu.com and archive.ubuntu.com, which don't host ARM
+          # packages and return 404. ARM packages must come from ports.ubuntu.com.
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Types: deb$/Architectures: amd64\nTypes: deb/' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          # Also handle legacy sources.list format (Ubuntu < 24.04)
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's|^deb http|deb [arch=amd64] http|g' /etc/apt/sources.list
+          fi
+
           # Add Ubuntu ports repository for ARM packages.
           # The standard archive only has amd64/i386; ARM packages come from ports.
           CODENAME=$(lsb_release -cs)
@@ -250,12 +263,6 @@ jobs:
           deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME main restricted universe
           deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-updates main restricted universe
           deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-security main restricted universe
-          EOF
-
-          # Pin the default sources to amd64 only to prevent architecture conflicts
-          sudo tee /etc/apt/apt.conf.d/99-cross-arch << EOF
-          APT::Architectures:: "amd64";
-          APT::Architectures:: "$CROSS_ARCH";
           EOF
 
           sudo apt-get update
