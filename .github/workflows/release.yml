@@ -187,6 +187,7 @@ jobs:
       # For workflow_dispatch: the tag is provided as an input.
       - name: Resolve release tag
         id: tag
+        shell: bash
         run: |
           if [ -n "${{ inputs.tag }}" ]; then
             echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
