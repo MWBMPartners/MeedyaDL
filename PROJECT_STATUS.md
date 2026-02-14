@@ -6,7 +6,7 @@
 
 ## Current Version
 
-**v0.3.1** (2026-02-13)
+**v0.3.2** (2026-02-14)
 
 ## Overall Status
 
@@ -98,7 +98,7 @@
 - [x] Release workflow review (CI and Release workflows verified: matrix builds, concurrency, caching, Linux deps, artifact upload)
 - [x] Copyright year automation (expanded script to cover all 121 files, auto-detect macOS/Linux, self-corruption guard)
 
-### Post-Release Features (v0.1.1 — v0.3.1)
+### Post-Release Features (v0.1.1 — v0.3.2)
 
 - [x] Browser cookie auto-import service (detect installed browsers, extract cookies automatically)
 - [x] Embedded Apple Music login window (sign in directly in-app, extract cookies from webview)
@@ -126,7 +126,13 @@
 | **M8** | v0.5.0 | YouTube | yt-dlp | Planned |
 | **M9** | v0.6.0 | BBC iPlayer | yt-dlp / get_iplayer | Planned |
 
-Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. The existing `MusicService` trait will be renamed to `MediaService` to accommodate non-music services. See [Project Plan](Project_Plan.md) for full milestone details.
+Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. The existing `MusicService` trait will be renamed to `MediaService` to accommodate non-music services.
+
+### Future Ideas
+
+| Feature | Description | Status |
+| ------- | ----------- | ------ |
+| Native SwiftUI UI for macOS | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | Idea (no target version) |
 
 ---
 

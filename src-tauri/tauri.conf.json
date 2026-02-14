@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/schema.json",
   "productName": "MeedyaDL",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "io.github.meedyadl",
   "build": {
     "frontendDist": "../dist",
