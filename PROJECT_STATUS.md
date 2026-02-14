@@ -6,7 +6,7 @@
 
 ## Current Version
 
-**v0.3.2** (2026-02-14)
+**v0.3.3** (2026-02-14)
 
 ## Overall Status
 
@@ -98,7 +98,7 @@
 - [x] Release workflow review (CI and Release workflows verified: matrix builds, concurrency, caching, Linux deps, artifact upload)
 - [x] Copyright year automation (expanded script to cover all 121 files, auto-detect macOS/Linux, self-corruption guard)
 
-### Post-Release Features (v0.1.1 — v0.3.2)
+### Post-Release Features (v0.1.1 — v0.3.3)
 
 - [x] Browser cookie auto-import service (detect installed browsers, extract cookies automatically)
 - [x] Embedded Apple Music login window (sign in directly in-app, extract cookies from webview)
@@ -117,6 +117,10 @@
 - [x] Fix release-please stuck on stale PR #4 (retroactive v0.1.4 tag/release, label update, v0.3.1 tag alignment)
 - [x] Fix Linux ARM cross-compilation (restrict default apt sources to amd64, add `ports.ubuntu.com` for ARM packages)
 - [x] Fix release workflow manual dispatch (tag input parameter, `shell: bash` for Windows compatibility, checkout by tag ref)
+- [x] Fix tool installation failures on macOS (frontend sent display names, backend expected IDs; added `resolve_tool_id()`)
+- [x] Fix mp4decrypt (Bento4) download 404 on macOS (URL suffix changed to `universal-apple-macosx`)
+- [x] Fix Linux ARM builds: skip AppImage (exec format error on x86_64 runners), only produce .deb and .rpm
+- [x] Mark all four external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) as required
 
 ### Planned Milestones
 

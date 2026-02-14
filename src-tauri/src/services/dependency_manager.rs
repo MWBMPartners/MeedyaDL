@@ -3,8 +3,8 @@
 //
 // Dependency manager service.
 // Downloads, installs, and manages external tool dependencies required
-// by GAMDL: FFmpeg (required), mp4decrypt, N_m3u8DL-RE, and MP4Box
-// (optional). Each tool is downloaded from its official release source
+// by GAMDL: FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box (all required
+// for full functionality). Each tool is downloaded from its official release source
 // and installed to {app_data}/tools/{tool_name}/.
 //
 // ## Architecture Overview
@@ -29,9 +29,9 @@
 // | Tool        | Required | Source                        | Purpose                     |
 // |-------------|----------|-------------------------------|-----------------------------|
 // | FFmpeg      | Yes      | BtbN/FFmpeg-Builds, evermeet  | Audio/video remuxing        |
-// | mp4decrypt  | No       | Bento4 SDK                    | DRM decryption              |
-// | N_m3u8DL-RE | No       | nilaoda/N_m3u8DL-RE           | HLS/DASH stream downloading |
-// | MP4Box      | No       | GPAC project                  | Alternative MP4 muxing      |
+// | mp4decrypt  | Yes      | Bento4 SDK                    | DRM decryption              |
+// | N_m3u8DL-RE | Yes      | nilaoda/N_m3u8DL-RE           | HLS/DASH stream downloading |
+// | MP4Box      | Yes      | GPAC project                  | MP4 muxing and remuxing     |
 //
 // ## Cross-Platform URL Selection
 //
@@ -82,9 +82,9 @@ pub struct ToolInfo {
 }
 
 /// All external tool dependencies and their metadata.
-/// FFmpeg is required for all audio/video operations; the others are optional
-/// and enable additional features (DRM decryption, alternative downloaders).
-/// This list is returned by get_all_tools() for the setup wizard UI.
+/// All four tools are required for full functionality: FFmpeg for remuxing,
+/// mp4decrypt for DRM decryption, N_m3u8DL-RE for HLS/DASH streams, and
+/// MP4Box for MP4 muxing. This list is returned by get_all_tools() for the setup wizard UI.
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "FFmpeg",
@@ -95,20 +95,20 @@ const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "mp4decrypt",
         id: "mp4decrypt",
-        required: false,
+        required: true,
         description: "Decryption of DRM-protected content (Bento4)",
     },
     ToolInfo {
         name: "N_m3u8DL-RE",
         id: "nm3u8dlre",
-        required: false,
-        description: "Alternative HLS/DASH stream downloader",
+        required: true,
+        description: "HLS/DASH stream downloader",
     },
     ToolInfo {
         name: "MP4Box",
         id: "mp4box",
-        required: false,
-        description: "Alternative remuxing tool (GPAC)",
+        required: true,
+        description: "MP4 muxing and remuxing tool (GPAC)",
     },
 ];
 
@@ -193,8 +193,8 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
 fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     // Map OS/arch to Bento4's platform suffix naming convention
     let platform_suffix = match (os, arch) {
-        // macOS: universal build (works on both x86_64 and aarch64 via Rosetta)
-        ("macos", "x86_64") | ("macos", "aarch64") => "macosx",
+        // macOS: universal build (works on both x86_64 and aarch64 natively)
+        ("macos", "x86_64") | ("macos", "aarch64") => "universal-apple-macosx",
         // Linux: x86_64 only (ARM64 users would need to compile from source)
         ("linux", "x86_64") | ("linux", "aarch64") => "linux-x86_64",
         // Windows: 32-bit suffix but the binary works on 64-bit Windows
@@ -345,6 +345,27 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     tool_dir.join(binary_name)
 }
 
+/// Resolves a tool display name or ID to the canonical tool ID.
+///
+/// The frontend sends tool display names (e.g., "FFmpeg", "N_m3u8DL-RE")
+/// while the backend URL resolver expects tool IDs (e.g., "ffmpeg", "nm3u8dlre").
+/// This function accepts either form and returns the canonical ID.
+///
+/// # Arguments
+/// * `name_or_id` - Either a tool display name or internal ID
+///
+/// # Returns
+/// * `Ok(id)` - The canonical tool ID
+/// * `Err(message)` - If no tool matches the given name or ID
+fn resolve_tool_id(name_or_id: &str) -> Result<&'static str, String> {
+    for tool in TOOLS {
+        if tool.id == name_or_id || tool.name == name_or_id {
+            return Ok(tool.id);
+        }
+    }
+    Err(format!("Unknown tool: {}", name_or_id))
+}
+
 /// Downloads and installs a specific tool dependency.
 ///
 /// Performs the complete installation pipeline:
@@ -357,12 +378,14 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
-/// * `tool_id` - The tool identifier ("ffmpeg", "mp4decrypt", "nm3u8dlre", "mp4box")
+/// * `name_or_id` - The tool display name or identifier (e.g., "FFmpeg" or "ffmpeg")
 ///
 /// # Returns
 /// * `Ok(version)` - The installed version string (or "installed" if version detection fails)
 /// * `Err(message)` - A descriptive error if installation failed
-pub async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<String, String> {
+pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, String> {
+    // Resolve display name to canonical tool ID (e.g., "FFmpeg" -> "ffmpeg")
+    let tool_id = resolve_tool_id(name_or_id)?;
     log::info!("Starting installation of tool: {}", tool_id);
 
     // Step 1: Get the download URL for this platform
