@@ -69,7 +69,7 @@ done
 find ./help -name "*.md" -exec "${SED_INPLACE[@]}" "$PATTERN" {} \;
 
 # --- Project root markdown files ---
-for file in README.md Project_Plan.md PROJECT_STATUS.md CHANGELOG.md; do
+for file in README.md Project_Plan.md CHANGELOG.md; do
     [ -f "$file" ] && "${SED_INPLACE[@]}" "$PATTERN" "$file"
 done
 
