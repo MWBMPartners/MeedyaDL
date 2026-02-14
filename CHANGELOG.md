@@ -63,6 +63,30 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Enhance error handling and improve cookie import feedback
 - Update release-please branch reference to match actual branch naming
+- Fix release-please stuck on stale PR #4 (v0.1.4)
+
+  release-please was looping on a merged Release PR (#4) that never had its
+  tag/release created (blocked by billing). Created the missing v0.1.4 tag and
+  release retroactively, updated the PR label from `autorelease: pending` to
+  `autorelease: tagged`, and created the v0.3.1 tag+release to align with the
+  manifest version.
+
+- Fix Linux ARM cross-compilation apt 404 errors
+
+  Ubuntu 24.04's default apt sources (`security.ubuntu.com`) don't host ARM
+  packages. Added `Architectures: amd64` to the default deb822 sources file
+  before adding the ARM `ports.ubuntu.com` repository, preventing 404 errors
+  during `apt-get update` for arm64/armhf architectures.
+
+- Fix release workflow for manual dispatch (workflow_dispatch)
+
+  When triggered via `workflow_dispatch`, `github.ref_name` resolved to the
+  branch name (`main`) instead of a tag, causing tauri-action to fail with
+  "Resource not accessible by integration". Added a required `tag` input for
+  manual dispatch and a `shell: bash` tag resolution step that works on all
+  platforms (Windows runners default to PowerShell).
+
+- Update git remote URL from `gamdl-GUI` to `MeedyaDL`
 
 ### 📚 Documentation
 
