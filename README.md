@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.1-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.3.2-blue?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
@@ -338,7 +338,7 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### Current (v0.3.1)
+### Current (v0.3.2)
 - [x] Tauri 2.0 + React 19 foundation
 - [x] Platform-adaptive UI themes (macOS, Windows, Linux)
 - [x] Rust backend with IPC command system
@@ -380,6 +380,7 @@ Each milestone adds a new media service behind the existing `MusicService` trait
 - 📊 **Download history** and statistics
 - 🎨 **Custom themes** and accent color picker
 - 🎚️ **Multi-track muxing** — combine companion downloads (Atmos + AC3 + AAC) into a single MP4 with multiple audio streams
+- 🍎 **Native SwiftUI UI for macOS** — replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance
 
 ---
 

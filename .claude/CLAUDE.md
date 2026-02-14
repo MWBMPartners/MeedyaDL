@@ -87,7 +87,7 @@ When ready to validate, manually trigger via CLI or GitHub UI:
 gh workflow run "CI" --ref main
 gh workflow run "Release Please" --ref main
 gh workflow run "Changelog" --ref main
-gh workflow run "Release" -f tag=v0.3.1  # Release requires a tag input
+gh workflow run "Release" -f tag=v0.3.2  # Release requires a tag input
 ```
 
 ### Release Please Branch Naming
@@ -113,6 +113,10 @@ Architectural changes planned across milestones:
 - **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine
 - **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service)
 - **Shared dependency management** — yt-dlp installed once, shared by YouTube and BBC iPlayer
+
+### Future Ideas
+
+- **Native SwiftUI UI for macOS** — replace the web-based Tauri frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance (no target version)
 
 ## Build Targets
 
