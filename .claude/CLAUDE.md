@@ -56,7 +56,7 @@ scripts/                # Build utilities (copyright year updater, version bump)
 - **Queue export/import**: Export via `export_queue` command opens native save dialog with `.meedyadl` filter; writes `QueueExportFile` JSON (version, app, exported_at, items). Import via `import_queue` opens native file picker, validates schema version == 1, re-enqueues items with fresh settings merge. Exported items contain only URLs + per-download overrides (not merged options), so the importing device uses its own settings as base.
 - **Hidden animated artwork**: After downloading FrontCover.mp4/PortraitCover.mp4, files are hidden via OS-native mechanisms if `hide_animated_artwork` is `true` (default). macOS: `chflags hidden` (preserves filename); Windows: `attrib +H` (preserves filename); Linux: `.` prefix rename (changes filename). Logic in `animated_artwork_service::hide_file()`, called from the artwork background task in `download_queue.rs`.
 - **Git operations**: Do NOT auto-commit or auto-push. Only edit files — let the user control git operations.
-- **Documentation maintenance**: When adding features, modifying settings, changing commands/services, or altering UI — update ALL affected markdown files (README.md, PROJECT_STATUS.md, Project_Plan.md, CLAUDE.md, help/*.md). This includes version numbers, file counts, feature lists, project structure trees, and help topic cross-references.
+- **Documentation maintenance**: When adding features, modifying settings, changing commands/services, or altering UI — update ALL affected markdown files (README.md, Project_Plan.md, CHANGELOG.md, CLAUDE.md, help/*.md). This includes version numbers, file counts, feature lists, project structure trees, and help topic cross-references. Project_Plan.md serves as both the plan and status tracker (PROJECT_STATUS.md was consolidated into it).
 
 ## Release Workflow
 
@@ -65,7 +65,7 @@ Push fix:/feat: commits directly to main
   → release-please creates/updates a Release PR (bumps versions)
   → User reviews and merges the Release PR
   → release-please creates tag (e.g., v0.3.0) using RELEASE_PAT
-  → release.yml triggers → 4 Tier 1 + 2 Tier 2 platform builds → draft GitHub Release
+  → release.yml triggers → 6 platform builds → draft GitHub Release
   → changelog.yml triggers → git-cliff regenerates CHANGELOG.md
 ```
 

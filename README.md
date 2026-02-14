@@ -412,7 +412,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 ## 📖 Additional Documentation
 
-For the full implementation plan, architecture decisions, and development phases, see the [Project Plan](Project_Plan.md).
+For the full implementation plan, project status, architecture decisions, and development phases, see the [Project Plan](Project_Plan.md).
 
 ---
 

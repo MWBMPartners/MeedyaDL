@@ -1,9 +1,15 @@
 <!-- Copyright (c) 2024-2026 MeedyaDL -->
 <!-- Licensed under the MIT License. See LICENSE file in the project root. -->
 
-# 📋 MeedyaDL - Project Plan
+# 📋 MeedyaDL - Project Plan & Status
 
 > A multiplatform media downloader built with Tauri 2.0 + React + TypeScript
+
+---
+
+## 📌 Current Version
+
+**v0.3.3** (2026-02-14) — All 6 phases complete + post-release features
 
 ---
 
@@ -50,7 +56,7 @@ Replaced the old PyQt5 prototype with a modern Tauri 2.0 + React + TypeScript sc
 - ✅ Rust backend with command/service/model/util module structure
 - ✅ All GAMDL CLI options modeled as typed Rust enums/structs
 - ✅ GitHub Actions: CI (lint+test+build), Release (multi-platform), Changelog (auto-generate)
-- ✅ Documentation framework (README, Project_Plan, PROJECT_STATUS, CHANGELOG, help/)
+- ✅ Documentation framework (README, Project_Plan, CHANGELOG, help/)
 - ✅ Code tooling (ESLint, Prettier, commitlint, git-cliff)
 - ✅ Copyright automation script
 
@@ -65,37 +71,44 @@ Build the Rust services that power the application: Python management, GAMDL ins
 ### Key Deliverables
 
 #### 2.1 Python Runtime Manager
-- Download portable Python from [python-build-standalone](https://github.com/indygreg/python-build-standalone)
-- Platform-specific builds (macOS ARM, Windows x64, Linux x64, etc.)
-- Install to self-contained app data directory
-- Version tracking and upgrade support
+
+- ✅ Download portable Python from [python-build-standalone](https://github.com/indygreg/python-build-standalone)
+- ✅ Platform-specific builds (macOS ARM, Windows x64, Linux x64, etc.)
+- ✅ Install to self-contained app data directory
+- ✅ Version tracking and upgrade support
 
 #### 2.2 GAMDL Installation
-- Install GAMDL via `pip install gamdl` into portable Python
-- Version checking via PyPI API
-- Upgrade support with compatibility verification
+
+- ✅ Install GAMDL via `pip install gamdl` into portable Python
+- ✅ Version checking via PyPI API
+- ✅ Upgrade support with compatibility verification
 
 #### 2.3 Dependency Manager
-- Download and manage: FFmpeg (required), mp4decrypt, N_m3u8DL-RE, MP4Box (optional)
-- Platform-specific download URLs and extraction
-- Version tracking and binary verification
+
+- ✅ Download and manage: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box (all required)
+- ✅ Platform-specific download URLs and extraction
+- ✅ Version tracking and binary verification
+- ✅ Display name → tool ID resolution (`resolve_tool_id()`)
 
 #### 2.4 GAMDL CLI Wrapper
-- Construct CLI commands from typed `GamdlOptions` struct
-- Spawn subprocess with stdout/stderr capture
-- Parse output for progress tracking
-- Process lifecycle management (start, monitor, cancel)
+
+- ✅ Construct CLI commands from typed `GamdlOptions` struct
+- ✅ Spawn subprocess with stdout/stderr capture
+- ✅ Parse output for progress tracking
+- ✅ Process lifecycle management (start, monitor, cancel)
 
 #### 2.5 Settings Service
-- App settings persisted as JSON
-- GAMDL config.ini sync
-- Default fallback quality chains
-- Path resolution and validation
+
+- ✅ App settings persisted as JSON
+- ✅ GAMDL config.ini sync
+- ✅ Default fallback quality chains
+- ✅ Path resolution and validation
 
 #### 2.6 Credential Store
-- OS keychain integration via `keyring` crate
-- Secure storage for wrapper URLs, future API keys
-- Platform: macOS Keychain, Windows Credential Manager, Linux Secret Service
+
+- ✅ OS keychain integration via `keyring` crate
+- ✅ Secure storage for wrapper URLs, future API keys
+- ✅ Platform: macOS Keychain, Windows Credential Manager, Linux Secret Service
 
 ---
 
@@ -108,28 +121,32 @@ Build the React frontend with platform-adaptive styling, navigation, download fo
 ### Key Deliverables
 
 #### 3.1 Main Layout
-- Sidebar navigation (Download, Queue, Settings, Help, About)
-- Platform-adaptive title bar (overlay on macOS, standard elsewhere)
-- Status bar showing GAMDL version and connection status
+
+- ✅ Sidebar navigation (Download, Queue, Settings, Help, About)
+- ✅ Platform-adaptive title bar (overlay on macOS, standard elsewhere)
+- ✅ Status bar showing GAMDL version and connection status
 
 #### 3.2 Download Form
-- URL input with Apple Music content type auto-detection
-- Quality selector with per-download override capability
-- Support for multiple URLs (batch downloads)
+
+- ✅ URL input with Apple Music content type auto-detection
+- ✅ Quality selector with per-download override capability
+- ✅ Support for multiple URLs (batch downloads)
 
 #### 3.3 Settings Pages (9 tabs)
-1. **General** - Output path, language, overwrite, updates
-2. **Quality** - Default audio codec, video resolution, format
-3. **Fallback** - Drag-to-reorder fallback chains for music and video
-4. **Paths** - Tool binary paths (FFmpeg, mp4decrypt, etc.)
-5. **Cookies** - Cookie file import, validation, expiry warnings
-6. **Lyrics** - Synced lyrics format (LRC/SRT/TTML)
-7. **Cover Art** - Format (JPG/PNG/Raw), size
-8. **Templates** - Folder and file naming templates
-9. **Advanced** - Wrapper, WVD, download/remux modes
+
+1. ✅ **General** - Output path, language, overwrite, updates
+2. ✅ **Quality** - Default audio codec, video resolution, format
+3. ✅ **Fallback** - Drag-to-reorder fallback chains for music and video
+4. ✅ **Paths** - Tool binary paths (FFmpeg, mp4decrypt, etc.)
+5. ✅ **Cookies** - Cookie file import, validation, expiry warnings
+6. ✅ **Lyrics** - Synced lyrics format (LRC/SRT/TTML)
+7. ✅ **Cover Art** - Format (JPG/PNG/Raw), size
+8. ✅ **Templates** - Folder and file naming templates
+9. ✅ **Advanced** - Wrapper, WVD, download/remux modes
 
 #### 3.4 First-Run Setup Wizard
-6-step wizard: Welcome → Python Install → GAMDL Install → Dependencies → Cookie Import → Complete
+
+- ✅ 6-step wizard: Welcome → Python Install → GAMDL Install → Dependencies → Cookie Import → Complete
 
 ---
 
@@ -142,12 +159,15 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 ### Key Deliverables
 
 #### 4.1 Download Queue
-- Queue-based execution with configurable concurrency
-- Auto-process next item on completion
-- Cancel, retry, remove actions per item
+
+- ✅ Queue-based execution with configurable concurrency
+- ✅ Auto-process next item on completion
+- ✅ Cancel, retry, remove actions per item
 
 #### 4.2 Fallback Quality Architecture
-Default music fallback chain:
+
+✅ Default music fallback chain:
+
 1. 🎵 Lossless (ALAC) - 24-bit/192kHz
 2. 🎵 Dolby Atmos - Spatial audio
 3. 🎵 Dolby Digital (AC3)
@@ -155,22 +175,25 @@ Default music fallback chain:
 5. 🎵 AAC (256kbps at up to 48kHz)
 6. 🎵 AAC Legacy (256kbps at up to 44.1kHz)
 
-Default video fallback chain:
+✅ Default video fallback chain:
+
 1. 🎬 H.265 2160p (4K)
 2. 🎬 H.265 1440p
 3. 🎬 H.265/H.264 1080p
 4. 🎬 H.264 720p → 540p → 480p → 360p → 240p
 
 #### 4.3 Progress Tracking
-- Real-time GAMDL output parsing
-- Per-track progress for albums/playlists
-- Speed and ETA display
+
+- ✅ Real-time GAMDL output parsing
+- ✅ Per-track progress for albums/playlists
+- ✅ Speed and ETA display
 
 #### 4.4 Error Handling
-- Authentication errors → Cookie Settings redirect
-- Codec errors → Automatic fallback
-- Network errors → Auto-retry (3x exponential backoff)
-- Clear error messages with actionable guidance
+
+- ✅ Authentication errors → Cookie Settings redirect
+- ✅ Codec errors → Automatic fallback
+- ✅ Network errors → Auto-retry (3x exponential backoff)
+- ✅ Clear error messages with actionable guidance
 
 ---
 
@@ -179,11 +202,12 @@ Default video fallback chain:
 **Status:** ✅ Complete
 
 ### Key Deliverables
-- **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
-- **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
-- **In-App Help System** - Markdown renderer, search, 11 help topics
-- **System Tray** - Minimize to tray, download count badge
-- **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
+
+- ✅ **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
+- ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
+- ✅ **In-App Help System** - Markdown renderer, search, 11 help topics
+- ✅ **System Tray** - Minimize to tray, download count badge
+- ✅ **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
 
 ---
 
@@ -192,33 +216,42 @@ Default video fallback chain:
 **Status:** ✅ Complete
 
 ### Key Deliverables
-- SVG icon set (app icon + UI icons)
-- Platform testing (macOS, Windows, Linux)
-- Complete help documentation (11 topics)
-- Release workflow verification (release-please v4)
-- README with badges and project structure
+
+- ✅ SVG icon set (app icon + UI icons)
+- ✅ Platform testing (macOS, Windows, Linux)
+- ✅ Complete help documentation (11 topics)
+- ✅ Release workflow verification (release-please v4)
+- ✅ README with badges and project structure
 
 ---
 
-## 🆕 Post-Release Features (v0.1.1 — v0.3.1)
+## 🆕 Post-Release Features (v0.1.1 — v0.3.3)
 
 **Status:** ✅ Complete
 
 ### Deliverables
-- **Browser cookie auto-import** - Detect installed browsers, extract Apple Music cookies automatically
-- **Embedded Apple Music login window** - Sign in directly within the app to extract cookies (no browser extension needed)
-- **Enhanced error handling** - Improved cookie import feedback and error messages
-- **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, PortraitCover.mp4) via FFmpeg HLS conversion
-- **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
-- **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
-- **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/PortraitCover.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
-- **Configurable companion downloads** - 4 modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy) with [Lossless]/[Dolby Atmos] file suffixes
-- **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
-- **Custom codec metadata tagging** - ALAC: `isLossless=Y`; Atmos: `SpatialType=Dolby Atmos` via mp4ameta freeform atoms
-- **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup
-- **Queue export/import** - `.meedyadl` file format with native save/open dialogs for cross-device transfer
-- **Manual workflow dispatch** - `workflow_dispatch` on CI, Changelog, Release Please for conserving Actions minutes
-- **Release-please branch fix** - Corrected branch naming to `release-please--branches--main--components--meedyadl`
+
+- ✅ **Browser cookie auto-import** - Detect installed browsers, extract Apple Music cookies automatically
+- ✅ **Embedded Apple Music login window** - Sign in directly within the app to extract cookies (no browser extension needed)
+- ✅ **Enhanced error handling** - Improved cookie import feedback and error messages
+- ✅ **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, PortraitCover.mp4) via FFmpeg HLS conversion
+- ✅ **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
+- ✅ **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
+- ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/PortraitCover.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
+- ✅ **Configurable companion downloads** - 4 modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy) with [Lossless]/[Dolby Atmos] file suffixes
+- ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
+- ✅ **Custom codec metadata tagging** - ALAC: `isLossless=Y`; Atmos: `SpatialType=Dolby Atmos` via mp4ameta freeform atoms
+- ✅ **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup
+- ✅ **Queue export/import** - `.meedyadl` file format with native save/open dialogs for cross-device transfer
+- ✅ **Manual workflow dispatch** - `workflow_dispatch` on CI, Changelog, Release Please, Release for conserving Actions minutes
+- ✅ **Release-please branch fix** - Corrected branch naming to `release-please--branches--main--components--meedyadl`
+- ✅ **Release-please state fix** - Retroactive v0.1.4 tag/release, label update, v0.3.1 tag alignment
+- ✅ **Fix Linux ARM cross-compilation** - Restrict default apt sources to amd64, add `ports.ubuntu.com` for ARM packages
+- ✅ **Fix release workflow manual dispatch** - Tag input parameter, `shell: bash` for Windows compatibility, checkout by tag ref
+- ✅ **Fix tool installation failures on macOS** - Frontend sent display names, backend expected IDs; added `resolve_tool_id()`
+- ✅ **Fix mp4decrypt (Bento4) download 404 on macOS** - URL suffix changed to `universal-apple-macosx`
+- ✅ **Fix Linux ARM builds** - Skip AppImage (exec format error on x86_64 runners), only produce .deb and .rpm
+- ✅ **Mark all four external tools as required** - FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
 
 ---
 
@@ -408,6 +441,13 @@ These tasks span multiple milestones and should be addressed incrementally:
 | **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
 | **Custom themes** | User-defined accent colours and theme presets | 🔲 Planned |
 | **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback. Power-user option — requires player support for MP4 alternate audio tracks (standard for video, limited for music players) | 🔲 Planned |
+| **Native SwiftUI UI for macOS** | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | 🔲 Idea |
+
+---
+
+## ⚠️ Known Issues / Blockers
+
+None at this time.
 
 ---
 
@@ -421,4 +461,6 @@ These tasks span multiple milestones and should be addressed incrementally:
 
 ---
 
-*Last updated: 2026-02-13*
+*Last updated: 2026-02-14*
+
+(c) 2024-2026 MeedyaDL
