@@ -6,7 +6,104 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
-## [0.3.2] - 2026-02-14
+### 📚 Documentation
+
+- Update changelog and docs with CI/workflow fixes [skip ci]
+
+Document the release-please state fix, Linux ARM cross-compilation
+  apt fix, release workflow manual dispatch with tag input, Windows
+  PowerShell shell fix, and git remote URL update.
+
+
+### 🧹 Maintenance
+
+- Update version to 0.3.2 and enhance documentation
+
+## [0.3.1] - 2026-02-14
+
+### ✨ Features
+
+- Add metadata tagging service for M4A files
+
+- Implemented `metadata_tag_service.rs` to inject custom codec metadata tags into downloaded M4A files.
+  - Added tagging for ALAC (`isLossless = Y`) and Dolby Atmos (`SpatialType = Dolby Atmos`) in both Apple iTunes and MeedyaMeta namespaces.
+  - Updated `mod.rs` to include the new metadata tagging service.
+  - Bumped version to 0.2.1 in `tauri.conf.json`.
+  - Enhanced `DownloadForm.tsx` to support new codec and video resolution types.
+  - Introduced "Embed Lyrics and Keep Sidecar" toggle in `LyricsTab.tsx` for better lyrics management.
+  - Added companion download mode settings in `QualityTab.tsx` to control automatic multi-format downloads.
+  - Updated settings store to include new settings for companion mode and lyrics embedding.
+  - Expanded type definitions in `index.ts` to include `CompanionMode` and associated labels.
+  - Updated tests in `settingsStore.test.ts` to reflect new default settings.
+
+- Implement queue persistence and export/import functionality
+
+- Added queue persistence to save the download queue to disk after every mutation, enabling crash recovery.
+  - Introduced export/import features for the download queue using a `.meedyadl` file format, allowing users to transfer their queue between devices.
+  - Updated relevant documentation and user interface to reflect new features.
+  - Enhanced the download queue management with improved state handling and user notifications.
+
+- Enhance workflows with manual dispatch and update changelog for queue features
+- Update project documentation with planned service integrations and milestones for Spotify, YouTube, and BBC iPlayer
+- Add multi-track muxing feature to project plan and README
+- Implement hidden animated artwork files feature with OS-level hiding options
+
+### 🐛 Bug Fixes
+
+- Update release-please branch reference to match actual branch naming
+- Restrict default apt sources to amd64 for ARM cross-compilation [skip ci]
+
+Ubuntu 24.04's default sources (security.ubuntu.com, archive.ubuntu.com)
+  don't host ARM packages. When dpkg --add-architecture adds arm64/armhf,
+  apt-get update tries to fetch ARM indices from these mirrors and gets
+  404 errors, causing the build to fail with exit code 100.
+
+  Fix by adding Architectures: amd64 to the default deb822 sources file
+  before adding the ARM ports repository. This ensures ARM packages are
+  only fetched from ports.ubuntu.com.
+
+- Support manual dispatch in release workflow with tag input [skip ci]
+
+When triggered via workflow_dispatch, github.ref_name resolves to the
+  branch name (e.g., "main") instead of a tag. This caused tauri-action
+  to try creating a release with tag "main", which failed with
+  "Resource not accessible by integration".
+
+  Fix by adding a required 'tag' input for workflow_dispatch and resolving
+  the effective tag name in a dedicated step. The checkout also uses the
+  tag ref to ensure the correct code version is built.
+
+- Use bash shell for tag resolution step on Windows runners [skip ci]
+
+Windows runners default to PowerShell which can't parse bash syntax
+  (if [ -n ... ]). Adding shell: bash ensures the step works on all
+  platforms via Git Bash.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Add temporary PAT diagnostic workflow [skip ci]
+
+Temporary workflow to verify RELEASE_PAT permissions.
+  Run via: gh workflow run "Check PAT" --ref main
+  Delete after verification.
+
+- Add workflow_dispatch to release workflow [skip ci]
+
+Allow manual trigger for re-running builds when tag push events
+  are missed (e.g., after billing blocks or tag re-pushes).
+
+- Remove PAT diagnostic workflow [skip ci]
+
+RELEASE_PAT verified working — the original failure was caused by
+  billing/spending limit, not token permissions.
+
+
+## [0.1.4] - 2026-02-13
 
 ### ✨ Features
 
@@ -36,59 +133,10 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Enhanced settings store to manage new animated artwork settings and added corresponding TypeScript types.
   - Added unit tests for URL parsing and JWT generation related to animated artwork functionality.
 
-- Add metadata tagging service for M4A files
-
-- Implemented `metadata_tag_service.rs` to inject custom codec metadata tags into downloaded M4A files.
-  - Added tagging for ALAC (`isLossless = Y`) and Dolby Atmos (`SpatialType = Dolby Atmos`) in both Apple iTunes and MeedyaMeta namespaces.
-  - Updated `mod.rs` to include the new metadata tagging service.
-  - Bumped version to 0.2.1 in `tauri.conf.json`.
-  - Enhanced `DownloadForm.tsx` to support new codec and video resolution types.
-  - Introduced "Embed Lyrics and Keep Sidecar" toggle in `LyricsTab.tsx` for better lyrics management.
-  - Added companion download mode settings in `QualityTab.tsx` to control automatic multi-format downloads.
-  - Updated settings store to include new settings for companion mode and lyrics embedding.
-  - Expanded type definitions in `index.ts` to include `CompanionMode` and associated labels.
-  - Updated tests in `settingsStore.test.ts` to reflect new default settings.
-
-- Implement queue persistence and export/import functionality
-
-- Added queue persistence to save the download queue to disk after every mutation, enabling crash recovery.
-  - Introduced export/import features for the download queue using a `.meedyadl` file format, allowing users to transfer their queue between devices.
-  - Updated relevant documentation and user interface to reflect new features.
-  - Enhanced the download queue management with improved state handling and user notifications.
-
-- Enhance workflows with manual dispatch and update changelog for queue features
-- Update project documentation with planned service integrations and milestones for Spotify, YouTube, and BBC iPlayer
-- Add multi-track muxing feature to project plan and README
-- Implement hidden animated artwork files feature with OS-level hiding options
 
 ### 🐛 Bug Fixes
 
 - Enhance error handling and improve cookie import feedback
-- Update release-please branch reference to match actual branch naming
-- Fix release-please stuck on stale PR #4 (v0.1.4)
-
-  release-please was looping on a merged Release PR (#4) that never had its
-  tag/release created (blocked by billing). Created the missing v0.1.4 tag and
-  release retroactively, updated the PR label from `autorelease: pending` to
-  `autorelease: tagged`, and created the v0.3.1 tag+release to align with the
-  manifest version.
-
-- Fix Linux ARM cross-compilation apt 404 errors
-
-  Ubuntu 24.04's default apt sources (`security.ubuntu.com`) don't host ARM
-  packages. Added `Architectures: amd64` to the default deb822 sources file
-  before adding the ARM `ports.ubuntu.com` repository, preventing 404 errors
-  during `apt-get update` for arm64/armhf architectures.
-
-- Fix release workflow for manual dispatch (workflow_dispatch)
-
-  When triggered via `workflow_dispatch`, `github.ref_name` resolved to the
-  branch name (`main`) instead of a tag, causing tauri-action to fail with
-  "Resource not accessible by integration". Added a required `tag` input for
-  manual dispatch and a `shell: bash` tag resolution step that works on all
-  platforms (Windows runners default to PowerShell).
-
-- Update git remote URL from `gamdl-GUI` to `MeedyaDL`
 
 ### 📚 Documentation
 
