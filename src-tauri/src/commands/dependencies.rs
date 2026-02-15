@@ -3,7 +3,7 @@
 //
 // Dependency management IPC commands.
 // Handles checking installation status and installing Python, GAMDL,
-// and external tool dependencies (FFmpeg, mp4decrypt, etc.).
+// and external tool dependencies (FFmpeg, mp4decrypt, AMDecrypt, etc.).
 // These commands are primarily used by the first-run setup wizard
 // and the dependency status indicators throughout the UI.
 //
@@ -15,7 +15,7 @@
 // manages a self-contained portable runtime consisting of:
 //   1. **Python** - A standalone Python runtime (python-build-standalone)
 //   2. **GAMDL** - The core Apple Music downloader, installed via pip
-//   3. **External tools** - FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
+//   3. **External tools** - FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, AMDecrypt (optional)
 //
 // Each dependency has "check" and "install" commands. The frontend setup
 // wizard calls the check commands first, then offers install buttons for

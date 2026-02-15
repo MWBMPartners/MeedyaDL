@@ -63,7 +63,7 @@
 
 // React hooks: useState for active topic and search state, useMemo for
 // memoized filtering and platform detection, useCallback for stable handlers.
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 
 /**
  * react-markdown -- Renders Markdown strings as React components.
@@ -102,6 +102,9 @@ import {
 
 // Shared layout component for the page header.
 import { PageHeader } from '@/components/layout';
+
+// UI store for reading/clearing the help deep-link topic.
+import { useUiStore } from '@/stores/uiStore';
 
 /**
  * Shape of a single help topic entry.
@@ -537,6 +540,29 @@ export function HelpViewer() {
 
   /** Tracks the current search input value for filtering the sidebar topics */
   const [searchQuery, setSearchQuery] = useState('');
+
+  /* ---- Store bindings for help deep-linking ---- */
+  /** Deep-link topic ID set by HelpButton clicks (null when no deep-link) */
+  const helpActiveTopic = useUiStore((s) => s.helpActiveTopic);
+  /** Action to clear the deep-link after consuming it */
+  const clearHelpActiveTopic = useUiStore((s) => s.clearHelpActiveTopic);
+
+  /**
+   * Consume the helpActiveTopic deep-link from the UI store.
+   * When a HelpButton sets a topic and navigates here, this effect
+   * auto-selects the requested topic and clears the deep-link so
+   * subsequent visits to the Help page start on the last-viewed topic.
+   */
+  useEffect(() => {
+    if (helpActiveTopic) {
+      // Only navigate if the topic exists in our list
+      const exists = HELP_TOPICS.some((t) => t.id === helpActiveTopic);
+      if (exists) {
+        setActiveTopic(helpActiveTopic);
+      }
+      clearHelpActiveTopic();
+    }
+  }, [helpActiveTopic, clearHelpActiveTopic]);
 
   /**
    * Determine the platform-appropriate modifier key label once.

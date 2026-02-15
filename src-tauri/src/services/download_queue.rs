@@ -932,6 +932,8 @@ fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
     match codec {
         SongCodec::Alac => Some("[Lossless]"),
         SongCodec::Atmos => Some("[Dolby Atmos]"),
+        // Dolby Digital gets a suffix when used as a companion alongside Atmos
+        SongCodec::Ac3 => Some("[Dolby Digital]"),
         // Lossy, legacy, and experimental codecs use clean filenames (no suffix)
         SongCodec::Aac
         | SongCodec::AacLegacy
@@ -940,8 +942,7 @@ fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
         | SongCodec::AacHe
         | SongCodec::AacDownmix
         | SongCodec::AacHeBinaural
-        | SongCodec::AacHeDownmix
-        | SongCodec::Ac3 => None,
+        | SongCodec::AacHeDownmix => None,
     }
 }
 
@@ -960,6 +961,7 @@ fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
 /// | `AtmosToLossless`          | Yes                | No                | No      |
 /// | `AtmosToLosslessAndLossy`  | Yes                | Yes               | No      |
 /// | `SpecialistToLossy`        | Yes                | Yes               | No      |
+/// | `AtmosToAllFormats`        | Yes                | No                | No      |
 fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
     match mode {
         // No companions → no suffix needed (only one version exists)
@@ -976,6 +978,9 @@ fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
         CompanionMode::SpecialistToLossy => {
             matches!(codec, SongCodec::Atmos | SongCodec::Alac)
         }
+        // Atmos → 3 companions (AC3, ALAC, AAC): primary Atmos gets suffix.
+        // Non-Atmos codecs in this mode have no companions → no suffix.
+        CompanionMode::AtmosToAllFormats => matches!(codec, SongCodec::Atmos),
     }
 }
 
@@ -1057,6 +1062,29 @@ fn plan_companions(mode: &CompanionMode, primary_codec: &str) -> Vec<CompanionTi
                     codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
                     apply_suffix: false, // Lossy AAC gets clean filename
                 }]
+            } else {
+                vec![]
+            }
+        }
+
+        // Atmos → all formats: AC3 [Dolby Digital] + ALAC [Lossless] + AAC (clean)
+        // 4 files per track total (Atmos + 3 companions)
+        CompanionMode::AtmosToAllFormats => {
+            if primary_codec == "atmos" {
+                vec![
+                    CompanionTier {
+                        codecs_to_try: vec![SongCodec::Ac3],
+                        apply_suffix: true, // AC3 gets [Dolby Digital] suffix
+                    },
+                    CompanionTier {
+                        codecs_to_try: vec![SongCodec::Alac],
+                        apply_suffix: true, // ALAC gets [Lossless] suffix
+                    },
+                    CompanionTier {
+                        codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                        apply_suffix: false, // AAC gets clean filename
+                    },
+                ]
             } else {
                 vec![]
             }

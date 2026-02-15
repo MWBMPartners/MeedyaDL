@@ -95,6 +95,13 @@ export { LoadingSpinner } from './LoadingSpinner';
  */
 export { Tooltip } from './Tooltip';
 
+/**
+ * Small "?" icon button that navigates to the Help page with a specific
+ * topic pre-selected. Used inline next to settings labels for contextual help.
+ * Used in: Input, Select, Toggle (via helpTopic prop), and standalone in settings tabs.
+ */
+export { HelpButton } from './HelpButton';
+
 /* -------------------------------------------------------------------------- */
 /*  Tauri-specific / native integration components                             */
 /* -------------------------------------------------------------------------- */
