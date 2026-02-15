@@ -4,6 +4,23 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### ✨ Features
+
+- Release 0.3.5 with macOS signing validation and updated dependencies
+
+- Added validation for required Apple signing secrets in the release workflow to prevent publishing unsigned binaries.
+  - Updated version to 0.3.5 across various files including package.json, Cargo.toml, and tauri.conf.json.
+  - Introduced Entitlements.plist for macOS hardened runtime permissions.
+  - Enhanced Help documentation with a disclaimer regarding third-party dependencies.
+  - Updated Tailwind CSS configuration to include typography plugin for improved styling.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.3.4] - 2026-02-14
 
 ### 🐛 Bug Fixes
