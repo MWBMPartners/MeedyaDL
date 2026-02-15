@@ -46,6 +46,7 @@
     "resources": [
       "../help/*"
     ],
+    "createUpdaterArtifacts": true,
     "copyright": "Copyright (c) 2024-2026 MeedyaDL",
     "category": "Utility",
     "shortDescription": "A multiplatform media downloader",

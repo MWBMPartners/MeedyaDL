@@ -157,6 +157,14 @@ pub fn run() {
         // Reference: https://v2.tauri.app/plugin/process/
         .plugin(tauri_plugin_process::init())
 
+        // Updater plugin: cryptographically-verified application self-updates.
+        // Downloads signed update binaries from GitHub Releases and applies them
+        // in-place. The public key for signature verification is configured in
+        // tauri.conf.json. Custom endpoints are set at runtime via UpdaterExt
+        // to support both stable and pre-release channels.
+        // Reference: https://v2.tauri.app/plugin/updater/
+        .plugin(tauri_plugin_updater::Builder::new().build())
+
         // OS plugin: exposes `os.platform()`, `os.arch()`, `os.version()`, etc.
         // Used to determine which Python/tool binaries to download for the
         // current operating system and CPU architecture.
@@ -212,10 +220,11 @@ pub fn run() {
             commands::credentials::store_credential,
             commands::credentials::get_credential,
             commands::credentials::delete_credential,
-            // Update checking commands
+            // Update checking and auto-update commands
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,
             commands::updates::check_component_update,
+            commands::updates::download_and_install_app_update,
             // Cookie management commands (browser detection, auto-import)
             commands::cookies::detect_browsers,
             commands::cookies::import_cookies_from_browser,

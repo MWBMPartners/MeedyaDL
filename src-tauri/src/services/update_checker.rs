@@ -19,8 +19,9 @@
 //     +-- check_gamdl_update()   --> PyPI JSON API (https://pypi.org/pypi/gamdl/json)
 //     |                               Compares installed version (pip show) with PyPI latest
 //     |
-//     +-- check_app_update()     --> GitHub Releases API (repos/.../releases/latest)
+//     +-- check_app_update()     --> GitHub Releases API (repos/MWBMPartners/MeedyaDL/releases)
 //     |                               Compares running version with latest release tag
+//     |                               Supports pre-release channel (releases?per_page=5)
 //     |
 //     +-- check_python_update()  --> Local comparison against python_manager::PYTHON_VERSION
 //                                     Compares installed binary version with configured target
@@ -89,6 +90,12 @@ pub struct ComponentUpdate {
     /// URL to the release page for the user to review before updating.
     /// For GAMDL: PyPI project page. For app: GitHub release page.
     pub release_url: Option<String>,
+    /// Whether this release is a pre-release (beta/RC).
+    /// Only relevant for app updates (GitHub Releases `prerelease` field).
+    pub is_prerelease: bool,
+    /// Git tag name for this release (e.g., "v0.3.7").
+    /// Used by the frontend to construct the download URL for the Tauri updater.
+    pub tag_name: Option<String>,
 }
 
 /// Combined update status for all components.
@@ -209,7 +216,10 @@ fn is_newer(current: &str, latest: &str) -> bool {
 ///
 /// # Arguments
 /// * `app` - Tauri app handle for version info and path resolution
-pub async fn check_all_updates(app: &AppHandle) -> UpdateCheckResult {
+/// * `check_pre_releases` - Whether to include pre-release versions when
+///   checking for app updates. When true, queries all recent GitHub releases
+///   (including betas/RCs); when false, only checks the latest stable release.
+pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> UpdateCheckResult {
     let mut components = Vec::new();
     let mut errors = Vec::new();
 
@@ -222,7 +232,8 @@ pub async fn check_all_updates(app: &AppHandle) -> UpdateCheckResult {
 
     // Check for app self-updates via GitHub Releases API.
     // Compares the running app version against the latest GitHub release tag.
-    match check_app_update(app).await {
+    // When check_pre_releases is true, includes beta/RC releases in the check.
+    match check_app_update(app, check_pre_releases).await {
         Ok(update) => components.push(update),
         Err(e) => errors.push(format!("App update check failed: {}", e)),
     }
@@ -294,26 +305,55 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
             None
         },
         release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{}/", v)),
+        // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
+        is_prerelease: false,
+        tag_name: None,
     })
 }
 
 /// Checks for app self-updates by querying GitHub Releases.
 ///
 /// Compares the running app version (from tauri.conf.json) with the
-/// latest GitHub release tag.
-async fn check_app_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
+/// latest GitHub release tag. When `check_pre_releases` is true, queries
+/// all recent releases (including betas/RCs); otherwise only checks the
+/// latest stable release.
+///
+/// # Arguments
+/// * `app` - Tauri app handle for reading the current app version
+/// * `check_pre_releases` - Whether to include pre-release versions.
+///   When true: queries `releases?per_page=5` and takes the newest (which may be a pre-release).
+///   When false: queries `releases/latest` (GitHub automatically excludes pre-releases).
+async fn check_app_update(
+    app: &AppHandle,
+    check_pre_releases: bool,
+) -> Result<ComponentUpdate, String> {
     // Get the current app version from Tauri's package info.
     // This reads the version from tauri.conf.json, set at build time.
     let current_version = app.package_info().version.to_string();
 
-    // Query the GitHub Releases API for the latest release.
-    // Ref: https://docs.github.com/en/rest/releases/releases#get-the-latest-release
+    // Choose the GitHub API endpoint based on pre-release preference.
+    // - Stable only: `releases/latest` returns a single release object (excludes pre-releases)
+    // - Include pre-releases: `releases?per_page=5` returns an array sorted newest-first
+    let (url, is_list) = if check_pre_releases {
+        (
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=5",
+            true,
+        )
+    } else {
+        (
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases/latest",
+            false,
+        )
+    };
+
+    // Query the GitHub Releases API.
+    // Ref: https://docs.github.com/en/rest/releases/releases
     // Required headers:
     // - User-Agent: GitHub API requires a UA string (can be anything)
     // - Accept: Request v3 JSON format
     let client = reqwest::Client::new();
     let response = client
-        .get("https://api.github.com/repos/MeedyaDL/MeedyaDL/releases/latest")
+        .get(url)
         .header("User-Agent", "meedyadl")
         .header("Accept", "application/vnd.github.v3+json")
         .send()
@@ -332,37 +372,64 @@ async fn check_app_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
                 is_compatible: true,
                 description: None,
                 release_url: None,
+                is_prerelease: false,
+                tag_name: None,
             });
         }
         return Err(format!("GitHub API returned HTTP {}", response.status()));
     }
 
-    // Parse the JSON response. The GitHub Releases API returns:
-    // { "tag_name": "v0.2.0", "html_url": "...", "body": "Release notes...", ... }
+    // Parse the JSON response.
     let json: serde_json::Value = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
 
-    // Extract the tag name (e.g., "v0.2.0") and strip the "v" prefix
+    // Extract the release object: either the single response (stable mode)
+    // or the first item from the array (pre-release mode, newest first).
+    let release = if is_list {
+        let releases = json
+            .as_array()
+            .ok_or("GitHub API returned unexpected format (expected array)")?;
+        if releases.is_empty() {
+            return Ok(ComponentUpdate {
+                name: "MeedyaDL".to_string(),
+                current_version: Some(current_version),
+                latest_version: None,
+                update_available: false,
+                is_compatible: true,
+                description: None,
+                release_url: None,
+                is_prerelease: false,
+                tag_name: None,
+            });
+        }
+        // Index 0 is the newest release (may be a pre-release)
+        &releases[0]
+    } else {
+        // Stable mode: response is a single release object
+        &json
+    };
+
+    // Extract the tag name (e.g., "v0.3.7") and strip the "v" prefix
     // to get a bare semver string for comparison with the current version.
-    let tag = json["tag_name"]
-        .as_str()
-        .unwrap_or("")
-        .trim_start_matches('v')
-        .to_string();
+    let raw_tag = release["tag_name"].as_str().unwrap_or("");
+    let tag = raw_tag.trim_start_matches('v').to_string();
 
     // Extract the release page URL for the "View Release" button in the UI
-    let html_url = json["html_url"].as_str().map(|s| s.to_string());
+    let html_url = release["html_url"].as_str().map(|s| s.to_string());
     // Extract and truncate the release notes for display in the update card.
     // Long release notes are cut to 200 characters to keep the UI compact.
-    let body = json["body"].as_str().map(|s| {
+    let body = release["body"].as_str().map(|s| {
         if s.len() > 200 {
             format!("{}...", &s[..200])
         } else {
             s.to_string()
         }
     });
+    // Extract the pre-release flag from the GitHub release metadata.
+    // This is `true` for releases marked as pre-release on GitHub.
+    let is_prerelease = release["prerelease"].as_bool().unwrap_or(false);
 
     let update_available = if tag.is_empty() {
         false
@@ -380,6 +447,14 @@ async fn check_app_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
         is_compatible: true,
         description: body,
         release_url: html_url,
+        is_prerelease,
+        // Store the raw tag (e.g., "v0.3.7") for use by the Tauri updater
+        // when constructing the download URL for a specific release.
+        tag_name: if raw_tag.is_empty() {
+            None
+        } else {
+            Some(raw_tag.to_string())
+        },
     })
 }
 
@@ -425,6 +500,9 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         release_url: Some(
             "https://github.com/indygreg/python-build-standalone/releases".to_string(),
         ),
+        // Python updates are local version comparisons, not GitHub Releases
+        is_prerelease: false,
+        tag_name: None,
     })
 }
 

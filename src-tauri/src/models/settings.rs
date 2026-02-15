@@ -176,6 +176,12 @@ pub struct AppSettings {
     /// versions of GAMDL and its dependencies (see `dependency.rs`).
     pub auto_check_updates: bool,
 
+    /// Whether to include pre-release versions when checking for app updates.
+    /// When enabled, the update checker also considers beta/RC releases from
+    /// GitHub. Pre-release versions may contain bugs or incomplete features.
+    #[serde(default)]
+    pub check_pre_releases: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -510,6 +516,9 @@ impl Default for AppSettings {
             overwrite: false,
             // Check for updates on launch so users get security/bug fixes.
             auto_check_updates: true,
+            // Only show stable releases by default. Pre-releases may have
+            // incomplete features or bugs and are for testers/developers.
+            check_pre_releases: false,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).

@@ -42,7 +42,7 @@ authors = ["MeedyaDL"]
 # license -- SPDX license identifier. MIT is permissive, allowing commercial and private use.
 license = "MIT"
 # repository -- URL to the source code. Included in bundle metadata and crates.io listings.
-repository = "https://github.com/MeedyaDL/MeedyaDL"
+repository = "https://github.com/MWBMPartners/MeedyaDL"
 # edition -- Rust edition to use. 2021 enables let-else, edition-specific lints, and module changes.
 # @see https://doc.rust-lang.org/edition-guide/editions/
 edition = "2021"
@@ -119,6 +119,15 @@ tauri-plugin-process = "2"
 #   - Download the correct Python/GAMDL binaries for the platform
 # @see https://v2.tauri.app/plugin/os/
 tauri-plugin-os = "2"
+
+# tauri-plugin-updater -- Cryptographically-verified application self-updates.
+# Downloads signed update binaries from GitHub Releases and applies them in-place.
+# The updater verifies each download against a public key embedded in tauri.conf.json
+# before applying. Supports download progress tracking, custom endpoints, and
+# platform-specific update formats (.tar.gz on macOS, .exe on Windows, .AppImage on Linux).
+# Used by the auto-update system to download and install MeedyaDL app updates.
+# @see https://v2.tauri.app/plugin/updater/
+tauri-plugin-updater = "2"
 
 # ---- Serialization ----
 # Required for converting data between Rust structs and JSON for IPC communication

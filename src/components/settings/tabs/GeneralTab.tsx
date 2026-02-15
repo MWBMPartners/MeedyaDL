@@ -186,6 +186,16 @@ export function GeneralTab() {
             updateSettings({ auto_check_updates: checked })
           }
         />
+
+        {/* Pre-release channel toggle */}
+        <Toggle
+          label="Include Pre-Release Versions"
+          description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
+          checked={settings.check_pre_releases}
+          onChange={(checked) =>
+            updateSettings({ check_pre_releases: checked })
+          }
+        />
       </div>
     </div>
   );

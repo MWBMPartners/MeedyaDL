@@ -404,6 +404,8 @@ export interface AppSettings {
   overwrite: boolean;
   /** Whether to automatically check for updates on app startup */
   auto_check_updates: boolean;
+  /** Whether to include pre-release (beta/RC) versions in update checks */
+  check_pre_releases: boolean;
   /** Default audio codec for song downloads */
   default_song_codec: SongCodec;
   /** Default maximum video resolution */
@@ -997,6 +999,10 @@ export interface ComponentUpdate {
   description: string | null;
   /** URL to the release page (GitHub releases, PyPI, etc.), or null */
   release_url: string | null;
+  /** Whether this update is a pre-release (beta/RC) version */
+  is_prerelease: boolean;
+  /** Git tag name for this release (e.g., "v0.3.7"), used for download URL construction */
+  tag_name: string | null;
 }
 
 /**
