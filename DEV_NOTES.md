@@ -224,9 +224,13 @@ Pre-release updates show an amber badge and disclaimer in the Update Banner. The
 **Cause**: `createUpdaterArtifacts: true` is set but `plugins.updater` section is missing from `tauri.conf.json`.
 **Fix**: Ensure `plugins.updater` exists with a valid `pubkey` and `endpoints` array.
 
-### "No artifacts were found" (ARM cross-compilation)
-**Cause**: The Tauri build failed silently during cross-compilation. Often caused by the same updater config issue.
-**Fix**: Same as above — ensure updater config is complete.
+### "No artifacts were found" (ARMv7)
+**Cause**: `tauri-action` skips the build entirely when both `includeRelease: false` and `includeUpdaterJson: false`. This was the original approach for ARMv7 (because tauri-action can't match Debian's `armhf` filenames), but it prevented the build from running at all.
+**Fix**: ARMv7 now bypasses tauri-action completely. The build runs directly via `npx tauri build --target armv7-unknown-linux-gnueabihf --bundles deb rpm`, and a separate step renames and uploads the artifacts manually. See the `Build ARMv7` and `Upload ARMv7 artifacts` steps in `release.yml`.
+
+### Windows ARM64 "http status: 504"
+**Cause**: Transient GitHub CDN timeout when downloading NSIS utilities (`nsis_tauri_utils.dll`). The Rust compilation succeeds but the bundling step fails.
+**Fix**: Re-run the failed job. This is a network issue, not a code problem.
 
 ### Empty `TAURI_SIGNING_PRIVATE_KEY` in CI logs
 **Cause**: The `TAURI_SIGNING_PRIVATE_KEY` GitHub secret hasn't been configured.

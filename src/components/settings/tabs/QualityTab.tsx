@@ -136,12 +136,22 @@ export function QualityTab() {
         {/* Default audio codec */}
         <Select
           label="Default Audio Codec"
-          description="The preferred codec for song downloads. ALAC provides lossless quality."
+          description={
+            <>
+              The preferred codec for song downloads. <strong>ALAC</strong> = lossless
+              (perfect quality, larger files); <strong>Dolby Atmos</strong> = immersive
+              spatial audio (requires compatible headphones/speakers);{' '}
+              <strong>AC3</strong> = surround sound (5.1 home theatre);{' '}
+              <strong>AAC Binaural</strong> = spatial audio for regular headphones;{' '}
+              <strong>AAC</strong> = standard quality (smallest files, plays everywhere).
+            </>
+          }
           options={codecOptions}
           value={settings.default_song_codec}
           onChange={(e) =>
             updateSettings({ default_song_codec: e.target.value as SongCodec })
           }
+          helpTopic="audio-codecs"
         />
 
         {/* Fallback toggle */}
