@@ -35,11 +35,15 @@
 #     7. Linux ARMv7 (armv7-unknown-linux-gnueabihf) — for Raspberry Pi (32-bit)
 #        --> Produces: .deb
 #
-# The tauri-apps/tauri-action handles the entire build and upload pipeline:
+# For most platforms, tauri-apps/tauri-action handles the entire build and upload pipeline:
 #   1. Builds the frontend (npm run build --> vite build)
 #   2. Compiles the Rust backend in release mode (cargo build --release --target ...)
 #   3. Packages the binary into platform-specific installers
 #   4. Creates a GitHub Release (or updates an existing draft) and uploads the artifacts
+#
+# For ARMv7, tauri-action is skipped entirely because it cannot handle Debian's
+# 'armhf' naming convention. Instead, `npx tauri build` runs directly and a
+# manual upload step renames and publishes the artifacts.
 #
 # The release is created as a DRAFT so maintainers can review release notes
 # and artifacts before making it public.
@@ -370,12 +374,14 @@ jobs:
       #   args        -- Extra arguments passed to 'cargo tauri build' (e.g., --target)
       #
       # @see https://github.com/tauri-apps/tauri-action -- Action documentation
+      #
       # Build and publish: For most platforms, tauri-action handles the full
-      # build + release upload pipeline. For ARMv7, tauri-action's artifact
-      # matcher can't find files because Debian uses 'armhf' naming while
-      # tauri-action expects 'armv7'. So ARMv7 builds with includeRelease=false
-      # and uploads artifacts manually in the next step.
+      # build + release upload pipeline. ARMv7 is excluded because tauri-action
+      # skips the build entirely when includeRelease=false + includeUpdaterJson=false,
+      # and it can't match 'armhf' filenames when they are true. ARMv7 is built
+      # manually in the next steps instead.
       - name: Build and publish
+        if: matrix.settings.cross_arch != 'armhf'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -400,41 +406,62 @@ jobs:
 
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
 
-            ### Choose your download
+            ---
+
+            ## Choose your download
 
             | If you're using... | Download this | Notes |
             |--------------------|--------------|-------|
-            | **Mac** (M1, M2, M3, M4) | `.dmg` | Most Macs since late 2020 |
-            | **Windows** (most PCs) | `x64-setup.exe` | Works on all modern Windows PCs |
-            | **Windows** (Snapdragon / ARM) | `arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
-            | **Linux** (most PCs) | `.deb` or `.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
-            | **Linux** (Raspberry Pi 4/5) | `arm64.deb` | Requires 64-bit OS |
-            | **Linux** (older Raspberry Pi) | `armv7.deb` | 32-bit Raspberry Pi OS |
-            | **Chromebook** | `amd64.deb` | Install via Linux (Crostini) |
+            | **Mac** (M1, M2, M3, M4) | `_aarch64.dmg` | Most Macs since late 2020 |
+            | **Windows** (most PCs) | `_x64-setup.exe` | Works on all modern Windows PCs |
+            | **Windows** (Snapdragon / ARM) | `_arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
+            | **Linux** (most PCs) | `_amd64.deb` or `_amd64.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
+            | **Linux** (RPM-based) | `_x86_64.rpm` | Fedora, RHEL, CentOS, openSUSE |
+            | **Linux** (Raspberry Pi 4/5) | `_arm64.deb` or `_aarch64.rpm` | Requires 64-bit OS |
+            | **Chromebook** | `_amd64.deb` | Install via Linux (Crostini) |
 
-            > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
+            > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `_x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
 
-            > **Windows ARM64 users**: The x64 installer also works on ARM64 via Windows' built-in emulation.
+            > **Windows ARM64 users**: The `_x64-setup.exe` also works on ARM64 via Windows' built-in emulation layer.
+
+            ### What are the `.sig` files?
+
+            Files ending in `.sig` are **cryptographic signatures** used by MeedyaDL's built-in auto-updater. They verify that downloaded updates haven't been tampered with. **You do not need to download `.sig` files** — they are used automatically by the app when checking for updates. The `latest.json` file is also part of the auto-update system and can be ignored.
 
             ### macOS Users
-            macOS builds are signed with Developer ID and submitted for notarization
-            in CI before publishing.
+
+            The macOS `.dmg` is code-signed and notarized by Apple. If macOS still shows a security warning on an unsigned development build, right-click the app and choose **Open**, or run:
+            ```
+            xattr -cr /Applications/MeedyaDL.app
+            ```
 
             ### First-Time Users
-            On first launch, the app will download Python and GAMDL automatically.
-            You will also need Apple Music cookies exported from your browser.
+
+            On first launch, MeedyaDL will guide you through a setup wizard that downloads Python, GAMDL, and required tools automatically. You will also need to provide your Apple Music cookies exported from your browser — see the in-app help for instructions.
           releaseDraft: true
           prerelease: false
-          # Skip release upload for ARMv7 — tauri-action can't match 'armhf' filenames.
-          # The next step renames and uploads them manually.
-          includeRelease: ${{ matrix.settings.cross_arch != 'armhf' }}
-          includeUpdaterJson: ${{ matrix.settings.cross_arch != 'armhf' }}
           args: ${{ matrix.settings.args }}
 
+      # Step 10b: Build ARMv7 manually.
+      # tauri-action is skipped for ARMv7 because:
+      #   1. When includeRelease=false + includeUpdaterJson=false, tauri-action
+      #      skips the build entirely (reports "No artifacts were found").
+      #   2. When they are true, tauri-action can't match Debian's 'armhf'
+      #      filenames (it expects 'armv7').
+      # The solution: build directly with `npm run tauri build` and upload
+      # artifacts manually in the next step.
+      - name: Build ARMv7
+        if: matrix.settings.cross_arch == 'armhf'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: npx tauri build --target armv7-unknown-linux-gnueabihf --bundles deb rpm
+
       # Step 11: Upload ARMv7 artifacts manually.
-      # Tauri's bundler uses Debian's 'armhf' naming convention for 32-bit ARM,
-      # but tauri-action expects 'armv7' and fails to find the artifacts.
-      # This step renames the files and uploads them to the draft release.
+      # Tauri's bundler uses Debian's 'armhf' naming convention for 32-bit ARM.
+      # This step renames the files to use 'armv7' for clarity and uploads them
+      # to the draft release.
       - name: Upload ARMv7 artifacts
         if: matrix.settings.cross_arch == 'armhf'
         env:
@@ -449,7 +476,7 @@ jobs:
             gh release create "$TAG" --draft --title "MeedyaDL $TAG" --notes "Release in progress..."
           fi
 
-          # Rename and upload .deb: armhf → armv7
+          # Upload .deb: rename armhf → armv7 for clarity
           for f in "$BUNDLE_DIR"/deb/*_armhf.deb; do
             [ -f "$f" ] || continue
             new="${f/_armhf.deb/_armv7.deb}"
@@ -457,10 +484,106 @@ jobs:
             gh release upload "$TAG" "$new" --clobber
           done
 
-          # Rename and upload .rpm: armhfp → armv7
+          # Upload .rpm: rename armhfp → armv7 for clarity
           for f in "$BUNDLE_DIR"/rpm/*.armhfp.rpm; do
             [ -f "$f" ] || continue
             new=$(echo "$f" | sed 's/\.armhfp\.rpm/.armv7.rpm/')
             mv "$f" "$new"
             gh release upload "$TAG" "$new" --clobber
           done
+
+  # ============================================================
+  # Finalize Release Notes
+  # ============================================================
+  # After all builds complete, append the platform download guide and
+  # .sig file explanation to the release body. This runs as a separate
+  # job because:
+  #   1. release-please creates the GitHub Release first with changelog
+  #      content, so tauri-action's releaseBody is ignored for existing
+  #      releases.
+  #   2. We only want to append once (not per-matrix-job).
+  #   3. The guide is idempotent — it checks for existing content before
+  #      appending.
+  finalize-release:
+    name: Finalize Release Notes
+    needs: publish
+    # Run even if some builds failed (ARM builds are allowed to fail)
+    if: always() && needs.publish.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Append download guide to release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+
+          # Get the current release body
+          CURRENT_BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq '.body' 2>/dev/null || echo "")
+
+          # Check if the download guide has already been appended (idempotent)
+          if echo "$CURRENT_BODY" | grep -q "Choose your download"; then
+            echo "Download guide already present in release notes. Skipping."
+            exit 0
+          fi
+
+          # Build the download guide to append
+          DOWNLOAD_GUIDE=$(cat <<'GUIDE_EOF'
+
+          ---
+
+          ## Choose your download
+
+          | If you're using... | Download this | Notes |
+          |--------------------|--------------|-------|
+          | **Mac** (M1, M2, M3, M4) | `_aarch64.dmg` | Most Macs since late 2020 |
+          | **Windows** (most PCs) | `_x64-setup.exe` | Works on all modern Windows PCs |
+          | **Windows** (Snapdragon / ARM) | `_arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
+          | **Linux** (most PCs) | `_amd64.deb` or `_amd64.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
+          | **Linux** (RPM-based) | `_x86_64.rpm` | Fedora, RHEL, CentOS, openSUSE |
+          | **Linux** (Raspberry Pi 4/5) | `_arm64.deb` or `_aarch64.rpm` | Requires 64-bit OS |
+          | **Chromebook** | `_amd64.deb` | Install via Linux (Crostini) |
+
+          > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `_x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
+
+          > **Windows ARM64 users**: The `_x64-setup.exe` also works on ARM64 via Windows' built-in emulation layer.
+
+          ### What are the `.sig` files?
+
+          Files ending in `.sig` are **cryptographic signatures** used by MeedyaDL's built-in auto-updater. They verify that downloaded updates haven't been tampered with. **You do not need to download `.sig` files** — they are used automatically by the app when checking for updates. The `latest.json` file is also part of the auto-update system and can be ignored.
+
+          ### macOS Users
+
+          The macOS `.dmg` is code-signed and notarized by Apple. If macOS still shows a security warning on an unsigned development build, right-click the app and choose **Open**, or run:
+          ```
+          xattr -cr /Applications/MeedyaDL.app
+          ```
+
+          ### First-Time Users
+
+          On first launch, MeedyaDL will guide you through a setup wizard that downloads Python, GAMDL, and required tools automatically. You will also need to provide your Apple Music cookies exported from your browser — see the in-app help for instructions.
+          GUIDE_EOF
+          )
+
+          # Strip leading whitespace from heredoc indentation
+          DOWNLOAD_GUIDE=$(echo "$DOWNLOAD_GUIDE" | sed 's/^          //')
+
+          # Append the guide to the existing body
+          NEW_BODY="${CURRENT_BODY}${DOWNLOAD_GUIDE}"
+
+          # Update the release
+          gh release edit "$TAG" --repo "${{ github.repository }}" --notes "$NEW_BODY"
+          echo "Download guide appended to release notes for $TAG"

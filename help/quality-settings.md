@@ -152,16 +152,33 @@ The table below summarizes the key audio codec options and their characteristics
 | Codec | Type | Typical Bitrate | File Size (per min) | Best For |
 | ------- | ------ | ----------------- | --------------------- | ---------- |
 | AAC 256 | Lossy | 256 kbps | ~2 MB | General listening, broad device compatibility |
+| AAC Binaural | Lossy + Spatial | 256 kbps | ~2 MB | Spatial audio on regular headphones |
 | ALAC 16/44.1 | Lossless | ~800 kbps | ~5 MB | CD-quality listening, good balance of quality and size |
 | ALAC 24/96 | Lossless | ~1200 kbps | ~10 MB | Hi-Res audio on quality headphones or speakers |
 | ALAC 24/192 | Lossless | ~1600 kbps | ~15 MB | Highest available quality, archival and audiophile use |
-| Atmos (EC-3) | Spatial | Varies | Varies | Immersive spatial listening with compatible hardware |
+| AC3 (Dolby Digital) | Lossy, 5.1 surround | ~288 kbps | ~2 MB | Home theatre surround-sound systems |
+| Atmos (EC-3) | Spatial / immersive | Varies | Varies | Immersive spatial listening with compatible hardware |
 
 **Notes:**
 
 - File sizes are approximate and vary depending on the dynamic range and complexity of the source material.
 - Lossless bitrates are variable because ALAC uses variable-rate compression -- simpler passages compress more than complex ones.
 - Atmos file sizes depend on the number of audio objects and the complexity of the spatial mix.
+
+---
+
+## Audio Codec Pros & Cons
+
+This table provides a quick comparison of the advantages and trade-offs for each main audio codec to help you make an informed choice.
+
+| Codec | Pros | Cons |
+| ----- | ---- | ---- |
+| **ALAC (Lossless)** | Perfect quality — no audio data lost; supports Hi-Res up to 24-bit/192kHz; ideal for archival and critical listening | Large files (2.5–7× bigger than AAC); requires more storage; quality difference may be imperceptible in noisy environments or on basic equipment |
+| **Dolby Atmos** | Immersive 3D spatial audio; stunning on compatible hardware; reveals details and separation that stereo cannot reproduce | Requires Atmos-compatible headphones or speakers (AirPods Pro/Max, Atmos soundbars); falls back to flat stereo on unsupported devices; not all tracks have Atmos mixes |
+| **AC3 (Dolby Digital)** | True multichannel surround sound (5.1); universally supported by AV receivers, soundbars, and home theatre equipment | Lossy compression; limited to 5.1 channels (no object-based positioning like Atmos); not useful on phones or standard headphones; fewer tracks available |
+| **AAC (256 kbps)** | Universal device compatibility; small files (~2 MB/min); indistinguishable from lossless for most listeners in blind tests | Lossy — permanently discards some audio data; not ideal for archival or high-end critical listening |
+| **AAC Binaural** | Simulated spatial audio experience through any standard stereo headphones; same small file size as AAC | Lossy; spatial simulation is approximate — less convincing than native Atmos on compatible hardware; only beneficial with headphones (not speakers) |
+| **AAC Legacy** | Maximum compatibility with vintage devices and legacy media players | No advantage over standard AAC on modern equipment; only needed for very old hardware |
 
 ---
 
