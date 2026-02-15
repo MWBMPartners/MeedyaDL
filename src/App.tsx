@@ -341,7 +341,14 @@ function App() {
        * has just completed and we need the freshest snapshot.
        */
       const depState = useDependencyStore.getState();
-      const depsReady = !!(depState.python?.installed && depState.gamdl?.installed);
+      const requiredToolsReady =
+        depState.tools.length > 0 &&
+        depState.tools.filter((t) => t.required).every((t) => t.installed);
+      const depsReady = !!(
+        depState.python?.installed &&
+        depState.gamdl?.installed &&
+        requiredToolsReady
+      );
       if (!depsReady) {
         setShowSetupWizard(true);
       }

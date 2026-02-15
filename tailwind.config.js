@@ -223,12 +223,10 @@ export default {
   /**
    * plugins -- Array of Tailwind CSS plugins to extend functionality.
    *
-   * No plugins are currently used. Potential additions:
-   *   - @tailwindcss/forms     -- Better default form element styling
-   *   - @tailwindcss/typography -- Prose styling for rendered markdown
-   *   - tailwind-scrollbar     -- Custom scrollbar utilities
+   * Active plugins:
+   *   - @tailwindcss/typography -- Prose styling for rendered markdown in HelpViewer
    *
    * @see https://tailwindcss.com/docs/plugins
    */
-  plugins: [],
+  plugins: [require('@tailwindcss/typography')],
 };

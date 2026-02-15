@@ -323,7 +323,33 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # Step 9: Build the application and create release bundles.
+      # Step 9: Validate required Apple signing/notarization secrets on macOS.
+      # Keeps failures explicit and prevents accidentally publishing unsigned
+      # macOS binaries when secret configuration is incomplete.
+      - name: Validate macOS signing secrets
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!var}" ]; then
+              echo "::error title=Missing secret::Required secret '$var' is not set."
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "Set the required Apple secrets in GitHub: Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      # Step 10: Build the application and create release bundles.
       # The tauri-apps/tauri-action@v0 performs the complete build pipeline:
       #
       #   1. Frontend: Runs 'npm run build' (Vite production build)
@@ -348,6 +374,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code-signing + notarization (read from GitHub Actions secrets).
+          # These are consumed by tauri-action only on macOS builds.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: 'MeedyaDL ${{ steps.tag.outputs.name }}'
@@ -369,15 +403,8 @@ jobs:
             > **Windows ARM64 users**: The x64 installer also works on ARM64 via Windows' built-in emulation.
 
             ### macOS Users
-            macOS may show **"MeedyaDL is damaged and can't be opened"** because the app
-            is not code-signed with an Apple Developer certificate. To fix this, run
-            the following command in Terminal after downloading:
-
-            ```
-            xattr -cr /Applications/MeedyaDL.app
-            ```
-
-            Then open the app normally.
+            macOS builds are signed with Developer ID and submitted for notarization
+            in CI before publishing.
 
             ### First-Time Users
             On first launch, the app will download Python and GAMDL automatically.

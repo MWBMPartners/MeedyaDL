@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v0.3.3** (2026-02-14) — All 6 phases complete + post-release features
+**v0.3.5** (2026-02-14) — All 6 phases complete + post-release features
 
 ---
 
@@ -225,7 +225,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 ---
 
-## 🆕 Post-Release Features (v0.1.1 — v0.3.3)
+## 🆕 Post-Release Features (v0.1.1 — v0.3.5)
 
 **Status:** ✅ Complete
 
@@ -252,6 +252,10 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Fix mp4decrypt (Bento4) download 404 on macOS** - URL suffix changed to `universal-apple-macosx`
 - ✅ **Fix Linux ARM builds** - Skip AppImage (exec format error on x86_64 runners), only produce .deb and .rpm
 - ✅ **Mark all four external tools as required** - FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
+- ✅ **Fix setup re-check on reopen** - Wizard now re-appears if any required tool is missing (not just Python + GAMDL)
+- ✅ **Disclaimer** - Added to both the first-run setup welcome screen and Help documentation section
+- ✅ **Fix help documentation formatting** - Installed `@tailwindcss/typography` plugin; added platform-adaptive prose color overrides so headings, paragraphs, and links render correctly across all themes
+- ✅ **macOS code signing entitlements** - Added `Entitlements.plist` with hardened runtime permissions for subprocess execution and network access
 
 ---
 

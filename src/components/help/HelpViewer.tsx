@@ -95,6 +95,7 @@ import {
   Video,        // "Music Videos" topic
   HelpCircle,   // "Troubleshooting" topic
   FileText,     // "About" topic
+  ShieldAlert,  // "Disclaimer" topic
   Search,       // Search icon in the sidebar search bar
   X,            // Clear search button icon
 } from 'lucide-react';
@@ -259,22 +260,19 @@ Cookies expire after some time. If downloads start failing with authentication e
 
 ## Required Tools
 
+All four tools below are required for full functionality.
+
 ### FFmpeg
 Used for audio/video processing and container remuxing. Required for most download operations.
 
 ### mp4decrypt
-Used for decrypting DRM-protected streams. Essential for downloading protected content.
-
-## Optional Tools
+Part of the Bento4 toolkit. Used for decrypting DRM-protected streams. Essential for downloading protected content.
 
 ### N_m3u8DL-RE
-Alternative HLS stream downloader. Can be used instead of yt-dlp by changing the download mode in Advanced settings.
+HLS/DASH stream downloader. Used for downloading segmented media streams.
 
 ### MP4Box
-Alternative container remuxing tool. Can be used instead of FFmpeg by changing the remux mode in Advanced settings.
-
-### AMDecrypt
-Alternative decryption tool for Apple Music content.
+Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
 
 ## Installation
 
@@ -371,13 +369,52 @@ Choose the container format in **Settings > Quality**:
 - On Linux: ~/.config/io.github.meedyadl/`,
   },
   {
+    id: 'disclaimer',
+    label: 'Disclaimer',
+    icon: ShieldAlert,
+    content: `# Disclaimer
+
+## Important Notice
+
+MeedyaDL is provided "as is" without warranty of any kind, express or implied.
+
+### Third-Party Dependencies
+
+MeedyaDL relies on several third-party libraries and services to function, including but not limited to:
+
+- **GAMDL** — the core download engine
+- **Python** — runtime environment for GAMDL
+- **FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box** — media processing tools
+
+These are independent projects maintained by their respective developers. Changes to these projects may affect MeedyaDL's functionality.
+
+### No Guarantees
+
+- Quality of service, features, and performance are **not guaranteed**
+- Third-party services may change, become unavailable, or cease to function at any time
+- While we endeavour to provide updates and fixes, this **cannot be guaranteed**
+- The developers accept **no liability** for loss of functionality, data, or service
+
+### Your Responsibility
+
+By using MeedyaDL, you acknowledge and accept that:
+
+- You are responsible for complying with all applicable laws and terms of service
+- Downloaded content is for personal use in accordance with your existing subscriptions
+- The developers are not responsible for how the software is used
+
+### License
+
+MeedyaDL is licensed under the MIT License. See the LICENSE file for full details.`,
+  },
+  {
     id: 'about',
     label: 'About',
     icon: FileText,
     content: `# About MeedyaDL
 
 ## Version
-v0.1.0
+v0.3.5
 
 ## Credits
 - **GAMDL** by glomatico - The Apple Music download engine
