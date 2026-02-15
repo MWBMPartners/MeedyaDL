@@ -41,13 +41,18 @@
 // Zustand store factory. Creates a React hook with automatic subscription management.
 import { create } from 'zustand';
 
+// Tauri event listener for receiving download progress events from the Rust backend.
+// The `listen` function returns an `unlisten` cleanup function.
+import { listen } from '@tauri-apps/api/event';
+
 // ComponentUpdate    -- per-component update info: name, versions, update_available, is_compatible
 // UpdateCheckResult  -- aggregated result: has_updates, components[], errors[], checked_at
 import type { ComponentUpdate, UpdateCheckResult } from '@/types';
 
 // Type-safe wrappers for Tauri IPC commands related to update management.
-// `checkAllUpdates` -> Rust `check_all_updates`
-// `upgradeGamdl`    -> Rust `upgrade_gamdl`
+// `checkAllUpdates`                -> Rust `check_all_updates`
+// `upgradeGamdl`                   -> Rust `upgrade_gamdl`
+// `downloadAndInstallAppUpdate`    -> Rust `download_and_install_app_update`
 import * as commands from '@/lib/tauri-commands';
 
 /**
@@ -106,6 +111,27 @@ interface UpdateState {
    */
   error: string | null;
 
+  /**
+   * `true` while `downloadAndInstallAppUpdate()` is downloading and installing
+   * a MeedyaDL app update via the Tauri updater plugin. The Update Banner
+   * shows a progress bar during this time.
+   */
+  isDownloadingUpdate: boolean;
+
+  /**
+   * Download progress as a percentage (0–100), or `null` if the total size
+   * is unknown (indeterminate progress). Updated in real-time from Tauri
+   * `app-update-progress` events emitted by the Rust backend during download.
+   */
+  downloadProgress: number | null;
+
+  /**
+   * `true` after a MeedyaDL app update has been downloaded and installed
+   * successfully. The Update Banner shows a "Restart Now" button in this state.
+   * The update takes effect after the application is relaunched.
+   */
+  updateInstalled: boolean;
+
   // ---------------------------------------------------------------------------
   // Async actions (communicate with Rust backend)
   // ---------------------------------------------------------------------------
@@ -142,6 +168,22 @@ interface UpdateState {
    * @throws If the pip upgrade fails
    */
   upgradeGamdl: () => Promise<string>;
+
+  /**
+   * Download and install a MeedyaDL app update from a specific release tag.
+   *
+   * IPC call: `commands.downloadAndInstallAppUpdate(tag)` -> Rust `download_and_install_app_update`
+   * The Rust handler uses the Tauri updater plugin to download a signed update
+   * binary from GitHub Releases and apply it in-place.
+   *
+   * During download, listens for `app-update-progress` Tauri events to update
+   * `downloadProgress` in real-time. On success, sets `updateInstalled = true`
+   * so the UI can show a "Restart Now" button.
+   *
+   * @param tag - Git tag of the release to install (e.g., "v0.3.7")
+   * @throws If the download, verification, or installation fails
+   */
+  downloadAndInstallAppUpdate: (tag: string) => Promise<void>;
 
   // ---------------------------------------------------------------------------
   // Synchronous actions (local state only)
@@ -204,11 +246,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state -- no results, nothing in progress
   // -------------------------------------------------------------------------
-  lastResult: null,    // No check result until first checkForUpdates() call
-  isChecking: false,   // No check in progress
-  isUpgrading: false,  // No upgrade in progress
-  dismissed: [],       // No dismissed update notifications
-  error: null,         // No error
+  lastResult: null,           // No check result until first checkForUpdates() call
+  isChecking: false,          // No check in progress
+  isUpgrading: false,         // No upgrade in progress
+  dismissed: [],              // No dismissed update notifications
+  error: null,                // No error
+  isDownloadingUpdate: false, // No app update download in progress
+  downloadProgress: null,     // No download progress
+  updateInstalled: false,     // No app update pending restart
 
   // -------------------------------------------------------------------------
   // Async actions
@@ -268,6 +313,58 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message, isUpgrading: false });
       throw new Error(message);
+    }
+  },
+
+  /**
+   * Download and install a MeedyaDL app update using the Tauri updater plugin.
+   *
+   * Sets up a Tauri event listener for `app-update-progress` events before
+   * invoking the Rust command, so download progress is tracked in real-time.
+   * The listener is cleaned up after the download completes (or fails).
+   *
+   * Progress events from Rust contain `chunk_length` (bytes in this chunk)
+   * and `content_length` (total download size from Content-Length header).
+   * Bytes are accumulated locally to compute a 0–100 percentage.
+   */
+  downloadAndInstallAppUpdate: async (tag) => {
+    set({ isDownloadingUpdate: true, downloadProgress: 0, error: null });
+
+    // Accumulated download bytes for progress calculation
+    let downloadedBytes = 0;
+
+    // Listen for progress events from the Rust backend during download.
+    // The Tauri updater emits these via `app.emit("app-update-progress", ...)`.
+    const unlisten = await listen<{
+      event: string;
+      chunk_length?: number;
+      content_length?: number;
+    }>('app-update-progress', (event) => {
+      const { payload } = event;
+      if (payload.event === 'progress') {
+        downloadedBytes += payload.chunk_length ?? 0;
+        const total = payload.content_length ?? 0;
+        // Calculate percentage, or null if total is unknown (indeterminate)
+        const progress =
+          total > 0
+            ? Math.min(100, Math.round((downloadedBytes / total) * 100))
+            : null;
+        set({ downloadProgress: progress });
+      } else if (payload.event === 'finished') {
+        set({ downloadProgress: 100 });
+      }
+    });
+
+    try {
+      await commands.downloadAndInstallAppUpdate(tag);
+      set({ isDownloadingUpdate: false, updateInstalled: true });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: message, isDownloadingUpdate: false, downloadProgress: null });
+      throw new Error(message);
+    } finally {
+      // Always clean up the event listener
+      unlisten();
     }
   },
 

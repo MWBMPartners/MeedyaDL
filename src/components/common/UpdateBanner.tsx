@@ -32,7 +32,14 @@
  * Lucide icon imports for the banner UI.
  * @see https://lucide.dev/guide/packages/lucide-react
  */
-import { ArrowUpCircle, X, ExternalLink, RefreshCw } from 'lucide-react';
+import {
+  ArrowUpCircle,
+  X,
+  ExternalLink,
+  RefreshCw,
+  Download,
+  RotateCcw,
+} from 'lucide-react';
 
 /**
  * React `useMemo` hook for memoizing the derived active-updates list.
@@ -46,13 +53,19 @@ import { ArrowUpCircle, X, ExternalLink, RefreshCw } from 'lucide-react';
  */
 import { useMemo } from 'react';
 
+/**
+ * Tauri process plugin for relaunching the app after an update is installed.
+ * @see https://v2.tauri.app/plugin/process/
+ */
+import { relaunch } from '@tauri-apps/plugin-process';
+
 /** Zustand store for update state (available updates, dismiss, upgrade actions) */
 import { useUpdateStore } from '@/stores/updateStore';
 
 /** Zustand store for general UI state (toast notifications) */
 import { useUiStore } from '@/stores/uiStore';
 
-/** Common Button component -- used for the "Upgrade" CTA */
+/** Common Button component -- used for the "Upgrade" and "Download & Install" CTAs */
 import { Button } from './Button';
 
 /**
@@ -91,6 +104,12 @@ export function UpdateBanner() {
   const dismissUpdate = useUpdateStore((s) => s.dismissUpdate);
   const upgradeGamdl = useUpdateStore((s) => s.upgradeGamdl);
   const isUpgrading = useUpdateStore((s) => s.isUpgrading);
+  const isDownloadingUpdate = useUpdateStore((s) => s.isDownloadingUpdate);
+  const downloadProgress = useUpdateStore((s) => s.downloadProgress);
+  const updateInstalled = useUpdateStore((s) => s.updateInstalled);
+  const downloadAndInstallAppUpdate = useUpdateStore(
+    (s) => s.downloadAndInstallAppUpdate,
+  );
   const addToast = useUiStore((s) => s.addToast);
 
   /**
@@ -98,6 +117,10 @@ export function UpdateBanner() {
    * Only recomputes when `lastResult` or `dismissed` changes.
    * Filters to only show updates that are available, compatible, and
    * not dismissed by the user.
+   *
+   * Note: When `updateInstalled` is true, we also include the MeedyaDL
+   * component even if it would normally be filtered out, so the "Restart
+   * Now" button remains visible.
    */
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
@@ -123,6 +146,34 @@ export function UpdateBanner() {
       addToast(`GAMDL upgraded to v${version}`, 'success');
     } catch {
       addToast('Failed to upgrade GAMDL', 'error');
+    }
+  };
+
+  /**
+   * Handles the MeedyaDL app download & install flow.
+   * Calls the store's `downloadAndInstallAppUpdate` action which uses the
+   * Tauri updater plugin to download, verify, and install the update.
+   *
+   * @param tag - Git tag of the release (e.g., "v0.3.7")
+   */
+  const handleDownloadAndInstall = async (tag: string) => {
+    try {
+      await downloadAndInstallAppUpdate(tag);
+      addToast('Update installed! Restart to apply.', 'success');
+    } catch {
+      addToast('Failed to download and install update', 'error');
+    }
+  };
+
+  /**
+   * Handles restarting the application after an update is installed.
+   * Uses the Tauri process plugin's `relaunch()` to restart the app.
+   */
+  const handleRestart = async () => {
+    try {
+      await relaunch();
+    } catch {
+      addToast('Failed to restart. Please restart manually.', 'error');
     }
   };
 
@@ -173,82 +224,159 @@ export function UpdateBanner() {
            * Per-component update rows.
            * Each row shows the component name, current version, latest
            * version (with a right-arrow), and action buttons.
+           *
+           * Component-specific behaviour:
+           * - GAMDL: "Upgrade" button (in-app pip upgrade)
+           * - MeedyaDL: "Download & Install" / progress bar / "Restart Now"
+           * - Others (Python, etc.): "View Release" external link
+           *
+           * Pre-release updates show an amber badge and disclaimer.
            */}
           {activeUpdates.map((update) => (
-            <div
-              key={update.name}
-              className="flex items-center justify-between gap-2"
-            >
-              {/* Component name and version info (left side) */}
-              <span className="text-xs text-content-secondary">
-                <span className="font-medium">{update.name}</span>
-                {/* Current version -- only shown when known */}
-                {update.current_version && (
-                  <span> v{update.current_version}</span>
-                )}
-                {/* Latest version -- highlighted in accent colour with arrow */}
-                {update.latest_version && (
-                  <span className="text-accent">
-                    {' '}
-                    &rarr; v{update.latest_version}
-                  </span>
-                )}
-              </span>
+            <div key={update.name} className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                {/* Component name, version info, and pre-release badge (left side) */}
+                <span className="text-xs text-content-secondary">
+                  <span className="font-medium">{update.name}</span>
+                  {/* Current version -- only shown when known */}
+                  {update.current_version && (
+                    <span> v{update.current_version}</span>
+                  )}
+                  {/* Latest version -- highlighted in accent colour with arrow */}
+                  {update.latest_version && (
+                    <span className="text-accent">
+                      {' '}
+                      &rarr; v{update.latest_version}
+                    </span>
+                  )}
+                  {/* Pre-release badge -- amber indicator for beta/RC versions */}
+                  {update.is_prerelease && (
+                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                      Pre-Release
+                    </span>
+                  )}
+                </span>
 
-              {/* Action buttons (right side) */}
-              <div className="flex items-center gap-1.5">
-                {/*
-                 * GAMDL-specific upgrade button.
-                 * Only shown when the update is for the GAMDL CLI tool,
-                 * which can be upgraded in-app via pip. Uses the primary
-                 * Button variant at sm size with a RefreshCw icon.
-                 * The `loading` prop shows a spinner while upgrading.
-                 */}
-                {update.name === 'GAMDL' && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<RefreshCw size={12} />}
-                    loading={isUpgrading}
-                    onClick={handleUpgradeGamdl}
-                  >
-                    Upgrade
-                  </Button>
-                )}
+                {/* Action buttons (right side) */}
+                <div className="flex items-center gap-1.5">
+                  {/*
+                   * GAMDL-specific upgrade button.
+                   * Only shown when the update is for the GAMDL CLI tool,
+                   * which can be upgraded in-app via pip. Uses the primary
+                   * Button variant at sm size with a RefreshCw icon.
+                   * The `loading` prop shows a spinner while upgrading.
+                   */}
+                  {update.name === 'GAMDL' && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<RefreshCw size={12} />}
+                      loading={isUpgrading}
+                      onClick={handleUpgradeGamdl}
+                    >
+                      Upgrade
+                    </Button>
+                  )}
 
-                {/*
-                 * External release link -- opens the GitHub release page
-                 * in the system browser. Only rendered when the update
-                 * object includes a release_url.
-                 * The non-null assertion (!) is safe because of the
-                 * conditional rendering guard.
-                 */}
-                {update.release_url && (
+                  {/*
+                   * MeedyaDL app update actions -- three states:
+                   * 1. updateInstalled: "Restart Now" button to relaunch the app
+                   * 2. isDownloadingUpdate: progress bar with percentage
+                   * 3. Default: "Download & Install" button (requires tag_name)
+                   */}
+                  {update.name === 'MeedyaDL' && (
+                    <>
+                      {updateInstalled ? (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={<RotateCcw size={12} />}
+                          onClick={handleRestart}
+                        >
+                          Restart Now
+                        </Button>
+                      ) : isDownloadingUpdate ? (
+                        /* Download progress bar */
+                        <div className="flex items-center gap-2 min-w-[120px]">
+                          <div className="flex-1 h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-accent rounded-full transition-all duration-300"
+                              style={{
+                                width: `${downloadProgress ?? 0}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="text-[10px] text-content-tertiary tabular-nums">
+                            {downloadProgress != null
+                              ? `${downloadProgress}%`
+                              : '...'}
+                          </span>
+                        </div>
+                      ) : (
+                        update.tag_name && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            icon={<Download size={12} />}
+                            onClick={() =>
+                              handleDownloadAndInstall(update.tag_name!)
+                            }
+                          >
+                            Download &amp; Install
+                          </Button>
+                        )
+                      )}
+                    </>
+                  )}
+
+                  {/*
+                   * External release link -- opens the GitHub release page
+                   * in the system browser. Only rendered when the update
+                   * object includes a release_url.
+                   * The non-null assertion (!) is safe because of the
+                   * conditional rendering guard.
+                   */}
+                  {update.release_url && (
+                    <button
+                      type="button"
+                      onClick={() => handleViewRelease(update.release_url!)}
+                      className="p-1 rounded hover:bg-surface-secondary transition-colors"
+                      title="View release"
+                    >
+                      <ExternalLink
+                        size={14}
+                        className="text-content-tertiary"
+                      />
+                    </button>
+                  )}
+
+                  {/*
+                   * Dismiss button -- hides this specific update notification
+                   * until the next update check cycle. Calls dismissUpdate
+                   * with the component name as the key.
+                   */}
                   <button
-                    onClick={() => handleViewRelease(update.release_url!)}
+                    type="button"
+                    onClick={() => dismissUpdate(update.name)}
                     className="p-1 rounded hover:bg-surface-secondary transition-colors"
-                    title="View release"
+                    title="Dismiss"
                   >
-                    <ExternalLink
-                      size={14}
-                      className="text-content-tertiary"
-                    />
+                    <X size={14} className="text-content-tertiary" />
                   </button>
-                )}
-
-                {/*
-                 * Dismiss button -- hides this specific update notification
-                 * until the next update check cycle. Calls dismissUpdate
-                 * with the component name as the key.
-                 */}
-                <button
-                  onClick={() => dismissUpdate(update.name)}
-                  className="p-1 rounded hover:bg-surface-secondary transition-colors"
-                  title="Dismiss"
-                >
-                  <X size={14} className="text-content-tertiary" />
-                </button>
+                </div>
               </div>
+
+              {/*
+               * Pre-release disclaimer -- shown below the update row when
+               * the release is marked as pre-release on GitHub. Uses an
+               * amber/warning colour scheme to draw attention.
+               */}
+              {update.is_prerelease && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400/80 pl-0.5">
+                  This is a pre-release version and may contain bugs or
+                  incomplete features. Not recommended for production use.
+                </p>
+              )}
             </div>
           ))}
         </div>
