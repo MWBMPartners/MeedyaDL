@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Enhance quality settings recommendations for audio codecs
+
+## [0.3.10] - 2026-02-15
+
 ### 🐛 Bug Fixes
 
 - Fixed build generation bugs
