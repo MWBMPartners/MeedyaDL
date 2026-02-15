@@ -20,9 +20,21 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Fetched application version dynamically from Tauri configuration.
   - Added setup_completed flag to settings store for persistent setup state.
 
+- Add updater functionality for app updates with pre-release support
+
+- Introduced updater permission set in macOS schema for frontend access.
+  - Implemented `download_and_install_app_update` command to handle app updates.
+  - Enhanced `check_all_updates` to include pre-release versions based on user settings.
+  - Updated settings model to allow toggling of pre-release version checks.
+  - Modified update checker to query GitHub Releases for both stable and pre-release versions.
+  - Added UI components for downloading and installing updates, including progress tracking.
+  - Integrated event listeners for real-time download progress updates in the frontend.
+  - Updated settings UI to include a toggle for pre-release version checks.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.3.6] - 2026-02-15
