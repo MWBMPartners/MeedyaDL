@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(updater)** Update public key for the updater plugin
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.8] - 2026-02-15
+
 ### ✨ Features
 
 - Add developer notes and update tauri configuration for updater plugin
