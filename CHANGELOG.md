@@ -18,6 +18,14 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Added settings.json for permission configurations.
 
 
+### 🐛 Bug Fixes
+
+- Improve error logging in download_tool_with_fallback function
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.3.5] - 2026-02-15
 
 ### ✨ Features
