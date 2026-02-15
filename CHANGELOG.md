@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Fixed build generation bugs
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.9] - 2026-02-15
+
+### 🐛 Bug Fixes
+
 - **(updater)** Update public key for the updater plugin
 
 ### 📚 Documentation
