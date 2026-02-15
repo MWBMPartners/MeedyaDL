@@ -369,12 +369,38 @@ These codecs are available but marked as experimental. They may not work reliabl
 
 ## Which Should I Choose?
 
-- **"I want the best quality possible"** → Choose **ALAC** (Lossless). Enable the fallback chain so you still get downloads when lossless isn't available.
-- **"I have AirPods Pro/Max"** → Choose **Dolby Atmos** with a companion download of ALAC. You get spatial audio for compatible tracks and lossless for everything else.
-- **"I have a surround-sound system"** → Choose **AC3** (Dolby Digital) for multichannel content, or **Dolby Atmos** if your system supports it.
+There are two main goals when choosing a codec, and each has its own recommended setup:
+
+### Recommendation 1: Best Raw Audio Quality → ALAC (Lossless)
+
+If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Quality.
+
+ALAC preserves every detail of the original recording with no data lost. It supports Hi-Res up to 24-bit/192kHz, making it ideal for audiophile listening, high-quality speakers and headphones, and archival. The fallback chain ensures that when lossless isn't available for a particular track, MeedyaDL automatically tries the next codec in your chain (e.g., AAC 256 kbps) so you always get a download.
+
+**Choose ALAC if:** you listen on quality speakers or headphones, you want the best your equipment can reproduce, or you want to build a future-proof archive. ALAC files are larger (2.5–7× bigger than AAC), so make sure you have the storage space.
+
+### Recommendation 2: Immersive Spatial/Multichannel Audio → Dolby Atmos
+
+If your priority is **immersive, three-dimensional audio** — hearing instruments and sounds placed all around you in 3D space — choose **Dolby Atmos** as your default codec and enable the **fallback chain**.
+
+Dolby Atmos uses object-based mixing to position sounds in 3D space rather than just left/right stereo. On compatible hardware (AirPods Pro, AirPods Max, Atmos soundbars, compatible AV receivers), the result is a dramatically more spacious and enveloping listening experience. The fallback chain is especially important here because not every track has an Atmos mix — when Atmos isn't available, MeedyaDL will automatically fall back through AC3 (5.1 surround), AAC Binaural (simulated spatial for regular headphones), and then standard AAC.
+
+**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Quality) so you also get a lossless copy of every track alongside the Atmos version.
+
+### Which One Is Right for Me?
+
+| Priority | Recommended Codec | Why |
+| -------- | ----------------- | --- |
+| Raw quality, perfect reproduction | **ALAC** | Bit-for-bit identical to the studio master. No data lost. Best for quality speakers, headphones, and archival |
+| Immersive spatial/3D audio | **Dolby Atmos** | 3D object-based positioning. Instruments surround you. Best for AirPods Pro/Max and Atmos systems |
+
+If you care about **both**, set Dolby Atmos as your default with a Companion Download of ALAC. You'll get the spatial experience on compatible tracks and a lossless backup for everything.
+
+### Other Scenarios
+
+- **"I have a surround-sound system but not Atmos"** → Choose **AC3** (Dolby Digital) for 5.1 multichannel content.
 - **"I just want it to work everywhere"** → Choose **AAC** (256 kbps). Smallest files, plays on everything, sounds great.
-- **"I want spatial audio but my headphones aren't AirPods"** → Choose **AAC Binaural**. You'll get simulated 3D audio through any headphones.
-- **"I'm not sure"** → Start with **ALAC** and enable the fallback chain. This gives you the highest quality when available, automatically falling back to compressed formats for tracks where lossless isn't offered.
+- **"I want spatial audio but my headphones aren't AirPods"** → Choose **AAC Binaural**. You'll get simulated 3D audio through any standard headphones.
 
 For more details on fallback behaviour, see the Fallback Quality section.`,
   },
