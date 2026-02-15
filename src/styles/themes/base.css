@@ -201,6 +201,34 @@
    */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
+
+  /* ---- Typography Plugin (prose) ---- */
+  /*
+   * Override @tailwindcss/typography's default prose colors so that the Help
+   * documentation uses our platform-adaptive CSS variables instead of Tailwind's
+   * built-in gray palette. Because these reference CSS custom properties, they
+   * automatically adapt when platform themes or dark/light mode overrides change
+   * the underlying --text-*, --accent, --border, and --surface-* values.
+   *
+   * Referenced by: HelpViewer's `prose prose-sm dark:prose-invert` classes.
+   * @see https://tailwindcss.com/docs/typography-plugin#customizing-the-css
+   */
+  --tw-prose-body: var(--text-primary);
+  --tw-prose-headings: var(--text-primary);
+  --tw-prose-lead: var(--text-secondary);
+  --tw-prose-links: var(--accent);
+  --tw-prose-bold: var(--text-primary);
+  --tw-prose-counters: var(--text-secondary);
+  --tw-prose-bullets: var(--text-tertiary);
+  --tw-prose-hr: var(--border-light);
+  --tw-prose-quotes: var(--text-primary);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-captions: var(--text-secondary);
+  --tw-prose-code: var(--text-primary);
+  --tw-prose-pre-code: var(--text-primary);
+  --tw-prose-pre-bg: var(--surface-elevated);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border-light);
 }
 
 /* ============================================================
@@ -260,6 +288,24 @@
     /* Shadows -- Stronger opacity in dark mode because shadows are less visible on dark surfaces */
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);       /* 30% opacity (vs 10% in light mode) */
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);   /* 40% opacity (vs 15% in light mode) */
+
+    /* Prose overrides inherit from the dark --text-* / --accent values above automatically */
+    --tw-prose-invert-body: var(--text-primary);
+    --tw-prose-invert-headings: var(--text-primary);
+    --tw-prose-invert-lead: var(--text-secondary);
+    --tw-prose-invert-links: var(--accent);
+    --tw-prose-invert-bold: var(--text-primary);
+    --tw-prose-invert-counters: var(--text-secondary);
+    --tw-prose-invert-bullets: var(--text-tertiary);
+    --tw-prose-invert-hr: var(--border-light);
+    --tw-prose-invert-quotes: var(--text-primary);
+    --tw-prose-invert-quote-borders: var(--border);
+    --tw-prose-invert-captions: var(--text-secondary);
+    --tw-prose-invert-code: var(--text-primary);
+    --tw-prose-invert-pre-code: var(--text-primary);
+    --tw-prose-invert-pre-bg: var(--surface-elevated);
+    --tw-prose-invert-th-borders: var(--border);
+    --tw-prose-invert-td-borders: var(--border-light);
   }
 }
 
@@ -310,6 +356,23 @@ html.theme-dark {
 
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  --tw-prose-invert-body: var(--text-primary);
+  --tw-prose-invert-headings: var(--text-primary);
+  --tw-prose-invert-lead: var(--text-secondary);
+  --tw-prose-invert-links: var(--accent);
+  --tw-prose-invert-bold: var(--text-primary);
+  --tw-prose-invert-counters: var(--text-secondary);
+  --tw-prose-invert-bullets: var(--text-tertiary);
+  --tw-prose-invert-hr: var(--border-light);
+  --tw-prose-invert-quotes: var(--text-primary);
+  --tw-prose-invert-quote-borders: var(--border);
+  --tw-prose-invert-captions: var(--text-secondary);
+  --tw-prose-invert-code: var(--text-primary);
+  --tw-prose-invert-pre-code: var(--text-primary);
+  --tw-prose-invert-pre-bg: var(--surface-elevated);
+  --tw-prose-invert-th-borders: var(--border);
+  --tw-prose-invert-td-borders: var(--border-light);
 }
 
 /* ============================================================
