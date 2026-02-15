@@ -16,6 +16,37 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Enhanced Help documentation with a disclaimer regarding third-party dependencies.
   - Updated Tailwind CSS configuration to include typography plugin for improved styling.
 
+- **System PATH detection for external tools** — before downloading sandboxed copies, the dependency manager now checks the system PATH for existing installations of FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box. If a compatible version is found (meeting minimum version requirements), it is copied to the managed tools directory instead of downloading a fresh copy. The setup wizard shows a "System" badge for tools detected from PATH.
+
+- **Tool version requirements config** (`tool-versions.toml`) — human-editable TOML file defining minimum supported versions for all external tool dependencies. Compiled into the binary via `include_str!()` for zero-runtime file I/O.
+
+- **Dependency source tracking** — `DependencyStatus.source` field ("system" or "managed") propagated from Rust backend to TypeScript frontend, with `.source` marker files persisted in each tool directory.
+
+### 🐛 Bug Fixes
+
+- **Fix mp4decrypt (Bento4) download 404 on Windows and Linux** — Bento4 renamed platform suffixes at build 633: `win32` → `x86_64-microsoft-win32`, `linux-x86_64` → `x86_64-unknown-linux`.
+
+- **Fix MP4Box (GPAC) installation on Windows** — GPAC discontinued ZIP archives for Windows. Now downloads the NSIS `.exe` installer and runs it silently (`/S /D=<temp>`) to extract `MP4Box.exe`.
+
+- **Fix MP4Box (GPAC) installation on Linux** — GPAC discontinued tarballs for Linux. Now downloads the `.deb` package and extracts it using `ar` + `tar` without system-level installation.
+
+- **Fix N_m3u8DL-RE download 404** — Asset naming conventions change between releases. Now uses GitHub Releases API for dynamic URL resolution instead of hardcoded filenames.
+
+- **Fix MP4Box macOS installation** — Tries Homebrew first (`brew install gpac`) for native ARM64 builds, with GPAC `.pkg` extraction as fallback.
+
+- **Fix ARMv7 artifact naming in release workflow** — tauri-action's artifact matcher expects `armv7` but Tauri's bundler uses Debian's `armhf`/`armhfp` naming. ARMv7 builds now use `includeRelease: false` and upload artifacts manually after renaming.
+
+- **Rosetta 2 detection on Apple Silicon** — Before downloading x86_64 binaries (FFmpeg, MP4Box .pkg fallback) on Apple Silicon, the app now checks if Rosetta 2 is installed. If not available, the download is refused with a clear error message directing users to install the native ARM64 version via Homebrew instead.
+
+### 🔧 Improvements
+
+- **Fallback mirror for tool downloads** — When primary upstream download sources fail (404, URL changes, server downtime), the dependency manager now falls back to `MWBMPartners/meedyadl-tools` GitHub Releases. This applies to all four external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box). Mirror assets use standardized naming (`{tool_id}-{os}-{arch}.{ext}`).
+
+- **Generic GitHub API resolver** — Extracted N_m3u8DL-RE's inline GitHub API code into a reusable `resolve_github_release_asset()` function. Used by both upstream release resolution and mirror fallback queries.
+
+- **Download resolution order** — Tool installation now follows a three-tier fallback chain: System PATH → Primary upstream source → Mirror repository → Error with guidance.
+
+- **Improved release page download guidance** — Replaced technical download table with a user-friendly "Choose your download" guide with plain-language platform descriptions and Chromebook guidance.
 
 ### 📚 Documentation
 
