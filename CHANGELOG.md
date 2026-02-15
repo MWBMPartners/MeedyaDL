@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add developer notes and update tauri configuration for updater plugin
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.7] - 2026-02-15
+
+### ✨ Features
+
 - Enhance audio codec handling and add help button for contextual assistance
 
 - Added support for Dolby Digital (AC3) codec suffix in download queue.
