@@ -8,6 +8,27 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Enhance audio codec handling and add help button for contextual assistance
+
+- Added support for Dolby Digital (AC3) codec suffix in download queue.
+  - Introduced new companion mode for Atmos to download all formats (AC3, ALAC, AAC).
+  - Updated setup wizard to skip if dependencies are missing but setup has been completed.
+  - Implemented HelpButton component for contextual help in Input, Select, and Toggle components.
+  - Enhanced various settings tabs with help topics for better user guidance.
+  - Improved validation and user feedback for cookie settings and sign-in processes.
+  - Updated application branding from GAMDL to MeedyaDL in the sidebar and status bar.
+  - Fetched application version dynamically from Tauri configuration.
+  - Added setup_completed flag to settings store for persistent setup state.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.6] - 2026-02-15
+
+### ✨ Features
+
 - Add FallbackChainList component for reorderable priority lists
 
 - Introduced a new generic component, FallbackChainList, for managing reorderable lists with up/down buttons.
