@@ -473,7 +473,7 @@ async fn download_tool_with_fallback(
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     log::warn!("Primary download failed for {}: {}", tool_id, e);
-                    format!("{}", e)
+                    e
                 }
             }
         }
