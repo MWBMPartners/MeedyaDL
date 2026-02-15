@@ -278,11 +278,39 @@ For full details on how fallback chains work and how to configure fallback behav
 
 ## Format Differences and Recommendations
 
-The right quality setting depends on your listening or viewing environment, your playback equipment, and how much storage space you are willing to use. Here are recommendations for common scenarios:
+The right quality setting depends on your listening or viewing environment, your playback equipment, and how much storage space you are willing to use.
+
+### Our Top Recommendations
+
+There are two main goals when choosing an audio codec, and each has its own ideal setup:
+
+#### Recommendation 1: Best Raw Audio Quality → ALAC (Lossless)
+
+If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Quality.
+
+ALAC preserves every detail of the original recording with no data lost. It supports Hi-Res up to 24-bit/192kHz, making it ideal for audiophile listening, high-quality speakers and headphones, and archival. The fallback chain ensures that when lossless isn't available for a particular track, MeedyaDL automatically tries the next codec in your chain so you always get a download.
+
+**Choose ALAC if:** you listen on quality speakers or headphones, you want the best your equipment can reproduce, or you want to build a future-proof archive. ALAC files are larger (2.5–7× bigger than AAC), so make sure you have the storage space.
+
+#### Recommendation 2: Immersive Spatial/Multichannel Audio → Dolby Atmos
+
+If your priority is **immersive, three-dimensional audio** — hearing instruments and sounds placed all around you in 3D space — choose **Dolby Atmos** as your default codec and enable the **fallback chain**.
+
+Dolby Atmos uses object-based mixing to position sounds in 3D space rather than just left/right stereo. On compatible hardware (AirPods Pro, AirPods Max, Atmos soundbars, compatible AV receivers), the result is a dramatically more spacious and enveloping listening experience. The fallback chain is especially important here because not every track has an Atmos mix — when Atmos isn't available, MeedyaDL will automatically fall back through AC3 (5.1 surround), AAC Binaural (simulated spatial for regular headphones), and then standard AAC.
+
+**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Quality) so you also get a lossless copy of every track alongside the Atmos version.
+
+#### Want Both?
+
+If you care about both raw quality and spatial audio, set Dolby Atmos as your default with a Companion Download of ALAC. You'll get the spatial experience on compatible tracks and a lossless backup for everything.
+
+### Other Common Scenarios
 
 - **Casual mobile listening:** Choose **AAC 256 kbps**. At approximately 2 MB per minute, file sizes are small enough to carry a large library on your phone. The 256 kbps bitrate is transparent (indistinguishable from lossless) for the vast majority of listeners, especially in noisy mobile environments
 - **Home audio system:** Choose **ALAC 16-bit/44.1 kHz** (CD quality) or **ALAC 24-bit/96 kHz** (Hi-Res) depending on your equipment. CD quality at ~5 MB per minute is sufficient for most home audio setups. If your DAC and amplifier support Hi-Res audio, 24/96 at ~10 MB per minute offers measurably higher fidelity
+- **Home theatre (surround sound without Atmos):** Choose **AC3** (Dolby Digital) for 5.1 multichannel content on AV receivers and soundbars that don't support Atmos
 - **Archival and preservation:** Choose **ALAC 24-bit/192 kHz** for the highest possible quality at approximately 15 MB per minute. This preserves the full resolution of the source material and can always be converted to lower-quality formats later without re-downloading
+- **Spatial audio on regular headphones:** Choose **AAC Binaural** for simulated 3D spatial audio through any standard wired or wireless headphones
 - **Video viewing:** Choose **1080p** for the best balance of visual quality and file size. Most screens and viewing distances do not benefit from 4K. Pair with HEVC if your devices support it for smaller file sizes
 - **Limited storage:** Choose **AAC 256 kbps** for audio and **720p** for video. This combination provides good quality while keeping file sizes manageable. A typical album will be approximately 80-100 MB in AAC, and a music video approximately 50-75 MB at 720p
 
