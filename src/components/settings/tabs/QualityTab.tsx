@@ -26,9 +26,10 @@
  *     video downloads (e.g., 2160p for 4K). Maps to
  *     `settings.default_video_resolution`.
  *
- *   - **Video Codec Priority** -- A comma-separated list of video codecs
- *     tried in order (e.g., "h265,h264"). Maps to
- *     `settings.default_video_codec_priority`.
+ *   - **Video Codec Priority** -- A reorderable list of video codecs
+ *     tried in order (H.265/HEVC and H.264/AVC). Stored internally as a
+ *     comma-separated string in `settings.default_video_codec_priority`;
+ *     the UI converts to/from an array at the boundary.
  *
  *   - **Video Remux Format** -- The output container format for remuxed
  *     video files (M4V, MP4, or MKV). Maps to
@@ -48,13 +49,29 @@
 // Zustand store for reading/writing quality settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// Shared form components: Select for dropdowns, Toggle for switches, Input for text fields.
-import { Select, Toggle, Input } from '@/components/common';
+// Shared form components: Select for dropdowns, Toggle for switches, FallbackChainList for reorderable lists.
+import { Select, Toggle, FallbackChainList } from '@/components/common';
 
-// Label maps and type definitions for audio codecs, video resolutions, and companion modes.
-// These Record<T, string> maps are used to populate the <Select> dropdown options.
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, COMPANION_MODE_LABELS } from '@/types';
-import type { SongCodec, VideoResolution, CompanionMode } from '@/types';
+// Label maps and type definitions for audio codecs, video resolutions, video codecs, and companion modes.
+// These Record<T, string> maps are used to populate the <Select> dropdown options and reorderable lists.
+import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, VIDEO_CODEC_LABELS, COMPANION_MODE_LABELS } from '@/types';
+import type { SongCodec, VideoResolution, VideoCodec, CompanionMode } from '@/types';
+
+/** All valid video codec identifiers, used for type-guarding parsed strings. */
+const VALID_VIDEO_CODECS: VideoCodec[] = ['h265', 'h264'];
+
+/**
+ * Parses a comma-separated video codec priority string into a typed array.
+ * Filters out any invalid values and falls back to the default order if
+ * the result is empty (e.g., stored value was blank or entirely invalid).
+ */
+function parseVideoCodecPriority(raw: string): VideoCodec[] {
+  const parsed = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s): s is VideoCodec => VALID_VIDEO_CODECS.includes(s as VideoCodec));
+  return parsed.length > 0 ? parsed : [...VALID_VIDEO_CODECS];
+}
 
 /**
  * QualityTab -- Renders the Quality settings tab.
@@ -166,15 +183,22 @@ export function QualityTab() {
           }
         />
 
-        {/* Video codec priority */}
-        <Input
-          label="Video Codec Priority"
-          description="Comma-separated list of preferred video codecs (e.g., h265,h264)"
-          value={settings.default_video_codec_priority}
-          onChange={(e) =>
-            updateSettings({ default_video_codec_priority: e.target.value })
-          }
-        />
+        {/* Video codec priority (reorderable list) */}
+        <div>
+          <label className="block text-sm font-medium text-content-primary mb-1">
+            Video Codec Priority
+          </label>
+          <p className="text-xs text-content-secondary mb-2">
+            Order of preferred video codecs for music video downloads (top = tried first)
+          </p>
+          <FallbackChainList<VideoCodec>
+            items={parseVideoCodecPriority(settings.default_video_codec_priority)}
+            labels={VIDEO_CODEC_LABELS}
+            onChange={(codecs) =>
+              updateSettings({ default_video_codec_priority: codecs.join(',') })
+            }
+          />
+        </div>
 
         {/* Remux format */}
         <Select

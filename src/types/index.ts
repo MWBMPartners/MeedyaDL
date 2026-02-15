@@ -85,6 +85,20 @@ export type VideoResolution =
   | '240p';
 
 /**
+ * Video codec options for GAMDL's `--music-video-codec-priority` CLI flag.
+ *
+ * Apple Music supports two video codecs for music videos:
+ * - `h265`: H.265/HEVC (High Efficiency Video Coding) -- better quality at lower bitrates
+ * - `h264`: H.264/AVC (Advanced Video Coding) -- wider compatibility
+ *
+ * The priority order determines which codec GAMDL tries first when downloading
+ * music videos. Stored as a comma-separated string internally (e.g., "h265,h264").
+ *
+ * @see {@link https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types}
+ */
+export type VideoCodec = 'h265' | 'h264';
+
+/**
  * Synced lyrics output format options for GAMDL's `--synced-lyrics-format` flag.
  *
  * Mirrors: Rust enum `LyricsFormat` in `src-tauri/src/models/settings.rs`
@@ -224,6 +238,21 @@ export const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
   '480p': 'SD (480p)',
   '360p': 'Low (360p)',
   '240p': 'Lowest (240p)',
+};
+
+/**
+ * Display names for video codecs, shown in the reorderable priority list.
+ *
+ * Uses `Record<VideoCodec, string>` for compile-time exhaustiveness checking.
+ * Labels include both the common name and technical standard for clarity.
+ *
+ * Used by: QualityTab video codec priority reorderable list
+ *
+ * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type}
+ */
+export const VIDEO_CODEC_LABELS: Record<VideoCodec, string> = {
+  h265: 'H.265 (HEVC)',
+  h264: 'H.264 (AVC)',
 };
 
 // ============================================================
@@ -626,6 +655,8 @@ export interface DependencyStatus {
   version: string | null;
   /** Filesystem path to the binary, or null if not installed */
   path: string | null;
+  /** Where the tool was installed from: "system" (from PATH) or "managed" (downloaded) */
+  source: string | null;
 }
 
 // ============================================================

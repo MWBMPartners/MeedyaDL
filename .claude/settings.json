@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/lance.manasse/.cargo/bin/cargo test:*)"
+    ]
+  }
+}

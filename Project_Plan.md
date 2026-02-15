@@ -89,6 +89,8 @@ Build the Rust services that power the application: Python management, GAMDL ins
 - ✅ Platform-specific download URLs and extraction
 - ✅ Version tracking and binary verification
 - ✅ Display name → tool ID resolution (`resolve_tool_id()`)
+- ✅ System PATH detection — check for existing tool installs before downloading
+- ✅ Minimum version requirements via `tool-versions.toml` config file
 
 #### 2.4 GAMDL CLI Wrapper
 
@@ -256,6 +258,20 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Disclaimer** - Added to both the first-run setup welcome screen and Help documentation section
 - ✅ **Fix help documentation formatting** - Installed `@tailwindcss/typography` plugin; added platform-adaptive prose color overrides so headings, paragraphs, and links render correctly across all themes
 - ✅ **macOS code signing entitlements** - Added `Entitlements.plist` with hardened runtime permissions for subprocess execution and network access
+- ✅ **Fix N_m3u8DL-RE download 404** - Use GitHub API for dynamic asset URL resolution (naming conventions change between releases)
+- ✅ **Fix MP4Box macOS auto-install** - Try Homebrew first (`brew install gpac`), fall back to GPAC `.pkg` extraction
+- ✅ **Fix mp4decrypt (Bento4) download 404 on Windows/Linux** - Naming changed at build 633: `win32` → `x86_64-microsoft-win32`, `linux-x86_64` → `x86_64-unknown-linux`
+- ✅ **Fix MP4Box on Windows** - GPAC discontinued ZIP archives; now downloads NSIS `.exe` installer and runs silently
+- ✅ **Fix MP4Box on Linux** - GPAC discontinued tarballs; now downloads `.deb` and extracts via `ar` + `tar`
+- ✅ **System PATH detection for external tools** - Checks system PATH for FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box before downloading; copies compatible system binaries to managed directory
+- ✅ **Tool version requirements config** - New `tool-versions.toml` with minimum versions per tool, compiled into binary via `include_str!()`
+- ✅ **Dependency source tracking** - `DependencyStatus.source` field ("system" or "managed") with "System" badge in setup wizard
+- ✅ **Fix ARMv7 artifact naming** - Split build/upload for ARMv7; rename `armhf`/`armhfp` → `armv7` before uploading to release
+- ✅ **Improved release page download guidance** - User-friendly download table with plain-language platform descriptions
+- ✅ **Rosetta 2 detection on Apple Silicon** - Checks if Rosetta 2 is installed before downloading x86_64 binaries (FFmpeg, MP4Box .pkg); refuses with Homebrew guidance if unavailable
+- ✅ **Fallback mirror for tool downloads** - When primary upstream sources fail, falls back to `MWBMPartners/meedyadl-tools` GitHub Releases with standardized asset naming (`{tool_id}-{os}-{arch}.{ext}`)
+- ✅ **Generic GitHub API resolver** - Reusable `resolve_github_release_asset()` for upstream release queries and mirror fallback (refactored from N_m3u8DL-RE inline code)
+- ✅ **Three-tier download fallback** - System PATH → Primary upstream → Mirror repository → Error with guidance
 
 ---
 
