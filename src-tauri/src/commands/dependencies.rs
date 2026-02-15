@@ -77,6 +77,11 @@ pub struct DependencyStatus {
     /// `None` when not installed or when the dependency is a Python package
     /// (GAMDL) rather than a standalone binary.
     pub path: Option<String>,
+    /// Where the dependency was installed from.
+    /// `Some("system")` if detected from the system PATH,
+    /// `Some("managed")` if downloaded by the app,
+    /// `None` for Python/GAMDL (always managed) or if not installed.
+    pub source: Option<String>,
 }
 
 /// Checks whether the portable Python runtime is installed in the app data directory.
@@ -119,6 +124,7 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
         version,
         // Convert PathBuf to String for JSON serialization
         path: python_bin.to_str().map(|s| s.to_string()),
+        source: None, // Python is always managed (portable runtime)
     })
 }
 
@@ -177,6 +183,7 @@ pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, Stri
         installed: version.is_some(),
         version,
         path: None, // GAMDL is a Python package, not a standalone binary
+        source: None, // GAMDL is always managed (pip package)
     })
 }
 
@@ -236,6 +243,18 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
         // Simple existence check — we don't verify the binary is functional here
         let installed = binary_path.exists();
 
+        // Read the .source marker file to determine where the tool was installed from.
+        // Written by install_tool() as "system" or "managed" during installation.
+        let source = if installed {
+            let tool_dir = dependency_manager::get_tool_dir(&app, tool.id);
+            let source_file = tool_dir.join(".source");
+            std::fs::read_to_string(source_file)
+                .ok()
+                .map(|s| s.trim().to_string())
+        } else {
+            None
+        };
+
         results.push(DependencyStatus {
             name: tool.name.to_string(),
             required: tool.required,
@@ -247,6 +266,7 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
             } else {
                 None
             },
+            source,
         });
     }
 

@@ -206,6 +206,14 @@ tar = "0.4"
 # @see https://docs.rs/configparser/ -- configparser API reference
 configparser = "3"
 
+# toml -- TOML configuration file parser.
+# Used to read the tool-versions.toml file that defines minimum supported
+# versions for external tool dependencies (FFmpeg, mp4decrypt, N_m3u8DL-RE,
+# MP4Box). The TOML file is compiled into the binary via include_str!() and
+# parsed at runtime by the dependency manager for version comparison.
+# @see https://docs.rs/toml/ -- toml crate documentation
+toml = "0.8"
+
 # ---- Secure Credential Storage ----
 
 # keyring -- Cross-platform credential storage using the OS-native keychain.

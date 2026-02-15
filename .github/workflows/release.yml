@@ -370,6 +370,11 @@ jobs:
       #   args        -- Extra arguments passed to 'cargo tauri build' (e.g., --target)
       #
       # @see https://github.com/tauri-apps/tauri-action -- Action documentation
+      # Build and publish: For most platforms, tauri-action handles the full
+      # build + release upload pipeline. For ARMv7, tauri-action's artifact
+      # matcher can't find files because Debian uses 'armhf' naming while
+      # tauri-action expects 'armv7'. So ARMv7 builds with includeRelease=false
+      # and uploads artifacts manually in the next step.
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -390,15 +395,19 @@ jobs:
 
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
 
-            ### Downloads
-            | Platform | Architecture | File |
-            |----------|-------------|------|
-            | macOS | Apple Silicon (ARM64) | `.dmg` |
-            | Windows | x64 (64-bit) | `.exe` |
-            | Windows | ARM64 (Snapdragon X) | `.exe` |
-            | Linux | x64 (64-bit) | `.deb` / `.AppImage` |
-            | Linux | ARM64 (Pi 4/5, 64-bit) | `.deb` *(experimental)* |
-            | Linux | ARMv7 (Pi, 32-bit) | `.deb` *(experimental)* |
+            ### Choose your download
+
+            | If you're using... | Download this | Notes |
+            |--------------------|--------------|-------|
+            | **Mac** (M1, M2, M3, M4) | `.dmg` | Most Macs since late 2020 |
+            | **Windows** (most PCs) | `x64-setup.exe` | Works on all modern Windows PCs |
+            | **Windows** (Snapdragon / ARM) | `arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
+            | **Linux** (most PCs) | `.deb` or `.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
+            | **Linux** (Raspberry Pi 4/5) | `arm64.deb` | Requires 64-bit OS |
+            | **Linux** (older Raspberry Pi) | `armv7.deb` | 32-bit Raspberry Pi OS |
+            | **Chromebook** | `amd64.deb` | Install via Linux (Crostini) |
+
+            > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
 
             > **Windows ARM64 users**: The x64 installer also works on ARM64 via Windows' built-in emulation.
 
@@ -411,4 +420,42 @@ jobs:
             You will also need Apple Music cookies exported from your browser.
           releaseDraft: true
           prerelease: false
+          # Skip release upload for ARMv7 — tauri-action can't match 'armhf' filenames.
+          # The next step renames and uploads them manually.
+          includeRelease: ${{ matrix.settings.cross_arch != 'armhf' }}
+          includeUpdaterJson: ${{ matrix.settings.cross_arch != 'armhf' }}
           args: ${{ matrix.settings.args }}
+
+      # Step 11: Upload ARMv7 artifacts manually.
+      # Tauri's bundler uses Debian's 'armhf' naming convention for 32-bit ARM,
+      # but tauri-action expects 'armv7' and fails to find the artifacts.
+      # This step renames the files and uploads them to the draft release.
+      - name: Upload ARMv7 artifacts
+        if: matrix.settings.cross_arch == 'armhf'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          BUNDLE_DIR="src-tauri/target/armv7-unknown-linux-gnueabihf/release/bundle"
+
+          # Ensure the draft release exists (another build may not have created it yet)
+          if ! gh release view "$TAG" &>/dev/null; then
+            gh release create "$TAG" --draft --title "MeedyaDL $TAG" --notes "Release in progress..."
+          fi
+
+          # Rename and upload .deb: armhf → armv7
+          for f in "$BUNDLE_DIR"/deb/*_armhf.deb; do
+            [ -f "$f" ] || continue
+            new="${f/_armhf.deb/_armv7.deb}"
+            mv "$f" "$new"
+            gh release upload "$TAG" "$new" --clobber
+          done
+
+          # Rename and upload .rpm: armhfp → armv7
+          for f in "$BUNDLE_DIR"/rpm/*.armhfp.rpm; do
+            [ -f "$f" ] || continue
+            new=$(echo "$f" | sed 's/\.armhfp\.rpm/.armv7.rpm/')
+            mv "$f" "$new"
+            gh release upload "$TAG" "$new" --clobber
+          done

@@ -57,6 +57,12 @@ export type { SelectOption } from './Select';
  */
 export { Toggle } from './Toggle';
 
+/**
+ * Generic reorderable priority list with up/down arrow buttons.
+ * Used in: FallbackTab (audio/video fallback chains), QualityTab (video codec priority).
+ */
+export { FallbackChainList } from './FallbackChainList';
+
 /* -------------------------------------------------------------------------- */
 /*  Overlay / dialog components                                                */
 /* -------------------------------------------------------------------------- */

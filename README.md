@@ -59,7 +59,7 @@
 
 ### ⚙️ Quality of Life
 - **Auto-update checking** — stay on the latest version
-- **First-run setup wizard** — installs Python and GAMDL automatically
+- **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
 - **Built-in help documentation** — 11 topics with search, accessible in-app
 - **System tray support** for background operation
 
@@ -120,12 +120,12 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 On first launch, the setup wizard will guide you through:
 
-1. 📦 **Dependency installation** — automatically downloads and installs a standalone Python and GAMDL (no system Python required)
+1. 📦 **Dependency installation** — automatically downloads and installs a standalone Python, GAMDL, and external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box). If compatible versions are already installed on your system, those are used instead of downloading fresh copies.
 2. 🍪 **Cookie configuration** — import your Apple Music cookies for authentication
 3. 📂 **Output directory** — choose where downloaded music will be saved
 4. 🎚️ **Quality preferences** — select your preferred audio codec and fallback chain
 
-> 💡 The setup takes a few minutes on first run. All dependencies are sandboxed within the app's data directory.
+> 💡 The setup takes a few minutes on first run. Dependencies are sandboxed within the app's data directory, or reused from your system PATH if already installed.
 
 ---
 

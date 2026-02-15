@@ -1,0 +1,63 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# MeedyaDL External Tool Version Requirements
+# =============================================
+#
+# This file defines the minimum supported versions for all external tool
+# dependencies that GAMDL requires at runtime. The dependency manager reads
+# these values (compiled into the binary via include_str!) to:
+#
+#   1. Check system-installed tools against minimum version requirements
+#   2. Verify managed (sandboxed) tool installations meet requirements
+#   3. Report version compatibility in the setup wizard UI
+#
+# To update version requirements, edit this file and rebuild the application.
+#
+# Fields per tool:
+#   minimum_version  - Minimum supported version (major.minor or major.minor.patch)
+#   binary_name      - The executable filename (case-sensitive on Unix)
+#   version_flag     - CLI flag to get version output (e.g., "--version", "-version")
+
+# Fallback mirror repository for tool downloads.
+# When primary upstream sources fail (404, timeout, naming changes, etc.),
+# the dependency manager falls back to downloading from this GitHub repo.
+#
+# The mirror uses GitHub Releases with a standardized asset naming convention:
+#   {tool_id}-{os}-{arch}.{ext}
+#   os:   linux, windows, macos
+#   arch: x86_64, aarch64
+#   ext:  zip (Windows), tar.gz (Linux/macOS)
+#
+# Example mirror assets:
+#   ffmpeg-linux-x86_64.tar.gz
+#   ffmpeg-windows-x86_64.zip
+#   mp4decrypt-macos-aarch64.zip
+#   nm3u8dlre-linux-x86_64.tar.gz
+#   mp4box-windows-x86_64.zip
+#
+# To populate the mirror, upload tool binaries to the GitHub release
+# matching the release_tag below. See the mirror repo README for details.
+[mirror]
+github_repo = "MWBMPartners/meedyadl-tools"
+release_tag = "latest"
+
+[ffmpeg]
+minimum_version = "5.0"
+binary_name = "ffmpeg"
+version_flag = "-version"
+
+[mp4decrypt]
+minimum_version = "1.6.0"
+binary_name = "mp4decrypt"
+version_flag = "--version"
+
+[nm3u8dlre]
+minimum_version = "0.4.0"
+binary_name = "N_m3u8DL-RE"
+version_flag = "--version"
+
+[mp4box]
+minimum_version = "2.0"
+binary_name = "MP4Box"
+version_flag = "-version"
