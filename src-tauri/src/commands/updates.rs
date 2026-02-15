@@ -36,7 +36,12 @@
 // AppHandle for accessing the managed Python runtime path (needed for
 // version detection) and app configuration (for installed version comparison).
 use tauri::AppHandle;
+// Emitter trait for sending events to the frontend (used for download progress).
+use tauri::Emitter;
 
+// config_service: loads user settings (including check_pre_releases preference)
+// from the app data directory.
+use crate::services::config_service;
 // update_checker module contains the core update checking logic.
 // ComponentUpdate: per-component update status (name, current version,
 //   latest version, whether an update is available).
@@ -72,10 +77,14 @@ use crate::services::update_checker::{self, ComponentUpdate, UpdateCheckResult};
 #[tauri::command]
 pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, String> {
     log::info!("Checking for updates...");
+    // Load settings to check the user's pre-release preference.
+    // If settings fail to load, default to stable-only (check_pre_releases: false).
+    let settings = config_service::load_settings(&app).unwrap_or_default();
+
     // check_all_updates() runs all component checks concurrently and
     // aggregates the results. Individual check failures are captured
     // per-component rather than failing the entire operation.
-    let result = update_checker::check_all_updates(&app).await;
+    let result = update_checker::check_all_updates(&app, settings.check_pre_releases).await;
 
     // Log the result for debugging — list components with available updates
     if result.has_updates {
@@ -155,8 +164,10 @@ pub async fn check_component_update(
     app: AppHandle,
     name: String,
 ) -> Result<ComponentUpdate, String> {
-    // Run all update checks (currently no way to check individual components)
-    let result = update_checker::check_all_updates(&app).await;
+    // Load settings for the pre-release preference, then run all update checks
+    // (currently no way to check individual components independently)
+    let settings = config_service::load_settings(&app).unwrap_or_default();
+    let result = update_checker::check_all_updates(&app, settings.check_pre_releases).await;
 
     // Find the component whose name contains the search string (case-insensitive).
     // into_iter() consumes the Vec, avoiding cloning the ComponentUpdate structs.
@@ -165,4 +176,128 @@ pub async fn check_component_update(
         .into_iter()
         .find(|c| c.name.to_lowercase().contains(&name.to_lowercase()))
         .ok_or_else(|| format!("Unknown component: {}", name))
+}
+
+/// Downloads and installs a MeedyaDL app update from GitHub Releases.
+///
+/// **Frontend caller:** `downloadAndInstallAppUpdate(tag)` in `src/lib/tauri-commands.ts`
+///
+/// Uses the Tauri updater plugin's Rust API (`UpdaterExt`) to download a
+/// signed update binary from a specific GitHub release tag. The updater
+/// verifies the binary's cryptographic signature before applying the update.
+///
+/// The endpoint URL is constructed dynamically from the tag to support both
+/// stable and pre-release channels:
+///   `https://github.com/MWBMPartners/MeedyaDL/releases/download/{tag}/latest.json`
+///
+/// During the download, progress events are emitted to the frontend:
+///   - `app-update-progress` with `{ event: "started", total }` — download started
+///   - `app-update-progress` with `{ event: "progress", chunk_length }` — chunk received
+///   - `app-update-progress` with `{ event: "finished" }` — download complete
+///
+/// After the download completes and the update is applied, the user should
+/// restart the application (via `relaunch()` from `@tauri-apps/plugin-process`)
+/// to load the new version.
+///
+/// # Arguments
+/// * `app` - Tauri AppHandle for accessing the updater plugin
+/// * `tag` - Git tag of the release to install (e.g., "v0.3.7")
+///
+/// # Returns
+/// * `Ok(String)` - Success message indicating the update was installed
+/// * `Err(String)` - Error message if download, verification, or installation failed
+///
+/// # Prerequisites
+/// - The release must contain a `latest.json` manifest and signed update artifacts
+/// - The app must be built with a `TAURI_SIGNING_PRIVATE_KEY` for signature generation
+/// - The public key must be configured in `tauri.conf.json` → `plugins.updater.pubkey`
+#[tauri::command]
+pub async fn download_and_install_app_update(
+    app: AppHandle,
+    tag: String,
+) -> Result<String, String> {
+    log::info!("Downloading app update from tag: {}", tag);
+
+    // Construct the endpoint URL for the specific release tag.
+    // Each GitHub Release contains a `latest.json` manifest that describes
+    // the available update binaries and their signatures for each platform.
+    let endpoint_url = format!(
+        "https://github.com/MWBMPartners/MeedyaDL/releases/download/{}/latest.json",
+        tag
+    );
+
+    // Use the Tauri updater's Rust API to build an updater with a custom endpoint.
+    // `UpdaterExt` trait provides `updater_builder()` on the AppHandle.
+    use tauri_plugin_updater::UpdaterExt;
+
+    // Parse the endpoint URL and build the updater with the custom endpoint.
+    // `endpoints()` returns a Result (validates the URLs), so we unwrap before `.build()`.
+    let endpoint = endpoint_url
+        .parse()
+        .map_err(|e: url::ParseError| format!("Invalid endpoint URL: {}", e))?;
+
+    let updater = app
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|e| format!("Failed to set updater endpoints: {}", e))?
+        .build()
+        .map_err(|e| format!("Failed to build updater: {}", e))?;
+
+    // Check if an update is available at the specified endpoint.
+    // This downloads and parses the `latest.json` manifest.
+    let update: Option<tauri_plugin_updater::Update> = updater
+        .check()
+        .await
+        .map_err(|e| format!("Failed to check for update: {}", e))?;
+
+    let Some(update) = update else {
+        return Err("No update found at the specified release tag".to_string());
+    };
+
+    log::info!(
+        "Update found: {} -> {}",
+        update.current_version,
+        update.version
+    );
+
+    // Clone the app handle for use in the progress callback closures.
+    let app_for_progress = app.clone();
+
+    // Download and install the update with progress reporting.
+    // The download callback is called for each chunk received, allowing
+    // the frontend to display a progress bar. Explicit closure parameter
+    // types are required for Rust type inference.
+    update
+        .download_and_install(
+            // Progress callback: called for each downloaded chunk
+            move |chunk_length: usize, content_length: Option<u64>| {
+                // Emit a progress event to the frontend for the download progress bar.
+                // `content_length` is the total download size (if known from Content-Length header).
+                // `chunk_length` is the number of bytes in this chunk.
+                let _ = app_for_progress.emit(
+                    "app-update-progress",
+                    serde_json::json!({
+                        "event": "progress",
+                        "chunk_length": chunk_length,
+                        "content_length": content_length,
+                    }),
+                );
+            },
+            // Finished callback: called when the download is complete
+            || {
+                log::info!("App update download complete, installing...");
+            },
+        )
+        .await
+        .map_err(|e| format!("Failed to download and install update: {}", e))?;
+
+    log::info!("App update installed successfully. Restart required.");
+
+    // Emit a final "finished" event so the frontend can show a "Restart Now" button
+    let _ = app.emit(
+        "app-update-progress",
+        serde_json::json!({ "event": "finished" }),
+    );
+
+    Ok("Update installed successfully. Restart the application to apply.".to_string())
 }

@@ -548,6 +548,30 @@ export function checkComponentUpdate(name: string): Promise<ComponentUpdate> {
   return invoke<ComponentUpdate>('check_component_update', { name });
 }
 
+/**
+ * Downloads and installs a MeedyaDL app update from a specific GitHub release tag.
+ *
+ * Rust handler: `download_and_install_app_update()` in `src-tauri/src/commands/updates.rs`
+ * Argument: `tag` - Git tag of the release to install (e.g., "v0.3.7")
+ * Returns: string success message
+ *
+ * Uses the Tauri updater plugin to download a signed update binary from
+ * GitHub Releases. The updater verifies the cryptographic signature before
+ * applying the update. During download, emits `app-update-progress` events
+ * with chunk progress data that the frontend can use for a progress bar.
+ *
+ * After successful installation, the user should restart the app using
+ * `relaunch()` from `@tauri-apps/plugin-process` to load the new version.
+ *
+ * Called by: updateStore.downloadAndInstallAppUpdate()
+ *
+ * @param tag - Git tag of the release (e.g., "v0.3.7")
+ * @returns Promise resolving to a success message string
+ */
+export function downloadAndInstallAppUpdate(tag: string): Promise<string> {
+  return invoke<string>('download_and_install_app_update', { tag });
+}
+
 // ============================================================
 // Cookie Management Commands
 // ============================================================
