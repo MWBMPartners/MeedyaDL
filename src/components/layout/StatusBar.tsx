@@ -27,6 +27,11 @@
  * @see https://react.dev/learn/rendering-lists       -- conditional rendering of count spans.
  */
 
+import { useState, useEffect } from 'react';
+
+// Tauri app API for reading the version from tauri.conf.json at runtime.
+import { getVersion } from '@tauri-apps/api/app';
+
 /**
  * Zustand store hook for the download queue.
  * Provides `queueItems` -- an array of `QueueItemStatus` objects whose
@@ -53,6 +58,19 @@ import { useDownloadStore } from '@/stores/downloadStore';
  * @returns A thin horizontal bar with activity summary (left) and version (right).
  */
 export function StatusBar() {
+  /**
+   * Application version string, fetched once on mount from `tauri.conf.json`
+   * via the Tauri app API. Falls back to 'unknown' if the call fails
+   * (e.g., in a test environment without Tauri runtime).
+   */
+  const [appVersion, setAppVersion] = useState('...');
+
+  useEffect(() => {
+    getVersion()
+      .then((v) => setAppVersion(v))
+      .catch(() => setAppVersion('unknown'));
+  }, []);
+
   /**
    * Subscribe to the `queueItems` slice of the download store.
    * This component re-renders whenever the array reference changes
@@ -120,8 +138,8 @@ export function StatusBar() {
         {queueItems.length === 0 && <span>No downloads</span>}
       </div>
 
-      {/* Right section: application version string */}
-      <span>MeedyaDL v0.1.0</span>
+      {/* Right section: application version string (fetched from tauri.conf.json) */}
+      <span>MeedyaDL v{appVersion}</span>
     </div>
   );
 }

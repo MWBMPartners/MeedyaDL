@@ -155,12 +155,14 @@ export type RemuxMode = 'ffmpeg' | 'mp4box';
  * - `atmos_to_lossless`: [DEFAULT] Atmos → also download ALAC companion
  * - `atmos_to_lossless_and_lossy`: Atmos → ALAC + AAC companions; ALAC → AAC companion
  * - `specialist_to_lossy`: Atmos or ALAC → AAC companion
+ * - `atmos_to_all_formats`: Atmos → AC3 + ALAC + AAC companions (4 files per track)
  */
 export type CompanionMode =
   | 'disabled'
   | 'atmos_to_lossless'
   | 'atmos_to_lossless_and_lossy'
-  | 'specialist_to_lossy';
+  | 'specialist_to_lossy'
+  | 'atmos_to_all_formats';
 
 /**
  * Log level for GAMDL's `--log-level` CLI flag.
@@ -216,6 +218,7 @@ export const COMPANION_MODE_LABELS: Record<CompanionMode, string> = {
   atmos_to_lossless: 'Atmos → Lossless (ALAC)',
   atmos_to_lossless_and_lossy: 'Atmos → Lossless + Lossy; ALAC → Lossy',
   specialist_to_lossy: 'Specialist → Lossy (AAC)',
+  atmos_to_all_formats: 'Atmos → All Formats (AC3 + ALAC + AAC)',
 };
 
 /**
@@ -479,6 +482,8 @@ export interface AppSettings {
   fetch_extra_tags: boolean;
   /** List of metadata tags to exclude from output files */
   exclude_tags: string[];
+  /** Whether the setup wizard has been completed at least once */
+  setup_completed: boolean;
   /** Whether the sidebar is in collapsed (icon-only) mode */
   sidebar_collapsed: boolean;
   /** CSS theme override string, or null for auto-detection */

@@ -25,6 +25,7 @@
  */
 
 import type { SelectHTMLAttributes } from 'react';
+import { HelpButton } from './HelpButton';
 
 /**
  * Describes a single option in the select dropdown.
@@ -70,8 +71,9 @@ interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'chi
   /**
    * Small helper text displayed below the select in muted colour.
    * Hidden when {@link error} is set (error takes visual priority).
+   * Accepts ReactNode for rich content (e.g. clickable links).
    */
-  description?: string;
+  description?: React.ReactNode;
 
   /**
    * Error message string. When set, the select border turns red and
@@ -84,6 +86,12 @@ interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'chi
    * when no value has been selected yet. E.g. "Choose a codec..."
    */
   placeholder?: string;
+
+  /**
+   * When set, renders a small "?" help button next to the label that
+   * navigates to the Help page with the specified topic pre-selected.
+   */
+  helpTopic?: string;
 }
 
 /**
@@ -122,6 +130,7 @@ export function Select({
   description,
   error,
   placeholder,
+  helpTopic,
   className = '',
   id,
   ...props
@@ -136,14 +145,18 @@ export function Select({
   return (
     /* Outer wrapper -- space-y-1.5 adds 6px vertical gap between children */
     <div className="space-y-1.5">
-      {/* Accessible <label> -- only rendered when label text is provided */}
+      {/* Accessible <label> -- only rendered when label text is provided.
+        * When helpTopic is set, a HelpButton is rendered inline after the label. */}
       {label && (
-        <label
-          htmlFor={selectId}
-          className="block text-sm font-medium text-content-primary"
-        >
-          {label}
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label
+            htmlFor={selectId}
+            className="text-sm font-medium text-content-primary"
+          >
+            {label}
+          </label>
+          {helpTopic && <HelpButton topic={helpTopic} />}
+        </div>
       )}
 
       {/*

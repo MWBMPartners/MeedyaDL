@@ -3,9 +3,10 @@
 //
 // Dependency manager service.
 // Downloads, installs, and manages external tool dependencies required
-// by GAMDL: FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box (all required
-// for full functionality). Each tool is downloaded from its official release source
-// and installed to {app_data}/tools/{tool_name}/.
+// by GAMDL: FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box (all required),
+// plus the optional AMDecrypt tool (used with the wrapper system).
+// Each tool is downloaded from its official release source and installed
+// to {app_data}/tools/{tool_name}/.
 //
 // ## Architecture Overview
 //
@@ -32,6 +33,7 @@
 // | mp4decrypt  | Yes      | Bento4 SDK                    | DRM decryption              |
 // | N_m3u8DL-RE | Yes      | nilaoda/N_m3u8DL-RE           | HLS/DASH stream downloading |
 // | MP4Box      | Yes      | GPAC project                  | MP4 muxing and remuxing     |
+// | AMDecrypt   | No       | Mirror only (no upstream)     | Apple Music DRM (wrapper)   |
 //
 // ## Cross-Platform URL Selection
 //
@@ -538,9 +540,10 @@ pub struct ToolInfo {
 }
 
 /// All external tool dependencies and their metadata.
-/// All four tools are required for full functionality: FFmpeg for remuxing,
+/// The first four tools are required for full functionality: FFmpeg for remuxing,
 /// mp4decrypt for DRM decryption, N_m3u8DL-RE for HLS/DASH streams, and
-/// MP4Box for MP4 muxing. This list is returned by get_all_tools() for the setup wizard UI.
+/// MP4Box for MP4 muxing. AMDecrypt is optional (used with the wrapper system).
+/// This list is returned by get_all_tools() for the setup wizard UI.
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "FFmpeg",
@@ -565,6 +568,12 @@ const TOOLS: &[ToolInfo] = &[
         id: "mp4box",
         required: true,
         description: "MP4 muxing and remuxing tool (GPAC)",
+    },
+    ToolInfo {
+        name: "AMDecrypt",
+        id: "amdecrypt",
+        required: false,
+        description: "Apple Music DRM decryption (wrapper system)",
     },
 ];
 
@@ -597,6 +606,7 @@ async fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::Archiv
         "mp4decrypt" => get_mp4decrypt_url(os, arch),
         "nm3u8dlre" => get_nm3u8dlre_url(os, arch).await,
         "mp4box" => get_mp4box_url(os, arch),
+        "amdecrypt" => get_amdecrypt_url(os, arch),
         _ => Err(format!("Unknown tool: {}", tool_id)),
     }
 }
@@ -756,6 +766,24 @@ fn get_mp4box_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFor
     Err("MP4Box installation is handled by platform-specific install functions".to_string())
 }
 
+/// Returns the AMDecrypt download URL for the given platform.
+///
+/// AMDecrypt is an optional tool used with the wrapper system for Apple Music
+/// DRM decryption. There is no stable public upstream download source, so this
+/// function always returns an error. The mirror fallback in
+/// `download_tool_with_fallback()` will then attempt to download from the
+/// MWBMPartners/meedyadl-tools GitHub releases mirror.
+///
+/// Users can also install AMDecrypt manually and point to it via the
+/// `amdecrypt_path` setting.
+fn get_amdecrypt_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    Err(
+        "No public upstream source for AMDecrypt. \
+         Install manually or use the mirror repository."
+            .to_string(),
+    )
+}
+
 /// Returns the path to a tool's installation directory.
 ///
 /// Each tool gets its own subdirectory under {app_data}/tools/.
@@ -793,6 +821,7 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
         "mp4decrypt" => format!("mp4decrypt{}", exe_ext),
         "nm3u8dlre" => format!("N_m3u8DL-RE{}", exe_ext),
         "mp4box" => format!("MP4Box{}", exe_ext),
+        "amdecrypt" => format!("amdecrypt{}", exe_ext),
         _ => format!("{}{}", tool_id, exe_ext),
     };
 
@@ -1648,6 +1677,7 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
     let search_names: Vec<String> = match tool_id {
         "ffmpeg" => vec![format!("ffmpeg{}", exe_ext)],
         "mp4decrypt" => vec![format!("mp4decrypt{}", exe_ext)],
+        "amdecrypt" => vec![format!("amdecrypt{}", exe_ext)],
         // N_m3u8DL-RE: check both the expected case and lowercase variant
         "nm3u8dlre" => vec![
             format!("N_m3u8DL-RE{}", exe_ext),

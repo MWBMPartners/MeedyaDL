@@ -27,6 +27,7 @@
  */
 
 import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react';
+import { HelpButton } from './HelpButton';
 
 /**
  * Props accepted by the {@link Input} component.
@@ -47,8 +48,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   /**
    * Small helper text displayed below the input in a muted colour.
    * Hidden when {@link error} is set (error takes visual priority).
+   * Accepts ReactNode for rich content (e.g. clickable links).
    */
-  description?: string;
+  description?: React.ReactNode;
 
   /**
    * Error message string. When set:
@@ -72,6 +74,13 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
    * Useful for unit labels (e.g. "px"), clear buttons, or toggle visibility.
    */
   suffix?: ReactNode;
+
+  /**
+   * When set, renders a small "?" help button next to the label that
+   * navigates to the Help page with the specified topic pre-selected.
+   * Must match a topic ID in HelpViewer's HELP_TOPICS array.
+   */
+  helpTopic?: string;
 }
 
 /**
@@ -100,7 +109,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
  */
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   function Input(
-    { label, description, error, icon, suffix, className = '', id, ...props },
+    { label, description, error, icon, suffix, helpTopic, className = '', id, ...props },
     ref,
   ) {
     /*
@@ -119,14 +128,18 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
        * the label, the input, and the description/error text. */
       <div className="space-y-1.5">
         {/* Accessible <label> element -- only rendered when label text is provided.
-          * Uses htmlFor={inputId} to associate with the <input> below. */}
+          * Uses htmlFor={inputId} to associate with the <input> below.
+          * When helpTopic is set, a HelpButton is rendered inline after the label. */}
         {label && (
-          <label
-            htmlFor={inputId}
-            className="block text-sm font-medium text-content-primary"
-          >
-            {label}
-          </label>
+          <div className="flex items-center gap-1.5">
+            <label
+              htmlFor={inputId}
+              className="text-sm font-medium text-content-primary"
+            >
+              {label}
+            </label>
+            {helpTopic && <HelpButton topic={helpTopic} />}
+          </div>
         )}
 
         {/*

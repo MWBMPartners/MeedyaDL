@@ -76,6 +76,7 @@ const MOCK_SETTINGS: AppSettings = {
   truncate: 100,
   fetch_extra_tags: false,
   exclude_tags: ['rating'],
+  setup_completed: true,
   sidebar_collapsed: true,
   theme_override: 'dark',
 };
@@ -130,6 +131,7 @@ beforeEach(() => {
       truncate: null,
       fetch_extra_tags: true,
       exclude_tags: [],
+      setup_completed: false,
       sidebar_collapsed: false,
       theme_override: null,
     },

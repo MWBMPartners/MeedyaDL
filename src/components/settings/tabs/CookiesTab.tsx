@@ -711,6 +711,29 @@ export function CookiesTab() {
     };
   }, []);
 
+  /**
+   * Auto-validate cookies when a cookies_path is configured but no
+   * validation result exists yet. This covers two scenarios:
+   *   1. Tab is first opened with cookies already configured from a
+   *      previous session (settings persisted to disk).
+   *   2. After a fresh import clears the validation state, this
+   *      re-validates the newly imported file automatically.
+   *
+   * The effect is guarded by `validation === null` to avoid
+   * re-validating when results are already displayed, and by
+   * `!isValidating` to prevent duplicate concurrent requests.
+   */
+  useEffect(() => {
+    if (settings.cookies_path && validation === null && !isValidating) {
+      setIsValidating(true);
+      commands
+        .validateCookiesFile(settings.cookies_path)
+        .then((result) => setValidation(result))
+        .catch(() => setValidation(null))
+        .finally(() => setIsValidating(false));
+    }
+  }, [settings.cookies_path, validation, isValidating]);
+
   /* ---- Handlers ---- */
 
   /**
@@ -888,6 +911,36 @@ export function CookiesTab() {
       </div>
 
       {/* ============================================================
+          Prominent Valid Banner
+          When auto-validation confirms cookies are valid, show an
+          eye-catching green banner immediately below the header.
+          This gives instant positive feedback without the user
+          needing to click "Validate" or scroll to find results.
+          ============================================================ */}
+      {cookieStatus === 'valid' && (
+        <div
+          className="flex items-center gap-3 p-4 rounded-platform border border-status-success bg-green-50 dark:bg-green-950"
+          role="status"
+          aria-label="Cookies are valid"
+        >
+          <CheckCircle size={20} className="text-status-success flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-status-success">
+              Cookies are configured and valid
+            </p>
+            <p className="text-xs text-content-secondary mt-0.5">
+              {validation && (
+                <>
+                  {validation.apple_music_cookies} Apple Music cookies found.
+                  {' '}Your downloads are ready to go.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
           Section 2: Introductory Information Box
           Brief explanation of why cookies are needed and what format
           is expected. Rendered with a shield icon for visual emphasis.
@@ -916,9 +969,74 @@ export function CookiesTab() {
       </div>
 
       {/* ============================================================
-          Section 2.5: Auto-Import from Browser
-          Quick re-import option for when cookies expire. Shows a
-          browser dropdown and an import button.
+          Section 2.5: Sign in with Apple Music
+          Primary authentication method — simplest for most users.
+          Opens an embedded browser for direct Apple ID sign-in.
+          ============================================================ */}
+      <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
+        <div className="flex items-center gap-2.5 mb-2">
+          <LogIn size={16} className="text-accent flex-shrink-0" />
+          <h4 className="text-xs font-medium text-content-primary">
+            Sign in with Apple Music
+          </h4>
+        </div>
+
+        {!isLoginWindowOpen ? (
+          /* Show the "Sign in" option when login window is not open */
+          <>
+            <p className="text-xs text-content-secondary">
+              Sign in with your Apple Account to authenticate downloads.
+            </p>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleOpenLoginWindow}
+              disabled={isImporting}
+            >
+              <LogIn size={14} className="mr-1.5" />
+              Sign in with Apple Music
+            </Button>
+            <p className="text-xs text-content-tertiary">
+              A browser window will open where you can sign in with your Apple ID. Your cookies will be captured automatically.
+            </p>
+          </>
+        ) : (
+          /* Show the "Waiting for login..." state when login window is open */
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin text-accent" />
+              <span className="text-xs font-medium text-content-primary">
+                Signing in...
+              </span>
+            </div>
+            <p className="text-xs text-content-tertiary">
+              Sign in with your Apple ID in the browser window, then return here.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={isExtractingFromLogin}
+                onClick={handleManualExtract}
+              >
+                I&apos;ve signed in
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancelLogin}
+                disabled={isExtractingFromLogin}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============================================================
+          Section 2.6: Import from Browser
+          Secondary method — re-import cookies from an installed browser.
           ============================================================ */}
       {!isDetecting && browsers.length > 0 && (
         <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
@@ -1026,58 +1144,6 @@ export function CookiesTab() {
               </div>
             </div>
           )}
-
-          {/* Sign in with Apple Music (embedded login browser) */}
-          <div className="pt-2 border-t border-border-light">
-            {!isLoginWindowOpen ? (
-              /* Show the "Sign in" option when login window is not open */
-              <>
-                <p className="text-xs text-content-tertiary mb-2">
-                  Or sign in directly:
-                </p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleOpenLoginWindow}
-                  disabled={isImporting}
-                >
-                  <LogIn size={14} className="mr-1.5" />
-                  Sign in with Apple Music
-                </Button>
-              </>
-            ) : (
-              /* Show the "Waiting for login..." state when login window is open */
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin text-accent" />
-                  <span className="text-xs font-medium text-content-primary">
-                    Signing in...
-                  </span>
-                </div>
-                <p className="text-xs text-content-tertiary">
-                  Sign in with your Apple ID in the browser window, then return here.
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={isExtractingFromLogin}
-                    onClick={handleManualExtract}
-                  >
-                    I&apos;ve signed in
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleCancelLogin}
-                    disabled={isExtractingFromLogin}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 

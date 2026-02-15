@@ -216,10 +216,10 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <div className="no-drag">
             <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
-              GAMDL
+              MeedyaDL
             </h1>
             <p className="text-[11px] text-content-secondary leading-tight">
-              Apple Music Downloader
+              Media Downloader
             </p>
           </div>
         )}

@@ -20,7 +20,7 @@
  *     Maps to `settings.cover_format` and GAMDL's `--cover-format` flag.
  *
  *   - **Cover Size** -- Width and height in pixels (square) for the cover
- *     art image. Valid range: 100-3000. Maps to `settings.cover_size` and
+ *     art image. Valid range: 100-10000. Maps to `settings.cover_size` and
  *     GAMDL's `--cover-size` flag.
  *
  * ## Animated Artwork (MusicKit API)
@@ -171,15 +171,15 @@ export function CoverArtTab() {
                   when using the browser's native spinner arrows. */}
               <Input
                 label="Cover Size (pixels)"
-                description="Width and height of the cover art image (max 3000)"
+                description="Width and height of the cover art image (max 10000)"
                 type="number"
                 min={100}
-                max={3000}
+                max={10000}
                 step={100}
                 value={settings.cover_size.toString()} /* Convert number to string for the input value */
                 onChange={(e) => {
                   const size = parseInt(e.target.value, 10); // Parse the input string to a base-10 integer
-                  if (!isNaN(size) && size >= 100 && size <= 3000) { // Validate within acceptable range
+                  if (!isNaN(size) && size >= 100 && size <= 10000) { // Validate within acceptable range
                     updateSettings({ cover_size: size }); // Only persist valid values
                   }
                 }}
@@ -206,6 +206,7 @@ export function CoverArtTab() {
             onChange={(checked) =>
               updateSettings({ animated_artwork_enabled: checked })
             }
+            helpTopic="settings-help"
           />
 
           {/* Hide animated artwork files toggle (only shown when enabled) */}
@@ -236,7 +237,22 @@ export function CoverArtTab() {
               {/* MusicKit Team ID -- stored in settings (non-sensitive) */}
               <Input
                 label="MusicKit Team ID"
-                description="Your 10-character Apple Developer Team ID (found at top-right of developer.apple.com)"
+                description={
+                  <>
+                    Your 10-character Apple Developer Team ID (found at top-right of{' '}
+                    <button
+                      type="button"
+                      className="text-accent underline cursor-pointer hover:opacity-80"
+                      onClick={async () => {
+                        const { open } = await import('@tauri-apps/plugin-shell');
+                        await open('https://developer.apple.com/account');
+                      }}
+                    >
+                      developer.apple.com
+                    </button>
+                    )
+                  </>
+                }
                 value={settings.musickit_team_id ?? ''}
                 onChange={(e) =>
                   updateSettings({
@@ -248,7 +264,22 @@ export function CoverArtTab() {
               {/* MusicKit Key ID -- stored in settings (non-sensitive) */}
               <Input
                 label="MusicKit Key ID"
-                description="Your 10-character MusicKit key identifier (shown when you create the key)"
+                description={
+                  <>
+                    Your 10-character MusicKit key identifier (shown when you{' '}
+                    <button
+                      type="button"
+                      className="text-accent underline cursor-pointer hover:opacity-80"
+                      onClick={async () => {
+                        const { open } = await import('@tauri-apps/plugin-shell');
+                        await open('https://developer.apple.com/account/resources/authkeys/list');
+                      }}
+                    >
+                      create the key
+                    </button>
+                    )
+                  </>
+                }
                 value={settings.musickit_key_id ?? ''}
                 onChange={(e) =>
                   updateSettings({

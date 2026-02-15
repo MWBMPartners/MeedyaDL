@@ -61,6 +61,7 @@ import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
 
 // uiStore provides setShowSetupWizard to dismiss the wizard overlay.
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared Button component for the navigation bar.
 import { Button } from '@/components/common';
@@ -135,6 +136,10 @@ export function SetupWizard() {
   /** Hides the wizard overlay by setting showSetupWizard to false */
   const setShowSetupWizard = useUiStore((s) => s.setShowSetupWizard);
 
+  // --- Zustand settingsStore selectors ---
+  /** Persists setup_completed flag to settings JSON on disk */
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+
   /**
    * Resolve the React component for the current step via the static
    * STEP_COMPONENTS lookup map. This enables dynamic rendering without
@@ -156,13 +161,15 @@ export function SetupWizard() {
 
   /**
    * Finishes the setup wizard by:
-   * 1. Calling `finishSetup()` on the setupStore, which persists the
-   *    completion flag so the wizard won't appear on the next launch.
-   * 2. Calling `setShowSetupWizard(false)` on the uiStore, which
+   * 1. Calling `finishSetup()` on the setupStore (transient completion flag).
+   * 2. Persisting `setup_completed: true` in settings JSON on disk, so the
+   *    wizard is skipped on future launches even if some deps go missing.
+   * 3. Calling `setShowSetupWizard(false)` on the uiStore, which
    *    removes the full-screen overlay and reveals the main application.
    */
   const handleFinish = () => {
     finishSetup();
+    updateSettings({ setup_completed: true });
     setShowSetupWizard(false);
   };
 

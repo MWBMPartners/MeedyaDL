@@ -104,6 +104,17 @@ pub enum CompanionMode {
     /// - ALAC: `01 Song Title [Lossless].m4a`
     /// - AAC companion: `01 Song Title.m4a` (clean filename)
     SpecialistToLossy,
+
+    /// When downloading Dolby Atmos, also download AC3 (Dolby Digital),
+    /// ALAC (lossless), and AAC companions — 4 files per track total.
+    /// This gives the user every available quality tier.
+    ///
+    /// File naming:
+    /// - Atmos: `01 Song Title [Dolby Atmos].m4a`
+    /// - AC3: `01 Song Title [Dolby Digital].m4a`
+    /// - ALAC: `01 Song Title [Lossless].m4a`
+    /// - AAC: `01 Song Title.m4a` (clean filename)
+    AtmosToAllFormats,
 }
 
 impl Default for CompanionMode {
@@ -432,6 +443,18 @@ pub struct AppSettings {
     pub exclude_tags: Vec<String>,
 
     // ================================================================
+    // Application State
+    // ================================================================
+
+    /// Whether the first-run setup wizard has been completed at least once.
+    /// When `true`, the app skips the wizard on startup even if some
+    /// dependencies are missing (shows a warning banner instead). This
+    /// prevents the wizard from re-appearing after app updates that might
+    /// temporarily break tool detection.
+    #[serde(default)]
+    pub setup_completed: bool,
+
+    // ================================================================
     // UI State
     // ================================================================
     // These fields persist UI layout preferences across sessions. They
@@ -496,9 +519,14 @@ impl Default for AppSettings {
             // Default to 4K with H.265 preferred, H.264 as fallback codec.
             default_video_resolution: VideoResolution::P2160,
             default_video_codec_priority: "h265,h264".to_string(),
-            // m4v is Apple's preferred container; some players handle it
-            // better than mp4 for Apple-sourced content.
-            default_video_remux_format: "m4v".to_string(),
+            // m4v is Apple's preferred container on macOS; mp4 is more
+            // universally compatible on Windows and Linux.
+            default_video_remux_format: if cfg!(target_os = "macos") {
+                "m4v"
+            } else {
+                "mp4"
+            }
+            .to_string(),
 
             // --- Fallback chains (as specified in the project brief) ---
             fallback_enabled: true,
@@ -599,6 +627,10 @@ impl Default for AppSettings {
             fetch_extra_tags: true,
             // No tags excluded by default -- embed all available metadata.
             exclude_tags: Vec::new(),
+
+            // --- Application state ---
+            // Setup wizard has not been completed yet on a fresh install.
+            setup_completed: false,
 
             // --- UI state ---
             // Sidebar expanded by default for discoverability.

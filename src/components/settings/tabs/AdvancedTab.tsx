@@ -130,9 +130,10 @@ export function AdvancedTab() {
 
         <Toggle
           label="Use Wrapper"
-          description="Use a wrapper service for account authentication instead of cookies"
+          description="Use AMDecrypt/wrapper-based decryption instead of standard cookie authentication. This is an advanced alternative for users who have access to an AMDecrypt server. Most users should leave this disabled and use cookies instead."
           checked={settings.use_wrapper}
           onChange={(checked) => updateSettings({ use_wrapper: checked })}
+          helpTopic="cookies-help"
         />
 
         {settings.use_wrapper && (

@@ -641,6 +641,64 @@ export function CookiesStep() {
           ================================================ */}
       {!isManualMode && (
         <>
+          {/* ================================================
+              Sign in with Apple Music (Embedded Login Browser)
+              Listed first as the simplest/most user-friendly method.
+              ================================================ */}
+          {!isLoginWindowOpen ? (
+            /* Show the "Sign in" card when the login window is not open */
+            <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
+              <p className="text-xs text-content-secondary">
+                Sign in with your Apple Account:
+              </p>
+              <Button
+                variant="primary"
+                onClick={handleOpenLoginWindow}
+                disabled={isImporting}
+              >
+                <LogIn size={16} className="mr-2" />
+                Sign in with Apple Music
+              </Button>
+              <p className="text-xs text-content-tertiary">
+                A browser window will open where you can sign in with your Apple
+                ID. Your cookies will be captured automatically.
+              </p>
+            </div>
+          ) : (
+            /* Show the "Waiting for login..." panel when the login window is open */
+            <div className="p-4 rounded-platform border border-accent bg-surface-elevated space-y-3">
+              <div className="flex items-center gap-2.5">
+                <Loader2 size={16} className="animate-spin text-accent" />
+                <span className="text-sm font-medium text-content-primary">
+                  Signing in...
+                </span>
+              </div>
+              <p className="text-xs text-content-secondary">
+                A browser window is open. Sign in with your Apple ID at
+                music.apple.com, then return here. Your cookies will be
+                captured automatically when login completes.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={isExtractingFromLogin}
+                  onClick={handleManualExtract}
+                >
+                  I&apos;ve signed in
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancelLogin}
+                  disabled={isExtractingFromLogin}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Browser list */}
           {isDetecting ? (
             <div className="flex items-center gap-2 py-4 text-sm text-content-secondary">
@@ -709,63 +767,6 @@ export function CookiesStep() {
 
           {/* Import result */}
           {importResult && <ImportResultPanel result={importResult} />}
-
-          {/* ================================================
-              Sign in with Apple Music (Embedded Login Browser)
-              ================================================ */}
-          {!isLoginWindowOpen ? (
-            /* Show the "Sign in" card when the login window is not open */
-            <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
-              <p className="text-xs text-content-secondary">
-                No cookies in your browser? Sign in directly:
-              </p>
-              <Button
-                variant="secondary"
-                onClick={handleOpenLoginWindow}
-                disabled={isImporting}
-              >
-                <LogIn size={16} className="mr-2" />
-                Sign in with Apple Music
-              </Button>
-              <p className="text-xs text-content-tertiary">
-                A browser window will open where you can sign in with your Apple
-                ID. Your cookies will be captured automatically.
-              </p>
-            </div>
-          ) : (
-            /* Show the "Waiting for login..." panel when the login window is open */
-            <div className="p-4 rounded-platform border border-accent bg-surface-elevated space-y-3">
-              <div className="flex items-center gap-2.5">
-                <Loader2 size={16} className="animate-spin text-accent" />
-                <span className="text-sm font-medium text-content-primary">
-                  Signing in...
-                </span>
-              </div>
-              <p className="text-xs text-content-secondary">
-                A browser window is open. Sign in with your Apple ID at
-                music.apple.com, then return here. Your cookies will be
-                captured automatically when login completes.
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={isExtractingFromLogin}
-                  onClick={handleManualExtract}
-                >
-                  I&apos;ve signed in
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancelLogin}
-                  disabled={isExtractingFromLogin}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
         </>
       )}
 

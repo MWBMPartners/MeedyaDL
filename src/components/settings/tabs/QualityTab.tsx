@@ -161,6 +161,7 @@ export function QualityTab() {
           onChange={(e) =>
             updateSettings({ companion_mode: e.target.value as CompanionMode })
           }
+          helpTopic="audio-codecs"
         />
       </div>
 
