@@ -27,8 +27,8 @@
 // React useEffect for auto-completing the step on mount.
 import { useEffect } from 'react';
 
-// Download icon used as the application logo placeholder.
-import { Download } from 'lucide-react';
+// Icons used in the welcome step layout.
+import { Download, AlertTriangle } from 'lucide-react';
 
 // Zustand store providing the completeStep action.
 import { useSetupStore } from '@/stores/setupStore';
@@ -109,6 +109,24 @@ export function WelcomeStep() {
           All files are installed to the application data directory. Nothing is
           installed system-wide.
         </p>
+
+        {/* Disclaimer notice */}
+        <div className="mt-4 p-3 rounded-platform border border-status-warning/30 bg-status-warning/5">
+          <div className="flex items-start gap-2">
+            <AlertTriangle
+              size={14}
+              className="text-status-warning flex-shrink-0 mt-0.5"
+            />
+            <div className="text-xs text-content-tertiary leading-relaxed">
+              <strong className="text-content-secondary">Disclaimer:</strong>{' '}
+              MeedyaDL relies on third-party libraries and services. Quality of
+              service, features, and performance are not guaranteed. While we
+              endeavour to provide updates and fixes, no liability is accepted
+              for loss of functionality. By continuing, you acknowledge and
+              accept these terms.
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
