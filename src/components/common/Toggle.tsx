@@ -25,6 +25,8 @@
  *      MDN -- the ARIA switch role.
  */
 
+import { HelpButton } from './HelpButton';
+
 /**
  * Props accepted by the {@link Toggle} component.
  */
@@ -41,11 +43,18 @@ interface ToggleProps {
   /** Label text displayed to the left of the toggle switch */
   label?: string;
 
-  /** Smaller description text displayed below the label in muted colour */
-  description?: string;
+  /** Smaller description text displayed below the label in muted colour.
+   * Accepts ReactNode for rich content (e.g. clickable links). */
+  description?: React.ReactNode;
 
   /** When true, the toggle is visually dimmed and click events are ignored */
   disabled?: boolean;
+
+  /**
+   * When set, renders a small "?" help button next to the label that
+   * navigates to the Help page with the specified topic pre-selected.
+   */
+  helpTopic?: string;
 }
 
 /**
@@ -83,6 +92,7 @@ export function Toggle({
   label,
   description,
   disabled = false,
+  helpTopic,
 }: ToggleProps) {
   return (
     /*
@@ -106,8 +116,9 @@ export function Toggle({
       {(label || description) && (
         <div className="flex-1 min-w-0">
           {label && (
-            <span className="block text-sm font-medium text-content-primary">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-content-primary">
               {label}
+              {helpTopic && <HelpButton topic={helpTopic} />}
             </span>
           )}
           {description && (

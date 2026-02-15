@@ -77,6 +77,14 @@ interface UiState {
    */
   showSetupWizard: boolean;
 
+  /**
+   * When set, the Help page should auto-navigate to this topic ID on mount.
+   * Used by the `<HelpButton>` component for contextual deep-linking from
+   * settings fields to their corresponding help documentation.
+   * Reset to `null` after the HelpViewer consumes it.
+   */
+  helpActiveTopic: string | null;
+
   // ---------------------------------------------------------------------------
   // Actions -- each calls `set()` to produce the next immutable state snapshot
   // ---------------------------------------------------------------------------
@@ -107,6 +115,20 @@ interface UiState {
    * @param show -- `true` to display the wizard, `false` to dismiss it
    */
   setShowSetupWizard: (show: boolean) => void;
+
+  /**
+   * Navigate to the Help page and auto-select a specific topic.
+   * Sets both `currentPage` to 'help' and `helpActiveTopic` to the given ID.
+   * Called by `<HelpButton>` components embedded in settings fields.
+   * @param topic -- Help topic ID (e.g. 'cookies-help', 'audio-codecs')
+   */
+  navigateToHelp: (topic: string) => void;
+
+  /**
+   * Clear the help topic deep-link after it has been consumed by HelpViewer.
+   * Prevents stale topic selections on subsequent visits to the Help page.
+   */
+  clearHelpActiveTopic: () => void;
 
   /**
    * Create and display a new toast notification.
@@ -145,10 +167,11 @@ export const useUiStore = create<UiState>((set) => ({
   // -------------------------------------------------------------------------
   // Initial state values
   // -------------------------------------------------------------------------
-  currentPage: 'download', // Start on the Download page by default
-  sidebarCollapsed: false, // Sidebar starts fully expanded; overridden by settings on startup
-  toasts: [],              // No active notifications on launch
-  showSetupWizard: false,  // Setup wizard hidden until <App> decides to show it
+  currentPage: 'download',    // Start on the Download page by default
+  sidebarCollapsed: false,    // Sidebar starts fully expanded; overridden by settings on startup
+  toasts: [],                 // No active notifications on launch
+  showSetupWizard: false,     // Setup wizard hidden until <App> decides to show it
+  helpActiveTopic: null,      // No deep-link target until a HelpButton is clicked
 
   // -------------------------------------------------------------------------
   // Actions
@@ -177,6 +200,16 @@ export const useUiStore = create<UiState>((set) => ({
 
   /** Show or hide the setup wizard modal overlay. */
   setShowSetupWizard: (show) => set({ showSetupWizard: show }),
+
+  /**
+   * Navigate to the Help page and deep-link to a specific topic.
+   * Sets both the page and the topic in a single state update.
+   */
+  navigateToHelp: (topic) =>
+    set({ currentPage: 'help', helpActiveTopic: topic }),
+
+  /** Clear the help deep-link topic after HelpViewer has consumed it. */
+  clearHelpActiveTopic: () => set({ helpActiveTopic: null }),
 
   /**
    * Create a new toast notification with a unique ID and optional auto-dismiss.

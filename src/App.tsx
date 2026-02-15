@@ -335,12 +335,19 @@ function App() {
       await checkAll();
 
       /*
-       * Step 3: Show setup wizard if any required dependency is missing.
-       * We read the latest state imperatively via getState() rather than using
-       * the reactive selectors, because at this point the async `checkAll()`
-       * has just completed and we need the freshest snapshot.
+       * Step 3: Show setup wizard if dependencies are missing AND setup
+       * has never been completed. If the user has completed setup before
+       * (`setup_completed: true`), skip the wizard even if some deps are
+       * missing — they may have been intentionally removed, or the app
+       * was updated and detection is temporarily broken. The user can
+       * always re-run the wizard from Settings.
+       *
+       * We read the latest state imperatively via getState() rather than
+       * using the reactive selectors, because at this point the async
+       * `checkAll()` has just completed and we need the freshest snapshot.
        */
       const depState = useDependencyStore.getState();
+      const settingsState = useSettingsStore.getState();
       const requiredToolsReady =
         depState.tools.length > 0 &&
         depState.tools.filter((t) => t.required).every((t) => t.installed);
@@ -349,7 +356,7 @@ function App() {
         depState.gamdl?.installed &&
         requiredToolsReady
       );
-      if (!depsReady) {
+      if (!depsReady && !settingsState.settings.setup_completed) {
         setShowSetupWizard(true);
       }
     };
