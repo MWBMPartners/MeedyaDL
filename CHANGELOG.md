@@ -6,8 +6,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(i18n)** Add internationalization support with language detection and translations
+
+- Added i18next and react-i18next for internationalization.
+  - Implemented language detection and dynamic loading of translation files.
+  - Created translation files for English, German, and French.
+  - Updated AppSettings to include a UI language setting.
+  - Enhanced settings UI to allow users to select their preferred language.
+  - Introduced UpdatesPage component to display detailed update information with release notes.
+  - Modified UpdateBanner to link to the UpdatesPage for more details.
+  - Updated Sidebar navigation to include an Updates section.
+  - Adjusted update checking logic to handle new update structures.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
