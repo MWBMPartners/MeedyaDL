@@ -48,7 +48,7 @@ import { useEffect } from 'react';
  * - `RefreshCw` -- manual refresh button (@see https://lucide.dev/icons/refresh-cw)
  * - `Trash2`    -- "Clear Finished" button (@see https://lucide.dev/icons/trash-2)
  */
-import { Download, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { Download, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 /**
  * Zustand store hooks.
@@ -137,6 +137,12 @@ export function DownloadQueue() {
    * Imported items are enqueued and processing starts automatically.
    */
   const importQueue = useDownloadStore((s) => s.importQueue);
+
+  /**
+   * Manually triggers queue processing. Used when auto_start_queue is
+   * disabled and the user clicks "Start Queue".
+   */
+  const processQueue = useDownloadStore((s) => s.processQueue);
 
   /** Shows a toast notification for action feedback. */
   const addToast = useUiStore((s) => s.addToast);
@@ -229,6 +235,19 @@ export function DownloadQueue() {
   };
 
   /**
+   * Manually start processing the download queue.
+   * Wraps `processQueue()` with toast feedback.
+   */
+  const handleStartQueue = async () => {
+    try {
+      await processQueue();
+      addToast('Queue processing started', 'info');
+    } catch {
+      addToast('Failed to start queue processing', 'error');
+    }
+  };
+
+  /**
    * Clear all finished items (complete, error, cancelled) from the queue.
    * Wraps `clearFinished()` with toast feedback showing the count removed.
    */
@@ -263,6 +282,20 @@ export function DownloadQueue() {
     (i) => i.state === 'queued' || i.state === 'downloading' || i.state === 'processing',
   ).length;
 
+  /**
+   * Count of items waiting to be processed (in 'queued' state).
+   * Used to conditionally show the "Start Queue" button.
+   */
+  const queuedCount = queueItems.filter((i) => i.state === 'queued').length;
+
+  /**
+   * Count of items currently being processed (downloading or processing).
+   * The "Start Queue" button is shown when items are queued but none active.
+   */
+  const activeCount = queueItems.filter(
+    (i) => i.state === 'downloading' || i.state === 'processing',
+  ).length;
+
   // ---------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------
@@ -282,6 +315,23 @@ export function DownloadQueue() {
         subtitle={`${queueItems.length} item${queueItems.length !== 1 ? 's' : ''} in queue`}
         actions={
           <div className="flex gap-2">
+            {/*
+             * "Start Queue" button -- shown when there are queued items
+             * waiting to be processed and no downloads are currently active.
+             * Always visible in manual mode; also shown in auto mode as a
+             * fallback if processing stalled.
+             */}
+            {queuedCount > 0 && activeCount === 0 && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Play size={14} />}
+                onClick={handleStartQueue}
+              >
+                Start Queue ({queuedCount})
+              </Button>
+            )}
+
             {/*
              * "Import" button -- always shown, opens a native file picker
              * to import queue items from a .meedyadl file.

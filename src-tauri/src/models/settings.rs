@@ -182,6 +182,14 @@ pub struct AppSettings {
     #[serde(default)]
     pub check_pre_releases: bool,
 
+    /// Whether to start processing the download queue immediately when items
+    /// are enqueued. When `true` (the default), downloads begin as soon as
+    /// a concurrency slot is available. When `false`, items are added in
+    /// `Queued` state and the user must manually start processing from the
+    /// Queue page.
+    #[serde(default = "default_auto_start_queue")]
+    pub auto_start_queue: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -499,6 +507,14 @@ pub struct AppSettings {
     pub theme_override: Option<String>,
 }
 
+/// Serde default helper: returns `true` for `auto_start_queue`.
+/// Used by `#[serde(default = "default_auto_start_queue")]` because
+/// `bool::default()` returns `false`, but we need `true` for backward
+/// compatibility (existing users expect downloads to start automatically).
+fn default_auto_start_queue() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
     ///
@@ -541,6 +557,10 @@ impl Default for AppSettings {
             // Only show stable releases by default. Pre-releases may have
             // incomplete features or bugs and are for testers/developers.
             check_pre_releases: false,
+            // Auto-start queue processing by default so downloads begin
+            // immediately. When disabled, items stay queued until the user
+            // manually triggers processing from the Queue page.
+            auto_start_queue: true,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).

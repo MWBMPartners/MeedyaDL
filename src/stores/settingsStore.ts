@@ -63,6 +63,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   overwrite: false,              // Do not overwrite existing files by default
   auto_check_updates: true,      // Automatically check for updates on startup
   check_pre_releases: false,     // Only show stable releases by default
+  auto_start_queue: true,        // Start processing immediately when items are enqueued
   default_song_codec: 'alac',    // Preferred audio codec: Apple Lossless
   default_video_resolution: '2160p', // Preferred video quality: 4K
   default_video_codec_priority: 'h265,h264', // Try H.265 first, fall back to H.264
