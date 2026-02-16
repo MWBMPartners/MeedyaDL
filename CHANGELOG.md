@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(config_service)** Improve settings loading and sync to GAMDL config.ini
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.15] - 2026-02-16
+
 ### ✨ Features
 
 - Add Activity Log component for live subprocess output and update download queue behavior
