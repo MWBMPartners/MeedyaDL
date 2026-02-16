@@ -633,12 +633,11 @@ impl GamdlOptions {
             args.push("--cover-format".to_string());
             args.push(format.to_cli_string().to_string());
         }
-        // Special formatting: GAMDL expects cover size as "WIDTHxHEIGHT" but
-        // we store a single u32 because cover art is always square. The
-        // format!() call duplicates the value to produce e.g. "1200x1200".
+        // GAMDL expects --cover-size as a single integer (pixels).
+        // Cover art is always square, so one dimension suffices.
         if let Some(size) = self.cover_size {
             args.push("--cover-size".to_string());
-            args.push(format!("{}x{}", size, size));
+            args.push(size.to_string());
         }
 
         // --- Output ---
@@ -944,14 +943,14 @@ mod tests {
     // ----------------------------------------------------------
 
     #[test]
-    fn cover_size_formatted_as_wxh() {
+    fn cover_size_formatted_as_integer() {
         let options = GamdlOptions {
             cover_size: Some(1200),
             ..Default::default()
         };
         let args = options.to_cli_args();
         assert!(args.contains(&"--cover-size".to_string()));
-        assert!(args.contains(&"1200x1200".to_string()));
+        assert!(args.contains(&"1200".to_string()));
     }
 
     // ----------------------------------------------------------

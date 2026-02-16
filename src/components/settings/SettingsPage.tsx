@@ -2,18 +2,18 @@
  * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file SettingsPage.tsx -- Settings page container with 9-tab navigation.
+ * @file SettingsPage.tsx -- Settings page container with 10-tab navigation.
  *
  * This is the top-level settings component rendered when the user navigates to
  * the "Settings" page via the application sidebar. It provides:
  *
- *   1. A **left sidebar** listing all 9 settings tabs with icons.
+ *   1. A **left sidebar** listing all 10 settings tabs with icons.
  *   2. A **content area** on the right that renders the active tab's component.
  *   3. A **header bar** with "Reset" and "Save Changes" action buttons.
  *
- * ## 9-Tab Layout
+ * ## 10-Tab Layout
  *
- * The settings are organised into 9 categories, each implemented as a
+ * The settings are organised into 10 categories, each implemented as a
  * separate React component inside the `./tabs/` directory:
  *
  * | Tab          | Component        | Purpose                                      |
@@ -25,6 +25,7 @@
  * | Cookies      | CookiesTab       | Cookie file import and validation             |
  * | Lyrics       | LyricsTab        | Synced lyrics format preferences              |
  * | Cover Art    | CoverArtTab      | Cover art saving, format, and size            |
+ * | Metadata     | MetadataTab      | AcousticID, ReplayGain, enrichment settings   |
  * | Templates    | TemplatesTab     | File/folder naming templates                  |
  * | Advanced     | AdvancedTab      | Download mode, remux mode, wrapper config     |
  *
@@ -80,6 +81,7 @@ import {
   Image,                    // Cover Art tab icon
   Code,                     // Templates tab icon (code brackets for template syntax)
   Wrench,                   // Advanced tab icon
+  Tag,                      // Metadata tab icon
   Save,                     // Save button icon
   RotateCcw,                // Reset button icon (counter-clockwise rotation)
 } from 'lucide-react';
@@ -106,6 +108,7 @@ import { LyricsTab } from './tabs/LyricsTab';
 import { CoverArtTab } from './tabs/CoverArtTab';
 import { TemplatesTab } from './tabs/TemplatesTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
+import { MetadataTab } from './tabs/MetadataTab';
 
 /**
  * Shape of a single tab entry in the TABS configuration array.
@@ -128,7 +131,7 @@ interface SettingsTab {
 }
 
 /**
- * Static configuration array defining all 9 settings tabs in the order they
+ * Static configuration array defining all 10 settings tabs in the order they
  * appear in the sidebar. The order here directly controls the visual layout.
  *
  * Each entry maps a tab ID to its display properties (label, icon) and the
@@ -144,6 +147,7 @@ const TABS: SettingsTab[] = [
   { id: 'cookies', label: 'Cookies', icon: Cookie, component: CookiesTab },
   { id: 'lyrics', label: 'Lyrics', icon: FileText, component: LyricsTab },
   { id: 'cover-art', label: 'Cover Art', icon: Image, component: CoverArtTab },
+  { id: 'metadata', label: 'Metadata', icon: Tag, component: MetadataTab },
   { id: 'templates', label: 'Templates', icon: Code, component: TemplatesTab },
   { id: 'advanced', label: 'Advanced', icon: Wrench, component: AdvancedTab },
 ];
@@ -277,10 +281,10 @@ export function SettingsPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* ----------------------------------------------------------------
             Tab sidebar (left column)
-            Fixed width of w-44 (176px). Lists all 9 tabs as buttons.
+            Fixed width of w-44 (176px). Lists all 10 tabs as buttons.
             The active tab receives an accent background and font weight.
             The sidebar scrolls independently if the window is too short
-            to display all tabs (unlikely at 9 items, but defensive).
+            to display all tabs (unlikely at 10 items, but defensive).
             ---------------------------------------------------------------- */}
         <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2 space-y-0.5">
           {TABS.map(({ id, label, icon: Icon }) => (

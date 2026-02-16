@@ -242,7 +242,9 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/PortraitCover.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
 - ✅ **Configurable companion downloads** - 4 modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy) with [Lossless]/[Dolby Atmos] file suffixes
 - ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
-- ✅ **Custom codec metadata tagging** - ALAC: `isLossless=Y`; Atmos: `SpatialType=Dolby Atmos` via mp4ameta freeform atoms
+- ✅ **Metadata enrichment** - Comprehensive post-download enrichment: codec tags, source/channel tags, Apple Music API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs). Shared `apple_music_api.rs` module for MusicKit JWT, URL parsing, and catalog API.
+- ✅ **AcousticID fingerprinting** (opt-in) - Chromaprint audio fingerprints via fpcalc + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags.
+- ✅ **ReplayGain loudness analysis** (opt-in) - FFmpeg EBU R128 filter for non-destructive volume normalisation tags (`replaygain_track_gain`, `replaygain_track_peak`)
 - ✅ **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup
 - ✅ **Queue export/import** - `.meedyadl` file format with native save/open dialogs for cross-device transfer
 - ✅ **Manual workflow dispatch** - `workflow_dispatch` on CI, Changelog, Release Please, Release for conserving Actions minutes

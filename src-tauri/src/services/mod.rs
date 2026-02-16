@@ -29,7 +29,10 @@
 //   +-- cookie_service.rs        -- Browser cookie extraction and import
 //   +-- login_window_service.rs  -- Embedded Apple Music login webview
 //   +-- animated_artwork_service -- Animated cover art via MusicKit API
-//   +-- metadata_tag_service.rs  -- Custom codec metadata tagging for M4A files
+//   +-- apple_music_api.rs       -- Shared MusicKit JWT, URL parsing, API client
+//   +-- metadata_tag_service.rs  -- Post-download metadata enrichment (codec + API tags)
+//   +-- acoustid_service.rs      -- AcousticID fingerprinting via fpcalc (opt-in)
+//   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
 //
 // Thread safety:
 //   Services that access shared state (like the download queue) use
@@ -116,9 +119,34 @@ pub mod login_window_service;
 /// MusicKit credentials (Team ID, Key ID, private key in OS keychain).
 pub mod animated_artwork_service;
 
-/// Post-download custom metadata tagging service: injects MeedyaDL-specific
-/// freeform atoms into downloaded M4A files to identify the codec quality
-/// tier. ALAC files get `isLossless = Y`; Dolby Atmos files get
-/// `SpatialType = Dolby Atmos` in both the Apple iTunes and MeedyaMeta
-/// namespaces. Safe for all audio stream types (ALAC, EC-3, AAC).
+/// Shared Apple Music (MusicKit) API client and authentication module.
+/// Provides JWT generation, URL parsing, keychain access, and the enriched
+/// catalog API call that returns album metadata (ISRC, UPC, genre, advisory,
+/// artist IDs) plus animated artwork URLs in a single request.
+///
+/// Used by: animated_artwork_service, metadata_tag_service
+pub mod apple_music_api;
+
+/// Post-download metadata enrichment service: injects comprehensive custom
+/// metadata into downloaded M4A files. Codec tags (isLossless, SpatialType),
+/// source tags (SourceStore, EncodeSource, ChannelConfig), and Apple Music
+/// API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs) are
+/// written as freeform atoms. Channel detection uses ffprobe; API metadata
+/// requires MusicKit credentials configured in settings.
 pub mod metadata_tag_service;
+
+/// AcousticID fingerprinting service: generates Chromaprint audio fingerprints
+/// via the fpcalc binary and looks up AcousticID identifiers using the
+/// acoustid.org web service. Writes `Acoustid Id` and `Acoustid Fingerprint`
+/// freeform atoms to M4A files. Opt-in feature requiring fpcalc installation.
+///
+/// Used by: download_queue (post-download enrichment, when acoustid_enabled)
+pub mod acoustid_service;
+
+/// ReplayGain loudness analysis service: analyses audio loudness using
+/// FFmpeg's EBU R128 filter and writes non-destructive ReplayGain metadata
+/// tags (`replaygain_track_gain`, `replaygain_track_peak`). Enables volume
+/// normalisation in media players that support ReplayGain. Opt-in feature.
+///
+/// Used by: download_queue (post-download enrichment, when replaygain_enabled)
+pub mod replaygain_service;

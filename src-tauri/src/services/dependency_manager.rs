@@ -575,6 +575,12 @@ const TOOLS: &[ToolInfo] = &[
         required: false,
         description: "Apple Music DRM decryption (wrapper system)",
     },
+    ToolInfo {
+        name: "fpcalc",
+        id: "fpcalc",
+        required: false,
+        description: "Chromaprint audio fingerprinting (AcousticID)",
+    },
 ];
 
 /// Returns the download URL and archive format for a tool on the current platform.
@@ -607,6 +613,7 @@ async fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::Archiv
         "nm3u8dlre" => get_nm3u8dlre_url(os, arch).await,
         "mp4box" => get_mp4box_url(os, arch),
         "amdecrypt" => get_amdecrypt_url(os, arch),
+        "fpcalc" => get_fpcalc_url(os, arch),
         _ => Err(format!("Unknown tool: {}", tool_id)),
     }
 }
@@ -784,6 +791,52 @@ fn get_amdecrypt_url(_os: &str, _arch: &str) -> Result<(String, archive::Archive
     )
 }
 
+/// Returns the Chromaprint fpcalc download URL for the given platform.
+///
+/// fpcalc is the command-line fingerprint tool from the Chromaprint project.
+/// Pre-built binaries are published as GitHub releases by acoustid/chromaprint.
+///
+/// macOS: Universal binary (Intel + Apple Silicon) in a tar.gz archive.
+/// Windows: x86_64 binary in a ZIP archive.
+/// Linux: x86_64 static binary in a tar.gz archive.
+///
+/// Ref: https://github.com/acoustid/chromaprint/releases
+fn get_fpcalc_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    const VERSION: &str = "1.5.1";
+
+    match (os, arch) {
+        // macOS universal binary (works on both Intel and Apple Silicon)
+        ("macos", _) => Ok((
+            format!(
+                "https://github.com/acoustid/chromaprint/releases/download/v{}/chromaprint-fpcalc-{}-macos-universal.tar.gz",
+                VERSION, VERSION
+            ),
+            archive::ArchiveFormat::TarGz,
+        )),
+        // Windows x86_64 (also runs on ARM64 via emulation)
+        ("windows", "x86_64") | ("windows", "aarch64") => Ok((
+            format!(
+                "https://github.com/acoustid/chromaprint/releases/download/v{}/chromaprint-fpcalc-{}-windows-x86_64.zip",
+                VERSION, VERSION
+            ),
+            archive::ArchiveFormat::Zip,
+        )),
+        // Linux x86_64
+        ("linux", "x86_64") => Ok((
+            format!(
+                "https://github.com/acoustid/chromaprint/releases/download/v{}/chromaprint-fpcalc-{}-linux-x86_64.tar.gz",
+                VERSION, VERSION
+            ),
+            archive::ArchiveFormat::TarGz,
+        )),
+        _ => Err(format!(
+            "No pre-built fpcalc binary available for {}/{}. \
+             Install fpcalc manually or use the mirror repository.",
+            os, arch
+        )),
+    }
+}
+
 /// Returns the path to a tool's installation directory.
 ///
 /// Each tool gets its own subdirectory under {app_data}/tools/.
@@ -822,6 +875,7 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
         "nm3u8dlre" => format!("N_m3u8DL-RE{}", exe_ext),
         "mp4box" => format!("MP4Box{}", exe_ext),
         "amdecrypt" => format!("amdecrypt{}", exe_ext),
+        "fpcalc" => format!("fpcalc{}", exe_ext),
         _ => format!("{}{}", tool_id, exe_ext),
     };
 
@@ -1678,6 +1732,7 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
         "ffmpeg" => vec![format!("ffmpeg{}", exe_ext)],
         "mp4decrypt" => vec![format!("mp4decrypt{}", exe_ext)],
         "amdecrypt" => vec![format!("amdecrypt{}", exe_ext)],
+        "fpcalc" => vec![format!("fpcalc{}", exe_ext)],
         // N_m3u8DL-RE: check both the expected case and lowercase variant
         "nm3u8dlre" => vec![
             format!("N_m3u8DL-RE{}", exe_ext),

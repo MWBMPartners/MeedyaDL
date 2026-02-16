@@ -44,7 +44,9 @@
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
-- **Custom codec metadata** — ALAC files tagged `isLossless=Y`; Dolby Atmos files tagged `SpatialType=Dolby Atmos` for programmatic identification
+- **Metadata enrichment** — codec tags, source tags, channel detection, ISRC, UPC, genre, advisory ratings, artist IDs, and animated artwork URLs via Apple Music API
+- **AcousticID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification
+- **ReplayGain analysis** (opt-in) — non-destructive loudness metadata for volume normalisation in compatible players
 
 ### 🔐 Authentication & Security
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
@@ -238,7 +240,10 @@ MeedyaDL/
 │       │   ├── cookie_service.rs    # Browser cookie extraction
 │       │   ├── login_window_service.rs # Embedded Apple Music login
 │       │   ├── animated_artwork_service.rs # MusicKit animated cover art
-│       │   └── metadata_tag_service.rs    # Custom M4A codec metadata tagging
+│       │   ├── apple_music_api.rs   # Shared MusicKit JWT, URL parsing, API
+│       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
+│       │   ├── acoustid_service.rs  # AcousticID fingerprinting (opt-in)
+│       │   └── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
 │       └── utils/              #    Utility modules
 │           ├── platform.rs     #    OS detection & paths
 │           ├── archive.rs      #    ZIP/tar extraction
@@ -357,7 +362,9 @@ refactor(backend): simplify dependency management
 - [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4 / PortraitCover.mp4)
 - [x] Hidden animated artwork files (OS-level hidden attribute: macOS `chflags hidden`, Windows `attrib +H`, Linux `.` prefix)
 - [x] Configurable companion downloads (4 modes: Disabled, Atmos to Lossless, Atmos to Lossless+Lossy, Specialist to Lossy)
-- [x] Custom codec metadata tagging (ALAC: isLossless=Y; Atmos: SpatialType=Dolby Atmos)
+- [x] Metadata enrichment (codec tags, source/channel tags, Apple Music API metadata, animated artwork URLs)
+- [x] AcousticID fingerprinting (opt-in, via Chromaprint fpcalc + acoustid.org API)
+- [x] ReplayGain loudness analysis (opt-in, via FFmpeg EBU R128 filter)
 - [x] Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
 - [x] Queue persistence and crash recovery (auto-save to disk, auto-resume on restart)
 - [x] Queue export/import (transfer queue between devices via `.meedyadl` files)
