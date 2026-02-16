@@ -935,15 +935,17 @@ mod tests {
     /// tool paths and overrides are correctly persisted.
     #[test]
     fn app_settings_serde_handles_optional_fields_as_some() {
-        let mut settings = AppSettings::default();
-        settings.cookies_path = Some("/path/to/cookies.txt".to_string());
-        settings.ffmpeg_path = Some("/usr/local/bin/ffmpeg".to_string());
-        settings.mp4decrypt_path = Some("/usr/local/bin/mp4decrypt".to_string());
-        settings.mp4box_path = Some("/usr/local/bin/mp4box".to_string());
-        settings.nm3u8dlre_path = Some("/usr/local/bin/N_m3u8DL-RE".to_string());
-        settings.amdecrypt_path = Some("/usr/local/bin/amdecrypt".to_string());
-        settings.truncate = Some(200);
-        settings.theme_override = Some("dark".to_string());
+        let settings = AppSettings {
+            cookies_path: Some("/path/to/cookies.txt".to_string()),
+            ffmpeg_path: Some("/usr/local/bin/ffmpeg".to_string()),
+            mp4decrypt_path: Some("/usr/local/bin/mp4decrypt".to_string()),
+            mp4box_path: Some("/usr/local/bin/mp4box".to_string()),
+            nm3u8dlre_path: Some("/usr/local/bin/N_m3u8DL-RE".to_string()),
+            amdecrypt_path: Some("/usr/local/bin/amdecrypt".to_string()),
+            truncate: Some(200),
+            theme_override: Some("dark".to_string()),
+            ..Default::default()
+        };
 
         let json = serde_json::to_string(&settings).unwrap();
         let deserialized: AppSettings = serde_json::from_str(&json).unwrap();

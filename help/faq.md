@@ -95,7 +95,7 @@ For full details on video quality options, see [Quality Settings](quality-settin
 
 ### Where are my downloaded files saved?
 
-The download location is configurable in **Settings > Paths** tab. By default, files are saved to your system's music directory. Downloaded files are organized using GAMDL's template system in an Artist/Album/Track folder structure, which you can customize in **Settings > Templates**.
+The download location is configurable in **Settings > Paths** tab. By default, files are saved to your system's music directory. Downloaded files are organized using GAMDL's template system in an Artist/Album/Track folder structure, which you can customize in **Settings > Templates**. Intermediate files during download and processing are stored in a temporary directory (default: `{OS temp}/MeedyaDL`), also configurable in **Settings > Paths**.
 
 See [Getting Started](getting-started.md) for initial configuration.
 

@@ -380,6 +380,113 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
 }
 
 // ============================================================
+// Error Classification
+// ============================================================
+
+/// Checks if a GAMDL error message indicates a codec-related failure.
+///
+/// This is used by the **fallback quality system** in `services::download_queue`
+/// to decide whether to retry the download with a different audio codec or
+/// video resolution. The quality fallback chain is:
+///   AAC-HE -> AAC-LC -> (give up)   for audio
+///   2160p  -> 1080p  -> 720p        for video (music videos)
+///
+/// Codec errors mean the content is not available in the requested format
+/// on the server side, so retrying with the same format would fail again.
+/// Other error types (network, auth, not-found) are transient or
+/// configuration issues and should **not** trigger codec fallback.
+///
+/// # Arguments
+/// * `error_message` - The error message string to classify.
+///
+/// # Returns
+/// `true` if the error is codec-related and a quality fallback should be
+/// attempted; `false` otherwise.
+///
+/// # Connection
+/// Called by `services::download_queue` after a download fails, before
+/// deciding whether to enqueue a retry with a lower-quality codec.
+pub fn is_codec_error(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    lower.contains("codec not available")      // yt-dlp: requested codec not in manifest
+        || lower.contains("no matching codec") // GAMDL: no codec matches quality preference
+        || lower.contains("format not available") // yt-dlp: requested format ID not found
+        || lower.contains("unable to find matching codec") // GAMDL variant
+        || lower.contains("requested codec")   // GAMDL: "requested codec X not available"
+        || lower.contains("drm")               // DRM-protected content (cannot be decoded)
+}
+
+/// Classifies an error message into a named category for the React UI.
+///
+/// Error categories serve two purposes:
+///   1. **Visual feedback** -- the React download queue component uses the
+///      category to select an icon, colour, and user-friendly description.
+///   2. **Retry logic** -- the download queue manager checks the category
+///      to decide whether automatic retry or quality fallback is appropriate
+///      (e.g., "auth" errors should not be retried automatically, but
+///      "network" errors might be).
+///
+/// Categories are returned as `&'static str` (compile-time string literals)
+/// to avoid heap allocation. The frontend matches on these exact strings.
+///
+/// # Category mapping
+/// | Category       | Keywords matched                          | Retry? |
+/// |----------------|-------------------------------------------|--------|
+/// | `"auth"`       | cookie, auth, login                       | No     |
+/// | `"network"`    | network, timeout, connection, dns         | Yes    |
+/// | `"codec"`      | (delegated to `is_codec_error`)           | Fallback|
+/// | `"not_found"`  | not found, 404, no results                | No     |
+/// | `"rate_limit"` | rate limit, 429, too many                 | Delayed|
+/// | `"tool"`       | ffmpeg, mp4decrypt, mp4box, nm3u8dl       | No     |
+/// | `"unknown"`    | (default)                                 | No     |
+///
+/// # Arguments
+/// * `error_message` - The error message string to classify.
+///
+/// # Returns
+/// A `&'static str` category identifier.
+///
+/// # Connection
+/// Called by `services::download_queue` and `commands::gamdl` when reporting
+/// errors to the frontend.
+pub fn classify_error(error_message: &str) -> &'static str {
+    let lower = error_message.to_lowercase();
+
+    // Authentication / cookie errors: user needs to provide valid credentials.
+    if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
+        "auth"
+    // Network errors: transient, may resolve on retry.
+    } else if lower.contains("network")
+        || lower.contains("timeout")
+        || lower.contains("connection")
+        || lower.contains("dns")
+    {
+        "network"
+    // Codec/format errors: the requested quality is not available; try fallback.
+    } else if is_codec_error(error_message) {
+        "codec"
+    // Content not found: the URL is invalid or the content was removed.
+    } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results")
+    {
+        "not_found"
+    // Rate limiting: the server is throttling requests; retry after delay.
+    } else if lower.contains("rate limit") || lower.contains("429") || lower.contains("too many")
+    {
+        "rate_limit"
+    // External tool errors: FFmpeg, mp4decrypt, etc. failed during post-processing.
+    } else if lower.contains("ffmpeg")
+        || lower.contains("mp4decrypt")
+        || lower.contains("mp4box")
+        || lower.contains("nm3u8dl")
+    {
+        "tool"
+    // Default: unclassified error.
+    } else {
+        "unknown"
+    }
+}
+
+// ============================================================
 // Unit Tests
 // ============================================================
 
@@ -710,108 +817,5 @@ mod tests {
     #[test]
     fn classifies_unknown_errors() {
         assert_eq!(classify_error("Something completely unexpected"), "unknown");
-    }
-}
-
-/// Checks if a GAMDL error message indicates a codec-related failure.
-///
-/// This is used by the **fallback quality system** in `services::download_queue`
-/// to decide whether to retry the download with a different audio codec or
-/// video resolution. The quality fallback chain is:
-///   AAC-HE -> AAC-LC -> (give up)   for audio
-///   2160p  -> 1080p  -> 720p        for video (music videos)
-///
-/// Codec errors mean the content is not available in the requested format
-/// on the server side, so retrying with the same format would fail again.
-/// Other error types (network, auth, not-found) are transient or
-/// configuration issues and should **not** trigger codec fallback.
-///
-/// # Arguments
-/// * `error_message` - The error message string to classify.
-///
-/// # Returns
-/// `true` if the error is codec-related and a quality fallback should be
-/// attempted; `false` otherwise.
-///
-/// # Connection
-/// Called by `services::download_queue` after a download fails, before
-/// deciding whether to enqueue a retry with a lower-quality codec.
-pub fn is_codec_error(error_message: &str) -> bool {
-    let lower = error_message.to_lowercase();
-    lower.contains("codec not available")      // yt-dlp: requested codec not in manifest
-        || lower.contains("no matching codec") // GAMDL: no codec matches quality preference
-        || lower.contains("format not available") // yt-dlp: requested format ID not found
-        || lower.contains("unable to find matching codec") // GAMDL variant
-        || lower.contains("requested codec")   // GAMDL: "requested codec X not available"
-        || lower.contains("drm")               // DRM-protected content (cannot be decoded)
-}
-
-/// Classifies an error message into a named category for the React UI.
-///
-/// Error categories serve two purposes:
-///   1. **Visual feedback** -- the React download queue component uses the
-///      category to select an icon, colour, and user-friendly description.
-///   2. **Retry logic** -- the download queue manager checks the category
-///      to decide whether automatic retry or quality fallback is appropriate
-///      (e.g., "auth" errors should not be retried automatically, but
-///      "network" errors might be).
-///
-/// Categories are returned as `&'static str` (compile-time string literals)
-/// to avoid heap allocation. The frontend matches on these exact strings.
-///
-/// # Category mapping
-/// | Category       | Keywords matched                          | Retry? |
-/// |----------------|-------------------------------------------|--------|
-/// | `"auth"`       | cookie, auth, login                       | No     |
-/// | `"network"`    | network, timeout, connection, dns         | Yes    |
-/// | `"codec"`      | (delegated to `is_codec_error`)           | Fallback|
-/// | `"not_found"`  | not found, 404, no results                | No     |
-/// | `"rate_limit"` | rate limit, 429, too many                 | Delayed|
-/// | `"tool"`       | ffmpeg, mp4decrypt, mp4box, nm3u8dl       | No     |
-/// | `"unknown"`    | (default)                                 | No     |
-///
-/// # Arguments
-/// * `error_message` - The error message string to classify.
-///
-/// # Returns
-/// A `&'static str` category identifier.
-///
-/// # Connection
-/// Called by `services::download_queue` and `commands::gamdl` when reporting
-/// errors to the frontend.
-pub fn classify_error(error_message: &str) -> &'static str {
-    let lower = error_message.to_lowercase();
-
-    // Authentication / cookie errors: user needs to provide valid credentials.
-    if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
-        "auth"
-    // Network errors: transient, may resolve on retry.
-    } else if lower.contains("network")
-        || lower.contains("timeout")
-        || lower.contains("connection")
-        || lower.contains("dns")
-    {
-        "network"
-    // Codec/format errors: the requested quality is not available; try fallback.
-    } else if is_codec_error(error_message) {
-        "codec"
-    // Content not found: the URL is invalid or the content was removed.
-    } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results")
-    {
-        "not_found"
-    // Rate limiting: the server is throttling requests; retry after delay.
-    } else if lower.contains("rate limit") || lower.contains("429") || lower.contains("too many")
-    {
-        "rate_limit"
-    // External tool errors: FFmpeg, mp4decrypt, etc. failed during post-processing.
-    } else if lower.contains("ffmpeg")
-        || lower.contains("mp4decrypt")
-        || lower.contains("mp4box")
-        || lower.contains("nm3u8dl")
-    {
-        "tool"
-    // Default: unclassified error.
-    } else {
-        "unknown"
     }
 }

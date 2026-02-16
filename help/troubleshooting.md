@@ -141,6 +141,13 @@ MeedyaDL requires certain system libraries that may not be installed by default 
      Then run it directly: `./MeedyaDL.AppImage`
   3. On non-Debian-based distributions, use your package manager to install the equivalent packages (e.g., `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
 
+#### Temp Directory Write Errors
+
+Downloads fail with a permission error related to the temp or working directory.
+
+- **Cause:** On macOS, apps launched from `/Applications` have a working directory of `/`, which is not writable. GAMDL's default temp path of `.` (current directory) fails in this scenario.
+- **Solution:** MeedyaDL automatically resolves the temp path to `{OS temp}/MeedyaDL` to avoid this issue. If you still see write errors, verify the temp directory in **Settings > Paths** points to a writable location, or clear it to use the default.
+
 #### GAMDL Backend Not Found
 
 The embedded Python environment or the GAMDL package itself is corrupted, incomplete, or missing from the expected location.

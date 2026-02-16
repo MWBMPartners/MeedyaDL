@@ -632,11 +632,11 @@ fn channels_to_config(channels: u64) -> String {
 /// Uses the track number and disc number stored in the M4A file's standard
 /// `trkn` and `disk` atoms to find the matching track in the API response.
 /// Returns `None` if no track number is available or no match is found.
-fn match_track_to_metadata<'a>(
+fn match_track_to_metadata(
     track_num: Option<u16>,
     disc_num: u16,
-    tracks: &'a [apple_music_api::TrackMetadata],
-) -> Option<&'a apple_music_api::TrackMetadata> {
+    tracks: &[apple_music_api::TrackMetadata],
+) -> Option<&apple_music_api::TrackMetadata> {
     let track_num = track_num? as u32;
     let disc_num = disc_num as u32;
     tracks.iter().find(|t| t.track_number == track_num && t.disc_number == disc_num)
