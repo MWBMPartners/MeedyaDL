@@ -39,40 +39,82 @@ To use this feature, you need:
 
 ### Step 1: Create an Apple Developer Account
 
-If you don't already have one, sign up at [developer.apple.com](https://developer.apple.com). The free tier (Apple Developer Program membership is **not** required) is sufficient for MusicKit API access.
+If you don't already have one, sign up at [developer.apple.com](https://developer.apple.com).
+
+> **Important:** A free Apple Developer account is all you need. You do **not** need the paid Apple Developer Program membership ($99/year). The free tier provides full access to the MusicKit API.
+
+1. Go to [developer.apple.com](https://developer.apple.com) and click **Account**
+2. Sign in with your Apple Account (formerly Apple ID). Any Apple Account will work -- the same one you use for iCloud, the App Store, etc.
+3. If prompted, accept the Apple Developer Agreement
 
 ### Step 2: Create a MusicKit Key
 
+A MusicKit key is a cryptographic credential that lets MeedyaDL authenticate with the Apple Music API. You create it once in the Apple Developer portal.
+
 1. Sign in to the [Apple Developer Portal](https://developer.apple.com/account)
-2. Navigate to **Certificates, Identifiers & Profiles**
-3. Click **Keys** in the left sidebar
-4. Click the **+** button to create a new key
-5. Give it a name (e.g., "MeedyaDL")
-6. Check the **MusicKit** checkbox
-7. Click **Continue**, then **Register**
+2. In the left sidebar, look under **Program resources** (or scroll down on the main page) and click **Certificates, Identifiers & Profiles**
+3. In the left sidebar of the Certificates page, click **Keys**
+4. Click the **+** (plus) button in the top-right to create a new key
+5. On the "Register a New Key" page:
+   - Enter a **Key Name** (e.g., "MeedyaDL" -- this is just a label for your reference)
+   - Under **Key Services**, check the **MusicKit** checkbox
+   - You do **not** need to fill in the "App ID" field. If prompted for one, you can select any existing App ID or leave it as the default
+6. Click **Continue**
+7. Review the details and click **Register**
 
 ### Step 3: Download Your Private Key
 
-After creating the key:
+This is the most critical step. Apple generates a private key file (`.p8` format) that you must download immediately.
 
-1. Click **Download** to save the `.p8` file
-2. **Save this file securely** -- Apple only lets you download it once!
-3. Note the **Key ID** shown on the key details page (10-character string)
+1. After clicking Register, you will see a confirmation page with a **Download** button
+2. Click **Download** to save the `.p8` file (e.g., `AuthKey_ABC1234DEF.p8`)
+3. Save the `.p8` file somewhere safe and memorable (e.g., a dedicated folder like `~/Documents/MeedyaDL Keys/`)
+4. Note the **Key ID** shown on this page -- it is a 10-character alphanumeric string (e.g., `ABC1234DEF`). You can also find it later on the Keys list page
+
+> :warning: **Apple only lets you download the `.p8` file once.** If you navigate away from this page without downloading, or if you lose the file, you cannot re-download it. You would need to revoke the key and create a new one (Step 2 again).
 
 ### Step 4: Find Your Team ID
 
-Your Team ID is the 10-character alphanumeric code shown at the **top-right** of the Apple Developer portal (next to your name), or on the **Membership** page.
+Your Team ID is a 10-character alphanumeric code (e.g., `ABCDE12345`) that identifies your Apple Developer account. You can find it in several places:
 
-### Step 5: Configure MeedyaDL
+- **Membership page:** In the Apple Developer portal, click **Membership** (or **Membership details**) in the left sidebar. Your Team ID is listed on this page.
+- **Top-right corner:** On some portal pages, your Team ID appears next to your name in the top-right.
+- **Key ID page:** It may also appear on the Key details page from Step 3.
+
+### Step 5: Extract the Private Key Content
+
+The `.p8` file you downloaded in Step 3 is a plain-text file containing your private key in PEM format. You need to copy its contents into MeedyaDL.
+
+1. Locate the `.p8` file you downloaded (e.g., `AuthKey_ABC1234DEF.p8`)
+2. Open it in any **text editor**:
+   - **macOS:** TextEdit (set to plain text mode: Format > Make Plain Text), or use Terminal: `cat ~/path/to/AuthKey_ABC1234DEF.p8`
+   - **Windows:** Notepad (right-click the file > Open with > Notepad)
+   - **Linux:** Any text editor (gedit, nano, kate, etc.)
+3. The file contents will look something like this:
+
+   ```text
+   -----BEGIN PRIVATE KEY-----
+   MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg... (base64 data)
+   ...several lines of base64-encoded data...
+   -----END PRIVATE KEY-----
+   ```
+
+4. **Select all** the content (`Ctrl+A` / `Cmd+A`), including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` header/footer lines, and **copy** it (`Ctrl+C` / `Cmd+C`)
+
+> **Tip:** The key is typically 4-6 lines long. Make sure you copy everything -- including the "BEGIN" and "END" lines. Missing even one character will cause authentication to fail.
+
+### Step 6: Configure MeedyaDL
 
 1. Open MeedyaDL and go to **Settings** > **Cover Art** tab
 2. Enable **"Download Animated Cover Art"**
-3. Enter your **Team ID** in the "MusicKit Team ID" field
-4. Enter your **Key ID** in the "MusicKit Key ID" field
-5. Open your `.p8` file in a text editor, **copy all content** (including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines)
-6. Paste it into the "MusicKit Private Key" textarea
-7. Click **"Save to Keychain"** -- the key is stored securely in your OS's native keychain
+3. Enter your **Team ID** (from Step 4) in the "MusicKit Team ID" field
+4. Enter your **Key ID** (from Step 3) in the "MusicKit Key ID" field
+5. Paste the private key content you copied in Step 5 into the **"MusicKit Private Key"** textarea
+6. Click **"Save to Keychain"** -- the key is stored securely in your OS's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Once saved, the raw key text is discarded from memory and settings
+7. The status message should change to **"Private key is stored in OS keychain"**
 8. Click **Save** to apply your settings
+
+> **If you lost your `.p8` file:** You will need to revoke the old key and create a new one. In the Apple Developer portal, go to Keys, click on the key you created, click **Revoke**, then repeat from Step 2.
 
 ---
 
@@ -153,13 +195,16 @@ Files downloaded after this change will remain visible. Previously hidden files 
 
 ### "Invalid MusicKit private key"
 
-- Make sure you copied the **entire** `.p8` file content, including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` header/footer lines
-- The key must be a valid PKCS#8 PEM-encoded EC private key (P-256 curve)
+- Make sure you copied the **entire** `.p8` file content, including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` header/footer lines (see [Step 5](#step-5-extract-the-private-key-content) above)
+- Do not add extra spaces, newlines, or characters before or after the key text
+- The key must be a valid PKCS#8 PEM-encoded EC private key (P-256 curve) -- this is the standard format Apple provides
+- If you opened the `.p8` file in a rich-text editor (e.g., Word, Pages), invisible formatting characters may have been inserted. Always use a plain-text editor (see Step 5)
+- If you lost your `.p8` file, you must revoke the key in the Apple Developer portal and create a new one (see [Step 2](#step-2-create-a-musickit-key))
 
 ### "Apple Music API returned HTTP 401"
 
-- Your MusicKit key may have been revoked in the Apple Developer portal
-- The Team ID or Key ID may be incorrect -- double-check them in the Developer portal
+- Your MusicKit key may have been revoked in the Apple Developer portal -- check the Keys page to verify the key is still active
+- The Team ID or Key ID may be incorrect -- double-check them in the Developer portal (see [Step 3](#step-3-download-your-private-key) and [Step 4](#step-4-find-your-team-id))
 
 ### "FFmpeg not installed"
 

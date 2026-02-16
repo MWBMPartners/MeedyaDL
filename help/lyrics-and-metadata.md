@@ -154,24 +154,76 @@ In both formats, artwork is embedded as a binary image atom directly within the 
 
 MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files. All metadata fields listed above are embedded in the video container using iTunes-style atoms. See also [Downloading Videos](downloading-videos.md) for video-specific output information.
 
-### Custom Codec Metadata Tags
+### MeedyaDL Metadata Enrichment
 
-In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL injects custom freeform atoms into M4A files to identify the codec quality tier. These tags are written automatically after each download completes and allow downstream tools, scripts, and media library managers to programmatically distinguish between lossy, lossless, and spatial audio files.
+In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally audio fingerprints and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+
+#### Codec Tags (Always-On)
 
 | Codec | Tag (Namespace:Name) | Value |
 | ----- | -------------------- | ----- |
 | **ALAC (Lossless)** | `com.apple.iTunes:isLossless` | `Y` |
 | **Dolby Atmos** | `com.apple.iTunes:SpatialType` | `Dolby Atmos` |
 | **Dolby Atmos** | `MeedyaMeta:SpatialType` | `Dolby Atmos` |
-| **AAC, AC3, etc.** | *(none)* | *(no custom tags)* |
+
+#### Source and Channel Tags (Always-On)
+
+| Tag (Namespace:Name) | Value | Source |
+| -------------------- | ----- | ------ |
+| `com.apple.iTunes:SourceStore` | `Apple Music` | Hardcoded |
+| `MeedyaMeta:SourceStore` | `Apple Music` | Hardcoded |
+| `com.apple.iTunes:EncodeSource` | `Web` | Hardcoded |
+| `com.apple.iTunes:iTunesMediaType` | `Music` or `Music Video` | Download type |
+| `com.apple.iTunes:isMedley` | `Y` | Only if title contains "Medley" |
+| `com.apple.iTunes:ChannelConfig` | `1.0`, `2.0`, `5.1`, `7.1`, etc. | Detected via ffprobe |
+
+#### Apple Music API Tags (Always-On When MusicKit Configured)
+
+These tags are written automatically when MusicKit credentials are configured in **Settings > Cover Art**. No separate toggle is needed.
+
+| Tag (Namespace:Name) | Value | API Field |
+| -------------------- | ----- | --------- |
+| `com.apple.iTunes:ISRC` | e.g., `USRC12345678` | Track `attributes.isrc` |
+| `com.apple.iTunes:UPC` | Barcode string | Album `attributes.upc` |
+| `com.apple.iTunes:Barcode` | Same as UPC | Album `attributes.upc` |
+| `com.apple.iTunes:AlbumAdvisory` | `explicit`, `clean` | Album `contentRating` |
+| `com.apple.iTunes:AlbumArtistID` | Numeric string | Album artist `id` |
+| `com.apple.iTunes:AlbumArtistSort` | Artist name | Album `artistName` |
+| `com.apple.iTunes:AlbumGenre` | e.g., `Pop` | `genreNames[0]` |
+| `com.apple.iTunes:iTunesAdvisory` | `explicit`, `clean` | Track `contentRating` |
+| `com.apple.iTunes:iTunesArtistID` | Numeric string | Track artist `id` |
+| `com.apple.iTunes:iTunesCatalogID` | Numeric string | Track `id` |
+| `com.apple.iTunes:StoreID/AppleMusic` | Same as CatalogID | Track `id` |
+| `com.apple.iTunes:MotionArtURL` | HLS M3U8 URL | Animated artwork (square) |
+| `MeedyaMeta:MotionArtURL` | HLS M3U8 URL | Animated artwork (square) |
+| `com.apple.iTunes:MotionArtPortraitURL` | HLS M3U8 URL | Animated artwork (portrait) |
+| `MeedyaMeta:MotionArtPortraitURL` | HLS M3U8 URL | Animated artwork (portrait) |
+
+#### AcousticID Tags (Opt-In)
+
+Enable in **Settings > Metadata**. Requires the fpcalc tool (installed via the dependency manager). Generates Chromaprint audio fingerprints and looks up AcousticID identifiers from [acoustid.org](https://acoustid.org).
+
+| Tag (Namespace:Name) | Value |
+| -------------------- | ----- |
+| `com.apple.iTunes:Acoustid Id` | UUID from acoustid.org |
+| `com.apple.iTunes:Acoustid Fingerprint` | Raw Chromaprint fingerprint |
+
+#### ReplayGain Tags (Opt-In)
+
+Enable in **Settings > Metadata**. Uses FFmpeg (already installed) to analyse audio loudness via the EBU R128 standard. Tags enable volume normalisation in compatible media players (foobar2000, Kodi, VLC, etc.) without altering the audio data.
+
+| Tag (Namespace:Name) | Value |
+| -------------------- | ----- |
+| `com.apple.iTunes:replaygain_track_gain` | e.g., `-4.20 dB` |
+| `com.apple.iTunes:replaygain_track_peak` | e.g., `0.933254` (linear scale) |
 
 **Technical details:**
 
-- Tags are stored as MP4 freeform atoms (the `----` box type), which is the standard mechanism for custom metadata in the iTunes/M4A ecosystem.
+- All tags are stored as MP4 freeform atoms (the `----` box type), the standard mechanism for custom metadata in the iTunes/M4A ecosystem.
 - The `com.apple.iTunes` namespace follows the same convention used by Apple and third-party tools like iTunes, MusicBrainz Picard, and Mp3tag.
 - The `MeedyaMeta` namespace is a MeedyaDL-branded namespace, ensuring these tags are clearly identifiable and don't collide with any future Apple-defined atoms.
-- Only the M4A container metadata is modified -- the audio stream data (ALAC, EC-3, AAC) is never touched.
-- Lossy codecs (AAC, AC3, AAC-HE, etc.) do not receive any custom tags.
+- Only the M4A container metadata is modified — the audio stream data (ALAC, EC-3, AAC) is never touched.
+- Enrichment runs as a background task and never blocks the download queue.
 
 ---
 
