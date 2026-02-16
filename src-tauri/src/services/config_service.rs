@@ -87,7 +87,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // On Linux: ~/.config/io.github.meedyadl/settings.json
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
-    if settings_path.exists() {
+    let settings = if settings_path.exists() {
         // Read the entire file into a string. This is synchronous (blocking I/O)
         // since settings are loaded during Tauri command handlers which run on
         // the Tokio thread pool and can tolerate brief blocking.
@@ -100,14 +100,24 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // - Type mismatches: returns a descriptive parse error
         // Ref: https://docs.rs/serde_json/latest/serde_json/fn.from_str.html
         serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse settings file: {}", e))
+            .map_err(|e| format!("Failed to parse settings file: {}", e))?
     } else {
         // First run: no settings file exists yet. Return the default settings
         // which are defined via #[derive(Default)] on AppSettings.
         // The defaults provide sensible out-of-the-box values for all settings.
         log::info!("No settings file found, using defaults");
-        Ok(AppSettings::default())
+        AppSettings::default()
+    };
+
+    // Always regenerate GAMDL's config.ini on load to ensure the on-disk INI
+    // matches the current code's key format (underscores, `key = true` booleans).
+    // Without this, upgrading from a version that wrote hyphens/bare keys would
+    // leave a stale config.ini that GAMDL's configparser rejects.
+    if let Err(e) = sync_to_gamdl_config(app, &settings) {
+        log::warn!("Failed to sync config.ini on load: {}", e);
     }
+
+    Ok(settings)
 }
 
 /// Saves the application settings to the JSON settings file.
