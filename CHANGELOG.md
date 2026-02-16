@@ -21,6 +21,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.3.12] - 2026-02-16
 
