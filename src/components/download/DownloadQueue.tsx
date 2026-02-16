@@ -270,7 +270,7 @@ export function DownloadQueue() {
    * shown when this count is greater than zero.
    */
   const finishedCount = queueItems.filter(
-    (i) => i.state === 'complete' || i.state === 'error' || i.state === 'cancelled',
+    (i) => i.state === 'complete' || i.state === 'cancelled',
   ).length;
 
   /**
@@ -346,24 +346,25 @@ export function DownloadQueue() {
             </Button>
 
             {/*
-             * "Export" button -- only rendered when there are non-terminal
-             * items to export (queued/downloading/processing).
+             * "Export" button -- always visible when queue has items.
+             * Disabled when there are no non-terminal items to export.
              */}
-            {exportableCount > 0 && (
+            {queueItems.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
                 icon={<Upload size={14} />}
                 onClick={handleExport}
+                disabled={exportableCount === 0}
               >
-                Export ({exportableCount})
+                Export{exportableCount > 0 ? ` (${exportableCount})` : ''}
               </Button>
             )}
 
             {/*
-             * "Clear Finished" button -- only rendered when there are
-             * completed, errored, or cancelled items to clear.
-             * Shows the count in parentheses for quick visibility.
+             * "Clear Completed" button -- only rendered when there are
+             * completed or cancelled items to clear. Errored items are
+             * kept so the user can review and retry them.
              */}
             {finishedCount > 0 && (
               <Button
@@ -372,7 +373,7 @@ export function DownloadQueue() {
                 icon={<Trash2 size={14} />}
                 onClick={handleClearAll}
               >
-                Clear Finished ({finishedCount})
+                Clear Completed ({finishedCount})
               </Button>
             )}
 

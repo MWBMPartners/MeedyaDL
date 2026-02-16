@@ -103,6 +103,21 @@ use crate::services::{config_service, gamdl_service};
 use crate::utils::process;
 
 // ============================================================
+// Activity log event (raw subprocess output for live log viewer)
+// ============================================================
+
+/// Payload for the "activity-log" Tauri event, emitted for every raw
+/// stdout/stderr line from GAMDL subprocesses before parsing. The Activity
+/// Log page subscribes to these events for a live terminal-style view.
+#[derive(Clone, serde::Serialize)]
+struct ActivityLogEvent {
+    download_id: String,
+    stream: &'static str,
+    line: String,
+    timestamp: String,
+}
+
+// ============================================================
 // Queue item (internal representation with extra tracking fields)
 // ============================================================
 
@@ -365,7 +380,8 @@ impl DownloadQueue {
         }
     }
 
-    /// Removes completed/failed/cancelled items from the queue.
+    /// Removes completed and cancelled items from the queue.
+    /// Errored items are kept so the user can review and retry them.
     ///
     /// # Returns
     /// Number of items removed.
@@ -374,7 +390,7 @@ impl DownloadQueue {
         self.items.retain(|item| {
             !matches!(
                 item.status.state,
-                DownloadState::Complete | DownloadState::Error | DownloadState::Cancelled
+                DownloadState::Complete | DownloadState::Cancelled
             )
         });
         let removed = before - self.items.len();
@@ -1826,8 +1842,17 @@ async fn run_download_with_events(
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(line)) = lines.next_line().await {
-                let event = process::parse_gamdl_output(&line);
                 log::debug!("[gamdl stdout] {}", line);
+
+                // Emit raw line to the activity log (before parsing)
+                let _ = app.emit("activity-log", &ActivityLogEvent {
+                    download_id: download_id.clone(),
+                    stream: "stdout",
+                    line: line.clone(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                });
+
+                let event = process::parse_gamdl_output(&line);
 
                 // Update the queue item's progress
                 {
@@ -1841,7 +1866,7 @@ async fn run_download_with_events(
                     errs.push(message.clone());
                 }
 
-                // Emit to frontend
+                // Emit parsed event to frontend
                 let progress = gamdl_service::GamdlProgress {
                     download_id: download_id.clone(),
                     event,
@@ -1862,8 +1887,17 @@ async fn run_download_with_events(
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(line)) = lines.next_line().await {
-                let event = process::parse_gamdl_output(&line);
                 log::debug!("[gamdl stderr] {}", line);
+
+                // Emit raw line to the activity log (before parsing)
+                let _ = app.emit("activity-log", &ActivityLogEvent {
+                    download_id: download_id.clone(),
+                    stream: "stderr",
+                    line: line.clone(),
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                });
+
+                let event = process::parse_gamdl_output(&line);
 
                 // Collect raw stderr lines for Python traceback extraction
                 {
@@ -2441,18 +2475,19 @@ mod tests {
         queue.update_item_state(&ids[1], DownloadState::Downloading);
         // ids[2] = Complete (remove)
         queue.set_complete(&ids[2]);
-        // ids[3] = Error (remove)
+        // ids[3] = Error (keep — errored items persist for review)
         queue.set_error(&ids[3], "error msg");
         // ids[4] = Cancelled (remove)
         queue.cancel(&ids[4]);
 
         let removed = queue.clear_finished();
 
-        assert_eq!(removed, 3, "Should remove 3 terminal items");
+        assert_eq!(removed, 2, "Should remove 2 items (Complete + Cancelled)");
         let statuses = queue.get_status();
-        assert_eq!(statuses.len(), 2, "Should have 2 remaining items");
+        assert_eq!(statuses.len(), 3, "Should have 3 remaining items");
         assert_eq!(statuses[0].id, ids[0], "Queued item should remain");
         assert_eq!(statuses[1].id, ids[1], "Downloading item should remain");
+        assert_eq!(statuses[2].id, ids[3], "Errored item should remain");
     }
 
     /// Verifies that clear_finished() returns 0 when there are no terminal items.
