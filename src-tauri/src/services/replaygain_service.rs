@@ -252,10 +252,9 @@ fn parse_ebur128_output(stderr: &str) -> Result<ReplayGainResult, String> {
 fn parse_lufs_value(text: &str, key: &str) -> Option<f64> {
     for line in text.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with(key) {
+        if let Some(after_key) = trimmed.strip_prefix(key) {
             // Extract the numeric value before "LUFS"
-            let after_key = trimmed[key.len()..].trim();
-            let value_str = after_key.trim_end_matches("LUFS").trim();
+            let value_str = after_key.trim().trim_end_matches("LUFS").trim();
             return value_str.parse::<f64>().ok();
         }
     }
@@ -268,9 +267,8 @@ fn parse_lufs_value(text: &str, key: &str) -> Option<f64> {
 fn parse_dbfs_value(text: &str, key: &str) -> Option<f64> {
     for line in text.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with(key) {
-            let after_key = trimmed[key.len()..].trim();
-            let value_str = after_key.trim_end_matches("dBFS").trim();
+        if let Some(after_key) = trimmed.strip_prefix(key) {
+            let value_str = after_key.trim().trim_end_matches("dBFS").trim();
             return value_str.parse::<f64>().ok();
         }
     }

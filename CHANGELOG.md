@@ -11,8 +11,18 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Implement manual queue processing and add auto-start settings
 - Add temp directory setting and auto-start queue functionality
 
+### 🐛 Bug Fixes
+
+- Fix `--cover-size` parameter passing `WxH` format instead of single integer to GAMDL CLI and config.ini
+- Fix clippy `needless_lifetimes` warning in `metadata_tag_service::match_track_to_metadata`
+- Fix clippy `manual_strip` warnings in `replaygain_service` parse functions (use `strip_prefix()`)
+- Fix clippy `field_reassign_with_default` in settings and download_queue test code
+- Fix clippy `items_after_test_module` in `process.rs` (move error classification functions before test module)
+
 ### 📚 Documentation
 
+- Expand MusicKit animated artwork documentation with 6-step Apple Developer portal setup guide
+- Update README, Project_Plan, CLAUDE.md, and help docs with auto-start queue, temp directory, and settings tab count
 - Update CHANGELOG.md [skip ci]
 
 ## [0.3.11] - 2026-02-16

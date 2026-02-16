@@ -61,6 +61,8 @@
 
 ### ⚙️ Quality of Life
 - **Auto-update checking** — stay on the latest version
+- **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
+- **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
 - **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
 - **Built-in help documentation** — 11 topics with search, accessible in-app
 - **System tray support** for background operation
@@ -186,7 +188,7 @@ MeedyaDL/
 │   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
 │   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
 │   │   ├── download/           #    DownloadForm, DownloadQueue, QueueItem
-│   │   ├── settings/           #    SettingsPage + 9 tab components
+│   │   ├── settings/           #    SettingsPage + 10 tab components
 │   │   ├── setup/              #    SetupWizard + 6 step components
 │   │   └── help/               #    HelpViewer with markdown rendering
 │   ├── stores/                 #    Zustand state stores
@@ -351,7 +353,7 @@ refactor(backend): simplify dependency management
 - [x] Dependency management (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box)
 - [x] CI/CD pipeline (GitHub Actions + release-please)
 - [x] Full download workflow with queue, fallback quality, and retry
-- [x] Settings UI with 9 configuration tabs
+- [x] Settings UI with 10 configuration tabs
 - [x] First-run setup wizard (6 steps)
 - [x] In-app help viewer with 11 topics and search
 - [x] Cookie import with validation UI (step-by-step instructions, domain/expiry display)
@@ -368,6 +370,10 @@ refactor(backend): simplify dependency management
 - [x] Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
 - [x] Queue persistence and crash recovery (auto-save to disk, auto-resume on restart)
 - [x] Queue export/import (transfer queue between devices via `.meedyadl` files)
+- [x] Auto-start queue setting (toggle in Settings > General; when disabled, batch-add URLs then click "Start Queue")
+- [x] Configurable temp directory (Settings > Paths; defaults to `{OS temp}/MeedyaDL`)
+- [x] Fix --cover-size parameter (was passing WxH format instead of single integer to GAMDL)
+- [x] Expanded MusicKit documentation (6-step setup guide with Apple Developer portal navigation)
 - [x] Manual workflow dispatch (`workflow_dispatch` on all CI/CD workflows for conserving Actions minutes)
 
 ### Planned Milestones
