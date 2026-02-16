@@ -38,6 +38,7 @@ import {
   Download,
   ListOrdered,
   ScrollText,
+  ArrowUpCircle,
   Settings,
   HelpCircle,
   ChevronLeft,
@@ -106,6 +107,7 @@ const NAV_ITEMS: NavItem[] = [
   { page: 'download', label: 'Download', icon: Download },
   { page: 'queue', label: 'Queue', icon: ListOrdered },
   { page: 'activity', label: 'Activity', icon: ScrollText },
+  { page: 'updates', label: 'Updates', icon: ArrowUpCircle },
   { page: 'settings', label: 'Settings', icon: Settings },
   { page: 'help', label: 'Help', icon: HelpCircle },
 ];
@@ -370,7 +372,7 @@ export function Sidebar() {
         {(() => {
           const handleUpdateClick = () => {
             if (hasUpdates) {
-              setPage('settings');
+              setPage('updates');
             } else if (!isChecking) {
               checkForUpdates().catch(() => {});
             }

@@ -404,6 +404,8 @@ export interface AppSettings {
   language: string;
   /** Whether to overwrite existing files by default */
   overwrite: boolean;
+  /** UI display language code (e.g., "en", "de", "fr"). Empty = auto-detect from OS */
+  ui_language: string;
   /** Whether to automatically check for updates on app startup */
   auto_check_updates: boolean;
   /** Whether to include pre-release (beta/RC) versions in update checks */
@@ -887,7 +889,7 @@ export interface ParsedUrl {
  *
  * @see App.tsx renderPage() for the page-to-component mapping
  */
-export type AppPage = 'download' | 'queue' | 'activity' | 'settings' | 'help';
+export type AppPage = 'download' | 'queue' | 'activity' | 'updates' | 'settings' | 'help';
 
 /**
  * Toast notification severity levels.
@@ -1026,6 +1028,8 @@ export interface ComponentUpdate {
   description: string | null;
   /** URL to the release page (GitHub releases, PyPI, etc.), or null */
   release_url: string | null;
+  /** Full release notes body from GitHub (untruncated), or null */
+  release_body: string | null;
   /** Whether this update is a pre-release (beta/RC) version */
   is_prerelease: boolean;
   /** Git tag name for this release (e.g., "v0.3.7"), used for download URL construction */

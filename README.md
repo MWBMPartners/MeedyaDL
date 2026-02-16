@@ -19,14 +19,14 @@
 
 ## 📸 Screenshots
 
-> 🚧 **Coming soon** — Screenshots will be added once the UI reaches beta.
+<!-- Replace these with actual screenshots captured from the running app. -->
+<!-- See DEV_NOTES.md "Capturing Screenshots" section for instructions. -->
 
-<!--
-<p align="center">
-  <img src="assets/screenshots/macos-light.png" width="45%" alt="macOS Light Mode">
-  <img src="assets/screenshots/windows-dark.png" width="45%" alt="Windows Dark Mode">
-</p>
--->
+| | |
+| --- | --- |
+| ![Download (Light)](assets/screenshots/download-light.png) | ![Download (Dark)](assets/screenshots/download-dark.png) |
+| ![Queue](assets/screenshots/queue-dark.png) | ![Settings](assets/screenshots/settings-dark.png) |
+| ![Activity Log](assets/screenshots/activity-dark.png) | ![Updates](assets/screenshots/updates-dark.png) |
 
 ---
 
@@ -60,12 +60,13 @@
 - **Linux** — Adwaita-inspired styling for GNOME integration
 
 ### ⚙️ Quality of Life
-- **Auto-update checking** — stay on the latest version
+- **Auto-update checking** — stay on the latest version with full release notes in the Updates page
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
 - **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
 - **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
 - **Built-in help documentation** — 11 topics with search, accessible in-app
 - **System tray support** for background operation
+- **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 
 ---
 
@@ -177,95 +178,7 @@ The built application will be in `src-tauri/target/release/bundle/`.
 
 ---
 
-## 📁 Project Structure
-
-```
-MeedyaDL/
-├── src/                        # React Frontend
-│   ├── App.tsx                 #    Root component with routing & event listeners
-│   ├── main.tsx                #    Entry point
-│   ├── components/             #    UI components
-│   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
-│   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
-│   │   ├── download/           #    DownloadForm, DownloadQueue, QueueItem
-│   │   ├── settings/           #    SettingsPage + 10 tab components
-│   │   ├── setup/              #    SetupWizard + 6 step components
-│   │   └── help/               #    HelpViewer with markdown rendering
-│   ├── stores/                 #    Zustand state stores
-│   │   ├── uiStore.ts          #    Navigation, toasts, sidebar state
-│   │   ├── settingsStore.ts    #    App settings load/save
-│   │   ├── downloadStore.ts    #    Queue, progress, cancel/retry/clear
-│   │   ├── dependencyStore.ts  #    Tool installation status
-│   │   ├── setupStore.ts       #    Setup wizard step tracking
-│   │   └── updateStore.ts      #    Update checking and notification
-│   ├── lib/                    #    Utility modules
-│   │   ├── tauri-commands.ts   #    Type-safe IPC wrappers
-│   │   ├── url-parser.ts       #    Apple Music URL detection
-│   │   └── quality-chains.ts   #    Fallback codec/resolution chains
-│   ├── types/                  #    TypeScript types (mirrors Rust models)
-│   ├── hooks/                  #    Custom React hooks
-│   │   └── usePlatform.ts      #    Platform detection
-│   └── styles/themes/          #    Platform-adaptive CSS
-│       ├── base.css            #    Shared design tokens
-│       ├── macos.css           #    macOS Liquid Glass
-│       ├── windows.css         #    Windows Fluent
-│       └── linux.css           #    Linux Adwaita
-├── src-tauri/                  # Rust Backend
-│   ├── Cargo.toml              #    Rust dependencies
-│   ├── tauri.conf.json         #    Tauri configuration
-│   └── src/
-│       ├── main.rs             #    Application entry point
-│       ├── lib.rs              #    Plugin, state & command registration
-│       ├── commands/           #    IPC command handlers
-│       │   ├── system.rs       #    Platform info
-│       │   ├── dependencies.rs #    Python/GAMDL/tool management
-│       │   ├── settings.rs     #    App settings
-│       │   ├── gamdl.rs        #    Download queue orchestration
-│       │   ├── credentials.rs  #    Secure keychain storage
-│       │   ├── updates.rs      #    Update checking commands
-│       │   ├── cookies.rs      #    Browser cookie extraction
-│       │   ├── login_window.rs #    Embedded Apple Music login
-│       │   └── artwork.rs      #    Animated artwork download
-│       ├── models/             #    Data structures
-│       │   ├── download.rs     #    Download request, state, queue status
-│       │   ├── gamdl_options.rs#    All GAMDL CLI options as typed enums
-│       │   ├── settings.rs     #    App configuration with defaults
-│       │   ├── dependency.rs   #    Dependency status tracking
-│       │   └── music_service.rs#    Service trait (extensibility)
-│       ├── services/           #    Business logic
-│       │   ├── python_manager.rs    # Portable Python download/install
-│       │   ├── gamdl_service.rs     # GAMDL CLI wrapper & subprocess
-│       │   ├── dependency_manager.rs# Tool download/install per platform
-│       │   ├── config_service.rs    # JSON settings + INI sync
-│       │   ├── download_queue.rs    # Queue manager with fallback/retry
-│       │   ├── update_checker.rs    # Version update checker
-│       │   ├── cookie_service.rs    # Browser cookie extraction
-│       │   ├── login_window_service.rs # Embedded Apple Music login
-│       │   ├── animated_artwork_service.rs # MusicKit animated cover art
-│       │   ├── apple_music_api.rs   # Shared MusicKit JWT, URL parsing, API
-│       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
-│       │   ├── acoustid_service.rs  # AcousticID fingerprinting (opt-in)
-│       │   └── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
-│       └── utils/              #    Utility modules
-│           ├── platform.rs     #    OS detection & paths
-│           ├── archive.rs      #    ZIP/tar extraction
-│           └── process.rs      #    GAMDL output parser & error classifier
-├── help/                       # Markdown help documentation (11 topics)
-├── .github/workflows/          # CI/CD
-│   ├── ci.yml                  #    Test & lint on push/PR
-│   ├── release.yml             #    Build & publish releases
-│   ├── release-please.yml      #    Automated version bumps & release PRs
-│   └── changelog.yml           #    Auto-generate changelogs
-├── scripts/                    # Utility scripts
-├── index.html                  #    Vite entry HTML
-├── package.json                #    Node.js config
-├── tailwind.config.js          #    Tailwind CSS config
-├── vite.config.ts              #    Vite bundler config
-├── tsconfig.json               #    TypeScript config
-├── cliff.toml                  #    Changelog generation config
-├── commitlint.config.js        #    Conventional commits config
-└── LICENSE                     #    MIT License
-```
+For the full project structure, see [DEV_NOTES.md](DEV_NOTES.md#-project-structure).
 
 ---
 
@@ -375,6 +288,8 @@ refactor(backend): simplify dependency management
 - [x] Fix --cover-size parameter (was passing WxH format instead of single integer to GAMDL)
 - [x] Expanded MusicKit documentation (6-step setup guide with Apple Developer portal navigation)
 - [x] Manual workflow dispatch (`workflow_dispatch` on all CI/CD workflows for conserving Actions minutes)
+- [x] Updates page with full release notes rendered as markdown (strips auto-update download section)
+- [x] i18n groundwork (i18next, OS language detection, language dropdown in Settings > General; English, German, French)
 
 ### Planned Milestones
 

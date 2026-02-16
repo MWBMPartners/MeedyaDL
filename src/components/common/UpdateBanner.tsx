@@ -111,6 +111,7 @@ export function UpdateBanner() {
     (s) => s.downloadAndInstallAppUpdate,
   );
   const addToast = useUiStore((s) => s.addToast);
+  const setPage = useUiStore((s) => s.setPage);
 
   /**
    * Derive the filtered active-updates list from raw store data.
@@ -214,11 +215,20 @@ export function UpdateBanner() {
            * Header text -- singular or plural depending on the number
            * of available updates (e.g. "Update Available" vs "3 Updates Available").
            */}
-          <p className="text-sm font-medium text-content-primary">
-            {activeUpdates.length === 1
-              ? 'Update Available'
-              : `${activeUpdates.length} Updates Available`}
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-medium text-content-primary">
+              {activeUpdates.length === 1
+                ? 'Update Available'
+                : `${activeUpdates.length} Updates Available`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setPage('updates')}
+              className="text-xs text-accent hover:underline cursor-pointer"
+            >
+              View Details
+            </button>
+          </div>
 
           {/*
            * Per-component update rows.

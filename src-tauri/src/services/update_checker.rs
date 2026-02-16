@@ -90,6 +90,10 @@ pub struct ComponentUpdate {
     /// URL to the release page for the user to review before updating.
     /// For GAMDL: PyPI project page. For app: GitHub release page.
     pub release_url: Option<String>,
+    /// Full release notes body from GitHub Releases (untruncated).
+    /// Only populated for app updates. Used by the Updates page to display
+    /// the complete changelog. `description` is the truncated 200-char excerpt.
+    pub release_body: Option<String>,
     /// Whether this release is a pre-release (beta/RC).
     /// Only relevant for app updates (GitHub Releases `prerelease` field).
     pub is_prerelease: bool,
@@ -305,6 +309,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
             None
         },
         release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{}/", v)),
+        release_body: None,
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
         is_prerelease: false,
         tag_name: None,
@@ -372,6 +377,7 @@ async fn check_app_update(
                 is_compatible: true,
                 description: None,
                 release_url: None,
+                release_body: None,
                 is_prerelease: false,
                 tag_name: None,
             });
@@ -400,6 +406,7 @@ async fn check_app_update(
                 is_compatible: true,
                 description: None,
                 release_url: None,
+                release_body: None,
                 is_prerelease: false,
                 tag_name: None,
             });
@@ -418,6 +425,8 @@ async fn check_app_update(
 
     // Extract the release page URL for the "View Release" button in the UI
     let html_url = release["html_url"].as_str().map(|s| s.to_string());
+    // Extract the full release notes body for the Updates page (untruncated).
+    let full_body = release["body"].as_str().map(|s| s.to_string());
     // Extract and truncate the release notes for display in the update card.
     // Long release notes are cut to 200 characters to keep the UI compact.
     let body = release["body"].as_str().map(|s| {
@@ -447,6 +456,7 @@ async fn check_app_update(
         is_compatible: true,
         description: body,
         release_url: html_url,
+        release_body: full_body,
         is_prerelease,
         // Store the raw tag (e.g., "v0.3.7") for use by the Tauri updater
         // when constructing the download URL for a specific release.
@@ -500,6 +510,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         release_url: Some(
             "https://github.com/indygreg/python-build-standalone/releases".to_string(),
         ),
+        release_body: None,
         // Python updates are local version comparisons, not GitHub Releases
         is_prerelease: false,
         tag_name: None,

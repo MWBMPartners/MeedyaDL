@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "MeedyaDL",
+    "subtitle": "Medien-Downloader"
+  },
+  "nav": {
+    "download": "Download",
+    "queue": "Warteschlange",
+    "activity": "Aktivität",
+    "updates": "Updates",
+    "settings": "Einstellungen",
+    "help": "Hilfe"
+  },
+  "sidebar": {
+    "ready": "Bereit",
+    "setupRequired": "Einrichtung erforderlich",
+    "checkForUpdates": "Nach Updates suchen",
+    "checking": "Wird geprüft...",
+    "updatesAvailable_one": "{{count}} Update",
+    "updatesAvailable_other": "{{count}} Updates"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "save": "Änderungen speichern",
+    "reset": "Zurücksetzen",
+    "tabs": {
+      "general": "Allgemein",
+      "quality": "Qualität",
+      "fallback": "Fallback",
+      "paths": "Pfade",
+      "cookies": "Cookies",
+      "lyrics": "Songtexte",
+      "coverArt": "Cover-Art",
+      "metadata": "Metadaten",
+      "templates": "Vorlagen",
+      "advanced": "Erweitert"
+    },
+    "general": {
+      "output": "Ausgabe",
+      "outputDir": "Ausgabeverzeichnis",
+      "outputDirDesc": "Wo heruntergeladene Dateien gespeichert werden",
+      "appearance": "Erscheinungsbild",
+      "theme": "Design",
+      "themeDesc": "Zwischen Hell- und Dunkelmodus wählen oder der Systemeinstellung folgen",
+      "themeAuto": "Automatisch (System)",
+      "themeLight": "Hell",
+      "themeDark": "Dunkel",
+      "language": "Sprache",
+      "languageDesc": "Anzeigesprache der Anwendung (erfordert Neustart)",
+      "languageAuto": "Automatisch (System)",
+      "preferences": "Einstellungen",
+      "metadataLanguage": "Metadaten-Sprache",
+      "metadataLanguageDesc": "Spracheinstellung für Titel- und Album-Metadaten",
+      "overwrite": "Vorhandene Dateien überschreiben",
+      "overwriteDesc": "Bereits vorhandene Dateien im Ausgabeverzeichnis erneut herunterladen und ersetzen",
+      "autoStart": "Downloads automatisch starten",
+      "autoStartDesc": "Verarbeitung sofort starten, wenn Elemente zur Warteschlange hinzugefügt werden.",
+      "autoCheck": "Automatisch nach Updates suchen",
+      "autoCheckDesc": "Beim Start automatisch nach GAMDL- und Tool-Updates suchen",
+      "preRelease": "Vorabversionen einbeziehen",
+      "preReleaseDesc": "Zusätzlich zu stabilen Versionen auch nach Vorabversionen suchen."
+    }
+  },
+  "updates": {
+    "title": "Updates",
+    "upToDate": "Alles auf dem neuesten Stand!",
+    "currentVersion": "Aktuelle Version: v{{version}}",
+    "lastChecked": "Zuletzt geprüft: {{time}}",
+    "checkNow": "Nach Updates suchen",
+    "updateAvailable": "Update verfügbar",
+    "updatesAvailable": "{{count}} Updates verfügbar",
+    "releaseNotes": "Versionshinweise",
+    "upgrade": "Aktualisieren",
+    "downloadInstall": "Herunterladen & Installieren",
+    "restartNow": "Jetzt neu starten",
+    "viewRelease": "Release auf GitHub ansehen",
+    "dismiss": "Ausblenden",
+    "viewDetails": "Details anzeigen",
+    "preRelease": "Vorabversion",
+    "preReleaseWarning": "Dies ist eine Vorabversion und kann Fehler oder unvollständige Funktionen enthalten."
+  },
+  "common": {
+    "loading": "Laden...",
+    "error": "Fehler",
+    "success": "Erfolg",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "save": "Speichern",
+    "delete": "Löschen",
+    "retry": "Wiederholen",
+    "clear": "Leeren"
+  }
+}

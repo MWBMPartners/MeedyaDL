@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "MeedyaDL",
+    "subtitle": "Téléchargeur de médias"
+  },
+  "nav": {
+    "download": "Télécharger",
+    "queue": "File d'attente",
+    "activity": "Activité",
+    "updates": "Mises à jour",
+    "settings": "Paramètres",
+    "help": "Aide"
+  },
+  "sidebar": {
+    "ready": "Prêt",
+    "setupRequired": "Configuration requise",
+    "checkForUpdates": "Rechercher des mises à jour",
+    "checking": "Vérification...",
+    "updatesAvailable_one": "{{count}} mise à jour",
+    "updatesAvailable_other": "{{count}} mises à jour"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "save": "Enregistrer les modifications",
+    "reset": "Réinitialiser",
+    "tabs": {
+      "general": "Général",
+      "quality": "Qualité",
+      "fallback": "Repli",
+      "paths": "Chemins",
+      "cookies": "Cookies",
+      "lyrics": "Paroles",
+      "coverArt": "Pochette",
+      "metadata": "Métadonnées",
+      "templates": "Modèles",
+      "advanced": "Avancé"
+    },
+    "general": {
+      "output": "Sortie",
+      "outputDir": "Répertoire de sortie",
+      "outputDirDesc": "Où les fichiers téléchargés seront enregistrés",
+      "appearance": "Apparence",
+      "theme": "Thème",
+      "themeDesc": "Choisir entre le mode clair et sombre, ou suivre les paramètres du système",
+      "themeAuto": "Automatique (Système)",
+      "themeLight": "Clair",
+      "themeDark": "Sombre",
+      "language": "Langue",
+      "languageDesc": "Langue d'affichage de l'application (nécessite un redémarrage)",
+      "languageAuto": "Automatique (Système)",
+      "preferences": "Préférences",
+      "metadataLanguage": "Langue des métadonnées",
+      "metadataLanguageDesc": "Langue préférée pour les métadonnées des pistes et albums",
+      "overwrite": "Écraser les fichiers existants",
+      "overwriteDesc": "Retélécharger et remplacer les fichiers déjà présents dans le répertoire de sortie",
+      "autoStart": "Démarrer automatiquement les téléchargements",
+      "autoStartDesc": "Commencer le traitement immédiatement lorsque des éléments sont ajoutés à la file d'attente.",
+      "autoCheck": "Vérifier automatiquement les mises à jour",
+      "autoCheckDesc": "Vérifier automatiquement les mises à jour de GAMDL et des outils au démarrage",
+      "preRelease": "Inclure les versions préliminaires",
+      "preReleaseDesc": "Rechercher les versions préliminaires en plus des versions stables."
+    }
+  },
+  "updates": {
+    "title": "Mises à jour",
+    "upToDate": "Tout est à jour !",
+    "currentVersion": "Version actuelle : v{{version}}",
+    "lastChecked": "Dernière vérification : {{time}}",
+    "checkNow": "Rechercher des mises à jour",
+    "updateAvailable": "Mise à jour disponible",
+    "updatesAvailable": "{{count}} mises à jour disponibles",
+    "releaseNotes": "Notes de version",
+    "upgrade": "Mettre à jour",
+    "downloadInstall": "Télécharger et installer",
+    "restartNow": "Redémarrer maintenant",
+    "viewRelease": "Voir la version sur GitHub",
+    "dismiss": "Ignorer",
+    "viewDetails": "Voir les détails",
+    "preRelease": "Version préliminaire",
+    "preReleaseWarning": "Ceci est une version préliminaire qui peut contenir des bugs ou des fonctionnalités incomplètes."
+  },
+  "common": {
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "success": "Succès",
+    "cancel": "Annuler",
+    "close": "Fermer",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "retry": "Réessayer",
+    "clear": "Effacer"
+  }
+}
