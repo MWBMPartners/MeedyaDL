@@ -217,6 +217,62 @@ export default {
         platform: 'var(--shadow)',             /* Standard elevation (cards, dropdowns) */
         'platform-lg': 'var(--shadow-lg)',     /* Higher elevation (modals, floating panels) */
       },
+
+      /**
+       * typography -- Customises @tailwindcss/typography prose styles to use
+       * platform-adaptive CSS variables instead of Tailwind's default grays.
+       *
+       * Without this, the prose plugin generates heading/body colors from its
+       * built-in gray palette, which doesn't match our theme system. By setting
+       * the prose CSS variables here, all prose elements (headings, paragraphs,
+       * links, code blocks, etc.) inherit the active platform theme's colors.
+       *
+       * @see src/components/help/HelpViewer.tsx -- Uses `prose prose-sm dark:prose-invert`
+       * @see src/styles/themes/base.css -- Where --text-primary etc. are defined
+       * @see https://tailwindcss.com/docs/typography-plugin#customizing-the-css
+       */
+      typography: {
+        DEFAULT: {
+          css: {
+            '--tw-prose-body': 'var(--text-primary)',
+            '--tw-prose-headings': 'var(--text-primary)',
+            '--tw-prose-lead': 'var(--text-secondary)',
+            '--tw-prose-links': 'var(--accent)',
+            '--tw-prose-bold': 'var(--text-primary)',
+            '--tw-prose-counters': 'var(--text-secondary)',
+            '--tw-prose-bullets': 'var(--text-tertiary)',
+            '--tw-prose-hr': 'var(--border-light)',
+            '--tw-prose-quotes': 'var(--text-primary)',
+            '--tw-prose-quote-borders': 'var(--border)',
+            '--tw-prose-captions': 'var(--text-secondary)',
+            '--tw-prose-code': 'var(--text-primary)',
+            '--tw-prose-pre-code': 'var(--text-primary)',
+            '--tw-prose-pre-bg': 'var(--surface-elevated)',
+            '--tw-prose-th-borders': 'var(--border)',
+            '--tw-prose-td-borders': 'var(--border-light)',
+          },
+        },
+        invert: {
+          css: {
+            '--tw-prose-invert-body': 'var(--text-primary)',
+            '--tw-prose-invert-headings': 'var(--text-primary)',
+            '--tw-prose-invert-lead': 'var(--text-secondary)',
+            '--tw-prose-invert-links': 'var(--accent)',
+            '--tw-prose-invert-bold': 'var(--text-primary)',
+            '--tw-prose-invert-counters': 'var(--text-secondary)',
+            '--tw-prose-invert-bullets': 'var(--text-tertiary)',
+            '--tw-prose-invert-hr': 'var(--border-light)',
+            '--tw-prose-invert-quotes': 'var(--text-primary)',
+            '--tw-prose-invert-quote-borders': 'var(--border)',
+            '--tw-prose-invert-captions': 'var(--text-secondary)',
+            '--tw-prose-invert-code': 'var(--text-primary)',
+            '--tw-prose-invert-pre-code': 'var(--text-primary)',
+            '--tw-prose-invert-pre-bg': 'var(--surface-elevated)',
+            '--tw-prose-invert-th-borders': 'var(--border)',
+            '--tw-prose-invert-td-borders': 'var(--border-light)',
+          },
+        },
+      },
     },
   },
 

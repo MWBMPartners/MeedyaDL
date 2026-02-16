@@ -37,10 +37,12 @@
 import {
   Download,
   ListOrdered,
+  ScrollText,
   Settings,
   HelpCircle,
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 
 /**
@@ -50,6 +52,7 @@ import {
  */
 import { useUiStore } from '@/stores/uiStore';
 import { useDependencyStore } from '@/stores/dependencyStore';
+import { useUpdateStore } from '@/stores/updateStore';
 
 /** Platform detection hook used to apply macOS-specific spacing. */
 import { usePlatform } from '@/hooks/usePlatform';
@@ -102,6 +105,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { page: 'download', label: 'Download', icon: Download },
   { page: 'queue', label: 'Queue', icon: ListOrdered },
+  { page: 'activity', label: 'Activity', icon: ScrollText },
   { page: 'settings', label: 'Settings', icon: Settings },
   { page: 'help', label: 'Help', icon: HelpCircle },
 ];
@@ -156,6 +160,16 @@ export function Sidebar() {
   const gamdl = useDependencyStore((s) => s.gamdl);
   /** Derived readiness check: both Python and GAMDL must be installed. */
   const isReady = !!(python?.installed && gamdl?.installed);
+
+  /** Whether the update checker is currently running. */
+  const isChecking = useUpdateStore((s) => s.isChecking);
+  /** Trigger an update check against PyPI + GitHub Releases. */
+  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
+  /** Derived: true when at least one non-dismissed, compatible update exists. */
+  const hasUpdates = useUpdateStore((s) => s.hasActiveUpdates());
+  /** Count of actionable updates for the badge label. */
+  const updateCount = useUpdateStore((s) => s.getActiveUpdates().length);
+
   /**
    * Platform detection -- `isMacOS` is used to add extra top padding in the
    * header area so the macOS traffic-light buttons do not overlap the logo.
@@ -338,6 +352,76 @@ export function Sidebar() {
             </div>
           </Tooltip>
         )}
+
+        {/*
+         * Check for Updates button.
+         *
+         * Triggers `checkForUpdates()` from updateStore. When updates are
+         * available, navigates to Settings so the user can review and apply them.
+         *
+         * Visual states:
+         *  - Default: RefreshCw icon + "Check for Updates"
+         *  - Checking: spinning icon + "Checking..."
+         *  - Updates found: accent-coloured badge + "N Update(s)"
+         *
+         * In collapsed mode, the button shows just the icon wrapped in a Tooltip.
+         * When updates are available, a small accent dot overlays the icon.
+         */}
+        {(() => {
+          const handleUpdateClick = () => {
+            if (hasUpdates) {
+              setPage('settings');
+            } else if (!isChecking) {
+              checkForUpdates().catch(() => {});
+            }
+          };
+
+          const label = isChecking
+            ? 'Checking...'
+            : hasUpdates
+              ? `${updateCount} Update${updateCount !== 1 ? 's' : ''}`
+              : 'Check for Updates';
+
+          const updateButton = (
+            <button
+              type="button"
+              onClick={handleUpdateClick}
+              disabled={isChecking}
+              className={`
+                no-drag w-full flex items-center gap-2 mt-2 px-2 py-1.5
+                rounded-platform text-xs transition-colors
+                ${sidebarCollapsed ? 'justify-center' : ''}
+                ${
+                  hasUpdates
+                    ? 'text-accent hover:bg-sidebar-hover'
+                    : 'text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover'
+                }
+              `}
+              aria-label={label}
+            >
+              <span className="relative flex-shrink-0">
+                <RefreshCw
+                  size={14}
+                  className={isChecking ? 'animate-spin' : ''}
+                />
+                {hasUpdates && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent" />
+                )}
+              </span>
+              {!sidebarCollapsed && <span>{label}</span>}
+            </button>
+          );
+
+          if (sidebarCollapsed) {
+            return (
+              <Tooltip content={label} position="right">
+                {updateButton}
+              </Tooltip>
+            );
+          }
+
+          return updateButton;
+        })()}
 
         {/*
          * Collapse / expand toggle button.
