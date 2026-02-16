@@ -8,6 +8,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Implement manual queue processing and add auto-start settings
+- Add temp directory setting and auto-start queue functionality
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.11] - 2026-02-16
+
+### ✨ Features
+
 - Add ReplayGain analysis and AcousticID fingerprinting services
 
 - Introduced `replaygain_service` for analyzing audio loudness using FFmpeg's EBU R128 filter, writing non-destructive ReplayGain metadata tags.
