@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- Update status color classes and add animated artwork help content
+
+## [0.3.16] - 2026-02-16
+
 ### 🐛 Bug Fixes
 
 - **(config_service)** Improve settings loading and sync to GAMDL config.ini
