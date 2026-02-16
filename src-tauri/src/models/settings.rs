@@ -292,10 +292,9 @@ pub struct AppSettings {
     pub cover_format: CoverFormat,
 
     /// Cover art dimensions in pixels. The image is always square, so
-    /// a value of 10000 requests 10000x10000 — Apple Music's CDN returns
-    /// the highest available resolution (typically up to ~3000x3000).
-    /// Maps to `GamdlOptions::cover_size` (which formats it as `"WxH"`
-    /// for the CLI).
+    /// a value of 10000 requests the highest available resolution — Apple
+    /// Music's CDN returns what it has (typically up to ~3000x3000).
+    /// Maps to `GamdlOptions::cover_size` / GAMDL `--cover-size`.
     pub cover_size: u32,
 
     // ================================================================
@@ -340,6 +339,29 @@ pub struct AppSettings {
     /// securely in the OS keychain under the key `"musickit_private_key"`,
     /// NOT in this settings struct.
     pub musickit_key_id: Option<String>,
+
+    // ================================================================
+    // Metadata Enrichment (Opt-In)
+    // ================================================================
+
+    /// Enable AcousticID fingerprinting for downloaded tracks. When enabled,
+    /// MeedyaDL generates Chromaprint audio fingerprints via fpcalc and looks
+    /// up AcousticID identifiers from acoustid.org after each download.
+    /// Requires the fpcalc tool (installed via the dependency manager).
+    /// CPU-intensive: fpcalc must decode each audio file to generate the
+    /// fingerprint, and each lookup requires a network request.
+    #[serde(default)]
+    pub acoustid_enabled: bool,
+
+    /// Enable ReplayGain loudness analysis for downloaded tracks. When enabled,
+    /// MeedyaDL analyses each audio file's loudness using FFmpeg's EBU R128
+    /// filter and writes non-destructive ReplayGain metadata tags
+    /// (`replaygain_track_gain`, `replaygain_track_peak`). This enables volume
+    /// normalisation in media players that support ReplayGain (foobar2000,
+    /// Kodi, VLC, etc.) without altering the actual audio data. Uses FFmpeg
+    /// (already installed). CPU-intensive: FFmpeg must decode each file.
+    #[serde(default)]
+    pub replaygain_enabled: bool,
 
     // ================================================================
     // File/Folder Templates
@@ -595,6 +617,13 @@ impl Default for AppSettings {
             hide_animated_artwork: true,
             musickit_team_id: None,
             musickit_key_id: None,
+
+            // --- Metadata enrichment (opt-in) ---
+            // Both disabled by default: they are CPU-intensive post-processing
+            // features that decode each audio file. Users enable them in the
+            // Metadata settings tab when they want the extra tags.
+            acoustid_enabled: false,
+            replaygain_enabled: false,
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization.

@@ -1264,63 +1264,26 @@ pub fn process_queue(
                 // Notify frontend of successful completion
                 let _ = app_clone.emit("download-complete", &dl_id);
 
-                // === Custom metadata tagging ===
-                // After GAMDL finishes writing its standard metadata, inject
-                // MeedyaDL custom tags to identify the codec quality tier:
-                //   - ALAC: isLossless = Y
-                //   - Atmos: SpatialType = Dolby Atmos (two namespaces)
-                // This runs synchronously -- file I/O is fast relative to
-                // the network download that just completed.
-                if let (Some(ref output_dir), Some(ref codec_str)) =
-                    (&output_path_for_artwork, &completed_codec)
-                {
-                    // Parse the codec string back into a SongCodec enum
-                    let codec = match codec_str.as_str() {
-                        "alac" => Some(SongCodec::Alac),
-                        "atmos" => Some(SongCodec::Atmos),
-                        _ => None, // Lossy codecs don't get custom tags
-                    };
-                    if let Some(codec) = codec {
-                        match super::metadata_tag_service::apply_codec_metadata_tags(
-                            output_dir,
-                            &codec,
-                        ) {
-                            Ok(count) if count > 0 => {
-                                log::info!(
-                                    "Tagged {} file(s) with {} metadata for {}",
-                                    count,
-                                    codec_str,
-                                    dl_id
-                                );
-                            }
-                            Ok(_) => {
-                                log::debug!(
-                                    "No M4A files to tag for {}",
-                                    dl_id
-                                );
-                            }
-                            Err(e) => {
-                                log::debug!(
-                                    "Metadata tagging failed for {}: {}",
-                                    dl_id,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // === Animated artwork (background, fire-and-forget) ===
-                // After a successful album download, check for and download
-                // animated cover art (if enabled in settings). This runs in
-                // a separate tokio task so it doesn't block the queue from
-                // processing the next download. Failures are logged at debug
-                // level but never propagate to the user or affect the download
-                // status (Complete stays Complete).
+                // === Unified post-download enrichment (background, fire-and-forget) ===
+                // After a successful download, run all post-processing in a single
+                // background task:
+                //   1. Metadata enrichment (codec tags + source tags + channel
+                //      detection + API metadata)
+                //   2. Animated artwork download (reuses API data from step 1)
+                //   3. AcousticID fingerprinting (opt-in, requires fpcalc)
+                //   4. ReplayGain loudness analysis (opt-in, uses FFmpeg)
+                //
+                // The enrichment fetches Apple Music API data once and shares it
+                // with animated artwork, avoiding duplicate API calls.
+                //
+                // This runs in a separate tokio task so it doesn't block the queue
+                // from processing the next download. Failures are logged but never
+                // propagate to the user or affect the download status.
                 if let Some(output_dir) = output_path_for_artwork {
-                    let artwork_app = app_clone.clone();
-                    let artwork_urls = urls.clone();
-                    let artwork_dl_id = dl_id.clone();
+                    let enrich_app = app_clone.clone();
+                    let enrich_urls = urls.clone();
+                    let enrich_dl_id = dl_id.clone();
+                    let enrich_codec_str = completed_codec.clone();
                     tokio::spawn(async move {
                         // Determine the album directory from the output path.
                         // For single tracks, output_path is a file -- use its parent.
@@ -1334,25 +1297,83 @@ pub fn process_queue(
                                 .unwrap_or(output_dir.clone())
                         };
 
-                        // Load settings to check if hiding is enabled
-                        let artwork_settings = load_settings_for_queue(&artwork_app).await;
+                        // --- Step 1: Enriched metadata tagging ---
+                        // Parse the codec string and run full enrichment (codec tags,
+                        // source tags, channel detection, API metadata). Returns the
+                        // fetched AlbumMetadata for reuse by animated artwork.
+                        let codec = enrich_codec_str.as_deref().and_then(|s| match s {
+                            "alac" => Some(SongCodec::Alac),
+                            "atmos" => Some(SongCodec::Atmos),
+                            "aac" => Some(SongCodec::Aac),
+                            "aac-legacy" => Some(SongCodec::AacLegacy),
+                            "aac-he" => Some(SongCodec::AacHe),
+                            "aac-binaural" => Some(SongCodec::AacBinaural),
+                            "aac-downmix" => Some(SongCodec::AacDownmix),
+                            "ac3" => Some(SongCodec::Ac3),
+                            _ => None,
+                        });
 
-                        match super::animated_artwork_service::process_album_artwork(
-                            &artwork_app,
-                            &artwork_urls,
-                            &album_dir,
-                        )
-                        .await
-                        {
+                        let album_metadata = if let Some(ref codec) = codec {
+                            match super::metadata_tag_service::apply_enriched_metadata_tags(
+                                &enrich_app,
+                                &album_dir,
+                                codec,
+                                &enrich_urls,
+                                None, // No pre-fetched metadata; will fetch from API if possible
+                            ).await {
+                                Ok((count, metadata)) => {
+                                    if count > 0 {
+                                        log::info!(
+                                            "Enriched {} file(s) with metadata for {}",
+                                            count,
+                                            enrich_dl_id
+                                        );
+                                    }
+                                    metadata
+                                }
+                                Err(e) => {
+                                    log::debug!(
+                                        "Metadata enrichment failed for {}: {}",
+                                        enrich_dl_id,
+                                        e
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        // --- Step 2: Animated artwork download ---
+                        // Reuse the AlbumMetadata from enrichment to avoid a
+                        // duplicate API call. Falls back to a fresh API call
+                        // if enrichment didn't produce metadata.
+                        let enrich_settings = load_settings_for_queue(&enrich_app).await;
+
+                        let artwork_result = if let Some(ref metadata) = album_metadata {
+                            super::animated_artwork_service::process_album_artwork_from_metadata(
+                                &enrich_app,
+                                metadata,
+                                &album_dir,
+                            ).await
+                        } else {
+                            super::animated_artwork_service::process_album_artwork(
+                                &enrich_app,
+                                &enrich_urls,
+                                &album_dir,
+                            ).await
+                        };
+
+                        match artwork_result {
                             Ok(result) => {
                                 if result.square_downloaded || result.portrait_downloaded {
                                     log::info!(
                                         "Animated artwork downloaded for {}",
-                                        artwork_dl_id
+                                        enrich_dl_id
                                     );
 
                                     // Hide artwork files if enabled in settings
-                                    if artwork_settings.hide_animated_artwork {
+                                    if enrich_settings.hide_animated_artwork {
                                         let dir = std::path::Path::new(&album_dir);
                                         if result.square_downloaded {
                                             if let Err(e) = super::animated_artwork_service::hide_file(
@@ -1370,16 +1391,68 @@ pub fn process_queue(
                                         }
                                     }
 
-                                    let _ = artwork_app
-                                        .emit("artwork-downloaded", &artwork_dl_id);
+                                    let _ = enrich_app
+                                        .emit("artwork-downloaded", &enrich_dl_id);
                                 }
                             }
                             Err(e) => {
                                 log::debug!(
                                     "Animated artwork skipped for {}: {}",
-                                    artwork_dl_id,
+                                    enrich_dl_id,
                                     e
                                 );
+                            }
+                        }
+
+                        // --- Step 3: AcousticID fingerprinting (opt-in) ---
+                        // When enabled, generates Chromaprint fingerprints via fpcalc
+                        // and looks up AcousticID identifiers from acoustid.org.
+                        if enrich_settings.acoustid_enabled {
+                            match super::acoustid_service::process_acoustid_for_directory(
+                                &enrich_app,
+                                &album_dir,
+                            ).await {
+                                Ok(count) if count > 0 => {
+                                    log::info!(
+                                        "AcousticID tagged {} file(s) for {}",
+                                        count,
+                                        enrich_dl_id
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(e) => {
+                                    log::debug!(
+                                        "AcousticID skipped for {}: {}",
+                                        enrich_dl_id,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+
+                        // --- Step 4: ReplayGain loudness analysis (opt-in) ---
+                        // When enabled, analyses each file's loudness via FFmpeg's
+                        // ebur128 filter and writes non-destructive ReplayGain tags.
+                        if enrich_settings.replaygain_enabled {
+                            match super::replaygain_service::process_replaygain_for_directory(
+                                &enrich_app,
+                                &album_dir,
+                            ).await {
+                                Ok(count) if count > 0 => {
+                                    log::info!(
+                                        "ReplayGain analysed {} file(s) for {}",
+                                        count,
+                                        enrich_dl_id
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(e) => {
+                                    log::debug!(
+                                        "ReplayGain skipped for {}: {}",
+                                        enrich_dl_id,
+                                        e
+                                    );
+                                }
                             }
                         }
                     });

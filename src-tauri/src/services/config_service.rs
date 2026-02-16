@@ -265,11 +265,8 @@ fn settings_to_ini(settings: &AppSettings) -> String {
         "cover-format = {}",
         settings.cover_format.to_cli_string()
     ));
-    // Cover size as WxH (GAMDL uses square covers, e.g., "10000x10000").
-    lines.push(format!(
-        "cover-size = {}x{}",
-        settings.cover_size, settings.cover_size
-    ));
+    // Cover size as a single integer (pixels). GAMDL uses square covers.
+    lines.push(format!("cover-size = {}", settings.cover_size));
 
     // === Output ===
     // Output directory for downloaded files. Only written if non-empty.
@@ -515,10 +512,12 @@ mod tests {
     }
 
     #[test]
-    fn ini_formats_cover_size_as_wxh() {
+    fn ini_formats_cover_size_as_integer() {
         let settings = default_settings(); // cover_size defaults to 10000
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("cover-size = 10000x10000"));
+        // GAMDL expects a single integer (pixels), not WxH.
+        assert!(ini.contains("cover-size = 10000"));
+        assert!(!ini.contains("cover-size = 10000x10000"));
     }
 
     // ----------------------------------------------------------

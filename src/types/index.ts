@@ -444,6 +444,10 @@ export interface AppSettings {
   musickit_team_id: string | null;
   /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */
   musickit_key_id: string | null;
+  /** Enable AcousticID fingerprinting for downloaded tracks (opt-in) */
+  acoustid_enabled: boolean;
+  /** Enable ReplayGain loudness analysis for downloaded tracks (opt-in) */
+  replaygain_enabled: boolean;
   /** Template for album folder naming */
   album_folder_template: string;
   /** Template for compilation album folder naming */
