@@ -138,9 +138,12 @@ pub async fn start_download(
     app.emit("download-queued", &download_id)
         .map_err(|e| format!("Failed to emit event: {}", e))?;
 
-    // Trigger queue processing — this will start the download immediately if
-    // there are available concurrency slots, or leave it queued for later.
-    download_queue::process_queue(app, queue_handle).await;
+    // Trigger queue processing if auto-start is enabled. When disabled,
+    // the item stays in Queued state until the user manually starts
+    // processing via the `process_queue_manual` command.
+    if settings.auto_start_queue {
+        download_queue::process_queue(app, queue_handle).await;
+    }
 
     Ok(download_id)
 }
@@ -244,9 +247,11 @@ pub async fn retry_download(
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
 
-        // Notify frontend and kick off queue processing, same as start_download()
+        // Notify frontend and kick off queue processing if auto-start is enabled.
         let _ = app.emit("download-queued", &download_id);
-        download_queue::process_queue(app, queue_handle).await;
+        if settings.auto_start_queue {
+            download_queue::process_queue(app, queue_handle).await;
+        }
         Ok(())
     } else {
         Err(format!("Download {} cannot be retried", download_id))
@@ -470,8 +475,38 @@ pub async fn import_queue(
 
     log::info!("Imported {} queue item(s) from file", count);
 
-    // Start processing the imported items
-    download_queue::process_queue(app, queue_handle).await;
+    // Start processing the imported items if auto-start is enabled.
+    if settings.auto_start_queue {
+        download_queue::process_queue(app, queue_handle).await;
+    }
 
     Ok(count)
+}
+
+/// Manually triggers download queue processing.
+///
+/// **Frontend caller:** `processQueue()` in `src/lib/tauri-commands.ts`
+///
+/// Used when `auto_start_queue` is disabled and the user wants to start
+/// processing queued items from the Queue page. Also useful in auto mode
+/// if processing stalled for any reason.
+///
+/// This is a no-op if no items are in the Queued state or if the
+/// concurrency limit is already reached.
+///
+/// # Arguments
+/// * `app` - Tauri AppHandle for subprocess management and event emission.
+/// * `queue` - Managed download queue state (injected by Tauri).
+///
+/// # Returns
+/// * `Ok(())` - Queue processing was triggered successfully.
+#[tauri::command]
+pub async fn process_queue_manual(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<(), String> {
+    log::info!("Manual queue processing triggered");
+    let queue_handle = queue.inner().clone();
+    download_queue::process_queue(app, queue_handle).await;
+    Ok(())
 }

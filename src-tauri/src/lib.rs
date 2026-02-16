@@ -216,6 +216,8 @@ pub fn run() {
             // Queue export/import commands
             commands::gamdl::export_queue,
             commands::gamdl::import_queue,
+            // Manual queue processing trigger
+            commands::gamdl::process_queue_manual,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,

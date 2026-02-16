@@ -177,6 +177,14 @@ export function GeneralTab() {
           onChange={(checked) => updateSettings({ overwrite: checked })}
         />
 
+        {/* Auto-start queue processing */}
+        <Toggle
+          label="Auto-Start Downloads"
+          description="Start processing immediately when items are added to the queue. When disabled, items are queued and you can start processing manually from the Queue page."
+          checked={settings.auto_start_queue}
+          onChange={(checked) => updateSettings({ auto_start_queue: checked })}
+        />
+
         {/* Auto-check for updates */}
         <Toggle
           label="Auto-Check for Updates"

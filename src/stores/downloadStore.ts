@@ -208,6 +208,13 @@ interface DownloadState {
    */
   importQueue: () => Promise<number>;
 
+  /**
+   * Manually triggers download queue processing.
+   * Used when auto_start_queue is disabled and the user clicks "Start Queue".
+   * IPC call: `commands.processQueue()` -> Rust `process_queue_manual`
+   */
+  processQueue: () => Promise<void>;
+
   // ---------------------------------------------------------------------------
   // Tauri event handlers (called by event listeners, NOT by components directly)
   // ---------------------------------------------------------------------------
@@ -457,6 +464,14 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       set({ error: String(e) });
       return 0;
     }
+  },
+
+  /**
+   * Manually trigger queue processing.
+   * IPC call: `commands.processQueue()` -> Rust `process_queue_manual`
+   */
+  processQueue: async () => {
+    await commands.processQueue();
   },
 
   // -------------------------------------------------------------------------

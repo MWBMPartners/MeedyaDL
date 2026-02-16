@@ -406,6 +406,8 @@ export interface AppSettings {
   auto_check_updates: boolean;
   /** Whether to include pre-release (beta/RC) versions in update checks */
   check_pre_releases: boolean;
+  /** Whether to auto-start queue processing when items are enqueued */
+  auto_start_queue: boolean;
   /** Default audio codec for song downloads */
   default_song_codec: SongCodec;
   /** Default maximum video resolution */
