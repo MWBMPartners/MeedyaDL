@@ -6,10 +6,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add ReplayGain analysis and AcousticID fingerprinting services
+
+- Introduced `replaygain_service` for analyzing audio loudness using FFmpeg's EBU R128 filter, writing non-destructive ReplayGain metadata tags.
+  - Added `acoustid_service` for generating Chromaprint audio fingerprints and looking up AcousticID identifiers.
+  - Updated `metadata_tag_service` to include new metadata enrichment features.
+  - Enhanced `apple_music_api` for improved metadata retrieval from MusicKit.
+  - Added new settings tab for metadata enrichment options, including toggles for AcousticID and ReplayGain.
+  - Updated Zustand store to manage new settings for AcousticID and ReplayGain.
+  - Added unit tests for new features and ensured existing tests cover new functionality.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Enhance quality settings recommendations for audio codecs
+- Update CHANGELOG.md [skip ci]
 
 ## [0.3.10] - 2026-02-15
 
