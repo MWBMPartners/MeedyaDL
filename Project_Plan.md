@@ -244,7 +244,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Configurable companion downloads** - 4 modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy) with [Lossless]/[Dolby Atmos] file suffixes
 - ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
 - ✅ **Metadata enrichment** - Comprehensive post-download enrichment: codec tags, source/channel tags, Apple Music API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs). Shared `apple_music_api.rs` module for MusicKit JWT, URL parsing, and catalog API.
-- ✅ **AcousticID fingerprinting** (opt-in) - Chromaprint audio fingerprints via fpcalc + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags.
+- ✅ **AcousticID fingerprinting** (opt-in) - Chromaprint audio fingerprints via embedded rusty-chromaprint library + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags. No external binary required.
 - ✅ **ReplayGain loudness analysis** (opt-in) - FFmpeg EBU R128 filter for non-destructive volume normalisation tags (`replaygain_track_gain`, `replaygain_track_peak`)
 - ✅ **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup
 - ✅ **Queue export/import** - `.meedyadl` file format with native save/open dialogs for cross-device transfer

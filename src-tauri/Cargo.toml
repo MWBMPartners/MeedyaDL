@@ -384,3 +384,29 @@ url = "2"
 # audio stream data, so it is safe for both ALAC and EC-3 (Atmos) payloads.
 # @see https://docs.rs/mp4ameta/ -- mp4ameta API reference
 mp4ameta = "0.13"
+
+# ---- Audio Fingerprinting (Chromaprint) ----
+
+# rusty-chromaprint -- Pure Rust port of the Chromaprint audio fingerprinting
+# library. Replaces the external fpcalc binary for AcousticID fingerprint
+# generation. Generates compact audio fingerprints compatible with the
+# AcousticID web service. Includes FingerprintCompressor for encoding in
+# Chromaprint's compressed format.
+# @see https://docs.rs/rusty-chromaprint/ -- API reference
+# @see https://acoustid.org/chromaprint -- Chromaprint project
+rusty-chromaprint = "0.3"
+
+# symphonia -- Pure Rust audio decoding framework.
+# Used to decode M4A files (MPEG-4/ISOMP4 container with AAC/ALAC codecs)
+# to raw PCM samples for Chromaprint fingerprinting. Features:
+#   - "isomp4": ISO Base Media File Format container (M4A, MP4)
+#   - "aac": Advanced Audio Coding decoder
+#   - "alac": Apple Lossless Audio Codec decoder
+# @see https://docs.rs/symphonia/ -- Symphonia documentation
+symphonia = { version = "0.5", default-features = false, features = ["isomp4", "aac", "alac"] }
+
+# base64 -- Base64 encoding/decoding library.
+# Used to encode compressed Chromaprint fingerprints in URL-safe base64
+# (RFC 4648) for submission to the AcousticID API.
+# @see https://docs.rs/base64/ -- base64 crate documentation
+base64 = "0.22"

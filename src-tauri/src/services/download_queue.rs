@@ -1422,11 +1422,11 @@ pub fn process_queue(
                         }
 
                         // --- Step 3: AcousticID fingerprinting (opt-in) ---
-                        // When enabled, generates Chromaprint fingerprints via fpcalc
-                        // and looks up AcousticID identifiers from acoustid.org.
+                        // When enabled, generates Chromaprint fingerprints using the
+                        // embedded rusty-chromaprint library and looks up AcousticID
+                        // identifiers from acoustid.org.
                         if enrich_settings.acoustid_enabled {
                             match super::acoustid_service::process_acoustid_for_directory(
-                                &enrich_app,
                                 &album_dir,
                             ).await {
                                 Ok(count) if count > 0 => {
@@ -1710,6 +1710,49 @@ pub fn process_queue(
     }) // close Box::pin(async move {
 }
 
+/// Extracts the actual Python exception message from raw stderr lines.
+///
+/// Python tracebacks have this structure:
+/// ```text
+/// Traceback (most recent call last):
+///   File "foo.py", line 42, in bar
+///     some_call()
+/// TypeError: 'NoneType' object has no attribute 'x'
+/// ```
+///
+/// The actual exception is the LAST non-empty, non-indented line after
+/// the "Traceback" header. This function finds the last traceback block
+/// in the stderr output and extracts that exception line.
+///
+/// Returns `None` if no traceback is found in the stderr lines.
+fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
+    // Find the last occurrence of "Traceback" in stderr
+    let traceback_idx = stderr_lines
+        .iter()
+        .rposition(|line| line.trim().to_lowercase().contains("traceback"))?;
+
+    // Walk forward from the traceback line to find the exception.
+    // The exception is the last non-empty, non-indented line in the traceback block.
+    let mut exception_line: Option<&str> = None;
+    for line in &stderr_lines[traceback_idx + 1..] {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            // Empty line after we've found an exception means end of traceback
+            if exception_line.is_some() {
+                break;
+            }
+            continue;
+        }
+        // Exception lines are NOT indented (don't start with space/tab).
+        // Indented lines are stack frame details (File "...", code).
+        if !line.starts_with(' ') && !line.starts_with('\t') {
+            exception_line = Some(trimmed);
+        }
+    }
+
+    exception_line.map(|s| s.to_string())
+}
+
 /// Runs a GAMDL download while forwarding parsed events to both
 /// the queue item (for status tracking) and the frontend (for UI updates).
 ///
@@ -1766,6 +1809,13 @@ async fn run_download_with_events(
     // which is more informative than just the exit code.
     let collected_errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
+    // Collect ALL stderr lines (raw) for Python traceback extraction.
+    // When GAMDL crashes with a Python traceback, the parsed error list may
+    // only contain "Traceback (most recent call last):" because intermediate
+    // lines and the final exception line may not match any error keyword.
+    // The raw stderr buffer lets us extract the actual exception post-mortem.
+    let raw_stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
     // Spawn stdout reader
     let stdout_task = {
         let download_id = download_id.to_string();
@@ -1807,12 +1857,19 @@ async fn run_download_with_events(
         let app = app.clone();
         let queue = queue.clone();
         let errors = collected_errors.clone();
+        let raw_stderr = raw_stderr_lines.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(line)) = lines.next_line().await {
                 let event = process::parse_gamdl_output(&line);
                 log::debug!("[gamdl stderr] {}", line);
+
+                // Collect raw stderr lines for Python traceback extraction
+                {
+                    let mut raw = raw_stderr.lock().await;
+                    raw.push(line.clone());
+                }
 
                 {
                     let mut q = queue.lock().await;
@@ -1882,8 +1939,24 @@ async fn run_download_with_events(
         // The error message is also used by classify_error() to determine the
         // retry/fallback strategy (codec error vs network error vs unknown).
         let errors = collected_errors.lock().await;
+        let raw_lines = raw_stderr_lines.lock().await;
+
         if let Some(last_error) = errors.last() {
-            Err(last_error.clone())
+            // If the last collected error is just the "Traceback" header,
+            // try to extract the actual Python exception from raw stderr.
+            // The parser processes lines independently, so the intermediate
+            // traceback frames and the final exception line may not have been
+            // captured as Error events.
+            let lower = last_error.to_lowercase();
+            if lower.contains("traceback") {
+                if let Some(exception) = extract_python_exception(&raw_lines) {
+                    Err(exception)
+                } else {
+                    Err(last_error.clone())
+                }
+            } else {
+                Err(last_error.clone())
+            }
         } else {
             // Fallback to exit code if no error messages were collected
             // (e.g., GAMDL crashed without printing an error)
@@ -3303,5 +3376,74 @@ mod tests {
         // Third can start
         let (id3, _, _) = queue.next_pending().unwrap();
         assert_eq!(id3, ids[2]);
+    }
+
+    // ----------------------------------------------------------
+    // Python Traceback Extraction Tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn extracts_type_error_from_traceback() {
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"foo.py\", line 42, in bar".to_string(),
+            "    some_call()".to_string(),
+            "TypeError: 'NoneType' object has no attribute 'x'".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("TypeError: 'NoneType' object has no attribute 'x'".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_dotted_exception_from_traceback() {
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"api.py\", line 10".to_string(),
+            "    response.raise_for_status()".to_string(),
+            "requests.exceptions.HTTPError: 403 Client Error".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("requests.exceptions.HTTPError: 403 Client Error".to_string())
+        );
+    }
+
+    #[test]
+    fn returns_none_without_traceback() {
+        let lines = vec![
+            "Normal output line".to_string(),
+            "Another line".to_string(),
+        ];
+        assert_eq!(extract_python_exception(&lines), None);
+    }
+
+    #[test]
+    fn handles_multiple_tracebacks_uses_last() {
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"a.py\", line 1".to_string(),
+            "RuntimeError: first".to_string(),
+            "".to_string(),
+            "Traceback (most recent call last):".to_string(),
+            "  File \"b.py\", line 2".to_string(),
+            "ValueError: second".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("ValueError: second".to_string())
+        );
+    }
+
+    #[test]
+    fn handles_traceback_with_no_exception_after() {
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"foo.py\", line 1".to_string(),
+            "  File \"bar.py\", line 2".to_string(),
+        ];
+        // All lines after Traceback are indented, so no exception found
+        assert_eq!(extract_python_exception(&lines), None);
     }
 }

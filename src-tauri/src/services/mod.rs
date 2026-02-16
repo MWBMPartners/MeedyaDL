@@ -31,7 +31,7 @@
 //   +-- animated_artwork_service -- Animated cover art via MusicKit API
 //   +-- apple_music_api.rs       -- Shared MusicKit JWT, URL parsing, API client
 //   +-- metadata_tag_service.rs  -- Post-download metadata enrichment (codec + API tags)
-//   +-- acoustid_service.rs      -- AcousticID fingerprinting via fpcalc (opt-in)
+//   +-- acoustid_service.rs      -- AcousticID fingerprinting via embedded Chromaprint (opt-in)
 //   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
 //
 // Thread safety:
@@ -136,9 +136,10 @@ pub mod apple_music_api;
 pub mod metadata_tag_service;
 
 /// AcousticID fingerprinting service: generates Chromaprint audio fingerprints
-/// via the fpcalc binary and looks up AcousticID identifiers using the
-/// acoustid.org web service. Writes `Acoustid Id` and `Acoustid Fingerprint`
-/// freeform atoms to M4A files. Opt-in feature requiring fpcalc installation.
+/// using the embedded rusty-chromaprint library (pure Rust) and looks up
+/// AcousticID identifiers via the acoustid.org web service. Writes
+/// `Acoustid Id` and `Acoustid Fingerprint` freeform atoms to M4A files.
+/// Opt-in feature with no external binary dependencies.
 ///
 /// Used by: download_queue (post-download enrichment, when acoustid_enabled)
 pub mod acoustid_service;

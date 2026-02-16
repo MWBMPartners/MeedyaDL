@@ -137,6 +137,23 @@ static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(?:ERROR|error|Error):?\s+(.+)").expect("Invalid error regex")
 });
 
+/// Matches Python exception lines that appear as the final line of a traceback.
+///
+/// Python tracebacks end with a line like:
+///   `TypeError: 'NoneType' object has no attribute 'foo'`
+///   `ValueError: invalid literal for int() with base 10: 'abc'`
+///   `KeyError: 'missing_key'`
+///   `requests.exceptions.HTTPError: 403 Client Error`
+///
+/// The pattern matches lines that start with an optional dotted module path
+/// followed by a CamelCase word ending in "Error" or "Exception", then
+/// an optional colon with message. The `^` anchor prevents false positives
+/// from mid-line occurrences.
+static PYTHON_EXCEPTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:[a-zA-Z_][a-zA-Z0-9_.]*\.)?[A-Z][a-zA-Z]*(?:Error|Exception)(?::\s*.*)?$")
+        .expect("Invalid Python exception regex")
+});
+
 // ============================================================
 // Event types emitted to the frontend
 // ============================================================
@@ -313,6 +330,17 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
             .map(|m| m.as_str().to_string())
             .unwrap_or_else(|| trimmed.to_string());
         return GamdlOutputEvent::Error { message };
+    }
+
+    // Priority 4b: Python exception lines (final line of a traceback).
+    // Catches lines like "TypeError: ...", "ValueError: ...", "KeyError: ...",
+    // "requests.exceptions.HTTPError: 403 Client Error", etc.
+    // These are the actual error descriptions that follow the "Traceback
+    // (most recent call last):" header and stack frame lines.
+    if PYTHON_EXCEPTION_REGEX.is_match(trimmed) {
+        return GamdlOutputEvent::Error {
+            message: trimmed.to_string(),
+        };
     }
 
     // Priority 5: Post-processing steps (remuxing, tagging, embedding artwork).
@@ -817,5 +845,73 @@ mod tests {
     #[test]
     fn classifies_unknown_errors() {
         assert_eq!(classify_error("Something completely unexpected"), "unknown");
+    }
+
+    // ---- Python exception line detection (Priority 4b) ----
+
+    #[test]
+    fn parses_python_type_error() {
+        let line = "TypeError: 'NoneType' object has no attribute 'foo'";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("TypeError"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_python_value_error() {
+        let line = "ValueError: invalid literal for int() with base 10: 'abc'";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("ValueError"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_python_key_error() {
+        let line = "KeyError: 'missing_key'";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("KeyError"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_dotted_python_exception() {
+        let line = "requests.exceptions.HTTPError: 403 Client Error";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("HTTPError"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_bare_exception_without_message() {
+        // A bare exception class name (no colon/message) should still match
+        // if it ends with "Error" or "Exception"
+        let line = "RuntimeError";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert_eq!(message, "RuntimeError");
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn does_not_match_non_exception_line() {
+        // A regular lowercase word should not match the Python exception regex
+        let line = "downloading file from server";
+        if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
+            panic!("Should not match as Python exception");
+        }
     }
 }

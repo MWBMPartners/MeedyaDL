@@ -13,7 +13,7 @@
  *     credentials are configured).
  *
  *   - **AcousticID Fingerprinting** (opt-in) -- When enabled, generates
- *     Chromaprint audio fingerprints via fpcalc and looks up AcousticID
+ *     Chromaprint audio fingerprints using the embedded fingerprinting engine and looks up AcousticID
  *     identifiers from acoustid.org. Writes `Acoustid Id` and
  *     `Acoustid Fingerprint` freeform atoms. Maps to
  *     `settings.acoustid_enabled`.
@@ -82,7 +82,7 @@ export function MetadataTab() {
         <div className="space-y-4">
           <Toggle
             label="Enable AcousticID Fingerprinting"
-            description="Generate audio fingerprints and look up AcousticID identifiers for each track. Enables music identification via MusicBrainz. Requires the fpcalc tool and processes each file individually."
+            description="Generate audio fingerprints and look up AcousticID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
             checked={settings.acoustid_enabled}
             onChange={(checked) =>
               updateSettings({ acoustid_enabled: checked })
