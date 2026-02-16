@@ -93,6 +93,7 @@ import {
   Wrench,       // "Tools" topic
   Music,        // "Audio Codecs" topic
   Video,        // "Music Videos" topic
+  Film,         // "Animated Artwork" topic
   HelpCircle,   // "Troubleshooting" topic
   FileText,     // "About" topic
   ShieldAlert,  // "Disclaimer" topic
@@ -434,6 +435,72 @@ Choose the container format in **Settings > Quality**:
 - **M4V** - Apple standard format
 - **MP4** - Universal compatibility
 - **MKV** - Matroska (supports more features)`,
+  },
+  {
+    id: 'animated-artwork',
+    label: 'Animated Artwork',
+    icon: Film,
+    content: `# Animated Artwork
+
+MeedyaDL can automatically download **animated cover art** (motion artwork) from Apple Music. These are short looping videos used as album artwork.
+
+## Requirements
+
+1. **A free Apple Developer account** (no paid membership required)
+2. **A MusicKit key** created in the Apple Developer portal
+3. **FFmpeg** installed (handled by MeedyaDL's setup wizard)
+
+## Setup Guide
+
+### Step 1: Create an Apple Developer Account
+
+Sign up at [developer.apple.com](https://developer.apple.com) using any Apple Account. Accept the Apple Developer Agreement when prompted. The **free tier** is all you need.
+
+### Step 2: Create a MusicKit Key
+
+1. Sign in to the [Apple Developer Portal](https://developer.apple.com/account)
+2. Go to **Certificates, Identifiers & Profiles** (under Program resources)
+3. Click **Keys** in the left sidebar
+4. Click the **+** button to create a new key
+5. Enter a name (e.g., "MeedyaDL"), check **MusicKit**, then click **Continue** > **Register**
+
+### Step 3: Download Your Private Key
+
+After registering, click **Download** to save the \`.p8\` file. Note the **Key ID** shown on this page.
+
+> **Warning:** Apple only lets you download the \`.p8\` file **once**. Save it somewhere safe. If lost, you must revoke and recreate the key.
+
+### Step 4: Find Your Team ID
+
+Your **Team ID** is a 10-character code found on the **Membership** page in the Apple Developer portal, or in the top-right corner of some portal pages.
+
+### Step 5: Extract the Private Key Content
+
+1. Open the \`.p8\` file in any plain text editor (TextEdit, Notepad, etc.)
+2. The content looks like:
+
+\`\`\`text
+-----BEGIN PRIVATE KEY-----
+MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
+-----END PRIVATE KEY-----
+\`\`\`
+
+3. **Select all** and **copy** the entire content, including the BEGIN/END lines
+
+### Step 6: Configure MeedyaDL
+
+1. Go to **Settings > Cover Art**
+2. Enable **"Download Animated Cover Art"**
+3. Enter your **Team ID** and **Key ID**
+4. Paste the private key content into the **"MusicKit Private Key"** textarea
+5. Click **"Save to Keychain"** -- the key is stored securely in your OS keychain
+6. Click **Save**
+
+## Troubleshooting
+
+- **"Invalid MusicKit private key"** -- Make sure you copied the complete key including the \`-----BEGIN PRIVATE KEY-----\` and \`-----END PRIVATE KEY-----\` lines
+- **Lost your \`.p8\` file** -- Revoke the old key in the Developer portal and create a new one (Step 2)
+- **No animated artwork downloaded** -- Not all albums have animated artwork. MeedyaDL silently skips albums without it`,
   },
   {
     id: 'troubleshooting',
