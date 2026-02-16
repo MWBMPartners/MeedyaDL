@@ -201,7 +201,7 @@ These tags are written automatically when MusicKit credentials are configured in
 
 #### AcousticID Tags (Opt-In)
 
-Enable in **Settings > Metadata**. Requires the fpcalc tool (installed via the dependency manager). Generates Chromaprint audio fingerprints and looks up AcousticID identifiers from [acoustid.org](https://acoustid.org).
+Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints using MeedyaDL's built-in fingerprinting engine and looks up AcousticID identifiers from [acoustid.org](https://acoustid.org). No external tools required.
 
 | Tag (Namespace:Name) | Value |
 | -------------------- | ----- |

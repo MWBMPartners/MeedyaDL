@@ -4,28 +4,30 @@
 // acoustid_service.rs -- AcousticID fingerprinting and lookup service
 // ===================================================================
 //
-// Generates Chromaprint audio fingerprints using fpcalc and looks up
-// AcousticID identifiers via the acoustid.org API. This enables music
+// Generates Chromaprint audio fingerprints using the embedded
+// rusty-chromaprint library (pure Rust) and looks up AcousticID
+// identifiers via the acoustid.org API. This enables music
 // identification compatible with MusicBrainz Picard and other tools
 // that use the AcousticID ecosystem.
 //
 // ## How it works
 //
-// 1. For each M4A file, runs `fpcalc -json file.m4a` to generate a
-//    Chromaprint audio fingerprint and measure the file's duration.
-// 2. Sends the fingerprint + duration to the AcousticID lookup API
+// 1. For each M4A file, decodes the audio to raw PCM using Symphonia
+//    (pure Rust audio decoder), then generates a Chromaprint fingerprint
+//    using rusty-chromaprint's Fingerprinter.
+// 2. Compresses the fingerprint using FingerprintCompressor and encodes
+//    it in URL-safe base64 format for the AcousticID API.
+// 3. Sends the fingerprint + duration to the AcousticID lookup API
 //    (`https://api.acoustid.org/v2/lookup`) to find a matching AcousticID.
-// 3. Writes two freeform atoms to the M4A file:
+// 4. Writes two freeform atoms to the M4A file:
 //    - `----:com.apple.iTunes:Acoustid Id` — the AcousticID UUID
-//    - `----:com.apple.iTunes:Acoustid Fingerprint` — raw fingerprint
+//    - `----:com.apple.iTunes:Acoustid Fingerprint` — encoded fingerprint
 //
-// ## Prerequisites
+// ## No External Dependencies
 //
-// - **fpcalc binary**: Must be installed via the dependency manager.
-//   Distributed from Chromaprint releases (acoustid/chromaprint on GitHub).
-// - **API key**: An application API key registered at acoustid.org.
-//   Currently uses an app-embedded key (standard practice, same as
-//   MusicBrainz Picard).
+// All fingerprinting is done in pure Rust via rusty-chromaprint and
+// Symphonia. No external fpcalc binary is required, which also enables
+// AcousticID support on ARM Linux (where no fpcalc binaries exist).
 //
 // ## Rate limiting
 //
@@ -35,21 +37,26 @@
 // ## Opt-in
 //
 // AcousticID processing is opt-in (`acoustid_enabled` in settings) because
-// it's CPU-intensive (fpcalc decodes and fingerprints each file) and
-// requires network requests per track.
+// it's CPU-intensive (decoding + fingerprinting each file) and requires
+// network requests per track.
 //
 // @see https://acoustid.org/webservice
-// @see https://github.com/acoustid/chromaprint
+// @see https://docs.rs/rusty-chromaprint/
+// @see https://docs.rs/symphonia/
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use mp4ameta::{Data, FreeformIdent, Tag};
-use tauri::AppHandle;
-use tokio::process::Command;
+use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
 use tokio::time::sleep;
-
-use crate::services::dependency_manager;
 
 /// Apple iTunes freeform atom namespace (matches MusicBrainz Picard's convention).
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
@@ -72,22 +79,19 @@ const ACOUSTID_API_KEY: &str = "PLACEHOLDER_REGISTER_AT_ACOUSTID_ORG";
 
 /// Process all M4A files in the output directory for AcousticID fingerprinting.
 ///
-/// For each file: generates a Chromaprint fingerprint, looks up the AcousticID,
+/// For each file: generates a Chromaprint fingerprint using the embedded
+/// rusty-chromaprint library, looks up the AcousticID via the web service,
 /// and writes both the fingerprint and AcousticID UUID as metadata tags.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for tool path resolution
 /// * `output_path` - Download output path (file or album directory)
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully fingerprinted and tagged
-/// * `Err(message)` - fpcalc not installed or output path invalid
+/// * `Err(message)` - Output path invalid or no M4A files found
 pub async fn process_acoustid_for_directory(
-    app: &AppHandle,
     output_path: &str,
 ) -> Result<usize, String> {
-    let fpcalc_path = get_fpcalc_path(app)?;
-
     // Collect all M4A files
     let m4a_files = collect_m4a_files(output_path);
     if m4a_files.is_empty() {
@@ -102,7 +106,7 @@ pub async fn process_acoustid_for_directory(
             sleep(API_RATE_LIMIT_DELAY).await;
         }
 
-        match process_single_file(&fpcalc_path, file_path).await {
+        match process_single_file(file_path).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
                 log::debug!("No AcousticID match for {}", file_path.display());
@@ -132,11 +136,17 @@ pub async fn process_acoustid_for_directory(
 ///
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
 async fn process_single_file(
-    fpcalc_path: &Path,
     file_path: &Path,
 ) -> Result<bool, String> {
-    // Step 1: Generate Chromaprint fingerprint
-    let (fingerprint, duration) = generate_fingerprint(fpcalc_path, file_path).await?;
+    // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
+    // This is CPU-intensive (decodes the entire audio file), so we run it
+    // on a blocking thread to avoid starving the async runtime.
+    let fp_path = file_path.to_path_buf();
+    let (fingerprint, duration) = tokio::task::spawn_blocking(move || {
+        generate_fingerprint(&fp_path)
+    })
+    .await
+    .map_err(|e| format!("Fingerprint task panicked: {}", e))??;
 
     // Step 2: Look up AcousticID
     let acoustid = match lookup_acoustid(&fingerprint, duration).await? {
@@ -154,7 +164,7 @@ async fn process_single_file(
         Data::Utf8(acoustid),
     );
 
-    // Acoustid Fingerprint — raw Chromaprint fingerprint string
+    // Acoustid Fingerprint — encoded Chromaprint fingerprint string
     tag.set_data(
         FreeformIdent::new_static(ITUNES_NAMESPACE, "Acoustid Fingerprint"),
         Data::Utf8(fingerprint),
@@ -168,58 +178,139 @@ async fn process_single_file(
 }
 
 // ============================================================
-// Internal: Fingerprint Generation (via fpcalc)
+// Internal: Fingerprint Generation (embedded Chromaprint)
 // ============================================================
 
-/// Resolve the managed fpcalc binary path.
-fn get_fpcalc_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let fpcalc_bin = dependency_manager::get_tool_binary_path(app, "fpcalc");
-    if !fpcalc_bin.exists() {
-        return Err("fpcalc not installed — required for AcousticID fingerprinting".to_string());
-    }
-    Ok(fpcalc_bin)
-}
-
-/// Generate a Chromaprint fingerprint for an audio file using fpcalc.
+/// Generate a Chromaprint fingerprint for an audio file.
 ///
-/// Runs `fpcalc -json file.m4a` and parses the JSON output to extract
-/// the fingerprint string and duration in seconds.
+/// Uses Symphonia to decode the M4A file to raw interleaved i16 PCM
+/// samples, then feeds them to rusty-chromaprint's Fingerprinter.
+/// The resulting fingerprint is compressed and encoded in URL-safe base64
+/// format compatible with the AcousticID API.
 ///
 /// # Returns
-/// * `Ok((fingerprint, duration))` - Fingerprint string and duration in seconds
-/// * `Err(message)` - fpcalc execution or parsing failed
-async fn generate_fingerprint(
-    fpcalc_path: &Path,
-    file_path: &Path,
-) -> Result<(String, u32), String> {
-    let output = Command::new(fpcalc_path)
-        .arg("-json")
-        .arg(file_path)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to spawn fpcalc: {}", e))?;
+/// * `Ok((fingerprint, duration))` - Encoded fingerprint and duration in seconds
+/// * `Err(message)` - Decoding or fingerprinting failed
+fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
+    // Open the audio file and wrap in a MediaSourceStream
+    let file = std::fs::File::open(file_path)
+        .map_err(|e| format!("Failed to open audio file: {}", e))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("fpcalc failed: {}", stderr.trim()));
+    // Provide a file extension hint for format detection
+    let mut hint = Hint::new();
+    if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
     }
 
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("Failed to parse fpcalc output: {}", e))?;
+    // Probe the format (auto-detect M4A/MP4 container)
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|e| format!("Failed to probe audio format: {}", e))?;
 
-    let fingerprint = json
-        .get("fingerprint")
-        .and_then(|v| v.as_str())
-        .ok_or("fpcalc output missing 'fingerprint' field")?
-        .to_string();
+    let mut format_reader = probed.format;
 
-    let duration = json
-        .get("duration")
-        .and_then(|v| v.as_f64())
-        .ok_or("fpcalc output missing 'duration' field")?
-        as u32;
+    // Find the first audio track and get its codec parameters
+    let track = format_reader
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        .ok_or("No audio tracks found in file")?;
 
-    Ok((fingerprint, duration))
+    let codec_params = &track.codec_params;
+    let sample_rate = codec_params
+        .sample_rate
+        .ok_or("Audio track has no sample rate")?;
+    let channels = codec_params
+        .channels
+        .map(|ch| ch.count() as u32)
+        .ok_or("Audio track has no channel info")?;
+    let track_id = track.id;
+
+    // Create a decoder for the audio track
+    let mut decoder = symphonia::default::get_codecs()
+        .make(codec_params, &DecoderOptions::default())
+        .map_err(|e| format!("Failed to create audio decoder: {}", e))?;
+
+    // Initialize the Chromaprint fingerprinter with the standard preset
+    // (preset_test2 matches fpcalc's default algorithm)
+    let config = Configuration::preset_test2();
+    let mut printer = Fingerprinter::new(&config);
+    printer
+        .start(sample_rate, channels)
+        .map_err(|e| format!("Failed to start fingerprinter: {:?}", e))?;
+
+    // Decode all audio packets and feed interleaved i16 samples to the fingerprinter
+    let mut total_samples: u64 = 0;
+    let mut sample_buf: Option<SampleBuffer<i16>> = None;
+
+    loop {
+        let packet = match format_reader.next_packet() {
+            Ok(packet) => packet,
+            Err(symphonia::core::errors::Error::IoError(ref e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break; // End of stream
+            }
+            Err(e) => return Err(format!("Error reading audio packet: {}", e)),
+        };
+
+        // Skip packets from other tracks (unlikely for M4A but defensive)
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                // Initialize or resize the sample buffer as needed.
+                // SampleBuffer::new() takes u64 duration; capacity() returns usize.
+                let num_frames = decoded.frames();
+                if sample_buf.is_none()
+                    || sample_buf.as_ref().is_some_and(|b| b.capacity() < num_frames)
+                {
+                    let spec = *decoded.spec();
+                    sample_buf = Some(SampleBuffer::new(num_frames as u64, spec));
+                }
+
+                if let Some(ref mut buf) = sample_buf {
+                    buf.copy_interleaved_ref(decoded);
+                    let samples = buf.samples();
+                    total_samples += samples.len() as u64;
+                    printer.consume(samples);
+                }
+            }
+            Err(symphonia::core::errors::Error::DecodeError(_)) => {
+                // Skip corrupted packets
+                continue;
+            }
+            Err(e) => return Err(format!("Audio decode error: {}", e)),
+        }
+    }
+
+    // Finalize the fingerprint
+    printer.finish();
+    let raw_fingerprint = printer.fingerprint();
+
+    if raw_fingerprint.is_empty() {
+        return Err("Generated empty fingerprint (file too short?)".to_string());
+    }
+
+    // Compress the fingerprint using Chromaprint's internal compression format
+    let compressor = FingerprintCompressor::from(&config);
+    let compressed = compressor.compress(raw_fingerprint);
+
+    // Encode in URL-safe base64 (no padding) — matches Chromaprint's convention
+    let encoded = URL_SAFE_NO_PAD.encode(&compressed);
+
+    // Calculate duration from total decoded samples
+    let duration_seconds = (total_samples / channels as u64 / sample_rate as u64) as u32;
+
+    Ok((encoded, duration_seconds))
 }
 
 // ============================================================
@@ -356,20 +447,29 @@ fn is_m4a(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+    use rusty_chromaprint::{Configuration, FingerprintCompressor};
+
     // ----------------------------------------------------------
-    // Fingerprint output parsing tests
+    // Fingerprint compression + encoding pipeline tests
     // ----------------------------------------------------------
 
     #[test]
-    fn parse_fpcalc_json_output() {
-        let json_str = r#"{"duration": 242.573, "fingerprint": "AQADtNIyRYgS..."}"#;
-        let json: serde_json::Value = serde_json::from_str(json_str).unwrap();
+    fn compressed_fingerprint_produces_valid_base64() {
+        let config = Configuration::preset_test2();
+        let compressor = FingerprintCompressor::from(&config);
 
-        let fingerprint = json.get("fingerprint").and_then(|v| v.as_str()).unwrap();
-        assert_eq!(fingerprint, "AQADtNIyRYgS...");
+        // A minimal fake fingerprint to test the compression + encoding pipeline
+        let fake_fp: Vec<u32> = vec![0x12345678, 0xABCDEF01, 0x98765432];
+        let compressed = compressor.compress(&fake_fp);
+        let encoded = URL_SAFE_NO_PAD.encode(&compressed);
 
-        let duration = json.get("duration").and_then(|v| v.as_f64()).unwrap() as u32;
-        assert_eq!(duration, 242);
+        // Verify it's valid base64 by decoding it back
+        assert!(URL_SAFE_NO_PAD.decode(&encoded).is_ok());
+        assert!(!encoded.is_empty());
+        // URL-safe base64 should not contain + or / (uses - and _ instead)
+        assert!(!encoded.contains('+'));
+        assert!(!encoded.contains('/'));
     }
 
     // ----------------------------------------------------------

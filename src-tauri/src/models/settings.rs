@@ -362,10 +362,10 @@ pub struct AppSettings {
     // ================================================================
 
     /// Enable AcousticID fingerprinting for downloaded tracks. When enabled,
-    /// MeedyaDL generates Chromaprint audio fingerprints via fpcalc and looks
-    /// up AcousticID identifiers from acoustid.org after each download.
-    /// Requires the fpcalc tool (installed via the dependency manager).
-    /// CPU-intensive: fpcalc must decode each audio file to generate the
+    /// MeedyaDL generates Chromaprint audio fingerprints using the embedded
+    /// rusty-chromaprint library and looks up AcousticID identifiers from
+    /// acoustid.org after each download. No external tools required.
+    /// CPU-intensive: each audio file must be fully decoded to generate the
     /// fingerprint, and each lookup requires a network request.
     #[serde(default)]
     pub acoustid_enabled: bool,

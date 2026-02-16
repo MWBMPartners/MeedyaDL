@@ -293,6 +293,13 @@ jobs:
 
           sudo apt-get update
 
+          # Upgrade all existing amd64 packages to their latest versions.
+          # This ensures Multi-Arch:same packages (like libgnutls30t64) have
+          # matching versions between amd64 and the ARM arch being installed.
+          # Without this, held-back packages on GitHub runners cause version
+          # conflicts when installing ARM library dependencies.
+          sudo apt-get upgrade -y
+
           # Install the cross-compilation toolchain
           sudo apt-get install -y $CROSS_GCC
 

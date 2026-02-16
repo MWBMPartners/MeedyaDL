@@ -43,16 +43,25 @@
  * @see {@link https://v2.tauri.app/}      -- Tauri 2.0 framework
  */
 
+import { useState } from 'react';
+
 // Zustand store providing the shared settings state and mutation function.
 // All settings tabs read from the same store instance, ensuring changes
 // in one tab are immediately reflected if the user switches tabs.
 import { useSettingsStore } from '@/stores/settingsStore';
 
+// Update store for manual update checking trigger.
+import { useUpdateStore } from '@/stores/updateStore';
+
 // Shared form control components:
 // - Toggle: renders a labelled on/off switch
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
-import { Toggle, FilePickerButton, Select } from '@/components/common';
+// - Button: platform-adaptive button with loading/icon support
+import { Toggle, FilePickerButton, Select, Button } from '@/components/common';
+
+// Lucide icon for the refresh/check action button.
+import { RefreshCw } from 'lucide-react';
 
 /**
  * Available language options for GAMDL's metadata language preference.
@@ -109,6 +118,36 @@ export function GeneralTab() {
   const settings = useSettingsStore((s) => s.settings);
   /** Applies a partial update to the settings; sets isDirty = true in the store */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  /** Whether an update check is currently in progress */
+  const isChecking = useUpdateStore((s) => s.isChecking);
+  /** Trigger a manual update check */
+  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
+  /** Error from the last check */
+  const checkError = useUpdateStore((s) => s.error);
+  /** Transient message shown after a check completes */
+  const [checkMessage, setCheckMessage] = useState<string | null>(null);
+
+  /**
+   * Handle the "Check for Updates" button click.
+   * Calls the backend update check and shows a brief result message.
+   */
+  const handleCheckForUpdates = async () => {
+    setCheckMessage(null);
+    try {
+      const result = await checkForUpdates();
+      if (result.has_updates) {
+        const count = result.components.filter(
+          (c) => c.update_available && c.is_compatible
+        ).length;
+        setCheckMessage(`${count} update${count !== 1 ? 's' : ''} available`);
+      } else {
+        setCheckMessage('Everything is up to date');
+      }
+    } catch {
+      // Error is stored in the update store's error field
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -204,6 +243,29 @@ export function GeneralTab() {
             updateSettings({ check_pre_releases: checked })
           }
         />
+
+        {/* Manual update check button */}
+        <div className="pt-2 space-y-2">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RefreshCw size={14} />}
+              loading={isChecking}
+              onClick={handleCheckForUpdates}
+            >
+              {isChecking ? 'Checking...' : 'Check for Updates'}
+            </Button>
+            {checkMessage && !isChecking && (
+              <span className="text-xs text-content-secondary">
+                {checkMessage}
+              </span>
+            )}
+          </div>
+          {checkError && !isChecking && (
+            <p className="text-xs text-status-error">{checkError}</p>
+          )}
+        </div>
       </div>
     </div>
   );

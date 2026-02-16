@@ -104,7 +104,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   musickit_team_id: null,          // Apple Developer Team ID (10-char)
   musickit_key_id: null,           // MusicKit private key identifier (10-char)
   // Metadata enrichment (opt-in post-download processing)
-  acoustid_enabled: false,         // AcousticID fingerprinting (requires fpcalc)
+  acoustid_enabled: false,         // AcousticID fingerprinting (embedded Chromaprint)
   replaygain_enabled: false,       // ReplayGain loudness analysis (uses FFmpeg)
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',

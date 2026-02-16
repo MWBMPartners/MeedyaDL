@@ -365,7 +365,7 @@ refactor(backend): simplify dependency management
 - [x] Hidden animated artwork files (OS-level hidden attribute: macOS `chflags hidden`, Windows `attrib +H`, Linux `.` prefix)
 - [x] Configurable companion downloads (4 modes: Disabled, Atmos to Lossless, Atmos to Lossless+Lossy, Specialist to Lossy)
 - [x] Metadata enrichment (codec tags, source/channel tags, Apple Music API metadata, animated artwork URLs)
-- [x] AcousticID fingerprinting (opt-in, via Chromaprint fpcalc + acoustid.org API)
+- [x] AcousticID fingerprinting (opt-in, via embedded Chromaprint + acoustid.org API)
 - [x] ReplayGain loudness analysis (opt-in, via FFmpeg EBU R128 filter)
 - [x] Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
 - [x] Queue persistence and crash recovery (auto-save to disk, auto-resume on restart)
