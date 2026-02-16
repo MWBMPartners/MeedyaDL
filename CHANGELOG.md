@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Settings interpretation, affecting downloading ability
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.13] - 2026-02-16
+
 ### ✨ Features
 
 - Integrate embedded Chromaprint for AcousticID fingerprinting
