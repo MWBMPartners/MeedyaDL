@@ -73,7 +73,7 @@ If you do not select a codec, the default configured in [Quality Settings](quali
 
 ### Managing the Download Queue
 
-Downloads are added to a queue when you submit a URL. The queue processes items sequentially by default, though the concurrency limit is configurable in Settings if you want multiple simultaneous downloads.
+Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start -- items will remain in the "Queued" state until you click the **Start Queue** button in the Queue page. The concurrency limit is also configurable in Settings if you want multiple simultaneous downloads.
 
 Each item in the queue displays:
 
@@ -97,7 +97,7 @@ MeedyaDL automatically saves the download queue to disk after every state change
 
 - The queue state is saved to a `queue.json` file in the app's data directory after every mutation (enqueue, cancel, retry, clear, completion, error, or fallback)
 - Only non-terminal items (queued, downloading, or processing) are persisted. Completed, failed, and cancelled items are cleared on restart
-- When the app launches and finds a saved queue, it restores the items and automatically begins processing after a short delay (to allow the UI to initialize)
+- When the app launches and finds a saved queue, it restores the items and automatically begins processing after a short delay (to allow the UI to initialize), regardless of the auto-start setting
 - No manual action is required -- recovery is fully automatic
 
 ### Queue Export and Import
@@ -114,7 +114,7 @@ You can transfer your download queue between devices or MeedyaDL installations u
 
 1. Click the **Import** button in the queue header
 2. Select a `.meedyadl` file from the native file picker
-3. The imported items are added to your current queue and begin processing immediately
+3. The imported items are added to your current queue and begin processing immediately (if auto-start is enabled) or remain queued until you click **Start Queue**
 4. Each imported item uses your device's global settings as the base, with any per-download overrides from the export applied on top
 
 This is useful for transferring download lists between a desktop and laptop, sharing playlists with others, or backing up a download queue before reinstalling the app.
@@ -205,6 +205,7 @@ MeedyaDL can automatically download additional format versions alongside your pr
 - **Reduce concurrency if you encounter rate limits.** Downloading many items simultaneously can trigger Apple Music's rate limiting. Lowering the concurrency limit in Settings helps avoid this.
 - **Your queue survives app restarts.** If you need to close the app while downloads are pending, they will automatically resume on the next launch. There is no need to manually save or re-enter URLs.
 - **Use export/import to transfer queues between devices.** If you set up downloads on one machine and want to continue on another, export the queue to a `.meedyadl` file and import it on the other device. The imported items will use the destination device's quality settings.
+- **Disable auto-start for batch queuing.** If you want to add multiple URLs before any downloads begin, turn off **Auto-Start Downloads** in Settings > General. Add all your URLs, then click **Start Queue** in the Queue page when ready.
 
 ---
 

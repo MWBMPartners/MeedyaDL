@@ -2015,11 +2015,12 @@ mod tests {
 
     /// Creates a DownloadRequest with per-download codec override.
     fn test_request_with_codec_override(codec: SongCodec) -> DownloadRequest {
-        let mut opts = GamdlOptions::default();
-        opts.song_codec = Some(codec);
         DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/999".to_string()],
-            options: Some(opts),
+            options: Some(GamdlOptions {
+                song_codec: Some(codec),
+                ..Default::default()
+            }),
         }
     }
 
