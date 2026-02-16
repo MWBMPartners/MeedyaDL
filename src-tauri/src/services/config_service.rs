@@ -273,6 +273,17 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     if !settings.output_path.is_empty() {
         lines.push(format!("output-path = {}", settings.output_path));
     }
+    // Temp directory for intermediate files. If the user left this empty,
+    // resolve to a "MeedyaDL" subdirectory within the OS temp directory so
+    // GAMDL doesn't default to "." (unwritable from /Applications on macOS).
+    if !settings.temp_path.is_empty() {
+        lines.push(format!("temp-path = {}", settings.temp_path));
+    } else {
+        lines.push(format!(
+            "temp-path = {}",
+            std::env::temp_dir().join("MeedyaDL").to_string_lossy()
+        ));
+    }
     // Boolean flag: when present, existing files are overwritten without prompting.
     if settings.overwrite {
         lines.push("overwrite".to_string());

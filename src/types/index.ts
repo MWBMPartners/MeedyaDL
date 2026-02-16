@@ -398,6 +398,8 @@ export interface GamdlOptions {
 export interface AppSettings {
   /** Default output directory for downloaded files */
   output_path: string;
+  /** Temp directory for intermediate files (empty = OS default) */
+  temp_path: string;
   /** Language/locale code for metadata (e.g., "en-US") */
   language: string;
   /** Whether to overwrite existing files by default */
