@@ -62,25 +62,25 @@ const TOAST_CONFIG: Record<
   /** Green palette for successful operations */
   success: {
     icon: CheckCircle,
-    bgClass: 'bg-green-50 dark:bg-green-950',
+    bgClass: 'bg-status-success-bg',
     borderClass: 'border-status-success',
   },
   /** Red palette for errors and failures */
   error: {
     icon: AlertCircle,
-    bgClass: 'bg-red-50 dark:bg-red-950',
+    bgClass: 'bg-status-error-bg',
     borderClass: 'border-status-error',
   },
   /** Yellow palette for warnings / non-blocking issues */
   warning: {
     icon: AlertTriangle,
-    bgClass: 'bg-yellow-50 dark:bg-yellow-950',
+    bgClass: 'bg-status-warning-bg',
     borderClass: 'border-status-warning',
   },
   /** Blue palette for informational messages */
   info: {
     icon: Info,
-    bgClass: 'bg-blue-50 dark:bg-blue-950',
+    bgClass: 'bg-status-info-bg',
     borderClass: 'border-status-info',
   },
 };

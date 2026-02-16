@@ -158,7 +158,7 @@ export function GamdlStep() {
 
       {/* Error display */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-red-50 dark:bg-red-950 text-sm text-status-error">
+        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error">
           {error}
         </div>
       )}

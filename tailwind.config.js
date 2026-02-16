@@ -168,10 +168,22 @@ export default {
          * Usage: text-status-success, bg-status-error, border-status-warning
          */
         status: {
-          success: 'var(--status-success)',     /* Completed downloads, positive actions */
-          warning: 'var(--status-warning)',     /* Warnings, pending states */
-          error: 'var(--status-error)',         /* Failed downloads, validation errors */
-          info: 'var(--status-info)',           /* Informational messages, active downloads */
+          success: {
+            DEFAULT: 'var(--status-success)',     /* Completed downloads, positive actions */
+            bg: 'var(--status-success-bg)',       /* Pale green tint for success backgrounds */
+          },
+          warning: {
+            DEFAULT: 'var(--status-warning)',     /* Warnings, pending states */
+            bg: 'var(--status-warning-bg)',       /* Pale yellow tint for warning backgrounds */
+          },
+          error: {
+            DEFAULT: 'var(--status-error)',       /* Failed downloads, validation errors */
+            bg: 'var(--status-error-bg)',         /* Pale red tint for error backgrounds */
+          },
+          info: {
+            DEFAULT: 'var(--status-info)',        /* Informational messages, active downloads */
+            bg: 'var(--status-info-bg)',          /* Pale blue tint for info backgrounds */
+          },
         },
         /**
          * border -- Border/divider colors at varying strengths.
