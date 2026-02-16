@@ -8,6 +8,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Integrate embedded Chromaprint for AcousticID fingerprinting
+
+- Replace external fpcalc dependency with the embedded rusty-chromaprint library for generating Chromaprint audio fingerprints.
+  - Update documentation and comments to reflect the removal of external dependencies.
+  - Modify settings and UI components to indicate the new fingerprinting method.
+  - Implement fingerprint generation using Symphonia for audio decoding.
+  - Enhance error handling for Python exceptions in the download queue process.
+  - Add manual update check functionality in the settings UI.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.12] - 2026-02-16
+
+### ✨ Features
+
 - Implement manual queue processing and add auto-start settings
 - Add temp directory setting and auto-start queue functionality
 
