@@ -59,7 +59,28 @@ export function PathsTab() {
 
   return (
     <div className="space-y-6 max-w-xl">
+      {/* Section: Directories */}
       <div>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">
+          Directories
+        </h3>
+
+        {/* Temp directory picker */}
+        <FilePickerButton
+          label="Temp Directory"
+          description="Directory for intermediate files during download and processing. Leave empty to use a MeedyaDL subdirectory within the OS default temp directory."
+          value={settings.temp_path || null}
+          onChange={(path) => updateSettings({ temp_path: path || '' })}
+          directory
+          placeholder="Default: {OS temp}/MeedyaDL"
+        />
+      </div>
+
+      {/* Section: Tool Binaries */}
+      <div className="space-y-6">
+        <h3 className="text-sm font-semibold text-content-primary mb-4">
+          Tool Binaries
+        </h3>
         <p className="text-sm text-content-secondary mb-4">
           Override the paths to external tool binaries. Leave empty to use the
           managed (auto-installed) versions. Custom paths are useful if you have

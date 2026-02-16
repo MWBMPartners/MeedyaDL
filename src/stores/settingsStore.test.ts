@@ -34,6 +34,7 @@ vi.mock('@/lib/tauri-commands', () => ({
  */
 const MOCK_SETTINGS: AppSettings = {
   output_path: '/tmp/test-output',
+  temp_path: '/tmp/test-temp',
   language: 'ja-JP',
   overwrite: true,
   auto_check_updates: false,
@@ -93,6 +94,7 @@ beforeEach(() => {
   useSettingsStore.setState({
     settings: {
       output_path: '',
+      temp_path: '',
       language: 'en-US',
       overwrite: false,
       auto_check_updates: true,

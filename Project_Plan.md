@@ -134,17 +134,18 @@ Build the React frontend with platform-adaptive styling, navigation, download fo
 - ✅ Quality selector with per-download override capability
 - ✅ Support for multiple URLs (batch downloads)
 
-#### 3.3 Settings Pages (9 tabs)
+#### 3.3 Settings Pages (10 tabs)
 
-1. ✅ **General** - Output path, language, overwrite, updates
+1. ✅ **General** - Output path, language, overwrite, auto-start queue, updates
 2. ✅ **Quality** - Default audio codec, video resolution, format
 3. ✅ **Fallback** - Drag-to-reorder fallback chains for music and video
-4. ✅ **Paths** - Tool binary paths (FFmpeg, mp4decrypt, etc.)
+4. ✅ **Paths** - Temp directory, tool binary paths (FFmpeg, mp4decrypt, etc.)
 5. ✅ **Cookies** - Cookie file import, validation, expiry warnings
 6. ✅ **Lyrics** - Synced lyrics format (LRC/SRT/TTML)
-7. ✅ **Cover Art** - Format (JPG/PNG/Raw), size
-8. ✅ **Templates** - Folder and file naming templates
-9. ✅ **Advanced** - Wrapper, WVD, download/remux modes
+7. ✅ **Cover Art** - Format (JPG/PNG/Raw), size, animated artwork
+8. ✅ **Metadata** - AcousticID fingerprinting, ReplayGain analysis
+9. ✅ **Templates** - Folder and file naming templates
+10. ✅ **Advanced** - Wrapper, WVD, download/remux modes
 
 #### 3.4 First-Run Setup Wizard
 
@@ -227,7 +228,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 ---
 
-## 🆕 Post-Release Features (v0.1.1 — v0.3.5)
+## 🆕 Post-Release Features (v0.1.1 — v0.3.11+)
 
 **Status:** ✅ Complete
 
@@ -274,6 +275,10 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Fallback mirror for tool downloads** - When primary upstream sources fail, falls back to `MWBMPartners/meedyadl-tools` GitHub Releases with standardized asset naming (`{tool_id}-{os}-{arch}.{ext}`)
 - ✅ **Generic GitHub API resolver** - Reusable `resolve_github_release_asset()` for upstream release queries and mirror fallback (refactored from N_m3u8DL-RE inline code)
 - ✅ **Three-tier download fallback** - System PATH → Primary upstream → Mirror repository → Error with guidance
+- ✅ **Auto-start queue setting** - `auto_start_queue` toggle in Settings > General (default: on). When disabled, items queue up and the user clicks "Start Queue" in the Queue page to begin processing. New `process_queue_manual` Tauri command for manual triggering.
+- ✅ **Temp directory setting** - `temp_path` in Settings > Paths (default: `{OS temp}/MeedyaDL`). Resolves GAMDL's default `--temp-path` of `.` which is unwritable on macOS from `/Applications`.
+- ✅ **Fix --cover-size parameter** - Was passing `"10000x10000"` (WxH) instead of `"10000"` (single integer) to GAMDL in both CLI args and config.ini
+- ✅ **Expanded MusicKit documentation** - 6-step setup guide with detailed Apple Developer portal navigation, platform-specific instructions for extracting the `.p8` private key
 
 ---
 
@@ -483,6 +488,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-02-14*
+*Last updated: 2026-02-16*
 
 (c) 2024-2026 MeedyaDL
