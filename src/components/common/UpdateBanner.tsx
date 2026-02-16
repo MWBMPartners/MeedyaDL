@@ -251,7 +251,7 @@ export function UpdateBanner() {
                   )}
                   {/* Pre-release badge -- amber indicator for beta/RC versions */}
                   {update.is_prerelease && (
-                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning">
                       Pre-Release
                     </span>
                   )}
@@ -372,7 +372,7 @@ export function UpdateBanner() {
                * amber/warning colour scheme to draw attention.
                */}
               {update.is_prerelease && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400/80 pl-0.5">
+                <p className="text-[11px] text-status-warning pl-0.5">
                   This is a pre-release version and may contain bugs or
                   incomplete features. Not recommended for production use.
                 </p>

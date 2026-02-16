@@ -196,17 +196,17 @@ const STATUS_CONFIG: Record<
   valid: {
     label: 'Valid',
     colorClass: 'text-status-success',
-    bgClass: 'bg-green-50 dark:bg-green-950',
+    bgClass: 'bg-status-success-bg',
   },
   invalid: {
     label: 'Invalid',
     colorClass: 'text-status-error',
-    bgClass: 'bg-red-50 dark:bg-red-950',
+    bgClass: 'bg-status-error-bg',
   },
   expired: {
     label: 'Expired',
     colorClass: 'text-status-warning',
-    bgClass: 'bg-yellow-50 dark:bg-yellow-950',
+    bgClass: 'bg-status-warning-bg',
   },
 };
 
@@ -452,7 +452,7 @@ function DetectedDomains({ domains }: { domains: string[] }) {
               text-xs rounded-full border
               ${
                 domain.includes('apple.com')
-                  ? 'bg-green-50 dark:bg-green-950 border-status-success text-status-success'
+                  ? 'bg-status-success-bg border-status-success text-status-success'
                   : 'bg-surface-secondary border-border-light text-content-tertiary'
               }
             `}
@@ -507,8 +507,8 @@ function ExpiryWarning({
         flex items-start gap-2.5 p-3 rounded-platform border text-xs
         ${
           isCritical
-            ? 'border-status-error bg-red-50 dark:bg-red-950 text-status-error'
-            : 'border-status-warning bg-yellow-50 dark:bg-yellow-950 text-status-warning'
+            ? 'border-status-error bg-status-error-bg text-status-error'
+            : 'border-status-warning bg-status-warning-bg text-status-warning'
         }
       `}
       role="alert"
@@ -919,7 +919,7 @@ export function CookiesTab() {
           ============================================================ */}
       {cookieStatus === 'valid' && (
         <div
-          className="flex items-center gap-3 p-4 rounded-platform border border-status-success bg-green-50 dark:bg-green-950"
+          className="flex items-center gap-3 p-4 rounded-platform border border-status-success bg-status-success-bg"
           role="status"
           aria-label="Cookies are valid"
         >
@@ -1096,10 +1096,10 @@ export function CookiesTab() {
               <div
                 className={`p-3 rounded-platform border text-xs ${
                   hasAppleCookies
-                    ? 'border-status-success bg-green-50 dark:bg-green-950'
+                    ? 'border-status-success bg-status-success-bg'
                     : isEmptyImport
-                      ? 'border-status-warning bg-yellow-50 dark:bg-yellow-950'
-                      : 'border-status-error bg-red-50 dark:bg-red-950'
+                      ? 'border-status-warning bg-status-warning-bg'
+                      : 'border-status-error bg-status-error-bg'
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
@@ -1137,7 +1137,7 @@ export function CookiesTab() {
 
           {/* Import error */}
           {importError && (
-            <div className="p-3 rounded-platform border border-status-error bg-red-50 dark:bg-red-950 text-xs">
+            <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-xs">
               <div className="flex items-center gap-1.5">
                 <XCircle size={14} className="text-status-error flex-shrink-0" />
                 <p className="text-status-error">{importError}</p>
@@ -1224,10 +1224,10 @@ export function CookiesTab() {
         <div
           className={`p-4 rounded-platform border space-y-4 ${
             validation.valid && !validation.expired
-              ? 'border-status-success bg-green-50 dark:bg-green-950'
+              ? 'border-status-success bg-status-success-bg'
               : validation.expired
-                ? 'border-status-warning bg-yellow-50 dark:bg-yellow-950'
-                : 'border-status-error bg-red-50 dark:bg-red-950'
+                ? 'border-status-warning bg-status-warning-bg'
+                : 'border-status-error bg-status-error-bg'
           }`}
         >
           {/* ---- Result header (pass / fail / expired icon + label) ---- */}

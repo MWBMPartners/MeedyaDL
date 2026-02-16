@@ -181,7 +181,7 @@ function FdaInstructionPanel({
   };
 
   return (
-    <div className="p-4 rounded-platform border border-status-warning bg-yellow-50 dark:bg-yellow-950 space-y-3">
+    <div className="p-4 rounded-platform border border-status-warning bg-status-warning-bg space-y-3">
       <div className="flex items-start gap-2.5">
         <AlertTriangle
           size={16}
@@ -243,10 +243,10 @@ function ImportResultPanel({
     <div
       className={`p-4 rounded-platform border ${
         hasAppleCookies
-          ? 'border-status-success bg-green-50 dark:bg-green-950'
+          ? 'border-status-success bg-status-success-bg'
           : isEmptyImport
-            ? 'border-status-warning bg-yellow-50 dark:bg-yellow-950'
-            : 'border-status-error bg-red-50 dark:bg-red-950'
+            ? 'border-status-warning bg-status-warning-bg'
+            : 'border-status-error bg-status-error-bg'
       }`}
     >
       <div className="flex items-center gap-2 mb-2">
@@ -752,7 +752,7 @@ export function CookiesStep() {
 
           {/* Import error */}
           {importError && (
-            <div className="p-4 rounded-platform border border-status-error bg-red-50 dark:bg-red-950">
+            <div className="p-4 rounded-platform border border-status-error bg-status-error-bg">
               <div className="flex items-center gap-2 mb-1">
                 <XCircle size={16} className="text-status-error" />
                 <span className="text-sm font-medium text-content-primary">
@@ -836,8 +836,8 @@ export function CookiesStep() {
             <div
               className={`p-4 rounded-platform border ${
                 validation.valid
-                  ? 'border-status-success bg-green-50 dark:bg-green-950'
-                  : 'border-status-error bg-red-50 dark:bg-red-950'
+                  ? 'border-status-success bg-status-success-bg'
+                  : 'border-status-error bg-status-error-bg'
               }`}
             >
               <div className="flex items-center gap-2 mb-2">

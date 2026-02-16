@@ -153,6 +153,20 @@
   --status-error: #ff3b30;    /* Failed downloads, validation errors (red) */
   --status-info: #007aff;     /* Informational messages, active downloads (blue, matches accent) */
 
+  /* ---- Colors: Status Backgrounds ---- */
+  /*
+   * Tinted backgrounds for toast notifications, validation messages, and
+   * status indicators. These must be defined as CSS variables (not Tailwind
+   * `dark:` classes) so they respect the app's Light/Dark theme selection
+   * rather than following the OS color scheme preference.
+   *
+   * Referenced by: bg-status-success-bg, bg-status-error-bg, etc.
+   */
+  --status-success-bg: #f0fdf4;  /* Tailwind green-50: very pale green tint */
+  --status-error-bg: #fef2f2;    /* Tailwind red-50: very pale red tint */
+  --status-warning-bg: #fffbeb;  /* Tailwind yellow-50: very pale yellow tint */
+  --status-info-bg: #eff6ff;     /* Tailwind blue-50: very pale blue tint */
+
   /* ---- Colors: Borders ---- */
   /*
    * Border colors at three intensity levels for visual separation.
@@ -289,6 +303,12 @@
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);       /* 30% opacity (vs 10% in light mode) */
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);   /* 40% opacity (vs 15% in light mode) */
 
+    /* Status backgrounds -- Darker tints for dark mode */
+    --status-success-bg: #052e16;  /* Tailwind green-950 */
+    --status-error-bg: #450a0a;    /* Tailwind red-950 */
+    --status-warning-bg: #422006;  /* Tailwind yellow-950 */
+    --status-info-bg: #172554;     /* Tailwind blue-950 */
+
     /* Prose overrides inherit from the dark --text-* / --accent values above automatically */
     --tw-prose-invert-body: var(--text-primary);
     --tw-prose-invert-headings: var(--text-primary);
@@ -356,6 +376,11 @@ html.theme-dark {
 
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  --status-success-bg: #052e16;
+  --status-error-bg: #450a0a;
+  --status-warning-bg: #422006;
+  --status-info-bg: #172554;
 
   --tw-prose-invert-body: var(--text-primary);
   --tw-prose-invert-headings: var(--text-primary);

@@ -59,10 +59,11 @@ import { useState, useEffect, useCallback } from 'react';
 
 // Zustand store for reading/writing cover art settings.
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUiStore } from '@/stores/uiStore';
 
 // Shared form components: Select for format dropdown, Toggle for the save switch,
 // Input for the size number field.
-import { Select, Toggle, Input } from '@/components/common';
+import { Select, Toggle, Input, HelpButton } from '@/components/common';
 
 // IPC wrappers for keychain credential storage (private key).
 import { storeCredential, getCredential } from '@/lib/tauri-commands';
@@ -92,6 +93,8 @@ export function CoverArtTab() {
   const settings = useSettingsStore((s) => s.settings);
   /** Partial-update function for persisting cover art setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  /** Navigate to a help topic (for the "Animated Artwork help page" link) */
+  const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
   // --- Private key state (stored in OS keychain, not settings JSON) ---
   /** Whether the private key has been stored in the keychain */
@@ -228,9 +231,13 @@ export function CoverArtTab() {
               <p className="text-xs text-content-secondary">
                 Requires an Apple Developer account (free) with a MusicKit key.
                 See the{' '}
-                <span className="text-accent-primary cursor-pointer">
+                <button
+                  type="button"
+                  className="text-accent underline cursor-pointer hover:opacity-80"
+                  onClick={() => navigateToHelp('animated-artwork')}
+                >
                   Animated Artwork help page
-                </span>
+                </button>
                 {' '}for setup instructions.
               </p>
 
@@ -290,8 +297,9 @@ export function CoverArtTab() {
 
               {/* MusicKit Private Key -- stored in OS keychain (sensitive) */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-content-primary">
+                <label className="flex items-center gap-1.5 text-sm font-medium text-content-primary">
                   MusicKit Private Key
+                  <HelpButton topic="animated-artwork" tooltip="How to get your MusicKit private key" />
                 </label>
                 <p className="text-xs text-content-secondary">
                   Paste the content of your .p8 private key file. This is stored
@@ -300,7 +308,7 @@ export function CoverArtTab() {
 
                 {/* Show key status indicator */}
                 {keyStored && (
-                  <p className="text-xs text-green-600 dark:text-green-400">
+                  <p className="text-xs text-status-success">
                     Private key is stored in OS keychain
                   </p>
                 )}
