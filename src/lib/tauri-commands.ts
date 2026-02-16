@@ -440,6 +440,22 @@ export function importQueue(): Promise<number> {
   return invoke<number>('import_queue');
 }
 
+/**
+ * Manually triggers download queue processing.
+ *
+ * Rust handler: `process_queue_manual()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * Used when `auto_start_queue` is disabled and the user wants to start
+ * processing queued items. Also useful in auto mode if processing stalled.
+ *
+ * Called by: downloadStore.processQueue(), DownloadQueue "Start Queue" button
+ *
+ * @returns Promise resolving when processing has been triggered
+ */
+export function processQueue(): Promise<void> {
+  return invoke<void>('process_queue_manual');
+}
+
 // ============================================================
 // Credential Commands
 // ============================================================
