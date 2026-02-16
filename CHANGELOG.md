@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add Activity Log component for live subprocess output and update download queue behavior
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.14] - 2026-02-16
+
 ### 🐛 Bug Fixes
 
 - Settings interpretation, affecting downloading ability
