@@ -113,6 +113,9 @@ import { MainLayout } from './components/layout';
  */
 import { DownloadForm, DownloadQueue, ActivityLog } from './components/download';
 
+/** UpdatesPage: Detailed update view with full release notes */
+import { UpdatesPage } from './components/updates';
+
 /** SettingsPage: Full application settings editor with save/reset */
 import { SettingsPage } from './components/settings';
 
@@ -140,6 +143,17 @@ import { LoadingSpinner, UpdateBanner } from './components/common';
  * windows.css, linux.css) are loaded dynamically in the platform useEffect.
  */
 import './styles/themes/base.css';
+
+/* ─── i18n ──────────────────────────────────────────────────────────── */
+
+/**
+ * Internationalization setup using i18next.
+ * `initI18n` initializes the translation system with OS language detection.
+ * Must be called before any component uses `useTranslation()`.
+ * @see ./lib/i18n.ts for configuration details
+ */
+import { initI18n } from './lib/i18n';
+import i18next from 'i18next';
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -331,8 +345,19 @@ function App() {
     if (!isReady) return;
 
     const initialize = async () => {
+      /* Step 0: Initialize i18n translation system (loads English + detected locale) */
+      await initI18n();
+
       /* Step 1: Load settings from the Rust backend via IPC (get_settings command) */
       await loadSettings();
+
+      /* Step 1.5: Sync UI language from settings if explicitly set.
+       * If ui_language is non-empty, override i18next's auto-detected language.
+       * Empty string means "use auto-detected language" (from OS locale). */
+      const uiLang = useSettingsStore.getState().settings.ui_language;
+      if (uiLang) {
+        i18next.changeLanguage(uiLang).catch(() => {});
+      }
 
       /* Step 2: Check all dependency statuses in parallel via IPC */
       await checkAll();
@@ -672,6 +697,8 @@ function App() {
         return <DownloadQueue />;  // Real-time download queue with progress
       case 'activity':
         return <ActivityLog />;    // Live subprocess output log
+      case 'updates':
+        return <UpdatesPage />;    // Update details with release notes
       case 'settings':
         return <SettingsPage />;   // Full settings editor
       case 'help':

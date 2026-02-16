@@ -180,6 +180,13 @@ pub struct AppSettings {
     /// Maps to `GamdlOptions::overwrite` / GAMDL `--overwrite`.
     pub overwrite: bool,
 
+    /// UI display language code (e.g., `"en"`, `"de"`, `"fr"`). An empty
+    /// string means "auto-detect from the OS locale". Used by the React
+    /// frontend's i18next setup to load the corresponding translation file
+    /// from `public/locales/{code}/translation.json`.
+    #[serde(default)]
+    pub ui_language: String,
+
     /// Whether to automatically check for GAMDL/tool updates on startup.
     /// When enabled, the app queries PyPI and GitHub releases for newer
     /// versions of GAMDL and its dependencies (see `dependency.rs`).
@@ -564,6 +571,8 @@ impl Default for AppSettings {
             language: "en-US".to_string(),
             // Do not overwrite by default to prevent accidental data loss.
             overwrite: false,
+            // Auto-detect UI language from OS locale by default.
+            ui_language: String::new(),
             // Check for updates on launch so users get security/bug fixes.
             auto_check_updates: true,
             // Only show stable releases by default. Pre-releases may have

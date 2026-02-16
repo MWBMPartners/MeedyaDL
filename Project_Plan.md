@@ -279,6 +279,8 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Temp directory setting** - `temp_path` in Settings > Paths (default: `{OS temp}/MeedyaDL`). Resolves GAMDL's default `--temp-path` of `.` which is unwritable on macOS from `/Applications`.
 - ✅ **Fix --cover-size parameter** - Was passing `"10000x10000"` (WxH) instead of `"10000"` (single integer) to GAMDL in both CLI args and config.ini
 - ✅ **Expanded MusicKit documentation** - 6-step setup guide with detailed Apple Developer portal navigation, platform-specific instructions for extracting the `.p8` private key
+- ✅ **Updates page** - Dedicated sidebar page (`Updates`) showing full release notes rendered as markdown via `react-markdown`. Strips "Choose your download" section from release bodies (irrelevant for in-app auto-update). Connected to update banner "View Details" link and sidebar footer update button. Shows "You're up to date" state with current version when no updates are available.
+- ✅ **i18n groundwork** - Translation infrastructure using `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Translation files in `public/locales/{lang}/translation.json` (en, de, fr). `ui_language` setting in AppSettings (empty = auto-detect from OS). Language dropdown in Settings > General. Dynamic locale loading at startup. Provides migration path for translating remaining components.
 
 ---
 
@@ -464,7 +466,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 |---------|-------------|--------|
 | **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔲 Planned |
 | **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔲 Planned |
-| **Localization (i18n)** | Multi-language UI support | 🔲 Planned |
+| **Localization (i18n)** | Multi-language UI support (groundwork laid: i18next + react-i18next, en/de/fr locales, Settings > General language dropdown, OS auto-detection) | 🟡 Groundwork Done |
 | **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
 | **Custom themes** | User-defined accent colours and theme presets | 🔲 Planned |
 | **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback. Power-user option — requires player support for MP4 alternate audio tracks (standard for video, limited for music players) | 🔲 Planned |

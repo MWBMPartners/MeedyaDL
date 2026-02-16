@@ -289,3 +289,171 @@ gh workflow run "Release" -f tag=v0.3.8
 ```
 
 During development, use `[skip ci]` in commit messages to prevent automatic workflow triggers.
+
+---
+
+## UI Text & Content File Locations
+
+Where to find and edit user-facing text in the application. All labels, descriptions, and content are inline in the component files (not in separate text/resource files) unless i18n translation keys are used.
+
+### Settings Tabs
+
+Each settings tab is a self-contained React component. Labels, descriptions, and option arrays are defined inline.
+
+| Tab | File |
+| --- | --- |
+| General | `src/components/settings/tabs/GeneralTab.tsx` |
+| Quality | `src/components/settings/tabs/QualityTab.tsx` |
+| Fallback | `src/components/settings/tabs/FallbackTab.tsx` |
+| Paths | `src/components/settings/tabs/PathsTab.tsx` |
+| Cookies | `src/components/settings/tabs/CookiesTab.tsx` |
+| Lyrics | `src/components/settings/tabs/LyricsTab.tsx` |
+| Cover Art | `src/components/settings/tabs/CoverArtTab.tsx` |
+| Metadata | `src/components/settings/tabs/MetadataTab.tsx` |
+| Templates | `src/components/settings/tabs/TemplatesTab.tsx` |
+| Advanced | `src/components/settings/tabs/AdvancedTab.tsx` |
+
+The tab list itself (names, icons, order) is the `TABS` array in `src/components/settings/SettingsPage.tsx`.
+
+### Help Topics
+
+Help content is embedded as JSX in the HelpViewer component, **not** loaded from external markdown files:
+
+| File | Description |
+| --- | --- |
+| `src/components/help/HelpViewer.tsx` | All help topics defined in the `HELP_TOPICS` array |
+| `help/*.md` | 11 external markdown files — kept for reference but **not** rendered by the app |
+
+### Other UI Text
+
+| Content | Location |
+| --- | --- |
+| Sidebar navigation labels | `src/components/layout/Sidebar.tsx` → `NAV_ITEMS` array |
+| Setup wizard step content | `src/components/setup/steps/*.tsx` (6 step files) |
+| Toast messages | Inline `addToast('message', 'type')` calls throughout components |
+| Page headers (e.g., "Download", "Queue") | Inline in each page component's JSX |
+| Update banner text | `src/components/common/UpdateBanner.tsx` |
+| Updates page text | `src/components/updates/UpdatesPage.tsx` |
+| Loading/error states | `src/components/common/LoadingSpinner.tsx`, inline in components |
+
+### i18n Translation Files
+
+When i18n is fully adopted, translatable strings live in:
+
+| File | Description |
+| --- | --- |
+| `public/locales/en/translation.json` | English (default/fallback) |
+| `public/locales/{lang}/translation.json` | Additional languages (e.g., `de`, `fr`) |
+| `src/lib/i18n.ts` | i18next initialization and locale loading |
+
+To translate a component: use `const { t } = useTranslation()` from `react-i18next` and replace string literals with `t('key')` calls. See the i18n section below for details.
+
+### Capturing Screenshots
+
+To update the README screenshots:
+
+1. Build and run the app: `npm run tauri dev`
+2. Navigate to each page and capture with your OS screenshot tool
+3. Save to `assets/screenshots/` with the naming convention: `{page}-{theme}.png`
+4. Expected files: `download-light.png`, `download-dark.png`, `queue-dark.png`, `settings-dark.png`, `activity-dark.png`
+
+---
+
+## 📁 Project Structure
+
+```text
+MeedyaDL/
+├── src/                        # React Frontend
+│   ├── App.tsx                 #    Root component with routing & event listeners
+│   ├── main.tsx                #    Entry point
+│   ├── components/             #    UI components
+│   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
+│   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
+│   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog
+│   │   ├── settings/           #    SettingsPage + 10 tab components
+│   │   ├── updates/            #    UpdatesPage (changelog + update actions)
+│   │   ├── setup/              #    SetupWizard + 6 step components
+│   │   └── help/               #    HelpViewer with inline topic rendering
+│   ├── stores/                 #    Zustand state stores
+│   │   ├── uiStore.ts          #    Navigation, toasts, sidebar state
+│   │   ├── settingsStore.ts    #    App settings load/save
+│   │   ├── downloadStore.ts    #    Queue, progress, cancel/retry/clear
+│   │   ├── dependencyStore.ts  #    Tool installation status
+│   │   ├── setupStore.ts       #    Setup wizard step tracking
+│   │   ├── updateStore.ts      #    Update checking and notification
+│   │   └── activityStore.ts    #    Subprocess output log buffer
+│   ├── lib/                    #    Utility modules
+│   │   ├── tauri-commands.ts   #    Type-safe IPC wrappers
+│   │   ├── url-parser.ts       #    Apple Music URL detection
+│   │   ├── quality-chains.ts   #    Fallback codec/resolution chains
+│   │   └── i18n.ts             #    i18next initialization & locale loading
+│   ├── types/                  #    TypeScript types (mirrors Rust models)
+│   ├── hooks/                  #    Custom React hooks
+│   │   ├── usePlatform.ts      #    Platform detection
+│   │   └── useTheme.ts         #    Dark/light/auto theme override
+│   └── styles/themes/          #    Platform-adaptive CSS
+│       ├── base.css            #    Shared design tokens + status variables
+│       ├── macos.css           #    macOS Liquid Glass
+│       ├── windows.css         #    Windows Fluent
+│       └── linux.css           #    Linux Adwaita
+├── src-tauri/                  # Rust Backend
+│   ├── Cargo.toml              #    Rust dependencies
+│   ├── tauri.conf.json         #    Tauri configuration
+│   └── src/
+│       ├── main.rs             #    Application entry point
+│       ├── lib.rs              #    Plugin, state & command registration
+│       ├── commands/           #    IPC command handlers
+│       │   ├── system.rs       #    Platform info
+│       │   ├── dependencies.rs #    Python/GAMDL/tool management
+│       │   ├── settings.rs     #    App settings
+│       │   ├── gamdl.rs        #    Download queue orchestration
+│       │   ├── credentials.rs  #    Secure keychain storage
+│       │   ├── updates.rs      #    Update checking commands
+│       │   ├── cookies.rs      #    Browser cookie extraction
+│       │   ├── login_window.rs #    Embedded Apple Music login
+│       │   └── artwork.rs      #    Animated artwork download
+│       ├── models/             #    Data structures
+│       │   ├── download.rs     #    Download request, state, queue status
+│       │   ├── gamdl_options.rs#    All GAMDL CLI options as typed enums
+│       │   ├── settings.rs     #    App configuration with defaults
+│       │   ├── dependency.rs   #    Dependency status tracking
+│       │   └── music_service.rs#    Service trait (extensibility)
+│       ├── services/           #    Business logic
+│       │   ├── python_manager.rs    # Portable Python download/install
+│       │   ├── gamdl_service.rs     # GAMDL CLI wrapper & subprocess
+│       │   ├── dependency_manager.rs# Tool download/install per platform
+│       │   ├── config_service.rs    # JSON settings + INI sync
+│       │   ├── download_queue.rs    # Queue manager with fallback/retry
+│       │   ├── update_checker.rs    # Version update checker
+│       │   ├── cookie_service.rs    # Browser cookie extraction
+│       │   ├── login_window_service.rs # Embedded Apple Music login
+│       │   ├── animated_artwork_service.rs # MusicKit animated cover art
+│       │   ├── apple_music_api.rs   # Shared MusicKit JWT, URL parsing, API
+│       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
+│       │   ├── acoustid_service.rs  # AcousticID fingerprinting (opt-in)
+│       │   └── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
+│       └── utils/              #    Utility modules
+│           ├── platform.rs     #    OS detection & paths
+│           ├── archive.rs      #    ZIP/tar extraction
+│           └── process.rs      #    GAMDL output parser & error classifier
+├── public/locales/             # i18n translation files
+│   ├── en/translation.json     #    English (default/fallback)
+│   ├── de/translation.json     #    German (stub)
+│   └── fr/translation.json     #    French (stub)
+├── help/                       # Markdown help documentation (11 topics)
+├── assets/screenshots/         # App screenshots for README
+├── .github/workflows/          # CI/CD
+│   ├── ci.yml                  #    Test & lint on push/PR
+│   ├── release.yml             #    Build & publish releases
+│   ├── release-please.yml      #    Automated version bumps & release PRs
+│   └── changelog.yml           #    Auto-generate changelogs
+├── scripts/                    # Utility scripts
+├── index.html                  #    Vite entry HTML
+├── package.json                #    Node.js config
+├── tailwind.config.js          #    Tailwind CSS config
+├── vite.config.ts              #    Vite bundler config
+├── tsconfig.json               #    TypeScript config
+├── cliff.toml                  #    Changelog generation config
+├── commitlint.config.js        #    Conventional commits config
+└── LICENSE                     #    MIT License
+```

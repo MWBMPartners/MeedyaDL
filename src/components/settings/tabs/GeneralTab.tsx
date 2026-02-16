@@ -88,6 +88,22 @@ const THEME_OPTIONS = [
   { value: 'dark', label: 'Dark' },
 ];
 
+/**
+ * UI display language options for the language dropdown.
+ *
+ * - 'auto': Detect from OS locale (default). Internally stored as `""`
+ *           in `settings.ui_language`. i18next's LanguageDetector resolves it.
+ * - Other codes map to `public/locales/{code}/translation.json` files.
+ *
+ * To add a new language: create the locale JSON file, then add an entry here.
+ */
+const UI_LANGUAGE_OPTIONS = [
+  { value: 'auto', label: 'Auto (System)' },
+  { value: 'en', label: 'English' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'fr', label: 'Français' },
+];
+
 const LANGUAGE_OPTIONS = [
   { value: 'en-US', label: 'English (US)' },
   { value: 'en-GB', label: 'English (UK)' },
@@ -190,6 +206,23 @@ export function GeneralTab() {
               theme_override: e.target.value === 'auto' ? null : e.target.value,
             })
           }
+        />
+
+        {/*
+          * UI display language selector -- controls translation files loaded by i18next.
+          * 'auto' maps to empty string in settings (OS auto-detection).
+          * Other values are language codes that map to public/locales/{code}/.
+          * Requires app restart to take full effect across all components.
+          */}
+        <Select
+          label="Language"
+          description="Application display language (requires restart to take full effect)"
+          options={UI_LANGUAGE_OPTIONS}
+          value={settings.ui_language || 'auto'}
+          onChange={(e) => {
+            const val = e.target.value;
+            updateSettings({ ui_language: val === 'auto' ? '' : val });
+          }}
         />
       </div>
 
