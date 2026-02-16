@@ -62,6 +62,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   temp_path: '',                 // Resolved to {OS temp}/MeedyaDL by backend
   language: 'en-US',             // Apple Music storefront language
   overwrite: false,              // Do not overwrite existing files by default
+  ui_language: '',                // Auto-detect UI language from OS locale
   auto_check_updates: true,      // Automatically check for updates on startup
   check_pre_releases: false,     // Only show stable releases by default
   auto_start_queue: true,        // Start processing immediately when items are enqueued

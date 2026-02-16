@@ -1,0 +1,93 @@
+{
+  "app": {
+    "name": "MeedyaDL",
+    "subtitle": "Media Downloader"
+  },
+  "nav": {
+    "download": "Download",
+    "queue": "Queue",
+    "activity": "Activity",
+    "updates": "Updates",
+    "settings": "Settings",
+    "help": "Help"
+  },
+  "sidebar": {
+    "ready": "Ready",
+    "setupRequired": "Setup Required",
+    "checkForUpdates": "Check for Updates",
+    "checking": "Checking...",
+    "updatesAvailable_one": "{{count}} Update",
+    "updatesAvailable_other": "{{count}} Updates"
+  },
+  "settings": {
+    "title": "Settings",
+    "save": "Save Changes",
+    "reset": "Reset",
+    "tabs": {
+      "general": "General",
+      "quality": "Quality",
+      "fallback": "Fallback",
+      "paths": "Paths",
+      "cookies": "Cookies",
+      "lyrics": "Lyrics",
+      "coverArt": "Cover Art",
+      "metadata": "Metadata",
+      "templates": "Templates",
+      "advanced": "Advanced"
+    },
+    "general": {
+      "output": "Output",
+      "outputDir": "Output Directory",
+      "outputDirDesc": "Where downloaded files will be saved",
+      "appearance": "Appearance",
+      "theme": "Theme",
+      "themeDesc": "Choose between light and dark mode, or follow your OS setting",
+      "themeAuto": "Auto (System)",
+      "themeLight": "Light",
+      "themeDark": "Dark",
+      "language": "Language",
+      "languageDesc": "Application display language (requires restart to take full effect)",
+      "languageAuto": "Auto (System)",
+      "preferences": "Preferences",
+      "metadataLanguage": "Metadata Language",
+      "metadataLanguageDesc": "Language preference for track and album metadata",
+      "overwrite": "Overwrite Existing Files",
+      "overwriteDesc": "Re-download and replace files that already exist in the output directory",
+      "autoStart": "Auto-Start Downloads",
+      "autoStartDesc": "Start processing immediately when items are added to the queue. When disabled, items are queued and you can start processing manually from the Queue page.",
+      "autoCheck": "Auto-Check for Updates",
+      "autoCheckDesc": "Automatically check for GAMDL and tool updates on startup",
+      "preRelease": "Include Pre-Release Versions",
+      "preReleaseDesc": "Check for pre-release versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
+    }
+  },
+  "updates": {
+    "title": "Updates",
+    "upToDate": "You're up to date!",
+    "currentVersion": "Current version: v{{version}}",
+    "lastChecked": "Last checked: {{time}}",
+    "checkNow": "Check for Updates",
+    "updateAvailable": "Update Available",
+    "updatesAvailable": "{{count}} Updates Available",
+    "releaseNotes": "Release Notes",
+    "upgrade": "Upgrade",
+    "downloadInstall": "Download & Install",
+    "restartNow": "Restart Now",
+    "viewRelease": "View release on GitHub",
+    "dismiss": "Dismiss",
+    "viewDetails": "View Details",
+    "preRelease": "Pre-Release",
+    "preReleaseWarning": "This is a pre-release version and may contain bugs or incomplete features. Not recommended for production use."
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "delete": "Delete",
+    "retry": "Retry",
+    "clear": "Clear"
+  }
+}
