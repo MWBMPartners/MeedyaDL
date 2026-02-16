@@ -33,3 +33,6 @@ export { DownloadQueue } from './DownloadQueue';
 
 /** Single queue item row with status, progress bar, and action buttons. */
 export { QueueItem } from './QueueItem';
+
+/** Activity log page showing live raw subprocess output for debugging. */
+export { ActivityLog } from './ActivityLog';

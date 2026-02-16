@@ -93,6 +93,9 @@ import { useDownloadStore } from './stores/downloadStore';
 /** Update checker: polls for new versions of app components */
 import { useUpdateStore } from './stores/updateStore';
 
+/** Activity log: accumulates raw subprocess output lines */
+import { useActivityStore } from './stores/activityStore';
+
 /* ─── Layout ─────────────────────────────────────────────────────────── */
 
 /**
@@ -108,7 +111,7 @@ import { MainLayout } from './components/layout';
  * DownloadForm: URL input and option configuration for new downloads.
  * DownloadQueue: Real-time view of all queued/active/completed downloads.
  */
-import { DownloadForm, DownloadQueue } from './components/download';
+import { DownloadForm, DownloadQueue, ActivityLog } from './components/download';
 
 /** SettingsPage: Full application settings editor with save/reset */
 import { SettingsPage } from './components/settings';
@@ -146,7 +149,7 @@ import './styles/themes/base.css';
  * Mirrors the Rust struct `GamdlProgress` serialized via serde.
  * @see ./types/index.ts for the full type definition
  */
-import type { GamdlProgress } from './types';
+import type { GamdlProgress, ActivityLogEntry } from './types';
 
 /**
  * The root component that serves as the entry point for the application UI.
@@ -596,6 +599,35 @@ function App() {
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 
   /*
+   * ─── Effect 7: Activity Log Event Listener ─────────────────────────
+   *
+   * Subscribes to the "activity-log" Tauri event which carries every raw
+   * stdout/stderr line from GAMDL subprocesses. Lines are accumulated in
+   * the activityStore regardless of which page is currently displayed,
+   * so no output is lost when navigating away from the Activity page.
+   *
+   * Uses getState().addEntry instead of a selector to avoid re-registering
+   * the listener on every store update.
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const addEntry = useActivityStore.getState().addEntry;
+
+    const setup = async () => {
+      try {
+        unlisten = await listen<ActivityLogEntry>('activity-log', (event) => {
+          addEntry(event.payload);
+        });
+      } catch {
+        /* Tauri API unavailable in test/browser environment */
+      }
+    };
+
+    setup();
+    return () => unlisten?.();
+  }, []);
+
+  /*
    * ─── Render: Loading State ─────────────────────────────────────────
    * While platform detection is in progress, show a centered loading spinner.
    * This prevents FOUC (flash of unstyled content) by blocking rendering
@@ -638,6 +670,8 @@ function App() {
         return <DownloadForm />;   // URL input form and download options
       case 'queue':
         return <DownloadQueue />;  // Real-time download queue with progress
+      case 'activity':
+        return <ActivityLog />;    // Live subprocess output log
       case 'settings':
         return <SettingsPage />;   // Full settings editor
       case 'help':

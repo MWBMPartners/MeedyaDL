@@ -816,6 +816,25 @@ export interface GamdlProgress {
   event: GamdlOutputEvent;
 }
 
+/**
+ * Payload for the 'activity-log' Tauri event, emitted for every raw
+ * stdout/stderr line from GAMDL subprocesses before parsing. Used by the
+ * Activity Log page to show a live terminal-style view of download output.
+ *
+ * @see ActivityLog component for the live log viewer
+ * @see activityStore for the Zustand store that accumulates entries
+ */
+export interface ActivityLogEntry {
+  /** Unique download ID this line belongs to */
+  download_id: string;
+  /** Which output stream the line came from */
+  stream: 'stdout' | 'stderr';
+  /** The raw line content (untrimmed) */
+  line: string;
+  /** ISO 8601 timestamp when the line was captured */
+  timestamp: string;
+}
+
 // ============================================================
 // URL Parser Types
 // ============================================================
@@ -868,7 +887,7 @@ export interface ParsedUrl {
  *
  * @see App.tsx renderPage() for the page-to-component mapping
  */
-export type AppPage = 'download' | 'queue' | 'settings' | 'help';
+export type AppPage = 'download' | 'queue' | 'activity' | 'settings' | 'help';
 
 /**
  * Toast notification severity levels.
