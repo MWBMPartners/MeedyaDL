@@ -837,6 +837,23 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         options.output_path = Some(settings.output_path.clone());
     }
 
+    // Resolve temp_path: use the user's custom path if set, otherwise fall
+    // back to a "MeedyaDL" subdirectory within the OS temp directory (e.g.
+    // /var/folders/.../MeedyaDL on macOS, %TEMP%\MeedyaDL on Windows,
+    // /tmp/MeedyaDL on Linux). Using a dedicated subdirectory keeps
+    // intermediate files isolated and easy to clean up. This avoids GAMDL's
+    // default of "." which is unwritable from /Applications on macOS.
+    if !settings.temp_path.is_empty() {
+        options.temp_path = Some(settings.temp_path.clone());
+    } else {
+        options.temp_path = Some(
+            std::env::temp_dir()
+                .join("MeedyaDL")
+                .to_string_lossy()
+                .to_string(),
+        );
+    }
+
     // Apply tool paths from settings
     options.cookies_path = settings.cookies_path.clone();
     options.ffmpeg_path = settings.ffmpeg_path.clone();

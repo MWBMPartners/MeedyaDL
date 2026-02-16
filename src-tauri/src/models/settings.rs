@@ -160,6 +160,15 @@ pub struct AppSettings {
     /// which is resolved at runtime (e.g., `~/Music` on macOS).
     pub output_path: String,
 
+    /// Temporary directory for intermediate files during download and
+    /// processing. An empty string means "use a `MeedyaDL` subdirectory
+    /// within the OS default temp directory" (e.g., `/var/folders/.../MeedyaDL`
+    /// on macOS, `%TEMP%\MeedyaDL` on Windows, `/tmp/MeedyaDL` on Linux),
+    /// resolved at runtime via `std::env::temp_dir().join("MeedyaDL")`.
+    /// Maps to `GamdlOptions::temp_path` / GAMDL `--temp-path`.
+    #[serde(default)]
+    pub temp_path: String,
+
     /// Metadata language as an IETF BCP 47 language tag (e.g., `"en-US"`,
     /// `"ja-JP"`). Passed to GAMDL's `--language` flag to control the
     /// language of track/album names and artist metadata returned by the
@@ -547,6 +556,9 @@ impl Default for AppSettings {
             // --- General ---
             // Empty string = resolve to platform Music dir at runtime.
             output_path: String::new(),
+            // Empty string = resolve to {OS temp dir}/MeedyaDL at runtime.
+            // Users can override in Settings > Paths.
+            temp_path: String::new(),
             // English (US) metadata by default; users in other regions
             // can change this to get localized track/album names.
             language: "en-US".to_string(),
