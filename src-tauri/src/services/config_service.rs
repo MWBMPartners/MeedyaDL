@@ -18,13 +18,26 @@
 // settings.json (source of truth)     config.ini (derived, for GAMDL CLI)
 // ================================     ====================================
 // {                                    [gamdl]
-//   "default_song_codec": "alac",      song-codec = alac
-//   "save_cover": true,         -->    save-cover
-//   "cover_format": "raw",             cover-format = raw
+//   "default_song_codec": "alac",      song_codec = alac
+//   "save_cover": true,         -->    save_cover = true
+//   "cover_format": "raw",             cover_format = raw
 //   "theme": "dark",                   (not synced - GUI-only setting)
 //   ...                                ...
 // }
 // ```
+//
+// ## Key Names: Underscores, Not Hyphens
+//
+// GAMDL's config reader uses Python Click's `param.name` to look up keys.
+// Click converts CLI flag names (e.g., `--save-cover`) to Python identifiers
+// with underscores (`save_cover`). Since `configparser.ConfigParser` looks
+// up keys by exact `param.name`, config keys MUST use underscores.
+//
+// ## Boolean Flags: `key = true`, Not Bare Keys
+//
+// GAMDL uses `configparser.ConfigParser(interpolation=None)` WITHOUT
+// `allow_no_value=True`. Bare keys (e.g., `save_cover` on a line by itself)
+// cause `configparser.ParsingError`. Boolean flags must use `key = true`.
 //
 // The JSON file is the single source of truth, managed by the React frontend
 // via Tauri commands (load_settings, save_settings). When settings are saved,
@@ -150,14 +163,14 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 /// INI format example:
 /// ```ini
 /// [gamdl]
-/// cookies-path = /path/to/cookies.txt
-/// song-codec = alac
-/// save-cover
-/// cover-format = raw
+/// cookies_path = /path/to/cookies.txt
+/// song_codec = alac
+/// save_cover = true
+/// cover_format = raw
 /// ```
 ///
-/// Boolean flags are written as bare keys (present = true, absent = false).
-/// Key-value options use `key = value` format.
+/// Key names use underscores (matching GAMDL's Click parameter names).
+/// Boolean flags use `key = true` (omitted when false).
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
@@ -190,7 +203,10 @@ fn sync_to_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), S
 /// Converts AppSettings into GAMDL's INI config format.
 ///
 /// Only includes settings that GAMDL actually reads from its config file.
-/// Uses the same key names as GAMDL's CLI flags (without the -- prefix).
+/// Key names use underscores to match GAMDL's Click parameter names
+/// (e.g., `save_cover`, not `save-cover`). Boolean flags are written as
+/// `key = true` (never bare keys) since GAMDL's configparser doesn't
+/// use `allow_no_value=True`.
 ///
 /// # Arguments
 /// * `settings` - The application settings to convert
@@ -210,35 +226,35 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // authenticate with Apple Music. Without cookies, downloads will fail.
     // The cookies.txt file is extracted from a browser session (Netscape format).
     if let Some(ref path) = settings.cookies_path {
-        lines.push(format!("cookies-path = {}", path));
+        lines.push(format!("cookies_path = {}", path));
     }
 
     // === Audio Quality ===
     // Maps to GAMDL's --song-codec flag. Valid values: alac, aac-he, aac-binaural, etc.
     // The to_cli_string() method on the SongCodec enum returns the GAMDL-compatible string.
     lines.push(format!(
-        "song-codec = {}",
+        "song_codec = {}",
         settings.default_song_codec.to_cli_string()
     ));
 
     // === Video Quality ===
     // Maps to GAMDL's --music-video-resolution flag. Values like "1080p", "4k", etc.
     lines.push(format!(
-        "music-video-resolution = {}",
+        "music_video_resolution = {}",
         settings.default_video_resolution.to_cli_string()
     ));
     // Video codec priority is a comma-separated list (e.g., "h265,h264").
     // Only written if the user has set a preference.
     if !settings.default_video_codec_priority.is_empty() {
         lines.push(format!(
-            "music-video-codec-priority = {}",
+            "music_video_codec_priority = {}",
             settings.default_video_codec_priority
         ));
     }
     // Video remux format (e.g., "mkv", "mp4"). Only written if set.
     if !settings.default_video_remux_format.is_empty() {
         lines.push(format!(
-            "music-video-remux-format = {}",
+            "music_video_remux_format = {}",
             settings.default_video_remux_format
         ));
     }
@@ -246,47 +262,46 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // === Lyrics ===
     // Synced lyrics format (e.g., "lrc", "srt").
     lines.push(format!(
-        "synced-lyrics-format = {}",
+        "synced_lyrics_format = {}",
         settings.synced_lyrics_format.to_cli_string()
     ));
-    // Boolean flag: presence means true, absence means false.
-    // In INI format, boolean flags are written as bare keys (no value).
+    // Boolean flag: `key = true` when enabled, omitted when false (GAMDL defaults to false).
     if settings.no_synced_lyrics {
-        lines.push("no-synced-lyrics".to_string());
+        lines.push("no_synced_lyrics = true".to_string());
     }
 
     // === Cover Art ===
-    // Boolean flag: when present, GAMDL saves cover art as a separate file.
+    // Boolean flag: when true, GAMDL saves cover art as a separate file.
     if settings.save_cover {
-        lines.push("save-cover".to_string());
+        lines.push("save_cover = true".to_string());
     }
     // Cover format (e.g., "raw" for original, "jpg", "png").
     lines.push(format!(
-        "cover-format = {}",
+        "cover_format = {}",
         settings.cover_format.to_cli_string()
     ));
     // Cover size as a single integer (pixels). GAMDL uses square covers.
-    lines.push(format!("cover-size = {}", settings.cover_size));
+    lines.push(format!("cover_size = {}", settings.cover_size));
 
     // === Output ===
     // Output directory for downloaded files. Only written if non-empty.
     if !settings.output_path.is_empty() {
-        lines.push(format!("output-path = {}", settings.output_path));
+        lines.push(format!("output_path = {}", settings.output_path));
     }
     // Temp directory for intermediate files. If the user left this empty,
     // resolve to a "MeedyaDL" subdirectory within the OS temp directory so
     // GAMDL doesn't default to "." (unwritable from /Applications on macOS).
     if !settings.temp_path.is_empty() {
-        lines.push(format!("temp-path = {}", settings.temp_path));
+        lines.push(format!("temp_path = {}", settings.temp_path));
     } else {
         lines.push(format!(
-            "temp-path = {}",
+            "temp_path = {}",
             std::env::temp_dir().join("MeedyaDL").to_string_lossy()
         ));
     }
-    // Boolean flag: when present, existing files are overwritten without prompting.
+    // Boolean flag: when true, existing files are overwritten without prompting.
     if settings.overwrite {
-        lines.push("overwrite".to_string());
+        lines.push("overwrite = true".to_string());
     }
     // Truncate file/folder names to this many characters (avoids filesystem limits).
     if let Some(truncate) = settings.truncate {
@@ -297,10 +312,10 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
     lines.push(format!("language = {}", settings.language));
-    // Boolean flag: when present, GAMDL fetches extra metadata tags
+    // Boolean flag: when true, GAMDL fetches extra metadata tags
     // (normalization info, smooth playback data, etc.) from Apple Music.
     if settings.fetch_extra_tags {
-        lines.push("fetch-extra-tags".to_string());
+        lines.push("fetch_extra_tags = true".to_string());
     }
 
     // === Templates ===
@@ -309,43 +324,43 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // Ref: https://github.com/glomatico/gamdl#output-path-template
     if !settings.album_folder_template.is_empty() {
         lines.push(format!(
-            "album-folder-template = {}",
+            "album_folder_template = {}",
             settings.album_folder_template
         ));
     }
     if !settings.compilation_folder_template.is_empty() {
         lines.push(format!(
-            "compilation-folder-template = {}",
+            "compilation_folder_template = {}",
             settings.compilation_folder_template
         ));
     }
     if !settings.no_album_folder_template.is_empty() {
         lines.push(format!(
-            "no-album-folder-template = {}",
+            "no_album_folder_template = {}",
             settings.no_album_folder_template
         ));
     }
     if !settings.single_disc_file_template.is_empty() {
         lines.push(format!(
-            "single-disc-file-template = {}",
+            "single_disc_file_template = {}",
             settings.single_disc_file_template
         ));
     }
     if !settings.multi_disc_file_template.is_empty() {
         lines.push(format!(
-            "multi-disc-file-template = {}",
+            "multi_disc_file_template = {}",
             settings.multi_disc_file_template
         ));
     }
     if !settings.no_album_file_template.is_empty() {
         lines.push(format!(
-            "no-album-file-template = {}",
+            "no_album_file_template = {}",
             settings.no_album_file_template
         ));
     }
     if !settings.playlist_file_template.is_empty() {
         lines.push(format!(
-            "playlist-file-template = {}",
+            "playlist_file_template = {}",
             settings.playlist_file_template
         ));
     }
@@ -355,25 +370,25 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // Note: managed tool paths (installed by dependency_manager.rs) are injected
     // separately via gamdl_service::inject_tool_paths() at command build time.
     if let Some(ref path) = settings.ffmpeg_path {
-        lines.push(format!("ffmpeg-path = {}", path));
+        lines.push(format!("ffmpeg_path = {}", path));
     }
     if let Some(ref path) = settings.mp4decrypt_path {
-        lines.push(format!("mp4decrypt-path = {}", path));
+        lines.push(format!("mp4decrypt_path = {}", path));
     }
     if let Some(ref path) = settings.mp4box_path {
-        lines.push(format!("mp4box-path = {}", path));
+        lines.push(format!("mp4box_path = {}", path));
     }
     if let Some(ref path) = settings.nm3u8dlre_path {
-        lines.push(format!("nm3u8dlre-path = {}", path));
+        lines.push(format!("nm3u8dlre_path = {}", path));
     }
 
     // === Advanced ===
     // Wrapper mode uses an alternative authentication method via a web service.
     // Both the flag and the URL must be present for GAMDL to use the wrapper.
     if settings.use_wrapper {
-        lines.push("use-wrapper".to_string());
+        lines.push("use_wrapper = true".to_string());
         lines.push(format!(
-            "wrapper-account-url = {}",
+            "wrapper_account_url = {}",
             settings.wrapper_account_url
         ));
     }
@@ -453,7 +468,7 @@ mod tests {
     fn ini_contains_default_song_codec() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song-codec = alac"));
+        assert!(ini.contains("song_codec = alac"));
     }
 
     #[test]
@@ -462,7 +477,7 @@ mod tests {
         settings.default_song_codec =
             crate::models::gamdl_options::SongCodec::Aac;
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song-codec = aac"));
+        assert!(ini.contains("song_codec = aac"));
     }
 
     // ----------------------------------------------------------
@@ -473,7 +488,7 @@ mod tests {
     fn ini_contains_video_resolution() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("music-video-resolution = 2160p"));
+        assert!(ini.contains("music_video_resolution = 2160p"));
     }
 
     // ----------------------------------------------------------
@@ -484,14 +499,14 @@ mod tests {
     fn ini_contains_lyrics_format() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("synced-lyrics-format = lrc"));
+        assert!(ini.contains("synced_lyrics_format = lrc"));
     }
 
     #[test]
     fn ini_omits_no_synced_lyrics_when_false() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("no-synced-lyrics"));
+        assert!(!ini.contains("no_synced_lyrics"));
     }
 
     #[test]
@@ -499,7 +514,7 @@ mod tests {
         let mut settings = default_settings();
         settings.no_synced_lyrics = true;
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("no-synced-lyrics"));
+        assert!(ini.contains("no_synced_lyrics = true"));
     }
 
     // ----------------------------------------------------------
@@ -510,7 +525,7 @@ mod tests {
     fn ini_includes_save_cover_when_true() {
         let settings = default_settings(); // save_cover defaults to true
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("save-cover"));
+        assert!(ini.contains("save_cover = true"));
     }
 
     #[test]
@@ -518,8 +533,7 @@ mod tests {
         let mut settings = default_settings();
         settings.save_cover = false;
         let ini = settings_to_ini(&settings);
-        // Should not contain bare "save-cover" (but may contain "cover-format")
-        assert!(!ini.lines().any(|l| l.trim() == "save-cover"));
+        assert!(!ini.contains("save_cover"));
     }
 
     #[test]
@@ -527,8 +541,8 @@ mod tests {
         let settings = default_settings(); // cover_size defaults to 10000
         let ini = settings_to_ini(&settings);
         // GAMDL expects a single integer (pixels), not WxH.
-        assert!(ini.contains("cover-size = 10000"));
-        assert!(!ini.contains("cover-size = 10000x10000"));
+        assert!(ini.contains("cover_size = 10000"));
+        assert!(!ini.contains("cover_size = 10000x10000"));
     }
 
     // ----------------------------------------------------------
@@ -539,7 +553,7 @@ mod tests {
     fn ini_omits_cookies_path_when_none() {
         let settings = default_settings(); // cookies_path defaults to None
         let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("cookies-path"));
+        assert!(!ini.contains("cookies_path"));
     }
 
     #[test]
@@ -547,7 +561,7 @@ mod tests {
         let mut settings = default_settings();
         settings.cookies_path = Some("/home/user/cookies.txt".to_string());
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("cookies-path = /home/user/cookies.txt"));
+        assert!(ini.contains("cookies_path = /home/user/cookies.txt"));
     }
 
     // ----------------------------------------------------------
@@ -558,7 +572,7 @@ mod tests {
     fn ini_omits_output_path_when_empty() {
         let settings = default_settings(); // output_path defaults to ""
         let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("output-path"));
+        assert!(!ini.contains("output_path"));
     }
 
     #[test]
@@ -566,7 +580,7 @@ mod tests {
         let mut settings = default_settings();
         settings.output_path = "/tmp/music".to_string();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("output-path = /tmp/music"));
+        assert!(ini.contains("output_path = /tmp/music"));
     }
 
     // ----------------------------------------------------------
@@ -577,7 +591,7 @@ mod tests {
     fn ini_omits_overwrite_when_false() {
         let settings = default_settings(); // overwrite defaults to false
         let ini = settings_to_ini(&settings);
-        assert!(!ini.lines().any(|l| l.trim() == "overwrite"));
+        assert!(!ini.contains("overwrite"));
     }
 
     #[test]
@@ -585,7 +599,7 @@ mod tests {
         let mut settings = default_settings();
         settings.overwrite = true;
         let ini = settings_to_ini(&settings);
-        assert!(ini.lines().any(|l| l.trim() == "overwrite"));
+        assert!(ini.contains("overwrite = true"));
     }
 
     // ----------------------------------------------------------
@@ -596,8 +610,8 @@ mod tests {
     fn ini_omits_wrapper_when_disabled() {
         let settings = default_settings(); // use_wrapper defaults to false
         let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("use-wrapper"));
-        assert!(!ini.contains("wrapper-account-url"));
+        assert!(!ini.contains("use_wrapper"));
+        assert!(!ini.contains("wrapper_account_url"));
     }
 
     #[test]
@@ -606,8 +620,8 @@ mod tests {
         settings.use_wrapper = true;
         settings.wrapper_account_url = "http://localhost:9999".to_string();
         let ini = settings_to_ini(&settings);
-        assert!(ini.lines().any(|l| l.trim() == "use-wrapper"));
-        assert!(ini.contains("wrapper-account-url = http://localhost:9999"));
+        assert!(ini.contains("use_wrapper = true"));
+        assert!(ini.contains("wrapper_account_url = http://localhost:9999"));
     }
 
     // ----------------------------------------------------------
@@ -618,7 +632,7 @@ mod tests {
     fn ini_includes_album_folder_template() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("album-folder-template = {album_artist}/{album}"));
+        assert!(ini.contains("album_folder_template = {album_artist}/{album}"));
     }
 
     // ----------------------------------------------------------
@@ -649,6 +663,62 @@ mod tests {
         settings.truncate = Some(200);
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("truncate = 200"));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: key format validation
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_uses_underscores_not_hyphens() {
+        let mut settings = default_settings();
+        settings.save_cover = true;
+        settings.overwrite = true;
+        settings.fetch_extra_tags = true;
+        settings.output_path = "/tmp/music".to_string();
+        let ini = settings_to_ini(&settings);
+        // No hyphens in key names
+        assert!(!ini.contains("save-cover"));
+        assert!(!ini.contains("song-codec"));
+        assert!(!ini.contains("output-path"));
+        assert!(!ini.contains("cover-size"));
+        assert!(!ini.contains("fetch-extra-tags"));
+        // All use underscores
+        assert!(ini.contains("save_cover = true"));
+        assert!(ini.contains("song_codec"));
+        assert!(ini.contains("output_path"));
+        assert!(ini.contains("cover_size"));
+        assert!(ini.contains("fetch_extra_tags = true"));
+    }
+
+    #[test]
+    fn ini_booleans_use_equals_true_not_bare_keys() {
+        let mut settings = default_settings();
+        settings.save_cover = true;
+        settings.overwrite = true;
+        settings.no_synced_lyrics = true;
+        settings.fetch_extra_tags = true;
+        settings.use_wrapper = true;
+        settings.wrapper_account_url = "http://test".to_string();
+        let ini = settings_to_ini(&settings);
+        // All booleans must have " = true"
+        assert!(ini.contains("save_cover = true"));
+        assert!(ini.contains("overwrite = true"));
+        assert!(ini.contains("no_synced_lyrics = true"));
+        assert!(ini.contains("fetch_extra_tags = true"));
+        assert!(ini.contains("use_wrapper = true"));
+        // No bare keys (lines that are just the key with no " = ")
+        for line in ini.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('[') {
+                continue;
+            }
+            assert!(
+                trimmed.contains(" = "),
+                "Bare key found (no ' = '): '{}'",
+                trimmed
+            );
+        }
     }
 
     // ----------------------------------------------------------
