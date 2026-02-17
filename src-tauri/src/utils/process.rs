@@ -154,6 +154,32 @@ static PYTHON_EXCEPTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid Python exception regex")
 });
 
+/// Matches ANSI escape sequences (color codes, cursor movement, etc.).
+///
+/// GAMDL and its Python dependencies (e.g., yt-dlp) may output ANSI
+/// colour codes like `\x1b[32m` (green text) or `\x1b[0m` (reset).
+/// These codes are intended for terminal rendering but display as raw
+/// escape characters in the Activity Log's HTML-based view.
+///
+/// Pattern matches:
+///   - `\x1b[32m`   -- SGR color (green)
+///   - `\x1b[0m`    -- SGR reset
+///   - `\x1b[2K`    -- erase entire line
+///   - `\x1b[?25l`  -- hide cursor
+///
+/// Reference: https://en.wikipedia.org/wiki/ANSI_escape_code
+static ANSI_ESCAPE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07").expect("Invalid ANSI escape regex")
+});
+
+/// Strips ANSI escape sequences from a string.
+///
+/// Used to clean subprocess output before emitting it to the Activity Log
+/// frontend, where HTML rendering cannot interpret terminal colour codes.
+pub fn strip_ansi_codes(input: &str) -> String {
+    ANSI_ESCAPE_REGEX.replace_all(input, "").to_string()
+}
+
 // ============================================================
 // Event types emitted to the frontend
 // ============================================================
@@ -384,6 +410,8 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     //   - "not found"        -- missing files, URLs, or resources
     //   - "permission denied"-- filesystem permission errors
     //   - "codec not available" -- requested audio/video codec not offered
+    //   - "format is not available" -- GAMDL 2.8.x: "Requested format is not available"
+    //   - "skipping"         -- GAMDL: track skipped due to format/codec issues
     //   - "no entry"         -- missing archive entries or config keys
     //   - "traceback"        -- Python stack traces from GAMDL/yt-dlp
     //   - "exception"        -- Python exception messages
@@ -392,6 +420,8 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         || lower.contains("not found")
         || lower.contains("permission denied")
         || lower.contains("codec not available")
+        || lower.contains("format is not available")
+        || lower.contains("skipping")
         || lower.contains("no entry")
         || lower.contains("traceback")
         || lower.contains("exception")
@@ -438,10 +468,43 @@ pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     lower.contains("codec not available")      // yt-dlp: requested codec not in manifest
         || lower.contains("no matching codec") // GAMDL: no codec matches quality preference
-        || lower.contains("format not available") // yt-dlp: requested format ID not found
+        || lower.contains("format not available") // yt-dlp/GAMDL: requested format ID not found
+        || lower.contains("format is not available") // GAMDL 2.8.x: "Requested format is not available"
         || lower.contains("unable to find matching codec") // GAMDL variant
         || lower.contains("requested codec")   // GAMDL: "requested codec X not available"
+        || lower.contains("requested format")  // GAMDL 2.8.x: "Requested format is not available"
         || lower.contains("drm")               // DRM-protected content (cannot be decoded)
+}
+
+/// Checks if a GAMDL error message indicates a filesystem I/O error.
+///
+/// Used to distinguish filesystem timeouts (e.g., cloud-mounted drives
+/// timing out when writing cover art or output files) from network timeouts
+/// or codec errors. Cloud storage paths like CloudMounter, Google Drive
+/// File Stream, OneDrive, or iCloud Drive may experience I/O timeouts when
+/// the remote service is slow or unreachable, while the actual audio
+/// download (to a local temp directory) may have succeeded.
+///
+/// # Arguments
+/// * `error_message` - The error message string to check.
+///
+/// # Returns
+/// `true` if the error indicates a filesystem I/O issue; `false` otherwise.
+///
+/// # Connection
+/// Called by `services::download_queue` in the success path to determine
+/// whether "no output" is due to a filesystem issue (recoverable — files
+/// may exist) vs. a codec issue (needs fallback) vs. a genuine failure.
+pub fn is_io_error(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    lower.contains("operation timed out")       // macOS ETIMEDOUT (errno 60)
+        || lower.contains("[errno 60]")         // macOS ETIMEDOUT errno
+        || lower.contains("no space left")      // Disk full (ENOSPC)
+        || lower.contains("read-only file system") // Read-only mount (EROFS)
+        || lower.contains("input/output error") // Generic I/O error (EIO)
+        || lower.contains("[errno 5]")          // Linux EIO
+        || lower.contains("stale file handle")  // NFS stale handle (ESTALE)
+        || lower.contains("[errno 116]")        // ESTALE on Linux
 }
 
 /// Classifies an error message into a named category for the React UI.
@@ -483,6 +546,13 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // Authentication / cookie errors: user needs to provide valid credentials.
     if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
         "auth"
+    // Filesystem I/O errors: cloud storage timeout, disk full, etc.
+    // Checked before network because "operation timed out" contains "timed"
+    // which would otherwise match the network check's "timeout" pattern.
+    // These indicate the output path is unreachable or slow (e.g., a
+    // CloudMounter-mounted MEGA drive timing out on cover art writes).
+    } else if is_io_error(error_message) {
+        "io"
     // Network errors: transient, may resolve on retry.
     } else if lower.contains("network")
         || lower.contains("timeout")
@@ -801,6 +871,47 @@ mod tests {
     }
 
     // ----------------------------------------------------------
+    // is_io_error
+    // ----------------------------------------------------------
+
+    #[test]
+    fn detects_macos_timeout_error() {
+        assert!(is_io_error(
+            "TimeoutError: [Errno 60] Operation timed out: '/path/to/Cover.jpg'"
+        ));
+    }
+
+    #[test]
+    fn detects_errno_60() {
+        assert!(is_io_error("[Errno 60] Operation timed out"));
+    }
+
+    #[test]
+    fn detects_disk_full() {
+        assert!(is_io_error("No space left on device"));
+    }
+
+    #[test]
+    fn detects_read_only_fs() {
+        assert!(is_io_error("Read-only file system: '/mnt/external'"));
+    }
+
+    #[test]
+    fn detects_generic_io_error() {
+        assert!(is_io_error("Input/output error writing file"));
+    }
+
+    #[test]
+    fn does_not_detect_network_as_io() {
+        assert!(!is_io_error("Network timeout"));
+    }
+
+    #[test]
+    fn does_not_detect_codec_as_io() {
+        assert!(!is_io_error("Codec not available"));
+    }
+
+    // ----------------------------------------------------------
     // classify_error
     // ----------------------------------------------------------
 
@@ -809,6 +920,23 @@ mod tests {
         assert_eq!(classify_error("Cookie file expired"), "auth");
         assert_eq!(classify_error("Authentication failed"), "auth");
         assert_eq!(classify_error("Login required"), "auth");
+    }
+
+    #[test]
+    fn classifies_io_errors() {
+        // macOS CloudMounter timeout (the exact error from the user's test)
+        assert_eq!(
+            classify_error("TimeoutError: [Errno 60] Operation timed out: '/path/Cover.jpg'"),
+            "io"
+        );
+        // Disk full
+        assert_eq!(classify_error("No space left on device"), "io");
+        // Read-only filesystem
+        assert_eq!(classify_error("Read-only file system"), "io");
+        // Generic I/O error
+        assert_eq!(classify_error("Input/output error"), "io");
+        // NFS stale handle
+        assert_eq!(classify_error("Stale file handle"), "io");
     }
 
     #[test]
