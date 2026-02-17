@@ -49,6 +49,7 @@ function createMockQueueItem(overrides: Partial<QueueItemStatus> = {}): QueueIte
     output_path: null,
     codec_used: null,
     fallback_occurred: false,
+    warnings: [],
     created_at: '2026-02-09T12:00:00Z',
     ...overrides,
   };
