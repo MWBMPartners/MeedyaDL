@@ -53,6 +53,7 @@
  *  - `X`             -> cancel button (@see https://lucide.dev/icons/x)
  *  - `RotateCcw`     -> retry button  (@see https://lucide.dev/icons/rotate-ccw)
  *  - `FolderOpen`    -> open folder   (@see https://lucide.dev/icons/folder-open)
+ *  - `FileOutput`    -> open file     (@see https://lucide.dev/icons/file-output)
  *  - `AlertTriangle` -> fallback warn (@see https://lucide.dev/icons/alert-triangle)
  */
 import {
@@ -64,6 +65,7 @@ import {
   X,
   RotateCcw,
   FolderOpen,
+  FileOutput,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -250,6 +252,23 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
     }
   };
 
+  /**
+   * Opens the output file in its default application (e.g., Music.app,
+   * VLC, or the system default media player).
+   *
+   * Uses the same `open()` function from the shell plugin, which
+   * delegates to the OS default handler for the file type.
+   */
+  const handleOpenFile = async () => {
+    if (!item.output_path) return;
+    try {
+      const { open } = await import('@tauri-apps/plugin-shell');
+      await open(item.output_path);
+    } catch {
+      /* Shell API unavailable (running outside Tauri) -- silently ignore */
+    }
+  };
+
   return (
     /**
      * Queue item row container.
@@ -352,21 +371,6 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
          */}
         <div className="flex items-center gap-1 flex-shrink-0">
           {/*
-           * "Open folder" button -- shown for completed downloads
-           * that have an output path. Calls `handleOpenFolder()` to
-           * open the parent directory in the native file manager.
-           */}
-          {item.state === 'complete' && item.output_path && (
-            <button
-              onClick={handleOpenFolder}
-              className="p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
-              title="Open folder"
-            >
-              <FolderOpen size={14} />
-            </button>
-          )}
-
-          {/*
            * "Cancel" button -- shown for active (downloading/processing)
            * and queued downloads. Calls `onCancel(item.id)` which
            * propagates up to the parent DownloadQueue and ultimately
@@ -464,6 +468,38 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
               {warning}
             </p>
           ))}
+        </div>
+      )}
+
+      {/*
+       * File action row -- shown for completed downloads that have an
+       * output path. Provides labeled "Open File" and "Open Folder"
+       * buttons that are clearly associated with the queue item above.
+       *
+       * `pl-7` aligns with the URL text (matches icon width + gap-3).
+       * Uses compact pill-style buttons with bg-surface-secondary for
+       * visual distinction from the inline icon buttons.
+       */}
+      {item.state === 'complete' && item.output_path && (
+        <div className="mt-2 pl-7 flex gap-2">
+          <button
+            type="button"
+            onClick={handleOpenFile}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+            title="Open in default application"
+          >
+            <FileOutput size={12} />
+            Open File
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenFolder}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+            title="Reveal in file manager"
+          >
+            <FolderOpen size={12} />
+            Open Folder
+          </button>
         </div>
       )}
     </div>
