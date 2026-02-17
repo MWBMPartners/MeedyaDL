@@ -101,6 +101,27 @@ export default {
          * Generates class: font-system
          */
         system: ['system-ui', '-apple-system', 'sans-serif'],
+        /**
+         * Monospace font stack with emoji/symbol fallbacks.
+         * Overrides Tailwind's default font-mono so that Unicode symbols
+         * from GAMDL output (✓, ✗, emoji, etc.) render correctly in the
+         * Activity Log instead of showing as replacement boxes.
+         * Generates class: font-mono
+         */
+        mono: [
+          'ui-monospace',
+          'SFMono-Regular',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          'Liberation Mono',
+          'Courier New',
+          'monospace',
+          'Apple Color Emoji',
+          'Segoe UI Emoji',
+          'Segoe UI Symbol',
+          'Noto Color Emoji',
+        ],
       },
 
       /**
