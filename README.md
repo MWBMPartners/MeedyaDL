@@ -19,14 +19,7 @@
 
 ## 📸 Screenshots
 
-<!-- Replace these with actual screenshots captured from the running app. -->
-<!-- See DEV_NOTES.md "Capturing Screenshots" section for instructions. -->
-
-| | |
-| --- | --- |
-| ![Download (Light)](assets/screenshots/download-light.png) | ![Download (Dark)](assets/screenshots/download-dark.png) |
-| ![Queue](assets/screenshots/queue-dark.png) | ![Settings](assets/screenshots/settings-dark.png) |
-| ![Activity Log](assets/screenshots/activity-dark.png) | ![Updates](assets/screenshots/updates-dark.png) |
+> Screenshots coming soon. Run the app locally with `cargo tauri dev` to see the UI.
 
 ---
 

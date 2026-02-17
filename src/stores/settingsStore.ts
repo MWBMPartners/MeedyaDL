@@ -97,7 +97,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   no_synced_lyrics: false,       // Do download synced lyrics
   synced_lyrics_only: false,     // Also download plain-text lyrics
   save_cover: true,              // Save album artwork alongside audio files
-  cover_format: 'raw',           // Keep original artwork format (usually JPEG from Apple)
+  cover_format: 'jpg',           // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
   cover_size: 10000,             // Request maximum available artwork resolution from Apple CDN
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: false, // Disabled by default; needs Apple Developer setup
