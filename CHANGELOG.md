@@ -6,6 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Enhance download error handling and output processing
+
+- Introduced codec and I/O error recovery strategies in process_queue.
+  - Added ANSI escape code stripping for cleaner Activity Log output.
+  - Implemented new utility functions to classify codec and I/O errors.
+  - Updated tests to cover new error classification logic.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.19] - 2026-02-17
+
 ### 🐛 Bug Fixes
 
 - Update default cover format to JPEG to prevent crashes in GAMDL 2.8.4; add file opening functionality in QueueItem component
