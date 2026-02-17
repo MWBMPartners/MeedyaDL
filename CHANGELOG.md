@@ -4,6 +4,20 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### ✨ Features
+
+- Add non-fatal warnings to download items and update UI to display them
+
+### 🐛 Bug Fixes
+
+- Add text selection capability to ActivityLog component
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.3.17] - 2026-02-16
 
 ### ✨ Features
