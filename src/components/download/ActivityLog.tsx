@@ -146,7 +146,7 @@ export function ActivityLog() {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto bg-surface-secondary rounded-platform m-4 mt-0 p-3 font-mono text-xs leading-relaxed"
+        className="flex-1 overflow-y-auto bg-surface-secondary rounded-platform m-4 mt-0 p-3 font-mono text-xs leading-relaxed select-text"
       >
         {entries.length === 0 ? (
           <p className="text-content-tertiary text-center py-8">
