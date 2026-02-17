@@ -65,7 +65,7 @@
 // - Pin and Box for recursive futures: https://doc.rust-lang.org/std/pin/
 // - Tauri event system: https://v2.tauri.app/develop/calling-rust/#events
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 // Future and Pin are needed for the recursive async pattern in process_queue().
 // Recursive async functions cannot use normal `async fn` syntax because the
 // compiler cannot determine the size of the future at compile time.
@@ -1296,42 +1296,120 @@ pub fn process_queue(
                         .is_some();
 
                     if !has_output {
-                        // No output files — treat as error, not success
-                        let error_msg = if let Some(last_warning) = warnings.last() {
-                            format!(
-                                "Download completed but no output files were produced: {}",
-                                last_warning
-                            )
-                        } else {
-                            "Download completed but no output files were produced. \
-                             Check the Activity Log for details."
-                                .to_string()
-                        };
-                        log::warn!(
-                            "Download {} exited 0 but produced no output: {}",
-                            dl_id,
-                            error_msg
-                        );
-                        q.set_error(&dl_id, &error_msg);
-                        q.on_task_finished();
-                        drop(q);
-                        save_queue_to_disk(&app_clone, &queue_clone).await;
-                        let _ = app_clone.emit(
-                            "download-error",
-                            serde_json::json!({
-                                "download_id": dl_id,
-                                "error": error_msg,
-                            }),
-                        );
-                        // Continue processing remaining queued items
-                        process_queue(app_clone.clone(), queue_clone.clone()).await;
-                        return;
+                        // No "Saved to:" line was emitted by GAMDL despite exit 0.
+                        // Classify the warnings to determine the right recovery
+                        // strategy: codec fallback, IO error recovery, or terminal.
+                        let has_codec_error = warnings.iter().any(|w| {
+                            process::is_codec_error(w)
+                        });
+                        let has_io_error = warnings.iter().any(|w| {
+                            process::is_io_error(w)
+                        });
+
+                        if has_codec_error {
+                            // Codec-related failure on success path — try fallback
+                            let error_msg = warnings.last().cloned().unwrap_or_else(|| {
+                                "Requested format is not available".to_string()
+                            });
+                            log::info!(
+                                "Download {} exited 0 with codec error, attempting fallback: {}",
+                                dl_id,
+                                error_msg
+                            );
+                            let settings = load_settings_for_queue(&app_clone).await;
+                            q.set_error(&dl_id, &error_msg);
+                            q.on_task_finished();
+
+                            if let Some(_new_options) = q.try_fallback(&dl_id, &settings) {
+                                log::info!("Download {} will retry with fallback codec", dl_id);
+                                drop(q);
+                                save_queue_to_disk(&app_clone, &queue_clone).await;
+                                process_queue(app_clone.clone(), queue_clone.clone()).await;
+                                return;
+                            }
+                            // Fallback chain exhausted — fall through to error below
+                        }
+
+                        if has_io_error && !has_codec_error {
+                            // Filesystem I/O error recovery: GAMDL exited 0 with IO
+                            // errors (e.g., cloud storage timeout writing Cover.jpg)
+                            // but no codec errors. Audio files were likely downloaded
+                            // to the output directory despite the IO errors on
+                            // ancillary operations (cover art, lyrics sidecar).
+                            //
+                            // Set the configured output path so "Open Folder" works,
+                            // and mark as complete with IO-specific warnings.
+                            if let Some(item) = q.items.iter_mut()
+                                .find(|i| i.status.id == dl_id)
+                            {
+                                if let Some(ref dir) = item.merged_options.output_path.clone() {
+                                    item.status.output_path = Some(dir.clone());
+                                }
+                            }
+                            log::warn!(
+                                "Download {} completed with IO errors — recovering with \
+                                 configured output path",
+                                dl_id
+                            );
+                            // Fall through to normal completion with IO warnings
+                        } else if !has_io_error || has_codec_error {
+                            // Terminal: no output, no IO recovery, codec fallback
+                            // exhausted or not applicable.
+                            let error_msg = if has_io_error {
+                                format!(
+                                    "Output path may be unreachable or too slow. \
+                                     Check your storage connection and try a local \
+                                     output path. Details: {}",
+                                    warnings.last().cloned().unwrap_or_default()
+                                )
+                            } else if let Some(last_warning) = warnings.last() {
+                                format!(
+                                    "Download completed but no output files were \
+                                     produced: {}",
+                                    last_warning
+                                )
+                            } else {
+                                "Download completed but no output files were produced. \
+                                 Check the Activity Log for details."
+                                    .to_string()
+                            };
+                            log::warn!(
+                                "Download {} exited 0 but produced no output: {}",
+                                dl_id,
+                                error_msg
+                            );
+                            q.set_error(&dl_id, &error_msg);
+                            q.on_task_finished();
+                            drop(q);
+                            save_queue_to_disk(&app_clone, &queue_clone).await;
+                            let _ = app_clone.emit(
+                                "download-error",
+                                serde_json::json!({
+                                    "download_id": dl_id,
+                                    "error": error_msg,
+                                }),
+                            );
+                            // Continue processing remaining queued items
+                            process_queue(app_clone.clone(), queue_clone.clone()).await;
+                            return;
+                        }
                     }
 
-                    // Mark as complete and attach any non-fatal warnings
+                    // Mark as complete and attach any non-fatal warnings.
+                    // Reached when has_output=true (normal) or IO error
+                    // recovery set output_path from config.
                     q.set_complete(&dl_id);
-                    if !warnings.is_empty() {
-                        q.add_warnings(&dl_id, &warnings);
+                    let mut all_warnings = warnings.clone();
+                    if warnings.iter().any(|w| process::is_io_error(w)) {
+                        all_warnings.push(
+                            "Some files may be incomplete due to storage I/O \
+                             errors. Consider using a local output path instead \
+                             of cloud storage."
+                                .to_string(),
+                        );
+                    }
+                    if !all_warnings.is_empty() {
+                        q.add_warnings(&dl_id, &all_warnings);
                     }
                     q.on_task_finished();
 
@@ -1910,27 +1988,48 @@ async fn run_download_with_events(
     // The raw stderr buffer lets us extract the actual exception post-mortem.
     let raw_stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
+    // Deduplication set for Activity Log emissions.
+    // GAMDL and its Python dependencies (yt-dlp, tqdm) may write the same
+    // output to both stdout and stderr, causing each line to appear twice
+    // in the Activity Log. This shared set tracks lines already emitted
+    // so the second reader skips duplicates. The set is bounded by the
+    // total GAMDL output size (typically a few hundred to a few thousand
+    // lines per album) so memory usage is negligible.
+    let seen_lines: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+
     // Spawn stdout reader
     let stdout_task = {
         let download_id = download_id.to_string();
         let app = app.clone();
         let queue = queue.clone();
         let errors = collected_errors.clone();
+        let seen = seen_lines.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(line)) = lines.next_line().await {
-                log::debug!("[gamdl stdout] {}", line);
+                // Strip ANSI escape codes (e.g., \x1b[32m) that GAMDL
+                // outputs for terminal colouring but render as garbage
+                // in the Activity Log's HTML view.
+                let clean_line = process::strip_ansi_codes(&line);
+                log::debug!("[gamdl stdout] {}", clean_line);
 
-                // Emit raw line to the activity log (before parsing)
-                let _ = app.emit("activity-log", &ActivityLogEvent {
-                    download_id: download_id.clone(),
-                    stream: "stdout",
-                    line: line.clone(),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                });
+                // Deduplicate: only emit to Activity Log if this line
+                // hasn't already been emitted by the other reader.
+                let is_new = {
+                    let mut set = seen.lock().await;
+                    set.insert(clean_line.clone())
+                };
+                if is_new {
+                    let _ = app.emit("activity-log", &ActivityLogEvent {
+                        download_id: download_id.clone(),
+                        stream: "stdout",
+                        line: clean_line.clone(),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
 
-                let event = process::parse_gamdl_output(&line);
+                let event = process::parse_gamdl_output(&clean_line);
 
                 // Update the queue item's progress
                 {
@@ -1961,26 +2060,37 @@ async fn run_download_with_events(
         let queue = queue.clone();
         let errors = collected_errors.clone();
         let raw_stderr = raw_stderr_lines.clone();
+        let seen = seen_lines.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(line)) = lines.next_line().await {
-                log::debug!("[gamdl stderr] {}", line);
+                // Strip ANSI escape codes before display and parsing
+                let clean_line = process::strip_ansi_codes(&line);
+                log::debug!("[gamdl stderr] {}", clean_line);
 
-                // Emit raw line to the activity log (before parsing)
-                let _ = app.emit("activity-log", &ActivityLogEvent {
-                    download_id: download_id.clone(),
-                    stream: "stderr",
-                    line: line.clone(),
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                });
+                // Deduplicate: only emit to Activity Log if this line
+                // hasn't already been emitted by the stdout reader.
+                let is_new = {
+                    let mut set = seen.lock().await;
+                    set.insert(clean_line.clone())
+                };
+                if is_new {
+                    let _ = app.emit("activity-log", &ActivityLogEvent {
+                        download_id: download_id.clone(),
+                        stream: "stderr",
+                        line: clean_line.clone(),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                }
 
-                let event = process::parse_gamdl_output(&line);
+                let event = process::parse_gamdl_output(&clean_line);
 
                 // Collect raw stderr lines for Python traceback extraction
+                // (always, regardless of dedup — needed for exception analysis)
                 {
                     let mut raw = raw_stderr.lock().await;
-                    raw.push(line.clone());
+                    raw.push(clean_line.clone());
                 }
 
                 {
