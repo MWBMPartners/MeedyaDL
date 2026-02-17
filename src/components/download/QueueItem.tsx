@@ -192,8 +192,23 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
    */
   const config = STATE_CONFIG[item.state];
 
-  /** The Lucide icon component for the current state (e.g., Clock, Download). */
-  const StateIcon = config.icon;
+  /**
+   * Whether this completed item has non-fatal warnings. When true, the
+   * status icon switches from green CheckCircle to amber AlertTriangle
+   * to signal that the download succeeded but encountered issues.
+   */
+  const hasWarnings =
+    item.state === 'complete' &&
+    item.warnings &&
+    item.warnings.length > 0;
+
+  /** The Lucide icon component for the current state, overridden for warnings. */
+  const StateIcon = hasWarnings ? AlertTriangle : config.icon;
+
+  /** The color class, overridden to amber for completed-with-warnings. */
+  const stateColorClass = hasWarnings
+    ? 'text-status-warning'
+    : config.colorClass;
 
   /**
    * Whether this item is currently in an "active" state (downloading or
@@ -265,7 +280,7 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
          *
          * @see https://tailwindcss.com/docs/animation#spin
          */}
-        <div className={`mt-0.5 flex-shrink-0 ${config.colorClass}`}>
+        <div className={`mt-0.5 flex-shrink-0 ${stateColorClass}`}>
           <StateIcon
             size={18}
             className={item.state === 'processing' ? 'animate-spin' : ''}
@@ -434,6 +449,22 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
        */}
       {item.state === 'error' && item.error && (
         <p className="mt-1.5 pl-7 text-xs text-status-error">{item.error}</p>
+      )}
+
+      {/*
+       * Warning messages -- shown for completed items that encountered
+       * non-fatal issues during the download (e.g., GAMDL logged error
+       * lines but still exited successfully). Displayed in amber below
+       * the progress section or error message.
+       */}
+      {hasWarnings && (
+        <div className="mt-1.5 pl-7 space-y-0.5">
+          {item.warnings.map((warning, i) => (
+            <p key={i} className="text-xs text-status-warning">
+              {warning}
+            </p>
+          ))}
+        </div>
       )}
     </div>
   );

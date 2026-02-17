@@ -222,6 +222,13 @@ pub struct QueueItemStatus {
     /// The frontend uses this to show a warning indicator.
     pub fallback_occurred: bool,
 
+    /// Non-fatal warnings collected during the download (e.g., GAMDL
+    /// error-pattern lines that didn't prevent the process from exiting
+    /// successfully). Displayed in the queue UI as amber text below the
+    /// URL for completed items. Empty for clean completions.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+
     /// ISO 8601 timestamp (`YYYY-MM-DDTHH:MM:SS.sssZ`) when this item
     /// was added to the queue. Used for sorting the queue display and
     /// for calculating elapsed time.
@@ -384,6 +391,7 @@ mod tests {
             output_path: None,
             codec_used: Some("alac".to_string()),
             fallback_occurred: false,
+            warnings: Vec::new(),
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
 
@@ -425,6 +433,7 @@ mod tests {
             output_path: None,
             codec_used: None,
             fallback_occurred: false,
+            warnings: Vec::new(),
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
 
@@ -456,6 +465,7 @@ mod tests {
             output_path: Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()),
             codec_used: Some("aac".to_string()),
             fallback_occurred: true,
+            warnings: Vec::new(),
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };
 

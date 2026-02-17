@@ -307,6 +307,7 @@ impl DownloadQueue {
                         .unwrap_or_else(|| settings.default_song_codec.to_cli_string().to_string()),
                 ),
                 fallback_occurred: false,
+                warnings: Vec::new(),
                 created_at: chrono::Utc::now().to_rfc3339(),
             },
             request,
@@ -476,6 +477,15 @@ impl DownloadQueue {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
+        }
+    }
+
+    /// Appends non-fatal warnings to a download item. These are displayed
+    /// in the queue UI as amber text below the URL, indicating that the
+    /// download succeeded but encountered issues during the run.
+    pub fn add_warnings(&mut self, download_id: &str, warnings: &[String]) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.warnings.extend(warnings.iter().cloned());
         }
     }
 
@@ -738,6 +748,7 @@ impl DownloadQueue {
                             }),
                     ),
                     fallback_occurred: false,
+                    warnings: Vec::new(),
                     created_at: p.created_at,
                 },
                 request: p.request,
@@ -1270,15 +1281,60 @@ pub fn process_queue(
 
         // Handle the result of the download attempt
         match result {
-            Ok(()) => {
+            Ok(warnings) => {
                 // === Success path ===
-                // Read the output path and codec_used before releasing the lock.
-                // We need output_path for animated artwork and metadata tagging,
-                // and codec_used for both metadata tagging and companion logic.
+                // GAMDL exited with code 0. Check whether output files were
+                // actually produced before declaring success.
                 let (output_path_for_artwork, completed_codec) = {
                     let mut q = queue_clone.lock().await;
+
+                    // Check if GAMDL emitted a "Saved to:" line during the run.
+                    // If not, no files were produced despite a clean exit.
+                    let has_output = q.items.iter()
+                        .find(|i| i.status.id == dl_id)
+                        .and_then(|i| i.status.output_path.as_ref())
+                        .is_some();
+
+                    if !has_output {
+                        // No output files — treat as error, not success
+                        let error_msg = if let Some(last_warning) = warnings.last() {
+                            format!(
+                                "Download completed but no output files were produced: {}",
+                                last_warning
+                            )
+                        } else {
+                            "Download completed but no output files were produced. \
+                             Check the Activity Log for details."
+                                .to_string()
+                        };
+                        log::warn!(
+                            "Download {} exited 0 but produced no output: {}",
+                            dl_id,
+                            error_msg
+                        );
+                        q.set_error(&dl_id, &error_msg);
+                        q.on_task_finished();
+                        drop(q);
+                        save_queue_to_disk(&app_clone, &queue_clone).await;
+                        let _ = app_clone.emit(
+                            "download-error",
+                            serde_json::json!({
+                                "download_id": dl_id,
+                                "error": error_msg,
+                            }),
+                        );
+                        // Continue processing remaining queued items
+                        process_queue(app_clone.clone(), queue_clone.clone()).await;
+                        return;
+                    }
+
+                    // Mark as complete and attach any non-fatal warnings
                     q.set_complete(&dl_id);
-                    q.on_task_finished(); // Free a concurrent download slot
+                    if !warnings.is_empty() {
+                        q.add_warnings(&dl_id, &warnings);
+                    }
+                    q.on_task_finished();
+
                     // Extract output_path and codec_used while we have the lock
                     let status = q.get_status();
                     let item = status.iter().find(|s| s.id == dl_id);
@@ -1287,6 +1343,26 @@ pub fn process_queue(
                         item.and_then(|s| s.codec_used.clone()),
                     )
                 };
+
+                // Verify the output path actually exists on disk. If GAMDL
+                // reported a path but the file/folder is missing, add a warning.
+                if let Some(ref path) = output_path_for_artwork {
+                    if !std::path::Path::new(path).exists() {
+                        log::warn!(
+                            "Download {} output path does not exist: {}",
+                            dl_id,
+                            path
+                        );
+                        let mut q = queue_clone.lock().await;
+                        q.add_warnings(
+                            &dl_id,
+                            &["Output path reported by GAMDL does not exist on disk"
+                                .to_string()],
+                        );
+                        drop(q);
+                    }
+                }
+
                 log::info!("Download {} completed successfully", dl_id);
 
                 // Persist queue state: completed item is now in terminal state,
@@ -1783,14 +1859,16 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
 ///
 /// Error messages from GAMDL's output are collected in a Vec<String>
 /// (behind Arc<Mutex>) so the last error can be used as the failure
-/// message if the process exits with a non-zero code.
+/// message if the process exits with a non-zero code. On success, returns
+/// any non-fatal warning messages collected during the run (error-pattern
+/// lines from GAMDL output that didn't cause a non-zero exit).
 async fn run_download_with_events(
     app: &AppHandle,
     download_id: &str,
     urls: &[String],
     options: &GamdlOptions,
     queue: &QueueHandle,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     log::info!(
         "Starting GAMDL download {} for {} URL(s)",
         download_id,
@@ -1966,7 +2044,11 @@ async fn run_download_with_events(
 
     // Check the exit status and construct an appropriate error message.
     if status.success() {
-        Ok(())
+        // Return any error-pattern lines as non-fatal warnings.
+        // These are issues GAMDL logged during the run but didn't consider
+        // fatal enough to exit with a non-zero code.
+        let warnings = collected_errors.lock().await.clone();
+        Ok(warnings)
     } else {
         // Use the last collected error message from GAMDL's output for a meaningful
         // error message. This is more informative than just "exited with code N".
