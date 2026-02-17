@@ -21,7 +21,7 @@
  * | General      | GeneralTab       | Output path, language, overwrite, auto-update |
  * | Quality      | QualityTab       | Audio codec, video resolution, remux format   |
  * | Fallback     | FallbackTab      | Drag-to-reorder fallback chains               |
- * | Paths        | PathsTab         | External tool binary paths                    |
+ * | Tools        | ToolsTab         | Tool status, install, path overrides          |
  * | Cookies      | CookiesTab       | Cookie file import and validation             |
  * | Lyrics       | LyricsTab        | Synced lyrics format preferences              |
  * | Cover Art    | CoverArtTab      | Cover art saving, format, and size            |
@@ -75,7 +75,7 @@ import {
   Settings as SettingsIcon, // General tab icon (aliased to avoid clash with component name)
   Music,                    // Quality tab icon
   ArrowDownUp,              // Fallback tab icon (up/down arrows representing reordering)
-  FolderOpen,               // Paths tab icon
+  Package,                  // Tools tab icon
   Cookie,                   // Cookies tab icon
   FileText,                 // Lyrics tab icon
   Image,                    // Cover Art tab icon
@@ -102,7 +102,7 @@ import { PageHeader } from '@/components/layout';
 import { GeneralTab } from './tabs/GeneralTab';
 import { QualityTab } from './tabs/QualityTab';
 import { FallbackTab } from './tabs/FallbackTab';
-import { PathsTab } from './tabs/PathsTab';
+import { ToolsTab } from './tabs/ToolsTab';
 import { CookiesTab } from './tabs/CookiesTab';
 import { LyricsTab } from './tabs/LyricsTab';
 import { CoverArtTab } from './tabs/CoverArtTab';
@@ -143,7 +143,7 @@ const TABS: SettingsTab[] = [
   { id: 'general', label: 'General', icon: SettingsIcon, component: GeneralTab },
   { id: 'quality', label: 'Quality', icon: Music, component: QualityTab },
   { id: 'fallback', label: 'Fallback', icon: ArrowDownUp, component: FallbackTab },
-  { id: 'paths', label: 'Paths', icon: FolderOpen, component: PathsTab },
+  { id: 'tools', label: 'Tools', icon: Package, component: ToolsTab },
   { id: 'cookies', label: 'Cookies', icon: Cookie, component: CookiesTab },
   { id: 'lyrics', label: 'Lyrics', icon: FileText, component: LyricsTab },
   { id: 'cover-art', label: 'Cover Art', icon: Image, component: CoverArtTab },

@@ -130,16 +130,16 @@ export function AdvancedTab() {
 
         <Toggle
           label="Use Wrapper"
-          description="Use AMDecrypt/wrapper-based decryption instead of standard cookie authentication. This is an advanced alternative for users who have access to an AMDecrypt server. Most users should leave this disabled and use cookies instead."
+          description="Use a locally-running wrapper service for authentication instead of browser cookies. The wrapper handles Apple ID login and DRM key exchange, providing more reliable access to Dolby Atmos and other protected formats. Most users should leave this disabled and use cookies instead."
           checked={settings.use_wrapper}
           onChange={(checked) => updateSettings({ use_wrapper: checked })}
-          helpTopic="cookies-help"
+          helpTopic="wrapper"
         />
 
         {settings.use_wrapper && (
           <Input
             label="Wrapper Account URL"
-            description="URL of the wrapper service endpoint"
+            description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper / AMdecrypt for setup instructions."
             value={settings.wrapper_account_url}
             onChange={(e) =>
               updateSettings({ wrapper_account_url: e.target.value })
