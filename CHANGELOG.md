@@ -4,6 +4,16 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Update default cover format to JPEG to prevent crashes in GAMDL 2.8.4; add file opening functionality in QueueItem component
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.3.18] - 2026-02-17
 
 ### ✨ Features
