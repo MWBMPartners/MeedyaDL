@@ -17,7 +17,7 @@
  * - CookiesStep (setup wizard): selecting the cookies file path.
  * - CookiesTab (settings): updating the cookies file path.
  * - GeneralTab (settings): selecting the default output directory.
- * - PathsTab (settings): configuring various tool / binary paths.
+ * - ToolsTab (settings): configuring tool binary paths and temp directory.
  *
  * @see https://v2.tauri.app/plugin/dialog/
  *      Tauri v2 dialog plugin -- native open/save dialogs.

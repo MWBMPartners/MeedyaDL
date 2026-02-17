@@ -108,7 +108,7 @@ export { HelpButton } from './HelpButton';
 
 /**
  * File/directory picker that opens the native OS dialog via the Tauri dialog plugin.
- * Used in: CookiesStep (setup wizard), CookiesTab, GeneralTab, PathsTab.
+ * Used in: CookiesStep (setup wizard), CookiesTab, GeneralTab, ToolsTab.
  * @see https://v2.tauri.app/plugin/dialog/
  */
 export { FilePickerButton } from './FilePickerButton';

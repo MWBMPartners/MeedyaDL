@@ -91,6 +91,7 @@ import {
   Settings,     // "Settings" topic
   Cookie,       // "Cookies" topic
   Wrench,       // "Tools" topic
+  Shield,       // "Wrapper / AMdecrypt" topic
   Music,        // "Audio Codecs" topic
   Video,        // "Music Videos" topic
   Film,         // "Animated Artwork" topic
@@ -262,6 +263,8 @@ Cookies expire after some time. If downloads start failing with authentication e
     icon: Wrench,
     content: `# External Tools
 
+MeedyaDL relies on several external command-line tools for downloading, decrypting, and processing media. You can check their status and install or update them from **Settings > Tools** at any time.
+
 ## Required Tools
 
 All four tools below are required for full functionality.
@@ -273,14 +276,80 @@ Used for audio/video processing and container remuxing. Required for most downlo
 Part of the Bento4 toolkit. Used for decrypting DRM-protected streams. Essential for downloading protected content.
 
 ### N_m3u8DL-RE
-HLS/DASH stream downloader. Used for downloading segmented media streams.
+HLS/DASH stream downloader. Used for downloading segmented media streams from Apple Music's CDN.
 
 ### MP4Box
 Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
 
-## Installation
+## Optional Tools
 
-Tools are automatically downloaded during first-time setup. You can also install or update them from **Settings > Paths** or by re-running the setup wizard.`,
+### AMDecrypt
+Apple Music DRM decryption tool used with the **wrapper** authentication system. Not required for standard cookie-based authentication. See the **Wrapper / AMdecrypt** help topic for details.
+
+## Installation & Management
+
+Tools are automatically downloaded during first-time setup. After setup, go to **Settings > Tools** to:
+
+- **Check All** — refresh the status of all tools
+- **Install missing tools** — individually or all at once
+- **Override paths** — click the chevron on any tool to set a custom binary path (e.g., if you have a system-wide installation you prefer)
+
+If new tools are added in a future update, the Tools tab will show them as missing so you can install them.`,
+  },
+  {
+    id: 'wrapper',
+    label: 'Wrapper / AMdecrypt',
+    icon: Shield,
+    content: `# Wrapper / AMdecrypt
+
+The **wrapper** is an alternative authentication method for accessing Apple Music content. Instead of using browser cookies, it uses a locally-running server that handles Apple ID authentication and DRM key exchange.
+
+## When to Use It
+
+Most users should use **cookie-based authentication** (the default). The wrapper is an advanced option for users who:
+
+- Need more reliable access to **Dolby Atmos** or other DRM-protected formats
+- Experience frequent cookie expiration issues
+- Are familiar with running local server software
+
+## How It Works
+
+1. A **wrapper service** runs on your computer (typically at \`http://127.0.0.1:30020\`)
+2. MeedyaDL connects to the wrapper instead of using cookies
+3. The wrapper handles Apple ID login and DRM key exchange on your behalf
+4. **AMDecrypt** is the companion decryption tool that works with the wrapper
+
+## Setup
+
+### 1. Obtain and run the wrapper service
+The wrapper is a separate application that you run locally. It listens on \`http://127.0.0.1:30020\` by default. You will need to source this separately — it is not bundled with MeedyaDL.
+
+### 2. Install AMDecrypt (optional)
+Go to **Settings > Tools** and install AMDecrypt, or set a custom path to an existing AMDecrypt binary.
+
+### 3. Enable the wrapper in MeedyaDL
+Go to **Settings > Advanced** and enable the **Use Wrapper** toggle. The default URL (\`http://127.0.0.1:30020\`) should work if the wrapper is running locally with default settings.
+
+### 4. Configure the URL (if needed)
+If your wrapper runs on a different port or host, update the **Wrapper Account URL** field in Settings > Advanced.
+
+## Cookie Auth vs Wrapper
+
+| Feature | Cookie Auth | Wrapper |
+|---------|-------------|---------|
+| Setup difficulty | Easy (browser extension export) | Advanced (local server) |
+| Dolby Atmos access | Sometimes unreliable | More reliable |
+| Session duration | Cookies expire periodically | Persistent while server runs |
+| Dependencies | None (cookies file only) | Wrapper service + AMDecrypt |
+| Recommended for | Most users | Advanced users |
+
+## Settings Reference
+
+| Setting | Location | Default |
+|---------|----------|---------|
+| Use Wrapper | Settings > Advanced | Off |
+| Wrapper Account URL | Settings > Advanced | \`http://127.0.0.1:30020\` |
+| AMDecrypt path | Settings > Tools > AMDecrypt | Not configured |`,
   },
   {
     id: 'audio-codecs',
@@ -523,11 +592,11 @@ MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
 ### Downloads Stuck at 0%
 - Check your internet connection
 - Try cancelling and re-adding the download
-- Check if FFmpeg is properly installed in **Settings > Paths**
+- Check if FFmpeg is properly installed in **Settings > Tools**
 
 ### "Tool Not Found" Errors
 - Re-run the setup wizard from **Settings > General**
-- Or manually set tool paths in **Settings > Paths**
+- Or manually set tool paths in **Settings > Tools**
 
 ### Application Won't Start
 - Delete the settings file from the app data directory and restart
