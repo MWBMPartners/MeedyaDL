@@ -15,9 +15,11 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Implemented new utility functions to classify codec and I/O errors.
   - Updated tests to cover new error classification logic.
 
+- Reorganize settings tabs and enhance tool management functionality
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.3.19] - 2026-02-17
