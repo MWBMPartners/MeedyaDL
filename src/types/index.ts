@@ -582,6 +582,8 @@ export interface QueueItemStatus {
   codec_used: string | null;
   /** Whether a codec/resolution fallback was used for this download */
   fallback_occurred: boolean;
+  /** Non-fatal warnings from the download (e.g., GAMDL errors that didn't prevent completion) */
+  warnings: string[];
   /** ISO 8601 timestamp when this download was queued */
   created_at: string;
 }
