@@ -1804,6 +1804,120 @@ pub fn process_queue(
                         });
                     }
                 }
+
+                // === Lyrics companion downloads (background, fire-and-forget) ===
+                // When the user has selected additional lyrics formats beyond the
+                // primary, spawn a lightweight GAMDL invocation for each extra
+                // format using --synced-lyrics-only. This produces sidecar lyrics
+                // files (.lrc, .srt, .ttml) without re-downloading audio.
+                {
+                    let lyrics_settings = load_settings_for_queue(&app_clone).await;
+
+                    // Only spawn lyrics companions when:
+                    // 1. There are companion formats configured
+                    // 2. Lyrics are enabled (embed_lyrics_and_sidecar overrides no_synced_lyrics)
+                    if !lyrics_settings.companion_lyrics_formats.is_empty()
+                        && (!lyrics_settings.no_synced_lyrics
+                            || lyrics_settings.embed_lyrics_and_sidecar)
+                    {
+                        let lyrics_app = app_clone.clone();
+                        let lyrics_urls = urls.clone();
+                        let lyrics_base_opts = companion_base_options.clone();
+                        let lyrics_dl_id = dl_id.clone();
+                        let lyrics_formats =
+                            lyrics_settings.companion_lyrics_formats.clone();
+
+                        tokio::spawn(async move {
+                            // Process each companion lyrics format sequentially
+                            // to avoid concurrent writes to the same directory.
+                            for format in &lyrics_formats {
+                                let mut opts = lyrics_base_opts.clone();
+                                // Download only lyrics (no audio) in this format
+                                opts.synced_lyrics_only = Some(true);
+                                opts.synced_lyrics_format = Some(format.clone());
+                                opts.no_synced_lyrics = Some(false);
+                                // Clear audio codec to avoid GAMDL codec validation
+                                // errors when running in lyrics-only mode
+                                opts.song_codec = None;
+
+                                let mut cmd =
+                                    match gamdl_service::build_gamdl_command_public(
+                                        &lyrics_app,
+                                        &lyrics_urls,
+                                        &opts,
+                                    ) {
+                                        Ok(c) => c,
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Lyrics companion ({}): failed to build \
+                                                 command for {}: {}",
+                                                format.to_cli_string(),
+                                                lyrics_dl_id,
+                                                e
+                                            );
+                                            continue;
+                                        }
+                                    };
+
+                                cmd.stdout(std::process::Stdio::piped());
+                                cmd.stderr(std::process::Stdio::piped());
+
+                                match cmd.spawn() {
+                                    Ok(child) => {
+                                        match child.wait_with_output().await {
+                                            Ok(output)
+                                                if output.status.success() =>
+                                            {
+                                                log::info!(
+                                                    "Lyrics companion ({}) \
+                                                     downloaded for {}",
+                                                    format.to_cli_string(),
+                                                    lyrics_dl_id
+                                                );
+                                                let _ = lyrics_app.emit(
+                                                    "lyrics-companion-downloaded",
+                                                    serde_json::json!({
+                                                        "download_id": lyrics_dl_id,
+                                                        "format": format.to_cli_string(),
+                                                    }),
+                                                );
+                                            }
+                                            Ok(output) => {
+                                                let stderr =
+                                                    String::from_utf8_lossy(
+                                                        &output.stderr,
+                                                    );
+                                                log::debug!(
+                                                    "Lyrics companion ({}) \
+                                                     failed for {}: {}",
+                                                    format.to_cli_string(),
+                                                    lyrics_dl_id,
+                                                    stderr
+                                                        .lines()
+                                                        .last()
+                                                        .unwrap_or("")
+                                                );
+                                            }
+                                            Err(e) => {
+                                                log::debug!(
+                                                    "Lyrics companion process \
+                                                     error: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Failed to spawn lyrics companion: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
             }
             Err(error_msg) => {
                 // === Error path ===

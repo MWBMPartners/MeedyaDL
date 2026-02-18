@@ -300,6 +300,14 @@ pub struct AppSettings {
     /// Maps to `GamdlOptions::synced_lyrics_only`.
     pub synced_lyrics_only: bool,
 
+    /// Additional lyrics formats to download as lightweight companions
+    /// after the primary download completes. Each format in this list
+    /// triggers a separate `--synced-lyrics-only` GAMDL invocation.
+    /// The primary format (`synced_lyrics_format`) is NOT included here.
+    /// Empty by default (single-format behavior, backward compatible).
+    #[serde(default)]
+    pub companion_lyrics_formats: Vec<LyricsFormat>,
+
     // ================================================================
     // Cover Art
     // ================================================================
@@ -640,6 +648,9 @@ impl Default for AppSettings {
             no_synced_lyrics: false,
             // Download audio + lyrics, not lyrics-only.
             synced_lyrics_only: false,
+            // No companion lyrics formats by default (single-format behavior).
+            // Users can enable additional formats in Settings > Lyrics.
+            companion_lyrics_formats: vec![],
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.
@@ -894,6 +905,7 @@ mod tests {
         assert_eq!(deserialized.synced_lyrics_format, settings.synced_lyrics_format);
         assert_eq!(deserialized.no_synced_lyrics, settings.no_synced_lyrics);
         assert_eq!(deserialized.synced_lyrics_only, settings.synced_lyrics_only);
+        assert_eq!(deserialized.companion_lyrics_formats, settings.companion_lyrics_formats);
 
         // Cover art
         assert_eq!(deserialized.save_cover, settings.save_cover);
@@ -987,5 +999,45 @@ mod tests {
     fn default_auto_check_updates_is_true() {
         let settings = AppSettings::default();
         assert!(settings.auto_check_updates);
+    }
+
+    // ----------------------------------------------------------
+    // companion_lyrics_formats -- backward compatibility
+    // ----------------------------------------------------------
+
+    /// Verifies that companion_lyrics_formats defaults to an empty vec,
+    /// preserving single-format behavior for existing users.
+    #[test]
+    fn default_companion_lyrics_formats_is_empty() {
+        let settings = AppSettings::default();
+        assert!(settings.companion_lyrics_formats.is_empty());
+    }
+
+    /// Verifies that JSON without companion_lyrics_formats deserializes
+    /// successfully with the field defaulting to an empty vec. This
+    /// ensures backward compatibility with existing settings.json files.
+    #[test]
+    fn companion_lyrics_formats_missing_from_json_defaults_to_empty() {
+        let json = r#"{"synced_lyrics_format": "lrc"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.companion_lyrics_formats.is_empty());
+    }
+
+    /// Verifies that companion_lyrics_formats round-trips through serde
+    /// correctly when populated with multiple formats.
+    #[test]
+    fn companion_lyrics_formats_serde_roundtrip() {
+        let settings = AppSettings {
+            companion_lyrics_formats: vec![
+                LyricsFormat::Srt,
+                LyricsFormat::Ttml,
+            ],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.companion_lyrics_formats.len(), 2);
+        assert_eq!(deserialized.companion_lyrics_formats[0], LyricsFormat::Srt);
+        assert_eq!(deserialized.companion_lyrics_formats[1], LyricsFormat::Ttml);
     }
 }
