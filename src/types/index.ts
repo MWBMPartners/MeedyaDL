@@ -436,6 +436,8 @@ export interface AppSettings {
   no_synced_lyrics: boolean;
   /** Whether to download only synced lyrics (no audio) */
   synced_lyrics_only: boolean;
+  /** Additional lyrics formats to download as companions after the primary download */
+  companion_lyrics_formats: LyricsFormat[];
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */
