@@ -7,13 +7,13 @@
  * Renders the "Lyrics" tab within the {@link SettingsPage} component.
  * This tab configures how GAMDL handles time-synced lyrics:
  *
- *   - **Synced Lyrics Format** -- The file format for downloaded lyrics
- *     files. Maps to `settings.synced_lyrics_format` and GAMDL's
- *     `--synced-lyrics-format` flag.
- *     Supported formats:
- *       - LRC -- Standard lyrics format widely supported by music players
- *       - SRT -- SubRip subtitle format (used by video players)
- *       - TTML -- Timed Text Markup Language (Apple's native format)
+ *   - **Synced Lyrics Formats** -- Multi-select checkboxes for the file
+ *     formats to download. The first checked format (in LRC -> SRT -> TTML
+ *     order) becomes the primary format (downloaded with the audio). Any
+ *     additional checked formats are downloaded as lightweight
+ *     `--synced-lyrics-only` companion passes after the primary completes.
+ *     Maps to `settings.synced_lyrics_format` (primary) and
+ *     `settings.companion_lyrics_formats` (additional).
  *
  *   - **Disable Synced Lyrics** -- When enabled, synced lyrics files are
  *     not downloaded alongside audio tracks. Maps to
@@ -37,17 +37,17 @@
 // Zustand store for reading/writing lyrics settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// Shared form components: Select for the format dropdown, Toggle for boolean switches.
-import { Select, Toggle } from '@/components/common';
+// Shared form component: Toggle for boolean switches.
+import { Toggle } from '@/components/common';
 
 // TypeScript union type for the lyrics format values.
 import type { LyricsFormat } from '@/types';
 
 /**
- * Dropdown options for the synced lyrics format selector.
- * Each entry provides the value stored in settings and a descriptive label.
+ * Canonical order of lyrics formats for checkbox display and primary
+ * selection. The first checked format in this order becomes the primary.
  */
-const LYRICS_FORMAT_OPTIONS = [
+const LYRICS_FORMAT_OPTIONS: { value: LyricsFormat; label: string }[] = [
   { value: 'lrc', label: 'LRC (standard lyrics format)' },
   { value: 'srt', label: 'SRT (SubRip subtitle format)' },
   { value: 'ttml', label: 'TTML (Timed Text Markup Language)' },
@@ -56,8 +56,8 @@ const LYRICS_FORMAT_OPTIONS = [
 /**
  * LyricsTab -- Renders the Lyrics settings tab.
  *
- * Contains a single visual section ("Synced Lyrics") with three controls:
- * a format dropdown and two toggles. All controls read from and write to
+ * Contains a single visual section ("Synced Lyrics") with format
+ * checkboxes and two toggles. All controls read from and write to
  * the shared Zustand settings store.
  */
 export function LyricsTab() {
@@ -65,6 +65,46 @@ export function LyricsTab() {
   const settings = useSettingsStore((s) => s.settings);
   /** Partial-update function for persisting lyrics setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  /**
+   * Set of all currently selected lyrics formats (primary + companions).
+   * Used to derive the checked state of each checkbox.
+   */
+  const checkedFormats = new Set<LyricsFormat>([
+    settings.synced_lyrics_format,
+    ...settings.companion_lyrics_formats,
+  ]);
+
+  /** Whether lyrics format checkboxes should be disabled */
+  const formatsDisabled =
+    settings.no_synced_lyrics && !settings.embed_lyrics_and_sidecar;
+
+  /**
+   * Handles toggling a lyrics format checkbox on or off.
+   * Recomputes the primary format (first checked in canonical order)
+   * and companion formats (remaining checked formats).
+   */
+  function handleFormatToggle(format: LyricsFormat, checked: boolean) {
+    const current = new Set(checkedFormats);
+
+    if (checked) {
+      current.add(format);
+    } else {
+      /* Prevent unchecking the last remaining format */
+      if (current.size <= 1) return;
+      current.delete(format);
+    }
+
+    /* Recompute primary and companions based on canonical order */
+    const ordered = LYRICS_FORMAT_OPTIONS
+      .map((f) => f.value)
+      .filter((f) => current.has(f));
+
+    updateSettings({
+      synced_lyrics_format: ordered[0],
+      companion_lyrics_formats: ordered.slice(1),
+    });
+  }
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -84,18 +124,50 @@ export function LyricsTab() {
             }
           />
 
-          {/* Synced lyrics format */}
-          <Select
-            label="Synced Lyrics Format"
-            description="Format for downloading time-synced lyrics files"
-            options={LYRICS_FORMAT_OPTIONS}
-            value={settings.synced_lyrics_format}
-            onChange={(e) =>
-              updateSettings({
-                synced_lyrics_format: e.target.value as LyricsFormat,
-              })
-            }
-          />
+          {/* Synced lyrics format checkboxes */}
+          <div className={formatsDisabled ? 'opacity-50' : ''}>
+            <span className="text-sm font-medium text-content-primary">
+              Synced Lyrics Formats
+            </span>
+            <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
+              Select one or more formats. The first format is used with the
+              primary download; additional formats are downloaded as lightweight
+              companion passes.
+            </span>
+            <div className="space-y-2">
+              {LYRICS_FORMAT_OPTIONS.map(({ value, label }) => {
+                const isChecked = checkedFormats.has(value);
+                const isPrimary =
+                  value === settings.synced_lyrics_format &&
+                  checkedFormats.size > 1;
+
+                return (
+                  <label
+                    key={value}
+                    className={`flex items-center gap-2.5 ${formatsDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      disabled={formatsDisabled}
+                      onChange={(e) =>
+                        handleFormatToggle(value, e.target.checked)
+                      }
+                      className="h-4 w-4 rounded border-border accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
+                    />
+                    <span className="text-sm text-content-primary">
+                      {label}
+                    </span>
+                    {isPrimary && (
+                      <span className="text-xs text-content-tertiary">
+                        (Primary)
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Disable synced lyrics -- overridden when embed+sidecar is on */}
           <Toggle

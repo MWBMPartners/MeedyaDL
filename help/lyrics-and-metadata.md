@@ -85,9 +85,9 @@ TTML is an XML-based timed text format used natively by Apple Music. It is the d
 
 Lyric downloads are controlled from **Settings > Lyrics**. In this tab you will find a toggle to enable or disable lyric downloads globally. When enabled, MeedyaDL will attempt to fetch synchronized lyrics for every track it downloads. When disabled, no lyric files will be created and no lyrics will be embedded.
 
-### Choosing a Lyric Format
+### Choosing Lyric Formats
 
-In **Settings > Lyrics**, you can select your preferred default lyric output format from the following options:
+In **Settings > Lyrics**, you can select one or more lyric output formats using the checkboxes:
 
 | Format | Best For | Notes |
 |--------|----------|-------|
@@ -96,6 +96,19 @@ In **Settings > Lyrics**, you can select your preferred default lyric output for
 | **TTML** | Apple Music native workflows | Richest timing data. Limited third-party support. |
 
 **Guidance:** Choose **LRC** if you primarily listen to music on desktop or mobile players. Choose **SRT** if you download music videos and want subtitles that work everywhere. Choose **TTML** if you need the original Apple Music lyric format for specialized processing.
+
+### Multi-Format Lyrics
+
+You can check multiple format boxes to download lyrics in more than one format. The first checked format (in LRC, SRT, TTML order) is the **primary** format, downloaded alongside the audio during the main download pass. Any additional checked formats are downloaded as lightweight **companion passes** after the audio completes -- these use GAMDL's `--synced-lyrics-only` mode, which fetches only the lyrics file without re-downloading audio.
+
+For example, if you check both LRC and SRT:
+
+1. The primary download produces the audio file and a `.lrc` sidecar
+2. After the audio completes, a companion pass downloads the `.srt` sidecar
+
+All lyrics files land in the same directory alongside the audio, with the same base filename but different extensions.
+
+### Embed Lyrics and Keep Sidecar
 
 The Lyrics tab also provides an **Embed Lyrics and Keep Sidecar** toggle. When enabled (which is the default), MeedyaDL ensures that lyrics are both embedded in the audio file's metadata tags AND saved as a separate sidecar file. This provides maximum compatibility: players that read embedded lyrics will find them in the file's metadata, while players that look for external lyrics files will find the sidecar file alongside the audio.
 
