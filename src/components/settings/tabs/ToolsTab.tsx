@@ -135,9 +135,11 @@ export function ToolsTab() {
     checkAll();
   }, [checkAll]);
 
-  /** Install all missing tools sequentially */
+  /** Install all missing required tools sequentially.
+   *  Optional tools (like AMDecrypt) are excluded because they
+   *  have no auto-install source — users configure them via Set Path. */
   const handleInstallAll = async () => {
-    const missing = tools.filter((t) => !t.installed);
+    const missing = tools.filter((t) => !t.installed && t.required);
     for (const tool of missing) {
       try {
         await installTool(tool.name);
@@ -147,7 +149,7 @@ export function ToolsTab() {
     }
   };
 
-  const missingCount = tools.filter((t) => !t.installed).length;
+  const missingCount = tools.filter((t) => !t.installed && t.required).length;
 
   /**
    * Gets the current custom path value for a tool from settings.
@@ -381,8 +383,9 @@ export function ToolsTab() {
                       )}
                     </div>
 
-                    {/* Install button (missing tools only) */}
-                    {!tool.installed && (
+                    {/* Install button (missing required tools) or Set Path
+                        (missing optional tools that have no auto-install) */}
+                    {!tool.installed && tool.required && (
                       <Button
                         variant="secondary"
                         size="sm"
@@ -392,6 +395,20 @@ export function ToolsTab() {
                         onClick={() => installTool(tool.name)}
                       >
                         Install
+                      </Button>
+                    )}
+                    {!tool.installed && !tool.required && pathKey && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<ChevronRight size={14} />}
+                        onClick={() => {
+                          if (!expandedPaths.has(tool.name)) {
+                            togglePathExpanded(tool.name);
+                          }
+                        }}
+                      >
+                        Set Path
                       </Button>
                     )}
 
