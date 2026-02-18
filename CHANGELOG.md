@@ -4,6 +4,13 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update quality settings and codec reliability information in documentation and UI
+
 ## [0.3.21] - 2026-02-18
 
 ### 🐛 Bug Fixes
