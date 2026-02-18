@@ -6,10 +6,15 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add multi-format lyrics support with companion downloads and update settings
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update quality settings and codec reliability information in documentation and UI
+- Update CHANGELOG.md [skip ci]
 
 ## [0.3.21] - 2026-02-18
 
