@@ -6,7 +6,8 @@
  *
  * Tests that the usePlatform hook correctly detects macOS, Windows, and Linux
  * via the mocked Tauri OS plugin, and falls back to navigator.userAgent
- * when the plugin is unavailable.
+ * when the plugin is unavailable. Also tests architecture detection and
+ * the supportsWrapper computed property.
  *
  * @see src/hooks/usePlatform.ts - The hook under test
  */
@@ -72,6 +73,72 @@ describe('usePlatform', () => {
   });
 
   // =========================================================================
+  // Architecture detection
+  // =========================================================================
+  it('detects architecture from the Tauri OS plugin', async () => {
+    const { result } = renderHook(() => usePlatform());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.arch).toBe('aarch64');
+  });
+
+  it('reports supportsWrapper=false for macOS aarch64', async () => {
+    const { result } = renderHook(() => usePlatform());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    /* Wrapper only supported on Linux x86_64 */
+    expect(result.current.supportsWrapper).toBe(false);
+  });
+
+  it('reports supportsWrapper=true for linux x86_64', async () => {
+    /* Override mocks to simulate Linux x86_64 */
+    const osModule = await import('@tauri-apps/plugin-os');
+    vi.mocked(osModule.platform).mockReturnValue('linux');
+    vi.mocked(osModule.arch).mockReturnValue('x86_64');
+
+    const { result } = renderHook(() => usePlatform());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.platform).toBe('linux');
+    expect(result.current.arch).toBe('x86_64');
+    expect(result.current.supportsWrapper).toBe(true);
+
+    /* Restore mocks for subsequent tests */
+    vi.mocked(osModule.platform).mockReturnValue('macos');
+    vi.mocked(osModule.arch).mockReturnValue('aarch64');
+  });
+
+  it('reports supportsWrapper=false for linux aarch64', async () => {
+    /* Override mocks to simulate Linux ARM64 */
+    const osModule = await import('@tauri-apps/plugin-os');
+    vi.mocked(osModule.platform).mockReturnValue('linux');
+    vi.mocked(osModule.arch).mockReturnValue('aarch64');
+
+    const { result } = renderHook(() => usePlatform());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.platform).toBe('linux');
+    expect(result.current.arch).toBe('aarch64');
+    expect(result.current.supportsWrapper).toBe(false);
+
+    /* Restore mocks */
+    vi.mocked(osModule.platform).mockReturnValue('macos');
+    vi.mocked(osModule.arch).mockReturnValue('aarch64');
+  });
+
+  // =========================================================================
   // Fallback to navigator.userAgent when plugin is unavailable
   // =========================================================================
   it('falls back to navigator.userAgent when plugin import fails', async () => {
@@ -106,6 +173,10 @@ describe('usePlatform', () => {
     /* The mocked userAgent contains "win", so fallback detects 'windows' */
     expect(result.current.platform).toBe('windows');
     expect(result.current.isWindows).toBe(true);
+
+    /* Architecture is null in fallback mode (not available via userAgent) */
+    expect(result.current.arch).toBeNull();
+    expect(result.current.supportsWrapper).toBe(false);
 
     /* Restore original userAgent and unmock the plugin */
     Object.defineProperty(navigator, 'userAgent', {

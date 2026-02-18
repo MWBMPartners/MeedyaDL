@@ -146,11 +146,11 @@ impl SongCodec {
     /// codec specifications.
     pub fn display_name(&self) -> &str {
         match self {
-            SongCodec::Alac => "Lossless (ALAC)",
-            SongCodec::Atmos => "Dolby Atmos",
-            SongCodec::Ac3 => "Dolby Digital (AC3)",
-            SongCodec::AacBinaural => "AAC (256kbps) Binaural",
-            SongCodec::Aac => "AAC (256kbps at up to 48kHz)",
+            SongCodec::Alac => "Lossless (ALAC) (Experimental)",
+            SongCodec::Atmos => "Dolby Atmos (Experimental)",
+            SongCodec::Ac3 => "Dolby Digital (AC3) (Experimental)",
+            SongCodec::AacBinaural => "AAC (256kbps) Binaural (Experimental)",
+            SongCodec::Aac => "AAC (256kbps at up to 48kHz) (Experimental)",
             SongCodec::AacLegacy => "AAC Legacy (256kbps at up to 44.1kHz)",
             SongCodec::AacHeLegacy => "AAC-HE Legacy (64kbps)",
             SongCodec::AacHe => "AAC-HE (Experimental)",
@@ -823,6 +823,52 @@ mod tests {
         assert_eq!(SongCodec::AacDownmix.to_cli_string(), "aac-downmix");
         assert_eq!(SongCodec::AacHeBinaural.to_cli_string(), "aac-he-binaural");
         assert_eq!(SongCodec::AacHeDownmix.to_cli_string(), "aac-he-downmix");
+    }
+
+    // ----------------------------------------------------------
+    // SongCodec::display_name
+    // ----------------------------------------------------------
+
+    #[test]
+    fn song_codec_display_names() {
+        // Non-experimental (reliable with cookie auth)
+        assert_eq!(
+            SongCodec::AacLegacy.display_name(),
+            "AAC Legacy (256kbps at up to 44.1kHz)"
+        );
+        assert_eq!(SongCodec::AacHeLegacy.display_name(), "AAC-HE Legacy (64kbps)");
+
+        // Experimental (may fail without Wrapper service)
+        assert_eq!(
+            SongCodec::Alac.display_name(),
+            "Lossless (ALAC) (Experimental)"
+        );
+        assert_eq!(SongCodec::Atmos.display_name(), "Dolby Atmos (Experimental)");
+        assert_eq!(
+            SongCodec::Ac3.display_name(),
+            "Dolby Digital (AC3) (Experimental)"
+        );
+        assert_eq!(
+            SongCodec::AacBinaural.display_name(),
+            "AAC (256kbps) Binaural (Experimental)"
+        );
+        assert_eq!(
+            SongCodec::Aac.display_name(),
+            "AAC (256kbps at up to 48kHz) (Experimental)"
+        );
+        assert_eq!(SongCodec::AacHe.display_name(), "AAC-HE (Experimental)");
+        assert_eq!(
+            SongCodec::AacDownmix.display_name(),
+            "AAC Downmix (Experimental)"
+        );
+        assert_eq!(
+            SongCodec::AacHeBinaural.display_name(),
+            "AAC-HE Binaural (Experimental)"
+        );
+        assert_eq!(
+            SongCodec::AacHeDownmix.display_name(),
+            "AAC-HE Downmix (Experimental)"
+        );
     }
 
     // ----------------------------------------------------------

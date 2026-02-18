@@ -58,6 +58,9 @@ import { Select, Toggle, Input } from '@/components/common';
 // TypeScript union types for download and remux mode values.
 import type { DownloadMode, RemuxMode } from '@/types';
 
+// Platform detection hook for Wrapper/AMdecrypt feature gating.
+import { usePlatform } from '@/hooks/usePlatform';
+
 /**
  * Download mode dropdown options.
  * yt-dlp is the recommended default; N_m3u8DL-RE is provided as an
@@ -90,6 +93,8 @@ export function AdvancedTab() {
   const settings = useSettingsStore((s) => s.settings);
   /** Partial-update function for persisting advanced setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  /** Platform detection for Wrapper feature gating (Linux x86_64 only) */
+  const { supportsWrapper } = usePlatform();
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -127,6 +132,15 @@ export function AdvancedTab() {
         <h3 className="text-sm font-semibold text-content-primary mb-4">
           Wrapper
         </h3>
+
+        {!supportsWrapper && (
+          <p className="text-xs text-content-tertiary bg-surface-secondary rounded-platform p-2">
+            The Wrapper service only provides native binaries for Linux x86_64.
+            On this platform you would need to run Wrapper remotely (e.g. on a
+            Linux server or via Docker) and point the URL below to it. See Help
+            &gt; Wrapper / AMdecrypt for details.
+          </p>
+        )}
 
         <Toggle
           label="Use Wrapper"

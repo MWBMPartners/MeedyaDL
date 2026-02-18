@@ -96,7 +96,10 @@ export function FallbackTab() {
         <p className="text-sm text-content-secondary mb-4">
           When the preferred codec or resolution is unavailable, GAMDL will
           automatically try the next option in the chain. Drag items to
-          reorder priority (top = highest priority).
+          reorder priority (top = highest priority). Note: codecs marked
+          (Experimental) may fail intermittently without the Wrapper
+          service — only AAC Legacy and AAC-HE Legacy are reliably
+          downloadable with cookies alone.
         </p>
       </div>
 

@@ -68,6 +68,9 @@ import { useSetupStore } from '@/stores/setupStore';
 // Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
 
+// Platform detection hook for filtering tools on unsupported platforms.
+import { usePlatform } from '@/hooks/usePlatform';
+
 /**
  * DependenciesStep -- Renders the external tools installation step.
  *
@@ -76,6 +79,10 @@ import { Button, LoadingSpinner } from '@/components/common';
  * sequentially. Auto-completes when all required tools are installed.
  */
 export function DependenciesStep() {
+  // --- Platform detection ---
+  /** Platform info for filtering tools on unsupported platforms */
+  const { supportsWrapper } = usePlatform();
+
   // --- Dependency store selectors ---
   /** Array of tool dependency statuses */
   const tools = useDependencyStore((s) => s.tools);
@@ -116,6 +123,15 @@ export function DependenciesStep() {
   }, [tools, completeStep]);
 
   /**
+   * Filter out AMDecrypt on platforms that don't support the Wrapper service.
+   * On Linux x86_64 all tools are shown; on other platforms AMDecrypt is hidden
+   * from the UI (but remains in the backend for manual JSON configuration).
+   */
+  const displayTools = supportsWrapper
+    ? tools
+    : tools.filter((t) => t.name !== 'AMDecrypt');
+
+  /**
    * Installs all missing tools sequentially.
    * Uses a for...of loop with await to ensure tools are installed one
    * at a time (some may depend on others, and sequential installation
@@ -123,7 +139,7 @@ export function DependenciesStep() {
    * failure in one tool does not prevent the rest from being installed.
    */
   const handleInstallAll = async () => {
-    const missing = tools.filter((t) => !t.installed);
+    const missing = displayTools.filter((t) => !t.installed);
     for (const tool of missing) {
       try {
         await installTool(tool.name);
@@ -134,7 +150,7 @@ export function DependenciesStep() {
   };
 
   /** Count of tools that are not yet installed (drives "Install All" button label) */
-  const missingCount = tools.filter((t) => !t.installed).length;
+  const missingCount = displayTools.filter((t) => !t.installed).length;
 
   return (
     <div className="space-y-6">
@@ -169,7 +185,7 @@ export function DependenciesStep() {
 
           {/* Tool list */}
           <div className="space-y-2">
-            {tools.map((tool) => (
+            {displayTools.map((tool) => (
               <div
                 key={tool.name}
                 className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated"

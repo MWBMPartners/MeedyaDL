@@ -138,11 +138,16 @@ export function QualityTab() {
           label="Default Audio Codec"
           description={
             <>
-              The preferred codec for song downloads. <strong>ALAC</strong> = lossless
-              (perfect quality, larger files); <strong>Dolby Atmos</strong> = immersive
-              spatial audio (requires compatible headphones/speakers);{' '}
+              The preferred codec for song downloads. Only{' '}
+              <strong>AAC Legacy</strong> and <strong>AAC-HE Legacy</strong> are
+              reliably downloadable with cookie-based authentication. All other
+              codecs are marked <em>(Experimental)</em> and may fail
+              intermittently without the Wrapper service. See Help &gt; Audio
+              Codecs for details.
+              <br /><br />
+              <strong>ALAC</strong> = lossless (perfect quality, larger files);{' '}
+              <strong>Dolby Atmos</strong> = immersive spatial audio;{' '}
               <strong>AC3</strong> = surround sound (5.1 home theatre);{' '}
-              <strong>AAC Binaural</strong> = spatial audio for regular headphones;{' '}
               <strong>AAC</strong> = standard quality (smallest files, plays everywhere).
             </>
           }

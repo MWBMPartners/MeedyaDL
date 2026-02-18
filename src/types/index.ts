@@ -190,11 +190,11 @@ export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
  * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type} - Record utility type
  */
 export const SONG_CODEC_LABELS: Record<SongCodec, string> = {
-  alac: 'Lossless (ALAC)',
-  atmos: 'Dolby Atmos',
-  ac3: 'Dolby Digital (AC3)',
-  'aac-binaural': 'AAC (256kbps) Binaural',
-  aac: 'AAC (256kbps at up to 48kHz)',
+  alac: 'Lossless (ALAC) (Experimental)',
+  atmos: 'Dolby Atmos (Experimental)',
+  ac3: 'Dolby Digital (AC3) (Experimental)',
+  'aac-binaural': 'AAC (256kbps) Binaural (Experimental)',
+  aac: 'AAC (256kbps at up to 48kHz) (Experimental)',
   'aac-legacy': 'AAC Legacy (256kbps at up to 44.1kHz)',
   'aac-he-legacy': 'AAC-HE Legacy (64kbps)',
   'aac-he': 'AAC-HE (Experimental)',

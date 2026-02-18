@@ -69,6 +69,10 @@ interface UsePlatformResult {
   isWindows: boolean;
   /** Convenience: true when platform === 'linux' (or any unrecognized OS) */
   isLinux: boolean;
+  /** Detected CPU architecture ('x86_64', 'aarch64', 'arm', etc.), or null during loading/browser fallback */
+  arch: string | null;
+  /** True only when platform === 'linux' AND arch === 'x86_64' (Wrapper/AMdecrypt fully supported) */
+  supportsWrapper: boolean;
 }
 
 /**
@@ -108,6 +112,13 @@ export function usePlatform(): UsePlatformResult {
   const [isLoading, setIsLoading] = useState(true);
 
   /*
+   * Detected CPU architecture from the Tauri OS plugin.
+   * null during loading or when running in browser fallback mode
+   * (navigator.userAgent doesn't reliably expose architecture).
+   */
+  const [detectedArch, setDetectedArch] = useState<string | null>(null);
+
+  /*
    * Run platform detection once on mount (empty dependency array).
    * The effect defines and immediately invokes an async function because
    * useEffect callbacks cannot be async directly (they must return void
@@ -133,20 +144,28 @@ export function usePlatform(): UsePlatformResult {
          * a code-split point. If the plugin isn't available (browser dev mode),
          * the import() Promise rejects, and we fall through to the catch block.
          *
-         * Note: the `platform` export from `@tauri-apps/plugin-os` is a synchronous
-         * function (not async) -- it reads a cached value set during Tauri initialization.
+         * Note: the `platform` and `arch` exports from `@tauri-apps/plugin-os`
+         * are synchronous functions -- they read cached values set during Tauri
+         * initialization.
          *
          * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/#platform}
+         * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/#arch}
          */
-        const { platform: getPlatform } = await import('@tauri-apps/plugin-os');
-        const detectedPlatform = getPlatform();
+        const { platform: getPlatform, arch: getArch } = await import(
+          '@tauri-apps/plugin-os'
+        );
+        const detectedPlatformValue = getPlatform();
+        const detectedArchValue = getArch();
+
+        /* Store the CPU architecture for feature gating (e.g., Wrapper support) */
+        setDetectedArch(detectedArchValue);
 
         /*
          * Map Tauri's platform string to our Platform type.
          * Tauri returns lowercase strings: 'macos', 'windows', 'linux', 'ios', 'android', etc.
          * We only care about desktop platforms; everything else maps to 'linux'.
          */
-        switch (detectedPlatform) {
+        switch (detectedPlatformValue) {
           case 'macos':
             setPlatform('macos');
             break;
@@ -164,6 +183,7 @@ export function usePlatform(): UsePlatformResult {
          * This happens when running the frontend in a regular browser via
          * `npm run dev` (without the Tauri wrapper). We use navigator.userAgent
          * for a best-effort detection so the UI looks correct during development.
+         * Architecture is not available via userAgent, so it remains null.
          *
          * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgent}
          */
@@ -189,6 +209,10 @@ export function usePlatform(): UsePlatformResult {
    * Return the platform info plus convenience booleans.
    * The boolean flags are derived values (not separate state) to avoid
    * synchronization issues. They update automatically when `platform` changes.
+   *
+   * supportsWrapper is true only on Linux x86_64, where the Wrapper service
+   * and AMdecrypt have native binary support. On all other platforms, the
+   * Wrapper UI is hidden (but settings fields remain for manual JSON config).
    */
   return {
     platform,
@@ -196,5 +220,7 @@ export function usePlatform(): UsePlatformResult {
     isMacOS: platform === 'macos',
     isWindows: platform === 'windows',
     isLinux: platform === 'linux',
+    arch: detectedArch,
+    supportsWrapper: platform === 'linux' && detectedArch === 'x86_64',
   };
 }
