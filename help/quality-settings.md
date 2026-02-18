@@ -18,6 +18,21 @@ The quality settings in MeedyaDL map directly to the codec and resolution option
 
 ---
 
+## Codec Reliability Notice
+
+Most audio codecs are marked **(Experimental)** in MeedyaDL's codec selector. This means they may fail intermittently when using cookie-based authentication. Only two codecs are reliably downloadable without the Wrapper service:
+
+- **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies
+- **AAC-HE Legacy** (64kbps) — reliable with cookies
+
+All other codecs — including ALAC, Dolby Atmos, AC3, AAC, and AAC Binaural — depend on DRM key exchange that cookies don't always handle correctly. If you experience download failures:
+
+1. **Retry** — failures are intermittent
+2. **Enable the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
+3. **Use the Wrapper service** — provides more reliable access (Linux x86_64 only)
+
+---
+
 ## Audio Codecs
 
 ### AAC (Advanced Audio Coding)
