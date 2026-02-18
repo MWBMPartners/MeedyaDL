@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ToolsTab)** Install only missing required tools and update UI for optional tools
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.20] - 2026-02-17
+
 ### ✨ Features
 
 - Enhance download error handling and output processing
