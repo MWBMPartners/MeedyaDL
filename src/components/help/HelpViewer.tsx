@@ -304,6 +304,8 @@ If new tools are added in a future update, the Tools tab will show them as missi
 
 The **wrapper** is an alternative authentication method for accessing Apple Music content. Instead of using browser cookies, it uses a locally-running server that handles Apple ID authentication and DRM key exchange.
 
+**Note:** Full managed support (setup wizard, auto-install) is only available on **Linux x86_64**. On other platforms, the Wrapper settings are hidden from the UI but can be configured manually via the settings JSON file. See the Platform Support section below.
+
 ## When to Use It
 
 Most users should use **cookie-based authentication** (the default). The wrapper is an advanced option for users who:
@@ -318,6 +320,32 @@ Most users should use **cookie-based authentication** (the default). The wrapper
 2. MeedyaDL connects to the wrapper instead of using cookies
 3. The wrapper handles Apple ID login and DRM key exchange on your behalf
 4. **AMDecrypt** is the companion decryption tool that works with the wrapper
+
+## Platform Support
+
+The Wrapper service and AMdecrypt have limited platform availability:
+
+| Platform | Wrapper | AMdecrypt | MeedyaDL Integration |
+|----------|---------|-----------|---------------------|
+| Linux x86_64 | Available | Available | Full managed support (setup wizard, auto-install) |
+| macOS (Apple Silicon) | Not available | Available | Manual setup only (settings hidden in UI) |
+| macOS (Intel) | Not available | Available | Manual setup only (settings hidden in UI) |
+| Windows x64 | Not available | Available | Manual setup only (settings hidden in UI) |
+| Windows ARM64 | Not available | Available | Manual setup only (settings hidden in UI) |
+| Linux ARM64 | Not available | Available | Manual setup only (settings hidden in UI) |
+| Linux ARMv7 | Not available | Not available | Not supported |
+
+### Why Only Linux x86_64?
+
+The Wrapper service only provides Linux x86_64 binaries. It requires the Android NDK and LLVM to build, which are heavily Linux-oriented. On other platforms, MeedyaDL hides the Wrapper settings from the UI to avoid confusion.
+
+### Manual Setup on Other Platforms
+
+Power users on unsupported platforms can still use the Wrapper by:
+
+1. **Running Wrapper remotely** — Run the Wrapper service on a Linux x86_64 server (or VPS) and point MeedyaDL to it via a custom URL
+2. **Docker** — Run the Wrapper in a Docker container on any host OS (the Wrapper provides a Docker-based setup)
+3. **Edit settings directly** — Open the MeedyaDL settings JSON file (in the app data directory) and set \`"use_wrapper": true\` and \`"wrapper_account_url"\` to the URL of your remote Wrapper service
 
 ## Setup
 
@@ -341,7 +369,8 @@ If your wrapper runs on a different port or host, update the **Wrapper Account U
 | Dolby Atmos access | Sometimes unreliable | More reliable |
 | Session duration | Cookies expire periodically | Persistent while server runs |
 | Dependencies | None (cookies file only) | Wrapper service + AMDecrypt |
-| Recommended for | Most users | Advanced users |
+| Platform support | All platforms | Linux x86_64 (managed) or manual setup |
+| Recommended for | Most users | Advanced users on Linux x86_64 |
 
 ## Settings Reference
 
@@ -358,6 +387,21 @@ If your wrapper runs on a different port or host, update the **Wrapper Account U
     content: `# Audio Codecs
 
 Understanding the differences between audio codecs helps you choose the right balance between quality, file size, and device compatibility. This guide explains each option in plain language.
+
+---
+
+## Reliability Notice
+
+Most audio codecs are marked **(Experimental)** in the codec selector. This means they may fail intermittently when using cookie-based authentication. Only two codecs are reliably downloadable without the Wrapper service:
+
+- **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies
+- **AAC-HE Legacy** (64kbps) — reliable with cookies
+
+All other codecs — including ALAC (Lossless), Dolby Atmos, AC3, AAC, and AAC Binaural — depend on DRM key exchange that cookies don't always handle correctly. If you experience download failures with experimental codecs, consider:
+
+1. **Retrying** — failures are intermittent, a retry may succeed
+2. **Enabling the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
+3. **Using the Wrapper service** — provides more reliable access (Linux x86_64 only, see Help > Wrapper / AMdecrypt)
 
 ---
 
@@ -416,12 +460,14 @@ An older AAC encoding profile capped at 44.1 kHz sample rate. Functionally ident
 
 ### Experimental Codecs
 
-These codecs are available but marked as experimental. They may not work reliably with all content:
+All codecs except **AAC Legacy** and **AAC-HE Legacy** are marked as **(Experimental)**. This includes the main codecs above (ALAC, Dolby Atmos, AC3, AAC, AAC Binaural) as well as the following niche variants:
 
 - **AAC-HE** — High Efficiency AAC at ~48–96 kbps. Much smaller files but audibly lower quality
 - **AAC Downmix** — Surround-to-stereo downmix without binaural processing (a "flat" stereo fold-down)
 - **AAC-HE Binaural** — AAC-HE combined with binaural rendering
 - **AAC-HE Downmix** — AAC-HE combined with stereo downmix
+
+The "Experimental" label indicates that these codecs may fail intermittently when using cookie-based authentication. The Wrapper service provides more reliable access to all codec types — see Help > Wrapper / AMdecrypt for details.
 
 ---
 
