@@ -4,7 +4,7 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.3.21] - 2026-02-18
 
 ### 🐛 Bug Fixes
 
@@ -12,6 +12,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.3.20] - 2026-02-17
