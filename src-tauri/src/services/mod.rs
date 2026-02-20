@@ -33,6 +33,10 @@
 //   +-- metadata_tag_service.rs  -- Post-download metadata enrichment (codec + API tags)
 //   +-- acoustid_service.rs      -- AcousticID fingerprinting via embedded Chromaprint (opt-in)
 //   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
+//   +-- service_dispatch.rs      -- Multi-service routing and output normalisation
+//   +-- youtube_service.rs       -- YouTube downloads via yt-dlp (stub)
+//   +-- bbc_iplayer_service.rs   -- BBC iPlayer downloads via get_iplayer (stub)
+//   +-- spotify_service.rs       -- Spotify downloads via votify (stub)
 //
 // Thread safety:
 //   Services that access shared state (like the download queue) use
@@ -151,3 +155,31 @@ pub mod acoustid_service;
 ///
 /// Used by: download_queue (post-download enrichment, when replaygain_enabled)
 pub mod replaygain_service;
+
+/// Multi-service dispatch layer: routes download operations to the correct
+/// service backend based on `MediaServiceId`. Provides unified
+/// `ServiceOutputEvent` type for normalising output across services.
+///
+/// Used by: download_queue (service routing), commands/download (service checks)
+pub mod service_dispatch;
+
+/// YouTube download service (yt-dlp wrapper): downloads YouTube videos,
+/// playlists, channels, and live streams. Supports audio-only extraction,
+/// resolution selection, subtitle embedding, and SponsorBlock integration.
+///
+/// Status: Stub — returns "not yet implemented" errors.
+pub mod youtube_service;
+
+/// BBC iPlayer download service (get_iplayer + yt-dlp fallback): downloads
+/// BBC TV programmes, episodes, series, and BBC Sounds audio content.
+/// Uses get_iplayer as primary engine with yt-dlp as fallback.
+///
+/// Status: Stub — returns "not yet implemented" errors.
+pub mod bbc_iplayer_service;
+
+/// Spotify download service (votify wrapper): downloads Spotify tracks,
+/// albums, playlists, and artist discographies. Supports Ogg Vorbis quality
+/// selection, cover art saving, and lyrics embedding.
+///
+/// Status: Stub — returns "not yet implemented" errors.
+pub mod spotify_service;

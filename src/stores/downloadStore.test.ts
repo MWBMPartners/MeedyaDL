@@ -38,6 +38,7 @@ function createMockQueueItem(overrides: Partial<QueueItemStatus> = {}): QueueIte
   return {
     id: 'test-id-1',
     urls: ['https://music.apple.com/us/album/test/1234567890'],
+    service_id: 'apple-music',
     state: 'queued',
     progress: 0,
     current_track: null,
@@ -64,6 +65,7 @@ beforeEach(() => {
     urlInput: '',
     urlIsValid: false,
     urlContentType: 'unknown',
+    detectedServiceId: null,
     overrideOptions: null,
     queueItems: [],
     isSubmitting: false,
@@ -121,8 +123,17 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
     });
 
-    it('rejects a non-Apple Music URL', () => {
+    it('validates a Spotify URL', () => {
       useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
+
+      const state = useDownloadStore.getState();
+      expect(state.urlIsValid).toBe(true);
+      expect(state.urlContentType).toBe('track');
+      expect(state.detectedServiceId).toBe('spotify');
+    });
+
+    it('rejects an unsupported URL', () => {
+      useDownloadStore.getState().setUrlInput('https://example.com/music');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(false);
     });
@@ -152,6 +163,7 @@ describe('downloadStore', () => {
       expect(downloadId).toBe('dl-id-123');
       expect(commands.startDownload).toHaveBeenCalledWith({
         urls: ['https://music.apple.com/us/album/midnights/1649434004'],
+        service_id: 'apple-music',
         options: undefined,
       });
       /* Input should be cleared after successful submission */
@@ -165,9 +177,9 @@ describe('downloadStore', () => {
 
       await expect(
         useDownloadStore.getState().submitDownload(),
-      ).rejects.toThrow('Invalid Apple Music URL');
+      ).rejects.toThrow('Please enter a valid media URL');
 
-      expect(useDownloadStore.getState().error).toBe('Invalid Apple Music URL');
+      expect(useDownloadStore.getState().error).toBe('Please enter a valid media URL');
     });
 
     it('passes override options when set', async () => {
@@ -182,6 +194,7 @@ describe('downloadStore', () => {
 
       expect(commands.startDownload).toHaveBeenCalledWith({
         urls: ['https://music.apple.com/us/album/midnights/1649434004'],
+        service_id: 'apple-music',
         options: { song_codec: 'atmos' },
       });
     });

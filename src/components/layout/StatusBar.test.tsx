@@ -35,6 +35,7 @@ function createItem(
   return {
     id: id || `item-${Math.random().toString(36).slice(2)}`,
     urls: ['https://music.apple.com/us/album/test/123'],
+    service_id: 'apple-music',
     state,
     progress: state === 'complete' ? 100 : 0,
     current_track: null,

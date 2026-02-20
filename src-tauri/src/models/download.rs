@@ -47,6 +47,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::gamdl_options::GamdlOptions;
+use super::media_service::MediaServiceId;
 
 /// A download request submitted by the user from the React frontend.
 ///
@@ -68,19 +69,28 @@ use super::gamdl_options::GamdlOptions;
 /// 3. Creates one `QueueItemStatus` per URL and enqueues them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadRequest {
-    /// One or more Apple Music URLs to download. Each URL can be a song,
-    /// album, playlist, or music video link. The download manager creates
-    /// a separate `QueueItemStatus` for each URL.
+    /// One or more media URLs to download. Each URL can be a song,
+    /// album, playlist, video, or other content link. The download
+    /// manager creates a separate `QueueItemStatus` for each URL.
     pub urls: Vec<String>,
 
-    /// Optional per-download overrides for GAMDL options.
+    /// Which media service this download targets. The frontend detects
+    /// this from the URL domain and includes it in the request so the
+    /// backend can route to the correct service handler.
+    ///
+    /// Defaults to `AppleMusic` for backward compatibility with existing
+    /// requests that predate this field.
+    #[serde(default)]
+    pub service_id: MediaServiceId,
+
+    /// Optional per-download overrides for GAMDL options (Apple Music).
     ///
     /// - `None` -- use the global `AppSettings` for all options.
     /// - `Some(opts)` -- only the `Some(...)` fields within `opts` override
     ///   the global settings; `None` fields are inherited.
     ///
-    /// See `GamdlOptions` in `gamdl_options.rs` for why all fields are
-    /// `Option<T>` and how the merge works.
+    /// This field is kept for backward compatibility with the Apple Music
+    /// download path. For other services, use `service_options` instead.
     pub options: Option<GamdlOptions>,
 }
 
@@ -161,10 +171,16 @@ pub struct QueueItemStatus {
     /// correlation key between backend state and frontend UI elements.
     pub id: String,
 
-    /// The original Apple Music URL(s) being downloaded. For single-track
+    /// The original media URL(s) being downloaded. For single-track
     /// downloads this contains one URL; for batch requests it may contain
     /// multiple. Displayed in the queue UI as the item's title/subtitle.
     pub urls: Vec<String>,
+
+    /// Which media service this download belongs to. Displayed as a
+    /// service badge in the queue UI and used to route retries to the
+    /// correct service handler.
+    #[serde(default)]
+    pub service_id: MediaServiceId,
 
     /// Current state in the download state machine. See `DownloadState`
     /// for the full list of states and allowed transitions.
@@ -334,6 +350,7 @@ mod tests {
                 "https://music.apple.com/us/album/example/123456789".to_string(),
                 "https://music.apple.com/us/album/another/987654321".to_string(),
             ],
+            service_id: MediaServiceId::AppleMusic,
             options: None,
         };
 
@@ -351,6 +368,7 @@ mod tests {
     fn download_request_serde_roundtrip_with_options() {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/111".to_string()],
+            service_id: MediaServiceId::AppleMusic,
             options: Some(GamdlOptions {
                 song_codec: Some(super::super::gamdl_options::SongCodec::Alac),
                 overwrite: Some(true),
@@ -380,6 +398,7 @@ mod tests {
         let status = QueueItemStatus {
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            service_id: MediaServiceId::AppleMusic,
             state: DownloadState::Downloading,
             progress: 42.5,
             current_track: Some("Track Name".to_string()),
@@ -422,6 +441,7 @@ mod tests {
         let status = QueueItemStatus {
             id: "error-item-id".to_string(),
             urls: vec!["https://music.apple.com/us/album/fail/999".to_string()],
+            service_id: MediaServiceId::AppleMusic,
             state: DownloadState::Error,
             progress: 0.0,
             current_track: None,
@@ -454,6 +474,7 @@ mod tests {
         let status = QueueItemStatus {
             id: "complete-item-id".to_string(),
             urls: vec!["https://music.apple.com/us/album/done/555".to_string()],
+            service_id: MediaServiceId::AppleMusic,
             state: DownloadState::Complete,
             progress: 100.0,
             current_track: None,

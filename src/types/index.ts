@@ -502,6 +502,8 @@ export interface AppSettings {
   sidebar_collapsed: boolean;
   /** CSS theme override string, or null for auto-detection */
   theme_override: string | null;
+  /** Per-service settings for YouTube, BBC iPlayer, and Spotify */
+  services: ServiceSettings;
 }
 
 // ============================================================
@@ -520,9 +522,11 @@ export interface AppSettings {
  * @see src/lib/tauri-commands.ts - startDownload() wrapper
  */
 export interface DownloadRequest {
-  /** One or more Apple Music URLs to download */
+  /** One or more media URLs to download */
   urls: string[];
-  /** Optional per-download overrides (merged with global settings) */
+  /** Which media service this download targets (detected from URL domain) */
+  service_id: MediaServiceId;
+  /** Optional per-download overrides for Apple Music (merged with global settings) */
   options?: GamdlOptions;
 }
 
@@ -560,8 +564,10 @@ export type DownloadState =
 export interface QueueItemStatus {
   /** Unique identifier for this download (UUID v4) */
   id: string;
-  /** The Apple Music URL(s) being downloaded */
+  /** The media URL(s) being downloaded */
   urls: string[];
+  /** Which media service this download belongs to */
+  service_id: MediaServiceId;
   /** Current state in the download lifecycle */
   state: DownloadState;
   /** Download progress as a percentage (0-100) */
@@ -865,18 +871,37 @@ export type AppleMusicContentType =
   | 'unknown';
 
 /**
- * Result of parsing an Apple Music URL.
+ * Content types across all supported media services.
  *
- * Returned by `parseAppleMusicUrl()` in src/lib/url-parser.ts.
- * Used by the DownloadForm to validate URLs and display content-type
- * badges next to each URL in the input list.
+ * Extends Apple Music content types with types from YouTube, BBC iPlayer,
+ * and Spotify.
+ */
+export type MediaContentType =
+  | AppleMusicContentType
+  | 'video'
+  | 'channel'
+  | 'live-stream'
+  | 'programme'
+  | 'episode'
+  | 'clip'
+  | 'series'
+  | 'track';
+
+/**
+ * Result of parsing a media URL.
+ *
+ * Returned by `parseUrl()` and `parseAppleMusicUrl()` in src/lib/url-parser.ts.
+ * Used by the DownloadForm to validate URLs and display content-type and
+ * service badges next to each URL in the input list.
  */
 export interface ParsedUrl {
   /** The original URL string (trimmed of whitespace) */
   url: string;
   /** Detected content type based on URL path analysis */
-  contentType: AppleMusicContentType;
-  /** Whether the URL is a valid, classifiable Apple Music URL */
+  contentType: MediaContentType;
+  /** Which media service was detected from the URL domain, or null */
+  serviceId: MediaServiceId | null;
+  /** Whether the URL is a valid, classifiable media URL */
   isValid: boolean;
 }
 
@@ -945,45 +970,61 @@ export type SetupStep =
   | 'complete';
 
 // ============================================================
-// Music Service Types (extensibility architecture)
+// Media Service Types (multi-service architecture)
 // ============================================================
 
 /**
- * Identifies which music service a download targets.
+ * Identifies which media service a download targets.
  *
- * Currently only Apple Music is fully implemented. YouTube Music and
- * Spotify are defined here for future extensibility -- the architecture
- * supports multiple service backends with different capabilities.
+ * Mirrors: Rust enum `MediaServiceId` in `src-tauri/src/models/media_service.rs`
+ *
+ * Currently only Apple Music is fully implemented. YouTube, BBC iPlayer,
+ * and Spotify are defined for the multi-service architecture -- they
+ * will return "coming soon" errors until their backends are implemented.
  *
  * Used by the DownloadForm to determine which URL patterns and options
- * are applicable for a given download.
+ * are applicable for a given download, and by the queue to display
+ * service badges on each item.
  */
-export type MusicServiceId = 'apple-music' | 'youtube-music' | 'spotify';
+export type MediaServiceId = 'apple-music' | 'youtube' | 'bbc-iplayer' | 'spotify';
 
 /**
- * Display labels for music services, shown in UI dropdowns and badges.
+ * Display labels for media services, shown in UI dropdowns and badges.
  *
- * Uses `Record<MusicServiceId, string>` for compile-time exhaustiveness
- * checking -- adding a new MusicServiceId variant will cause a TypeScript
+ * Uses `Record<MediaServiceId, string>` for compile-time exhaustiveness
+ * checking -- adding a new MediaServiceId variant will cause a TypeScript
  * error until a label is added here.
  *
  * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type}
  */
-export const MUSIC_SERVICE_LABELS: Record<MusicServiceId, string> = {
+export const MEDIA_SERVICE_LABELS: Record<MediaServiceId, string> = {
   'apple-music': 'Apple Music',
-  'youtube-music': 'YouTube Music',
+  youtube: 'YouTube',
+  'bbc-iplayer': 'BBC iPlayer',
   spotify: 'Spotify',
 };
 
 /**
- * Capabilities that a music service may support.
+ * Colour codes for service badges in the UI.
+ *
+ * Used by the DownloadForm and QueueItem components to display
+ * colour-coded service indicators.
+ */
+export const MEDIA_SERVICE_COLORS: Record<MediaServiceId, string> = {
+  'apple-music': '#fc3c44',
+  youtube: '#ff0000',
+  'bbc-iplayer': '#006def',
+  spotify: '#1db954',
+};
+
+/**
+ * Capabilities that a media service may support.
  *
  * This interface enables the UI to adapt based on what a given service
  * supports. For example, if a service doesn't support lossless audio,
  * the codec selector can hide lossless options automatically.
  *
- * Designed for future multi-service support. Currently, Apple Music
- * is the only fully implemented service.
+ * Mirrors: Rust struct `ServiceCapabilities` in `src-tauri/src/models/media_service.rs`
  */
 export interface ServiceCapabilities {
   /** Whether the service offers lossless audio streams */
@@ -996,12 +1037,153 @@ export interface ServiceCapabilities {
   supports_lyrics: boolean;
   /** Whether the service provides album cover art */
   supports_cover_art: boolean;
+  /** Whether the service supports video content (non-music) */
+  supports_video_content: boolean;
+  /** Whether the service supports live stream recording */
+  supports_live_streams: boolean;
   /** Whether the service requires cookie-based authentication */
   requires_cookies: boolean;
   /** Whether the service requires OAuth token authentication */
   requires_oauth: boolean;
   /** Content types supported by this service (e.g., ["song", "album"]) */
   supported_content_types: string[];
+}
+
+// ============================================================
+// Per-Service Option Types
+// ============================================================
+
+/**
+ * yt-dlp CLI options for YouTube downloads.
+ *
+ * Mirrors: Rust struct `YtdlpOptions` in `src-tauri/src/models/ytdlp_options.rs`
+ *
+ * All fields are optional — only specified fields override global settings.
+ */
+export interface YtdlpOptions {
+  format?: string;
+  video_resolution?: string;
+  audio_format?: string;
+  output_template?: string;
+  output_path?: string;
+  cookies_path?: string;
+  embed_thumbnail?: boolean;
+  embed_metadata?: boolean;
+  embed_subtitles?: boolean;
+  subtitle_langs?: string;
+  geo_bypass?: boolean;
+  ffmpeg_path?: string;
+  overwrite?: boolean;
+  sponsorblock_remove?: string;
+  live_from_start?: boolean;
+  concurrent_fragments?: number;
+}
+
+/**
+ * Votify CLI options for Spotify downloads.
+ *
+ * Mirrors: Rust struct `VotifyOptions` in `src-tauri/src/models/votify_options.rs`
+ */
+export interface VotifyOptions {
+  audio_quality?: string;
+  output_path?: string;
+  output_template?: string;
+  save_cover?: boolean;
+  cover_size?: number;
+  embed_lyrics?: boolean;
+  overwrite?: boolean;
+  ffmpeg_path?: string;
+  cookies_path?: string;
+}
+
+/**
+ * get_iplayer CLI options for BBC iPlayer downloads.
+ *
+ * Mirrors: Rust struct `GetIplayerOptions` in `src-tauri/src/models/get_iplayer_options.rs`
+ */
+export interface GetIplayerOptions {
+  quality?: string;
+  output_path?: string;
+  output_template?: string;
+  subtitles?: boolean;
+  thumbnail?: boolean;
+  overwrite?: boolean;
+  ffmpeg_path?: string;
+  type_filter?: string;
+}
+
+/**
+ * Service-agnostic download options wrapper (discriminated union).
+ *
+ * Mirrors: Rust enum `DownloadOptions` in `src-tauri/src/models/download_options.rs`
+ *
+ * Uses `service` as the discriminator field so TypeScript can narrow
+ * the `options` type based on which service is selected.
+ */
+export type DownloadOptions =
+  | { service: 'AppleMusic'; options: GamdlOptions }
+  | { service: 'YouTube'; options: YtdlpOptions }
+  | { service: 'BBCiPlayer'; options: GetIplayerOptions }
+  | { service: 'Spotify'; options: VotifyOptions };
+
+// ============================================================
+// Per-Service Settings Types
+// ============================================================
+
+/**
+ * YouTube-specific settings (persisted in AppSettings.services.youtube).
+ *
+ * Mirrors: Rust struct `YouTubeSettings` in `src-tauri/src/models/settings.rs`
+ */
+export interface YouTubeSettings {
+  output_path: string;
+  default_video_resolution: string;
+  default_audio_format: string;
+  embed_thumbnail: boolean;
+  embed_metadata: boolean;
+  embed_subtitles: boolean;
+  subtitle_langs: string;
+  cookies_path: string | null;
+  concurrent_fragments: number;
+}
+
+/**
+ * BBC iPlayer-specific settings (persisted in AppSettings.services.bbc_iplayer).
+ *
+ * Mirrors: Rust struct `BBCiPlayerSettings` in `src-tauri/src/models/settings.rs`
+ */
+export interface BBCiPlayerSettings {
+  output_path: string;
+  default_quality: string;
+  subtitles: boolean;
+  thumbnail: boolean;
+}
+
+/**
+ * Spotify-specific settings (persisted in AppSettings.services.spotify).
+ *
+ * Mirrors: Rust struct `SpotifySettings` in `src-tauri/src/models/settings.rs`
+ */
+export interface SpotifySettings {
+  output_path: string;
+  audio_quality: string;
+  save_cover: boolean;
+  embed_lyrics: boolean;
+}
+
+/**
+ * Multi-service settings container.
+ *
+ * Mirrors: Rust struct `ServiceSettings` in `src-tauri/src/models/settings.rs`
+ *
+ * Groups per-service configuration under the `services` key in AppSettings.
+ * All fields have defaults via `#[serde(default)]` on the Rust side.
+ */
+export interface ServiceSettings {
+  enabled_services: MediaServiceId[];
+  youtube: YouTubeSettings;
+  bbc_iplayer: BBCiPlayerSettings;
+  spotify: SpotifySettings;
 }
 
 // ============================================================

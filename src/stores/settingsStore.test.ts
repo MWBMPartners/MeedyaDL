@@ -86,6 +86,32 @@ const MOCK_SETTINGS: AppSettings = {
   setup_completed: true,
   sidebar_collapsed: true,
   theme_override: 'dark',
+  services: {
+    enabled_services: ['apple-music'],
+    youtube: {
+      output_path: '/tmp/yt-output',
+      default_video_resolution: '1080p',
+      default_audio_format: 'opus',
+      embed_thumbnail: false,
+      embed_metadata: false,
+      embed_subtitles: true,
+      subtitle_langs: 'ja',
+      cookies_path: '/tmp/yt-cookies.txt',
+      concurrent_fragments: 4,
+    },
+    bbc_iplayer: {
+      output_path: '/tmp/bbc-output',
+      default_quality: '720p',
+      subtitles: true,
+      thumbnail: true,
+    },
+    spotify: {
+      output_path: '/tmp/spotify-output',
+      audio_quality: 'vorbis-low',
+      save_cover: false,
+      embed_lyrics: false,
+    },
+  },
 };
 
 /**
@@ -148,6 +174,32 @@ beforeEach(() => {
       setup_completed: false,
       sidebar_collapsed: false,
       theme_override: null,
+      services: {
+        enabled_services: ['apple-music'],
+        youtube: {
+          output_path: '',
+          default_video_resolution: 'best',
+          default_audio_format: 'best',
+          embed_thumbnail: true,
+          embed_metadata: true,
+          embed_subtitles: false,
+          subtitle_langs: 'en',
+          cookies_path: null,
+          concurrent_fragments: 1,
+        },
+        bbc_iplayer: {
+          output_path: '',
+          default_quality: 'best',
+          subtitles: false,
+          thumbnail: false,
+        },
+        spotify: {
+          output_path: '',
+          audio_quality: 'vorbis-high',
+          save_cover: true,
+          embed_lyrics: true,
+        },
+      },
     },
     isLoading: false,
     isDirty: false,

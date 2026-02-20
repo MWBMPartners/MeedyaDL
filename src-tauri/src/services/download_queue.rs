@@ -87,6 +87,7 @@ use tauri::{AppHandle, Emitter};
 // DownloadState: Enum of lifecycle states (Queued, Downloading, Processing, Complete, Error, Cancelled).
 // QueueItemStatus: The public-facing status struct sent to the frontend for UI rendering.
 use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
+use crate::models::media_service::MediaServiceId;
 // GamdlOptions: Typed representation of GAMDL CLI arguments, used as the "effective" options
 // after merging per-download overrides with global settings.
 // SongCodec: Enum of audio codec options, used for companion download planning and
@@ -135,9 +136,14 @@ struct QueueItem {
     /// The original download request as submitted by the user.
     /// Preserved for retry operations (retry resets options from this).
     pub request: DownloadRequest,
+    /// Which media service this download targets (Apple Music, YouTube, etc.).
+    /// Used to route the download to the correct service backend.
+    pub service_id: MediaServiceId,
     /// Merged GAMDL options (user overrides merged with global settings).
     /// These are the "effective" options passed to GAMDL for this download.
     /// Updated during fallback (e.g., codec changes from alac to aac-he).
+    /// Only used for Apple Music downloads; other services use their own
+    /// option types routed via `service_dispatch`.
     pub merged_options: GamdlOptions,
     /// Index into the settings.music_fallback_chain array.
     /// 0 = preferred codec (initial attempt), 1 = first fallback, etc.
@@ -164,6 +170,10 @@ struct QueueItem {
 pub struct PersistedQueueItem {
     /// The unique download ID (UUID v4), matching the original QueueItem's ID.
     pub id: String,
+    /// Which media service this download targets. Defaults to AppleMusic
+    /// for backward compatibility with queue.json files that predate this field.
+    #[serde(default)]
+    pub service_id: MediaServiceId,
     /// The original download request as submitted by the user (URLs + optional overrides).
     pub request: DownloadRequest,
     /// ISO 8601 timestamp of when the download was originally queued.
@@ -196,9 +206,14 @@ pub struct QueueExportFile {
 /// original download had explicit per-download overrides).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ExportedItem {
-    /// Apple Music URL(s) for this download.
+    /// Media URL(s) for this download.
     pub urls: Vec<String>,
+    /// Which media service this download targets. Defaults to AppleMusic
+    /// for backward compatibility with export files that predate this field.
+    #[serde(default)]
+    pub service_id: MediaServiceId,
     /// Per-download quality/format overrides (None = use importing device's defaults).
+    /// Currently only used for Apple Music (GAMDL) downloads.
     pub options: Option<GamdlOptions>,
 }
 
@@ -286,10 +301,13 @@ impl DownloadQueue {
         // while keeping the global output path from settings.
         let merged_options = merge_options(request.options.as_ref(), settings);
 
+        let service_id = request.service_id.clone();
+
         let item = QueueItem {
             status: QueueItemStatus {
                 id: download_id.clone(),
                 urls: request.urls.clone(),
+                service_id: service_id.clone(),
                 state: DownloadState::Queued,
                 progress: 0.0,
                 current_track: None,
@@ -311,6 +329,7 @@ impl DownloadQueue {
                 created_at: chrono::Utc::now().to_rfc3339(),
             },
             request,
+            service_id,
             merged_options,
             fallback_index: 0,
             network_retries_left: self.max_network_retries,
@@ -593,7 +612,7 @@ impl DownloadQueue {
     /// When an item is selected, it transitions from Queued -> Downloading
     /// and the active count is incremented. The caller (process_queue) must
     /// eventually call on_task_finished() when the download completes.
-    pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions)> {
+    pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions, MediaServiceId)> {
         // Check if we're at the concurrent download limit
         if self.active_count >= self.max_concurrent {
             return None;
@@ -605,11 +624,13 @@ impl DownloadQueue {
         item.status.state = DownloadState::Downloading;
         self.active_count += 1;
 
-        // Return the data needed to start the download
+        // Return the data needed to start the download, including the service ID
+        // so process_queue() can route to the correct service backend.
         Some((
             item.status.id.clone(),
             item.status.urls.clone(),
             item.merged_options.clone(),
+            item.service_id.clone(),
         ))
     }
 
@@ -698,6 +719,7 @@ impl DownloadQueue {
             })
             .map(|item| PersistedQueueItem {
                 id: item.status.id.clone(),
+                service_id: item.service_id.clone(),
                 request: item.request.clone(),
                 created_at: item.status.created_at.clone(),
             })
@@ -729,6 +751,7 @@ impl DownloadQueue {
                 status: QueueItemStatus {
                     id: p.id.clone(),
                     urls: p.request.urls.clone(),
+                    service_id: p.service_id.clone(),
                     state: DownloadState::Queued,
                     progress: 0.0,
                     current_track: None,
@@ -752,6 +775,7 @@ impl DownloadQueue {
                     created_at: p.created_at,
                 },
                 request: p.request,
+                service_id: p.service_id,
                 merged_options,
                 fallback_index: 0,
                 network_retries_left: self.max_network_retries,
@@ -784,6 +808,7 @@ impl DownloadQueue {
             })
             .map(|item| ExportedItem {
                 urls: item.request.urls.clone(),
+                service_id: item.service_id.clone(),
                 options: item.request.options.clone(),
             })
             .collect()
@@ -807,6 +832,7 @@ impl DownloadQueue {
             .map(|exported| {
                 let request = DownloadRequest {
                     urls: exported.urls,
+                    service_id: exported.service_id,
                     options: exported.options,
                 };
                 self.enqueue(request, settings)
@@ -1230,11 +1256,31 @@ pub fn process_queue(
     };
 
     // If no items are pending (queue empty or max concurrent reached), exit.
-    let Some((download_id, urls, options)) = pending else {
+    let Some((download_id, urls, options, service_id)) = pending else {
         return;
     };
 
-    log::info!("Processing download {}", download_id);
+    log::info!("Processing download {} (service: {:?})", download_id, service_id);
+
+    // Gate non-Apple Music services: these are not yet implemented.
+    // Mark them as errored immediately rather than attempting to run GAMDL.
+    if !crate::services::service_dispatch::is_service_implemented(&service_id) {
+        let error_msg = crate::services::service_dispatch::not_implemented_error(&service_id);
+        log::info!("Download {} skipped: {}", download_id, error_msg);
+        {
+            let mut q = queue.lock().await;
+            q.set_error(&download_id, &error_msg);
+            q.on_task_finished();
+        }
+        save_queue_to_disk(&app, &queue).await;
+        let _ = app.emit("download-error", serde_json::json!({
+            "download_id": download_id,
+            "error": error_msg,
+        }));
+        // Try processing the next item in the queue
+        process_queue(app, queue).await;
+        return;
+    }
 
     // === Codec suffix: modify file templates for companion coexistence ===
     // When the companion mode would produce companions for this codec,
@@ -2422,6 +2468,7 @@ mod tests {
     fn test_request() -> DownloadRequest {
         DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test-song/123456789".to_string()],
+            service_id: MediaServiceId::AppleMusic,
             options: None,
         }
     }
@@ -2430,6 +2477,7 @@ mod tests {
     fn test_request_with_codec_override(codec: SongCodec) -> DownloadRequest {
         DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/999".to_string()],
+            service_id: MediaServiceId::AppleMusic,
             options: Some(GamdlOptions {
                 song_codec: Some(codec),
                 ..Default::default()
@@ -2713,7 +2761,7 @@ mod tests {
         let _id = enqueue_one(&mut queue);
 
         // Move to Downloading state via next_pending
-        let (dl_id, _, _) = queue.next_pending().expect("Should have a pending item");
+        let (dl_id, _, _, _) = queue.next_pending().expect("Should have a pending item");
         assert_eq!(queue.active_count, 1);
 
         let result = queue.cancel(&dl_id);
@@ -2836,7 +2884,7 @@ mod tests {
         let result = queue.next_pending();
         assert!(result.is_some(), "Should return Some for non-empty queue");
 
-        let (dl_id, urls, _options) = result.unwrap();
+        let (dl_id, urls, _options, _service_id) = result.unwrap();
         assert_eq!(dl_id, ids[0], "Should return the first queued item");
         assert_eq!(urls.len(), 1, "Should include the URLs from the request");
         assert_eq!(queue.active_count, 1, "active_count should be incremented to 1");
@@ -2882,7 +2930,7 @@ mod tests {
         // next_pending should skip ids[0] and ids[1], returning ids[2]
         let result = queue.next_pending();
         assert!(result.is_some());
-        let (dl_id, _, _) = result.unwrap();
+        let (dl_id, _, _, _) = result.unwrap();
         assert_eq!(dl_id, ids[2], "Should return the first Queued item, skipping terminal items");
     }
 
@@ -2894,7 +2942,7 @@ mod tests {
         let request = test_request_with_codec_override(SongCodec::AacHe);
         let _id = queue.enqueue(request, &settings);
 
-        let (_, _, options) = queue.next_pending().expect("Should return pending item");
+        let (_, _, options, _) = queue.next_pending().expect("Should return pending item");
         assert_eq!(
             options.song_codec,
             Some(SongCodec::AacHe),
@@ -2953,7 +3001,7 @@ mod tests {
         // Now second item should be startable
         let second = queue.next_pending();
         assert!(second.is_some(), "Should be able to start next item after finishing");
-        let (dl_id, _, _) = second.unwrap();
+        let (dl_id, _, _, _) = second.unwrap();
         assert_eq!(dl_id, ids[1]);
     }
 
@@ -3586,7 +3634,7 @@ mod tests {
         assert_eq!(queue.get_status()[0].state, DownloadState::Queued);
 
         // Step 2: Start downloading
-        let (dl_id, _, _) = queue.next_pending().unwrap();
+        let (dl_id, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(dl_id, id);
         assert_eq!(queue.get_status()[0].state, DownloadState::Downloading);
         assert_eq!(queue.active_count, 1);
@@ -3696,7 +3744,7 @@ mod tests {
         let ids = enqueue_n(&mut queue, 3);
 
         // Start first item
-        let (id1, _, _) = queue.next_pending().unwrap();
+        let (id1, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(id1, ids[0]);
 
         // Can't start second while first is running
@@ -3707,7 +3755,7 @@ mod tests {
         queue.on_task_finished();
 
         // Now second can start
-        let (id2, _, _) = queue.next_pending().unwrap();
+        let (id2, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(id2, ids[1]);
 
         // Finish second
@@ -3715,7 +3763,7 @@ mod tests {
         queue.on_task_finished();
 
         // Third can start
-        let (id3, _, _) = queue.next_pending().unwrap();
+        let (id3, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(id3, ids[2]);
     }
 

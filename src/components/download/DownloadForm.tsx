@@ -2,26 +2,26 @@
 /**
  * @file Download form component.
  *
- * Provides the URL input field with real-time Apple Music URL validation,
- * a content-type detection badge, and an "Add to Queue" button. An
- * expandable "Quality Overrides" panel allows users to override the
- * global audio codec and video resolution settings on a per-download basis.
+ * Provides the URL input field with real-time multi-service URL validation,
+ * service detection badges, content-type detection badges, and an "Add to
+ * Queue" button. An expandable "Quality Overrides" panel allows Apple Music
+ * users to override the global audio codec and video resolution settings
+ * on a per-download basis.
  *
  * ## Data flow
  *
  * 1. User types (or pastes) a URL into the input field.
  * 2. `setUrlInput(url)` is called on every keystroke, which:
  *    a. Stores the raw URL string in `downloadStore.urlInput`.
- *    b. Runs `parseAppleMusicUrl(url)` (from `@/lib/url-parser.ts`) to
- *       validate the URL format and detect the content type (song, album,
- *       playlist, music-video, artist, or unknown).
- *    c. Updates `downloadStore.urlIsValid` and `downloadStore.urlContentType`.
- * 3. When the URL is valid, a coloured badge appears inside the input
- *    showing the detected content type with a matching Lucide icon.
+ *    b. Runs `parseUrl(url)` (from `@/lib/url-parser.ts`) to detect the
+ *       media service and content type from the URL domain and path.
+ *    c. Updates `urlIsValid`, `urlContentType`, and `detectedServiceId`.
+ * 3. When the URL is valid, coloured badges appear inside the input
+ *    showing the detected service and content type.
  * 4. Clicking "Add to Queue" (or pressing Enter) calls
  *    `downloadStore.submitDownload()`, which:
- *    a. Sends the URL (and optional quality overrides) to the Rust backend
- *       via the `startDownload` Tauri command.
+ *    a. Sends the URL (with service_id and optional quality overrides)
+ *       to the Rust backend via the `startDownload` Tauri command.
  *    b. Clears the input on success and shows a success toast.
  *    c. Shows an error toast on failure.
  *
@@ -32,13 +32,6 @@
  *  - {@link useSettingsStore} -- reads `defaultSongCodec` to
  *    display the current default in the quality overrides section.
  *  - {@link useUiStore}       -- `addToast()` for success/error notifications.
- *
- * ## URL validation
- *
- * Valid Apple Music URLs match the pattern:
- *   `https://music.apple.com/{storefront}/{type}/{name}/{id}`
- * where `{type}` is one of: song, album, playlist, music-video, artist.
- * The regex-based parser lives in `@/lib/url-parser.ts`.
  *
  * @see https://react.dev/reference/react/useState  -- local showOverrides state.
  * @see https://react.dev/learn/responding-to-events -- event handlers.
@@ -55,11 +48,14 @@ import { useState } from 'react';
  * Lucide React icons used for content-type badges and UI controls.
  *
  * Content-type icon mapping:
- *  - `Music`      -> song         (@see https://lucide.dev/icons/music)
+ *  - `Music`      -> song/track   (@see https://lucide.dev/icons/music)
  *  - `Disc3`      -> album        (@see https://lucide.dev/icons/disc-3)
  *  - `ListMusic`  -> playlist     (@see https://lucide.dev/icons/list-music)
- *  - `Video`      -> music-video  (@see https://lucide.dev/icons/video)
- *  - `User`       -> artist       (@see https://lucide.dev/icons/user)
+ *  - `Video`      -> music-video/video (@see https://lucide.dev/icons/video)
+ *  - `User`       -> artist/channel (@see https://lucide.dev/icons/user)
+ *  - `Tv`         -> episode/programme/series (@see https://lucide.dev/icons/tv)
+ *  - `Radio`      -> live-stream  (@see https://lucide.dev/icons/radio)
+ *  - `Scissors`   -> clip         (@see https://lucide.dev/icons/scissors)
  *  - `HelpCircle` -> unknown      (@see https://lucide.dev/icons/help-circle)
  *
  * UI controls:
@@ -72,6 +68,9 @@ import {
   ListMusic,
   Video,
   User,
+  Tv,
+  Radio,
+  Scissors,
   HelpCircle,
   ChevronDown,
   ChevronUp,
@@ -92,54 +91,59 @@ import { useUiStore } from '@/stores/uiStore';
 import { Button, Select } from '@/components/common';
 
 /**
- * Type imports for Apple Music content types and audio codecs.
- * @see AppleMusicContentType in @/types/index.ts -- 'song' | 'album' | ... | 'unknown'
- * @see SongCodec in @/types/index.ts             -- 'alac' | 'atmos' | 'ac3' | ...
+ * Type imports for media content types, service IDs, and audio codecs.
+ * @see MediaContentType in @/types/index.ts -- 'song' | 'album' | 'video' | ... | 'unknown'
+ * @see MediaServiceId in @/types/index.ts   -- 'apple-music' | 'youtube' | ...
+ * @see SongCodec in @/types/index.ts        -- 'alac' | 'atmos' | 'ac3' | ...
  */
-import type { AppleMusicContentType, SongCodec, VideoResolution } from '@/types';
+import type { MediaContentType, SongCodec, VideoResolution } from '@/types';
 
 /**
- * Human-readable label maps used to populate quality-override dropdowns.
+ * Human-readable label maps used to populate quality-override dropdowns
+ * and service/content-type badges.
  * @see SONG_CODEC_LABELS in @/types/index.ts        -- e.g., { alac: 'Lossless (ALAC)' }
  * @see VIDEO_RESOLUTION_LABELS in @/types/index.ts   -- e.g., { '2160p': '4K (2160p)' }
+ * @see MEDIA_SERVICE_LABELS in @/types/index.ts      -- e.g., { youtube: 'YouTube' }
+ * @see MEDIA_SERVICE_COLORS in @/types/index.ts      -- e.g., { youtube: '#ff0000' }
  */
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
+import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, MEDIA_SERVICE_LABELS, MEDIA_SERVICE_COLORS } from '@/types';
+
+/**
+ * URL parser helpers for human-readable content type labels.
+ * @see getContentTypeLabel in @/lib/url-parser.ts
+ */
+import { getContentTypeLabel } from '@/lib/url-parser';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
 
 /**
- * Icon mapping for detected Apple Music content types.
+ * Icon mapping for detected media content types across all services.
  *
  * When the URL parser detects the content type from the URL path
- * (e.g., `/album/` -> 'album'), the corresponding Lucide icon component
- * is looked up from this record and rendered inside the content-type badge.
+ * (e.g., `/album/` -> 'album', `/watch?v=` -> 'video'), the corresponding
+ * Lucide icon component is looked up from this record and rendered inside
+ * the content-type badge.
  *
- * Keyed by {@link AppleMusicContentType}; values are Lucide React
+ * Keyed by {@link MediaContentType}; values are Lucide React
  * component constructors (typed as `typeof Music` for consistency).
  * @see https://lucide.dev/icons/  -- full Lucide icon reference.
  */
-const CONTENT_TYPE_ICONS: Record<AppleMusicContentType, typeof Music> = {
-  song: Music,           // Single song URL
-  album: Disc3,          // Album URL
-  playlist: ListMusic,   // Playlist URL
-  'music-video': Video,  // Music video URL
-  artist: User,          // Artist page URL
-  unknown: HelpCircle,   // Unrecognised or unparseable URL
-};
-
-/**
- * Human-readable labels for each content type, displayed in the
- * content-type badge that appears inside the URL input when the URL
- * is valid. E.g., a valid album URL shows a badge reading "Album".
- */
-const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
-  song: 'Song',
-  album: 'Album',
-  playlist: 'Playlist',
-  'music-video': 'Music Video',
-  artist: 'Artist',
-  unknown: 'Unknown',
+const CONTENT_TYPE_ICONS: Partial<Record<MediaContentType, typeof Music>> = {
+  song: Music,            // Apple Music song
+  album: Disc3,           // Album (Apple Music, Spotify)
+  playlist: ListMusic,    // Playlist (Apple Music, YouTube, Spotify)
+  'music-video': Video,   // Apple Music music video
+  artist: User,           // Artist page (Apple Music, Spotify)
+  video: Video,           // YouTube video
+  channel: User,          // YouTube channel
+  'live-stream': Radio,   // YouTube live stream
+  track: Music,           // Spotify track
+  episode: Tv,            // BBC iPlayer episode
+  series: Tv,             // BBC iPlayer series
+  programme: Tv,          // BBC iPlayer programme
+  clip: Scissors,         // BBC iPlayer clip
+  unknown: HelpCircle,    // Unrecognised or unparseable URL
 };
 
 /**
@@ -172,22 +176,28 @@ export function DownloadForm() {
   /** The current text in the URL input field. */
   const urlInput = useDownloadStore((s) => s.urlInput);
   /**
-   * Whether `urlInput` is a syntactically valid Apple Music URL.
-   * Set automatically by `setUrlInput()` via `parseAppleMusicUrl()`.
-   * @see parseAppleMusicUrl in @/lib/url-parser.ts
+   * Whether `urlInput` is a syntactically valid media URL.
+   * Set automatically by `setUrlInput()` via `parseUrl()`.
+   * @see parseUrl in @/lib/url-parser.ts
    */
   const urlIsValid = useDownloadStore((s) => s.urlIsValid);
   /**
-   * Detected content type string (e.g., 'album', 'song', 'playlist').
+   * Detected content type string (e.g., 'album', 'song', 'video', 'episode').
    * Used to look up the icon and label for the in-input badge.
    */
   const urlContentType = useDownloadStore((s) => s.urlContentType);
+  /**
+   * Detected media service ('apple-music', 'youtube', etc.) or null.
+   * Used to display a coloured service badge and determine which
+   * quality overrides to show.
+   */
+  const detectedServiceId = useDownloadStore((s) => s.detectedServiceId);
   /** True while the `submitDownload()` promise is pending (disables button). */
   const isSubmitting = useDownloadStore((s) => s.isSubmitting);
   /**
-   * Updates `urlInput`, re-validates, and re-detects content type.
+   * Updates `urlInput`, re-validates, and re-detects service + content type.
    * Called on every keystroke in the URL input (`onChange`).
-   * Internally calls `parseAppleMusicUrl()` from `@/lib/url-parser.ts`.
+   * Internally calls `parseUrl()` from `@/lib/url-parser.ts`.
    */
   const setUrlInput = useDownloadStore((s) => s.setUrlInput);
   /**
@@ -269,16 +279,29 @@ export function DownloadForm() {
   // ---------------------------------------------------------------
 
   /**
-   * Cast the raw content type string to the `AppleMusicContentType` union
+   * Cast the raw content type string to the `MediaContentType` union
    * so it can be used as a lookup key in the icon/label records.
    */
-  const contentType = urlContentType as AppleMusicContentType;
+  const contentType = urlContentType as MediaContentType;
 
   /**
    * Resolve the Lucide icon component for the detected content type.
    * Falls back to `HelpCircle` if the type is not in the map (defensive).
    */
   const ContentIcon = CONTENT_TYPE_ICONS[contentType] || HelpCircle;
+
+  /**
+   * Whether the detected service is Apple Music.
+   * Quality overrides (codec, resolution) are only applicable to Apple Music
+   * downloads via GAMDL. Other services use their own settings.
+   */
+  const isAppleMusic = detectedServiceId === 'apple-music';
+
+  /**
+   * Whether the detected service is currently implemented.
+   * Non-Apple Music services show a "Coming Soon" indicator.
+   */
+  const isServiceImplemented = detectedServiceId === 'apple-music';
 
   /**
    * Transform the `SONG_CODEC_LABELS` record into an array of
@@ -312,7 +335,7 @@ export function DownloadForm() {
        */}
       <PageHeader
         title="Download"
-        subtitle="Enter an Apple Music URL to download music or videos"
+        subtitle="Paste a URL from Apple Music, YouTube, Spotify, or BBC iPlayer"
       />
 
       {/*
@@ -333,7 +356,7 @@ export function DownloadForm() {
             htmlFor="url-input"
             className="block text-sm font-medium text-content-primary"
           >
-            Apple Music URL
+            Media URL
           </label>
 
           {/* Input row: text field + submit button side-by-side */}
@@ -348,7 +371,7 @@ export function DownloadForm() {
                * Controlled text input bound to `downloadStore.urlInput`.
                *
                * onChange: calls `setUrlInput()` which validates the URL
-               *   in real-time via `parseAppleMusicUrl()` from
+               *   in real-time via `parseUrl()` from
                *   `@/lib/url-parser.ts`.
                * onKeyDown: submits on Enter if URL is valid.
                *
@@ -366,7 +389,7 @@ export function DownloadForm() {
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="https://music.apple.com/..."
+                placeholder="https://music.apple.com/... or any supported URL"
                 className={`
                   w-full px-3 py-2 text-sm rounded-platform border
                   bg-surface-secondary text-content-primary
@@ -378,22 +401,28 @@ export function DownloadForm() {
               />
 
               {/*
-               * Content-type badge -- absolutely positioned inside the
-               * input (right-aligned, vertically centred).
+               * Service + content-type badges -- absolutely positioned
+               * inside the input (right-aligned, vertically centred).
                *
-               * Only shown when `urlIsValid` is true. Displays the
-               * detected content type icon + label (e.g., "Album").
-               * The icon component is resolved from `CONTENT_TYPE_ICONS`
-               * and the label from `CONTENT_TYPE_LABELS`.
-               *
-               * `rounded-full` makes it pill-shaped.
-               * `bg-accent-light text-accent` uses the accent colour
-               * at a light tint for the background.
+               * Only shown when `urlIsValid` is true. Displays two
+               * pill-shaped badges:
+               *   1. Service badge (coloured by service) showing "Apple Music", "YouTube", etc.
+               *   2. Content-type badge showing "Album", "Video", etc.
                */}
-              {urlIsValid && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
-                  <ContentIcon size={12} />
-                  {CONTENT_TYPE_LABELS[contentType]}
+              {urlIsValid && detectedServiceId && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                  {/* Service badge -- uses the service's brand colour */}
+                  <div
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                    style={{ backgroundColor: MEDIA_SERVICE_COLORS[detectedServiceId] }}
+                  >
+                    {MEDIA_SERVICE_LABELS[detectedServiceId]}
+                  </div>
+                  {/* Content-type badge */}
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
+                    <ContentIcon size={12} />
+                    {getContentTypeLabel(contentType)}
+                  </div>
                 </div>
               )}
             </div>
@@ -411,10 +440,10 @@ export function DownloadForm() {
               variant="primary"
               icon={<Plus size={16} />}
               loading={isSubmitting}
-              disabled={!urlIsValid}
+              disabled={!urlIsValid || !isServiceImplemented}
               onClick={handleSubmit}
             >
-              Add to Queue
+              {urlIsValid && !isServiceImplemented ? 'Coming Soon' : 'Add to Queue'}
             </Button>
           </div>
 
@@ -425,24 +454,32 @@ export function DownloadForm() {
            */}
           {urlInput && !urlIsValid && (
             <p className="text-xs text-status-error">
-              Please enter a valid Apple Music URL
+              Please enter a valid URL from Apple Music, YouTube, Spotify, or BBC iPlayer
+            </p>
+          )}
+          {urlIsValid && !isServiceImplemented && detectedServiceId && (
+            <p className="text-xs text-status-warning">
+              {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are coming soon
             </p>
           )}
           {!urlInput && (
             <p className="text-xs text-content-tertiary">
-              Supports songs, albums, playlists, music videos, and artist pages
+              Supports Apple Music, YouTube, Spotify, and BBC iPlayer URLs
             </p>
           )}
         </div>
 
         {/* =========================================================
-         * Section 2: Quality Overrides (collapsible)
+         * Section 2: Quality Overrides (collapsible, Apple Music only)
          * =========================================================
          * Allows users to override the global audio codec and video
          * resolution for this specific download. When set, the
          * overrides are passed as `GamdlOptions` to the backend.
          * When null, global defaults from settingsStore are used.
+         * Only shown for Apple Music URLs (other services use their
+         * own settings configured in Settings > [Service]).
          */}
+        {(!detectedServiceId || isAppleMusic) && (
         <div className="rounded-platform border border-border-light">
           {/*
            * Collapsible header -- clicking toggles `showOverrides`.
@@ -547,6 +584,7 @@ export function DownloadForm() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

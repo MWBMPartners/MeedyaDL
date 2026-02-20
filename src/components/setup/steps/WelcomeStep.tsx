@@ -71,10 +71,10 @@ export function WelcomeStep() {
       {/* Welcome heading */}
       <div>
         <h2 className="text-2xl font-bold text-content-primary">
-          Welcome to GAMDL
+          Welcome to MeedyaDL
         </h2>
         <p className="text-base text-content-secondary mt-2">
-          Apple Music Downloader
+          Media Downloader
         </p>
       </div>
 
@@ -82,7 +82,11 @@ export function WelcomeStep() {
       <div className="text-left max-w-md mx-auto space-y-3 text-sm text-content-secondary">
         <p>
           This wizard will help you set up everything needed to download music
-          and videos from Apple Music. Here's what we'll do:
+          and videos from Apple Music. Support for YouTube, Spotify, and BBC
+          iPlayer is coming soon.
+        </p>
+        <p>
+          Here's what we'll do:
         </p>
 
         <ol className="list-decimal list-inside space-y-2 ml-2">

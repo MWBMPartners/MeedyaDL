@@ -2,199 +2,302 @@
  * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file src/lib/url-parser.ts - Apple Music URL parser and content type detector
+ * @file src/lib/url-parser.ts - Multi-service URL parser and content type detector
  *
- * This module provides client-side URL parsing for Apple Music URLs.
- * It determines the content type (song, album, playlist, music video, artist)
- * by analyzing the URL path structure without making any network requests.
+ * This module provides client-side URL parsing for all supported media services:
+ * Apple Music, YouTube, BBC iPlayer, and Spotify. It determines the content type
+ * and service by analyzing the URL domain and path structure without making any
+ * network requests.
  *
- * Apple Music URL structure:
- * ```
- * https://music.apple.com/{region}/{type}/{slug}/{id}[?i={trackId}]
- *   │                       │       │      │      │    └─ Track ID (songs only)
- *   │                       │       │      │      └──── Numeric ID
- *   │                       │       │      └─────────── URL-safe slug name
- *   │                       │       └────────────────── Content type path segment
- *   │                       └────────────────────────── 2-letter region code (us, gb, jp...)
- *   └────────────────────────────────────────────────── Base domain
- * ```
+ * The main entry point is `parseUrl()`, which auto-detects the service from the
+ * URL domain and classifies the content type. The legacy `parseAppleMusicUrl()`
+ * and `isAppleMusicUrl()` functions are preserved for backward compatibility.
  *
- * Also accepts the legacy `itunes.apple.com` domain (auto-redirects to music.apple.com).
- *
- * This parser is purely frontend logic (no IPC calls to Rust). It uses the
- * built-in `URL` Web API for reliable URL parsing instead of regex-based
- * extraction, which avoids edge cases with URL encoding, ports, and fragments.
- *
- * Used by: DownloadForm component (content-type badges, per-type option defaults)
+ * Used by: DownloadForm component (content-type/service badges, per-type defaults)
  *
  * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/URL} - URL Web API
- * @see {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions} - Regex reference
  */
 
-/**
- * Type imports for the return types of parser functions.
- * @see src/types/index.ts for AppleMusicContentType and ParsedUrl definitions
- */
-import type { AppleMusicContentType, ParsedUrl } from '@/types';
+import type { AppleMusicContentType, MediaContentType, MediaServiceId, ParsedUrl } from '@/types';
+
+// ============================================================
+// Main entry point: multi-service URL parser
+// ============================================================
 
 /**
- * Parses an Apple Music URL and detects its content type.
+ * Parses any supported media URL and detects both service and content type.
  *
- * This is the primary entry point for URL parsing. It performs three steps:
- * 1. Trims whitespace from the input (handles copy-paste artifacts)
- * 2. Validates that the URL belongs to an Apple Music domain
+ * This is the primary entry point for URL parsing. It performs:
+ * 1. Trims whitespace from the input
+ * 2. Detects which media service the URL belongs to via domain matching
  * 3. Detects the specific content type from the URL path structure
  *
- * Supported URL formats:
- * - Songs:        https://music.apple.com/{region}/album/{name}/{id}?i={trackId}
- * - Albums:       https://music.apple.com/{region}/album/{name}/{id}
- * - Playlists:    https://music.apple.com/{region}/playlist/{name}/{id}
- * - Music Videos: https://music.apple.com/{region}/music-video/{name}/{id}
- * - Artists:      https://music.apple.com/{region}/artist/{name}/{id}
- *
  * @param url - The URL string to parse (may contain leading/trailing whitespace)
- * @returns ParsedUrl with the trimmed URL, detected content type, and validity flag
+ * @returns ParsedUrl with the trimmed URL, detected service, content type, and validity
  *
  * @example
  * ```ts
- * const result = parseAppleMusicUrl('https://music.apple.com/us/album/fearless/1440935016');
- * // result = { url: '...', contentType: 'album', isValid: true }
+ * parseUrl('https://music.apple.com/us/album/fearless/1440935016')
+ * // { url: '...', serviceId: 'apple-music', contentType: 'album', isValid: true }
  *
- * const song = parseAppleMusicUrl('https://music.apple.com/us/album/love-story/1440935016?i=1440935018');
- * // song = { url: '...', contentType: 'song', isValid: true }
+ * parseUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+ * // { url: '...', serviceId: 'youtube', contentType: 'video', isValid: true }
+ *
+ * parseUrl('https://open.spotify.com/album/1234')
+ * // { url: '...', serviceId: 'spotify', contentType: 'album', isValid: true }
+ *
+ * parseUrl('https://www.bbc.co.uk/iplayer/episode/b006q2x0/doctor-who')
+ * // { url: '...', serviceId: 'bbc-iplayer', contentType: 'episode', isValid: true }
  * ```
  */
-export function parseAppleMusicUrl(url: string): ParsedUrl {
-  /* Step 1: Trim whitespace to handle copy-paste from browsers/messages */
+export function parseUrl(url: string): ParsedUrl {
   const trimmed = url.trim();
+  const serviceId = detectService(trimmed);
 
-  /* Step 2: Validate the domain -- reject non-Apple Music URLs early */
-  if (!isAppleMusicUrl(trimmed)) {
-    return { url: trimmed, contentType: 'unknown', isValid: false };
+  if (!serviceId) {
+    return { url: trimmed, serviceId: null, contentType: 'unknown', isValid: false };
   }
 
-  /* Step 3: Analyze the URL path to determine content type */
-  const contentType = detectContentType(trimmed);
+  let contentType: MediaContentType;
+  switch (serviceId) {
+    case 'apple-music':
+      contentType = detectAppleMusicContentType(trimmed);
+      break;
+    case 'youtube':
+      contentType = detectYouTubeContentType(trimmed);
+      break;
+    case 'bbc-iplayer':
+      contentType = detectBBCiPlayerContentType(trimmed);
+      break;
+    case 'spotify':
+      contentType = detectSpotifyContentType(trimmed);
+      break;
+    default:
+      contentType = 'unknown';
+  }
 
   return {
     url: trimmed,
+    serviceId,
     contentType,
-    /* A URL is valid only if we could classify it into a known content type */
     isValid: contentType !== 'unknown',
   };
 }
 
+// ============================================================
+// Service detection
+// ============================================================
+
 /**
- * Checks whether a string is a valid Apple Music URL.
+ * Detects which media service a URL belongs to based on its domain.
  *
- * Uses the built-in `URL` constructor for parsing. If the string is not
- * a valid URL at all, the constructor throws a `TypeError`, which we
- * catch and return `false`. This approach is more reliable than regex
- * for handling edge cases like URL encoding, ports, and fragments.
- *
- * Accepted domains:
- * - `music.apple.com` - Current Apple Music web player domain
- * - `itunes.apple.com` - Legacy iTunes Store domain (still used in some links)
- *
- * @param url - The URL string to validate
- * @returns true if the URL belongs to an Apple Music domain, false otherwise
- *
- * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/URL/URL} - URL constructor
+ * @param url - A URL string to check
+ * @returns The detected service ID, or null if no known service matches
  */
-export function isAppleMusicUrl(url: string): boolean {
+export function detectService(url: string): MediaServiceId | null {
   try {
-    /* Use the URL constructor for standards-compliant URL parsing */
     const parsed = new URL(url);
-    /* Check hostname against both the current and legacy Apple Music domains */
-    return (
-      parsed.hostname === 'music.apple.com' ||
-      parsed.hostname === 'itunes.apple.com'
-    );
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Apple Music
+    if (hostname === 'music.apple.com' || hostname === 'itunes.apple.com') {
+      return 'apple-music';
+    }
+
+    // BBC iPlayer / Sounds (check before YouTube since bbc.co.uk is more specific)
+    if (hostname === 'www.bbc.co.uk' || hostname === 'bbc.co.uk') {
+      const path = parsed.pathname.toLowerCase();
+      if (path.startsWith('/iplayer') || path.startsWith('/sounds')) {
+        return 'bbc-iplayer';
+      }
+    }
+
+    // YouTube (including YouTube Music)
+    if (
+      hostname === 'www.youtube.com' ||
+      hostname === 'youtube.com' ||
+      hostname === 'youtu.be' ||
+      hostname === 'music.youtube.com' ||
+      hostname === 'm.youtube.com'
+    ) {
+      return 'youtube';
+    }
+
+    // Spotify
+    if (hostname === 'open.spotify.com') {
+      return 'spotify';
+    }
+
+    return null;
   } catch {
-    /* URL constructor throws TypeError for malformed URLs (not a valid URL) */
-    return false;
+    return null;
+  }
+}
+
+// ============================================================
+// Service-specific content type detectors
+// ============================================================
+
+/**
+ * Detects the content type from an Apple Music URL path.
+ * Songs are checked before albums (songs are album URLs with `?i=` param).
+ */
+function detectAppleMusicContentType(url: string): AppleMusicContentType {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+
+    if (path.includes('/album/') && parsed.searchParams.has('i')) {
+      return 'song';
+    }
+    if (path.includes('/album/')) return 'album';
+    if (path.includes('/playlist/')) return 'playlist';
+    if (path.includes('/music-video/')) return 'music-video';
+    if (path.includes('/artist/')) return 'artist';
+    return 'unknown';
+  } catch {
+    return 'unknown';
   }
 }
 
 /**
- * Detects the content type from an Apple Music URL path.
+ * Detects the content type from a YouTube URL path.
  *
- * This is a private helper function that performs the actual content type
- * classification. It uses simple `String.includes()` checks on the URL
- * path rather than complex regex patterns, prioritizing readability and
- * maintainability.
- *
- * Apple Music URL path structure: `/{region}/{type}/{slug}/{id}`
- *
- * Detection logic (order matters!):
- * 1. Songs MUST be checked before albums because song URLs use the
- *    `/album/` path segment with an additional `?i={trackId}` query
- *    parameter. If we checked for `/album/` first, songs would be
- *    misclassified as albums.
- * 2. All other content types use unique path segments.
- *
- * @param url - A valid Apple Music URL string
- * @returns The detected content type, or 'unknown' if the path doesn't match
+ * Supported URL patterns:
+ * - Videos:     youtube.com/watch?v=ID, youtu.be/ID
+ * - Playlists:  youtube.com/playlist?list=ID
+ * - Channels:   youtube.com/channel/ID, youtube.com/@handle
+ * - Live:       youtube.com/watch?v=ID (with /live path or live indicator)
  */
-function detectContentType(url: string): AppleMusicContentType {
+function detectYouTubeContentType(url: string): MediaContentType {
   try {
     const parsed = new URL(url);
-    /* Lowercase the path for case-insensitive matching */
     const path = parsed.pathname.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase();
 
-    /*
-     * IMPORTANT: Song detection MUST come before album detection.
-     * Songs are a subset of album URLs -- they share the /album/ path
-     * but additionally include an `i` query parameter containing the
-     * individual track ID within the album.
-     * Example: /us/album/fearless/1440935016?i=1440935018
-     */
-    if (path.includes('/album/') && parsed.searchParams.has('i')) {
-      return 'song';
+    // Live streams (explicit /live path)
+    if (path.includes('/live')) {
+      return 'live-stream';
     }
 
-    /* Albums: /album/ path without the `i` query parameter */
-    if (path.includes('/album/')) {
-      return 'album';
-    }
-
-    /* Playlists: /playlist/ path segment (may use `pl.` prefixed IDs) */
-    if (path.includes('/playlist/')) {
+    // Playlists
+    if (path === '/playlist' && parsed.searchParams.has('list')) {
       return 'playlist';
     }
 
-    /* Music Videos: /music-video/ path segment (hyphenated) */
-    if (path.includes('/music-video/')) {
-      return 'music-video';
+    // Channels
+    if (path.startsWith('/channel/') || path.startsWith('/@')) {
+      return 'channel';
     }
 
-    /* Artists: /artist/ path segment */
-    if (path.includes('/artist/')) {
-      return 'artist';
+    // Regular videos (youtube.com/watch?v= or youtu.be/ID)
+    if (parsed.searchParams.has('v') || hostname === 'youtu.be') {
+      return 'video';
     }
 
-    /* No recognized content type path segment found */
     return 'unknown';
   } catch {
-    /* Defensive: catch any unexpected URL parsing errors */
     return 'unknown';
   }
+}
+
+/**
+ * Detects the content type from a BBC iPlayer/Sounds URL path.
+ *
+ * Supported URL patterns:
+ * - Episodes:    bbc.co.uk/iplayer/episode/ID
+ * - Series:      bbc.co.uk/iplayer/episodes/ID
+ * - Clips:       bbc.co.uk/programmes/ID (short clip)
+ * - Programmes:  bbc.co.uk/sounds/play/ID, bbc.co.uk/iplayer/group/ID
+ */
+function detectBBCiPlayerContentType(url: string): MediaContentType {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+
+    if (path.includes('/iplayer/episode/')) return 'episode';
+    if (path.includes('/iplayer/episodes/')) return 'series';
+    if (path.includes('/iplayer/group/')) return 'series';
+    if (path.includes('/sounds/play/')) return 'episode';
+    if (path.includes('/sounds/series/')) return 'series';
+    if (path.includes('/programmes/')) return 'programme';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Detects the content type from a Spotify URL path.
+ *
+ * Supported URL patterns:
+ * - Tracks:     open.spotify.com/track/ID
+ * - Albums:     open.spotify.com/album/ID
+ * - Playlists:  open.spotify.com/playlist/ID
+ * - Artists:    open.spotify.com/artist/ID
+ */
+function detectSpotifyContentType(url: string): MediaContentType {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase();
+
+    if (path.startsWith('/track/')) return 'track';
+    if (path.startsWith('/album/')) return 'album';
+    if (path.startsWith('/playlist/')) return 'playlist';
+    if (path.startsWith('/artist/')) return 'artist';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+// ============================================================
+// UI helpers
+// ============================================================
+
+/**
+ * Returns a human-readable label for the detected service.
+ *
+ * @param serviceId - The detected service ID
+ * @returns A display string (e.g., "Apple Music", "YouTube")
+ */
+export function getServiceLabel(serviceId: MediaServiceId): string {
+  const labels: Record<MediaServiceId, string> = {
+    'apple-music': 'Apple Music',
+    youtube: 'YouTube',
+    'bbc-iplayer': 'BBC iPlayer',
+    spotify: 'Spotify',
+  };
+  return labels[serviceId];
+}
+
+/**
+ * Returns a CSS colour string for a service badge.
+ *
+ * @param serviceId - The service to get the colour for
+ * @returns A hex colour code
+ */
+export function getServiceColor(serviceId: MediaServiceId): string {
+  const colors: Record<MediaServiceId, string> = {
+    'apple-music': '#fc3c44',
+    youtube: '#ff0000',
+    'bbc-iplayer': '#006def',
+    spotify: '#1db954',
+  };
+  return colors[serviceId];
 }
 
 /**
  * Returns a human-readable label for a content type.
  *
- * Maps the machine-readable `AppleMusicContentType` string literal to
- * a user-friendly display string. Used in the DownloadForm to show
- * content-type badges next to parsed URLs (e.g., a blue "Album" pill).
+ * Maps the machine-readable content type string literal to a user-friendly
+ * display string. Used in the DownloadForm to show content-type badges
+ * next to parsed URLs.
  *
- * The `default` case handles the 'unknown' variant and any future
- * additions to the type that haven't been mapped yet.
- *
- * @param contentType - The detected content type from parseAppleMusicUrl()
- * @returns A capitalized display string (e.g., "Album", "Music Video", "Unknown")
+ * @param contentType - The detected content type
+ * @returns A capitalized display string (e.g., "Album", "Music Video", "Episode")
  */
-export function getContentTypeLabel(contentType: AppleMusicContentType): string {
+export function getContentTypeLabel(contentType: MediaContentType): string {
   switch (contentType) {
     case 'song':
       return 'Song';
@@ -206,7 +309,70 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
       return 'Music Video';
     case 'artist':
       return 'Artist';
+    case 'video':
+      return 'Video';
+    case 'channel':
+      return 'Channel';
+    case 'live-stream':
+      return 'Live Stream';
+    case 'programme':
+      return 'Programme';
+    case 'episode':
+      return 'Episode';
+    case 'clip':
+      return 'Clip';
+    case 'series':
+      return 'Series';
+    case 'track':
+      return 'Track';
     default:
       return 'Unknown';
+  }
+}
+
+// ============================================================
+// Backward-compatible exports
+// ============================================================
+
+/**
+ * Parses an Apple Music URL and detects its content type.
+ *
+ * @deprecated Use `parseUrl()` instead, which auto-detects the service.
+ *
+ * This function is preserved for backward compatibility with existing
+ * code that specifically targets Apple Music URLs.
+ *
+ * @param url - The URL string to parse
+ * @returns ParsedUrl with the trimmed URL, detected content type, and validity flag
+ */
+export function parseAppleMusicUrl(url: string): ParsedUrl {
+  const trimmed = url.trim();
+  if (!isAppleMusicUrl(trimmed)) {
+    return { url: trimmed, serviceId: null, contentType: 'unknown', isValid: false };
+  }
+  const contentType = detectAppleMusicContentType(trimmed);
+  return {
+    url: trimmed,
+    serviceId: 'apple-music',
+    contentType,
+    isValid: contentType !== 'unknown',
+  };
+}
+
+/**
+ * Checks whether a string is a valid Apple Music URL.
+ *
+ * @param url - The URL string to validate
+ * @returns true if the URL belongs to an Apple Music domain, false otherwise
+ */
+export function isAppleMusicUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === 'music.apple.com' ||
+      parsed.hostname === 'itunes.apple.com'
+    );
+  } catch {
+    return false;
   }
 }

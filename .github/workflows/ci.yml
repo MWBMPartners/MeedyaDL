@@ -45,12 +45,12 @@ name: CI
 # ============================================================
 # @see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows
 on:
-  # Run on pushes to main and develop branches (direct commits and merged PRs)
+  # Run on pushes to main, develop, and meedyadl-v2 branches (direct commits and merged PRs)
   push:
-    branches: [main, develop]
-  # Run on pull requests targeting main (validates PR code before merge)
+    branches: [main, develop, meedyadl-v2]
+  # Run on pull requests targeting main or meedyadl-v2 (validates PR code before merge)
   pull_request:
-    branches: [main]
+    branches: [main, meedyadl-v2]
   # Allow manual trigger from GitHub UI or CLI (gh workflow run "CI")
   # Useful for conserving Actions minutes during rapid development:
   #   1. Push commits with "[skip ci]" in the message to skip auto-triggers
