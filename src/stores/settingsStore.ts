@@ -133,6 +133,33 @@ const DEFAULT_SETTINGS: AppSettings = {
   setup_completed: false,        // Whether the setup wizard has been completed at least once
   sidebar_collapsed: false,      // UI preference: sidebar expanded by default
   theme_override: null,          // null = follow OS theme; 'light' or 'dark' to override
+  // Per-service settings for YouTube, BBC iPlayer, and Spotify
+  services: {
+    enabled_services: ['apple-music'],  // Only Apple Music enabled by default
+    youtube: {
+      output_path: '',                   // Resolved to default by backend
+      default_video_resolution: 'best',  // Best available quality
+      default_audio_format: 'best',      // Best available audio
+      embed_thumbnail: true,             // Embed thumbnail in media file
+      embed_metadata: true,              // Embed metadata tags
+      embed_subtitles: false,            // Don't embed subtitles by default
+      subtitle_langs: 'en',             // English subtitles when enabled
+      cookies_path: null,                // No cookies file by default
+      concurrent_fragments: 1,           // Single concurrent fragment download
+    },
+    bbc_iplayer: {
+      output_path: '',                   // Resolved to default by backend
+      default_quality: 'best',           // Best available quality
+      subtitles: false,                  // Don't download subtitles by default
+      thumbnail: false,                  // Don't download thumbnails by default
+    },
+    spotify: {
+      output_path: '',                   // Resolved to default by backend
+      audio_quality: 'vorbis-high',      // High-quality Ogg Vorbis (320kbps)
+      save_cover: true,                  // Save album artwork
+      embed_lyrics: true,                // Embed lyrics in metadata
+    },
+  },
 };
 
 /**

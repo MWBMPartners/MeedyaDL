@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// GAMDL download execution IPC commands.
+// Download execution IPC commands (multi-service).
 // Handles starting downloads, cancelling active downloads, retrying
 // failed downloads, clearing completed items, and querying the download
 // queue status. Downloads are managed by the download_queue service
 // which handles concurrent execution, fallback quality, and retries.
+// Supports routing to different service backends via MediaServiceId.
 //
 // ## Architecture
 //
@@ -82,10 +83,12 @@ pub struct QueueStatus {
 ///
 /// **Frontend caller:** `startDownload(request)` in `src/lib/tauri-commands.ts`
 ///
-/// The download request includes the Apple Music URL(s) and optional
-/// quality/format overrides. If no overrides are specified, the global
-/// settings are used. The download is added to the queue and will be
-/// processed when a slot becomes available (default: 1 concurrent).
+/// The download request includes media URL(s), a service identifier, and
+/// optional quality/format overrides. If no overrides are specified, the
+/// global settings are used. The download is added to the queue and will
+/// be processed when a slot becomes available (default: 1 concurrent).
+/// Non-Apple Music services are gated in the download queue and will
+/// return a "coming soon" error until their service modules are implemented.
 ///
 /// Returns a unique download ID (UUID) for tracking progress and cancellation.
 ///

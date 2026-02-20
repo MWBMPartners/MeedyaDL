@@ -17,9 +17,9 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 
 ```
 src-tauri/src/          # Rust backend
-  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork)
-  models/               # Data structures (download, settings, gamdl_options, dependency, music_service)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required + 1 optional tool], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service)
+  commands/             # IPC command handlers (system, dependencies, settings, download [renamed from gamdl], credentials, updates, cookies, login_window, artwork)
+  models/               # Data structures (download, settings, gamdl_options, download_options, ytdlp_options, votify_options, get_iplayer_options, dependency, media_service)
+  services/             # Business logic (python_manager, gamdl_service, service_dispatch, youtube_service, bbc_iplayer_service, spotify_service, dependency_manager [4 required + 1 optional tool], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings, setup, help, updates)
@@ -31,7 +31,7 @@ src/                    # React frontend
 public/locales/         # i18n translation files ({lang}/translation.json)
 help/                   # Markdown help documentation (12 topics)
 scripts/                # Build utilities (copyright year updater, version bump)
-.github/workflows/      # CI, Release, Release Please, Changelog workflows
+.github/workflows/      # CI, Release, Pre-Release, Release Please, Changelog workflows
 ```
 
 ## Implementation Phases (All Complete)
@@ -79,7 +79,7 @@ Manual override: `version-bump.yml` + `scripts/bump-version.mjs` for non-standar
 
 ### Conserving GitHub Actions Minutes
 
-All workflows (CI, Changelog, Release Please, Release) support both automatic (`on: push`) and manual (`workflow_dispatch`) triggers.
+All workflows (CI, Changelog, Release Please, Release, Pre-Release) support both automatic (`on: push`) and manual (`workflow_dispatch`) triggers.
 
 During rapid development, add `[skip ci]` to commit messages to prevent auto-triggering:
 
@@ -94,6 +94,7 @@ gh workflow run "CI" --ref main
 gh workflow run "Release Please" --ref main
 gh workflow run "Changelog" --ref main
 gh workflow run "Release" -f tag=v0.3.3  # Release requires a tag input
+gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1  # Pre-release from feature branch
 ```
 
 ### Release Please Branch Naming
@@ -106,6 +107,18 @@ For this project (component name from `package.json` `name` field):
 
 The `.release-please-manifest.json` must match the current version to avoid release-please trying to create releases from an old version.
 
+### Pre-Release Workflow (meedyadl-v2)
+
+The `pre-release.yml` workflow builds and publishes pre-release packages from the `meedyadl-v2` feature branch. It uses the same 6-platform build matrix as `release.yml` but creates GitHub Releases marked as `prerelease: true` (not draft).
+
+```bash
+gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
+```
+
+Version format: `X.Y.Z-(alpha|beta|rc).N` (e.g., `0.4.0-alpha.1`, `0.4.0-beta.2`, `0.4.0-rc.1`).
+
+CI also runs on pushes to `meedyadl-v2` and PRs targeting it.
+
 ## Planned Service Integrations
 
 | Milestone | Version | Service | Engine | Key Notes |
@@ -114,10 +127,13 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 | M8 | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | pip install, shared with BBC iPlayer; video-first service with format selection |
 | M9 | v0.6.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Reuses yt-dlp from M8; region-restricted (UK VPN may be required) |
 
-Architectural changes planned across milestones:
-- **Rename `MusicService` → `MediaService`** (trait, enum, types) since BBC iPlayer and YouTube aren't music-only
-- **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine
-- **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service)
+**Note:** v0.4.0 includes multi-service architecture prep (model layer with `MediaService` enum and per-service options structs, service dispatch stubs, service-aware URL parser, per-service settings UI sections). The service stubs and models are already in place; each milestone above adds the actual engine integration on top of these foundations.
+
+Architectural changes across milestones (status):
+
+- **Rename `MusicService` → `MediaService`** (trait, enum, types) since BBC iPlayer and YouTube aren't music-only -- DONE
+- **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine -- DONE
+- **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service) -- DONE
 - **Shared dependency management** — yt-dlp installed once, shared by YouTube and BBC iPlayer
 
 ### Future Ideas

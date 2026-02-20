@@ -1,0 +1,328 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Pre-Release Build Workflow for MeedyaDL
+# ==========================================
+#
+# This GitHub Actions workflow builds platform-specific installers from the
+# meedyadl-v2 feature branch and publishes them as a pre-release GitHub Release.
+# It is triggered manually via workflow_dispatch with a version input.
+#
+# This workflow is separate from the main release workflow (release.yml) to keep
+# stable releases and pre-releases on independent pipelines. Pre-releases are
+# marked as such on GitHub and are NOT served by the auto-updater.
+#
+# Usage:
+#   gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
+#
+# Build matrix (same 6 platform builds as release.yml):
+#   Tier 1 — Stable:
+#     1. macOS Apple Silicon (aarch64-apple-darwin) --> .dmg, .app
+#     2. Windows x64 (x86_64-pc-windows-msvc) --> .exe (NSIS)
+#     3. Windows ARM64 (aarch64-pc-windows-msvc) --> .exe (NSIS)
+#     4. Linux x64 --> .deb, .AppImage
+#
+#   Tier 2 — Experimental (Linux ARM cross-compilation):
+#     5. Linux ARM64 (aarch64-unknown-linux-gnu) --> .deb, .rpm
+#     6. Linux ARMv7 (armv7-unknown-linux-gnueabihf) --> .deb, .rpm
+#
+# Key differences from release.yml:
+#   - Triggered via workflow_dispatch only (no tag push trigger)
+#   - Checks out the meedyadl-v2 branch (not a tag)
+#   - Creates a pre-release GitHub Release (not a draft)
+#   - Tag is created from the version input (e.g., v0.4.0-alpha.1)
+#   - Release notes include a pre-release warning banner
+#
+# @see release.yml -- Main release workflow
+# @see https://docs.github.com/en/actions -- GitHub Actions documentation
+# @see https://github.com/tauri-apps/tauri-action -- Tauri GitHub Action
+
+name: Pre-Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Pre-release version (e.g., 0.4.0-alpha.1, 0.4.0-beta.1, 0.4.0-rc.1)'
+        required: true
+
+# Only allow one pre-release build at a time
+concurrency:
+  group: pre-release
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================
+  # Validate Version Input
+  # ============================================================
+  validate:
+    name: Validate version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: v${{ inputs.version }}
+    steps:
+      - name: Validate version format
+        run: |
+          VERSION="${{ inputs.version }}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$'; then
+            echo "::error::Invalid version format: '$VERSION'. Expected format: X.Y.Z-(alpha|beta|rc).N (e.g., 0.4.0-alpha.1)"
+            exit 1
+          fi
+          echo "Version validated: $VERSION (tag: v$VERSION)"
+
+  # ============================================================
+  # Build and Publish Pre-Release Installers
+  # ============================================================
+  publish:
+    name: Build (${{ matrix.settings.name }})
+    needs: validate
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          # Tier 1: Stable targets
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            args: '--target aarch64-apple-darwin'
+            rust_target: aarch64-apple-darwin
+
+          - name: Windows (x64)
+            os: windows-latest
+            args: '--target x86_64-pc-windows-msvc --bundles nsis'
+            rust_target: x86_64-pc-windows-msvc
+
+          - name: Windows (ARM64)
+            os: windows-latest
+            args: '--target aarch64-pc-windows-msvc --bundles nsis'
+            rust_target: aarch64-pc-windows-msvc
+
+          - name: Linux (x64)
+            os: ubuntu-latest
+            args: ''
+            rust_target: ''
+
+          # Tier 2: Experimental (Linux ARM cross-compilation)
+          - name: Linux (ARM64)
+            os: ubuntu-latest
+            args: '--target aarch64-unknown-linux-gnu --bundles deb rpm'
+            rust_target: aarch64-unknown-linux-gnu
+            cross_arch: arm64
+            cross_gcc: gcc-aarch64-linux-gnu
+            cross_linker: aarch64-linux-gnu-gcc
+            cross_pkg_config_prefix: aarch64-linux-gnu
+
+          - name: Linux (ARMv7)
+            os: ubuntu-latest
+            args: '--target armv7-unknown-linux-gnueabihf --bundles deb rpm'
+            rust_target: armv7-unknown-linux-gnueabihf
+            cross_arch: armhf
+            cross_gcc: gcc-arm-linux-gnueabihf
+            cross_linker: arm-linux-gnueabihf-gcc
+            cross_pkg_config_prefix: arm-linux-gnueabihf
+
+    runs-on: ${{ matrix.settings.os }}
+
+    # Linux ARM builds are experimental — allow them to fail
+    continue-on-error: ${{ matrix.settings.cross_arch != '' }}
+
+    steps:
+      # Step 1: Check out the meedyadl-v2 branch
+      - name: Checkout meedyadl-v2 branch
+        uses: actions/checkout@v4
+        with:
+          ref: meedyadl-v2
+
+      # Step 2: Set up Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      # Step 3: Set up Rust stable toolchain
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.rust_target }}
+
+      # Step 4: Cache Rust compilation artifacts
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Step 5: Install Linux system dependencies (native x64)
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux' && matrix.settings.cross_arch == ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      # Step 6: Set up Linux ARM cross-compilation environment
+      - name: Setup Linux ARM cross-compilation
+        if: matrix.settings.cross_arch != ''
+        env:
+          CROSS_ARCH: ${{ matrix.settings.cross_arch }}
+          CROSS_GCC: ${{ matrix.settings.cross_gcc }}
+        run: |
+          sudo dpkg --add-architecture $CROSS_ARCH
+
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Types: deb$/Architectures: amd64\nTypes: deb/' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's|^deb http|deb [arch=amd64] http|g' /etc/apt/sources.list
+          fi
+
+          CODENAME=$(lsb_release -cs)
+          sudo tee /etc/apt/sources.list.d/arm-cross.list << EOF
+          deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME main restricted universe
+          deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-updates main restricted universe
+          deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-security main restricted universe
+          EOF
+
+          sudo apt-get update
+          sudo apt-get upgrade -y
+          sudo apt-get install -y $CROSS_GCC
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev:$CROSS_ARCH \
+            libappindicator3-dev:$CROSS_ARCH \
+            librsvg2-dev:$CROSS_ARCH \
+            patchelf \
+            libssl-dev:$CROSS_ARCH \
+            libgtk-3-dev:$CROSS_ARCH
+
+      # Step 7: Configure cross-compilation environment variables
+      - name: Configure cross-compilation env
+        if: matrix.settings.cross_arch != ''
+        run: |
+          TARGET_UPPER=$(echo "${{ matrix.settings.rust_target }}" | tr '[:lower:]-' '[:upper:]_')
+          echo "CARGO_TARGET_${TARGET_UPPER}_LINKER=${{ matrix.settings.cross_linker }}" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=/usr/lib/${{ matrix.settings.cross_pkg_config_prefix }}/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_SYSROOT_DIR=/" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> "$GITHUB_ENV"
+
+      # Step 8: Install npm dependencies
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Step 9: Validate macOS signing secrets
+      - name: Validate macOS signing secrets
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!var}" ]; then
+              echo "::error title=Missing secret::Required secret '$var' is not set."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Set the required Apple secrets in GitHub: Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      # Step 10: Build and publish (all platforms except ARMv7)
+      - name: Build and publish
+        if: matrix.settings.cross_arch != 'armhf'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ inputs.version }}
+          releaseName: 'MeedyaDL v${{ inputs.version }} (Pre-Release)'
+          releaseBody: |
+            ## MeedyaDL v${{ inputs.version }} (Pre-Release)
+
+            > **This is a pre-release build from the `meedyadl-v2` development branch.** It may contain incomplete features, bugs, or breaking changes. It is intended for testing purposes only and is not recommended for general use.
+
+            ### What's new in this pre-release
+
+            This build includes multi-service architecture prep for upcoming YouTube, Spotify, and BBC iPlayer support. See the [meedyadl-v2 branch](https://github.com/${{ github.repository }}/tree/meedyadl-v2) for details.
+
+            ---
+
+            ## Choose your download
+
+            | If you're using... | Download this | Notes |
+            |--------------------|--------------|-------|
+            | **Mac** (M1, M2, M3, M4) | `_aarch64.dmg` | Most Macs since late 2020 |
+            | **Windows** (most PCs) | `_x64-setup.exe` | Works on all modern Windows PCs |
+            | **Windows** (Snapdragon / ARM) | `_arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
+            | **Linux** (most PCs) | `_amd64.deb` or `_amd64.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
+            | **Linux** (RPM-based) | `_x86_64.rpm` | Fedora, RHEL, CentOS, openSUSE |
+            | **Linux** (Raspberry Pi 4/5) | `_arm64.deb` or `_aarch64.rpm` | Requires 64-bit OS |
+            | **Chromebook** | `_amd64.deb` | Install via Linux (Crostini) |
+
+            > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `_x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
+
+            ### What are the `.sig` files?
+
+            Files ending in `.sig` are **cryptographic signatures** used by MeedyaDL's built-in auto-updater. They verify that downloaded updates haven't been tampered with. **You do not need to download `.sig` files** — they are used automatically by the app when checking for updates.
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.settings.args }}
+
+      # Step 10b: Build ARMv7 manually
+      - name: Build ARMv7
+        if: matrix.settings.cross_arch == 'armhf'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: npx tauri build --target armv7-unknown-linux-gnueabihf --bundles deb rpm
+
+      # Step 11: Upload ARMv7 artifacts manually
+      - name: Upload ARMv7 artifacts
+        if: matrix.settings.cross_arch == 'armhf'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="v${{ inputs.version }}"
+          BUNDLE_DIR="src-tauri/target/armv7-unknown-linux-gnueabihf/release/bundle"
+
+          # Ensure the pre-release exists
+          if ! gh release view "$TAG" &>/dev/null; then
+            gh release create "$TAG" --prerelease --title "MeedyaDL $TAG (Pre-Release)" --notes "Pre-release in progress..."
+          fi
+
+          # Upload .deb: rename armhf → armv7
+          for f in "$BUNDLE_DIR"/deb/*_armhf.deb; do
+            [ -f "$f" ] || continue
+            new="${f/_armhf.deb/_armv7.deb}"
+            mv "$f" "$new"
+            gh release upload "$TAG" "$new" --clobber
+          done
+
+          # Upload .rpm: rename armhfp → armv7
+          for f in "$BUNDLE_DIR"/rpm/*.armhfp.rpm; do
+            [ -f "$f" ] || continue
+            new=$(echo "$f" | sed 's/\.armhfp\.rpm/.armv7.rpm/')
+            mv "$f" "$new"
+            gh release upload "$TAG" "$new" --clobber
+          done

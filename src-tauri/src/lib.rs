@@ -37,7 +37,7 @@
 
 /// IPC command handlers exposed to the React frontend via `invoke()`.
 /// Each sub-module groups related commands (system, dependencies, settings,
-/// gamdl, credentials, updates). Commands are thin wrappers that validate
+/// download, credentials, updates). Commands are thin wrappers that validate
 /// inputs and delegate to the `services` layer.
 pub mod commands;
 
@@ -206,18 +206,18 @@ pub fn run() {
             commands::settings::save_settings,
             commands::settings::validate_cookies_file,
             commands::settings::get_default_output_path,
-            // GAMDL download and queue management commands
-            commands::gamdl::start_download,
-            commands::gamdl::cancel_download,
-            commands::gamdl::retry_download,
-            commands::gamdl::clear_queue,
-            commands::gamdl::get_queue_status,
-            commands::gamdl::check_gamdl_update,
+            // Download and queue management commands
+            commands::download::start_download,
+            commands::download::cancel_download,
+            commands::download::retry_download,
+            commands::download::clear_queue,
+            commands::download::get_queue_status,
+            commands::download::check_gamdl_update,
             // Queue export/import commands
-            commands::gamdl::export_queue,
-            commands::gamdl::import_queue,
+            commands::download::export_queue,
+            commands::download::import_queue,
             // Manual queue processing trigger
-            commands::gamdl::process_queue_manual,
+            commands::download::process_queue_manual,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,

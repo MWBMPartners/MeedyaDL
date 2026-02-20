@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use super::gamdl_options::{
     CoverFormat, DownloadMode, LyricsFormat, RemuxMode, SongCodec, VideoResolution,
 };
+use super::media_service::MediaServiceId;
 
 /// Companion download mode configuration.
 ///
@@ -529,6 +530,145 @@ pub struct AppSettings {
     /// `Some("light")` forces a specific theme. Consumed by the React
     /// frontend's `ThemeProvider` component.
     pub theme_override: Option<String>,
+
+    // ================================================================
+    // Per-Service Configuration (v2)
+    // ================================================================
+
+    /// Per-service configuration for YouTube, BBC iPlayer, and Spotify.
+    /// Apple Music settings remain as top-level fields for backward
+    /// compatibility with existing `settings.json` files.
+    #[serde(default)]
+    pub services: ServiceSettings,
+}
+
+// ============================================================
+// Per-Service Settings (v2)
+// ============================================================
+
+/// Aggregates per-service configuration for all non-Apple Music services.
+///
+/// Apple Music settings remain as top-level `AppSettings` fields for
+/// backward compatibility. Each new service gets its own settings struct
+/// here. The `enabled_services` list controls which services appear in
+/// the UI and accept URL submissions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServiceSettings {
+    /// Which services are enabled in the UI. Services not in this list
+    /// are hidden from the URL detector and the settings sidebar.
+    /// Defaults to `[AppleMusic]` — other services are opt-in.
+    pub enabled_services: Vec<MediaServiceId>,
+
+    /// YouTube-specific settings (yt-dlp).
+    pub youtube: YouTubeSettings,
+
+    /// BBC iPlayer-specific settings (get_iplayer + yt-dlp fallback).
+    pub bbc_iplayer: BBCiPlayerSettings,
+
+    /// Spotify-specific settings (votify).
+    pub spotify: SpotifySettings,
+}
+
+impl Default for ServiceSettings {
+    fn default() -> Self {
+        Self {
+            enabled_services: vec![MediaServiceId::AppleMusic],
+            youtube: YouTubeSettings::default(),
+            bbc_iplayer: BBCiPlayerSettings::default(),
+            spotify: SpotifySettings::default(),
+        }
+    }
+}
+
+/// YouTube-specific settings used when downloading with yt-dlp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct YouTubeSettings {
+    /// Output directory for YouTube downloads. Empty = use global output_path.
+    pub output_path: String,
+    /// Default maximum video resolution (e.g., `"best"`, `"1080"`, `"720"`).
+    pub default_video_resolution: String,
+    /// Default audio format (e.g., `"best"`, `"mp3"`, `"m4a"`, `"opus"`).
+    pub default_audio_format: String,
+    /// Whether to embed thumbnails in downloaded files.
+    pub embed_thumbnail: bool,
+    /// Whether to embed metadata (title, artist, etc.) in downloaded files.
+    pub embed_metadata: bool,
+    /// Whether to embed subtitles in video files.
+    pub embed_subtitles: bool,
+    /// Comma-separated subtitle language codes (e.g., `"en,de"` or `"all"`).
+    pub subtitle_langs: String,
+    /// Path to a Netscape cookies file for YouTube authentication.
+    pub cookies_path: Option<String>,
+    /// Number of concurrent download fragments for faster downloads.
+    pub concurrent_fragments: u32,
+}
+
+impl Default for YouTubeSettings {
+    fn default() -> Self {
+        Self {
+            output_path: String::new(),
+            default_video_resolution: "best".to_string(),
+            default_audio_format: "best".to_string(),
+            embed_thumbnail: true,
+            embed_metadata: true,
+            embed_subtitles: false,
+            subtitle_langs: "en".to_string(),
+            cookies_path: None,
+            concurrent_fragments: 1,
+        }
+    }
+}
+
+/// BBC iPlayer-specific settings used when downloading with get_iplayer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BBCiPlayerSettings {
+    /// Output directory for BBC iPlayer downloads. Empty = use global output_path.
+    pub output_path: String,
+    /// Default recording quality (e.g., `"best"`, `"better"`, `"good"`).
+    pub default_quality: String,
+    /// Whether to download subtitles alongside video content.
+    pub subtitles: bool,
+    /// Whether to download programme thumbnails.
+    pub thumbnail: bool,
+}
+
+impl Default for BBCiPlayerSettings {
+    fn default() -> Self {
+        Self {
+            output_path: String::new(),
+            default_quality: "best".to_string(),
+            subtitles: true,
+            thumbnail: true,
+        }
+    }
+}
+
+/// Spotify-specific settings used when downloading with votify.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SpotifySettings {
+    /// Output directory for Spotify downloads. Empty = use global output_path.
+    pub output_path: String,
+    /// Audio quality level (e.g., `"vorbis-high"`, `"vorbis-medium"`).
+    pub audio_quality: String,
+    /// Whether to save cover art as a separate image file.
+    pub save_cover: bool,
+    /// Whether to embed lyrics in downloaded audio files.
+    pub embed_lyrics: bool,
+}
+
+impl Default for SpotifySettings {
+    fn default() -> Self {
+        Self {
+            output_path: String::new(),
+            audio_quality: "vorbis-high".to_string(),
+            save_cover: true,
+            embed_lyrics: true,
+        }
+    }
 }
 
 /// Serde default helper: returns `true` for `auto_start_queue`.
@@ -731,6 +871,10 @@ impl Default for AppSettings {
             sidebar_collapsed: false,
             // Auto-detect theme from OS settings.
             theme_override: None,
+
+            // --- Per-service configuration ---
+            // Default: only Apple Music enabled; other services are opt-in.
+            services: ServiceSettings::default(),
         }
     }
 }

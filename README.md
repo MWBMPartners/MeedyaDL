@@ -283,18 +283,20 @@ refactor(backend): simplify dependency management
 - [x] Manual workflow dispatch (`workflow_dispatch` on all CI/CD workflows for conserving Actions minutes)
 - [x] Updates page with full release notes rendered as markdown (strips auto-update download section)
 - [x] i18n groundwork (i18next, OS language detection, language dropdown in Settings > General; English, German, French)
+- [x] Multi-service architecture prep (MediaService enum, service dispatch, URL auto-detection, per-service settings UI, stub services for YouTube/BBC iPlayer/Spotify)
 
 ### Planned Milestones
 
 | Milestone | Version | Service | Engine | Status |
 | --------- | ------- | ------- | ------ | ------ |
-| **M7** | v0.4.0 | Spotify | [votify](https://github.com/glomatico/votify) | Planned |
-| **M8** | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Planned |
-| **M9** | v0.6.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Planned |
+| **M7** | v0.4.0 | Architecture Prep | — | Complete |
+| **M8** | v0.5.0 | Spotify | [votify](https://github.com/glomatico/votify) | Planned |
+| **M9** | v0.6.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Planned |
+| **M10** | v0.7.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Planned |
 
-Each milestone adds a new media service behind the existing `MusicService` trait (to be renamed `MediaService`), with its own CLI subprocess engine, URL parser, settings tab, and help documentation. See [Project Plan](Project_Plan.md) for full milestone details.
+Each milestone adds a new media service behind the `MediaService` trait, with its own CLI subprocess engine, URL parser, settings tab, and help documentation. The multi-service architecture (M7) is already in place — service stubs, URL auto-detection, and per-service settings sections are ready. See [Project Plan](Project_Plan.md) for full milestone details.
 
-### Future (Beyond v0.6.0)
+### Future (Beyond v0.7.0)
 
 - 🎵 **YouTube Music** via [gytmdl](https://github.com/glomatico/gytmdl) integration
 - 🔌 **Integration API** for third-party scripts and automation

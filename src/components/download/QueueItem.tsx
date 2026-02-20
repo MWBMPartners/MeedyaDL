@@ -84,6 +84,13 @@ import { ProgressBar } from '@/components/common';
 import type { QueueItemStatus, DownloadState } from '@/types';
 
 /**
+ * Service labels and colours for the per-item service badge.
+ * Each queue item shows a small coloured pill identifying which
+ * media service the download targets (Apple Music, YouTube, etc.).
+ */
+import { MEDIA_SERVICE_LABELS, MEDIA_SERVICE_COLORS } from '@/types';
+
+/**
  * Props for the {@link QueueItem} component.
  *
  * This component is a **presentational** (or "dumb") component: it receives
@@ -318,14 +325,25 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
          */}
         <div className="flex-1 min-w-0">
           {/*
-           * Primary URL text.
+           * Primary URL text with optional service badge.
            * Shows the first URL from the `item.urls` array (there is
            * typically only one URL per download request).
            * `truncate` clips long URLs with an ellipsis.
+           * The service badge appears as a small coloured pill before the URL.
            */}
-          <p className="text-sm text-content-primary truncate">
-            {item.urls[0]}
-          </p>
+          <div className="flex items-center gap-1.5">
+            {item.service_id && (
+              <span
+                className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium text-white flex-shrink-0"
+                style={{ backgroundColor: MEDIA_SERVICE_COLORS[item.service_id] }}
+              >
+                {MEDIA_SERVICE_LABELS[item.service_id]}
+              </span>
+            )}
+            <p className="text-sm text-content-primary truncate">
+              {item.urls[0]}
+            </p>
+          </div>
 
           {/*
            * Current track name -- shown when the backend reports which

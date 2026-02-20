@@ -30,7 +30,7 @@
 //   +-- system.rs       -- Platform info, app data directory path
 //   +-- dependencies.rs -- Check/install Python, GAMDL, and external tools
 //   +-- settings.rs     -- Read/write app settings, validate cookies file
-//   +-- gamdl.rs        -- Start/cancel/retry downloads, queue management
+//   +-- download.rs     -- Start/cancel/retry downloads, queue management
 //   +-- credentials.rs  -- Secure credential storage (keychain/credential vault)
 //   +-- updates.rs      -- Check for component updates, upgrade GAMDL
 //
@@ -56,12 +56,13 @@ pub mod dependencies;
 /// `get_default_output_path`. Delegates to `services::config_service`.
 pub mod settings;
 
-/// GAMDL download execution commands (start, cancel, retry, queue status).
+/// Download execution commands (start, cancel, retry, queue status).
 ///
 /// Provides `start_download`, `cancel_download`, `retry_download`,
 /// `clear_queue`, `get_queue_status`, and `check_gamdl_update`. Delegates
 /// to `services::download_queue` and `services::gamdl_service`.
-pub mod gamdl;
+/// Supports multi-service routing via `MediaServiceId` on each request.
+pub mod download;
 
 /// Secure credential storage commands (store, retrieve, delete).
 ///

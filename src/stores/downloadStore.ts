@@ -6,9 +6,10 @@
  * Manages the entire download lifecycle:
  *
  *   **URL input & validation**:
- *   - `setUrlInput()` validates the URL in real-time via `parseAppleMusicUrl()`.
- *   - The `<DownloadPage>` reads `urlIsValid` and `urlContentType` to show
- *     validation feedback and a content-type badge (song, album, playlist, etc.).
+ *   - `setUrlInput()` validates the URL in real-time via `parseUrl()`.
+ *   - The `<DownloadPage>` reads `urlIsValid`, `urlContentType`, and
+ *     `detectedServiceId` to show validation feedback, a content-type badge,
+ *     and a service badge (Apple Music, YouTube, Spotify, BBC iPlayer).
  *
  *   **Download submission**:
  *   - `submitDownload()` sends the validated URL (plus optional quality overrides)
@@ -46,11 +47,12 @@ import { create } from 'zustand';
 // GamdlOptions    -- per-download quality/format overrides (all fields optional)
 // GamdlProgress   -- payload shape for `gamdl://progress` Tauri events
 // QueueItemStatus -- detailed status of a single download queue item
-import type { GamdlOptions, GamdlProgress, QueueItemStatus } from '@/types';
+// MediaServiceId  -- detected media service ('apple-music', 'youtube', etc.)
+import type { GamdlOptions, GamdlProgress, QueueItemStatus, MediaServiceId } from '@/types';
 
-// Pure function that validates and classifies an Apple Music URL (song, album, etc.).
-// Returns { url, isValid, contentType }.
-import { parseAppleMusicUrl } from '@/lib/url-parser';
+// Pure function that validates and classifies any supported media URL.
+// Returns { url, isValid, contentType, serviceId }.
+import { parseUrl } from '@/lib/url-parser';
 
 // Type-safe wrappers for Tauri IPC commands. Each function maps to a
 // `#[tauri::command]` handler in the Rust backend.
@@ -83,18 +85,25 @@ interface DownloadState {
   urlInput: string;
 
   /**
-   * Whether `urlInput` is a structurally valid Apple Music URL.
-   * Derived synchronously by `parseAppleMusicUrl()` inside `setUrlInput()`.
+   * Whether `urlInput` is a structurally valid media URL.
+   * Derived synchronously by `parseUrl()` inside `setUrlInput()`.
    * The submit button is disabled when this is `false`.
    */
   urlIsValid: boolean;
 
   /**
-   * The detected Apple Music content type ('song', 'album', 'playlist',
-   * 'music-video', 'artist', or 'unknown'). Shown as a badge next to the
-   * URL input for user feedback.
+   * The detected content type ('song', 'album', 'playlist', 'video',
+   * 'episode', 'track', etc.). Shown as a badge next to the URL input
+   * for user feedback.
    */
   urlContentType: string;
+
+  /**
+   * The detected media service ('apple-music', 'youtube', 'bbc-iplayer',
+   * 'spotify', or null). Shown as a coloured service badge next to the
+   * URL input.
+   */
+  detectedServiceId: MediaServiceId | null;
 
   /**
    * Optional per-download quality/format overrides. When `null`, the download
@@ -139,7 +148,7 @@ interface DownloadState {
   /**
    * Update the URL input and synchronously validate it.
    * Called on every keystroke in the URL text field.
-   * Internally calls `parseAppleMusicUrl(url)` which returns `{ isValid, contentType }`.
+   * Internally calls `parseUrl(url)` which returns `{ isValid, contentType, serviceId }`.
    * @param url -- The raw URL string from the input field
    */
   setUrlInput: (url: string) => void;
@@ -281,6 +290,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   urlInput: '',             // URL input field starts empty
   urlIsValid: false,        // No valid URL until user types one
   urlContentType: 'unknown',// Content type unknown until URL is parsed
+  detectedServiceId: null,  // No service detected until URL is parsed
   overrideOptions: null,    // No per-download overrides; use global settings
   queueItems: [],           // Empty queue until refreshQueue() or events arrive
   isSubmitting: false,      // No submission in progress
@@ -292,16 +302,17 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
   /**
    * Update the URL input text and validate it synchronously.
-   * `parseAppleMusicUrl()` uses regex matching to detect valid Apple Music
-   * URL patterns and classify the content type (song, album, playlist, etc.).
-   * All three fields are updated atomically in a single `set()` call.
+   * `parseUrl()` detects the media service from the URL domain and
+   * classifies the content type from the URL path structure.
+   * All four fields are updated atomically in a single `set()` call.
    */
   setUrlInput: (url) => {
-    const parsed = parseAppleMusicUrl(url);
+    const parsed = parseUrl(url);
     set({
       urlInput: url,
-      urlIsValid: parsed.isValid,       // true if URL matches Apple Music patterns
-      urlContentType: parsed.contentType, // 'song', 'album', 'playlist', etc.
+      urlIsValid: parsed.isValid,           // true if URL is a valid media URL
+      urlContentType: parsed.contentType,   // 'song', 'album', 'video', etc.
+      detectedServiceId: parsed.serviceId,  // 'apple-music', 'youtube', etc.
     });
   },
 
@@ -327,12 +338,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   submitDownload: async () => {
     // Read the latest state at call time via `get()` to avoid stale closures.
-    const { urlInput, urlIsValid, overrideOptions } = get();
+    const { urlInput, urlIsValid, detectedServiceId, overrideOptions } = get();
 
     // Guard: do not proceed if the URL has not passed validation.
-    if (!urlIsValid) {
-      set({ error: 'Invalid Apple Music URL' });
-      throw new Error('Invalid Apple Music URL');
+    if (!urlIsValid || !detectedServiceId) {
+      set({ error: 'Please enter a valid media URL' });
+      throw new Error('Please enter a valid media URL');
     }
 
     // Signal submission in progress and clear any stale errors.
@@ -342,6 +353,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // The backend enqueues the job and immediately returns a unique download ID.
       const downloadId = await commands.startDownload({
         urls: [urlInput],
+        // Detected service ID from URL domain (routes to correct backend engine).
+        service_id: detectedServiceId,
         // Convert null -> undefined so Tauri serializes as Option::None in Rust.
         options: overrideOptions ?? undefined,
       });
@@ -352,6 +365,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         urlInput: '',
         urlIsValid: false,
         urlContentType: 'unknown',
+        detectedServiceId: null,
         overrideOptions: null,
         isSubmitting: false,
       });
@@ -608,6 +622,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       urlInput: '',
       urlIsValid: false,
       urlContentType: 'unknown',
+      detectedServiceId: null,
       overrideOptions: null,
     }),
 }));

@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v0.3.22** (2026-02-16) — All 6 phases complete + post-release features <!-- x-release-please-version -->
+**v0.3.22** (2026-02-16) — All 7 phases complete + post-release features <!-- x-release-please-version -->
 
 ---
 
@@ -284,34 +284,60 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 ---
 
+## 🏗️ Phase 7: Multi-Service Architecture Prep (v0.4.0)
+
+**Status:** ✅ Complete
+
+Prepares the codebase for YouTube, BBC iPlayer, and Spotify support by refactoring the single-service (Apple Music) architecture into a multi-service framework with dispatch routing, per-service option models, and service-aware UI.
+
+### Completed
+
+- ✅ Renamed `MusicService` → `MediaService` throughout Rust and TypeScript (`models/music_service.rs` → `models/media_service.rs`)
+- ✅ Created per-service option models (`models/ytdlp_options.rs`, `models/votify_options.rs`, `models/get_iplayer_options.rs`)
+- ✅ Created `DownloadOptions` tagged enum for service-specific options (`models/download_options.rs`)
+- ✅ Added `service_id` to `DownloadRequest` and `QueueItemStatus`
+- ✅ Created service dispatch layer (`services/service_dispatch.rs`)
+- ✅ Created stub services (`services/youtube_service.rs`, `services/bbc_iplayer_service.rs`, `services/spotify_service.rs`)
+- ✅ Updated download queue for service awareness (gates non-Apple Music with "coming soon" message)
+- ✅ Renamed `commands/gamdl.rs` → `commands/download.rs`
+- ✅ Added per-service settings (`YouTubeSettings`, `BBCiPlayerSettings`, `SpotifySettings`)
+- ✅ Created multi-service URL parser (auto-detects Apple Music, YouTube, BBC iPlayer, Spotify)
+- ✅ Updated `DownloadForm` with service badges and "Coming Soon" for unimplemented services
+- ✅ Restructured Settings page with per-service sections
+- ✅ Added placeholder settings tabs for YouTube (`components/settings/tabs/YouTubeTab.tsx`), BBC iPlayer (`components/settings/tabs/BBCiPlayerTab.tsx`), Spotify (`components/settings/tabs/SpotifyTab.tsx`)
+- ✅ Updated `QueueItem` with service badge
+- ✅ Updated `WelcomeStep` for multi-service branding
+
+---
+
 ## 🔮 Future Roadmap
 
 ### Overview
 
-| Milestone | Version | Service | Backend Tool | Status |
-|-----------|---------|---------|-------------|--------|
-| Milestone 7 | v0.4.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
-| Milestone 8 | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
-| Milestone 9 | v0.6.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
+| Milestone | Version | Service / Feature | Backend Tool | Status |
+| --------- | ------- | ----------------- | ------------ | ------ |
+| Phase 7 | v0.4.0 | Multi-Service Architecture Prep | — | ✅ Complete |
+| Milestone 8 | v0.5.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
+| Milestone 9 | v0.6.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
+| Milestone 10 | v0.7.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
 | Future | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
 | Future | TBD | Integration API | Custom | 🔲 Planned |
 
-The architecture is designed with a `MusicService` trait pattern (`src-tauri/src/models/music_service.rs`) to support adding new platforms without restructuring the codebase. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime.
+The architecture uses a `MediaService` trait pattern (`src-tauri/src/models/media_service.rs`) with a service dispatch layer (`src-tauri/src/services/service_dispatch.rs`) to route downloads to the correct backend tool. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime. Per-service option models (`GamdlOptions`, `YtdlpOptions`, `VotifyOptions`, `GetIplayerOptions`) are unified under a `DownloadOptions` tagged enum (`src-tauri/src/models/download_options.rs`).
 
 ---
 
-### Milestone 7 — Spotify Support (v0.4.0)
+### Milestone 8 — Spotify Support (v0.5.0)
 
 **Status:** 🔲 Planned
 
-Spotify integration via [votify](https://github.com/glomatico/votify), a Python CLI tool by the same developer as GAMDL. Follows the identical subprocess pattern (`python -m votify ...`), making it the natural first service to add.
+Spotify integration via [votify](https://github.com/glomatico/votify), a Python CLI tool by the same developer as GAMDL. Follows the identical subprocess pattern (`python -m votify ...`), making it the natural first service to add. The multi-service architecture from Phase 7 provides the dispatch layer, stub service, settings tab, and URL detection — this milestone implements the actual download logic.
 
 #### Spotify Architecture Changes
 
-- Add `Spotify` variant to `MusicServiceId` enum
-- Update `url_domains()` to match `open.spotify.com`
-- Update `pip_package()` to return `"votify"`
-- Generalise download queue to route by `MusicServiceId` (currently hardcoded for GAMDL)
+- Implement `spotify_service.rs` stub with full votify CLI wrapper logic
+- Update `pip_package()` to return `"votify"` for the `Spotify` variant
+- Wire up `service_dispatch.rs` to route Spotify URLs to the votify service
 
 #### Spotify Backend
 
@@ -347,16 +373,15 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 ---
 
-### Milestone 8 — YouTube Support (v0.5.0)
+### Milestone 9 — YouTube Support (v0.6.0)
 
 **Status:** 🔲 Planned
 
-YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 9.
+YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 10. The multi-service architecture from Phase 7 provides the dispatch layer, stub service (`youtube_service.rs`), option model (`YtdlpOptions`), settings tab (`YouTubeTab.tsx`), and URL detection — this milestone implements the actual download logic.
 
 #### YouTube Architecture Changes
 
-- Add `YouTube` variant to `MusicServiceId` enum (or introduce a broader `MediaServiceId`)
-- Update `url_domains()` to match `youtube.com`, `youtu.be`, `music.youtube.com`
+- Implement `youtube_service.rs` stub with full yt-dlp CLI wrapper logic
 - yt-dlp is not a pip package in the same pattern as GAMDL/votify — it's a standalone binary (or pip-installable). Decide: pip install or binary download via dependency manager
 - Extend download queue to handle video-only, audio-only, and video+audio downloads
 
@@ -396,20 +421,19 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 ---
 
-### Milestone 9 — BBC iPlayer Support (v0.6.0)
+### Milestone 10 — BBC iPlayer Support (v0.7.0)
 
 **Status:** 🔲 Planned
 
-BBC iPlayer integration for downloading TV programmes, films, and radio shows. Reuses yt-dlp from Milestone 8 (which already supports BBC iPlayer) or uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as a dedicated alternative.
+BBC iPlayer integration for downloading TV programmes, films, and radio shows. Reuses yt-dlp from Milestone 9 (which already supports BBC iPlayer) or uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as a dedicated alternative. The multi-service architecture from Phase 7 provides the dispatch layer, stub service (`bbc_iplayer_service.rs`), option model (`GetIplayerOptions`), settings tab (`BBCiPlayerTab.tsx`), and URL detection — this milestone implements the actual download logic.
 
 **Important:** BBC iPlayer content is geographically restricted to the United Kingdom. Users outside the UK will need a VPN or BBC account with UK access.
 
 #### BBC iPlayer Architecture Changes
 
-- Add `BbcIPlayer` variant to `MusicServiceId` (or broader `MediaServiceId` if refactored in Milestone 8)
-- Update `url_domains()` to match `bbc.co.uk/iplayer`, `bbc.co.uk/sounds`
+- Implement `bbc_iplayer_service.rs` stub with full yt-dlp/get_iplayer CLI wrapper logic
 - Extend content type detection for TV-specific models (series, episodes, categories)
-- Consider renaming `MusicService` trait to `MediaService` to reflect non-music services
+- Reuse yt-dlp installation from Milestone 9 (YouTube)
 
 #### BBC iPlayer Backend
 
@@ -450,17 +474,19 @@ BBC iPlayer integration for downloading TV programmes, films, and radio shows. R
 
 These tasks span multiple milestones and should be addressed incrementally:
 
-- 🔲 **Multi-service download queue** — generalise `download_queue.rs` to dispatch to the correct CLI tool based on detected service
+- ✅ **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services *(Phase 7)*
+- ✅ **Multi-service download queue** — generalise `download_queue.rs` to dispatch to the correct CLI tool based on detected service via `service_dispatch.rs` *(Phase 7)*
+- ✅ **Per-service settings** — added `YouTubeSettings`, `BBCiPlayerSettings`, `SpotifySettings` structs with per-service settings tabs *(Phase 7)*
+- ✅ **Per-service option models** — `DownloadOptions` tagged enum with `GamdlOptions`, `YtdlpOptions`, `VotifyOptions`, `GetIplayerOptions` *(Phase 7)*
+- ✅ **Multi-service URL parser** — auto-detects Apple Music, YouTube, BBC iPlayer, Spotify URLs and routes to correct service *(Phase 7)*
 - 🔲 **Service registry** — dynamic service registration in `lib.rs` setup instead of hardcoded GAMDL references
-- 🔲 **Per-service settings** — migrate flat `AppSettings` to `Vec<ServiceConfig>` for per-service output paths, auth, and quality defaults
-- 🔲 **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services
-- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M8) and BBC iPlayer (M9); install once, share across services
+- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M9) and BBC iPlayer (M10); install once, share across services
 - 🔲 **Service-aware fallback chains** — each service defines its own quality fallback chain based on available codecs
 - 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)
 
 ---
 
-### Future (Beyond v0.6.0)
+### Future (Beyond v0.7.0)
 
 | Feature | Description | Status |
 |---------|-------------|--------|
@@ -486,10 +512,10 @@ None at this time.
 - **All dependencies are self-contained** in the app data directory — no system-wide installations
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
-- **yt-dlp is shared** between YouTube (M8) and BBC iPlayer (M9) — install once, configure per-service
+- **yt-dlp is shared** between YouTube (M9) and BBC iPlayer (M10) — install once, configure per-service
 
 ---
 
-*Last updated: 2026-02-16*
+*Last updated: 2026-02-20*
 
 (c) 2024-2026 MeedyaDL

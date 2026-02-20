@@ -2,32 +2,44 @@
  * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file SettingsPage.tsx -- Settings page container with 10-tab navigation.
+ * @file SettingsPage.tsx -- Settings page container with sectioned tab navigation.
  *
  * This is the top-level settings component rendered when the user navigates to
  * the "Settings" page via the application sidebar. It provides:
  *
- *   1. A **left sidebar** listing all 10 settings tabs with icons.
+ *   1. A **left sidebar** listing all settings tabs grouped by section.
  *   2. A **content area** on the right that renders the active tab's component.
  *   3. A **header bar** with "Reset" and "Save Changes" action buttons.
  *
- * ## 10-Tab Layout
+ * ## Sectioned Tab Layout
  *
- * The settings are organised into 10 categories, each implemented as a
- * separate React component inside the `./tabs/` directory:
+ * The settings are organised into service-based sections, each containing
+ * multiple tabs implemented as separate React components in `./tabs/`:
  *
+ * ### General
  * | Tab          | Component        | Purpose                                      |
  * |--------------|------------------|----------------------------------------------|
  * | General      | GeneralTab       | Output path, language, overwrite, auto-update |
+ * | Tools        | ToolsTab         | Tool status, install, path overrides          |
+ * | Advanced     | AdvancedTab      | Download mode, remux mode, wrapper config     |
+ *
+ * ### Apple Music
+ * | Tab          | Component        | Purpose                                      |
+ * |--------------|------------------|----------------------------------------------|
  * | Quality      | QualityTab       | Audio codec, video resolution, remux format   |
  * | Fallback     | FallbackTab      | Drag-to-reorder fallback chains               |
- * | Tools        | ToolsTab         | Tool status, install, path overrides          |
  * | Cookies      | CookiesTab       | Cookie file import and validation             |
  * | Lyrics       | LyricsTab        | Synced lyrics format preferences              |
  * | Cover Art    | CoverArtTab      | Cover art saving, format, and size            |
  * | Metadata     | MetadataTab      | AcousticID, ReplayGain, enrichment settings   |
  * | Templates    | TemplatesTab     | File/folder naming templates                  |
- * | Advanced     | AdvancedTab      | Download mode, remux mode, wrapper config     |
+ *
+ * ### YouTube / BBC iPlayer / Spotify (Coming Soon)
+ * | Tab          | Component        | Purpose                                      |
+ * |--------------|------------------|----------------------------------------------|
+ * | YouTube      | YouTubeTab       | Placeholder for yt-dlp settings               |
+ * | BBC iPlayer  | BBCiPlayerTab    | Placeholder for get_iplayer settings           |
+ * | Spotify      | SpotifyTab       | Placeholder for votify settings                |
  *
  * ## Active Tab State
  *
@@ -110,6 +122,11 @@ import { TemplatesTab } from './tabs/TemplatesTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { MetadataTab } from './tabs/MetadataTab';
 
+// Placeholder tabs for upcoming service integrations.
+import { YouTubeTab } from './tabs/YouTubeTab';
+import { BBCiPlayerTab } from './tabs/BBCiPlayerTab';
+import { SpotifyTab } from './tabs/SpotifyTab';
+
 /**
  * Shape of a single tab entry in the TABS configuration array.
  *
@@ -122,34 +139,51 @@ import { MetadataTab } from './tabs/MetadataTab';
  * @property component - The React functional component to render when this tab
  *                       is active. Receives no props; it reads state directly
  *                       from the settingsStore via Zustand selectors.
+ * @property section   - Optional section header displayed above this tab in
+ *                       the sidebar. When present, a non-clickable divider
+ *                       label is rendered before the tab button.
  */
 interface SettingsTab {
   id: string;
   label: string;
   icon: typeof SettingsIcon;
   component: React.FC;
+  section?: string;
 }
 
 /**
- * Static configuration array defining all 10 settings tabs in the order they
+ * Static configuration array defining all settings tabs in the order they
  * appear in the sidebar. The order here directly controls the visual layout.
  *
+ * Tabs are grouped into sections:
+ *   - GENERAL: General, Tools, Advanced
+ *   - APPLE MUSIC: Quality, Fallback, Cookies, Lyrics, Cover Art, Metadata, Templates
+ *   - YOUTUBE (Coming Soon): placeholder
+ *   - BBC iPLAYER (Coming Soon): placeholder
+ *   - SPOTIFY (Coming Soon): placeholder
+ *
  * Each entry maps a tab ID to its display properties (label, icon) and the
- * component that renders its settings form. All tab components follow the
- * same pattern: they read from `useSettingsStore` and call `updateSettings`
- * to mutate the shared settings state.
+ * component that renders its settings form.
  */
 const TABS: SettingsTab[] = [
-  { id: 'general', label: 'General', icon: SettingsIcon, component: GeneralTab },
-  { id: 'quality', label: 'Quality', icon: Music, component: QualityTab },
-  { id: 'fallback', label: 'Fallback', icon: ArrowDownUp, component: FallbackTab },
+  // General section
+  { id: 'general', label: 'General', icon: SettingsIcon, component: GeneralTab, section: 'General' },
   { id: 'tools', label: 'Tools', icon: Package, component: ToolsTab },
+  { id: 'advanced', label: 'Advanced', icon: Wrench, component: AdvancedTab },
+  // Apple Music section
+  { id: 'quality', label: 'Quality', icon: Music, component: QualityTab, section: 'Apple Music' },
+  { id: 'fallback', label: 'Fallback', icon: ArrowDownUp, component: FallbackTab },
   { id: 'cookies', label: 'Cookies', icon: Cookie, component: CookiesTab },
   { id: 'lyrics', label: 'Lyrics', icon: FileText, component: LyricsTab },
   { id: 'cover-art', label: 'Cover Art', icon: Image, component: CoverArtTab },
   { id: 'metadata', label: 'Metadata', icon: Tag, component: MetadataTab },
   { id: 'templates', label: 'Templates', icon: Code, component: TemplatesTab },
-  { id: 'advanced', label: 'Advanced', icon: Wrench, component: AdvancedTab },
+  // YouTube section (Coming Soon)
+  { id: 'youtube', label: 'YouTube', icon: Music, component: YouTubeTab, section: 'YouTube' },
+  // BBC iPlayer section (Coming Soon)
+  { id: 'bbc-iplayer', label: 'BBC iPlayer', icon: Music, component: BBCiPlayerTab, section: 'BBC iPlayer' },
+  // Spotify section (Coming Soon)
+  { id: 'spotify', label: 'Spotify', icon: Music, component: SpotifyTab, section: 'Spotify' },
 ];
 
 /**
@@ -287,25 +321,32 @@ export function SettingsPage() {
             to display all tabs (unlikely at 10 items, but defensive).
             ---------------------------------------------------------------- */}
         <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2 space-y-0.5">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`
-                w-full flex items-center gap-2.5 px-3 py-2
-                rounded-platform text-sm transition-colors
-                ${
-                  activeTab === id
-                    ? 'bg-accent-light text-accent font-medium'   /* Active tab styling */
-                    : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
-                }
-              `}
-            >
-              {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
-              <Icon size={16} className="flex-shrink-0" />
-              {/* Tab label text */}
-              {label}
-            </button>
+          {TABS.map(({ id, label, icon: Icon, section }) => (
+            <div key={id}>
+              {/* Section header -- rendered as a non-clickable divider label */}
+              {section && (
+                <div className="px-3 pt-3 pb-1 first:pt-0 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+                  {section}
+                </div>
+              )}
+              <button
+                onClick={() => setActiveTab(id)}
+                className={`
+                  w-full flex items-center gap-2.5 px-3 py-2
+                  rounded-platform text-sm transition-colors
+                  ${
+                    activeTab === id
+                      ? 'bg-accent-light text-accent font-medium'   /* Active tab styling */
+                      : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
+                  }
+                `}
+              >
+                {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
+                <Icon size={16} className="flex-shrink-0" />
+                {/* Tab label text */}
+                {label}
+              </button>
+            </div>
           ))}
         </nav>
 
