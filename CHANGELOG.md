@@ -10,12 +10,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Add multi-format lyrics support with companion downloads and update settings
 
+### 🐛 Bug Fixes
+
+- Fix macOS notarization failures by adding `--timestamp` codesign wrapper to CI workflows. Tauri's `tauri-macos-sign` crate omits the flag, causing non-deterministic failures. See [tauri#11992](https://github.com/tauri-apps/tauri/issues/11992).
+- Fix Linux compile error (`native-tls` v0.2.17 `non-exhaustive patterns`) by updating to v0.2.18
+- Fix Windows CI builds hanging indefinitely on GPAC MP4Box NSIS installer extraction. Use `7z` extraction instead of running the NSIS silent installer, which ignores `/S` and opens a GUI dialog.
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update quality settings and codec reliability information in documentation and UI
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Document Enhanced Apple Music (MusicKit) Integration future feature
+- Document macOS codesign, native-tls, and GPAC NSIS build issues in Dev_Notes
 
 ## [0.3.21] - 2026-02-18
 
