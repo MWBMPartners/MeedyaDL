@@ -236,6 +236,10 @@ Pre-release updates show an amber badge and disclaimer in the Update Banner. The
 **Cause**: The `TAURI_SIGNING_PRIVATE_KEY` GitHub secret hasn't been configured.
 **Fix**: Add the private key contents as a repository secret. See [Required GitHub Secrets](#required-github-secrets).
 
+### macOS "The signature does not include a secure timestamp"
+**Cause**: Tauri's `tauri-macos-sign` crate omits `--timestamp` from the `codesign` command. Without it, macOS uses a non-deterministic default that may or may not produce timestamps. Apple's notarization service requires secure timestamps on all code signatures, so builds can randomly fail.
+**Fix**: Both `release.yml` and `pre-release.yml` include a `codesign` wrapper step (Step 8.9) that injects `--timestamp` into every codesign invocation. The wrapper is installed to `$HOME/bin` and prepended to `$GITHUB_PATH` so it intercepts all calls before delegating to `/usr/bin/codesign`. This is a workaround for [tauri-apps/tauri#11992](https://github.com/tauri-apps/tauri/issues/11992) and can be removed once Tauri adds `--timestamp` natively. See also: [Apple: Resolving Common Notarization Issues](https://developer.apple.com/documentation/security/resolving-common-notarization-issues).
+
 ### macOS "Validate macOS signing secrets" failure
 **Cause**: One or more Apple signing secrets are missing.
 **Fix**: Configure all 6 Apple secrets in the repository settings.

@@ -6,11 +6,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🔧 Build
+
+- Fix macOS notarization failures by adding `--timestamp` codesign wrapper to CI workflows (`release.yml`, `pre-release.yml`). Tauri's `tauri-macos-sign` crate omits the `--timestamp` flag, causing non-deterministic Apple notarization failures. See [tauri#11992](https://github.com/tauri-apps/tauri/issues/11992).
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update HelpViewer.tsx with links for cookie export and Apple Developer keys
 - Update HelpViewer.tsx to clarify MusicKit key creation instructions
+- Document Enhanced Apple Music (MusicKit) Integration future feature in Dev_Notes, README, and Project_Plan
+- Document macOS codesign `--timestamp` workaround in Dev_Notes Common Build Issues
 
 ## [0.3.23] - 2026-02-22
 
