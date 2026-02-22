@@ -256,62 +256,62 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### Current (v0.3.22) <!-- x-release-please-version -->
+### v1.x — Current (v0.3.22) <!-- x-release-please-version -->
 
-- [x] Tauri 2.0 + React 19 foundation
-- [x] Platform-adaptive UI themes (macOS, Windows, Linux)
-- [x] Rust backend with IPC command system
-- [x] Dependency management (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box)
-- [x] CI/CD pipeline (GitHub Actions + release-please)
-- [x] Full download workflow with queue, fallback quality, and retry
-- [x] Settings UI with 10 configuration tabs
-- [x] First-run setup wizard (6 steps)
-- [x] In-app help viewer with 11 topics and search
-- [x] Cookie import with validation UI (step-by-step instructions, domain/expiry display)
-- [x] Browser cookie auto-import (detect installed browsers, extract cookies automatically)
-- [x] Built-in Apple Music login window (sign in directly, extract cookies from webview)
-- [x] Auto-update checker (GAMDL, app, Python) with notification banner
-- [x] System tray integration (show, status, updates, quit)
-- [x] Animated cover art download via Apple MusicKit API (FrontCover.mp4 / PortraitCover.mp4)
-- [x] Hidden animated artwork files (OS-level hidden attribute: macOS `chflags hidden`, Windows `attrib +H`, Linux `.` prefix)
-- [x] Configurable companion downloads (4 modes: Disabled, Atmos to Lossless, Atmos to Lossless+Lossy, Specialist to Lossy)
-- [x] Metadata enrichment (codec tags, source/channel tags, Apple Music API metadata, animated artwork URLs)
-- [x] AcousticID fingerprinting (opt-in, via embedded Chromaprint + acoustid.org API)
-- [x] ReplayGain loudness analysis (opt-in, via FFmpeg EBU R128 filter)
-- [x] Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
-- [x] Queue persistence and crash recovery (auto-save to disk, auto-resume on restart)
-- [x] Queue export/import (transfer queue between devices via `.meedyadl` files)
-- [x] Auto-start queue setting (toggle in Settings > General; when disabled, batch-add URLs then click "Start Queue")
-- [x] Configurable temp directory (Settings > Paths; defaults to `{OS temp}/MeedyaDL`)
-- [x] Fix --cover-size parameter (was passing WxH format instead of single integer to GAMDL)
-- [x] Expanded MusicKit documentation (6-step setup guide with Apple Developer portal navigation)
-- [x] Manual workflow dispatch (`workflow_dispatch` on all CI/CD workflows for conserving Actions minutes)
-- [x] Updates page with full release notes rendered as markdown (strips auto-update download section)
-- [x] i18n groundwork (i18next, OS language detection, language dropdown in Settings > General; English, German, French)
-- [x] Multi-service architecture prep (MediaService enum, service dispatch, URL auto-detection, per-service settings UI, stub services for YouTube/BBC iPlayer/Spotify)
-- [x] Remote service status kill switch (developer-controlled per-service enable/disable via remote config)
-- [x] Smart Download infrastructure (cross-platform quality tier comparison, Phase 1)
+- ✅ Tauri 2.0 + React 19 foundation
+- ✅ Platform-adaptive UI themes (macOS, Windows, Linux)
+- ✅ Rust backend with IPC command system
+- ✅ Dependency management with bundled installers and system PATH detection
+- ✅ CI/CD pipeline (GitHub Actions + release-please)
+- ✅ Full download workflow with queue, fallback quality, and retry
+- ✅ Settings UI with 10 configuration tabs
+- ✅ First-run setup wizard
+- ✅ In-app help viewer with 11 topics and search
+- ✅ Cookie import with validation UI (step-by-step instructions, domain/expiry display)
+- ✅ Browser cookie auto-import (detect installed browsers, extract cookies automatically)
+- ✅ Built-in Apple Music login window (sign in directly, extract cookies from webview)
+- ✅ Auto-update checker with notification banner
+- ✅ System tray integration (show, status, updates, quit)
+- ✅ Animated cover art download via MusicKit API
+- ✅ Hidden animated artwork files (OS-level hidden attribute)
+- ✅ Configurable companion downloads (4 modes: Disabled, Atmos to Lossless, Atmos to Lossless+Lossy, Specialist to Lossy)
+- ✅ Metadata enrichment (codec tags, source/channel tags, API metadata, animated artwork URLs)
+- ✅ AcousticID fingerprinting (opt-in, via embedded Chromaprint + acoustid.org API)
+- ✅ ReplayGain loudness analysis (opt-in)
+- ✅ Lyrics embed + sidecar (both embedded in file and saved as separate LRC/SRT/TTML)
+- ✅ Queue persistence and crash recovery (auto-save to disk, auto-resume on restart)
+- ✅ Queue export/import (transfer queue between devices via `.meedyadl` files)
+- ✅ Auto-start queue setting (toggle in Settings > General)
+- ✅ Configurable temp directory (Settings > Paths)
+- ✅ Updates page with full release notes rendered as markdown
+- ✅ i18n groundwork (OS language detection, language dropdown; English, German, French)
+- ✅ Multi-service architecture prep (service dispatch, URL auto-detection, per-service settings UI, stub services for YouTube/BBC iPlayer/Spotify)
+- ✅ Remote service status kill switch (developer-controlled per-service enable/disable via remote config)
+- ✅ Smart Download infrastructure (cross-platform quality tier comparison, Phase 1)
 
-### Planned Milestones
+### v2.x — Multi-Service Expansion
 
 | Milestone | Version | Service | Engine | Status |
 | --------- | ------- | ------- | ------ | ------ |
-| **M7** | v0.4.0 | Architecture Prep | — | Complete |
-| **M8** | v0.5.0 | Spotify | [votify](https://github.com/glomatico/votify) | Planned |
-| **M9** | v0.6.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Planned |
-| **M10** | v0.7.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Planned |
+| **M8** | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
+| **M9** | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
+| **M10** | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
 
-Each milestone adds a new media service behind the `MediaService` trait, with its own CLI subprocess engine, URL parser, settings tab, and help documentation. The multi-service architecture (M7) is already in place — service stubs, URL auto-detection, and per-service settings sections are ready. See [Project Plan](Project_Plan.md) for full milestone details.
+Each milestone adds a new media service with its own download engine, URL parser, settings tab, and help documentation. The multi-service architecture is already in place — service stubs, URL auto-detection, and per-service settings sections are ready. See [Project Plan](Project_Plan.md) for full milestone details.
 
-### Future (Beyond v0.7.0)
+### v3.x — Advanced Features
 
-- 🎵 **YouTube Music** via [gytmdl](https://github.com/glomatico/gytmdl) integration
-- 🔌 **Integration API** for third-party scripts and automation
-- 🌍 **Localization** (i18n) for multiple languages
-- 📊 **Download history** and statistics
-- 🎨 **Custom themes** and accent color picker
-- 🎚️ **Multi-track muxing** — combine companion downloads (Atmos + AC3 + AAC) into a single MP4 with multiple audio streams
-- 🍎 **Native SwiftUI UI for macOS** — replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance
+- 🔮 **Smart Download Phase 2** — cross-platform ISRC/UPC search to automatically find and download the best quality across all enabled services
+- 🔮 **YouTube Music** — dedicated support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond yt-dlp
+- 🔮 **Full localization** — complete multi-language UI (groundwork done: i18next infrastructure, EN/DE/FR locales)
+- 🔮 **Download history** and statistics dashboard
+
+### Future
+
+- 🔮 **Integration API** for third-party scripts and automation
+- 🔮 **Custom themes** and accent colour picker
+- 🔮 **Multi-track muxing** — combine companion downloads (Atmos + AC3 + AAC) into a single MP4 with multiple audio streams
+- 🔮 **Native SwiftUI UI for macOS** — replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface
 
 ---
 
