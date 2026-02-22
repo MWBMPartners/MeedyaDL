@@ -71,6 +71,8 @@ import type {
   DownloadRequest,
   PlatformInfo,
   QueueStatus,
+  ServiceStatusConfig,
+  SmartDownloadResult,
   UpdateCheckResult,
 } from '@/types';
 
@@ -761,4 +763,46 @@ export function downloadAnimatedArtwork(
   outputDir: string,
 ): Promise<ArtworkResult> {
   return invoke<ArtworkResult>('download_animated_artwork', { urls, outputDir });
+}
+
+// ============================================================
+// Service Status Commands (Remote Kill-Switch)
+// ============================================================
+
+/**
+ * Fetches the current service status configuration from the remote endpoint.
+ *
+ * The app calls this on launch and every 4 hours to check if any media
+ * service has been remotely disabled. Falls back to cached config on
+ * network failure, then to all-enabled default (fail-open design).
+ *
+ * **Rust handler:** `check_service_status` in `commands/service_status.rs`
+ *
+ * @returns The resolved service status configuration.
+ */
+export function checkServiceStatus(): Promise<ServiceStatusConfig> {
+  return invoke<ServiceStatusConfig>('check_service_status');
+}
+
+// ============================================================
+// Smart Download Commands (Cross-Platform Quality Optimization)
+// ============================================================
+
+/**
+ * Searches all enabled services for cross-platform matches of the given content.
+ *
+ * Returns matches ranked by quality tier so the user can pick the best
+ * download source. Called when a URL is pasted and Smart Download is enabled.
+ *
+ * **Rust handler:** `check_cross_platform` in `commands/smart_download.rs`
+ *
+ * @param url - The user's pasted URL.
+ * @param serviceId - The detected source service (PascalCase, e.g., "AppleMusic").
+ * @returns Cross-platform search results with quality rankings.
+ */
+export function checkCrossPlatform(
+  url: string,
+  serviceId: string,
+): Promise<SmartDownloadResult> {
+  return invoke<SmartDownloadResult>('check_cross_platform', { url, serviceId });
 }

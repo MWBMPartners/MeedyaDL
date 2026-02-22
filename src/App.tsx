@@ -96,6 +96,9 @@ import { useUpdateStore } from './stores/updateStore';
 /** Activity log: accumulates raw subprocess output lines */
 import { useActivityStore } from './stores/activityStore';
 
+/** Service status: remote kill-switch for per-service enable/disable */
+import { useServiceStatusStore } from './stores/serviceStatusStore';
+
 /* ─── Layout ─────────────────────────────────────────────────────────── */
 
 /**
@@ -133,7 +136,8 @@ import { SetupWizard } from './components/setup';
 
 /** LoadingSpinner: Animated spinner shown during async loading states */
 /** UpdateBanner: Dismissible banner shown when updates are available */
-import { LoadingSpinner, UpdateBanner } from './components/common';
+/** ServiceStatusBanner: Non-dismissible banners for remotely disabled services */
+import { LoadingSpinner, UpdateBanner, ServiceStatusBanner } from './components/common';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -262,6 +266,13 @@ function App() {
    * @see ./stores/updateStore.ts
    */
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
+
+  /*
+   * ─── Service Status Store Selector ─────────────────────────────────
+   * `checkStatus` fetches the remote service status config (kill-switch).
+   * @see ./stores/serviceStatusStore.ts
+   */
+  const checkServiceStatus = useServiceStatusStore((s) => s.checkStatus);
 
   /*
    * ─── Download Store Selectors ──────────────────────────────────────
@@ -486,6 +497,35 @@ function App() {
     /* Cleanup: unsubscribe from tray events on unmount */
     return () => unlistenTray?.();
   }, [isReady, checkForUpdates]);
+
+  /*
+   * ─── Effect 8: Service Status Check (Kill-Switch) ──────────────────
+   *
+   * Fetches the remote service status configuration on startup and then
+   * every 4 hours. This determines if any media service should be
+   * remotely disabled (e.g., due to API breakage or legal issues).
+   *
+   * The check is non-blocking and fail-open: if the endpoint is
+   * unreachable, the app falls back to cached status, then to
+   * all-services-enabled default.
+   *
+   * Dependencies: [isReady, checkServiceStatus]
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    // Check on startup
+    checkServiceStatus().catch(() => {
+      /* Non-fatal: silently ignore service status check failures */
+    });
+
+    // Re-check every 4 hours (4 * 60 * 60 * 1000 = 14,400,000 ms)
+    const interval = setInterval(() => {
+      checkServiceStatus().catch(() => {});
+    }, 4 * 60 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [isReady, checkServiceStatus]);
 
   /*
    * ─── Effect 5: GAMDL Progress Event Listener ──────────────────────
@@ -739,6 +779,7 @@ function App() {
   return (
     <MainLayout>
       <UpdateBanner />
+      <ServiceStatusBanner />
       {renderPage()}
     </MainLayout>
   );

@@ -1282,6 +1282,25 @@ pub fn process_queue(
         return;
     }
 
+    // Gate remotely disabled services: check the cached service status config.
+    // If the service has been killed via the remote kill-switch, reject immediately.
+    if !crate::services::service_dispatch::is_service_remotely_enabled(&service_id, &app) {
+        let error_msg = crate::services::service_dispatch::service_disabled_error(&service_id, &app);
+        log::info!("Download {} skipped (remotely disabled): {}", download_id, error_msg);
+        {
+            let mut q = queue.lock().await;
+            q.set_error(&download_id, &error_msg);
+            q.on_task_finished();
+        }
+        save_queue_to_disk(&app, &queue).await;
+        let _ = app.emit("download-error", serde_json::json!({
+            "download_id": download_id,
+            "error": error_msg,
+        }));
+        process_queue(app, queue).await;
+        return;
+    }
+
     // === Codec suffix: modify file templates for companion coexistence ===
     // When the companion mode would produce companions for this codec,
     // add a suffix to file naming templates so specialist format files

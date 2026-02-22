@@ -75,6 +75,8 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Search,
+  Zap,
 } from 'lucide-react';
 
 /**
@@ -86,6 +88,7 @@ import {
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useServiceStatusStore } from '@/stores/serviceStatusStore';
 
 /** Reusable UI primitives from the common component library. */
 import { Button, Select } from '@/components/common';
@@ -96,7 +99,7 @@ import { Button, Select } from '@/components/common';
  * @see MediaServiceId in @/types/index.ts   -- 'apple-music' | 'youtube' | ...
  * @see SongCodec in @/types/index.ts        -- 'alac' | 'atmos' | 'ac3' | ...
  */
-import type { MediaContentType, SongCodec, VideoResolution } from '@/types';
+import type { MediaContentType, MediaServiceId, SongCodec, VideoResolution, CrossPlatformMatch } from '@/types';
 
 /**
  * Human-readable label maps used to populate quality-override dropdowns
@@ -106,13 +109,14 @@ import type { MediaContentType, SongCodec, VideoResolution } from '@/types';
  * @see MEDIA_SERVICE_LABELS in @/types/index.ts      -- e.g., { youtube: 'YouTube' }
  * @see MEDIA_SERVICE_COLORS in @/types/index.ts      -- e.g., { youtube: '#ff0000' }
  */
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, MEDIA_SERVICE_LABELS, MEDIA_SERVICE_COLORS } from '@/types';
+import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, MEDIA_SERVICE_LABELS, MEDIA_SERVICE_COLORS, QUALITY_TIER_LABELS } from '@/types';
 
 /**
  * URL parser helpers for human-readable content type labels.
  * @see getContentTypeLabel in @/lib/url-parser.ts
  */
-import { getContentTypeLabel } from '@/lib/url-parser';
+import { getContentTypeLabel, getServiceLabel } from '@/lib/url-parser';
+import { checkCrossPlatform } from '@/lib/tauri-commands';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -237,6 +241,16 @@ export function DownloadForm() {
    */
   const [showOverrides, setShowOverrides] = useState(false);
 
+  /** Smart Download state: whether the panel is expanded. */
+  const [showSmartDownload, setShowSmartDownload] = useState(false);
+  /** Smart Download state: loading indicator while searching cross-platform. */
+  const [smartDownloadLoading, setSmartDownloadLoading] = useState(false);
+  /** Smart Download state: cross-platform match results (null = not yet searched). */
+  const [smartDownloadMatches, setSmartDownloadMatches] = useState<CrossPlatformMatch[] | null>(null);
+
+  /** Whether Smart Download is enabled in settings. */
+  const smartDownloadEnabled = useSettingsStore((s) => s.settings.smart_download_enabled);
+
   // ---------------------------------------------------------------
   // Event handlers
   // ---------------------------------------------------------------
@@ -274,6 +288,48 @@ export function DownloadForm() {
     }
   };
 
+  /**
+   * Map from PascalCase service IDs (as used in Rust/JSON) to the
+   * kebab-case MediaServiceId used by the frontend. Needed because
+   * the Smart Download results use PascalCase keys.
+   */
+  const SERVICE_KEY_TO_ID: Record<string, string> = {
+    AppleMusic: 'apple-music',
+    YouTube: 'youtube',
+    BBCiPlayer: 'bbc-iplayer',
+    Spotify: 'spotify',
+  };
+
+  /**
+   * Map from kebab-case MediaServiceId to the PascalCase key used
+   * by the Rust backend's Smart Download command.
+   */
+  const SERVICE_ID_TO_KEY: Record<string, string> = {
+    'apple-music': 'AppleMusic',
+    youtube: 'YouTube',
+    'bbc-iplayer': 'BBCiPlayer',
+    spotify: 'Spotify',
+  };
+
+  /**
+   * Handles the "Check other platforms" action in the Smart Download panel.
+   * Calls the Rust `check_cross_platform` command and updates the local state.
+   */
+  const handleSmartDownloadCheck = async () => {
+    if (!detectedServiceId || !urlIsValid) return;
+    setSmartDownloadLoading(true);
+    setSmartDownloadMatches(null);
+    try {
+      const serviceKey = SERVICE_ID_TO_KEY[detectedServiceId] || detectedServiceId;
+      const result = await checkCrossPlatform(urlInput, serviceKey);
+      setSmartDownloadMatches(result.matches);
+    } catch {
+      addToast('Smart Download check failed', 'error');
+    } finally {
+      setSmartDownloadLoading(false);
+    }
+  };
+
   // ---------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------
@@ -302,6 +358,15 @@ export function DownloadForm() {
    * Non-Apple Music services show a "Coming Soon" indicator.
    */
   const isServiceImplemented = detectedServiceId === 'apple-music';
+
+  /**
+   * Whether the detected service has been remotely disabled via the kill-switch.
+   * Reads from the serviceStatusStore (populated on app launch + every 4 hours).
+   */
+  const isServiceDisabled = useServiceStatusStore((s) => s.isServiceDisabled);
+  const getServiceMessage = useServiceStatusStore((s) => s.getServiceMessage);
+  const isDetectedServiceDisabled = detectedServiceId ? isServiceDisabled(detectedServiceId) : false;
+  const disabledMessage = detectedServiceId ? getServiceMessage(detectedServiceId) : null;
 
   /**
    * Transform the `SONG_CODEC_LABELS` record into an array of
@@ -440,16 +505,22 @@ export function DownloadForm() {
               variant="primary"
               icon={<Plus size={16} />}
               loading={isSubmitting}
-              disabled={!urlIsValid || !isServiceImplemented}
+              disabled={!urlIsValid || !isServiceImplemented || isDetectedServiceDisabled}
               onClick={handleSubmit}
             >
-              {urlIsValid && !isServiceImplemented ? 'Coming Soon' : 'Add to Queue'}
+              {urlIsValid && isDetectedServiceDisabled
+                ? 'Unavailable'
+                : urlIsValid && !isServiceImplemented
+                  ? 'Coming Soon'
+                  : 'Add to Queue'}
             </Button>
           </div>
 
           {/*
            * Validation feedback messages (mutually exclusive):
            *  - Red error text when the input has text but URL is invalid.
+           *  - Amber warning when the service is remotely disabled.
+           *  - Amber warning when the service is not yet implemented.
            *  - Grey helper text when the input is empty (shows supported types).
            */}
           {urlInput && !urlIsValid && (
@@ -457,7 +528,12 @@ export function DownloadForm() {
               Please enter a valid URL from Apple Music, YouTube, Spotify, or BBC iPlayer
             </p>
           )}
-          {urlIsValid && !isServiceImplemented && detectedServiceId && (
+          {urlIsValid && isDetectedServiceDisabled && detectedServiceId && (
+            <p className="text-xs text-status-warning">
+              {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are temporarily unavailable.{disabledMessage ? ` ${disabledMessage}` : ''}
+            </p>
+          )}
+          {urlIsValid && !isDetectedServiceDisabled && !isServiceImplemented && detectedServiceId && (
             <p className="text-xs text-status-warning">
               {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are coming soon
             </p>
@@ -580,6 +656,97 @@ export function DownloadForm() {
                 >
                   Clear overrides
                 </Button>
+              )}
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* =========================================================
+         * Section 3: Smart Download (collapsible, all services)
+         * =========================================================
+         * When enabled in settings, shows a panel that searches all
+         * enabled services for the same content and compares quality.
+         * Only visible when a valid URL is detected and Smart Download
+         * is enabled.
+         */}
+        {smartDownloadEnabled && urlIsValid && detectedServiceId && isServiceImplemented && !isDetectedServiceDisabled && (
+        <div className="rounded-platform border border-border-light">
+          <button
+            onClick={() => setShowSmartDownload(!showSmartDownload)}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Zap size={14} className="text-accent" />
+              Smart Download
+              <span className="text-content-tertiary text-xs">
+                (compare quality across platforms)
+              </span>
+            </span>
+            {showSmartDownload ? (
+              <ChevronUp size={16} />
+            ) : (
+              <ChevronDown size={16} />
+            )}
+          </button>
+
+          {showSmartDownload && (
+            <div className="px-4 pb-4 space-y-3 border-t border-border-light pt-4">
+              {/* Check button */}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Search size={14} />}
+                loading={smartDownloadLoading}
+                onClick={handleSmartDownloadCheck}
+              >
+                Check other platforms
+              </Button>
+
+              {/* Results list */}
+              {smartDownloadMatches && smartDownloadMatches.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-content-tertiary font-medium">
+                    Available quality by platform:
+                  </p>
+                  {smartDownloadMatches.map((match, i) => {
+                    const kebabId = SERVICE_KEY_TO_ID[match.service_id] || match.service_id;
+                    const isOriginal = match.match_method === 'original';
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-center justify-between p-2.5 rounded-md text-sm ${
+                          isOriginal ? 'bg-accent-light/50' : 'bg-surface-secondary'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-content-primary">
+                            {getServiceLabel(kebabId as MediaServiceId)}
+                          </span>
+                          {isOriginal && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent font-medium">
+                              Current
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-surface-tertiary text-content-secondary font-medium">
+                          {QUALITY_TIER_LABELS[match.best_quality] || match.best_quality}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {smartDownloadMatches.length <= 1 && (
+                    <p className="text-xs text-content-tertiary italic">
+                      Cross-platform matching will find more results as additional services are implemented.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {smartDownloadMatches && smartDownloadMatches.length === 0 && (
+                <p className="text-xs text-content-tertiary">
+                  No cross-platform matches found.
+                </p>
               )}
             </div>
           )}

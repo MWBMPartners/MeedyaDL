@@ -92,3 +92,18 @@ pub mod votify_options;
 /// Defines `GetIplayerOptions` which maps get_iplayer CLI flags to typed
 /// Rust fields.
 pub mod get_iplayer_options;
+
+/// Remote service status models for the kill-switch system.
+///
+/// Defines `ServiceStatusConfig` and `ServiceStatusEntry` which represent
+/// the remote JSON configuration controlling per-service enable/disable
+/// flags. Fetched from GitHub on launch and every 4 hours.
+pub mod service_status;
+
+/// Content matching models for the cross-platform Smart Download feature.
+///
+/// Defines `ContentIdentifiers` (ISRC, UPC, title/artist for matching),
+/// `QualityTier` (normalised cross-platform quality ranking), `CrossPlatformMatch`
+/// (a single service's match result), and `SmartDownloadResult` (the complete
+/// search result returned to the frontend).
+pub mod content_match;

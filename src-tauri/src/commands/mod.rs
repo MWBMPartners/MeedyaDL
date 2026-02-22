@@ -94,3 +94,17 @@ pub mod login_window;
 /// cover art from Apple Music for a specific album. Delegates to
 /// `services::animated_artwork_service` for the actual API query and download.
 pub mod artwork;
+
+/// Service status commands (remote kill-switch).
+///
+/// Provides `check_service_status` for fetching the remote configuration
+/// that controls per-service enable/disable flags. Delegates to
+/// `services::service_status`.
+pub mod service_status;
+
+/// Smart Download commands (cross-platform quality optimization).
+///
+/// Provides `check_cross_platform` for searching all enabled services
+/// for the same content and ranking matches by quality tier. Delegates
+/// to `services::smart_download`.
+pub mod smart_download;

@@ -238,6 +238,10 @@ pub fn run() {
             commands::login_window::close_apple_login,
             // Animated artwork download command
             commands::artwork::download_animated_artwork,
+            // Service status (remote kill-switch) command
+            commands::service_status::check_service_status,
+            // Smart Download (cross-platform quality optimization) command
+            commands::smart_download::check_cross_platform,
         ])
 
         // ---------------------------------------------------------------

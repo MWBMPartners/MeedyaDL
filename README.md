@@ -52,6 +52,11 @@
 - **Windows** — Fluent Design System with Mica/Acrylic effects
 - **Linux** — Adwaita-inspired styling for GNOME integration
 
+### 🛡️ Service Management
+
+- **Remote service status (kill switch)** — developers can remotely enable/disable media services; the app checks on startup and every 4 hours with fail-open design
+- **Smart Download** (opt-in) — cross-platform quality comparison showing available quality tiers (Lossy 128kbps → Dolby Atmos) for detected services; future phases will auto-find best quality across all platforms
+
 ### ⚙️ Quality of Life
 - **Auto-update checking** — stay on the latest version with full release notes in the Updates page
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
@@ -284,6 +289,8 @@ refactor(backend): simplify dependency management
 - [x] Updates page with full release notes rendered as markdown (strips auto-update download section)
 - [x] i18n groundwork (i18next, OS language detection, language dropdown in Settings > General; English, German, French)
 - [x] Multi-service architecture prep (MediaService enum, service dispatch, URL auto-detection, per-service settings UI, stub services for YouTube/BBC iPlayer/Spotify)
+- [x] Remote service status kill switch (developer-controlled per-service enable/disable via remote config)
+- [x] Smart Download infrastructure (cross-platform quality tier comparison, Phase 1)
 
 ### Planned Milestones
 

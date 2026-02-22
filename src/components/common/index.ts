@@ -128,3 +128,9 @@ export { ProgressBar } from './ProgressBar';
  * Rendered in App.tsx above the main content area.
  */
 export { UpdateBanner } from './UpdateBanner';
+
+/**
+ * Non-dismissible banners for remotely disabled services and global announcements.
+ * Rendered in MainLayout below the UpdateBanner.
+ */
+export { ServiceStatusBanner } from './ServiceStatusBanner';
