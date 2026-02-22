@@ -75,16 +75,13 @@ pub async fn check_cross_platform(
 
     // Build the result with the original service's quality as a baseline
     let original_quality = get_service_quality_tier(&service_id, &settings);
-    let mut matches = Vec::new();
-
-    // Add the original service as the first "match" (self-match)
-    matches.push(CrossPlatformMatch {
+    let matches = vec![CrossPlatformMatch {
         service_id,
         url: url.to_string(),
         best_quality: original_quality,
         match_confidence: 1.0,
         match_method: "original".to_string(),
-    });
+    }];
 
     // Phase 1: Return early — cross-platform search is not yet implemented.
     // When services are implemented, this is where we'd:
@@ -139,7 +136,7 @@ pub fn get_service_quality_tier(
             // Map Spotify's Ogg Vorbis quality settings
             match settings.services.spotify.audio_quality.as_str() {
                 "vorbis-high" => QualityTier::Lossy256,
-                "vorbis-medium" | _ => QualityTier::Lossy128,
+                _ => QualityTier::Lossy128,
             }
         }
         MediaServiceId::YouTube => {

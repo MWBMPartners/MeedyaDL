@@ -301,13 +301,13 @@ impl DownloadQueue {
         // while keeping the global output path from settings.
         let merged_options = merge_options(request.options.as_ref(), settings);
 
-        let service_id = request.service_id.clone();
+        let service_id = request.service_id;
 
         let item = QueueItem {
             status: QueueItemStatus {
                 id: download_id.clone(),
                 urls: request.urls.clone(),
-                service_id: service_id.clone(),
+                service_id,
                 state: DownloadState::Queued,
                 progress: 0.0,
                 current_track: None,
@@ -630,7 +630,7 @@ impl DownloadQueue {
             item.status.id.clone(),
             item.status.urls.clone(),
             item.merged_options.clone(),
-            item.service_id.clone(),
+            item.service_id,
         ))
     }
 
@@ -719,7 +719,7 @@ impl DownloadQueue {
             })
             .map(|item| PersistedQueueItem {
                 id: item.status.id.clone(),
-                service_id: item.service_id.clone(),
+                service_id: item.service_id,
                 request: item.request.clone(),
                 created_at: item.status.created_at.clone(),
             })
@@ -751,7 +751,7 @@ impl DownloadQueue {
                 status: QueueItemStatus {
                     id: p.id.clone(),
                     urls: p.request.urls.clone(),
-                    service_id: p.service_id.clone(),
+                    service_id: p.service_id,
                     state: DownloadState::Queued,
                     progress: 0.0,
                     current_track: None,
@@ -808,7 +808,7 @@ impl DownloadQueue {
             })
             .map(|item| ExportedItem {
                 urls: item.request.urls.clone(),
-                service_id: item.service_id.clone(),
+                service_id: item.service_id,
                 options: item.request.options.clone(),
             })
             .collect()
