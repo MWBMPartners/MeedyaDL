@@ -302,6 +302,7 @@ Each milestone adds a new media service with its own download engine, URL parser
 ### v3.x — Advanced Features
 
 - 🔮 **Smart Download Phase 2** — cross-platform ISRC/UPC search to automatically find and download the best quality across all enabled services
+- 🔮 **Enhanced Apple Music (MusicKit) Integration** — server-side token generation via MeedyaDL API, removing the requirement for users to provide their own Apple Developer credentials for animated artwork and metadata enrichment
 - 🔮 **YouTube Music** — dedicated support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond yt-dlp
 - 🔮 **Full localization** — complete multi-language UI (groundwork done: i18next infrastructure, EN/DE/FR locales)
 - 🔮 **Download history** and statistics dashboard

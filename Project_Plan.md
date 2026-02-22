@@ -323,6 +323,7 @@ Prepares the codebase for YouTube, BBC iPlayer, and Spotify support by refactori
 | Milestone 9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
 | Milestone 10 | v2.2.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
 | Future | v3.x | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
+| Future | v2.x/v3.x | Enhanced MusicKit Integration | Server-side token API | 🔲 Planned |
 | Future | v3.x | Integration API | Custom | 🔲 Planned |
 
 The architecture uses a `MediaService` trait pattern (`src-tauri/src/models/media_service.rs`) with a service dispatch layer (`src-tauri/src/services/service_dispatch.rs`) to route downloads to the correct backend tool. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime. Per-service option models (`GamdlOptions`, `YtdlpOptions`, `VotifyOptions`, `GetIplayerOptions`) are unified under a `DownloadOptions` tagged enum (`src-tauri/src/models/download_options.rs`).
@@ -493,6 +494,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 | Feature | Description | Status |
 |---------|-------------|--------|
 | **Smart Download Phase 2** | Cross-platform ISRC/UPC search to automatically find and download the best quality across all enabled services | 🔲 Planned |
+| **Enhanced Apple Music (MusicKit) Integration** | Server-side MusicKit token generation via MWBM Partners API (or Cloudflare Workers initially), removing the requirement for users to provide their own Apple Developer credentials. Dual-mode fallback: server token (default) + user-provided key (advanced). See [Dev_Notes.md](Dev_Notes.md#enhanced-apple-music-musickit-integration--future-feature) for full architecture and Apple policy analysis | 🔲 Planned |
 | **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔲 Planned |
 | **Full Localization (i18n)** | Complete multi-language UI support (groundwork laid: i18next + react-i18next, en/de/fr locales, Settings > General language dropdown, OS auto-detection) | 🟡 Groundwork Done |
 | **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
