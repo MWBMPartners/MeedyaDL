@@ -84,7 +84,12 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
     // check_all_updates() runs all component checks concurrently and
     // aggregates the results. Individual check failures are captured
     // per-component rather than failing the entire operation.
-    let result = update_checker::check_all_updates(&app, settings.check_pre_releases).await;
+    let result = update_checker::check_all_updates(
+        &app,
+        settings.check_pre_releases,
+        settings.prefer_stable_rollback,
+    )
+    .await;
 
     // Log the result for debugging — list components with available updates
     if result.has_updates {
@@ -167,7 +172,12 @@ pub async fn check_component_update(
     // Load settings for the pre-release preference, then run all update checks
     // (currently no way to check individual components independently)
     let settings = config_service::load_settings(&app).unwrap_or_default();
-    let result = update_checker::check_all_updates(&app, settings.check_pre_releases).await;
+    let result = update_checker::check_all_updates(
+        &app,
+        settings.check_pre_releases,
+        settings.prefer_stable_rollback,
+    )
+    .await;
 
     // Find the component whose name contains the search string (case-insensitive).
     // into_iter() consumes the Vec, avoiding cloning the ComponentUpdate structs.

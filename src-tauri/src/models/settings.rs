@@ -199,6 +199,13 @@ pub struct AppSettings {
     #[serde(default)]
     pub check_pre_releases: bool,
 
+    /// When running a pre-release version, prefer rolling back to the latest
+    /// stable release instead of checking for newer pre-releases. When enabled,
+    /// update checks will offer the latest stable release as a rollback target
+    /// even if it has a lower version number than the current pre-release.
+    #[serde(default)]
+    pub prefer_stable_rollback: bool,
+
     /// Whether to start processing the download queue immediately when items
     /// are enqueued. When `true` (the default), downloads begin as soon as
     /// a concurrency slot is available. When `false`, items are added in
@@ -729,6 +736,9 @@ impl Default for AppSettings {
             // Only show stable releases by default. Pre-releases may have
             // incomplete features or bugs and are for testers/developers.
             check_pre_releases: false,
+            // Do not offer stable rollback by default. Users must explicitly
+            // opt in to rolling back from a pre-release to a stable version.
+            prefer_stable_rollback: false,
             // Auto-start queue processing by default so downloads begin
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
