@@ -123,6 +123,7 @@ Architectural changes planned across milestones:
 ### Future Ideas
 
 - **Native SwiftUI UI for macOS** — replace the web-based Tauri frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance (no target version)
+- **Enhanced Apple Music (MusicKit) Integration** — server-side token generation via MeedyaDL API (Cloudflare Workers initially, internal API long-term), removing the requirement for users to provide their own Apple Developer credentials. Apple DPLA Sections 2.1/2.8 prohibit embedding `.p8` private keys in distributed apps. Target: v2.x/v3.x. See `Dev_Notes.md` for architecture details.
 
 ## Build Targets
 
@@ -156,3 +157,4 @@ cargo tauri build    # Build release binary
 - CSP in `tauri.conf.json` must include `connect-src ipc: http://ipc.localhost` for IPC
 - Vite build config uses `TAURI_ENV_PLATFORM` for platform-specific JS targets (safari13 / chrome105)
 - `devtools` Cargo feature enabled for WebView inspection in release builds
+- **macOS codesign `--timestamp` workaround**: Tauri's `tauri-macos-sign` crate omits `--timestamp` from `codesign` calls, causing non-deterministic notarization failures ([tauri#11992](https://github.com/tauri-apps/tauri/issues/11992)). Both `release.yml` and `pre-release.yml` include a PATH-based wrapper script (Step 8.9) that intercepts `/usr/bin/codesign` and injects `--timestamp` automatically. Remove the wrapper once the upstream Tauri fix lands.

@@ -334,6 +334,33 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Step 8.9: Fix macOS codesign secure timestamp.
+      # Tauri's tauri-macos-sign crate omits --timestamp from the codesign command,
+      # causing Apple's notarization service to reject signatures with:
+      #   "The signature does not include a secure timestamp."
+      # Apple requires --timestamp for all notarizable binaries:
+      #   https://developer.apple.com/documentation/security/resolving-common-notarization-issues
+      #
+      # This workaround installs a codesign wrapper that injects --timestamp into
+      # every codesign invocation. It can be removed once Tauri adds --timestamp
+      # natively (tracked upstream: https://github.com/tauri-apps/tauri/issues/11992).
+      - name: Fix macOS codesign secure timestamp
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/codesign" << 'WRAPPER'
+          #!/bin/bash
+          # Wrapper: injects --timestamp into codesign for Apple notarization.
+          # See: https://github.com/tauri-apps/tauri/issues/11992
+          REAL=/usr/bin/codesign
+          for arg in "$@"; do
+            [ "$arg" = "--timestamp" ] && exec "$REAL" "$@"
+          done
+          exec "$REAL" --timestamp "$@"
+          WRAPPER
+          chmod +x "$HOME/bin/codesign"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
       # Step 9: Validate required Apple signing/notarization secrets on macOS.
       # Keeps failures explicit and prevents accidentally publishing unsigned
       # macOS binaries when secret configuration is incomplete.
