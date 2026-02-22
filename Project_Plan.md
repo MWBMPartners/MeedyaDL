@@ -319,17 +319,17 @@ Prepares the codebase for YouTube, BBC iPlayer, and Spotify support by refactori
 | Milestone | Version | Service / Feature | Backend Tool | Status |
 | --------- | ------- | ----------------- | ------------ | ------ |
 | Phase 7 | v0.4.0 | Multi-Service Architecture Prep | — | ✅ Complete |
-| Milestone 8 | v0.5.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
-| Milestone 9 | v0.6.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
-| Milestone 10 | v0.7.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
-| Future | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
-| Future | TBD | Integration API | Custom | 🔲 Planned |
+| Milestone 8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
+| Milestone 9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
+| Milestone 10 | v2.2.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
+| Future | v3.x | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
+| Future | v3.x | Integration API | Custom | 🔲 Planned |
 
 The architecture uses a `MediaService` trait pattern (`src-tauri/src/models/media_service.rs`) with a service dispatch layer (`src-tauri/src/services/service_dispatch.rs`) to route downloads to the correct backend tool. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime. Per-service option models (`GamdlOptions`, `YtdlpOptions`, `VotifyOptions`, `GetIplayerOptions`) are unified under a `DownloadOptions` tagged enum (`src-tauri/src/models/download_options.rs`).
 
 ---
 
-### Milestone 8 — Spotify Support (v0.5.0)
+### Milestone 8 — Spotify Support (v2.0.0)
 
 **Status:** 🔲 Planned
 
@@ -375,7 +375,7 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 ---
 
-### Milestone 9 — YouTube Support (v0.6.0)
+### Milestone 9 — YouTube Support (v2.1.0)
 
 **Status:** 🔲 Planned
 
@@ -423,7 +423,7 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 ---
 
-### Milestone 10 — BBC iPlayer Support (v0.7.0)
+### Milestone 10 — BBC iPlayer Support (v2.2.0)
 
 **Status:** 🔲 Planned
 
@@ -488,17 +488,23 @@ These tasks span multiple milestones and should be addressed incrementally:
 
 ---
 
-### Future (Beyond v0.7.0)
+### v3.x — Advanced Features
 
 | Feature | Description | Status |
 |---------|-------------|--------|
+| **Smart Download Phase 2** | Cross-platform ISRC/UPC search to automatically find and download the best quality across all enabled services | 🔲 Planned |
 | **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔲 Planned |
-| **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔲 Planned |
-| **Localization (i18n)** | Multi-language UI support (groundwork laid: i18next + react-i18next, en/de/fr locales, Settings > General language dropdown, OS auto-detection) | 🟡 Groundwork Done |
+| **Full Localization (i18n)** | Complete multi-language UI support (groundwork laid: i18next + react-i18next, en/de/fr locales, Settings > General language dropdown, OS auto-detection) | 🟡 Groundwork Done |
 | **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
+
+### Future (Beyond v3.x)
+
+| Feature | Description | Status |
+| ------- | ----------- | ------ |
+| **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔲 Planned |
 | **Custom themes** | User-defined accent colours and theme presets | 🔲 Planned |
 | **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback. Power-user option — requires player support for MP4 alternate audio tracks (standard for video, limited for music players) | 🔲 Planned |
-| **Native SwiftUI UI for macOS** | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | 🔲 Idea |
+| **Native SwiftUI UI for macOS** | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | 🔮 Long-term |
 
 ---
 
