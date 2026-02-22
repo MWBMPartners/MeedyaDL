@@ -55,6 +55,9 @@
  * @see {@link https://v2.tauri.app/}      -- Tauri 2.0 framework
  */
 
+// React useEffect for auto-advancing past completed steps on mount.
+import { useEffect, useRef } from 'react';
+
 // Zustand stores: setupStore manages the wizard state machine;
 // SETUP_STEPS is the ordered array of step identifiers.
 import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
@@ -62,6 +65,9 @@ import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
 // uiStore provides setShowSetupWizard to dismiss the wizard overlay.
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+
+// Dependency store for reading installed status of Python/GAMDL/tools.
+import { useDependencyStore } from '@/stores/dependencyStore';
 
 // Shared Button component for the navigation bar.
 import { Button } from '@/components/common';
@@ -129,6 +135,10 @@ export function SetupWizard() {
   const nextStep = useSetupStore((s) => s.nextStep);
   /** Returns to the previous step */
   const prevStep = useSetupStore((s) => s.prevStep);
+  /** Jumps directly to a specific step by name */
+  const goToStep = useSetupStore((s) => s.goToStep);
+  /** Marks a specific step as completed */
+  const completeStep = useSetupStore((s) => s.completeStep);
   /** Marks the entire setup as complete (persisted to disk) */
   const finishSetup = useSetupStore((s) => s.finishSetup);
 
@@ -139,6 +149,47 @@ export function SetupWizard() {
   // --- Zustand settingsStore selectors ---
   /** Persists setup_completed flag to settings JSON on disk */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  // --- Auto-advance effect for bundled deps ---
+  /**
+   * On mount, checks if Python/GAMDL/tools are already installed (from
+   * bundled dependency extraction) and auto-advances the wizard to the
+   * first incomplete step. This provides a smooth UX when dependencies
+   * were pre-bundled in the installer: Welcome → Cookies → Done.
+   *
+   * Uses a ref to ensure this only runs once (on mount), not on every
+   * render caused by step changes.
+   */
+  const hasAutoAdvanced = useRef(false);
+  useEffect(() => {
+    if (hasAutoAdvanced.current) return;
+    hasAutoAdvanced.current = true;
+
+    const depState = useDependencyStore.getState();
+    const pythonReady = !!depState.python?.installed;
+    const gamdlReady = !!depState.gamdl?.installed;
+    const requiredTools = depState.tools.filter((t) => t.required);
+    const toolsReady = requiredTools.length > 0 && requiredTools.every((t) => t.installed);
+
+    // Mark already-completed steps so the progress bar shows checkmarks
+    completeStep('welcome');
+    if (pythonReady) completeStep('python');
+    if (gamdlReady) completeStep('gamdl');
+    if (toolsReady) completeStep('dependencies');
+
+    // Auto-advance to the first incomplete step
+    if (pythonReady && gamdlReady && toolsReady) {
+      // All deps ready (bundled install) — jump to cookies step
+      goToStep('cookies');
+    } else if (pythonReady && gamdlReady) {
+      // Python + GAMDL ready but tools missing — jump to tools step
+      goToStep('dependencies');
+    } else if (pythonReady) {
+      // Python ready but GAMDL missing — jump to GAMDL step
+      goToStep('gamdl');
+    }
+    // Otherwise stay on welcome (default)
+  }, [completeStep, goToStep]);
 
   /**
    * Resolve the React component for the current step via the static

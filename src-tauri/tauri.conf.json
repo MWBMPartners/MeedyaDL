@@ -43,9 +43,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../help/*"
-    ],
+    "resources": {
+      "../help/*": "help/",
+      "bundled-deps/**/*": "bundled-deps/"
+    },
     "createUpdaterArtifacts": true,
     "copyright": "Copyright (c) 2024-2026 MeedyaDL",
     "category": "Utility",

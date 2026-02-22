@@ -23,14 +23,15 @@
 //
 // ## Frontend Mapping (src/lib/tauri-commands.ts)
 //
-// | Rust Command             | TypeScript Function         | Line |
-// |--------------------------|-----------------------------|------|
-// | check_python_status      | checkPythonStatus()         | ~41  |
-// | install_python           | installPython()             | ~46  |
-// | check_gamdl_status       | checkGamdlStatus()          | ~51  |
-// | install_gamdl            | installGamdl()              | ~56  |
-// | check_all_dependencies   | checkAllDependencies()      | ~61  |
-// | install_dependency       | installDependency(name)     | ~66  |
+// | Rust Command                     | TypeScript Function                | Line |
+// |----------------------------------|------------------------------------|------|
+// | check_python_status              | checkPythonStatus()                | ~41  |
+// | install_python                   | installPython()                    | ~46  |
+// | check_gamdl_status               | checkGamdlStatus()                | ~51  |
+// | install_gamdl                    | installGamdl()                    | ~56  |
+// | check_all_dependencies           | checkAllDependencies()             | ~61  |
+// | install_dependency               | installDependency(name)            | ~66  |
+// | extract_bundled_deps_if_needed   | extractBundledDepsIfNeeded()       | ~71  |
 //
 // ## References
 //
@@ -48,7 +49,8 @@ use tauri::AppHandle;
 //   (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) from platform-specific URLs.
 // gamdl_service: manages the GAMDL Python package (install, version check, update).
 // python_manager: manages the portable Python runtime (download, install, verify).
-use crate::services::{dependency_manager, gamdl_service, python_manager};
+// bundled_deps_service: handles first-launch extraction of CI-bundled dependencies.
+use crate::services::{bundled_deps_service, dependency_manager, gamdl_service, python_manager};
 
 /// Status information for a single dependency (Python, GAMDL, or tool).
 ///
@@ -300,4 +302,37 @@ pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, 
     // Delegates to dependency_manager which handles platform-specific
     // URL resolution, download, archive extraction, and binary verification.
     dependency_manager::install_tool(&app, &name).await
+}
+
+/// Extracts bundled dependencies on first launch if they were included
+/// in the application installer by CI.
+///
+/// **Frontend caller:** `extractBundledDepsIfNeeded()` in `src/lib/tauri-commands.ts`
+///
+/// This command is called early in the app initialization sequence (before
+/// `checkAll()`) to silently extract any dependencies bundled into the
+/// installer at build time. If bundled deps exist, they are copied from
+/// the app's resource directory to the app data directory without any
+/// user interaction.
+///
+/// # Returns
+/// * `Ok(true)` -- Extraction was performed (first launch with bundled deps).
+/// * `Ok(false)` -- No extraction needed (already extracted, dev build, or
+///   no bundled deps found).
+/// * `Err(String)` -- Fatal extraction error.
+///
+/// # Design Notes
+///
+/// This runs synchronously (blocking) because extraction is fast (local
+/// file copy, not a download) and must complete before `checkAll()` runs
+/// so that dependency checks see the extracted tools.
+#[tauri::command]
+pub async fn extract_bundled_deps_if_needed(app: AppHandle) -> Result<bool, String> {
+    // Run the extraction on a blocking thread to avoid blocking the async
+    // executor during directory traversal and file I/O.
+    tokio::task::spawn_blocking(move || {
+        bundled_deps_service::extract_bundled_deps(&app)
+    })
+    .await
+    .map_err(|e| format!("Extraction task failed: {}", e))?
 }

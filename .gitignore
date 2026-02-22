@@ -78,6 +78,14 @@ coverage/
 logs/
 
 # ============================================================
+# Bundled Dependencies (CI-built, not committed)
+# ============================================================
+# Ignore all CI-downloaded binaries but keep the .gitkeep placeholder
+# (Tauri's resource glob requires at least one file to exist)
+src-tauri/bundled-deps/*
+!src-tauri/bundled-deps/.gitkeep
+
+# ============================================================
 # Temporary files
 # ============================================================
 tmp/

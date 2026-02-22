@@ -201,6 +201,7 @@ pub fn run() {
             commands::dependencies::install_gamdl,
             commands::dependencies::check_all_dependencies,
             commands::dependencies::install_dependency,
+            commands::dependencies::extract_bundled_deps_if_needed,
             // Settings management commands
             commands::settings::get_settings,
             commands::settings::save_settings,

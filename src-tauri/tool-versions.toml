@@ -39,7 +39,7 @@
 # To populate the mirror, upload tool binaries to the GitHub release
 # matching the release_tag below. See the mirror repo README for details.
 [mirror]
-github_repo = "MWBMPartners/meedyadl-tools"
+github_repo = "MeedyaDL/MeedyaDL-Tools"
 release_tag = "latest"
 
 [ffmpeg]

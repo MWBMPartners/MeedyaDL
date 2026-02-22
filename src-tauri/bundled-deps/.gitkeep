@@ -1,0 +1,2 @@
+This file ensures the bundled-deps directory exists for Tauri's resource glob.
+Actual dependency binaries are downloaded by CI and are gitignored.
