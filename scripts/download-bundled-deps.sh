@@ -592,22 +592,20 @@ download_mp4box_windows() {
     local install_dir="${TMPDIR_DL}/gpac_win"
     mkdir -p "${install_dir}"
 
-    # Run NSIS installer silently with custom install path
-    # Note: This only works on Windows runners
-    "${installer_path}" /S "/D=${install_dir}" 2>/dev/null || {
-        # On non-Windows runners (cross-compilation), try 7z extraction instead
-        if command -v 7z &>/dev/null; then
-            7z x -y -o"${install_dir}" "${installer_path}" >/dev/null 2>&1 || {
-                log_error "Failed to extract GPAC installer"
-                MANIFEST_mp4box="false"
-                return 0
-            }
-        else
-            log_error "Cannot extract NSIS installer (not on Windows and 7z not available)"
+    # Always use 7z to extract the NSIS installer (available on all GitHub Windows runners).
+    # The NSIS /S (silent) flag hangs indefinitely in CI because GPAC's installer ignores it
+    # and opens a GUI dialog waiting for user input. 7z can extract NSIS .exe archives directly.
+    if command -v 7z &>/dev/null; then
+        7z x -y -o"${install_dir}" "${installer_path}" >/dev/null 2>&1 || {
+            log_error "Failed to extract GPAC installer via 7z"
             MANIFEST_mp4box="false"
             return 0
-        fi
-    }
+        }
+    else
+        log_error "7z not available — cannot extract GPAC NSIS installer in CI"
+        MANIFEST_mp4box="false"
+        return 0
+    fi
 
     local found_binary
     found_binary=$(find "${install_dir}" -iname "MP4Box.exe" -type f | head -1)
