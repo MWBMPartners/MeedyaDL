@@ -38,7 +38,10 @@ use super::ytdlp_options::YtdlpOptions;
 #[serde(tag = "service", content = "options")]
 pub enum DownloadOptions {
     /// Apple Music download options (GAMDL CLI flags).
-    AppleMusic(GamdlOptions),
+    /// Boxed to reduce enum size — GamdlOptions (~616 bytes) is much larger
+    /// than the other variants (~232 bytes), and clippy's `large_enum_variant`
+    /// lint warns when the size difference exceeds the threshold.
+    AppleMusic(Box<GamdlOptions>),
 
     /// YouTube download options (yt-dlp CLI flags).
     YouTube(YtdlpOptions),
