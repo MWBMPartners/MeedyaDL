@@ -243,9 +243,9 @@ Apple Music requires authentication to access content. GAMDL uses browser cookie
 ## How to Export Cookies
 
 1. Install a **cookies.txt** browser extension:
-   - Chrome: "Get cookies.txt LOCALLY" extension
-   - Firefox: "cookies.txt" extension
-2. Go to **music.apple.com** and log in with your Apple ID
+   - Chrome: "[Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)" extension
+   - Firefox: "[cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)" extension
+2. Go to **[music.apple.com](https://music.apple.com)** and log in with your Apple ID
 3. Click the extension icon and choose **Export** or **Download**
 4. Save the file somewhere accessible
 
@@ -578,7 +578,7 @@ Sign up at [developer.apple.com](https://developer.apple.com) using any Apple Ac
 
 1. Sign in to the [Apple Developer Portal](https://developer.apple.com/account)
 2. Go to **Certificates, Identifiers & Profiles** (under Program resources)
-3. Click **Keys** in the left sidebar
+3. Click **[Keys](https://developer.apple.com/account/resources/authkeys/list)** in the left sidebar
 4. Click the **+** button to create a new key
 5. Enter a name (e.g., "MeedyaDL"), check **MusicKit**, then click **Continue** > **Register**
 
