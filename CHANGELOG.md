@@ -6,6 +6,14 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update HelpViewer.tsx with links for cookie export and Apple Developer keys
+- Update HelpViewer.tsx to clarify MusicKit key creation instructions
+
+## [0.3.23] - 2026-02-22
+
 ### ✨ Features
 
 - Enhance link handling in HelpViewer for internal and external navigation
