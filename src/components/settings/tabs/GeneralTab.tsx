@@ -97,11 +97,20 @@ const THEME_OPTIONS = [
  *
  * To add a new language: create the locale JSON file, then add an entry here.
  */
+/**
+ * UI language options shown in the Appearance > Language dropdown.
+ *
+ * Only languages with comprehensive translations (covering the full UI)
+ * should be listed here. Partial translations exist for German and French
+ * in `public/locales/` but only cover ~5% of the UI, so they are not
+ * offered to users yet.
+ *
+ * To re-enable a language: ensure the locale JSON covers all user-facing
+ * strings, then add the entry back here.
+ */
 const UI_LANGUAGE_OPTIONS = [
   { value: 'auto', label: 'Auto (System)' },
   { value: 'en', label: 'English' },
-  { value: 'de', label: 'Deutsch' },
-  { value: 'fr', label: 'Français' },
 ];
 
 const LANGUAGE_OPTIONS = [
