@@ -8,6 +8,25 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Enhance link handling in HelpViewer for internal and external navigation
+- Implement custom macOS menu and update About section to display app version
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- Simplify TitleBar component to return null for all platforms
+
+### 🧹 Maintenance
+
+- Update milestone versions in project documentation and roadmap
+
+## [0.3.22] - 2026-02-18
+
+### ✨ Features
+
 - Add multi-format lyrics support with companion downloads and update settings
 
 ### 📚 Documentation
