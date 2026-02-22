@@ -383,6 +383,64 @@ jobs:
           chmod +x "$HOME/bin/codesign"
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
+      # Step 8.95: Sign all Mach-O binaries inside bundled-deps with our Developer ID.
+      # Apple's notarization service inspects EVERYTHING inside the .app bundle,
+      # including files inside tar.gz archives. Third-party binaries (Python, Perl,
+      # FFmpeg, MP4Box libs, etc.) are not signed with our certificate, so we must
+      # re-sign them before Tauri packages them into the installer.
+      # The codesign wrapper (step 8.9) ensures --timestamp is included automatically.
+      - name: Sign bundled macOS dependencies
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          DEPS_DIR="src-tauri/bundled-deps"
+          if [ ! -d "$DEPS_DIR" ]; then
+            echo "No bundled-deps directory found — skipping"
+            exit 0
+          fi
+
+          # Set up a temporary keychain for signing
+          KEYCHAIN_PATH="$RUNNER_TEMP/bundled-deps-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import the Developer ID certificate
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+          # Add keychain to search list and allow codesign access
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Find and sign all Mach-O binaries
+          echo "Signing bundled dependencies with: $APPLE_SIGNING_IDENTITY"
+          SIGNED=0
+          FAILED=0
+          while IFS= read -r -d '' file; do
+            if file "$file" | grep -q "Mach-O"; then
+              if codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$file" 2>/dev/null; then
+                SIGNED=$((SIGNED + 1))
+              else
+                echo "::warning::Failed to sign: $file"
+                FAILED=$((FAILED + 1))
+              fi
+            fi
+          done < <(find "$DEPS_DIR" -type f -print0)
+          echo "Signed $SIGNED Mach-O binaries ($FAILED failures)"
+
+          # Re-create the tar.gz with signed binaries
+          tar czf "${DEPS_DIR}.tar.gz" -C "$(dirname "$DEPS_DIR")" "$(basename "$DEPS_DIR")"
+          echo "Re-created bundled-deps.tar.gz with signed binaries"
+
       # Step 9: Validate required Apple signing/notarization secrets on macOS.
       # Keeps failures explicit and prevents accidentally publishing unsigned
       # macOS binaries when secret configuration is incomplete.
