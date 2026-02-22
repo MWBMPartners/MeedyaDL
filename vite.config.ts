@@ -136,6 +136,37 @@ export default defineConfig({
      * but should not be included in release builds.
      */
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+
+    /**
+     * rollupOptions -- Advanced Rollup bundler configuration.
+     *
+     * manualChunks splits vendor libraries into separate files so that the
+     * main application chunk stays under the recommended 500 kB threshold.
+     * The browser caches these chunks independently, so updates to app code
+     * don't require re-downloading unchanged vendor code.
+     *
+     * @see https://rollupjs.org/configuration-options/#output-manualchunks
+     */
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            /* React core runtime -- loaded on every page, cached long-term */
+            if (id.includes('/react-dom/') || id.includes('/react/')) {
+              return 'vendor-react';
+            }
+            /* i18n -- initialised at startup, used by most components */
+            if (id.includes('i18next')) {
+              return 'vendor-i18n';
+            }
+            /* Tauri APIs -- IPC bridge, plugins, event system */
+            if (id.includes('@tauri-apps')) {
+              return 'vendor-tauri';
+            }
+          }
+        },
+      },
+    },
   },
 
   clearScreen: false,

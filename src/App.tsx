@@ -38,10 +38,13 @@
  * React hooks for component lifecycle and local state.
  * - `useEffect`: runs side effects after render (event listeners, async init)
  * - `useState`: manages local component state (isReady flag)
+ * - `lazy`: enables code-splitting by deferring component loading until first render
+ * - `Suspense`: shows a fallback UI while lazy-loaded components are loading
  * @see {@link https://react.dev/reference/react/useEffect}
  * @see {@link https://react.dev/reference/react/useState}
+ * @see {@link https://react.dev/reference/react/lazy}
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 
 /**
  * Tauri event listener API for receiving events emitted from the Rust backend.
@@ -116,14 +119,29 @@ import { MainLayout } from './components/layout';
  */
 import { DownloadForm, DownloadQueue, ActivityLog } from './components/download';
 
-/** UpdatesPage: Detailed update view with full release notes */
-import { UpdatesPage } from './components/updates';
+/**
+ * Lazy-loaded page components. These pages are only visited when the user
+ * explicitly navigates to them via the sidebar. By deferring their loading
+ * with React.lazy(), the main bundle stays smaller and these chunks (including
+ * heavy dependencies like react-markdown) are fetched on first navigation.
+ *
+ * @see {@link https://react.dev/reference/react/lazy} - React lazy loading
+ */
 
-/** SettingsPage: Full application settings editor with save/reset */
-import { SettingsPage } from './components/settings';
+/** UpdatesPage: Detailed update view with full release notes (lazy: uses react-markdown) */
+const UpdatesPage = lazy(() =>
+  import('./components/updates/UpdatesPage').then((m) => ({ default: m.UpdatesPage }))
+);
 
-/** HelpViewer: In-app help documentation and FAQ */
-import { HelpViewer } from './components/help';
+/** SettingsPage: Full application settings editor with save/reset (lazy: large component tree) */
+const SettingsPage = lazy(() =>
+  import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+
+/** HelpViewer: In-app help documentation and FAQ (lazy: uses react-markdown) */
+const HelpViewer = lazy(() =>
+  import('./components/help/HelpViewer').then((m) => ({ default: m.HelpViewer }))
+);
 
 /**
  * SetupWizard: Multi-step guided setup shown on first run or when
@@ -756,11 +774,26 @@ function App() {
       case 'activity':
         return <ActivityLog />; // Live subprocess output log
       case 'updates':
-        return <UpdatesPage />; // Update details with release notes
       case 'settings':
-        return <SettingsPage />; // Full settings editor
       case 'help':
-        return <HelpViewer />; // In-app help documentation
+        /*
+         * Lazy-loaded pages wrapped in Suspense. These components are fetched
+         * as separate chunks on first navigation, keeping the main bundle small.
+         * The LoadingSpinner fallback is shown briefly while the chunk loads.
+         */
+        return (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <LoadingSpinner size="md" />
+              </div>
+            }
+          >
+            {currentPage === 'updates' && <UpdatesPage />}
+            {currentPage === 'settings' && <SettingsPage />}
+            {currentPage === 'help' && <HelpViewer />}
+          </Suspense>
+        );
       default:
         return <DownloadForm />; // Fallback to download form
     }
