@@ -321,11 +321,19 @@ export function SettingsPage() {
             to display all tabs (unlikely at 10 items, but defensive).
             ---------------------------------------------------------------- */}
         <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2 space-y-0.5">
-          {TABS.map(({ id, label, icon: Icon, section }) => (
+          {TABS.map(({ id, label, icon: Icon, section }, index) => (
             <div key={id}>
-              {/* Section header -- rendered as a non-clickable divider label */}
+              {/* Section header -- rendered as a non-clickable divider label.
+                  The first section (index 0) has no top padding or border;
+                  subsequent sections get extra spacing and a top border to
+                  visually separate the service groups. */}
               {section && (
-                <div className="px-3 pt-3 pb-1 first:pt-0 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+                <div
+                  className={`
+                    px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary
+                    ${index === 0 ? 'pt-1' : 'pt-4 mt-2 border-t border-border-light'}
+                  `}
+                >
                   {section}
                 </div>
               )}
