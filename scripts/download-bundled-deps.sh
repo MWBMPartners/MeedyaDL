@@ -662,10 +662,21 @@ main() {
     echo "  MP4Box:       ${MANIFEST_mp4box}"
     echo ""
 
+    # Create tar.gz archive for Tauri resource bundling
+    # (Tauri's resource glob flattens directory structure, so we bundle as a
+    # single archive and extract at runtime in bundled_deps_service.rs)
+    log_info "=== Creating bundled-deps.tar.gz ==="
+    local archive_path="${OUTPUT_DIR}.tar.gz"
+    tar czf "${archive_path}" -C "$(dirname "${OUTPUT_DIR}")" "$(basename "${OUTPUT_DIR}")"
+    log_success "Archive created: ${archive_path}"
+
     # Calculate total size
     local total_size
     total_size=$(du -sh "${OUTPUT_DIR}" 2>/dev/null | cut -f1)
-    echo "  Total size:   ${total_size}"
+    local archive_size
+    archive_size=$(du -sh "${archive_path}" 2>/dev/null | cut -f1)
+    echo "  Total size:   ${total_size} (uncompressed)"
+    echo "  Archive size: ${archive_size} (compressed)"
     echo ""
 }
 

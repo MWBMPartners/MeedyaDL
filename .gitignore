@@ -80,10 +80,10 @@ logs/
 # ============================================================
 # Bundled Dependencies (CI-built, not committed)
 # ============================================================
-# Ignore all CI-downloaded binaries but keep the .gitkeep placeholder
-# (Tauri's resource glob requires at least one file to exist)
-src-tauri/bundled-deps/*
-!src-tauri/bundled-deps/.gitkeep
+# CI downloads deps into bundled-deps/ then creates bundled-deps.tar.gz.
+# build.rs creates a placeholder tar.gz for dev builds if missing.
+src-tauri/bundled-deps/
+src-tauri/bundled-deps.tar.gz
 
 # ============================================================
 # Temporary files

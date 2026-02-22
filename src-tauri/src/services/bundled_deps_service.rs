@@ -5,35 +5,47 @@
 // ==========================================
 //
 // This service handles first-launch extraction of dependencies that were
-// bundled into the application installer at build time by CI. When the
-// `scripts/download-bundled-deps.sh` script runs during CI builds, it
-// downloads platform-specific binaries (Python, GAMDL, FFmpeg, mp4decrypt,
-// N_m3u8DL-RE, MP4Box) and places them under `src-tauri/bundled-deps/`.
-// Tauri's resource bundling (configured in `tauri.conf.json`) includes
-// these files in the platform installer.
+// bundled into the application installer at build time by CI. During CI
+// builds, `scripts/download-bundled-deps.sh` downloads platform-specific
+// binaries (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box),
+// places them under `src-tauri/bundled-deps/`, and creates a
+// `bundled-deps.tar.gz` archive. Tauri bundles this single archive file
+// as a resource (configured in `tauri.conf.json`).
 //
 // On first launch, this service:
-//   1. Checks whether bundled deps exist in the app's resource directory
-//   2. Reads the `manifest.json` to see which deps were successfully bundled
-//   3. Copies each bundled dep to the app data directory (same paths that
+//   1. Checks whether bundled deps have already been extracted
+//   2. Locates the `bundled-deps.tar.gz` archive in the app's resource dir
+//   3. Extracts the archive to a temporary directory
+//   4. Reads `manifest.json` to see which deps were successfully bundled
+//   5. Copies each bundled dep to the app data directory (same paths that
 //      the runtime installer would use)
-//   4. Sets executable permissions on Unix platforms
-//   5. Writes `.source` marker files as "bundled" for each extracted tool
-//   6. Writes a `.bundled_deps_extracted` marker to prevent re-extraction
+//   6. Sets executable permissions on Unix platforms
+//   7. Writes `.source` marker files as "bundled" for each extracted tool
+//   8. Writes a `.bundled_deps_extracted` marker to prevent re-extraction
+//   9. Cleans up the temporary extraction directory
+//
+// Why tar.gz instead of direct directory bundling?
+// Tauri v2's resource glob (`bundled-deps/**/*`) flattens all matched
+// files into a single directory, destroying the subdirectory structure.
+// By bundling a single tar.gz archive, we preserve the full directory
+// tree and extract it at runtime.
 //
 // Key design decisions:
 //   - **No-overwrite**: Skips deps that already exist in the target location.
 //     This respects user-updated tools and manual installations.
 //   - **Idempotent**: The `.bundled_deps_extracted` marker prevents wasteful
 //     re-extraction on subsequent launches.
-//   - **Graceful fallback**: If bundled deps don't exist (dev builds, older
+//   - **Graceful fallback**: If the archive doesn't exist (dev builds, older
 //     installs), the function returns false and the normal download flow
 //     handles dependency installation via the setup wizard.
+//   - **Placeholder detection**: build.rs creates a tiny (~20 byte) empty
+//     gzip for dev builds so `cargo build` succeeds. We detect and skip
+//     these placeholders by checking the file size.
 //
 // Resource directory locations (where Tauri places bundled resources):
-//   - macOS:   `MeedyaDL.app/Contents/Resources/bundled-deps/`
-//   - Windows: `{install_dir}/resources/bundled-deps/`
-//   - Linux:   `{install_dir}/resources/bundled-deps/`
+//   - macOS:   `MeedyaDL.app/Contents/Resources/bundled-deps.tar.gz`
+//   - Windows: `{install_dir}/resources/bundled-deps.tar.gz`
+//   - Linux:   `{install_dir}/resources/bundled-deps.tar.gz`
 //
 // App data directory locations (where deps are extracted to):
 //   - macOS:   `~/Library/Application Support/io.github.meedyadl/`
@@ -41,22 +53,58 @@
 //   - Linux:   `~/.local/share/io.github.meedyadl/`
 //
 // @see scripts/download-bundled-deps.sh -- CI download orchestrator
+// @see src-tauri/build.rs -- placeholder archive creation for dev builds
 // @see tauri.conf.json -- resource bundling configuration
 // @see services/dependency_manager.rs -- runtime dependency installer (fallback)
 // @see services/python_manager.rs -- runtime Python installer (fallback)
 
 use std::path::{Path, PathBuf};
+use flate2::read::GzDecoder;
+use tar::Archive;
 use tauri::{AppHandle, Manager};
 
 use crate::utils::platform;
 
-/// Manifest structure matching the `manifest.json` written by the CI
-/// download script (`scripts/download-bundled-deps.sh`).
+/// Minimum file size (in bytes) for a real bundled-deps archive.
+/// The build.rs placeholder is ~20 bytes. Real archives are 100MB+.
+/// We use a generous threshold to distinguish the two.
+const MIN_ARCHIVE_SIZE: u64 = 1024;
+
+/// Top-level manifest file structure matching the `manifest.json` written
+/// by the CI download script (`scripts/download-bundled-deps.sh`).
+///
+/// The manifest contains metadata about the build and a nested
+/// `dependencies` object recording which deps were successfully bundled.
+///
+/// Example manifest.json:
+/// ```json
+/// {
+///   "bundled_at": "2026-02-22T14:30:55Z",
+///   "target_os": "macos",
+///   "target_arch": "aarch64",
+///   "python_version": "3.12.8",
+///   "dependencies": {
+///     "python": true,
+///     "ffmpeg": true,
+///     "mp4decrypt": true,
+///     "nm3u8dlre": true,
+///     "mp4box": true
+///   }
+/// }
+/// ```
+#[derive(Debug, serde::Deserialize)]
+struct ManifestFile {
+    /// Nested dependency availability flags
+    #[serde(default)]
+    dependencies: BundledDeps,
+}
+
+/// Per-dependency availability flags from the manifest.
 ///
 /// Each field records whether the corresponding dependency was successfully
 /// downloaded and staged during the CI build.
-#[derive(Debug, serde::Deserialize)]
-struct BundledManifest {
+#[derive(Debug, Default, serde::Deserialize)]
+struct BundledDeps {
     /// Whether the Python runtime was bundled
     #[serde(default)]
     python: bool,
@@ -80,32 +128,99 @@ struct BundledManifest {
     mp4box: bool,
 }
 
-/// Resolves the path to the bundled-deps directory inside the app's
-/// resource directory.
+/// Locates the bundled-deps.tar.gz archive in the app's resource directory.
 ///
-/// Returns `None` if the resource directory cannot be resolved (e.g.,
-/// running in dev mode without bundled deps).
-fn get_bundled_deps_dir(app: &AppHandle) -> Option<PathBuf> {
-    // Tauri 2.0: app.path().resource_dir() returns the base resource dir.
-    // Our bundled deps are in the `bundled-deps/` subdirectory.
+/// Returns `None` if:
+/// - The resource directory cannot be resolved (dev mode edge case)
+/// - The archive doesn't exist
+/// - The archive is a placeholder (< MIN_ARCHIVE_SIZE bytes)
+fn get_bundled_archive_path(app: &AppHandle) -> Option<PathBuf> {
     let resource_dir = app.path().resource_dir().ok()?;
-    let bundled_dir = resource_dir.join("bundled-deps");
+    let archive_path = resource_dir.join("bundled-deps.tar.gz");
 
-    if bundled_dir.exists() {
-        Some(bundled_dir)
+    if !archive_path.exists() {
+        return None;
+    }
+
+    // Check file size to distinguish real archives from the build.rs placeholder.
+    // The placeholder is a minimal valid gzip (~20 bytes) created so that
+    // `cargo build` succeeds without actual bundled deps.
+    let metadata = std::fs::metadata(&archive_path).ok()?;
+    if metadata.len() < MIN_ARCHIVE_SIZE {
+        log::debug!(
+            "Bundled deps archive is too small ({} bytes), likely a dev placeholder",
+            metadata.len()
+        );
+        return None;
+    }
+
+    Some(archive_path)
+}
+
+/// Extracts the bundled-deps.tar.gz archive to a temporary directory.
+///
+/// The archive contains a top-level `bundled-deps/` directory with:
+/// ```text
+/// bundled-deps/
+/// ├── manifest.json
+/// ├── python/
+/// │   ├── bin/
+/// │   ├── lib/
+/// │   └── ...
+/// └── tools/
+///     ├── ffmpeg/
+///     ├── mp4decrypt/
+///     ├── nm3u8dlre/
+///     └── mp4box/
+/// ```
+///
+/// Returns the path to the extracted `bundled-deps/` directory inside
+/// the temp directory.
+fn extract_archive_to_temp(archive_path: &Path) -> Result<PathBuf, String> {
+    let temp_dir = std::env::temp_dir().join("meedyadl_bundled_extract");
+
+    // Clean up any previous extraction attempt
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).map_err(|e| {
+        format!("Failed to create temp extraction dir: {}", e)
+    })?;
+
+    log::info!("Extracting bundled-deps archive to temp dir...");
+
+    let file = std::fs::File::open(archive_path).map_err(|e| {
+        format!("Failed to open bundled-deps archive: {}", e)
+    })?;
+
+    let decoder = GzDecoder::new(file);
+    let mut archive = Archive::new(decoder);
+
+    // Extract with full path preservation
+    archive.unpack(&temp_dir).map_err(|e| {
+        format!("Failed to extract bundled-deps archive: {}", e)
+    })?;
+
+    // The archive was created with:
+    //   tar czf bundled-deps.tar.gz -C <parent> bundled-deps
+    // So all paths are prefixed with `bundled-deps/`
+    let extracted_dir = temp_dir.join("bundled-deps");
+    if extracted_dir.exists() {
+        log::info!("Archive extracted successfully to {}", extracted_dir.display());
+        Ok(extracted_dir)
     } else {
-        None
+        Err("Extracted archive doesn't contain expected bundled-deps/ directory".to_string())
     }
 }
 
 /// Reads the bundled manifest to determine which deps were successfully
 /// bundled during CI.
 ///
+/// Parses the top-level `ManifestFile` and returns the inner `BundledDeps`.
 /// Returns `None` if the manifest doesn't exist or is unreadable.
-fn read_manifest(bundled_dir: &Path) -> Option<BundledManifest> {
+fn read_manifest(bundled_dir: &Path) -> Option<BundledDeps> {
     let manifest_path = bundled_dir.join("manifest.json");
     let content = std::fs::read_to_string(manifest_path).ok()?;
-    serde_json::from_str(&content).ok()
+    let manifest: ManifestFile = serde_json::from_str(&content).ok()?;
+    Some(manifest.dependencies)
 }
 
 /// Checks whether bundled deps extraction has already been performed.
@@ -250,7 +365,7 @@ fn write_source_marker(tool_dir: &Path, source: &str) -> Result<(), String> {
     })
 }
 
-/// Extracts bundled dependencies from the app's resource directory to the
+/// Extracts bundled dependencies from the app's resource archive to the
 /// app data directory on first launch.
 ///
 /// This is the main entry point called from the IPC command layer.
@@ -265,13 +380,16 @@ fn write_source_marker(tool_dir: &Path, source: &str) -> Result<(), String> {
 /// # Behaviour
 ///
 /// 1. If the `.bundled_deps_extracted` marker exists, returns `Ok(false)`.
-/// 2. If the bundled-deps resource directory doesn't exist, returns `Ok(false)`.
-/// 3. Reads `manifest.json` to determine which deps were bundled.
-/// 4. For each bundled dep:
-///    - Copies from resource dir to app data dir (skipping existing files)
+/// 2. If the bundled-deps.tar.gz archive doesn't exist or is a placeholder,
+///    returns `Ok(false)`.
+/// 3. Extracts the archive to a temporary directory.
+/// 4. Reads `manifest.json` to determine which deps were bundled.
+/// 5. For each bundled dep:
+///    - Copies from temp extraction to app data dir (skipping existing files)
 ///    - Writes `.source` marker as "bundled"
-/// 5. Writes the `.bundled_deps_extracted` marker.
-/// 6. Returns `Ok(true)`.
+/// 6. Writes the `.bundled_deps_extracted` marker.
+/// 7. Cleans up the temporary extraction directory.
+/// 8. Returns `Ok(true)`.
 pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
     // Step 1: Check if already extracted
     if already_extracted(app) {
@@ -279,24 +397,30 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
         return Ok(false);
     }
 
-    // Step 2: Check if bundled deps exist in the resource directory
-    let bundled_dir = match get_bundled_deps_dir(app) {
-        Some(dir) => dir,
+    // Step 2: Check if the archive exists in the resource directory
+    let archive_path = match get_bundled_archive_path(app) {
+        Some(path) => path,
         None => {
-            log::info!("No bundled deps found in resource directory (dev build or older install)");
+            log::info!(
+                "No bundled deps archive found in resource directory (dev build or older install)"
+            );
             return Ok(false);
         }
     };
 
     log::info!(
-        "Found bundled deps at: {}",
-        bundled_dir.display()
+        "Found bundled deps archive at: {} ({} bytes)",
+        archive_path.display(),
+        std::fs::metadata(&archive_path).map(|m| m.len()).unwrap_or(0)
     );
 
-    // Step 3: Read the manifest
-    let manifest = read_manifest(&bundled_dir).unwrap_or_else(|| {
+    // Step 3: Extract the archive to a temporary directory
+    let extracted_dir = extract_archive_to_temp(&archive_path)?;
+
+    // Step 4: Read the manifest
+    let manifest = read_manifest(&extracted_dir).unwrap_or_else(|| {
         log::warn!("No manifest.json found in bundled deps, assuming all deps present");
-        BundledManifest {
+        BundledDeps {
             python: true,
             gamdl: true,
             ffmpeg: true,
@@ -313,9 +437,9 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
 
     let mut total_files = 0u64;
 
-    // Step 4a: Extract Python runtime
+    // Step 5a: Extract Python runtime
     if manifest.python {
-        let src = bundled_dir.join("python");
+        let src = extracted_dir.join("python");
         let dst = app_data_dir.join("python");
         if src.exists() && !dst.exists() {
             log::info!("Extracting bundled Python runtime...");
@@ -327,7 +451,7 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
         }
     }
 
-    // Step 4b: Extract tool dependencies
+    // Step 5b: Extract tool dependencies
     let tools = [
         ("ffmpeg", manifest.ffmpeg),
         ("mp4decrypt", manifest.mp4decrypt),
@@ -341,7 +465,7 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
             continue;
         }
 
-        let src = bundled_dir.join("tools").join(tool_id);
+        let src = extracted_dir.join("tools").join(tool_id);
         let dst = app_data_dir.join("tools").join(tool_id);
 
         if !src.exists() {
@@ -371,8 +495,15 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
         write_source_marker(&dst, "bundled")?;
     }
 
-    // Step 5: Write the extraction marker
+    // Step 6: Write the extraction marker
     write_extraction_marker(app)?;
+
+    // Step 7: Clean up the temporary extraction directory
+    let temp_dir = std::env::temp_dir().join("meedyadl_bundled_extract");
+    if let Err(e) = std::fs::remove_dir_all(&temp_dir) {
+        log::warn!("Failed to clean up temp extraction dir: {}", e);
+        // Non-fatal -- deps were extracted successfully
+    }
 
     log::info!(
         "Bundled deps extraction complete: {} files extracted",
@@ -486,16 +617,96 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Tests BundledManifest deserialization with defaults.
+    /// Tests ManifestFile deserialization with nested dependencies and defaults.
     #[test]
     fn test_manifest_partial_deserialization() {
-        let json = r#"{"python": true, "ffmpeg": true}"#;
-        let manifest: BundledManifest = serde_json::from_str(json).unwrap();
+        let json = r#"{"dependencies": {"python": true, "ffmpeg": true}}"#;
+        let manifest: ManifestFile = serde_json::from_str(json).unwrap();
+        assert!(manifest.dependencies.python);
+        assert!(manifest.dependencies.ffmpeg);
+        assert!(!manifest.dependencies.gamdl);
+        assert!(!manifest.dependencies.mp4decrypt);
+        assert!(!manifest.dependencies.nm3u8dlre);
+        assert!(!manifest.dependencies.mp4box);
+    }
+
+    /// Tests ManifestFile deserialization with the full format produced by the
+    /// download script, including metadata fields.
+    #[test]
+    fn test_manifest_full_deserialization() {
+        let json = r#"{
+            "bundled_at": "2026-02-22T14:30:55Z",
+            "target_os": "macos",
+            "target_arch": "aarch64",
+            "python_version": "3.12.8",
+            "dependencies": {
+                "python": true,
+                "gamdl": true,
+                "ffmpeg": true,
+                "mp4decrypt": true,
+                "nm3u8dlre": true,
+                "mp4box": true
+            }
+        }"#;
+        let manifest: ManifestFile = serde_json::from_str(json).unwrap();
+        assert!(manifest.dependencies.python);
+        assert!(manifest.dependencies.gamdl);
+        assert!(manifest.dependencies.ffmpeg);
+        assert!(manifest.dependencies.mp4decrypt);
+        assert!(manifest.dependencies.nm3u8dlre);
+        assert!(manifest.dependencies.mp4box);
+    }
+
+    /// Tests tar.gz extraction to temporary directory.
+    #[test]
+    fn test_extract_archive_to_temp() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let test_dir = make_temp_dir("archive_test");
+
+        // Create a tar.gz archive with the expected structure
+        let archive_path = test_dir.join("bundled-deps.tar.gz");
+        let file = fs::File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar_builder = tar::Builder::new(enc);
+
+        // Add manifest.json with the nested format produced by download script
+        let manifest_content = br#"{"dependencies": {"python": true, "ffmpeg": true}}"#;
+        let mut header = tar::Header::new_gnu();
+        header.set_path("bundled-deps/manifest.json").unwrap();
+        header.set_size(manifest_content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append(&header, &manifest_content[..])
+            .unwrap();
+
+        // Add a tool binary
+        let binary_content = b"fake-ffmpeg-binary";
+        let mut header = tar::Header::new_gnu();
+        header.set_path("bundled-deps/tools/ffmpeg/ffmpeg").unwrap();
+        header.set_size(binary_content.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar_builder.append(&header, &binary_content[..]).unwrap();
+
+        // Finalize
+        let enc = tar_builder.into_inner().unwrap();
+        enc.finish().unwrap();
+
+        // Extract and verify
+        let extracted = extract_archive_to_temp(&archive_path).unwrap();
+        assert!(extracted.join("manifest.json").exists());
+        assert!(extracted.join("tools").join("ffmpeg").join("ffmpeg").exists());
+
+        let manifest = read_manifest(&extracted).unwrap();
         assert!(manifest.python);
         assert!(manifest.ffmpeg);
-        assert!(!manifest.gamdl);
-        assert!(!manifest.mp4decrypt);
-        assert!(!manifest.nm3u8dlre);
-        assert!(!manifest.mp4box);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+        let temp_dir = std::env::temp_dir().join("meedyadl_bundled_extract");
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
