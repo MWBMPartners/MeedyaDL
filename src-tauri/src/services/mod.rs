@@ -203,3 +203,18 @@ pub mod spotify_service;
 /// by CI (`download-bundled-deps.sh`) using skaji/relocatable-perl and
 /// extracted at first launch by `bundled_deps_service`.
 pub mod perl_manager;
+
+/// Remote service status checker (kill-switch system): fetches a JSON config
+/// from GitHub that controls per-service enable/disable flags. Caches locally
+/// for offline use. Fail-open design: all services enabled if unreachable.
+///
+/// Used by: commands/service_status, download_queue (gate), service_dispatch
+pub mod service_status;
+
+/// Smart Download service: cross-platform quality optimization. Searches
+/// all enabled services for the same content and identifies the best
+/// available quality. Uses ISRC/UPC for exact matching with fuzzy
+/// title+artist fallback.
+///
+/// Used by: commands/smart_download (IPC command)
+pub mod smart_download;

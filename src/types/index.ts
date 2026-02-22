@@ -415,6 +415,8 @@ export interface AppSettings {
   prefer_stable_rollback: boolean;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
+  /** Enable cross-platform Smart Download quality optimization */
+  smart_download_enabled: boolean;
   /** Default audio codec for song downloads */
   default_song_codec: SongCodec;
   /** Default maximum video resolution */
@@ -1268,4 +1270,107 @@ export interface ArtworkResult {
   square_downloaded: boolean;
   /** Whether the portrait (3:4) animated cover was downloaded as PortraitCover.mp4 */
   portrait_downloaded: boolean;
+}
+
+// ============================================================
+// Service Status Types (Remote Kill-Switch)
+// ============================================================
+
+/**
+ * Status entry for a single media service in the remote config.
+ *
+ * Mirrors: Rust struct `ServiceStatusEntry` in
+ * `src-tauri/src/models/service_status.rs`
+ */
+export interface ServiceStatusEntry {
+  /** Whether the service is currently enabled for downloads */
+  enabled: boolean;
+  /** Optional message explaining why the service is disabled */
+  message: string | null;
+}
+
+/**
+ * Top-level service status configuration fetched from GitHub.
+ *
+ * Mirrors: Rust struct `ServiceStatusConfig` in
+ * `src-tauri/src/models/service_status.rs`
+ *
+ * Contains per-service enable/disable flags and an optional global
+ * announcement message. The app checks this on launch and every 4 hours.
+ */
+export interface ServiceStatusConfig {
+  /** Schema version (currently 1) */
+  version: number;
+  /** ISO 8601 timestamp of the last config update */
+  updated_at: string;
+  /** Per-service status entries keyed by PascalCase service name */
+  services: Record<string, ServiceStatusEntry>;
+  /** Optional global announcement shown to all users */
+  global_message: string | null;
+}
+
+// ============================================================
+// Smart Download Types (Cross-Platform Quality Optimization)
+// ============================================================
+
+/**
+ * Normalised quality tier for cross-platform comparison.
+ *
+ * Mirrors: Rust enum `QualityTier` in `src-tauri/src/models/content_match.rs`
+ *
+ * Ordered from lowest to highest quality. Used by the Smart Download
+ * panel to display quality badges and recommend the best download source.
+ */
+export type QualityTier =
+  | 'Lossy128'
+  | 'Lossy256'
+  | 'Lossless'
+  | 'HiResLossless'
+  | 'SurroundSound'
+  | 'DolbyAtmos';
+
+/**
+ * Display labels for quality tiers, shown in the Smart Download panel.
+ */
+export const QUALITY_TIER_LABELS: Record<QualityTier, string> = {
+  Lossy128: 'Lossy (128kbps)',
+  Lossy256: 'Lossy (256kbps)',
+  Lossless: 'Lossless',
+  HiResLossless: 'Hi-Res Lossless',
+  SurroundSound: '5.1 Surround',
+  DolbyAtmos: 'Dolby Atmos',
+};
+
+/**
+ * Result of searching a single service for a cross-platform match.
+ *
+ * Mirrors: Rust struct `CrossPlatformMatch` in `src-tauri/src/models/content_match.rs`
+ */
+export interface CrossPlatformMatch {
+  /** Which service this match was found on (PascalCase) */
+  service_id: string;
+  /** Direct download URL for this match */
+  url: string;
+  /** The highest quality available on this service */
+  best_quality: QualityTier;
+  /** Match confidence (0.0-1.0; 1.0 = exact ISRC match) */
+  match_confidence: number;
+  /** How the match was made: "isrc", "upc", "fuzzy", or "original" */
+  match_method: string;
+}
+
+/**
+ * Complete result of a Smart Download cross-platform search.
+ *
+ * Mirrors: Rust struct `SmartDownloadResult` in `src-tauri/src/models/content_match.rs`
+ */
+export interface SmartDownloadResult {
+  /** The service the user's original URL belongs to (PascalCase) */
+  original_service: string;
+  /** The user's original URL */
+  original_url: string;
+  /** All matches found across enabled services */
+  matches: CrossPlatformMatch[];
+  /** The recommended match (highest quality), or null */
+  recommended: CrossPlatformMatch | null;
 }

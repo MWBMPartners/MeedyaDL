@@ -153,6 +153,45 @@ pub fn not_implemented_error(service_id: &MediaServiceId) -> String {
     )
 }
 
+/// Checks whether a service is enabled by the remote service status config.
+///
+/// Reads the cached `service-status.json` from disk (fast, no network call).
+/// Returns `true` if the service is enabled or if no cached status exists
+/// (fail-open design).
+///
+/// # Arguments
+/// * `service_id` - The service to check.
+/// * `app` - Tauri AppHandle for resolving the cache file path.
+///
+/// # Returns
+/// `true` if the service is enabled or no status is cached, `false` if
+/// the service has been remotely disabled.
+pub fn is_service_remotely_enabled(service_id: &MediaServiceId, app: &tauri::AppHandle) -> bool {
+    match crate::services::service_status::load_cached_status(app) {
+        Some(config) => !crate::services::service_status::is_service_disabled(&config, service_id),
+        None => true, // No cache = fail-open
+    }
+}
+
+/// Returns a user-friendly error message for a remotely disabled service.
+///
+/// Includes the service-specific message from the remote config if available.
+pub fn service_disabled_error(service_id: &MediaServiceId, app: &tauri::AppHandle) -> String {
+    let base_msg = format!(
+        "{} downloads are temporarily unavailable.",
+        service_id.display_name()
+    );
+    match crate::services::service_status::load_cached_status(app) {
+        Some(config) => {
+            match crate::services::service_status::get_service_message(&config, service_id) {
+                Some(msg) => format!("{} {}", base_msg, msg),
+                None => base_msg,
+            }
+        }
+        None => base_msg,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

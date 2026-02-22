@@ -214,6 +214,13 @@ pub struct AppSettings {
     #[serde(default = "default_auto_start_queue")]
     pub auto_start_queue: bool,
 
+    /// Enable cross-platform Smart Download. When enabled, MeedyaDL searches
+    /// all enabled services with valid credentials for the same content and
+    /// identifies the best available quality across platforms. The user can
+    /// then choose to download from the service offering the highest quality.
+    #[serde(default)]
+    pub smart_download_enabled: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -743,6 +750,9 @@ impl Default for AppSettings {
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
             auto_start_queue: true,
+            // Smart Download disabled by default. Cross-platform search is
+            // Phase 1 (Apple Music only) and adds API overhead per URL paste.
+            smart_download_enabled: false,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).

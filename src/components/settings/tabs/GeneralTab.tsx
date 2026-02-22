@@ -268,6 +268,14 @@ export function GeneralTab() {
           onChange={(checked) => updateSettings({ auto_start_queue: checked })}
         />
 
+        {/* Smart Download */}
+        <Toggle
+          label="Smart Download"
+          description="When enabled, compare quality across all supported platforms before downloading. Shows available quality tiers on the Download page."
+          checked={settings.smart_download_enabled}
+          onChange={(checked) => updateSettings({ smart_download_enabled: checked })}
+        />
+
         {/* Auto-check for updates */}
         <Toggle
           label="Auto-Check for Updates"

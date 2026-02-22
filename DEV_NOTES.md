@@ -481,6 +481,171 @@ To update the README screenshots:
 
 ---
 
+## Remote Service Status (Kill Switch)
+
+### Overview
+
+MeedyaDL includes a remote service status system that allows developers to dynamically enable or disable individual media services (Apple Music, YouTube, BBC iPlayer, Spotify) across all deployed app instances. This is useful for:
+
+- **Broken service backends** — Disable a service while a fix is deployed (e.g., API change, dependency update).
+- **Legal takedowns** — Immediately suspend a service in response to a DMCA or cease-and-desist.
+- **Planned maintenance** — Disable a service with a user-facing message explaining the downtime.
+- **Global announcements** — Display an informational banner to all users (e.g., upcoming version requirement).
+
+### How It Works
+
+1. The app fetches `service-status.json` from the `main` branch of this repository on every launch and every 4 hours.
+2. The fetched config is cached locally so the app works offline.
+3. If the remote endpoint is unreachable and no cache exists, the app **fails open** (all services enabled).
+4. Disabled services are blocked at two levels:
+   - **Frontend**: The download form shows a warning and disables the "Add to Queue" button.
+   - **Backend**: The download queue rejects items for disabled services before spawning any subprocess.
+
+### Config File: `service-status.json`
+
+Located at the repository root. Hosted at:
+
+```
+https://raw.githubusercontent.com/MWBMPartners/MeedyaDL/main/service-status.json
+```
+
+#### Schema
+
+```json
+{
+  "version": 1,
+  "updated_at": "2026-02-22T00:00:00Z",
+  "services": {
+    "AppleMusic": { "enabled": true, "message": null },
+    "YouTube": { "enabled": true, "message": null },
+    "BBCiPlayer": { "enabled": true, "message": null },
+    "Spotify": { "enabled": true, "message": null }
+  },
+  "global_message": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | `number` | Schema version (currently `1`). Reserved for future backward-incompatible changes. |
+| `updated_at` | `string` | ISO 8601 timestamp of when the config was last modified. |
+| `services.<Name>.enabled` | `boolean` | Whether the service is available. Set to `false` to disable. |
+| `services.<Name>.message` | `string \| null` | Optional user-facing message explaining why the service is disabled. |
+| `global_message` | `string \| null` | Optional info banner shown to all users regardless of service status. |
+
+#### Service Key Names
+
+Service keys in the JSON must use PascalCase and match these exact strings:
+
+| Key | Service |
+|-----|---------|
+| `AppleMusic` | Apple Music |
+| `YouTube` | YouTube |
+| `BBCiPlayer` | BBC iPlayer |
+| `Spotify` | Spotify |
+
+### How to Disable a Service
+
+1. Edit `service-status.json` on the `main` branch.
+2. Set the service's `enabled` field to `false`.
+3. Optionally provide a `message` explaining the reason.
+4. Commit and push to `main`.
+
+**Example** — Disabling Apple Music:
+
+```json
+{
+  "version": 1,
+  "updated_at": "2026-02-22T12:00:00Z",
+  "services": {
+    "AppleMusic": {
+      "enabled": false,
+      "message": "Apple Music downloads are temporarily disabled while we update the backend. Expected fix: 24 hours."
+    },
+    "YouTube": { "enabled": true, "message": null },
+    "BBCiPlayer": { "enabled": true, "message": null },
+    "Spotify": { "enabled": true, "message": null }
+  },
+  "global_message": null
+}
+```
+
+### How to Add a Global Announcement
+
+Set the `global_message` field to a non-null string. This displays a blue info banner at the top of the app for all users.
+
+```json
+{
+  "global_message": "MeedyaDL v0.5.0 will be required starting March 1st. Please update."
+}
+```
+
+### How to Re-enable a Service
+
+Set `enabled` back to `true` and clear the `message` (set to `null`). Commit and push to `main`.
+
+### Propagation Timing
+
+- Changes are live on `raw.githubusercontent.com` within minutes of pushing to `main`.
+- Running app instances check every **4 hours** via `setInterval`.
+- New app launches check **immediately on startup**.
+- **Worst case**: A user sees the change within 4 hours of the push.
+
+### Fail-Open Design
+
+| Scenario | Behavior |
+|----------|----------|
+| Remote fetch succeeds | Use remote config, update local cache |
+| Remote fetch fails, cache exists | Use cached config |
+| Remote fetch fails, no cache | All services enabled (fail-open) |
+
+### Architecture
+
+```
+service-status.json (GitHub main branch)
+        |
+        v
+[Rust] services/service_status.rs
+  - fetch_service_status() → remote → cache → all-enabled default
+  - is_service_disabled() / get_service_message()
+  - load_cached_status() (sync, for queue gate)
+        |
+        v
+[Rust] commands/service_status.rs
+  - check_service_status → IPC command
+        |
+        v
+[TS] stores/serviceStatusStore.ts
+  - checkStatus() calls Tauri command
+  - isServiceDisabled() / getServiceMessage() / getGlobalMessage()
+        |
+        +→ App.tsx: startup + 4-hour interval
+        +→ ServiceStatusBanner.tsx: amber/blue banners
+        +→ DownloadForm.tsx: disables button + shows warning
+        +→ download_queue.rs: rejects disabled services at enqueue
+```
+
+### Schema Versioning
+
+The `version` field is reserved for future backward-incompatible schema changes. The current app expects `version: 1`. If the schema needs to change:
+
+1. Bump `version` to `2`.
+2. Update the Rust `ServiceStatusConfig` struct to handle both schemas.
+3. Ship the app update before switching the remote config to the new schema.
+
+### Testing Locally
+
+To test the kill switch locally without modifying the remote config:
+
+1. Build and run the app with `cargo tauri dev`.
+2. Find the cached config at `{app_data_dir}/service-status-cache.json`.
+3. Edit the cached file to disable a service.
+4. Restart the app — it will use the modified cache until the next successful remote fetch.
+
+Alternatively, temporarily modify `service-status.json` on a feature branch and update the fetch URL in `services/service_status.rs` to point to your branch.
+
+---
+
 ## 📁 Project Structure
 
 ```text
