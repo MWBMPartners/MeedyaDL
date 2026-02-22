@@ -646,6 +646,174 @@ Alternatively, temporarily modify `service-status.json` on a feature branch and 
 
 ---
 
+## Internationalization (i18n)
+
+### Current Status
+
+The i18n **infrastructure** is fully set up (i18next, language detection, dynamic locale loading), but **no UI components currently use translation keys**. All user-facing strings are still hardcoded in English within the component files. The i18n system is ready to be adopted incrementally, component by component.
+
+### Translation File Locations
+
+```
+public/locales/
+├── en/translation.json    ← English (default/fallback) — AUTHORITATIVE
+├── de/translation.json    ← German (AI-generated stub, ~5% UI coverage)
+└── fr/translation.json    ← French (AI-generated stub, ~5% UI coverage)
+```
+
+- **English** (`en`) is the source of truth. All keys must exist here first.
+- **German** (`de`) and **French** (`fr`) were AI-generated during initial i18n setup. They cover ~93 keys across 6 sections (`app`, `nav`, `sidebar`, `settings.general`, `updates`, `common`) — roughly 5% of the full UI. These files are **not exposed to users** in the language dropdown (removed in v0.3.22) but are kept as starting points for future translation work.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/lib/i18n.ts` | i18next initialization, language detection, locale loading |
+| `src/components/settings/tabs/GeneralTab.tsx` | Language dropdown (`UI_LANGUAGE_OPTIONS`) |
+| `public/locales/{lang}/translation.json` | Translation strings per language |
+
+### Translation File Format
+
+Each locale file is a flat-ish JSON with nested namespaces:
+
+```json
+{
+  "nav": {
+    "download": "Download",
+    "queue": "Queue"
+  },
+  "settings": {
+    "general": {
+      "theme": "Theme",
+      "themeDesc": "Choose between light and dark mode..."
+    }
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save"
+  }
+}
+```
+
+Keys use camelCase. Namespaces match the UI area (`nav`, `sidebar`, `settings`, `updates`, `common`). In components, keys are accessed as `t('nav.download')` or `t('settings.general.theme')`.
+
+#### Plurals
+
+i18next handles plurals with `_one` / `_other` suffixes:
+
+```json
+{
+  "sidebar": {
+    "updatesAvailable_one": "{{count}} Update",
+    "updatesAvailable_other": "{{count}} Updates"
+  }
+}
+```
+
+Usage: `t('sidebar.updatesAvailable', { count: 3 })` → `"3 Updates"`
+
+#### Interpolation
+
+Use `{{variable}}` for dynamic values:
+
+```json
+{
+  "updates": {
+    "currentVersion": "Current version: v{{version}}"
+  }
+}
+```
+
+Usage: `t('updates.currentVersion', { version: '0.3.22' })` → `"Current version: v0.3.22"`
+
+### How to Add a New Language
+
+1. **Create the translation file**:
+
+   ```text
+   public/locales/{code}/translation.json
+   ```
+
+   Copy `public/locales/en/translation.json` as a starting point and translate every value (leave keys untouched).
+
+2. **Register the locale** in `src/lib/i18n.ts`:
+
+   ```typescript
+   export const AVAILABLE_LOCALES = ['en', 'de', 'fr', '{code}'] as const;
+   ```
+
+3. **Add to the language dropdown** in `src/components/settings/tabs/GeneralTab.tsx`:
+
+   ```typescript
+   const UI_LANGUAGE_OPTIONS = [
+     { value: 'auto', label: 'Auto (System)' },
+     { value: 'en', label: 'English' },
+     { value: '{code}', label: '{Native Language Name}' },
+   ];
+   ```
+
+   Only add a language here when its translation file has **comprehensive coverage** (all user-facing strings translated). Partial translations result in a mixed-language UI.
+
+4. **Test**: Set the language in Settings > General > Appearance > Language. The app requires a restart for full effect (the setting is cached in `localStorage` under `meedyadl-ui-language`).
+
+### How to Add New Translation Keys
+
+When adding new user-facing text to a component:
+
+1. **Add the key to `public/locales/en/translation.json`** first (English is the source of truth).
+
+2. **Add the same key to all other locale files** (`de`, `fr`, and any future languages) with translated values. If you don't have a translation, use the English string as a placeholder — the app falls back to English for missing keys anyway.
+
+3. **Use the key in your component**:
+
+   ```tsx
+   import { useTranslation } from 'react-i18next';
+
+   function MyComponent() {
+     const { t } = useTranslation();
+     return <h1>{t('mySection.myKey')}</h1>;
+   }
+   ```
+
+### How to Translate an Existing Component
+
+To migrate a component from hardcoded English strings to i18n:
+
+1. Identify all user-facing strings in the component (labels, descriptions, button text, error messages, placeholders).
+
+2. Add keys to `public/locales/en/translation.json` under an appropriate namespace.
+
+3. Add the `useTranslation` hook:
+
+   ```tsx
+   import { useTranslation } from 'react-i18next';
+
+   export function MyPage() {
+     const { t } = useTranslation();
+     // Replace: <h1>Settings</h1>
+     // With:    <h1>{t('settings.title')}</h1>
+   }
+   ```
+
+4. Add translated values to `de/translation.json`, `fr/translation.json`, etc.
+
+5. **Do not translate**: brand names ("MeedyaDL"), technical identifiers, log messages, or developer-facing strings.
+
+### Completing German / French Translations
+
+The existing `de` and `fr` files only cover these sections:
+
+- `app` — App name and subtitle
+- `nav` — Sidebar navigation labels
+- `sidebar` — Status text, update badges
+- `settings.general` — General settings tab labels and descriptions
+- `updates` — Updates page text
+- `common` — Generic button labels (Cancel, Save, etc.)
+
+To complete them, you need to add keys for every other section of the UI (all other settings tabs, download form, queue page, activity log, setup wizard, help viewer, error messages, toast notifications, etc.). Once a language covers the full UI, re-add it to `UI_LANGUAGE_OPTIONS` in `GeneralTab.tsx`.
+
+---
+
 ## 📁 Project Structure
 
 ```text
