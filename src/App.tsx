@@ -470,6 +470,32 @@ function App() {
   }, [isReady, checkForUpdates]);
 
   /*
+   * ─── Effect 4b: macOS About Menu → Help > About ────────────────────
+   *
+   * Listens for the 'navigate-help-about' event emitted by the custom
+   * macOS app menu when the user clicks "About MeedyaDL". Navigates to
+   * the in-app Help > About page instead of showing the default macOS
+   * About dialog.
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    let unlistenAbout: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unlistenAbout = await listen('navigate-help-about', () => {
+          useUiStore.getState().navigateToHelp('about');
+        });
+      } catch {
+        /* Tauri API unavailable */
+      }
+    };
+    setup();
+
+    return () => unlistenAbout?.();
+  }, [isReady]);
+
+  /*
    * ─── Effect 5: GAMDL Progress Event Listener ──────────────────────
    *
    * Subscribes to the `gamdl-output` Tauri event, which the Rust backend

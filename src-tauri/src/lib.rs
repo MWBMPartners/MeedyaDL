@@ -240,6 +240,62 @@ pub fn run() {
         ])
 
         // ---------------------------------------------------------------
+        // macOS Application Menu
+        // ---------------------------------------------------------------
+        // On macOS, override the default app menu so the "About MeedyaDL"
+        // item navigates to the in-app Help > About page instead of
+        // showing the generic macOS About dialog. Other standard menu
+        // items (Edit, Window, etc.) are preserved.
+        //
+        // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
+        .menu(|app| {
+            use tauri::menu::{
+                MenuBuilder, SubmenuBuilder, MenuItemBuilder, PredefinedMenuItem,
+            };
+
+            let app_submenu = SubmenuBuilder::new(app, "MeedyaDL")
+                .item(&MenuItemBuilder::with_id("about_meedyadl", "About MeedyaDL").build(app)?)
+                .separator()
+                .item(&PredefinedMenuItem::services(app, None)?)
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .item(&PredefinedMenuItem::maximize(app, None)?)
+                .separator()
+                .close_window()
+                .build()?;
+
+            MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&window_submenu)
+                .build()
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "about_meedyadl" {
+                use tauri::Emitter;
+                let _ = app.emit("navigate-help-about", ());
+            }
+        })
+
+        // ---------------------------------------------------------------
         // Application Lifecycle -- `.setup()` hook
         // ---------------------------------------------------------------
         // The `.setup()` closure runs **once** after the Tauri runtime and
