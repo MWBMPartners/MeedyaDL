@@ -218,6 +218,84 @@ Pre-release updates show an amber badge and disclaimer in the Update Banner. The
 
 ---
 
+## How to Trigger a Pre-Release Build
+
+The `pre-release.yml` workflow builds installers for all 6 platforms from the `meedyadl-v2` feature branch and publishes them as a **pre-release** GitHub Release (not a draft — immediately visible, marked as pre-release).
+
+### Option A: Push a Tag (Automated — Recommended)
+
+The easiest way. Create a pre-release tag on `meedyadl-v2` and push it. The workflow triggers automatically.
+
+#### In VS Code
+
+1. Make sure you're on the `meedyadl-v2` branch (check the bottom-left status bar).
+
+2. Open the integrated terminal (`` Ctrl+` `` or **Terminal → New Terminal**).
+
+3. Create and push the tag:
+   ```bash
+   git tag v0.4.0-alpha.1
+   git push origin v0.4.0-alpha.1
+   ```
+
+4. Go to **GitHub → Actions → Pre-Release** to watch the build progress.
+
+#### One-Liner
+
+```bash
+git tag v0.4.0-alpha.1 && git push origin v0.4.0-alpha.1
+```
+
+### Option B: Manual Dispatch (via CLI)
+
+No tag needed — just run the workflow directly:
+
+```bash
+gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
+```
+
+### Option C: Manual Dispatch (via GitHub UI)
+
+1. Go to **GitHub → Actions → Pre-Release**.
+2. Click **"Run workflow"**.
+3. Select the `meedyadl-v2` branch.
+4. Enter the version (e.g., `0.4.0-alpha.1`) — without the `v` prefix.
+5. Click **"Run workflow"**.
+
+### Version Naming Convention
+
+| Stage | Example | When to use |
+| ----- | ------- | ----------- |
+| Alpha | `v0.4.0-alpha.1` | Early development, features incomplete |
+| Alpha | `v0.4.0-alpha.2` | Increment for each new alpha build |
+| Beta | `v0.4.0-beta.1` | Feature-complete, still testing |
+| RC | `v0.4.0-rc.1` | Release candidate, nearly ready |
+| Stable | `v0.4.0` | Merged to `main`, handled by `release.yml` |
+
+The version must match the format `X.Y.Z-(alpha|beta|rc).N`. The workflow validates this and will fail if the format is wrong.
+
+### Deleting a Tag (If You Make a Mistake)
+
+```bash
+# Delete locally
+git tag -d v0.4.0-alpha.1
+
+# Delete from GitHub
+git push origin --delete v0.4.0-alpha.1
+```
+
+Then delete the GitHub Release manually (if one was created), recreate the tag with the correct name, and push again.
+
+### How It Works Under the Hood
+
+- Pre-release tags (`v*-alpha.*`, `v*-beta.*`, `v*-rc.*`) trigger `pre-release.yml` automatically.
+- These same tags are **excluded** from `release.yml` (via `!v*-alpha.*` etc.) so only one workflow runs.
+- The workflow uses the same 6-platform build matrix and signing secrets as the main release.
+- Builds are published as `prerelease: true` (not draft), so they appear on the Releases page immediately.
+- The app's "Include Pre-Release Versions" setting controls whether users see these versions in the update checker.
+
+---
+
 ## Common Build Issues
 
 ### "plugins > updater doesn't exist"

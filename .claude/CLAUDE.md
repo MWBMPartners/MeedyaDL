@@ -111,11 +111,23 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 
 The `pre-release.yml` workflow builds and publishes pre-release packages from the `meedyadl-v2` feature branch. It uses the same 6-platform build matrix as `release.yml` but creates GitHub Releases marked as `prerelease: true` (not draft).
 
-```bash
-gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
-```
+**Two trigger methods:**
+
+1. **Tag push (automated):** Push a pre-release tag from `meedyadl-v2` and the workflow runs automatically:
+
+   ```bash
+   git tag v0.4.0-alpha.1 && git push origin v0.4.0-alpha.1
+   ```
+
+2. **Manual dispatch:** Trigger from CLI or GitHub UI:
+
+   ```bash
+   gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
+   ```
 
 Version format: `X.Y.Z-(alpha|beta|rc).N` (e.g., `0.4.0-alpha.1`, `0.4.0-beta.2`, `0.4.0-rc.1`).
+
+Pre-release tags (`v*-alpha.*`, `v*-beta.*`, `v*-rc.*`) are excluded from `release.yml` to prevent both workflows triggering.
 
 CI also runs on pushes to `meedyadl-v2` and PRs targeting it.
 
