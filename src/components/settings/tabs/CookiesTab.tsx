@@ -69,20 +69,20 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 // Lucide icons used throughout the tab's various sub-components.
 // @see https://lucide.dev/icons/
 import {
-  Shield,         // Info box icon (security/authentication context)
-  AlertTriangle,  // Warning/error indicator
-  CheckCircle,    // Success indicator
-  XCircle,        // Failure indicator
-  ChevronDown,    // Expanded state arrow
-  ChevronRight,   // Collapsed state arrow
-  Copy,           // Copy-to-clipboard button icon
-  Clock,          // Expiry warning icon
-  Globe,          // Domain indicator icon
-  Cookie,         // Tab/section header icon
-  Info,           // "How to Export" section icon
-  CircleDot,      // "Not set" status icon
-  Loader2,        // Loading spinner
-  LogIn,          // Sign-in icon for embedded browser login
+  Shield, // Info box icon (security/authentication context)
+  AlertTriangle, // Warning/error indicator
+  CheckCircle, // Success indicator
+  XCircle, // Failure indicator
+  ChevronDown, // Expanded state arrow
+  ChevronRight, // Collapsed state arrow
+  Copy, // Copy-to-clipboard button icon
+  Clock, // Expiry warning icon
+  Globe, // Domain indicator icon
+  Cookie, // Tab/section header icon
+  Info, // "How to Export" section icon
+  CircleDot, // "Not set" status icon
+  Loader2, // Loading spinner
+  LogIn, // Sign-in icon for embedded browser login
 } from 'lucide-react';
 
 // Tauri event listener for receiving events from the Rust backend.
@@ -184,31 +184,29 @@ type CookieStatus = 'not-set' | 'valid' | 'invalid' | 'expired';
  * Used by the StatusBadge component to render the appropriate
  * icon, label, and colour classes.
  */
-const STATUS_CONFIG: Record<
-  CookieStatus,
-  { label: string; colorClass: string; bgClass: string }
-> = {
-  'not-set': {
-    label: 'Not Set',
-    colorClass: 'text-content-tertiary',
-    bgClass: 'bg-surface-secondary',
-  },
-  valid: {
-    label: 'Valid',
-    colorClass: 'text-status-success',
-    bgClass: 'bg-status-success-bg',
-  },
-  invalid: {
-    label: 'Invalid',
-    colorClass: 'text-status-error',
-    bgClass: 'bg-status-error-bg',
-  },
-  expired: {
-    label: 'Expired',
-    colorClass: 'text-status-warning',
-    bgClass: 'bg-status-warning-bg',
-  },
-};
+const STATUS_CONFIG: Record<CookieStatus, { label: string; colorClass: string; bgClass: string }> =
+  {
+    'not-set': {
+      label: 'Not Set',
+      colorClass: 'text-content-tertiary',
+      bgClass: 'bg-surface-secondary',
+    },
+    valid: {
+      label: 'Valid',
+      colorClass: 'text-status-success',
+      bgClass: 'bg-status-success-bg',
+    },
+    invalid: {
+      label: 'Invalid',
+      colorClass: 'text-status-error',
+      bgClass: 'bg-status-error-bg',
+    },
+    expired: {
+      label: 'Expired',
+      colorClass: 'text-status-warning',
+      bgClass: 'bg-status-warning-bg',
+    },
+  };
 
 // ============================================================
 // Helper Functions
@@ -225,7 +223,7 @@ const STATUS_CONFIG: Record<
  */
 function deriveCookieStatus(
   cookiesPath: string | null,
-  validation: CookieValidation | null,
+  validation: CookieValidation | null
 ): CookieStatus {
   /* No file has been selected at all */
   if (!cookiesPath) return 'not-set';
@@ -371,8 +369,8 @@ function BrowserInstructions() {
         <div className="border-t border-border-light px-4 pb-4 pt-2 space-y-2">
           {/* Introductory paragraph */}
           <p className="text-xs text-content-secondary mb-3">
-            Select your browser below for step-by-step instructions on how to
-            export your Apple Music cookies in Netscape format.
+            Select your browser below for step-by-step instructions on how to export your Apple
+            Music cookies in Netscape format.
           </p>
 
           {/* One accordion panel per browser */}
@@ -474,13 +472,7 @@ function DetectedDomains({ domains }: { domains: string[] }) {
  * @param warnings - Array of warning strings from the validation result,
  *   potentially containing expiry-day information.
  */
-function ExpiryWarning({
-  expired,
-  warnings,
-}: {
-  expired: boolean;
-  warnings: string[];
-}) {
+function ExpiryWarning({ expired, warnings }: { expired: boolean; warnings: string[] }) {
   /**
    * Parse the number of days until expiry from the warnings.
    * Memoized to avoid re-parsing on every render.
@@ -614,7 +606,7 @@ export function CookiesTab() {
    */
   const cookieStatus = useMemo(
     () => deriveCookieStatus(settings.cookies_path, validation),
-    [settings.cookies_path, validation],
+    [settings.cookies_path, validation]
   );
 
   /* ---- Effects ---- */
@@ -657,24 +649,21 @@ export function CookiesTab() {
 
     async function setup() {
       try {
-        unlisten = await listen<CookieImportResult>(
-          'login-cookies-extracted',
-          (event) => {
-            try {
-              setImportResult(event.payload);
-              setIsLoginWindowOpen(false);
-              setIsExtractingFromLogin(false);
+        unlisten = await listen<CookieImportResult>('login-cookies-extracted', (event) => {
+          try {
+            setImportResult(event.payload);
+            setIsLoginWindowOpen(false);
+            setIsExtractingFromLogin(false);
 
-              // Update settings if cookies were saved successfully
-              if (event.payload.success && event.payload.path) {
-                updateSettings({ cookies_path: event.payload.path });
-                setValidation(null); // Clear manual validation for fresh cookies
-              }
-            } catch (err) {
-              console.error('Error handling login-cookies-extracted:', err);
+            // Update settings if cookies were saved successfully
+            if (event.payload.success && event.payload.path) {
+              updateSettings({ cookies_path: event.payload.path });
+              setValidation(null); // Clear manual validation for fresh cookies
             }
-          },
-        );
+          } catch (err) {
+            console.error('Error handling login-cookies-extracted:', err);
+          }
+        });
       } catch (err) {
         console.warn('[CookiesTab] Failed to listen for login events:', err);
       }
@@ -749,7 +738,7 @@ export function CookiesTab() {
         const hasFda = await commands.checkFullDiskAccess();
         if (!hasFda) {
           setImportError(
-            'Safari requires Full Disk Access. Go to System Settings > Privacy & Security > Full Disk Access and add MeedyaDL.',
+            'Safari requires Full Disk Access. Go to System Settings > Privacy & Security > Full Disk Access and add MeedyaDL.'
           );
           return;
         }
@@ -889,7 +878,7 @@ export function CookiesTab() {
       setValidation(null);
       setCopySuccess(false);
     },
-    [updateSettings],
+    [updateSettings]
   );
 
   /* ---- Render ---- */
@@ -903,9 +892,7 @@ export function CookiesTab() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <Cookie size={18} className="text-accent" />
-          <h3 className="text-sm font-medium text-content-primary">
-            Authentication Cookies
-          </h3>
+          <h3 className="text-sm font-medium text-content-primary">Authentication Cookies</h3>
         </div>
         <StatusBadge status={cookieStatus} />
       </div>
@@ -931,8 +918,8 @@ export function CookiesTab() {
             <p className="text-xs text-content-secondary mt-0.5">
               {validation && (
                 <>
-                  {validation.apple_music_cookies} Apple Music cookies found.
-                  {' '}Your downloads are ready to go.
+                  {validation.apple_music_cookies} Apple Music cookies found. Your downloads are
+                  ready to go.
                 </>
               )}
             </p>
@@ -950,18 +937,13 @@ export function CookiesTab() {
           <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
           <div className="text-sm text-content-secondary space-y-2">
             <p>
-              GAMDL requires Apple Music cookies for authentication. You need a
-              Netscape-format cookies file exported from your browser.
+              GAMDL requires Apple Music cookies for authentication. You need a Netscape-format
+              cookies file exported from your browser.
             </p>
             <p>
               Use a browser extension like{' '}
-              <span className="font-medium text-content-primary">
-                cookies.txt
-              </span>{' '}
-              to export cookies from{' '}
-              <span className="font-medium text-content-primary">
-                music.apple.com
-              </span>{' '}
+              <span className="font-medium text-content-primary">cookies.txt</span> to export
+              cookies from <span className="font-medium text-content-primary">music.apple.com</span>{' '}
               after logging in.
             </p>
           </div>
@@ -976,9 +958,7 @@ export function CookiesTab() {
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
         <div className="flex items-center gap-2.5 mb-2">
           <LogIn size={16} className="text-accent flex-shrink-0" />
-          <h4 className="text-xs font-medium text-content-primary">
-            Sign in with Apple Music
-          </h4>
+          <h4 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h4>
         </div>
 
         {!isLoginWindowOpen ? (
@@ -997,7 +977,8 @@ export function CookiesTab() {
               Sign in with Apple Music
             </Button>
             <p className="text-xs text-content-tertiary">
-              A browser window will open where you can sign in with your Apple ID. Your cookies will be captured automatically.
+              A browser window will open where you can sign in with your Apple ID. Your cookies will
+              be captured automatically.
             </p>
           </>
         ) : (
@@ -1005,9 +986,7 @@ export function CookiesTab() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Loader2 size={14} className="animate-spin text-accent" />
-              <span className="text-xs font-medium text-content-primary">
-                Signing in...
-              </span>
+              <span className="text-xs font-medium text-content-primary">Signing in...</span>
             </div>
             <p className="text-xs text-content-tertiary">
               Sign in with your Apple ID in the browser window, then return here.
@@ -1042,9 +1021,7 @@ export function CookiesTab() {
         <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
           <div className="flex items-center gap-2.5 mb-2">
             <Globe size={16} className="text-accent flex-shrink-0" />
-            <h4 className="text-xs font-medium text-content-primary">
-              Import from Browser
-            </h4>
+            <h4 className="text-xs font-medium text-content-primary">Import from Browser</h4>
           </div>
 
           {/* Browser selector and import button */}
@@ -1085,55 +1062,59 @@ export function CookiesTab() {
 
           {/* Privacy notice */}
           <p className="text-xs text-content-tertiary">
-            Reads only Apple Music cookies (apple.com, mzstatic.com) from your browser. No other data is accessed.
+            Reads only Apple Music cookies (apple.com, mzstatic.com) from your browser. No other
+            data is accessed.
           </p>
 
           {/* Import result -- three states: success with cookies, empty import, or failure */}
-          {importResult && (() => {
-            const hasAppleCookies = importResult.success && importResult.apple_music_cookies > 0;
-            const isEmptyImport = importResult.success && importResult.apple_music_cookies === 0;
-            return (
-              <div
-                className={`p-3 rounded-platform border text-xs ${
-                  hasAppleCookies
-                    ? 'border-status-success bg-status-success-bg'
-                    : isEmptyImport
-                      ? 'border-status-warning bg-status-warning-bg'
-                      : 'border-status-error bg-status-error-bg'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 mb-1">
-                  {hasAppleCookies ? (
-                    <CheckCircle size={14} className="text-status-success" />
-                  ) : isEmptyImport ? (
-                    <AlertTriangle size={14} className="text-status-warning" />
-                  ) : (
-                    <XCircle size={14} className="text-status-error" />
-                  )}
-                  <span className="font-medium text-content-primary">
-                    {hasAppleCookies
-                      ? 'Cookies Imported'
+          {importResult &&
+            (() => {
+              const hasAppleCookies = importResult.success && importResult.apple_music_cookies > 0;
+              const isEmptyImport = importResult.success && importResult.apple_music_cookies === 0;
+              return (
+                <div
+                  className={`p-3 rounded-platform border text-xs ${
+                    hasAppleCookies
+                      ? 'border-status-success bg-status-success-bg'
                       : isEmptyImport
-                        ? 'No Apple Music Cookies Found'
-                        : 'Import Failed'}
-                  </span>
+                        ? 'border-status-warning bg-status-warning-bg'
+                        : 'border-status-error bg-status-error-bg'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 mb-1">
+                    {hasAppleCookies ? (
+                      <CheckCircle size={14} className="text-status-success" />
+                    ) : isEmptyImport ? (
+                      <AlertTriangle size={14} className="text-status-warning" />
+                    ) : (
+                      <XCircle size={14} className="text-status-error" />
+                    )}
+                    <span className="font-medium text-content-primary">
+                      {hasAppleCookies
+                        ? 'Cookies Imported'
+                        : isEmptyImport
+                          ? 'No Apple Music Cookies Found'
+                          : 'Import Failed'}
+                    </span>
+                  </div>
+                  {hasAppleCookies && (
+                    <p className="text-content-secondary ml-5">
+                      {importResult.apple_music_cookies} Apple Music cookies imported
+                    </p>
+                  )}
+                  {isEmptyImport && (
+                    <p className="text-content-secondary ml-5">
+                      Log in to music.apple.com in your browser first, then try importing again.
+                    </p>
+                  )}
+                  {importResult.warnings.map((w, i) => (
+                    <p key={i} className="text-status-warning ml-5">
+                      {w}
+                    </p>
+                  ))}
                 </div>
-                {hasAppleCookies && (
-                  <p className="text-content-secondary ml-5">
-                    {importResult.apple_music_cookies} Apple Music cookies imported
-                  </p>
-                )}
-                {isEmptyImport && (
-                  <p className="text-content-secondary ml-5">
-                    Log in to music.apple.com in your browser first, then try importing again.
-                  </p>
-                )}
-                {importResult.warnings.map((w, i) => (
-                  <p key={i} className="text-status-warning ml-5">{w}</p>
-                ))}
-              </div>
-            );
-          })()}
+              );
+            })()}
 
           {/* Import error */}
           {importError && (
@@ -1185,26 +1166,13 @@ export function CookiesTab() {
       {settings.cookies_path && (
         <div className="flex items-center gap-2">
           {/* Validate button -- triggers backend validation */}
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={isValidating}
-            onClick={handleValidate}
-          >
+          <Button variant="secondary" size="sm" loading={isValidating} onClick={handleValidate}>
             Validate Cookies
           </Button>
 
           {/* Copy path button -- copies the file path to clipboard */}
-          <Tooltip
-            content={copySuccess ? 'Copied!' : 'Copy file path to clipboard'}
-            position="top"
-          >
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<Copy size={14} />}
-              onClick={handleCopyPath}
-            >
+          <Tooltip content={copySuccess ? 'Copied!' : 'Copy file path to clipboard'} position="top">
+            <Button variant="ghost" size="sm" icon={<Copy size={14} />} onClick={handleCopyPath}>
               {copySuccess ? 'Copied!' : 'Copy Cookie Path'}
             </Button>
           </Tooltip>
@@ -1251,12 +1219,11 @@ export function CookiesTab() {
           {/* ---- Cookie count summary ---- */}
           <div className="text-xs text-content-secondary space-y-1 ml-6">
             <p>
-              <span className="font-medium">{validation.cookie_count}</span>{' '}
-              total cookies found
+              <span className="font-medium">{validation.cookie_count}</span> total cookies found
             </p>
             <p>
-              <span className="font-medium">{validation.apple_music_cookies}</span>{' '}
-              Apple Music cookies
+              <span className="font-medium">{validation.apple_music_cookies}</span> Apple Music
+              cookies
             </p>
           </div>
 
@@ -1270,10 +1237,7 @@ export function CookiesTab() {
           {/* ---- Expiry warning with estimated days ---- */}
           {(validation.expired || validation.warnings.length > 0) && (
             <div className="ml-6">
-              <ExpiryWarning
-                expired={validation.expired}
-                warnings={validation.warnings}
-              />
+              <ExpiryWarning expired={validation.expired} warnings={validation.warnings} />
             </div>
           )}
 
@@ -1282,10 +1246,7 @@ export function CookiesTab() {
             <div className="text-xs text-content-secondary space-y-1 ml-6">
               {validation.warnings.map((warning, i) => (
                 <div key={i} className="flex items-start gap-1.5">
-                  <AlertTriangle
-                    size={12}
-                    className="text-status-warning flex-shrink-0 mt-0.5"
-                  />
+                  <AlertTriangle size={12} className="text-status-warning flex-shrink-0 mt-0.5" />
                   <p className="text-status-warning">{warning}</p>
                 </div>
               ))}

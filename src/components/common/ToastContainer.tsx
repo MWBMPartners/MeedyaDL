@@ -30,13 +30,7 @@
  * Lucide icon imports -- one icon per toast type, plus X for the dismiss button.
  * @see https://lucide.dev/guide/packages/lucide-react
  */
-import {
-  CheckCircle,
-  AlertCircle,
-  AlertTriangle,
-  Info,
-  X,
-} from 'lucide-react';
+import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 /** Global UI store hook -- provides the `toasts` array and `removeToast` action */
 import { useUiStore } from '@/stores/uiStore';
@@ -90,10 +84,10 @@ const TOAST_CONFIG: Record<
  * Uses the project's semantic status colour tokens defined in tailwind.config.ts.
  */
 const ICON_COLORS: Record<ToastType, string> = {
-  success: 'text-status-success',  // green icon
-  error: 'text-status-error',      // red icon
-  warning: 'text-status-warning',  // yellow / amber icon
-  info: 'text-status-info',        // blue icon
+  success: 'text-status-success', // green icon
+  error: 'text-status-error', // red icon
+  warning: 'text-status-warning', // yellow / amber icon
+  info: 'text-status-info', // blue icon
 };
 
 /**
@@ -113,13 +107,7 @@ const ICON_COLORS: Record<ToastType, string> = {
  * @param toast     - The Toast data object (id, message, type) from the UI store.
  * @param onDismiss - Callback that receives the toast id to remove it from the store.
  */
-function ToastItem({
-  toast,
-  onDismiss,
-}: {
-  toast: Toast;
-  onDismiss: (id: string) => void;
-}) {
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   /* Look up the visual config (icon component, bg colour, border colour) for this toast type */
   const config = TOAST_CONFIG[toast.type];
   /* Alias the icon component for JSX usage (must start with uppercase) */

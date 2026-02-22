@@ -190,11 +190,7 @@ describe('Button', () => {
    * wrapped in a flex-shrink-0 span to prevent it from being squished.
    */
   it('renders icon when provided', () => {
-    render(
-      <Button icon={<span data-testid="test-icon">IC</span>}>
-        With Icon
-      </Button>,
-    );
+    render(<Button icon={<span data-testid="test-icon">IC</span>}>With Icon</Button>);
 
     /* The icon element passed via the icon prop should appear in the DOM */
     expect(screen.getByTestId('test-icon')).toBeInTheDocument();
@@ -242,7 +238,11 @@ describe('Button', () => {
    */
   it('does not call onClick when disabled', () => {
     const handleClick = vi.fn();
-    render(<Button disabled onClick={handleClick}>Disabled</Button>);
+    render(
+      <Button disabled onClick={handleClick}>
+        Disabled
+      </Button>
+    );
 
     /* Simulate a user click on the disabled button */
     fireEvent.click(screen.getByRole('button', { name: 'Disabled' }));

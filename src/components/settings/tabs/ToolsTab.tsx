@@ -60,7 +60,6 @@ import {
 import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-
 import { Button, LoadingSpinner, FilePickerButton } from '@/components/common';
 
 import { useState } from 'react';
@@ -84,8 +83,7 @@ const TOOL_PATH_KEYS: Record<string, string> = {
 const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
   FFmpeg: 'Audio/video processing and remuxing. Required for most operations.',
   mp4decrypt: 'Decrypting DRM-protected streams (Bento4 toolkit).',
-  'N_m3u8DL-RE':
-    'HLS/DASH stream downloader. Used when download mode is set to N_m3u8DL-RE.',
+  'N_m3u8DL-RE': 'HLS/DASH stream downloader. Used when download mode is set to N_m3u8DL-RE.',
   MP4Box: 'MP4 muxing and remuxing (GPAC toolkit). Used when remux mode is set to MP4Box.',
   AMDecrypt:
     'Optional Apple Music DRM decryption tool. Used with the wrapper authentication system. See Help > Wrapper / AMdecrypt.',
@@ -179,12 +177,10 @@ export function ToolsTab() {
       {/* Section: Core Dependencies                                    */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-1">
-          Core Dependencies
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-1">Core Dependencies</h3>
         <p className="text-xs text-content-secondary mb-4">
-          Python and GAMDL are required for the app to function. They are
-          automatically installed during first-time setup.
+          Python and GAMDL are required for the app to function. They are automatically installed
+          during first-time setup.
         </p>
 
         {isChecking && !python && !gamdl ? (
@@ -195,24 +191,14 @@ export function ToolsTab() {
             {python && (
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {python.installed ? (
-                  <CheckCircle
-                    size={18}
-                    className="text-status-success flex-shrink-0"
-                  />
+                  <CheckCircle size={18} className="text-status-success flex-shrink-0" />
                 ) : (
-                  <XCircle
-                    size={18}
-                    className="text-status-error flex-shrink-0"
-                  />
+                  <XCircle size={18} className="text-status-error flex-shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-content-primary">
-                    Python
-                  </span>
+                  <span className="text-sm font-medium text-content-primary">Python</span>
                   {python.version && (
-                    <p className="text-xs text-content-secondary">
-                      v{python.version}
-                    </p>
+                    <p className="text-xs text-content-secondary">v{python.version}</p>
                   )}
                 </div>
                 {!python.installed && (
@@ -234,24 +220,14 @@ export function ToolsTab() {
             {gamdl && (
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {gamdl.installed ? (
-                  <CheckCircle
-                    size={18}
-                    className="text-status-success flex-shrink-0"
-                  />
+                  <CheckCircle size={18} className="text-status-success flex-shrink-0" />
                 ) : (
-                  <XCircle
-                    size={18}
-                    className="text-status-error flex-shrink-0"
-                  />
+                  <XCircle size={18} className="text-status-error flex-shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-content-primary">
-                    GAMDL
-                  </span>
+                  <span className="text-sm font-medium text-content-primary">GAMDL</span>
                   {gamdl.version && (
-                    <p className="text-xs text-content-secondary">
-                      v{gamdl.version}
-                    </p>
+                    <p className="text-xs text-content-secondary">v{gamdl.version}</p>
                   )}
                 </div>
                 {!gamdl.installed && (
@@ -276,13 +252,10 @@ export function ToolsTab() {
       {/* Section: External Tools                                       */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-1">
-          External Tools
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-1">External Tools</h3>
         <p className="text-xs text-content-secondary mb-4">
-          Required tools must be installed for downloads to work. Optional
-          tools provide additional features. Click a tool to configure a
-          custom binary path.
+          Required tools must be installed for downloads to work. Optional tools provide additional
+          features. Click a tool to configure a custom binary path.
         </p>
 
         {/* Action buttons */}
@@ -322,9 +295,7 @@ export function ToolsTab() {
               const customPath = getToolPath(tool.name);
               const description = TOOL_PATH_DESCRIPTIONS[tool.name] || '';
               const placeholder =
-                tool.name === 'AMDecrypt'
-                  ? 'Not configured'
-                  : 'Using managed version';
+                tool.name === 'AMDecrypt' ? 'Not configured' : 'Using managed version';
 
               return (
                 <div
@@ -335,20 +306,11 @@ export function ToolsTab() {
                   <div className="flex items-center gap-3 p-3">
                     {/* Status icon */}
                     {tool.installed ? (
-                      <CheckCircle
-                        size={18}
-                        className="text-status-success flex-shrink-0"
-                      />
+                      <CheckCircle size={18} className="text-status-success flex-shrink-0" />
                     ) : tool.required ? (
-                      <XCircle
-                        size={18}
-                        className="text-status-error flex-shrink-0"
-                      />
+                      <XCircle size={18} className="text-status-error flex-shrink-0" />
                     ) : (
-                      <AlertCircle
-                        size={18}
-                        className="text-content-tertiary flex-shrink-0"
-                      />
+                      <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" />
                     )}
 
                     {/* Tool info */}
@@ -378,9 +340,7 @@ export function ToolsTab() {
                         )}
                       </div>
                       {tool.version && (
-                        <p className="text-xs text-content-secondary">
-                          v{tool.version}
-                        </p>
+                        <p className="text-xs text-content-secondary">v{tool.version}</p>
                       )}
                     </div>
 
@@ -421,11 +381,7 @@ export function ToolsTab() {
                         onClick={() => togglePathExpanded(tool.name)}
                         title="Configure custom binary path"
                       >
-                        {isExpanded ? (
-                          <ChevronDown size={16} />
-                        ) : (
-                          <ChevronRight size={16} />
-                        )}
+                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                       </button>
                     )}
                   </div>
@@ -433,9 +389,7 @@ export function ToolsTab() {
                   {/* Custom path override (expandable) */}
                   {isExpanded && pathKey && (
                     <div className="px-3 pb-3 pt-0 border-t border-border-light">
-                      <p className="text-xs text-content-secondary mt-2 mb-2">
-                        {description}
-                      </p>
+                      <p className="text-xs text-content-secondary mt-2 mb-2">{description}</p>
                       <FilePickerButton
                         label="Custom Path"
                         description="Override the managed version with a custom binary. Leave empty to use the auto-installed version."
@@ -456,9 +410,7 @@ export function ToolsTab() {
       {/* Section: Directories                                          */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Directories
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Directories</h3>
         <FilePickerButton
           label="Temp Directory"
           description="Directory for intermediate files during download and processing. Leave empty to use a MeedyaDL subdirectory within the OS default temp directory."

@@ -59,9 +59,7 @@ export function CompleteStep() {
 
       {/* Heading */}
       <div>
-        <h2 className="text-2xl font-bold text-content-primary">
-          Setup Complete!
-        </h2>
+        <h2 className="text-2xl font-bold text-content-primary">Setup Complete!</h2>
         <p className="text-base text-content-secondary mt-2">
           Everything is ready. You can now start downloading media.
         </p>

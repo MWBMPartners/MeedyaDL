@@ -212,8 +212,7 @@ export function SetupWizard() {
 
     const checkExistingCookies = async () => {
       try {
-        const cookiesPath =
-          useSettingsStore.getState().settings.cookies_path;
+        const cookiesPath = useSettingsStore.getState().settings.cookies_path;
 
         // cookies_path is Option<String> in Rust — null or empty means no file
         if (!cookiesPath) return;
@@ -222,11 +221,7 @@ export function SetupWizard() {
 
         // Only skip if cookies are valid, contain Apple Music cookies,
         // and are not expired. Otherwise let the user re-import.
-        if (
-          validation.valid &&
-          validation.apple_music_cookies > 0 &&
-          !validation.expired
-        ) {
+        if (validation.valid && validation.apple_music_cookies > 0 && !validation.expired) {
           completeStep('cookies');
 
           // If the sync auto-advance already brought us to the cookies step
@@ -299,8 +294,8 @@ export function SetupWizard() {
           {SETUP_STEPS.map((step, index) => {
             // Determine the visual state of this step circle
             const isCompleted = completedSteps.has(step); // Step requirements are satisfied
-            const isCurrent = index === currentStepIndex;  // This is the active step
-            const isPast = index < currentStepIndex;       // User has moved past this step
+            const isCurrent = index === currentStepIndex; // This is the active step
+            const isPast = index < currentStepIndex; // User has moved past this step
 
             return (
               <div key={step} className="flex items-center flex-1 last:flex-initial">
@@ -313,9 +308,9 @@ export function SetupWizard() {
                       transition-colors
                       ${
                         isCurrent
-                          ? 'bg-accent text-content-inverse'                                       /* Active step: accent colour */
+                          ? 'bg-accent text-content-inverse' /* Active step: accent colour */
                           : isCompleted || isPast
-                            ? 'bg-status-success text-white'                                       /* Done/past step: green */
+                            ? 'bg-status-success text-white' /* Done/past step: green */
                             : 'bg-surface-elevated text-content-tertiary border border-border-light' /* Future step: muted */
                       }
                     `}
@@ -378,11 +373,7 @@ export function SetupWizard() {
               Get Started
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              onClick={nextStep}
-              disabled={!canProceed}
-            >
+            <Button variant="primary" onClick={nextStep} disabled={!canProceed}>
               Continue
             </Button>
           )}

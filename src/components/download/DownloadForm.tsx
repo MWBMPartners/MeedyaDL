@@ -99,7 +99,13 @@ import { Button, Select } from '@/components/common';
  * @see MediaServiceId in @/types/index.ts   -- 'apple-music' | 'youtube' | ...
  * @see SongCodec in @/types/index.ts        -- 'alac' | 'atmos' | 'ac3' | ...
  */
-import type { MediaContentType, MediaServiceId, SongCodec, VideoResolution, CrossPlatformMatch } from '@/types';
+import type {
+  MediaContentType,
+  MediaServiceId,
+  SongCodec,
+  VideoResolution,
+  CrossPlatformMatch,
+} from '@/types';
 
 /**
  * Human-readable label maps used to populate quality-override dropdowns
@@ -109,7 +115,13 @@ import type { MediaContentType, MediaServiceId, SongCodec, VideoResolution, Cros
  * @see MEDIA_SERVICE_LABELS in @/types/index.ts      -- e.g., { youtube: 'YouTube' }
  * @see MEDIA_SERVICE_COLORS in @/types/index.ts      -- e.g., { youtube: '#ff0000' }
  */
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, MEDIA_SERVICE_LABELS, MEDIA_SERVICE_COLORS, QUALITY_TIER_LABELS } from '@/types';
+import {
+  SONG_CODEC_LABELS,
+  VIDEO_RESOLUTION_LABELS,
+  MEDIA_SERVICE_LABELS,
+  MEDIA_SERVICE_COLORS,
+  QUALITY_TIER_LABELS,
+} from '@/types';
 
 /**
  * URL parser helpers for human-readable content type labels.
@@ -134,20 +146,20 @@ import { PageHeader } from '@/components/layout';
  * @see https://lucide.dev/icons/  -- full Lucide icon reference.
  */
 const CONTENT_TYPE_ICONS: Partial<Record<MediaContentType, typeof Music>> = {
-  song: Music,            // Apple Music song
-  album: Disc3,           // Album (Apple Music, Spotify)
-  playlist: ListMusic,    // Playlist (Apple Music, YouTube, Spotify)
-  'music-video': Video,   // Apple Music music video
-  artist: User,           // Artist page (Apple Music, Spotify)
-  video: Video,           // YouTube video
-  channel: User,          // YouTube channel
-  'live-stream': Radio,   // YouTube live stream
-  track: Music,           // Spotify track
-  episode: Tv,            // BBC iPlayer episode
-  series: Tv,             // BBC iPlayer series
-  programme: Tv,          // BBC iPlayer programme
-  clip: Scissors,         // BBC iPlayer clip
-  unknown: HelpCircle,    // Unrecognised or unparseable URL
+  song: Music, // Apple Music song
+  album: Disc3, // Album (Apple Music, Spotify)
+  playlist: ListMusic, // Playlist (Apple Music, YouTube, Spotify)
+  'music-video': Video, // Apple Music music video
+  artist: User, // Artist page (Apple Music, Spotify)
+  video: Video, // YouTube video
+  channel: User, // YouTube channel
+  'live-stream': Radio, // YouTube live stream
+  track: Music, // Spotify track
+  episode: Tv, // BBC iPlayer episode
+  series: Tv, // BBC iPlayer series
+  programme: Tv, // BBC iPlayer programme
+  clip: Scissors, // BBC iPlayer clip
+  unknown: HelpCircle, // Unrecognised or unparseable URL
 };
 
 /**
@@ -246,7 +258,9 @@ export function DownloadForm() {
   /** Smart Download state: loading indicator while searching cross-platform. */
   const [smartDownloadLoading, setSmartDownloadLoading] = useState(false);
   /** Smart Download state: cross-platform match results (null = not yet searched). */
-  const [smartDownloadMatches, setSmartDownloadMatches] = useState<CrossPlatformMatch[] | null>(null);
+  const [smartDownloadMatches, setSmartDownloadMatches] = useState<CrossPlatformMatch[] | null>(
+    null
+  );
 
   /** Whether Smart Download is enabled in settings. */
   const smartDownloadEnabled = useSettingsStore((s) => s.settings.smart_download_enabled);
@@ -365,7 +379,9 @@ export function DownloadForm() {
    */
   const isServiceDisabled = useServiceStatusStore((s) => s.isServiceDisabled);
   const getServiceMessage = useServiceStatusStore((s) => s.getServiceMessage);
-  const isDetectedServiceDisabled = detectedServiceId ? isServiceDisabled(detectedServiceId) : false;
+  const isDetectedServiceDisabled = detectedServiceId
+    ? isServiceDisabled(detectedServiceId)
+    : false;
   const disabledMessage = detectedServiceId ? getServiceMessage(detectedServiceId) : null;
 
   /**
@@ -384,9 +400,10 @@ export function DownloadForm() {
    * `{ value, label }` objects for the video resolution `<Select>`.
    * (e.g., '2160p' -> '4K (2160p)').
    */
-  const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(
-    ([value, label]) => ({ value, label }),
-  );
+  const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  }));
 
   // ---------------------------------------------------------------
   // Render
@@ -417,10 +434,7 @@ export function DownloadForm() {
          */}
         <div className="space-y-2">
           {/* Accessible <label> linked to the input via `htmlFor` */}
-          <label
-            htmlFor="url-input"
-            className="block text-sm font-medium text-content-primary"
-          >
+          <label htmlFor="url-input" className="block text-sm font-medium text-content-primary">
             Media URL
           </label>
 
@@ -530,14 +544,18 @@ export function DownloadForm() {
           )}
           {urlIsValid && isDetectedServiceDisabled && detectedServiceId && (
             <p className="text-xs text-status-warning">
-              {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are temporarily unavailable.{disabledMessage ? ` ${disabledMessage}` : ''}
+              {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are temporarily unavailable.
+              {disabledMessage ? ` ${disabledMessage}` : ''}
             </p>
           )}
-          {urlIsValid && !isDetectedServiceDisabled && !isServiceImplemented && detectedServiceId && (
-            <p className="text-xs text-status-warning">
-              {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are coming soon
-            </p>
-          )}
+          {urlIsValid &&
+            !isDetectedServiceDisabled &&
+            !isServiceImplemented &&
+            detectedServiceId && (
+              <p className="text-xs text-status-warning">
+                {MEDIA_SERVICE_LABELS[detectedServiceId]} downloads are coming soon
+              </p>
+            )}
           {!urlInput && (
             <p className="text-xs text-content-tertiary">
               Supports Apple Music, YouTube, Spotify, and BBC iPlayer URLs
@@ -556,110 +574,98 @@ export function DownloadForm() {
          * own settings configured in Settings > [Service]).
          */}
         {(!detectedServiceId || isAppleMusic) && (
-        <div className="rounded-platform border border-border-light">
-          {/*
-           * Collapsible header -- clicking toggles `showOverrides`.
-           * Displays the current global default codec in parentheses
-           * so users know what they would override.
-           */}
-          <button
-            onClick={() => setShowOverrides(!showOverrides)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
-          >
-            <span>
-              Quality Overrides{' '}
-              <span className="text-content-tertiary">
-                (default: {SONG_CODEC_LABELS[defaultSongCodec]})
+          <div className="rounded-platform border border-border-light">
+            {/*
+             * Collapsible header -- clicking toggles `showOverrides`.
+             * Displays the current global default codec in parentheses
+             * so users know what they would override.
+             */}
+            <button
+              onClick={() => setShowOverrides(!showOverrides)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
+            >
+              <span>
+                Quality Overrides{' '}
+                <span className="text-content-tertiary">
+                  (default: {SONG_CODEC_LABELS[defaultSongCodec]})
+                </span>
               </span>
-            </span>
-            {/* Chevron icon flips based on expand/collapse state */}
-            {showOverrides ? (
-              <ChevronUp size={16} />
-            ) : (
-              <ChevronDown size={16} />
+              {/* Chevron icon flips based on expand/collapse state */}
+              {showOverrides ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+
+            {/*
+             * Expandable override panel -- only rendered when `showOverrides`
+             * is true (conditional rendering). Contains:
+             *  - Audio codec Select dropdown
+             *  - Video resolution Select dropdown
+             *  - "Clear overrides" button (shown only when overrides are set)
+             */}
+            {showOverrides && (
+              <div className="px-4 pb-4 space-y-4 border-t border-border-light pt-4">
+                {/*
+                 * Audio codec override dropdown.
+                 *
+                 * Populated from `SONG_CODEC_LABELS` (e.g., 'alac' -> 'Lossless (ALAC)').
+                 * Selecting an option updates `downloadStore.overrideOptions.song_codec`.
+                 * Selecting the empty/placeholder option ("Use default") clears
+                 * the override by setting `overrideOptions` to `null`.
+                 *
+                 * @see Select component in @/components/common
+                 */}
+                <Select
+                  label="Audio Codec"
+                  description="Override the default audio codec for this download"
+                  options={codecOptions}
+                  value={overrideOptions?.song_codec || ''}
+                  onChange={(e) => {
+                    const codec = e.target.value as SongCodec;
+                    setOverrideOptions(codec ? { ...overrideOptions, song_codec: codec } : null);
+                  }}
+                  placeholder="Use default"
+                />
+
+                {/*
+                 * Video resolution override dropdown.
+                 *
+                 * Populated from `VIDEO_RESOLUTION_LABELS` (e.g., '2160p' -> '4K (2160p)').
+                 * Works identically to the audio codec dropdown above.
+                 * The resolution value is cast to the `VideoResolution` type
+                 * via `as VideoResolution`.
+                 */}
+                <Select
+                  label="Video Resolution"
+                  description="Override the default video resolution for this download"
+                  options={resolutionOptions}
+                  value={overrideOptions?.music_video_resolution || ''}
+                  onChange={(e) => {
+                    const res = e.target.value;
+                    setOverrideOptions(
+                      res
+                        ? {
+                            ...overrideOptions,
+                            music_video_resolution: res as VideoResolution,
+                          }
+                        : null
+                    );
+                  }}
+                  placeholder="Use default"
+                />
+
+                {/*
+                 * "Clear overrides" button.
+                 * Only shown when `overrideOptions` is non-null (i.e., at
+                 * least one override is set). Resets overrides to `null`,
+                 * meaning global defaults will be used for the next download.
+                 */}
+                {overrideOptions && (
+                  <Button variant="ghost" size="sm" onClick={() => setOverrideOptions(null)}>
+                    Clear overrides
+                  </Button>
+                )}
+              </div>
             )}
-          </button>
-
-          {/*
-           * Expandable override panel -- only rendered when `showOverrides`
-           * is true (conditional rendering). Contains:
-           *  - Audio codec Select dropdown
-           *  - Video resolution Select dropdown
-           *  - "Clear overrides" button (shown only when overrides are set)
-           */}
-          {showOverrides && (
-            <div className="px-4 pb-4 space-y-4 border-t border-border-light pt-4">
-              {/*
-               * Audio codec override dropdown.
-               *
-               * Populated from `SONG_CODEC_LABELS` (e.g., 'alac' -> 'Lossless (ALAC)').
-               * Selecting an option updates `downloadStore.overrideOptions.song_codec`.
-               * Selecting the empty/placeholder option ("Use default") clears
-               * the override by setting `overrideOptions` to `null`.
-               *
-               * @see Select component in @/components/common
-               */}
-              <Select
-                label="Audio Codec"
-                description="Override the default audio codec for this download"
-                options={codecOptions}
-                value={overrideOptions?.song_codec || ''}
-                onChange={(e) => {
-                  const codec = e.target.value as SongCodec;
-                  setOverrideOptions(
-                    codec
-                      ? { ...overrideOptions, song_codec: codec }
-                      : null,
-                  );
-                }}
-                placeholder="Use default"
-              />
-
-              {/*
-               * Video resolution override dropdown.
-               *
-               * Populated from `VIDEO_RESOLUTION_LABELS` (e.g., '2160p' -> '4K (2160p)').
-               * Works identically to the audio codec dropdown above.
-               * The resolution value is cast to the `VideoResolution` type
-               * via `as VideoResolution`.
-               */}
-              <Select
-                label="Video Resolution"
-                description="Override the default video resolution for this download"
-                options={resolutionOptions}
-                value={overrideOptions?.music_video_resolution || ''}
-                onChange={(e) => {
-                  const res = e.target.value;
-                  setOverrideOptions(
-                    res
-                      ? {
-                          ...overrideOptions,
-                          music_video_resolution: res as VideoResolution,
-                        }
-                      : null,
-                  );
-                }}
-                placeholder="Use default"
-              />
-
-              {/*
-               * "Clear overrides" button.
-               * Only shown when `overrideOptions` is non-null (i.e., at
-               * least one override is set). Resets overrides to `null`,
-               * meaning global defaults will be used for the next download.
-               */}
-              {overrideOptions && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setOverrideOptions(null)}
-                >
-                  Clear overrides
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+          </div>
         )}
 
         {/* =========================================================
@@ -670,88 +676,89 @@ export function DownloadForm() {
          * Only visible when a valid URL is detected and Smart Download
          * is enabled.
          */}
-        {smartDownloadEnabled && urlIsValid && detectedServiceId && isServiceImplemented && !isDetectedServiceDisabled && (
-        <div className="rounded-platform border border-border-light">
-          <button
-            onClick={() => setShowSmartDownload(!showSmartDownload)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
-          >
-            <span className="flex items-center gap-2">
-              <Zap size={14} className="text-accent" />
-              Smart Download
-              <span className="text-content-tertiary text-xs">
-                (compare quality across platforms)
-              </span>
-            </span>
-            {showSmartDownload ? (
-              <ChevronUp size={16} />
-            ) : (
-              <ChevronDown size={16} />
-            )}
-          </button>
-
-          {showSmartDownload && (
-            <div className="px-4 pb-4 space-y-3 border-t border-border-light pt-4">
-              {/* Check button */}
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={<Search size={14} />}
-                loading={smartDownloadLoading}
-                onClick={handleSmartDownloadCheck}
+        {smartDownloadEnabled &&
+          urlIsValid &&
+          detectedServiceId &&
+          isServiceImplemented &&
+          !isDetectedServiceDisabled && (
+            <div className="rounded-platform border border-border-light">
+              <button
+                onClick={() => setShowSmartDownload(!showSmartDownload)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
               >
-                Check other platforms
-              </Button>
+                <span className="flex items-center gap-2">
+                  <Zap size={14} className="text-accent" />
+                  Smart Download
+                  <span className="text-content-tertiary text-xs">
+                    (compare quality across platforms)
+                  </span>
+                </span>
+                {showSmartDownload ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
 
-              {/* Results list */}
-              {smartDownloadMatches && smartDownloadMatches.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-content-tertiary font-medium">
-                    Available quality by platform:
-                  </p>
-                  {smartDownloadMatches.map((match, i) => {
-                    const kebabId = SERVICE_KEY_TO_ID[match.service_id] || match.service_id;
-                    const isOriginal = match.match_method === 'original';
-                    return (
-                      <div
-                        key={i}
-                        className={`flex items-center justify-between p-2.5 rounded-md text-sm ${
-                          isOriginal ? 'bg-accent-light/50' : 'bg-surface-secondary'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-content-primary">
-                            {getServiceLabel(kebabId as MediaServiceId)}
-                          </span>
-                          {isOriginal && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent font-medium">
-                              Current
+              {showSmartDownload && (
+                <div className="px-4 pb-4 space-y-3 border-t border-border-light pt-4">
+                  {/* Check button */}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<Search size={14} />}
+                    loading={smartDownloadLoading}
+                    onClick={handleSmartDownloadCheck}
+                  >
+                    Check other platforms
+                  </Button>
+
+                  {/* Results list */}
+                  {smartDownloadMatches && smartDownloadMatches.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-content-tertiary font-medium">
+                        Available quality by platform:
+                      </p>
+                      {smartDownloadMatches.map((match, i) => {
+                        const kebabId = SERVICE_KEY_TO_ID[match.service_id] || match.service_id;
+                        const isOriginal = match.match_method === 'original';
+                        return (
+                          <div
+                            key={i}
+                            className={`flex items-center justify-between p-2.5 rounded-md text-sm ${
+                              isOriginal ? 'bg-accent-light/50' : 'bg-surface-secondary'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-content-primary">
+                                {getServiceLabel(kebabId as MediaServiceId)}
+                              </span>
+                              {isOriginal && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent font-medium">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-surface-tertiary text-content-secondary font-medium">
+                              {QUALITY_TIER_LABELS[match.best_quality] || match.best_quality}
                             </span>
-                          )}
-                        </div>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-surface-tertiary text-content-secondary font-medium">
-                          {QUALITY_TIER_LABELS[match.best_quality] || match.best_quality}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {smartDownloadMatches.length <= 1 && (
-                    <p className="text-xs text-content-tertiary italic">
-                      Cross-platform matching will find more results as additional services are implemented.
+                          </div>
+                        );
+                      })}
+                      {smartDownloadMatches.length <= 1 && (
+                        <p className="text-xs text-content-tertiary italic">
+                          Cross-platform matching will find more results as additional services are
+                          implemented.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {smartDownloadMatches && smartDownloadMatches.length === 0 && (
+                    <p className="text-xs text-content-tertiary">
+                      No cross-platform matches found.
                     </p>
                   )}
                 </div>
               )}
-
-              {smartDownloadMatches && smartDownloadMatches.length === 0 && (
-                <p className="text-xs text-content-tertiary">
-                  No cross-platform matches found.
-                </p>
-              )}
             </div>
           )}
-        </div>
-        )}
       </div>
     </div>
   );

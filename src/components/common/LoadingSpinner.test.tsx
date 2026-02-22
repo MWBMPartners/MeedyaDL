@@ -129,9 +129,7 @@ describe('LoadingSpinner', () => {
    * utilities to the spinner wrapper without affecting the spinner itself.
    */
   it('applies additional className', () => {
-    const { container } = render(
-      <LoadingSpinner className="mt-8 custom-spinner" />,
-    );
+    const { container } = render(<LoadingSpinner className="mt-8 custom-spinner" />);
 
     /*
      * The outer container is the root flex div that holds the SVG and

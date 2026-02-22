@@ -651,9 +651,7 @@ export function detectBrowsers(): Promise<DetectedBrowser[]> {
  * @param browserId - Machine-readable browser identifier
  * @returns Promise resolving to the import result
  */
-export function importCookiesFromBrowser(
-  browserId: string,
-): Promise<CookieImportResult> {
+export function importCookiesFromBrowser(browserId: string): Promise<CookieImportResult> {
   return invoke<CookieImportResult>('import_cookies_from_browser', {
     browserId,
   });
@@ -758,10 +756,7 @@ export function closeAppleLogin(): Promise<void> {
  * @param outputDir - The album directory where artwork files should be saved
  * @returns Promise resolving to the artwork download result
  */
-export function downloadAnimatedArtwork(
-  urls: string[],
-  outputDir: string,
-): Promise<ArtworkResult> {
+export function downloadAnimatedArtwork(urls: string[], outputDir: string): Promise<ArtworkResult> {
   return invoke<ArtworkResult>('download_animated_artwork', { urls, outputDir });
 }
 
@@ -800,9 +795,6 @@ export function checkServiceStatus(): Promise<ServiceStatusConfig> {
  * @param serviceId - The detected source service (PascalCase, e.g., "AppleMusic").
  * @returns Cross-platform search results with quality rankings.
  */
-export function checkCrossPlatform(
-  url: string,
-  serviceId: string,
-): Promise<SmartDownloadResult> {
+export function checkCrossPlatform(url: string, serviceId: string): Promise<SmartDownloadResult> {
   return invoke<SmartDownloadResult>('check_cross_platform', { url, serviceId });
 }

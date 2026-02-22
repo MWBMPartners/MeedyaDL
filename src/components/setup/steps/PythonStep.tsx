@@ -123,12 +123,10 @@ export function PythonStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">
-          Python Runtime
-        </h2>
+        <h2 className="text-xl font-semibold text-content-primary">Python Runtime</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL requires Python to run. A portable Python runtime will be
-          downloaded and installed to the application data directory.
+          GAMDL requires Python to run. A portable Python runtime will be downloaded and installed
+          to the application data directory.
         </p>
       </div>
 
@@ -141,16 +139,10 @@ export function PythonStep() {
           <div className="flex items-center gap-3">
             <CheckCircle size={20} className="text-status-success" />
             <div>
-              <p className="text-sm font-medium text-content-primary">
-                Python Installed
-              </p>
-              <p className="text-xs text-content-secondary">
-                Version: {python.version}
-              </p>
+              <p className="text-sm font-medium text-content-primary">Python Installed</p>
+              <p className="text-xs text-content-secondary">Version: {python.version}</p>
               {python.path && (
-                <p className="text-xs text-content-tertiary font-mono mt-0.5">
-                  {python.path}
-                </p>
+                <p className="text-xs text-content-tertiary font-mono mt-0.5">{python.path}</p>
               )}
             </div>
           </div>
@@ -158,13 +150,10 @@ export function PythonStep() {
           /* Python is not installed */
           <div className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-content-primary">
-                Python Not Found
-              </p>
+              <p className="text-sm font-medium text-content-primary">Python Not Found</p>
               <p className="text-xs text-content-secondary mt-1">
-                Click below to download and install a portable Python runtime.
-                This is a self-contained installation that won't affect any
-                system-wide Python installations.
+                Click below to download and install a portable Python runtime. This is a
+                self-contained installation that won't affect any system-wide Python installations.
               </p>
             </div>
 

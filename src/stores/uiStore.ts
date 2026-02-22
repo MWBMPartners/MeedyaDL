@@ -167,11 +167,11 @@ export const useUiStore = create<UiState>((set) => ({
   // -------------------------------------------------------------------------
   // Initial state values
   // -------------------------------------------------------------------------
-  currentPage: 'download',    // Start on the Download page by default
-  sidebarCollapsed: false,    // Sidebar starts fully expanded; overridden by settings on startup
-  toasts: [],                 // No active notifications on launch
-  showSetupWizard: false,     // Setup wizard hidden until <App> decides to show it
-  helpActiveTopic: null,      // No deep-link target until a HelpButton is clicked
+  currentPage: 'download', // Start on the Download page by default
+  sidebarCollapsed: false, // Sidebar starts fully expanded; overridden by settings on startup
+  toasts: [], // No active notifications on launch
+  showSetupWizard: false, // Setup wizard hidden until <App> decides to show it
+  helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
 
   // -------------------------------------------------------------------------
   // Actions
@@ -189,8 +189,7 @@ export const useUiStore = create<UiState>((set) => ({
    * avoiding stale-closure issues.
    * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state#using-updater-function}
    */
-  toggleSidebar: () =>
-    set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
   /**
    * Directly set sidebar collapsed state. Called on app startup from the
@@ -205,8 +204,7 @@ export const useUiStore = create<UiState>((set) => ({
    * Navigate to the Help page and deep-link to a specific topic.
    * Sets both the page and the topic in a single state update.
    */
-  navigateToHelp: (topic) =>
-    set({ currentPage: 'help', helpActiveTopic: topic }),
+  navigateToHelp: (topic) => set({ currentPage: 'help', helpActiveTopic: topic }),
 
   /** Clear the help deep-link topic after HelpViewer has consumed it. */
   clearHelpActiveTopic: () => set({ helpActiveTopic: null }),

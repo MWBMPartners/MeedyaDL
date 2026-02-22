@@ -43,7 +43,7 @@ describe('Modal', () => {
     const { container } = render(
       <Modal open={false} onClose={vi.fn()}>
         <p>Hidden Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /* The container should be completely empty when the modal is closed */
@@ -61,7 +61,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={vi.fn()}>
         <p>Visible Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /* The children content should be visible in the document */
@@ -81,7 +81,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={vi.fn()} title="Confirm Action">
         <p>Body</p>
-      </Modal>,
+      </Modal>
     );
 
     /* The title should appear as a heading in the modal header */
@@ -106,7 +106,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={handleClose} title="Test">
         <p>Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /* Simulate pressing the Escape key at the document level */
@@ -131,7 +131,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={handleClose} title="Test">
         <p>Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /*
@@ -164,7 +164,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={handleClose} title="Test">
         <p>Inner Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /* Click the inner content text -- this should NOT bubble to the backdrop */
@@ -189,7 +189,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={handleClose} title="Test">
         <p>Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /* Find the close button by its accessible label */
@@ -217,7 +217,7 @@ describe('Modal', () => {
     render(
       <Modal open={true} onClose={vi.fn()} title="Test">
         <p>Content</p>
-      </Modal>,
+      </Modal>
     );
 
     /*

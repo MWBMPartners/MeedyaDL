@@ -256,7 +256,9 @@ describe('settingsStore', () => {
     it('sets isLoading during the load', async () => {
       /* Create a promise we control to inspect intermediate state */
       let resolve!: (value: AppSettings) => void;
-      const pending = new Promise<AppSettings>((r) => { resolve = r; });
+      const pending = new Promise<AppSettings>((r) => {
+        resolve = r;
+      });
       vi.mocked(commands.getSettings).mockReturnValueOnce(pending);
 
       const loadPromise = useSettingsStore.getState().loadSettings();
@@ -268,9 +270,7 @@ describe('settingsStore', () => {
     });
 
     it('sets error on backend failure', async () => {
-      vi.mocked(commands.getSettings).mockRejectedValueOnce(
-        new Error('File not found'),
-      );
+      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('File not found'));
 
       await useSettingsStore.getState().loadSettings();
 
@@ -315,19 +315,15 @@ describe('settingsStore', () => {
 
       /* Verify the save command was called with the current settings */
       expect(commands.saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ output_path: '/new/path' }),
+        expect.objectContaining({ output_path: '/new/path' })
       );
       expect(useSettingsStore.getState().isDirty).toBe(false);
     });
 
     it('sets error and re-throws on backend failure', async () => {
-      vi.mocked(commands.saveSettings).mockRejectedValueOnce(
-        new Error('Disk full'),
-      );
+      vi.mocked(commands.saveSettings).mockRejectedValueOnce(new Error('Disk full'));
 
-      await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow(
-        'Disk full',
-      );
+      await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow('Disk full');
 
       expect(useSettingsStore.getState().error).toBe('Disk full');
     });

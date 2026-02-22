@@ -86,23 +86,23 @@ import remarkGfm from 'remark-gfm';
 // Lucide icons for each help topic in the sidebar.
 // Each topic has a dedicated icon for quick visual identification.
 import {
-  BookOpen,     // "Getting Started" topic
-  Download,     // "Downloading" topic
-  Settings,     // "Settings" topic
-  Cookie,       // "Cookies" topic
-  Wrench,       // "Tools" topic
-  Shield,       // "Wrapper / AMdecrypt" topic
-  Music,        // "Audio Codecs" topic
-  Video,        // "Music Videos" topic
-  Film,         // "Animated Artwork" topic
-  HelpCircle,   // "Troubleshooting" topic
-  FileText,     // "About" topic
-  ShieldAlert,  // "Disclaimer" topic
-  Scale,        // "Licenses" topic
-  FileCheck,    // "Terms of Use" topic
-  ShieldCheck,  // "Privacy Policy" topic
-  Search,       // Search icon in the sidebar search bar
-  X,            // Clear search button icon
+  BookOpen, // "Getting Started" topic
+  Download, // "Downloading" topic
+  Settings, // "Settings" topic
+  Cookie, // "Cookies" topic
+  Wrench, // "Tools" topic
+  Shield, // "Wrapper / AMdecrypt" topic
+  Music, // "Audio Codecs" topic
+  Video, // "Music Videos" topic
+  Film, // "Animated Artwork" topic
+  HelpCircle, // "Troubleshooting" topic
+  FileText, // "About" topic
+  ShieldAlert, // "Disclaimer" topic
+  Scale, // "Licenses" topic
+  FileCheck, // "Terms of Use" topic
+  ShieldCheck, // "Privacy Policy" topic
+  Search, // Search icon in the sidebar search bar
+  X, // Clear search button icon
 } from 'lucide-react';
 
 // Shared layout component for the page header.
@@ -974,13 +974,7 @@ function escapeRegExp(str: string): string {
  * @param query - The current search query to highlight within the label
  * @returns A React fragment containing text nodes and <mark> elements
  */
-function HighlightedLabel({
-  label,
-  query,
-}: {
-  label: string;
-  query: string;
-}) {
+function HighlightedLabel({ label, query }: { label: string; query: string }) {
   /* When there is no search query, render the label as plain text */
   if (!query.trim()) {
     return <>{label}</>;
@@ -1006,10 +1000,7 @@ function HighlightedLabel({
          */
         const isMatch = part.toLowerCase() === query.trim().toLowerCase();
         return isMatch ? (
-          <mark
-            key={index}
-            className="bg-yellow-300/40 text-inherit rounded-sm px-0.5"
-          >
+          <mark key={index} className="bg-yellow-300/40 text-inherit rounded-sm px-0.5">
             {part}
           </mark>
         ) : (
@@ -1093,8 +1084,7 @@ export function HelpViewer() {
     /* Filter topics whose label or content contains the query substring */
     return HELP_TOPICS.filter(
       (topic) =>
-        topic.label.toLowerCase().includes(trimmed) ||
-        topic.content.toLowerCase().includes(trimmed)
+        topic.label.toLowerCase().includes(trimmed) || topic.content.toLowerCase().includes(trimmed)
     );
   }, [searchQuery]);
 
@@ -1119,12 +1109,9 @@ export function HelpViewer() {
    * Updates the searchQuery state which triggers re-filtering
    * of the sidebar topics via the filteredTopics memo.
    */
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setSearchQuery(e.target.value);
-    },
-    []
-  );
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  }, []);
 
   /**
    * Clears the search input and resets the filtered view to show
@@ -1143,10 +1130,7 @@ export function HelpViewer() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header with title and description */}
-      <PageHeader
-        title="Help"
-        subtitle="Documentation and guides for using MeedyaDL"
-      />
+      <PageHeader title="Help" subtitle="Documentation and guides for using MeedyaDL" />
 
       <div className="flex flex-1 overflow-hidden">
         {/* ----------------------------------------------------------------
@@ -1244,9 +1228,7 @@ export function HelpViewer() {
                 topics to give immediate feedback on the search scope. */}
             {isSearchActive && (
               <div className="mt-1 px-1 text-[10px] text-content-tertiary">
-                {filteredTopics.length === 1
-                  ? '1 result'
-                  : `${filteredTopics.length} results`}
+                {filteredTopics.length === 1 ? '1 result' : `${filteredTopics.length} results`}
               </div>
             )}
           </div>
@@ -1290,13 +1272,8 @@ export function HelpViewer() {
                  Provides a visual cue that the filter returned zero results
                  and encourages the user to modify their search. */
               <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Search
-                  size={24}
-                  className="text-content-tertiary mb-2 opacity-50"
-                />
-                <p className="text-xs text-content-tertiary">
-                  No matching topics found.
-                </p>
+                <Search size={24} className="text-content-tertiary mb-2 opacity-50" />
+                <p className="text-xs text-content-tertiary">No matching topics found.</p>
                 <button
                   onClick={handleClearSearch}
                   className="
@@ -1322,9 +1299,7 @@ export function HelpViewer() {
          * ---------------------------------------------------------------- */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-2xl prose prose-sm dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {topic.content}
-            </ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{topic.content}</ReactMarkdown>
           </div>
         </div>
       </div>

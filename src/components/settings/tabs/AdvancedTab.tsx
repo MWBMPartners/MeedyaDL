@@ -100,9 +100,7 @@ export function AdvancedTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Processing */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Processing
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Processing</h3>
 
         {/* Download mode */}
         <Select
@@ -110,9 +108,7 @@ export function AdvancedTab() {
           description="Which tool to use for downloading HLS streams"
           options={DOWNLOAD_MODE_OPTIONS}
           value={settings.download_mode}
-          onChange={(e) =>
-            updateSettings({ download_mode: e.target.value as DownloadMode })
-          }
+          onChange={(e) => updateSettings({ download_mode: e.target.value as DownloadMode })}
         />
 
         {/* Remux mode */}
@@ -121,24 +117,19 @@ export function AdvancedTab() {
           description="Which tool to use for container format conversion"
           options={REMUX_MODE_OPTIONS}
           value={settings.remux_mode}
-          onChange={(e) =>
-            updateSettings({ remux_mode: e.target.value as RemuxMode })
-          }
+          onChange={(e) => updateSettings({ remux_mode: e.target.value as RemuxMode })}
         />
       </div>
 
       {/* Section: Wrapper */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Wrapper
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Wrapper</h3>
 
         {!supportsWrapper && (
           <p className="text-xs text-content-tertiary bg-surface-secondary rounded-platform p-2">
-            The Wrapper service only provides native binaries for Linux x86_64.
-            On this platform you would need to run Wrapper remotely (e.g. on a
-            Linux server or via Docker) and point the URL below to it. See Help
-            &gt; Wrapper / AMdecrypt for details.
+            The Wrapper service only provides native binaries for Linux x86_64. On this platform you
+            would need to run Wrapper remotely (e.g. on a Linux server or via Docker) and point the
+            URL below to it. See Help &gt; Wrapper / AMdecrypt for details.
           </p>
         )}
 
@@ -155,18 +146,14 @@ export function AdvancedTab() {
             label="Wrapper Account URL"
             description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper / AMdecrypt for setup instructions."
             value={settings.wrapper_account_url}
-            onChange={(e) =>
-              updateSettings({ wrapper_account_url: e.target.value })
-            }
+            onChange={(e) => updateSettings({ wrapper_account_url: e.target.value })}
           />
         )}
       </div>
 
       {/* Section: File Options */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          File Options
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">File Options</h3>
 
         {/* Filename truncation -- nullable number field.
             When the input is empty, `truncate` is set to `null` (no limit).
@@ -201,9 +188,9 @@ export function AdvancedTab() {
           placeholder="e.g., lyrics, comment"
           onChange={(e) => {
             const tags = e.target.value
-              .split(',')             // Split on commas into segments
-              .map((t) => t.trim())   // Trim whitespace from each segment
-              .filter(Boolean);       // Remove empty strings (e.g., trailing comma)
+              .split(',') // Split on commas into segments
+              .map((t) => t.trim()) // Trim whitespace from each segment
+              .filter(Boolean); // Remove empty strings (e.g., trailing comma)
             updateSettings({ exclude_tags: tags }); // Persist as string[]
           }}
         />

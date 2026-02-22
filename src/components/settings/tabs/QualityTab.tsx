@@ -54,7 +54,12 @@ import { Select, Toggle, FallbackChainList } from '@/components/common';
 
 // Label maps and type definitions for audio codecs, video resolutions, video codecs, and companion modes.
 // These Record<T, string> maps are used to populate the <Select> dropdown options and reorderable lists.
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, VIDEO_CODEC_LABELS, COMPANION_MODE_LABELS } from '@/types';
+import {
+  SONG_CODEC_LABELS,
+  VIDEO_RESOLUTION_LABELS,
+  VIDEO_CODEC_LABELS,
+  COMPANION_MODE_LABELS,
+} from '@/types';
 import type { SongCodec, VideoResolution, VideoCodec, CompanionMode } from '@/types';
 
 /** All valid video codec identifiers, used for type-guarding parsed strings. */
@@ -103,16 +108,18 @@ export function QualityTab() {
   /**
    * Transform companion mode labels into <Select> options.
    */
-  const companionModeOptions = Object.entries(COMPANION_MODE_LABELS).map(
-    ([value, label]) => ({ value, label }),
-  );
+  const companionModeOptions = Object.entries(COMPANION_MODE_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  }));
 
   /**
    * Same transformation for video resolution labels.
    */
-  const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(
-    ([value, label]) => ({ value, label }),
-  );
+  const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  }));
 
   /**
    * Video remux format options are hardcoded here rather than derived from
@@ -129,33 +136,28 @@ export function QualityTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Audio */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Audio Quality
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Audio Quality</h3>
 
         {/* Default audio codec */}
         <Select
           label="Default Audio Codec"
           description={
             <>
-              The preferred codec for song downloads. Only{' '}
-              <strong>AAC Legacy</strong> and <strong>AAC-HE Legacy</strong> are
-              reliably downloadable with cookie-based authentication. All other
-              codecs are marked <em>(Experimental)</em> and may fail
-              intermittently without the Wrapper service. See Help &gt; Audio
-              Codecs for details.
-              <br /><br />
+              The preferred codec for song downloads. Only <strong>AAC Legacy</strong> and{' '}
+              <strong>AAC-HE Legacy</strong> are reliably downloadable with cookie-based
+              authentication. All other codecs are marked <em>(Experimental)</em> and may fail
+              intermittently without the Wrapper service. See Help &gt; Audio Codecs for details.
+              <br />
+              <br />
               <strong>ALAC</strong> = lossless (perfect quality, larger files);{' '}
-              <strong>Dolby Atmos</strong> = immersive spatial audio;{' '}
-              <strong>AC3</strong> = surround sound (5.1 home theatre);{' '}
-              <strong>AAC</strong> = standard quality (smallest files, plays everywhere).
+              <strong>Dolby Atmos</strong> = immersive spatial audio; <strong>AC3</strong> =
+              surround sound (5.1 home theatre); <strong>AAC</strong> = standard quality (smallest
+              files, plays everywhere).
             </>
           }
           options={codecOptions}
           value={settings.default_song_codec}
-          onChange={(e) =>
-            updateSettings({ default_song_codec: e.target.value as SongCodec })
-          }
+          onChange={(e) => updateSettings({ default_song_codec: e.target.value as SongCodec })}
           helpTopic="audio-codecs"
         />
 
@@ -173,18 +175,14 @@ export function QualityTab() {
           description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename."
           options={companionModeOptions}
           value={settings.companion_mode}
-          onChange={(e) =>
-            updateSettings({ companion_mode: e.target.value as CompanionMode })
-          }
+          onChange={(e) => updateSettings({ companion_mode: e.target.value as CompanionMode })}
           helpTopic="audio-codecs"
         />
       </div>
 
       {/* Section: Video */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Video Quality
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Video Quality</h3>
 
         {/* Default video resolution */}
         <Select
@@ -222,9 +220,7 @@ export function QualityTab() {
           description="Container format for remuxed video files"
           options={remuxOptions}
           value={settings.default_video_remux_format}
-          onChange={(e) =>
-            updateSettings({ default_video_remux_format: e.target.value })
-          }
+          onChange={(e) => updateSettings({ default_video_remux_format: e.target.value })}
         />
       </div>
     </div>

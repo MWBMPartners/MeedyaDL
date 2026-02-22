@@ -157,17 +157,11 @@ export function ActivityLog() {
             <div
               key={i}
               className={`whitespace-pre-wrap break-all ${
-                entry.stream === 'stderr'
-                  ? 'text-status-warning'
-                  : 'text-content-primary'
+                entry.stream === 'stderr' ? 'text-status-warning' : 'text-content-primary'
               }`}
             >
-              <span className="text-content-tertiary">
-                {formatTime(entry.timestamp)}{' '}
-              </span>
-              <span className="text-accent">
-                [{shortId(entry.download_id)}]{' '}
-              </span>
+              <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
+              <span className="text-accent">[{shortId(entry.download_id)}] </span>
               {entry.line}
             </div>
           ))

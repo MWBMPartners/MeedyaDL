@@ -27,13 +27,10 @@ export function YouTubeTab() {
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#ff0000]/10 mb-4">
           <span className="text-2xl">&#9654;</span>
         </div>
-        <h3 className="text-lg font-semibold text-content-primary">
-          YouTube Downloads
-        </h3>
+        <h3 className="text-lg font-semibold text-content-primary">YouTube Downloads</h3>
         <p className="text-sm text-content-secondary mt-2 max-w-md mx-auto">
-          Download videos, playlists, channels, and live streams from YouTube
-          in up to 8K resolution with audio-only extraction, subtitle embedding,
-          and SponsorBlock integration.
+          Download videos, playlists, channels, and live streams from YouTube in up to 8K resolution
+          with audio-only extraction, subtitle embedding, and SponsorBlock integration.
         </p>
         <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-status-warning/10 text-status-warning text-xs font-medium">
           Coming Soon

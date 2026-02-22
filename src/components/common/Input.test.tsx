@@ -94,12 +94,7 @@ describe('Input', () => {
    * the description to focus the user's attention on the validation issue.
    */
   it('renders error text and hides description when error is set', () => {
-    render(
-      <Input
-        description="This will be hidden"
-        error="This field is required"
-      />,
-    );
+    render(<Input description="This will be hidden" error="This field is required" />);
 
     /* The error message should be visible */
     expect(screen.getByText('This field is required')).toBeInTheDocument();
@@ -170,7 +165,7 @@ describe('Input', () => {
         type="email"
         value="test@example.com"
         onChange={handleChange}
-      />,
+      />
     );
 
     const input = screen.getByRole('textbox');

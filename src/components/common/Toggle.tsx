@@ -122,9 +122,7 @@ export function Toggle({
             </span>
           )}
           {description && (
-            <span className="block text-xs text-content-tertiary mt-0.5">
-              {description}
-            </span>
+            <span className="block text-xs text-content-tertiary mt-0.5">{description}</span>
           )}
         </div>
       )}

@@ -26,17 +26,13 @@ export function BBCiPlayerTab() {
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#006def]/10 mb-4">
           <span className="text-2xl">&#128250;</span>
         </div>
-        <h3 className="text-lg font-semibold text-content-primary">
-          BBC iPlayer Downloads
-        </h3>
+        <h3 className="text-lg font-semibold text-content-primary">BBC iPlayer Downloads</h3>
         <p className="text-sm text-content-secondary mt-2 max-w-md mx-auto">
-          Download TV programmes, episodes, series, and BBC Sounds audio
-          content using get_iplayer with yt-dlp fallback. Supports quality
-          selection, subtitles, and thumbnails.
+          Download TV programmes, episodes, series, and BBC Sounds audio content using get_iplayer
+          with yt-dlp fallback. Supports quality selection, subtitles, and thumbnails.
         </p>
         <p className="text-xs text-content-tertiary mt-2 max-w-md mx-auto">
-          Note: BBC iPlayer content is region-restricted to the UK. A UK VPN
-          may be required.
+          Note: BBC iPlayer content is region-restricted to the UK. A UK VPN may be required.
         </p>
         <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-status-warning/10 text-status-warning text-xs font-medium">
           Coming Soon

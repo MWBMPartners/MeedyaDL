@@ -520,9 +520,12 @@ function App() {
     });
 
     // Re-check every 4 hours (4 * 60 * 60 * 1000 = 14,400,000 ms)
-    const interval = setInterval(() => {
-      checkServiceStatus().catch(() => {});
-    }, 4 * 60 * 60 * 1000);
+    const interval = setInterval(
+      () => {
+        checkServiceStatus().catch(() => {});
+      },
+      4 * 60 * 60 * 1000
+    );
 
     return () => clearInterval(interval);
   }, [isReady, checkServiceStatus]);
@@ -638,20 +641,17 @@ function App() {
             } catch (err) {
               console.error('Error in download-error handler:', err);
             }
-          },
+          }
         );
 
         /* 3. Download was cancelled by the user */
-        unlistenCancelled = await listen<string>(
-          'download-cancelled',
-          (event) => {
-            try {
-              handleDownloadCancelled(event.payload);
-            } catch (err) {
-              console.error('Error in download-cancelled handler:', err);
-            }
-          },
-        );
+        unlistenCancelled = await listen<string>('download-cancelled', (event) => {
+          try {
+            handleDownloadCancelled(event.payload);
+          } catch (err) {
+            console.error('Error in download-cancelled handler:', err);
+          }
+        });
 
         /* 4. New download queued or existing one retried */
         unlistenQueued = await listen('download-queued', () => {
@@ -750,19 +750,19 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'download':
-        return <DownloadForm />;   // URL input form and download options
+        return <DownloadForm />; // URL input form and download options
       case 'queue':
-        return <DownloadQueue />;  // Real-time download queue with progress
+        return <DownloadQueue />; // Real-time download queue with progress
       case 'activity':
-        return <ActivityLog />;    // Live subprocess output log
+        return <ActivityLog />; // Live subprocess output log
       case 'updates':
-        return <UpdatesPage />;    // Update details with release notes
+        return <UpdatesPage />; // Update details with release notes
       case 'settings':
-        return <SettingsPage />;   // Full settings editor
+        return <SettingsPage />; // Full settings editor
       case 'help':
-        return <HelpViewer />;     // In-app help documentation
+        return <HelpViewer />; // In-app help documentation
       default:
-        return <DownloadForm />;   // Fallback to download form
+        return <DownloadForm />; // Fallback to download form
     }
   };
 
