@@ -1103,7 +1103,39 @@ export function HelpViewer() {
          * ---------------------------------------------------------------- */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-2xl prose prose-sm dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                // Custom link handler:
+                //  - Internal links (#topic-id) navigate within the help viewer
+                //  - External links (http/https) open in the system browser
+                a: ({ href, children, ...props }) => (
+                  <a
+                    {...props}
+                    href={href}
+                    onClick={(e) => {
+                      if (!href) return;
+                      // Internal help topic link (e.g., #cookies-help)
+                      if (href.startsWith('#')) {
+                        e.preventDefault();
+                        const topicId = href.slice(1);
+                        if (HELP_TOPICS.some((t) => t.id === topicId)) {
+                          setActiveTopic(topicId);
+                        }
+                        return;
+                      }
+                      // External link — open in system default browser
+                      if (href.startsWith('http://') || href.startsWith('https://')) {
+                        e.preventDefault();
+                        import('@tauri-apps/plugin-shell').then(({ open }) => open(href));
+                      }
+                    }}
+                  >
+                    {children}
+                  </a>
+                ),
+              }}
+            >
               {topic.content}
             </ReactMarkdown>
           </div>
