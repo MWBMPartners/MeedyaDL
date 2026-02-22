@@ -362,6 +362,26 @@ The script writes a `manifest.json` recording which dependencies were successful
 **Cause**: One or more Apple signing secrets are missing.
 **Fix**: Configure all 6 Apple secrets in the repository settings.
 
+### macOS "The signature does not include a secure timestamp"
+
+**Cause**: Tauri's `tauri-macos-sign` crate omits `--timestamp` from `codesign` calls. Per Apple's codesign man page, without this flag the behavior is non-deterministic — sometimes a timestamp is included, sometimes not. Apple's notarization service requires secure timestamps on all signed binaries.
+
+**Fix**: Both `release.yml` and `pre-release.yml` include a PATH-based codesign wrapper (Step 8.9) that intercepts `/usr/bin/codesign` and injects `--timestamp` automatically. Remove when the upstream Tauri fix lands.
+
+**Upstream**: [tauri-apps/tauri#11992](https://github.com/tauri-apps/tauri/issues/11992)
+
+### Linux `native-tls` compile error: "non-exhaustive patterns"
+
+**Cause**: `native-tls` v0.2.17 doesn't handle `Some(Protocol::Tlsv13)` on newer OpenSSL versions, causing `error[E0004]` on all Linux targets (x64, ARM64, ARMv7).
+
+**Fix**: Update `Cargo.lock` to `native-tls` v0.2.18+ (`cargo update -p native-tls`).
+
+### Windows bundled-deps hang: "Extracting MP4Box from NSIS installer..."
+
+**Cause**: GPAC's NSIS installer ignores the `/S` (silent) flag and opens a GUI dialog. In headless CI, the process hangs indefinitely waiting for user input. Both Windows x64 and ARM64 builds are affected.
+
+**Fix**: `scripts/download-bundled-deps.sh` now uses `7z` extraction instead of running the NSIS installer. 7-Zip can extract NSIS `.exe` archives directly and is pre-installed on all GitHub Windows runners.
+
 ### `cargo clean` needed after config changes
 If you change `tauri.conf.json` and the build fails with cached errors, run:
 ```bash
