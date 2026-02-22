@@ -58,6 +58,9 @@
 // React useEffect for auto-advancing past completed steps on mount.
 import { useEffect, useRef } from 'react';
 
+// IPC command for validating the existing cookies file on disk.
+import { validateCookiesFile } from '@/lib/tauri-commands';
+
 // Zustand stores: setupStore manages the wizard state machine;
 // SETUP_STEPS is the ordered array of step identifiers.
 import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
@@ -189,6 +192,57 @@ export function SetupWizard() {
       goToStep('gamdl');
     }
     // Otherwise stay on welcome (default)
+  }, [completeStep, goToStep]);
+
+  // --- Async cookies validation effect ---
+  /**
+   * After the sync auto-advance, asynchronously check if a valid cookies
+   * file already exists on disk. If the user has Apple Music cookies from
+   * a previous installation or manual setup, skip the cookies step entirely.
+   *
+   * This runs as a separate effect because cookie validation is async
+   * (Tauri IPC call to read and parse the file). The sync auto-advance
+   * above will have already set `currentStep` to 'cookies' if all deps
+   * are ready, so this effect can then advance to 'complete'.
+   */
+  const hasCheckedCookies = useRef(false);
+  useEffect(() => {
+    if (hasCheckedCookies.current) return;
+    hasCheckedCookies.current = true;
+
+    const checkExistingCookies = async () => {
+      try {
+        const cookiesPath =
+          useSettingsStore.getState().settings.cookies_path;
+
+        // cookies_path is Option<String> in Rust — null or empty means no file
+        if (!cookiesPath) return;
+
+        const validation = await validateCookiesFile(cookiesPath);
+
+        // Only skip if cookies are valid, contain Apple Music cookies,
+        // and are not expired. Otherwise let the user re-import.
+        if (
+          validation.valid &&
+          validation.apple_music_cookies > 0 &&
+          !validation.expired
+        ) {
+          completeStep('cookies');
+
+          // If the sync auto-advance already brought us to the cookies step
+          // (because all deps were ready), advance to the complete step.
+          const { currentStep: step } = useSetupStore.getState();
+          if (step === 'cookies') {
+            goToStep('complete');
+          }
+        }
+      } catch {
+        // Validation failed (file deleted, corrupted, etc.) — silently
+        // fall through and show the cookies step as normal.
+      }
+    };
+
+    checkExistingCookies();
   }, [completeStep, goToStep]);
 
   /**

@@ -100,6 +100,11 @@ pub struct ComponentUpdate {
     /// Git tag name for this release (e.g., "v0.3.7").
     /// Used by the frontend to construct the download URL for the Tauri updater.
     pub tag_name: Option<String>,
+    /// Whether this update is a rollback from a pre-release to a stable version.
+    /// When true, the frontend labels the action as "Roll Back to Stable" instead
+    /// of "Download & Install". Set by check_app_update() when the user has
+    /// `prefer_stable_rollback` enabled and is running a pre-release version.
+    pub is_rollback: bool,
 }
 
 /// Combined update status for all components.
@@ -181,21 +186,47 @@ fn is_gamdl_compatible(version: &str) -> bool {
     current >= min && current <= max
 }
 
+/// Strips the pre-release suffix from a version string.
+///
+/// Pre-release versions follow the format `X.Y.Z-label.N` (e.g., "0.4.0-alpha.1").
+/// This function returns just the base version ("0.4.0") by splitting on the first
+/// hyphen. If there's no hyphen, the string is returned unchanged.
+///
+/// Also strips a leading `v` prefix (e.g., "v0.4.0-alpha.1" → "0.4.0").
+fn strip_prerelease(v: &str) -> &str {
+    let stripped = v.trim_start_matches('v');
+    stripped.split('-').next().unwrap_or(stripped)
+}
+
+/// Returns true if the version string contains a pre-release suffix.
+///
+/// Checks for a hyphen after stripping the `v` prefix (e.g., "0.4.0-alpha.1"
+/// contains `-alpha.1`, so it's a pre-release; "0.3.22" has no hyphen, so it's stable).
+fn is_prerelease_version(v: &str) -> bool {
+    let stripped = v.trim_start_matches('v');
+    stripped.contains('-')
+}
+
 /// Compares two semver version strings and returns true if `latest` is strictly newer than `current`.
 ///
-/// Uses simple tuple comparison on (major, minor, patch). Unparseable parts default to 0.
-/// Equal versions return false (not newer).
+/// Handles pre-release suffixes correctly by stripping them before numeric comparison.
+/// When base versions are equal, a stable release is considered "newer" than a pre-release
+/// (e.g., "0.4.0" is newer than "0.4.0-alpha.1"). This ensures that users on pre-release
+/// versions see the stable release as an available update.
 ///
 /// Examples:
 /// - is_newer("1.0.0", "1.0.1") => true  (patch bump)
 /// - is_newer("1.0.0", "1.0.0") => false (same version)
 /// - is_newer("2.0.0", "1.9.9") => false (downgrade)
+/// - is_newer("0.4.0-alpha.1", "0.4.0") => true  (stable beats pre-release at same base)
+/// - is_newer("0.4.0", "0.4.0-alpha.1") => false (pre-release is not newer than stable)
 fn is_newer(current: &str, latest: &str) -> bool {
-    // Parse version string into (major, minor, patch) tuple.
-    // Missing or unparseable parts default to 0, making this forgiving
-    // of version strings like "2.0" (treated as 2.0.0) or "v2.1" (0.0.0 — the "v" makes it unparseable).
+    // Parse version string into (major, minor, patch) tuple after stripping
+    // the pre-release suffix. This fixes the previous bug where "0.4.0-alpha.1"
+    // had its patch part "0-alpha" fail parse::<u32>() and silently default to 0.
     let parse = |v: &str| -> (u32, u32, u32) {
-        let parts: Vec<&str> = v.split('.').collect();
+        let base = strip_prerelease(v);
+        let parts: Vec<&str> = base.split('.').collect();
         let major = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
         let minor = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
         let patch = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
@@ -204,8 +235,22 @@ fn is_newer(current: &str, latest: &str) -> bool {
 
     let c = parse(current);
     let l = parse(latest);
-    // Rust's tuple comparison is lexicographic: compares major first, then minor, then patch
-    l > c
+
+    // If base versions differ, standard tuple comparison applies
+    if l != c {
+        return l > c;
+    }
+
+    // Base versions are equal — stable is "newer" than pre-release.
+    // This handles the case where a user is on "0.4.0-alpha.1" and the
+    // latest stable release is "0.4.0": the stable release should be offered.
+    let current_is_pre = is_prerelease_version(current);
+    let latest_is_pre = is_prerelease_version(latest);
+
+    // "0.4.0-alpha.1" (pre) vs "0.4.0" (stable) => stable is newer
+    // "0.4.0" (stable) vs "0.4.0-alpha.1" (pre) => pre is not newer
+    // "0.4.0-alpha.1" vs "0.4.0-beta.1" => not newer (we don't rank pre-release labels)
+    current_is_pre && !latest_is_pre
 }
 
 // ============================================================
@@ -223,7 +268,14 @@ fn is_newer(current: &str, latest: &str) -> bool {
 /// * `check_pre_releases` - Whether to include pre-release versions when
 ///   checking for app updates. When true, queries all recent GitHub releases
 ///   (including betas/RCs); when false, only checks the latest stable release.
-pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> UpdateCheckResult {
+/// * `prefer_stable_rollback` - When true and the current version is a pre-release,
+///   forces the app update check to query stable releases only and offers the latest
+///   stable as a rollback target, even if it's numerically older.
+pub async fn check_all_updates(
+    app: &AppHandle,
+    check_pre_releases: bool,
+    prefer_stable_rollback: bool,
+) -> UpdateCheckResult {
     let mut components = Vec::new();
     let mut errors = Vec::new();
 
@@ -237,7 +289,8 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // Check for app self-updates via GitHub Releases API.
     // Compares the running app version against the latest GitHub release tag.
     // When check_pre_releases is true, includes beta/RC releases in the check.
-    match check_app_update(app, check_pre_releases).await {
+    // When prefer_stable_rollback is true, forces stable-only check for rollback.
+    match check_app_update(app, check_pre_releases, prefer_stable_rollback).await {
         Ok(update) => components.push(update),
         Err(e) => errors.push(format!("App update check failed: {}", e)),
     }
@@ -313,6 +366,8 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
         is_prerelease: false,
         tag_name: None,
+        // GAMDL updates are never rollbacks (no pre-release concept)
+        is_rollback: false,
     })
 }
 
@@ -323,31 +378,50 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
 /// all recent releases (including betas/RCs); otherwise only checks the
 /// latest stable release.
 ///
+/// When `prefer_stable_rollback` is true and the current version is a pre-release,
+/// forces a stable-only query regardless of `check_pre_releases`. If a stable release
+/// exists, it's offered as a rollback target (even if numerically older), with
+/// `is_rollback: true` to let the frontend render a "Roll Back to Stable" action.
+///
 /// # Arguments
 /// * `app` - Tauri app handle for reading the current app version
 /// * `check_pre_releases` - Whether to include pre-release versions.
 ///   When true: queries `releases?per_page=5` and takes the newest (which may be a pre-release).
 ///   When false: queries `releases/latest` (GitHub automatically excludes pre-releases).
+/// * `prefer_stable_rollback` - When true and current version is pre-release,
+///   overrides `check_pre_releases` to force stable-only mode and marks the result
+///   as a rollback.
 async fn check_app_update(
     app: &AppHandle,
     check_pre_releases: bool,
+    prefer_stable_rollback: bool,
 ) -> Result<ComponentUpdate, String> {
     // Get the current app version from Tauri's package info.
     // This reads the version from tauri.conf.json, set at build time.
     let current_version = app.package_info().version.to_string();
 
+    // Determine if the current version is a pre-release (e.g., "0.4.0-alpha.1").
+    // This drives the rollback logic below.
+    let current_is_prerelease = is_prerelease_version(&current_version);
+
+    // Rollback mode: when the user is on a pre-release and has opted into stable
+    // rollback, force the query to stable-only regardless of check_pre_releases.
+    // This ensures we get the latest stable release as the rollback target.
+    let rollback_mode = current_is_prerelease && prefer_stable_rollback;
+
     // Choose the GitHub API endpoint based on pre-release preference.
     // - Stable only: `releases/latest` returns a single release object (excludes pre-releases)
     // - Include pre-releases: `releases?per_page=5` returns an array sorted newest-first
-    let (url, is_list) = if check_pre_releases {
-        (
-            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=5",
-            true,
-        )
-    } else {
+    // - Rollback mode: always queries stable-only, overriding check_pre_releases
+    let (url, is_list) = if rollback_mode || !check_pre_releases {
         (
             "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases/latest",
             false,
+        )
+    } else {
+        (
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=5",
+            true,
         )
     };
 
@@ -380,6 +454,7 @@ async fn check_app_update(
                 release_body: None,
                 is_prerelease: false,
                 tag_name: None,
+                is_rollback: false,
             });
         }
         return Err(format!("GitHub API returned HTTP {}", response.status()));
@@ -409,6 +484,7 @@ async fn check_app_update(
                 release_body: None,
                 is_prerelease: false,
                 tag_name: None,
+                is_rollback: false,
             });
         }
         // Index 0 is the newest release (may be a pre-release)
@@ -440,10 +516,33 @@ async fn check_app_update(
     // This is `true` for releases marked as pre-release on GitHub.
     let is_prerelease = release["prerelease"].as_bool().unwrap_or(false);
 
-    let update_available = if tag.is_empty() {
-        false
+    // Determine if an update is available, with special handling for rollback mode.
+    //
+    // In rollback mode: any stable release is a valid target, even if numerically older.
+    // For example, current "0.4.0-alpha.1" → latest stable "0.3.22" is a valid rollback.
+    // We also check is_newer() to cover the case where the stable release is also
+    // numerically newer (e.g., "0.4.0-alpha.1" → "0.4.0").
+    //
+    // In normal mode: standard is_newer() comparison (now handles pre-release suffixes).
+    let (update_available, is_rollback) = if tag.is_empty() {
+        (false, false)
+    } else if rollback_mode {
+        // In rollback mode, offer the stable release if:
+        // 1. It's genuinely newer (is_newer handles stable > pre-release at same base), OR
+        // 2. It's a valid rollback target (current is pre-release, target is stable)
+        let newer = is_newer(&current_version, &tag);
+        let rollback_target = current_is_prerelease && !is_prerelease_version(&tag);
+        // It's a "rollback" (not a standard upgrade) when the base version is lower or
+        // equal — i.e., not a standard version bump. For example:
+        //   "0.4.0-alpha.1" → "0.3.22" = rollback (older base)
+        //   "0.4.0-alpha.1" → "0.4.0"  = rollback (same base, stable vs pre-release)
+        //   "0.4.0-alpha.1" → "0.5.0"  = NOT a rollback (newer base)
+        let base_current = strip_prerelease(&current_version);
+        let base_target = strip_prerelease(&tag);
+        let is_base_upgrade = is_newer(base_current, base_target);
+        (newer || rollback_target, rollback_target && !is_base_upgrade)
     } else {
-        is_newer(&current_version, &tag)
+        (is_newer(&current_version, &tag), false)
     };
 
     Ok(ComponentUpdate {
@@ -465,6 +564,9 @@ async fn check_app_update(
         } else {
             Some(raw_tag.to_string())
         },
+        // Set by the rollback logic above: true when offering a stable release
+        // as a rollback target to a user on a pre-release version.
+        is_rollback,
     })
 }
 
@@ -514,6 +616,8 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // Python updates are local version comparisons, not GitHub Releases
         is_prerelease: false,
         tag_name: None,
+        // Python updates are never rollbacks
+        is_rollback: false,
     })
 }
 
@@ -525,8 +629,38 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
 mod tests {
     use super::*;
 
+    /// Tests that strip_prerelease() correctly removes pre-release suffixes
+    /// and v-prefixes from version strings.
+    #[test]
+    fn test_strip_prerelease() {
+        // Standard pre-release suffix
+        assert_eq!(strip_prerelease("0.4.0-alpha.1"), "0.4.0");
+        assert_eq!(strip_prerelease("0.4.0-beta.2"), "0.4.0");
+        assert_eq!(strip_prerelease("0.4.0-rc.1"), "0.4.0");
+        // No suffix: returned unchanged
+        assert_eq!(strip_prerelease("0.3.22"), "0.3.22");
+        // With v prefix
+        assert_eq!(strip_prerelease("v0.4.0-alpha.1"), "0.4.0");
+        assert_eq!(strip_prerelease("v0.3.22"), "0.3.22");
+    }
+
+    /// Tests that is_prerelease_version() correctly identifies pre-release suffixes.
+    #[test]
+    fn test_is_prerelease_version() {
+        // Pre-release versions (contain hyphen after v-strip)
+        assert!(is_prerelease_version("0.4.0-alpha.1"));
+        assert!(is_prerelease_version("0.4.0-beta.2"));
+        assert!(is_prerelease_version("0.4.0-rc.1"));
+        assert!(is_prerelease_version("v0.4.0-alpha.1"));
+        // Stable versions (no hyphen)
+        assert!(!is_prerelease_version("0.3.22"));
+        assert!(!is_prerelease_version("v0.3.22"));
+        assert!(!is_prerelease_version("1.0.0"));
+    }
+
     /// Tests that is_newer() correctly handles all semver comparison cases:
-    /// patch bumps, minor bumps, major bumps, equal versions, and downgrades.
+    /// patch bumps, minor bumps, major bumps, equal versions, downgrades,
+    /// and pre-release vs stable at the same base version.
     #[test]
     fn test_is_newer() {
         // Patch bump: 1.0.1 is newer than 1.0.0
@@ -539,6 +673,25 @@ mod tests {
         assert!(!is_newer("1.0.0", "1.0.0"));
         // Downgrade: 1.0.0 is not newer than 2.0.0
         assert!(!is_newer("2.0.0", "1.0.0"));
+    }
+
+    /// Tests is_newer() with pre-release version strings.
+    /// This is the critical fix: "0.4.0-alpha.1" previously misparsed
+    /// because "0-alpha" failed parse::<u32>() and defaulted to 0.
+    #[test]
+    fn test_is_newer_prerelease() {
+        // Stable is newer than pre-release at the same base version
+        assert!(is_newer("0.4.0-alpha.1", "0.4.0"));
+        // Pre-release is NOT newer than stable at the same base
+        assert!(!is_newer("0.4.0", "0.4.0-alpha.1"));
+        // Higher base version is newer, even if current is pre-release
+        assert!(is_newer("0.4.0-alpha.1", "0.5.0"));
+        // Lower base version is not newer, even if it's stable vs pre-release
+        assert!(!is_newer("0.4.0-alpha.1", "0.3.22"));
+        // Two pre-releases at the same base: neither is newer (we don't rank labels)
+        assert!(!is_newer("0.4.0-alpha.1", "0.4.0-beta.1"));
+        // Higher base pre-release IS newer than lower base pre-release
+        assert!(is_newer("0.3.0-rc.1", "0.4.0-alpha.1"));
     }
 
     /// Tests that is_gamdl_compatible() correctly identifies versions within

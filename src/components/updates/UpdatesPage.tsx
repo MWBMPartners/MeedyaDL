@@ -27,6 +27,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 
 import { useUpdateStore } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
 
@@ -59,6 +60,10 @@ export function UpdatesPage() {
   );
   const addToast = useUiStore((s) => s.addToast);
 
+  // Settings store for the prefer_stable_rollback toggle
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
@@ -75,6 +80,13 @@ export function UpdatesPage() {
     const app = lastResult.components.find((c) => c.name === 'MeedyaDL');
     return app?.current_version ?? null;
   }, [lastResult]);
+
+  // Detect whether the current version is a pre-release (contains a hyphen,
+  // e.g., "0.4.0-alpha.1"). Drives the rollback toggle visibility.
+  const isCurrentPreRelease = useMemo(() => {
+    if (!currentVersion) return false;
+    return currentVersion.includes('-');
+  }, [currentVersion]);
 
   const handleUpgradeGamdl = async () => {
     try {
@@ -106,6 +118,14 @@ export function UpdatesPage() {
     checkForUpdates().catch(() => {});
   };
 
+  // Toggles the rollback preference and immediately re-checks for updates
+  // so the user sees the rollback target (or normal updates) right away.
+  const handleToggleRollback = (enabled: boolean) => {
+    updateSettings({ prefer_stable_rollback: enabled });
+    // Give settings a moment to persist, then re-check
+    setTimeout(() => checkForUpdates().catch(() => {}), 100);
+  };
+
   const handleViewRelease = (url: string) => {
     window.open(url, '_blank');
   };
@@ -126,6 +146,38 @@ export function UpdatesPage() {
           </Button>
         }
       />
+
+      {/* Pre-release indicator and rollback toggle — only shown when running a pre-release version */}
+      {isCurrentPreRelease && currentVersion && (
+        <div className="mx-6 mt-4 p-4 rounded-platform border border-status-warning-bg bg-status-warning-bg/30">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-content-primary">
+                Pre-Release Version
+              </p>
+              <p className="text-xs text-content-secondary mt-0.5">
+                You are running v{currentVersion}. Toggle the switch to check for the latest official release as a rollback target.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={settings.prefer_stable_rollback}
+                onChange={(e) => handleToggleRollback(e.target.checked)}
+                className="sr-only peer"
+                aria-label="Roll back to official release"
+              />
+              <div className="w-9 h-5 bg-surface-elevated rounded-full peer peer-checked:bg-accent transition-colors border border-border-light" />
+              <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4 shadow-sm" />
+            </label>
+          </div>
+          {settings.prefer_stable_rollback && (
+            <p className="text-[11px] text-status-warning mt-2">
+              Roll Back to Official Release is enabled. Update checks will offer the latest stable release, even if it has a lower version number.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-6">
         {activeUpdates.length === 0 ? (
@@ -175,13 +227,20 @@ export function UpdatesPage() {
                     {update.latest_version && (
                       <span className="text-sm text-accent font-medium">
                         &rarr; v{update.latest_version}
+                        {update.is_rollback && (
+                          <span className="text-status-success ml-1">(Stable)</span>
+                        )}
                       </span>
                     )}
-                    {update.is_prerelease && (
+                    {update.is_rollback ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-success/10 text-status-success">
+                        Rollback
+                      </span>
+                    ) : update.is_prerelease ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning">
                         Pre-Release
                       </span>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -231,12 +290,12 @@ export function UpdatesPage() {
                             <Button
                               variant="primary"
                               size="sm"
-                              icon={<Download size={12} />}
+                              icon={update.is_rollback ? <RotateCcw size={12} /> : <Download size={12} />}
                               onClick={() =>
                                 handleDownloadAndInstall(update.tag_name!)
                               }
                             >
-                              Download &amp; Install
+                              {update.is_rollback ? 'Roll Back to Stable' : 'Download & Install'}
                             </Button>
                           )
                         )}
@@ -269,13 +328,18 @@ export function UpdatesPage() {
                   </div>
                 </div>
 
-                {/* Pre-release warning */}
-                {update.is_prerelease && (
+                {/* Rollback description or pre-release warning */}
+                {update.is_rollback ? (
+                  <p className="text-[11px] text-content-secondary mb-3">
+                    Install the latest official release, replacing your current
+                    pre-release version. Future updates will only offer stable releases.
+                  </p>
+                ) : update.is_prerelease ? (
                   <p className="text-[11px] text-status-warning mb-3">
                     This is a pre-release version and may contain bugs or
                     incomplete features. Not recommended for production use.
                   </p>
-                )}
+                ) : null}
 
                 {/* Full release notes (markdown) for MeedyaDL */}
                 {update.name === 'MeedyaDL' && update.release_body && (

@@ -410,6 +410,9 @@ export interface AppSettings {
   auto_check_updates: boolean;
   /** Whether to include pre-release (beta/RC) versions in update checks */
   check_pre_releases: boolean;
+  /** When running a pre-release version, prefer rolling back to the latest
+   * stable release instead of checking for newer pre-releases */
+  prefer_stable_rollback: boolean;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
   /** Default audio codec for song downloads */
@@ -1220,6 +1223,10 @@ export interface ComponentUpdate {
   is_prerelease: boolean;
   /** Git tag name for this release (e.g., "v0.3.7"), used for download URL construction */
   tag_name: string | null;
+  /** Whether this update is a rollback from a pre-release to a stable version.
+   * When true, the frontend labels the action as "Roll Back to Stable" instead
+   * of "Download & Install". */
+  is_rollback: boolean;
 }
 
 /**

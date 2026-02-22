@@ -43,14 +43,14 @@
  * @see {@link https://v2.tauri.app/}      -- Tauri 2.0 framework
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 // Zustand store providing the shared settings state and mutation function.
 // All settings tabs read from the same store instance, ensuring changes
 // in one tab are immediately reflected if the user switches tabs.
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// Update store for manual update checking trigger.
+// Update store for manual update checking trigger and version detection.
 import { useUpdateStore } from '@/stores/updateStore';
 
 // Shared form control components:
@@ -141,8 +141,19 @@ export function GeneralTab() {
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   /** Error from the last check */
   const checkError = useUpdateStore((s) => s.error);
+  /** Last update check result, used to detect current app version */
+  const lastResult = useUpdateStore((s) => s.lastResult);
   /** Transient message shown after a check completes */
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
+
+  // Detect if the current app version is a pre-release to conditionally
+  // show the rollback toggle (only relevant for pre-release users).
+  const isCurrentPreRelease = useMemo(() => {
+    if (!lastResult) return false;
+    const app = lastResult.components.find((c) => c.name === 'MeedyaDL');
+    const version = app?.current_version;
+    return version ? version.includes('-') : false;
+  }, [lastResult]);
 
   /**
    * Handle the "Check for Updates" button click.
@@ -276,6 +287,18 @@ export function GeneralTab() {
             updateSettings({ check_pre_releases: checked })
           }
         />
+
+        {/* Rollback toggle — only shown when running a pre-release version */}
+        {isCurrentPreRelease && (
+          <Toggle
+            label="Roll Back to Official Release"
+            description="When enabled, update checks will offer the latest stable release as a rollback target, even if it has a lower version number than your current pre-release."
+            checked={settings.prefer_stable_rollback}
+            onChange={(checked) =>
+              updateSettings({ prefer_stable_rollback: checked })
+            }
+          />
+        )}
 
         {/* Manual update check button */}
         <div className="pt-2 space-y-2">

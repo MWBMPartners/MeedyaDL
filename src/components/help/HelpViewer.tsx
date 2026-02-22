@@ -98,6 +98,9 @@ import {
   HelpCircle,   // "Troubleshooting" topic
   FileText,     // "About" topic
   ShieldAlert,  // "Disclaimer" topic
+  Scale,        // "Licenses" topic
+  FileCheck,    // "Terms of Use" topic
+  ShieldCheck,  // "Privacy Policy" topic
   Search,       // Search icon in the sidebar search bar
   X,            // Clear search button icon
 } from 'lucide-react';
@@ -688,6 +691,222 @@ By using MeedyaDL, you acknowledge and accept that:
 ### License
 
 MeedyaDL is licensed under the MIT License. See the LICENSE file for full details.`,
+  },
+  {
+    id: 'licenses',
+    label: 'Licenses',
+    icon: Scale,
+    content: `# Third-Party Licenses
+
+MeedyaDL relies on a number of open-source tools, libraries, and runtimes. This page lists the key third-party components and their respective licenses.
+
+## External Tools
+
+| Tool | Purpose | License |
+|------|---------|---------|
+| **FFmpeg** | Audio/video processing and conversion | LGPL 2.1+ / GPL 2+ |
+| **mp4decrypt** (Bento4) | Media decryption | GPL 2 |
+| **N_m3u8DL-RE** | HLS/DASH stream downloading | MIT |
+| **MP4Box** (GPAC) | MP4 container remuxing | LGPL 2.1 |
+| **aria2** | Download acceleration (optional) | GPL 2+ |
+| **Chromaprint / fpcalc** | Audio fingerprinting (optional) | LGPL 2.1 |
+| **yt-dlp** | YouTube and video platform downloads | Unlicense |
+| **get_iplayer** | BBC iPlayer downloads | GPL 3 |
+
+## Python Packages
+
+| Package | Purpose | License |
+|---------|---------|---------|
+| **GAMDL** | Apple Music download engine | MIT |
+| **votify** | Spotify download engine | MIT |
+| **gytmdl** | YouTube Music download engine | MIT |
+| **yt-dlp** | YouTube/BBC iPlayer download engine | Unlicense |
+
+## Runtimes
+
+| Runtime | Purpose | License |
+|---------|---------|---------|
+| **Python** (python-build-standalone) | Python runtime for GAMDL, votify, gytmdl, yt-dlp | PSF License |
+| **Perl** (relocatable-perl) | Perl runtime for get_iplayer | Artistic License 2.0 / GPL 1+ |
+
+## Key Rust Libraries
+
+| Library | Purpose | License |
+|---------|---------|---------|
+| **Tauri** | Cross-platform desktop framework | MIT / Apache 2.0 |
+| **tokio** | Async runtime | MIT |
+| **reqwest** | HTTP client | MIT / Apache 2.0 |
+| **serde** | Serialization framework | MIT / Apache 2.0 |
+| **mp4ameta** | M4A metadata tagging | MIT |
+| **rusty-chromaprint** | Audio fingerprinting (embedded) | MIT |
+| **symphonia** | Audio decoding | MPL 2.0 |
+| **rookie** | Browser cookie extraction | MIT |
+| **keyring** | OS credential storage | MIT / Apache 2.0 |
+| **flate2 / tar / zip** | Archive extraction | MIT / Apache 2.0 |
+
+## Key JavaScript Libraries
+
+| Library | Purpose | License |
+|---------|---------|---------|
+| **React** | UI framework | MIT |
+| **Zustand** | State management | MIT |
+| **Tailwind CSS** | Utility-first CSS framework | MIT |
+| **Lucide** | Icon library | ISC |
+| **react-markdown** | Markdown rendering | MIT |
+| **i18next** | Internationalisation | MIT |
+
+## Notice
+
+Full license texts are available in each project's respective repository. The binaries and libraries listed above are redistributed under their original licenses. MeedyaDL itself is licensed under the MIT License.`,
+  },
+  {
+    id: 'terms-of-use',
+    label: 'Terms of Use',
+    icon: FileCheck,
+    content: `# Terms of Use
+
+*Last updated: February 2026*
+
+## 1. License
+
+MeedyaDL is free, open-source software distributed under the **MIT License**. You may use, copy, modify, and distribute the software subject to the terms of that license. The software is provided "as is", without warranty of any kind.
+
+## 2. Acceptable Use
+
+MeedyaDL is intended for **personal use** in conjunction with your own valid, paid subscriptions to supported media services (Apple Music, Spotify, YouTube, BBC iPlayer). By using MeedyaDL, you agree to:
+
+- Use the software only in compliance with all applicable laws and regulations in your jurisdiction
+- Respect the terms of service of the media platforms you access through MeedyaDL
+- Use downloaded content only for personal, non-commercial purposes
+- Not redistribute, resell, or publicly share downloaded content
+
+## 3. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+
+## 4. Limitation of Liability
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## 5. Third-Party Dependencies
+
+MeedyaDL relies on third-party tools, libraries, and services (see **Help > Licenses** for a full list). These are independent projects maintained by their respective developers:
+
+- Their availability, functionality, and compatibility are **not guaranteed**
+- Changes to upstream projects may affect MeedyaDL's functionality
+- Media service APIs may change, become restricted, or cease to function without notice
+
+## 6. Pre-Release Versions
+
+Pre-release versions (alpha, beta, release candidate) are provided for **testing and evaluation purposes**:
+
+- They may contain **bugs, incomplete features, or instability**
+- Data loss, configuration corruption, or unexpected behaviour **may occur**
+- **No support guarantees** are provided for pre-release versions
+- Pre-release versions should **not be relied upon** for critical workflows
+- You can roll back to the latest stable release at any time via **Updates > Roll Back to Official Release**
+
+## 7. User Responsibility
+
+You are solely responsible for:
+
+- Ensuring your use of MeedyaDL complies with applicable laws
+- Maintaining valid subscriptions to the services you access
+- Backing up your data and configuration
+- Any consequences arising from your use of the software
+
+## 8. Service Availability
+
+MeedyaDL does not operate any servers or online services. The application connects directly to third-party media service APIs. We make no guarantees about the availability, performance, or continued operation of these services.
+
+## 9. Changes to Terms
+
+These terms may be updated with new versions of the application. Significant changes will be noted in release notes. Continued use of the software after updates constitutes acceptance of any revised terms.`,
+  },
+  {
+    id: 'privacy-policy',
+    label: 'Privacy Policy',
+    icon: ShieldCheck,
+    content: `# Privacy Policy
+
+*Last updated: February 2026*
+
+## Overview
+
+MeedyaDL is a **local-first application**. We do not collect, store, or transmit any user data. There are no analytics, no telemetry, no tracking, and no MeedyaDL-operated servers.
+
+## Data Stored Locally
+
+All application data is stored on your device in the platform app data directory:
+
+- **Settings** — Your configuration preferences (JSON file)
+- **Download queue** — Pending and completed download history (JSON file)
+- **Cookies** — Media service authentication cookies (Netscape format text file)
+- **Log files** — Application logs for debugging (text files)
+
+None of this data is transmitted to MeedyaDL developers or any third party.
+
+## Cookies
+
+MeedyaDL stores media service cookies (Apple Music, Spotify, YouTube, BBC iPlayer) **locally on your device only**. These cookies are:
+
+- Used exclusively for authenticating with the respective media service APIs
+- Stored in a standard Netscape-format text file in your app data directory
+- Never transmitted to MeedyaDL developers or servers
+- Never shared with third parties
+- Under your control — you can delete them at any time via **Settings > Cookies**
+
+## Credentials
+
+Service credentials (API keys, tokens) are stored in your operating system's native secure credential storage:
+
+- **macOS**: Keychain
+- **Windows**: Credential Manager
+- **Linux**: Secret Service (via D-Bus)
+
+These credentials are never transmitted to MeedyaDL developers and are protected by your operating system's security mechanisms.
+
+## Network Requests
+
+MeedyaDL makes network requests only to the following destinations:
+
+| Destination | Purpose | Data Sent |
+|-------------|---------|-----------|
+| Media service APIs (Apple Music, Spotify, YouTube, BBC iPlayer) | Downloading content | Authentication cookies, content URLs |
+| GitHub API (api.github.com) | Checking for app updates | No user data (only IP address visible to GitHub) |
+| PyPI (pypi.org) | Checking for GAMDL updates | No user data |
+
+MeedyaDL does **not** operate any proprietary servers. All requests go directly to third-party services.
+
+## Update Checks
+
+When checking for updates, MeedyaDL queries the GitHub Releases API and PyPI. These requests contain no user-identifiable information beyond the requesting IP address (which is standard for any HTTP request). Update checks can be disabled in **Settings > General**.
+
+## Log Files
+
+Application logs are stored locally and may contain:
+
+- File paths on your system
+- Error messages and stack traces
+- Media service URLs and response codes
+
+Logs are **never transmitted** to MeedyaDL developers. They exist solely for local debugging purposes.
+
+## Third-Party Services
+
+When you use MeedyaDL to access media services, those services' own privacy policies apply. MeedyaDL has no control over how Apple Music, Spotify, YouTube, or BBC iPlayer handle your data.
+
+## Children's Privacy
+
+MeedyaDL is not directed at children under the age of 13 and does not knowingly collect personal information from children.
+
+## Changes to This Policy
+
+This privacy policy may be updated with new versions of the application. Changes will be noted in release notes.
+
+## Contact
+
+MeedyaDL is an open-source project. For privacy concerns or questions, please open an issue on the project's GitHub repository.`,
   },
   {
     id: 'about',
