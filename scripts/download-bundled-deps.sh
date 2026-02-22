@@ -91,8 +91,12 @@ mkdir -p "${OUTPUT_DIR}/tools/mp4box"
 TMPDIR_DL="$(mktemp -d)"
 trap 'rm -rf "${TMPDIR_DL}"' EXIT
 
-# Track success/failure per dependency
-declare -A MANIFEST
+# Track success/failure per dependency (simple variables for bash 3.2 compat)
+MANIFEST_python="false"
+MANIFEST_ffmpeg="false"
+MANIFEST_mp4decrypt="false"
+MANIFEST_nm3u8dlre="false"
+MANIFEST_mp4box="false"
 
 # GitHub API auth header (if token is available)
 GH_AUTH_HEADER=""
@@ -184,7 +188,7 @@ download_python() {
         windows-aarch64)  triple="aarch64-pc-windows-msvc" ;;
         *)
             log_error "No Python build available for ${TARGET_OS}/${TARGET_ARCH}"
-            MANIFEST[python]="false"
+            MANIFEST_python="false"
             return 1
             ;;
     esac
@@ -193,17 +197,17 @@ download_python() {
     local url="${PYTHON_BASE_URL}/${PYTHON_RELEASE_TAG}/${archive_name}"
     local archive_path="${TMPDIR_DL}/${archive_name}"
 
-    download_file "${url}" "${archive_path}" || { MANIFEST[python]="false"; return 1; }
+    download_file "${url}" "${archive_path}" || { MANIFEST_python="false"; return 1; }
 
     # Extract Python to output directory
     log_info "Extracting Python..."
     tar xzf "${archive_path}" -C "${OUTPUT_DIR}/python" --strip-components=1
 
     # Install GAMDL into the Python environment
-    install_gamdl || { MANIFEST[python]="false"; return 1; }
+    install_gamdl || { MANIFEST_python="false"; return 1; }
 
     log_success "Python ${PYTHON_VERSION} + GAMDL bundled"
-    MANIFEST[python]="true"
+    MANIFEST_python="true"
 }
 
 install_gamdl() {
@@ -282,13 +286,13 @@ download_ffmpeg() {
             ;;
         *)
             log_error "No FFmpeg build for ${TARGET_OS}/${TARGET_ARCH} — will skip"
-            MANIFEST[ffmpeg]="false"
+            MANIFEST_ffmpeg="false"
             return 0
             ;;
     esac
 
     local archive_path="${TMPDIR_DL}/ffmpeg.${format}"
-    download_file "${url}" "${archive_path}" || { MANIFEST[ffmpeg]="false"; return 0; }
+    download_file "${url}" "${archive_path}" || { MANIFEST_ffmpeg="false"; return 0; }
 
     log_info "Extracting FFmpeg..."
     local extract_dir="${TMPDIR_DL}/ffmpeg_extract"
@@ -314,10 +318,10 @@ download_ffmpeg() {
         cp "${found_binary}" "${OUTPUT_DIR}/tools/ffmpeg/${binary_name}"
         chmod +x "${OUTPUT_DIR}/tools/ffmpeg/${binary_name}" 2>/dev/null || true
         log_success "FFmpeg bundled"
-        MANIFEST[ffmpeg]="true"
+        MANIFEST_ffmpeg="true"
     else
         log_error "FFmpeg binary not found in extracted archive"
-        MANIFEST[ffmpeg]="false"
+        MANIFEST_ffmpeg="false"
     fi
 }
 
@@ -337,14 +341,14 @@ download_mp4decrypt() {
 
     if [[ -z "${platform_suffix}" ]]; then
         log_error "No mp4decrypt build for ${TARGET_OS}/${TARGET_ARCH}"
-        MANIFEST[mp4decrypt]="false"
+        MANIFEST_mp4decrypt="false"
         return 0
     fi
 
     local url="https://www.bok.net/Bento4/binaries/Bento4-SDK-${BENTO4_VERSION}.${platform_suffix}.zip"
     local archive_path="${TMPDIR_DL}/bento4.zip"
 
-    download_file "${url}" "${archive_path}" || { MANIFEST[mp4decrypt]="false"; return 0; }
+    download_file "${url}" "${archive_path}" || { MANIFEST_mp4decrypt="false"; return 0; }
 
     log_info "Extracting mp4decrypt..."
     local extract_dir="${TMPDIR_DL}/bento4_extract"
@@ -361,10 +365,10 @@ download_mp4decrypt() {
         cp "${found_binary}" "${OUTPUT_DIR}/tools/mp4decrypt/${binary_name}"
         chmod +x "${OUTPUT_DIR}/tools/mp4decrypt/${binary_name}" 2>/dev/null || true
         log_success "mp4decrypt bundled"
-        MANIFEST[mp4decrypt]="true"
+        MANIFEST_mp4decrypt="true"
     else
         log_error "mp4decrypt binary not found in Bento4 SDK"
-        MANIFEST[mp4decrypt]="false"
+        MANIFEST_mp4decrypt="false"
     fi
 }
 
@@ -386,7 +390,7 @@ download_nm3u8dlre() {
         windows-aarch64)  rid="win-arm64" ;;
         *)
             log_error "No N_m3u8DL-RE build for ${TARGET_OS}/${TARGET_ARCH}"
-            MANIFEST[nm3u8dlre]="false"
+            MANIFEST_nm3u8dlre="false"
             return 0
             ;;
     esac
@@ -397,7 +401,7 @@ download_nm3u8dlre() {
 
     if [[ -z "${url}" ]]; then
         log_error "Could not resolve N_m3u8DL-RE asset for RID: ${rid}"
-        MANIFEST[nm3u8dlre]="false"
+        MANIFEST_nm3u8dlre="false"
         return 0
     fi
 
@@ -406,7 +410,7 @@ download_nm3u8dlre() {
     [[ "${url}" == *.zip ]] && format="zip"
 
     local archive_path="${TMPDIR_DL}/nm3u8dlre.${format}"
-    download_file "${url}" "${archive_path}" || { MANIFEST[nm3u8dlre]="false"; return 0; }
+    download_file "${url}" "${archive_path}" || { MANIFEST_nm3u8dlre="false"; return 0; }
 
     log_info "Extracting N_m3u8DL-RE..."
     local extract_dir="${TMPDIR_DL}/nm3u8dlre_extract"
@@ -428,10 +432,10 @@ download_nm3u8dlre() {
         cp "${found_binary}" "${OUTPUT_DIR}/tools/nm3u8dlre/${binary_name}"
         chmod +x "${OUTPUT_DIR}/tools/nm3u8dlre/${binary_name}" 2>/dev/null || true
         log_success "N_m3u8DL-RE bundled"
-        MANIFEST[nm3u8dlre]="true"
+        MANIFEST_nm3u8dlre="true"
     else
         log_error "N_m3u8DL-RE binary not found in extracted archive"
-        MANIFEST[nm3u8dlre]="false"
+        MANIFEST_nm3u8dlre="false"
     fi
 }
 
@@ -457,7 +461,7 @@ download_mp4box() {
             ;;
         *)
             log_error "No MP4Box build for ${TARGET_OS}"
-            MANIFEST[mp4box]="false"
+            MANIFEST_mp4box="false"
             return 0
             ;;
     esac
@@ -468,16 +472,17 @@ download_mp4box_macos() {
     local url="https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg"
     local pkg_path="${TMPDIR_DL}/gpac.pkg"
 
-    download_file "${url}" "${pkg_path}" || { MANIFEST[mp4box]="false"; return 0; }
+    download_file "${url}" "${pkg_path}" || { MANIFEST_mp4box="false"; return 0; }
 
     log_info "Extracting MP4Box from .pkg..."
     local expand_dir="${TMPDIR_DL}/gpac_pkg"
-    mkdir -p "${expand_dir}"
+    # pkgutil --expand requires the destination to NOT exist
+    rm -rf "${expand_dir}"
 
-    # Expand the .pkg archive
+    # Expand the .pkg archive (macOS only — CI uses macOS runners for macOS targets)
     pkgutil --expand "${pkg_path}" "${expand_dir}" 2>/dev/null || {
-        log_error "Failed to expand GPAC .pkg"
-        MANIFEST[mp4box]="false"
+        log_error "Failed to expand GPAC .pkg (pkgutil not available or .pkg format unsupported)"
+        MANIFEST_mp4box="false"
         return 0
     }
 
@@ -487,7 +492,7 @@ download_mp4box_macos() {
 
     if [[ -z "${payload}" ]]; then
         log_error "No Payload found in GPAC .pkg"
-        MANIFEST[mp4box]="false"
+        MANIFEST_mp4box="false"
         return 0
     fi
 
@@ -515,10 +520,10 @@ download_mp4box_macos() {
         fi
 
         log_success "MP4Box bundled (macOS .pkg)"
-        MANIFEST[mp4box]="true"
+        MANIFEST_mp4box="true"
     else
         log_error "MP4Box binary not found in GPAC .pkg"
-        MANIFEST[mp4box]="false"
+        MANIFEST_mp4box="false"
     fi
 }
 
@@ -526,7 +531,7 @@ download_mp4box_windows() {
     local url="https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe"
     local installer_path="${TMPDIR_DL}/gpac_installer.exe"
 
-    download_file "${url}" "${installer_path}" || { MANIFEST[mp4box]="false"; return 0; }
+    download_file "${url}" "${installer_path}" || { MANIFEST_mp4box="false"; return 0; }
 
     log_info "Extracting MP4Box from NSIS installer..."
     local install_dir="${TMPDIR_DL}/gpac_win"
@@ -539,12 +544,12 @@ download_mp4box_windows() {
         if command -v 7z &>/dev/null; then
             7z x -y -o"${install_dir}" "${installer_path}" >/dev/null 2>&1 || {
                 log_error "Failed to extract GPAC installer"
-                MANIFEST[mp4box]="false"
+                MANIFEST_mp4box="false"
                 return 0
             }
         else
             log_error "Cannot extract NSIS installer (not on Windows and 7z not available)"
-            MANIFEST[mp4box]="false"
+            MANIFEST_mp4box="false"
             return 0
         fi
     }
@@ -555,10 +560,10 @@ download_mp4box_windows() {
     if [[ -n "${found_binary}" ]]; then
         cp "${found_binary}" "${OUTPUT_DIR}/tools/mp4box/MP4Box.exe"
         log_success "MP4Box bundled (Windows)"
-        MANIFEST[mp4box]="true"
+        MANIFEST_mp4box="true"
     else
         log_error "MP4Box.exe not found in GPAC installer"
-        MANIFEST[mp4box]="false"
+        MANIFEST_mp4box="false"
     fi
 }
 
@@ -569,11 +574,11 @@ download_mp4box_linux() {
     # Linux ARM builds don't have x64 .deb available
     if [[ "${TARGET_ARCH}" != "x86_64" ]]; then
         log_error "No MP4Box .deb for ${TARGET_ARCH} — skipping (will be installed at runtime)"
-        MANIFEST[mp4box]="false"
+        MANIFEST_mp4box="false"
         return 0
     fi
 
-    download_file "${url}" "${deb_path}" || { MANIFEST[mp4box]="false"; return 0; }
+    download_file "${url}" "${deb_path}" || { MANIFEST_mp4box="false"; return 0; }
 
     log_info "Extracting MP4Box from .deb..."
     local extract_dir="${TMPDIR_DL}/gpac_deb"
@@ -596,10 +601,10 @@ download_mp4box_linux() {
         cp "${found_binary}" "${OUTPUT_DIR}/tools/mp4box/MP4Box"
         chmod +x "${OUTPUT_DIR}/tools/mp4box/MP4Box"
         log_success "MP4Box bundled (Linux .deb)"
-        MANIFEST[mp4box]="true"
+        MANIFEST_mp4box="true"
     else
         log_error "MP4Box binary not found in GPAC .deb"
-        MANIFEST[mp4box]="false"
+        MANIFEST_mp4box="false"
     fi
 }
 
@@ -620,11 +625,11 @@ write_manifest() {
   "target_arch": "${TARGET_ARCH}",
   "python_version": "${PYTHON_VERSION}",
   "dependencies": {
-    "python": ${MANIFEST[python]:-false},
-    "ffmpeg": ${MANIFEST[ffmpeg]:-false},
-    "mp4decrypt": ${MANIFEST[mp4decrypt]:-false},
-    "nm3u8dlre": ${MANIFEST[nm3u8dlre]:-false},
-    "mp4box": ${MANIFEST[mp4box]:-false}
+    "python": ${MANIFEST_python},
+    "ffmpeg": ${MANIFEST_ffmpeg},
+    "mp4decrypt": ${MANIFEST_mp4decrypt},
+    "nm3u8dlre": ${MANIFEST_nm3u8dlre},
+    "mp4box": ${MANIFEST_mp4box}
   }
 }
 EOF
@@ -650,11 +655,11 @@ main() {
     # Summary
     echo ""
     echo "=== Bundle Summary ==="
-    echo "  Python:      ${MANIFEST[python]:-false}"
-    echo "  FFmpeg:       ${MANIFEST[ffmpeg]:-false}"
-    echo "  mp4decrypt:   ${MANIFEST[mp4decrypt]:-false}"
-    echo "  N_m3u8DL-RE:  ${MANIFEST[nm3u8dlre]:-false}"
-    echo "  MP4Box:       ${MANIFEST[mp4box]:-false}"
+    echo "  Python:      ${MANIFEST_python}"
+    echo "  FFmpeg:       ${MANIFEST_ffmpeg}"
+    echo "  mp4decrypt:   ${MANIFEST_mp4decrypt}"
+    echo "  N_m3u8DL-RE:  ${MANIFEST_nm3u8dlre}"
+    echo "  MP4Box:       ${MANIFEST_mp4box}"
     echo ""
 
     # Calculate total size
