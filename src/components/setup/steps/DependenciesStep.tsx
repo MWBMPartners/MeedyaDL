@@ -215,6 +215,11 @@ export function DependenciesStep() {
                         Optional
                       </span>
                     )}
+                    {tool.source === 'bundled' && (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-success/10 text-status-success">
+                        Bundled
+                      </span>
+                    )}
                     {tool.source === 'system' && (
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary">
                         System

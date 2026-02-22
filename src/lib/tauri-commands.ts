@@ -217,6 +217,25 @@ export function installDependency(name: string): Promise<string> {
   return invoke<string>('install_dependency', { name });
 }
 
+/**
+ * Extracts bundled dependencies on first launch if they were included
+ * in the application installer by CI.
+ *
+ * Rust handler: `extract_bundled_deps_if_needed()` in `src-tauri/src/commands/dependencies.rs`
+ * Returns: boolean (true = extraction was performed, false = not needed)
+ *
+ * This is called early in the app initialization sequence (before checkAll)
+ * to silently extract any dependencies bundled into the installer. If no
+ * bundled deps exist (dev builds, older installs), returns false silently.
+ *
+ * Called by: App.tsx initialization (Effect 2)
+ *
+ * @returns Promise resolving to whether extraction was performed
+ */
+export function extractBundledDepsIfNeeded(): Promise<boolean> {
+  return invoke<boolean>('extract_bundled_deps_if_needed');
+}
+
 // ============================================================
 // Settings Commands
 // ============================================================

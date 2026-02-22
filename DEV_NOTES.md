@@ -296,6 +296,50 @@ Then delete the GitHub Release manually (if one was created), recreate the tag w
 
 ---
 
+## Bundled Dependencies
+
+Release and pre-release builds bundle all external dependencies into the installer so users get a zero-download first-run experience. The installer size increases from ~10-15MB to ~200-300MB.
+
+### How It Works
+
+1. **CI download step**: `scripts/download-bundled-deps.sh` runs during CI builds (after `npm ci`, before `tauri build`). It downloads platform-specific binaries to `src-tauri/bundled-deps/`:
+   - Python 3.12.8 (portable runtime from python-build-standalone)
+   - GAMDL (pip-installed into the bundled Python)
+   - FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box (binary tools)
+
+2. **Tauri bundling**: `tauri.conf.json` includes `bundled-deps/**/*` in the `resources` section. Tauri copies them into the platform-specific installer.
+
+3. **First-launch extraction**: `bundled_deps_service::extract_bundled_deps()` copies files from the resource directory to the app data directory, writes `.source` markers as "bundled", and creates a `.bundled_deps_extracted` marker to prevent re-extraction.
+
+4. **Setup wizard auto-skip**: The wizard detects installed dependencies and auto-advances to the first incomplete step (usually cookies).
+
+### Dev Builds
+
+Dev builds (`cargo tauri dev`) don't have bundled deps — the `src-tauri/bundled-deps/` directory is gitignored and only created by CI. The normal setup wizard download flow handles dependencies for development.
+
+### Testing Locally
+
+To test the bundled deps flow locally:
+
+```bash
+# Download deps for your platform
+bash scripts/download-bundled-deps.sh --os macos --arch aarch64 --output src-tauri/bundled-deps
+
+# Build the app (will include bundled deps)
+cargo tauri build
+
+# Clear app data to test first-launch extraction
+rm -rf ~/Library/Application\ Support/io.github.meedyadl/
+
+# Launch the built app — deps should extract silently
+```
+
+### Manifest
+
+The script writes a `manifest.json` recording which dependencies were successfully downloaded. The extraction service reads this to skip unavailable tools gracefully (e.g., if MP4Box wasn't available for ARM).
+
+---
+
 ## Common Build Issues
 
 ### "plugins > updater doesn't exist"

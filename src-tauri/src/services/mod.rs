@@ -23,6 +23,7 @@
 //   +-- python_manager.rs        -- Install/verify portable Python runtime
 //   +-- gamdl_service.rs         -- Install/run GAMDL, parse subprocess output
 //   +-- dependency_manager.rs    -- Install external tools (FFmpeg, mp4decrypt, ...)
+//   +-- bundled_deps_service.rs  -- First-launch extraction of CI-bundled deps
 //   +-- config_service.rs        -- Load/save settings, sync to GAMDL config.ini
 //   +-- download_queue.rs        -- Queue management, concurrent downloads, fallback
 //   +-- update_checker.rs        -- Version checking from PyPI and GitHub Releases
@@ -155,6 +156,15 @@ pub mod acoustid_service;
 ///
 /// Used by: download_queue (post-download enrichment, when replaygain_enabled)
 pub mod replaygain_service;
+
+/// Bundled dependencies extraction service: handles first-launch extraction
+/// of tools bundled into the installer at CI build time. Copies Python,
+/// GAMDL, and tool binaries from the app's resource directory to the app
+/// data directory, writes `.source` markers as "bundled", and creates a
+/// marker file to prevent re-extraction on subsequent launches.
+///
+/// Used by: commands/dependencies (extract_bundled_deps_if_needed IPC command)
+pub mod bundled_deps_service;
 
 /// Multi-service dispatch layer: routes download operations to the correct
 /// service backend based on `MediaServiceId`. Provides unified

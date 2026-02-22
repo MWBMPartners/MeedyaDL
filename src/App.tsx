@@ -155,6 +155,15 @@ import './styles/themes/base.css';
 import { initI18n } from './lib/i18n';
 import i18next from 'i18next';
 
+/* ─── IPC Commands ────────────────────────────────────────────────────── */
+
+/**
+ * Direct IPC command for first-launch bundled dependency extraction.
+ * Called before dependency checks so extracted tools are visible to checkAll().
+ * @see ./lib/tauri-commands.ts for the wrapper implementation
+ */
+import { extractBundledDepsIfNeeded } from './lib/tauri-commands';
+
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
 /**
@@ -359,32 +368,41 @@ function App() {
         i18next.changeLanguage(uiLang).catch(() => {});
       }
 
+      /* Step 1.75: Extract bundled dependencies on first launch.
+       * If the installer bundled deps (CI builds), this silently copies them
+       * from the app's resource directory to the app data directory. On dev
+       * builds or already-extracted installs, this is a no-op (returns false).
+       * Must run before checkAll() so extracted tools are visible. */
+      try {
+        await extractBundledDepsIfNeeded();
+      } catch {
+        /* Non-fatal: if extraction fails, the setup wizard handles it */
+      }
+
       /* Step 2: Check all dependency statuses in parallel via IPC */
       await checkAll();
 
       /*
-       * Step 3: Show setup wizard if dependencies are missing AND setup
-       * has never been completed. If the user has completed setup before
-       * (`setup_completed: true`), skip the wizard even if some deps are
-       * missing — they may have been intentionally removed, or the app
-       * was updated and detection is temporarily broken. The user can
-       * always re-run the wizard from Settings.
+       * Step 3: Show setup wizard on first launch (setup_completed = false).
+       *
+       * Two scenarios:
+       *   A) Deps missing: Wizard opens at the first incomplete step so
+       *      the user can install Python, GAMDL, and tools.
+       *   B) Bundled deps ready: All deps were extracted from the installer,
+       *      so the wizard opens directly at the cookies step (the only
+       *      remaining manual action). This gives a smooth first-run UX:
+       *      Welcome → Cookies → Done.
+       *
+       * If `setup_completed` is true (returning user), the wizard is never
+       * shown — even if some deps went missing, the user can reinstall them
+       * from Settings.
        *
        * We read the latest state imperatively via getState() rather than
        * using the reactive selectors, because at this point the async
        * `checkAll()` has just completed and we need the freshest snapshot.
        */
-      const depState = useDependencyStore.getState();
       const settingsState = useSettingsStore.getState();
-      const requiredToolsReady =
-        depState.tools.length > 0 &&
-        depState.tools.filter((t) => t.required).every((t) => t.installed);
-      const depsReady = !!(
-        depState.python?.installed &&
-        depState.gamdl?.installed &&
-        requiredToolsReady
-      );
-      if (!depsReady && !settingsState.settings.setup_completed) {
+      if (!settingsState.settings.setup_completed) {
         setShowSetupWizard(true);
       }
     };

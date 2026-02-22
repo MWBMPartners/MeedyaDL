@@ -241,6 +241,22 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Step 8.5: Download bundled dependencies for the target platform.
+      # Same as release.yml — downloads Python, GAMDL, and tools into
+      # src-tauri/bundled-deps/ for inclusion in the pre-release installer.
+      - name: Download bundled dependencies
+        shell: bash
+        run: |
+          case "${{ matrix.settings.rust_target }}" in
+            aarch64-apple-darwin)          OS=macos;   ARCH=aarch64 ;;
+            x86_64-pc-windows-msvc)        OS=windows; ARCH=x86_64 ;;
+            aarch64-pc-windows-msvc)       OS=windows; ARCH=aarch64 ;;
+            aarch64-unknown-linux-gnu)     OS=linux;   ARCH=aarch64 ;;
+            armv7-unknown-linux-gnueabihf) OS=linux;   ARCH=armv7 ;;
+            *)                             OS=linux;   ARCH=x86_64 ;;
+          esac
+          bash scripts/download-bundled-deps.sh --os "$OS" --arch "$ARCH" --output src-tauri/bundled-deps
+
       # Step 9: Validate macOS signing secrets
       - name: Validate macOS signing secrets
         if: runner.os == 'macOS'
