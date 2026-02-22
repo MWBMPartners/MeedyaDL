@@ -21,6 +21,12 @@ yarn-error.log*
 src-tauri/target/
 
 # ============================================================
+# Bundled Dependencies (CI-only, created by download-bundled-deps.sh)
+# ============================================================
+src-tauri/bundled-deps/
+src-tauri/bundled-deps.tar.gz
+
+# ============================================================
 # Tauri Build Outputs
 # ============================================================
 *.dmg
