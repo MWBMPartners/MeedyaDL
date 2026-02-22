@@ -14,6 +14,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
