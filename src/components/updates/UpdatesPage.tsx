@@ -29,7 +29,7 @@ import { useUpdateStore } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { PageHeader } from '@/components/layout';
-import { Button } from '@/components/common';
+import { Button, Toggle } from '@/components/common';
 
 /**
  * Strips the "Choose your download" section and everything after it from
@@ -365,6 +365,31 @@ export function UpdatesPage() {
             ))}
           </div>
         )}
+
+        {/* Update Preferences — mirrors the toggles in Settings > General */}
+        <div className="mt-8 pt-6 border-t border-border-light max-w-xl">
+          <h3 className="text-xs font-semibold text-content-secondary uppercase tracking-wider mb-4">
+            Update Preferences
+          </h3>
+          <div className="space-y-4">
+            <Toggle
+              label="Auto-Check for Updates"
+              description="Automatically check for updates on startup"
+              checked={settings.auto_check_updates}
+              onChange={(checked) =>
+                updateSettings({ auto_check_updates: checked })
+              }
+            />
+            <Toggle
+              label="Include Pre-Release Versions"
+              description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features."
+              checked={settings.check_pre_releases}
+              onChange={(checked) =>
+                updateSettings({ check_pre_releases: checked })
+              }
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
