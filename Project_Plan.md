@@ -289,18 +289,18 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 ### Overview
 
 | Milestone | Version | Service | Backend Tool | Status |
-|-----------|---------|---------|-------------|--------|
-| Milestone 7 | v0.4.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
-| Milestone 8 | v0.5.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
-| Milestone 9 | v0.6.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
-| Future | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔲 Planned |
-| Future | TBD | Integration API | Custom | 🔲 Planned |
+| --- | --- | --- | --- | --- |
+| Milestone 8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
+| Milestone 9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
+| Milestone 10 | v2.2.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
+| v3.x | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔮 Future |
+| v3.x | TBD | Smart Download | Cross-platform | 🔮 Future |
 
 The architecture is designed with a `MusicService` trait pattern (`src-tauri/src/models/music_service.rs`) to support adding new platforms without restructuring the codebase. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime.
 
 ---
 
-### Milestone 7 — Spotify Support (v0.4.0)
+### Milestone 8 — Spotify Support (v2.0.0)
 
 **Status:** 🔲 Planned
 
@@ -347,11 +347,11 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 ---
 
-### Milestone 8 — YouTube Support (v0.5.0)
+### Milestone 9 — YouTube Support (v2.1.0)
 
 **Status:** 🔲 Planned
 
-YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 9.
+YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 10.
 
 #### YouTube Architecture Changes
 
@@ -396,17 +396,17 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 ---
 
-### Milestone 9 — BBC iPlayer Support (v0.6.0)
+### Milestone 10 — BBC iPlayer Support (v2.2.0)
 
 **Status:** 🔲 Planned
 
-BBC iPlayer integration for downloading TV programmes, films, and radio shows. Reuses yt-dlp from Milestone 8 (which already supports BBC iPlayer) or uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as a dedicated alternative.
+BBC iPlayer integration for downloading TV programmes, films, and radio shows. Reuses yt-dlp from Milestone 9 (which already supports BBC iPlayer) or uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as a dedicated alternative.
 
 **Important:** BBC iPlayer content is geographically restricted to the United Kingdom. Users outside the UK will need a VPN or BBC account with UK access.
 
 #### BBC iPlayer Architecture Changes
 
-- Add `BbcIPlayer` variant to `MusicServiceId` (or broader `MediaServiceId` if refactored in Milestone 8)
+- Add `BbcIPlayer` variant to `MusicServiceId` (or broader `MediaServiceId` if refactored in Milestone 9)
 - Update `url_domains()` to match `bbc.co.uk/iplayer`, `bbc.co.uk/sounds`
 - Extend content type detection for TV-specific models (series, episodes, categories)
 - Consider renaming `MusicService` trait to `MediaService` to reflect non-music services
@@ -454,23 +454,30 @@ These tasks span multiple milestones and should be addressed incrementally:
 - 🔲 **Service registry** — dynamic service registration in `lib.rs` setup instead of hardcoded GAMDL references
 - 🔲 **Per-service settings** — migrate flat `AppSettings` to `Vec<ServiceConfig>` for per-service output paths, auth, and quality defaults
 - 🔲 **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services
-- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M8) and BBC iPlayer (M9); install once, share across services
+- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M9) and BBC iPlayer (M10); install once, share across services
 - 🔲 **Service-aware fallback chains** — each service defines its own quality fallback chain based on available codecs
 - 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)
 
 ---
 
-### Future (Beyond v0.6.0)
+### v3.x — Advanced Features
 
 | Feature | Description | Status |
-|---------|-------------|--------|
-| **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔲 Planned |
-| **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔲 Planned |
-| **Localization (i18n)** | Multi-language UI support (groundwork laid: i18next + react-i18next, en/de/fr locales, Settings > General language dropdown, OS auto-detection) | 🟡 Groundwork Done |
-| **Download history** | Persistent download history and statistics dashboard | 🔲 Planned |
-| **Custom themes** | User-defined accent colours and theme presets | 🔲 Planned |
-| **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback. Power-user option — requires player support for MP4 alternate audio tracks (standard for video, limited for music players) | 🔲 Planned |
-| **Native SwiftUI UI for macOS** | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | 🔲 Idea |
+| --- | --- | --- |
+| **Smart Download** | Cross-platform quality optimisation — search all enabled services for the same content and download the best available quality | 🔮 Future |
+| **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔮 Future |
+| **Full i18n** | Complete translations for German, French, and additional languages (groundwork done: i18next + react-i18next, OS auto-detection, English locale) | 🔮 Future |
+| **Download history** | Persistent download history and statistics dashboard | 🔮 Future |
+
+### Future (Beyond v3.x)
+
+| Feature | Description | Status |
+| --- | --- | --- |
+| **Remote Service Status** | Developer-controlled kill switch to remotely enable/disable individual media services across all deployed app instances | 🔮 Future |
+| **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔮 Future |
+| **Custom themes** | User-defined accent colours and theme presets | 🔮 Future |
+| **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback | 🔮 Future |
+| **Native SwiftUI UI for macOS** | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | 🔮 Future |
 
 ---
 
@@ -486,10 +493,10 @@ None at this time.
 - **All dependencies are self-contained** in the app data directory — no system-wide installations
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
-- **yt-dlp is shared** between YouTube (M8) and BBC iPlayer (M9) — install once, configure per-service
+- **yt-dlp is shared** between YouTube (M9) and BBC iPlayer (M10) — install once, configure per-service
 
 ---
 
-*Last updated: 2026-02-16*
+*Last updated: 2026-02-22*
 
 (c) 2024-2026 MeedyaDL
