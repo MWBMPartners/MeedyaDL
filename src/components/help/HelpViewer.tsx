@@ -102,6 +102,9 @@ import {
   X,            // Clear search button icon
 } from 'lucide-react';
 
+// Tauri app API for reading the version from tauri.conf.json at runtime.
+import { getVersion } from '@tauri-apps/api/app';
+
 // Shared layout component for the page header.
 import { PageHeader } from '@/components/layout';
 
@@ -693,14 +696,16 @@ MeedyaDL is licensed under the MIT License. See the LICENSE file for full detail
     id: 'about',
     label: 'About',
     icon: FileText,
+    // Content uses {{VERSION}} placeholder, replaced at runtime with the
+    // actual app version from tauri.conf.json via getVersion().
     content: `# About MeedyaDL
 
 ## Version
-v0.3.5
+v{{VERSION}}
 
 ## Credits
-- **GAMDL** by glomatico - The Apple Music download engine
-- **Tauri** - Cross-platform desktop framework
+- **GAMDL** by glomatico — The Apple Music download engine
+- **Tauri** — Cross-platform desktop framework
 - Built with React, TypeScript, and Rust
 
 ## License
@@ -708,8 +713,8 @@ Copyright (c) 2024-2026 MeedyaDL
 Licensed under the MIT License.
 
 ## Links
-- GitHub: github.com/MeedyaDL/MeedyaDL
-- GAMDL: github.com/glomatico/gamdl`,
+- MeedyaDL: [g2my.link/MeedyaDL](https://g2my.link/MeedyaDL)
+- GAMDL: [github.com/glomatico/gamdl](https://github.com/glomatico/gamdl)`,
   },
 ];
 
@@ -819,6 +824,14 @@ export function HelpViewer() {
 
   /** Tracks the current search input value for filtering the sidebar topics */
   const [searchQuery, setSearchQuery] = useState('');
+
+  /** App version fetched from tauri.conf.json, used in the About topic */
+  const [appVersion, setAppVersion] = useState('...');
+  useEffect(() => {
+    getVersion()
+      .then((v) => setAppVersion(v))
+      .catch(() => setAppVersion('unknown'));
+  }, []);
 
   /* ---- Store bindings for help deep-linking ---- */
   /** Deep-link topic ID set by HelpButton clicks (null when no deep-link) */
@@ -1136,7 +1149,7 @@ export function HelpViewer() {
                 ),
               }}
             >
-              {topic.content}
+              {topic.content.replace('{{VERSION}}', appVersion)}
             </ReactMarkdown>
           </div>
         </div>
