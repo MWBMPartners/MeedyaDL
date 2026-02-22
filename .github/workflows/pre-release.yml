@@ -6,14 +6,15 @@
 #
 # This GitHub Actions workflow builds platform-specific installers from the
 # meedyadl-v2 feature branch and publishes them as a pre-release GitHub Release.
-# It is triggered manually via workflow_dispatch with a version input.
 #
 # This workflow is separate from the main release workflow (release.yml) to keep
 # stable releases and pre-releases on independent pipelines. Pre-releases are
 # marked as such on GitHub and are NOT served by the auto-updater.
 #
-# Usage:
-#   gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
+# Triggers:
+#   1. Tag push: Push a tag matching 'v*-alpha.*', 'v*-beta.*', or 'v*-rc.*'
+#      Examples: v0.4.0-alpha.1, v0.4.0-beta.2, v0.4.0-rc.1
+#   2. Manual: gh workflow run "Pre-Release" --ref meedyadl-v2 -f version=0.4.0-alpha.1
 #
 # Build matrix (same 6 platform builds as release.yml):
 #   Tier 1 — Stable:
@@ -27,10 +28,9 @@
 #     6. Linux ARMv7 (armv7-unknown-linux-gnueabihf) --> .deb, .rpm
 #
 # Key differences from release.yml:
-#   - Triggered via workflow_dispatch only (no tag push trigger)
-#   - Checks out the meedyadl-v2 branch (not a tag)
+#   - Triggered by pre-release tags (v*-alpha.*, v*-beta.*, v*-rc.*) or manual dispatch
+#   - Checks out the tagged commit (tag push) or meedyadl-v2 branch (manual)
 #   - Creates a pre-release GitHub Release (not a draft)
-#   - Tag is created from the version input (e.g., v0.4.0-alpha.1)
 #   - Release notes include a pre-release warning banner
 #
 # @see release.yml -- Main release workflow
@@ -40,6 +40,13 @@
 name: Pre-Release
 
 on:
+  # Auto-trigger: Push a pre-release tag (e.g., v0.4.0-alpha.1, v0.4.0-beta.2, v0.4.0-rc.1)
+  push:
+    tags:
+      - 'v*-alpha.*'
+      - 'v*-beta.*'
+      - 'v*-rc.*'
+  # Manual trigger: specify version without 'v' prefix
   workflow_dispatch:
     inputs:
       version:
@@ -53,29 +60,46 @@ concurrency:
 
 jobs:
   # ============================================================
-  # Validate Version Input
+  # Resolve and Validate Version
   # ============================================================
-  validate:
-    name: Validate version
+  # Handles both triggers:
+  #   - Tag push: extracts version from the tag (e.g., v0.4.0-alpha.1 → 0.4.0-alpha.1)
+  #   - Manual dispatch: uses the version input directly
+  resolve:
+    name: Resolve version
     runs-on: ubuntu-latest
     outputs:
-      tag: v${{ inputs.version }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
     steps:
-      - name: Validate version format
+      - name: Resolve and validate version
+        id: resolve
         run: |
-          VERSION="${{ inputs.version }}"
+          if [ -n "${{ inputs.version }}" ]; then
+            # Manual dispatch: use the provided version
+            VERSION="${{ inputs.version }}"
+          else
+            # Tag push: strip the 'v' prefix from the tag name
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          fi
+
+          # Validate format: X.Y.Z-(alpha|beta|rc).N
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$'; then
             echo "::error::Invalid version format: '$VERSION'. Expected format: X.Y.Z-(alpha|beta|rc).N (e.g., 0.4.0-alpha.1)"
             exit 1
           fi
-          echo "Version validated: $VERSION (tag: v$VERSION)"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (tag: v$VERSION)"
 
   # ============================================================
   # Build and Publish Pre-Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
-    needs: validate
+    needs: resolve
     permissions:
       contents: write
 
@@ -129,11 +153,13 @@ jobs:
     continue-on-error: ${{ matrix.settings.cross_arch != '' }}
 
     steps:
-      # Step 1: Check out the meedyadl-v2 branch
-      - name: Checkout meedyadl-v2 branch
+      # Step 1: Check out the code.
+      # Tag push (github.ref_type == 'tag'): checks out the tagged commit.
+      # Manual dispatch: checks out the meedyadl-v2 branch (tag doesn't exist yet).
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: meedyadl-v2
+          ref: ${{ github.ref_type == 'tag' && github.ref_name || 'meedyadl-v2' }}
 
       # Step 2: Set up Node.js
       - name: Setup Node.js
@@ -253,10 +279,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v${{ inputs.version }}
-          releaseName: 'MeedyaDL v${{ inputs.version }} (Pre-Release)'
+          tagName: ${{ needs.resolve.outputs.tag }}
+          releaseName: 'MeedyaDL ${{ needs.resolve.outputs.tag }} (Pre-Release)'
           releaseBody: |
-            ## MeedyaDL v${{ inputs.version }} (Pre-Release)
+            ## MeedyaDL ${{ needs.resolve.outputs.tag }} (Pre-Release)
 
             > **This is a pre-release build from the `meedyadl-v2` development branch.** It may contain incomplete features, bugs, or breaking changes. It is intended for testing purposes only and is not recommended for general use.
 
@@ -303,7 +329,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          TAG="v${{ inputs.version }}"
+          TAG="${{ needs.resolve.outputs.tag }}"
           BUNDLE_DIR="src-tauri/target/armv7-unknown-linux-gnueabihf/release/bundle"
 
           # Ensure the pre-release exists

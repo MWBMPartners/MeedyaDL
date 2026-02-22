@@ -65,13 +65,17 @@ name: Release
 # ============================================================
 # Trigger: Run only when a version tag is pushed
 # ============================================================
-# The 'v*' pattern matches tags like v0.1.0, v1.0.0-beta.1, etc.
+# The 'v*' pattern matches stable release tags like v0.1.0, v1.0.0, etc.
+# Pre-release tags (v*-alpha.*, v*-beta.*, v*-rc.*) are handled by pre-release.yml.
 # This workflow does NOT run on regular pushes or pull requests.
 # @see https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#push
 on:
   push:
     tags:
       - 'v*'
+      - '!v*-alpha.*'
+      - '!v*-beta.*'
+      - '!v*-rc.*'
   # Allow manual trigger for re-running builds when tag push events are missed
   # (e.g., after billing blocks or tag re-pushes). Usage:
   #   gh workflow run "Release" -f tag=v0.3.1
