@@ -70,64 +70,52 @@ export function WelcomeStep() {
 
       {/* Welcome heading */}
       <div>
-        <h2 className="text-2xl font-bold text-content-primary">
-          Welcome to MeedyaDL
-        </h2>
-        <p className="text-base text-content-secondary mt-2">
-          Media Downloader
-        </p>
+        <h2 className="text-2xl font-bold text-content-primary">Welcome to MeedyaDL</h2>
+        <p className="text-base text-content-secondary mt-2">Media Downloader</p>
       </div>
 
       {/* Setup description */}
       <div className="text-left max-w-md mx-auto space-y-3 text-sm text-content-secondary">
         <p>
-          This wizard will help you set up everything needed to download music
-          and videos from Apple Music. Support for YouTube, Spotify, and BBC
-          iPlayer is coming soon.
+          This wizard will help you set up everything needed to download music and videos from Apple
+          Music. Support for YouTube, Spotify, and BBC iPlayer is coming soon.
         </p>
-        <p>
-          Here's what we'll do:
-        </p>
+        <p>Here's what we'll do:</p>
 
         <ol className="list-decimal list-inside space-y-2 ml-2">
           <li>
-            <strong className="text-content-primary">Install Python</strong> - A
-            portable Python runtime will be downloaded (no system changes)
+            <strong className="text-content-primary">Install Python</strong> - A portable Python
+            runtime will be downloaded (no system changes)
           </li>
           <li>
-            <strong className="text-content-primary">Install GAMDL</strong> -
-            The Apple Music download tool will be installed into the portable
-            Python
+            <strong className="text-content-primary">Install GAMDL</strong> - The Apple Music
+            download tool will be installed into the portable Python
           </li>
           <li>
-            <strong className="text-content-primary">Install Tools</strong> -
-            Required tools like FFmpeg and mp4decrypt will be downloaded
+            <strong className="text-content-primary">Install Tools</strong> - Required tools like
+            FFmpeg and mp4decrypt will be downloaded
           </li>
           <li>
-            <strong className="text-content-primary">Import Cookies</strong> -
-            You'll provide your Apple Music authentication cookies
+            <strong className="text-content-primary">Import Cookies</strong> - You'll provide your
+            Apple Music authentication cookies
           </li>
         </ol>
 
         <p className="text-xs text-content-tertiary">
-          All files are installed to the application data directory. Nothing is
-          installed system-wide.
+          All files are installed to the application data directory. Nothing is installed
+          system-wide.
         </p>
 
         {/* Disclaimer notice */}
         <div className="mt-4 p-3 rounded-platform border border-status-warning/30 bg-status-warning/5">
           <div className="flex items-start gap-2">
-            <AlertTriangle
-              size={14}
-              className="text-status-warning flex-shrink-0 mt-0.5"
-            />
+            <AlertTriangle size={14} className="text-status-warning flex-shrink-0 mt-0.5" />
             <div className="text-xs text-content-tertiary leading-relaxed">
-              <strong className="text-content-secondary">Disclaimer:</strong>{' '}
-              MeedyaDL relies on third-party libraries and services. Quality of
-              service, features, and performance are not guaranteed. While we
-              endeavour to provide updates and fixes, no liability is accepted
-              for loss of functionality. By continuing, you acknowledge and
-              accept these terms.
+              <strong className="text-content-secondary">Disclaimer:</strong> MeedyaDL relies on
+              third-party libraries and services. Quality of service, features, and performance are
+              not guaranteed. While we endeavour to provide updates and fixes, no liability is
+              accepted for loss of functionality. By continuing, you acknowledge and accept these
+              terms.
             </div>
           </div>
         </div>

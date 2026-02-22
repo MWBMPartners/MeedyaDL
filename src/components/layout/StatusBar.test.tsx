@@ -16,7 +16,7 @@
  * @see src/stores/downloadStore.ts - Source of queue data
  */
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 
 import { StatusBar } from '@/components/layout/StatusBar';
 import { useDownloadStore } from '@/stores/downloadStore';
@@ -28,10 +28,7 @@ import type { QueueItemStatus } from '@/types';
  * Provides reasonable defaults for all required fields so tests
  * can focus on the state field that drives StatusBar rendering.
  */
-function createItem(
-  state: QueueItemStatus['state'],
-  id?: string,
-): QueueItemStatus {
+function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStatus {
   return {
     id: id || `item-${Math.random().toString(36).slice(2)}`,
     urls: ['https://music.apple.com/us/album/test/123'],
@@ -65,8 +62,10 @@ describe('StatusBar', () => {
   // =========================================================================
 
   /** When no items are in the queue, "No downloads" should be displayed. */
-  it('shows "No downloads" when queue is empty', () => {
-    render(<StatusBar />);
+  it('shows "No downloads" when queue is empty', async () => {
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText('No downloads')).toBeInTheDocument();
   });
@@ -76,29 +75,27 @@ describe('StatusBar', () => {
   // =========================================================================
 
   /** Items in 'downloading' state should be counted as active. */
-  it('shows active download count for downloading items', () => {
+  it('shows active download count for downloading items', async () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('downloading'),
-        createItem('downloading'),
-      ],
+      queueItems: [createItem('downloading'), createItem('downloading')],
     });
 
-    render(<StatusBar />);
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText(/2 downloading/)).toBeInTheDocument();
   });
 
   /** Items in 'processing' state should also count as active. */
-  it('includes processing items in active count', () => {
+  it('includes processing items in active count', async () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('downloading'),
-        createItem('processing'),
-      ],
+      queueItems: [createItem('downloading'), createItem('processing')],
     });
 
-    render(<StatusBar />);
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText(/2 downloading/)).toBeInTheDocument();
   });
@@ -108,16 +105,14 @@ describe('StatusBar', () => {
   // =========================================================================
 
   /** Items waiting in the 'queued' state should be displayed. */
-  it('shows queued count', () => {
+  it('shows queued count', async () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('queued'),
-        createItem('queued'),
-        createItem('queued'),
-      ],
+      queueItems: [createItem('queued'), createItem('queued'), createItem('queued')],
     });
 
-    render(<StatusBar />);
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText(/3 queued/)).toBeInTheDocument();
   });
@@ -127,14 +122,14 @@ describe('StatusBar', () => {
   // =========================================================================
 
   /** Successfully finished items should show the completed count. */
-  it('shows completed count', () => {
+  it('shows completed count', async () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('complete'),
-      ],
+      queueItems: [createItem('complete')],
     });
 
-    render(<StatusBar />);
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText(/1 completed/)).toBeInTheDocument();
   });
@@ -144,7 +139,7 @@ describe('StatusBar', () => {
   // =========================================================================
 
   /** When the queue has items in multiple states, all counters appear. */
-  it('shows multiple counters for mixed queue states', () => {
+  it('shows multiple counters for mixed queue states', async () => {
     useDownloadStore.setState({
       queueItems: [
         createItem('downloading'),
@@ -156,7 +151,9 @@ describe('StatusBar', () => {
       ],
     });
 
-    render(<StatusBar />);
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText(/1 downloading/)).toBeInTheDocument();
     expect(screen.getByText(/2 queued/)).toBeInTheDocument();
@@ -172,15 +169,14 @@ describe('StatusBar', () => {
    * counters — only downloading, queued, and completed have dedicated displays.
    * The "No downloads" placeholder should NOT appear since items exist.
    */
-  it('does not show "No downloads" when only error/cancelled items exist', () => {
+  it('does not show "No downloads" when only error/cancelled items exist', async () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('error'),
-        createItem('cancelled'),
-      ],
+      queueItems: [createItem('error'), createItem('cancelled')],
     });
 
-    render(<StatusBar />);
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     /* Items exist, so "No downloads" should not appear.
      * But no specific counters for error/cancelled are shown either. */
@@ -192,8 +188,10 @@ describe('StatusBar', () => {
   // =========================================================================
 
   /** The app version should always be displayed on the right side. */
-  it('shows the app version string', () => {
-    render(<StatusBar />);
+  it('shows the app version string', async () => {
+    await act(async () => {
+      render(<StatusBar />);
+    });
 
     expect(screen.getByText(/MeedyaDL v/)).toBeInTheDocument();
   });

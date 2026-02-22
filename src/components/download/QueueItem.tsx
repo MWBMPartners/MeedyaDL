@@ -206,18 +206,13 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
    * status icon switches from green CheckCircle to amber AlertTriangle
    * to signal that the download succeeded but encountered issues.
    */
-  const hasWarnings =
-    item.state === 'complete' &&
-    item.warnings &&
-    item.warnings.length > 0;
+  const hasWarnings = item.state === 'complete' && item.warnings && item.warnings.length > 0;
 
   /** The Lucide icon component for the current state, overridden for warnings. */
   const StateIcon = hasWarnings ? AlertTriangle : config.icon;
 
   /** The color class, overridden to amber for completed-with-warnings. */
-  const stateColorClass = hasWarnings
-    ? 'text-status-warning'
-    : config.colorClass;
+  const stateColorClass = hasWarnings ? 'text-status-warning' : config.colorClass;
 
   /**
    * Whether this item is currently in an "active" state (downloading or
@@ -249,10 +244,7 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
        * Example: '/Users/me/Music/Artist/Album/01 Track.m4a'
        *       -> '/Users/me/Music/Artist/Album'
        */
-      const parentDir = item.output_path.substring(
-        0,
-        item.output_path.lastIndexOf('/'),
-      );
+      const parentDir = item.output_path.substring(0, item.output_path.lastIndexOf('/'));
       await open(parentDir);
     } catch {
       /* Shell API unavailable (running outside Tauri) -- silently ignore */
@@ -307,10 +299,7 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
          * @see https://tailwindcss.com/docs/animation#spin
          */}
         <div className={`mt-0.5 flex-shrink-0 ${stateColorClass}`}>
-          <StateIcon
-            size={18}
-            className={item.state === 'processing' ? 'animate-spin' : ''}
-          />
+          <StateIcon size={18} className={item.state === 'processing' ? 'animate-spin' : ''} />
         </div>
 
         {/*
@@ -340,9 +329,7 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
                 {MEDIA_SERVICE_LABELS[item.service_id]}
               </span>
             )}
-            <p className="text-sm text-content-primary truncate">
-              {item.urls[0]}
-            </p>
+            <p className="text-sm text-content-primary truncate">{item.urls[0]}</p>
           </div>
 
           {/*
@@ -351,9 +338,7 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
            * playlist downloads that contain multiple tracks).
            */}
           {item.current_track && (
-            <p className="text-xs text-content-secondary mt-0.5 truncate">
-              {item.current_track}
-            </p>
+            <p className="text-xs text-content-secondary mt-0.5 truncate">{item.current_track}</p>
           )}
 
           {/*
@@ -440,9 +425,7 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
        */}
       {isActive && (
         <div className="mt-2 pl-7">
-          <ProgressBar
-            value={item.state === 'downloading' ? item.progress : null}
-          />
+          <ProgressBar value={item.state === 'downloading' ? item.progress : null} />
           {/*
            * Speed and ETA information -- shown when `item.speed` is
            * available (set by `downloadStore.handleProgressEvent()`

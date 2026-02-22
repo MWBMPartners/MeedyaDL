@@ -115,8 +115,7 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   ghost:
     'bg-transparent text-content-secondary hover:text-content-primary hover:bg-surface-secondary border-transparent',
   /** Red/error background for destructive actions; slightly fades on hover/active */
-  danger:
-    'bg-status-error text-white hover:opacity-90 active:opacity-80 border-transparent',
+  danger: 'bg-status-error text-white hover:opacity-90 active:opacity-80 border-transparent',
 };
 
 /**

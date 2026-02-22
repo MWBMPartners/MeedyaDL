@@ -57,17 +57,14 @@ export function MetadataTab() {
           Section 1: Automatic Tags (informational, no controls)
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-2">
-          Automatic Tags
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-2">Automatic Tags</h3>
         <p className="text-sm text-content-secondary leading-relaxed mb-2">
-          MeedyaDL automatically enriches downloaded files with metadata after
-          every download. Codec tags (lossless, spatial audio), source tags,
-          and channel configuration are always written.
+          MeedyaDL automatically enriches downloaded files with metadata after every download. Codec
+          tags (lossless, spatial audio), source tags, and channel configuration are always written.
         </p>
         <p className="text-sm text-content-tertiary leading-relaxed">
-          API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs)
-          require MusicKit credentials. Configure them in Settings &gt; Cover Art.
+          API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs) require MusicKit
+          credentials. Configure them in Settings &gt; Cover Art.
         </p>
       </div>
 
@@ -84,9 +81,7 @@ export function MetadataTab() {
             label="Enable AcousticID Fingerprinting"
             description="Generate audio fingerprints and look up AcousticID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
             checked={settings.acoustid_enabled}
-            onChange={(checked) =>
-              updateSettings({ acoustid_enabled: checked })
-            }
+            onChange={(checked) => updateSettings({ acoustid_enabled: checked })}
           />
         </div>
       </div>
@@ -95,18 +90,14 @@ export function MetadataTab() {
           Section 3: ReplayGain Analysis (opt-in)
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          ReplayGain Analysis
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">ReplayGain Analysis</h3>
 
         <div className="space-y-4">
           <Toggle
             label="Enable ReplayGain Analysis"
             description="Analyse audio loudness and embed non-destructive ReplayGain metadata for volume normalisation. Uses FFmpeg (already installed). Analyses each file individually."
             checked={settings.replaygain_enabled}
-            onChange={(checked) =>
-              updateSettings({ replaygain_enabled: checked })
-            }
+            onChange={(checked) => updateSettings({ replaygain_enabled: checked })}
           />
         </div>
       </div>

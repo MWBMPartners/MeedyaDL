@@ -206,13 +206,13 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state -- null statuses indicate "not yet checked"
   // -------------------------------------------------------------------------
-  python: null,           // Python status unknown until first check
-  gamdl: null,            // GAMDL status unknown until first check
-  tools: [],              // No tool statuses until first check
-  isChecking: false,      // No check in progress
-  isInstalling: false,    // No installation in progress
-  installingName: null,   // No component being installed
-  error: null,            // No error
+  python: null, // Python status unknown until first check
+  gamdl: null, // GAMDL status unknown until first check
+  tools: [], // No tool statuses until first check
+  isChecking: false, // No check in progress
+  isInstalling: false, // No installation in progress
+  installingName: null, // No component being installed
+  error: null, // No error
 
   // -------------------------------------------------------------------------
   // Check actions

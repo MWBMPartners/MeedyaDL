@@ -966,13 +966,7 @@ export interface Toast {
  *
  * @see ./components/setup/SetupWizard.tsx for the step renderer
  */
-export type SetupStep =
-  | 'welcome'
-  | 'python'
-  | 'gamdl'
-  | 'dependencies'
-  | 'cookies'
-  | 'complete';
+export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cookies' | 'complete';
 
 // ============================================================
 // Media Service Types (multi-service architecture)

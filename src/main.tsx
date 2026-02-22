@@ -43,6 +43,15 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 
 /**
+ * Zustand UI store -- provides `addToast()` for surfacing errors to the user.
+ * Imported statically since it is already bundled via static imports from
+ * many other components (App, Sidebar, DownloadForm, etc.). A dynamic import
+ * here would not achieve code-splitting and causes a Vite build warning.
+ * @see useUiStore in @/stores/uiStore.ts
+ */
+import { useUiStore } from './stores/uiStore';
+
+/**
  * Global CSS styles imported as a side-effect module.
  * Contains Tailwind CSS directives (@tailwind base/components/utilities),
  * CSS custom properties for theming, and base layout styles.
@@ -82,33 +91,35 @@ class ErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          padding: '24px',
-          fontFamily: 'monospace',
-          fontSize: '13px',
-          color: '#ff6b6b',
-          backgroundColor: '#1a1a2e',
-          height: '100vh',
-          overflow: 'auto',
-        }}>
+        <div
+          style={{
+            padding: '24px',
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            color: '#ff6b6b',
+            backgroundColor: '#1a1a2e',
+            height: '100vh',
+            overflow: 'auto',
+          }}
+        >
           <h1 style={{ fontSize: '18px', marginBottom: '16px', color: '#fff' }}>
             React Error Caught
           </h1>
           <div style={{ marginBottom: '16px' }}>
-            <strong style={{ color: '#ffd93d' }}>Error:</strong>{' '}
-            {this.state.error?.message}
+            <strong style={{ color: '#ffd93d' }}>Error:</strong> {this.state.error?.message}
           </div>
           <div style={{ marginBottom: '16px' }}>
-            <strong style={{ color: '#ffd93d' }}>Name:</strong>{' '}
-            {this.state.error?.name}
+            <strong style={{ color: '#ffd93d' }}>Name:</strong> {this.state.error?.name}
           </div>
           <div style={{ marginBottom: '16px', whiteSpace: 'pre-wrap', fontSize: '11px' }}>
-            <strong style={{ color: '#ffd93d' }}>Stack:</strong>{'\n'}
+            <strong style={{ color: '#ffd93d' }}>Stack:</strong>
+            {'\n'}
             {this.state.error?.stack}
           </div>
           {this.state.errorInfo && (
             <div style={{ whiteSpace: 'pre-wrap', fontSize: '11px' }}>
-              <strong style={{ color: '#ffd93d' }}>Component Stack:</strong>{'\n'}
+              <strong style={{ color: '#ffd93d' }}>Component Stack:</strong>
+              {'\n'}
               {this.state.errorInfo.componentStack}
             </div>
           )}
@@ -149,18 +160,12 @@ window.onerror = (message, source, lineno, colno, error) => {
   const errorMessage = error?.message || String(message);
   console.error('Global error:', errorMessage, { source, lineno, colno, error });
 
-  // Surface the error to the user via toast (dynamic import to avoid circular deps)
-  import('./stores/uiStore')
-    .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(
-        `Unexpected error: ${errorMessage}`,
-        'error',
-        8000,
-      );
-    })
-    .catch(() => {
-      // Store not available yet (app still booting) -- console.error above is enough
-    });
+  // Surface the error to the user via a toast notification
+  try {
+    useUiStore.getState().addToast(`Unexpected error: ${errorMessage}`, 'error', 8000);
+  } catch {
+    // Store not available yet (app still booting) -- console.error above is enough
+  }
 };
 
 /**
@@ -173,18 +178,12 @@ window.addEventListener('unhandledrejection', (event) => {
   const errorMessage = reason instanceof Error ? reason.message : String(reason);
   console.error('Unhandled Promise Rejection:', reason);
 
-  // Surface the error to the user via toast (dynamic import to avoid circular deps)
-  import('./stores/uiStore')
-    .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(
-        `Async error: ${errorMessage}`,
-        'error',
-        8000,
-      );
-    })
-    .catch(() => {
-      // Store not available yet (app still booting) -- console.error above is enough
-    });
+  // Surface the error to the user via a toast notification
+  try {
+    useUiStore.getState().addToast(`Async error: ${errorMessage}`, 'error', 8000);
+  } catch {
+    // Store not available yet (app still booting) -- console.error above is enough
+  }
 });
 
 /**

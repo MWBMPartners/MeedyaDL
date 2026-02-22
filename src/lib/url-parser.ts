@@ -368,10 +368,7 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
 export function isAppleMusicUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return (
-      parsed.hostname === 'music.apple.com' ||
-      parsed.hostname === 'itunes.apple.com'
-    );
+    return parsed.hostname === 'music.apple.com' || parsed.hostname === 'itunes.apple.com';
   } catch {
     return false;
   }

@@ -76,8 +76,7 @@ export function LyricsTab() {
   ]);
 
   /** Whether lyrics format checkboxes should be disabled */
-  const formatsDisabled =
-    settings.no_synced_lyrics && !settings.embed_lyrics_and_sidecar;
+  const formatsDisabled = settings.no_synced_lyrics && !settings.embed_lyrics_and_sidecar;
 
   /**
    * Handles toggling a lyrics format checkbox on or off.
@@ -96,9 +95,7 @@ export function LyricsTab() {
     }
 
     /* Recompute primary and companions based on canonical order */
-    const ordered = LYRICS_FORMAT_OPTIONS
-      .map((f) => f.value)
-      .filter((f) => current.has(f));
+    const ordered = LYRICS_FORMAT_OPTIONS.map((f) => f.value).filter((f) => current.has(f));
 
     updateSettings({
       synced_lyrics_format: ordered[0],
@@ -109,9 +106,7 @@ export function LyricsTab() {
   return (
     <div className="space-y-6 max-w-xl">
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Synced Lyrics
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Synced Lyrics</h3>
 
         <div className="space-y-4">
           {/* Embed lyrics + keep sidecar */}
@@ -119,27 +114,21 @@ export function LyricsTab() {
             label="Embed Lyrics and Keep Sidecar"
             description="Embed lyrics in audio file metadata and also save a separate lyrics file for maximum player compatibility"
             checked={settings.embed_lyrics_and_sidecar}
-            onChange={(checked) =>
-              updateSettings({ embed_lyrics_and_sidecar: checked })
-            }
+            onChange={(checked) => updateSettings({ embed_lyrics_and_sidecar: checked })}
           />
 
           {/* Synced lyrics format checkboxes */}
           <div className={formatsDisabled ? 'opacity-50' : ''}>
-            <span className="text-sm font-medium text-content-primary">
-              Synced Lyrics Formats
-            </span>
+            <span className="text-sm font-medium text-content-primary">Synced Lyrics Formats</span>
             <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
-              Select one or more formats. The first format is used with the
-              primary download; additional formats are downloaded as lightweight
-              companion passes.
+              Select one or more formats. The first format is used with the primary download;
+              additional formats are downloaded as lightweight companion passes.
             </span>
             <div className="space-y-2">
               {LYRICS_FORMAT_OPTIONS.map(({ value, label }) => {
                 const isChecked = checkedFormats.has(value);
                 const isPrimary =
-                  value === settings.synced_lyrics_format &&
-                  checkedFormats.size > 1;
+                  value === settings.synced_lyrics_format && checkedFormats.size > 1;
 
                 return (
                   <label
@@ -150,19 +139,11 @@ export function LyricsTab() {
                       type="checkbox"
                       checked={isChecked}
                       disabled={formatsDisabled}
-                      onChange={(e) =>
-                        handleFormatToggle(value, e.target.checked)
-                      }
+                      onChange={(e) => handleFormatToggle(value, e.target.checked)}
                       className="h-4 w-4 rounded border-border accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
                     />
-                    <span className="text-sm text-content-primary">
-                      {label}
-                    </span>
-                    {isPrimary && (
-                      <span className="text-xs text-content-tertiary">
-                        (Primary)
-                      </span>
-                    )}
+                    <span className="text-sm text-content-primary">{label}</span>
+                    {isPrimary && <span className="text-xs text-content-tertiary">(Primary)</span>}
                   </label>
                 );
               })}
@@ -178,9 +159,7 @@ export function LyricsTab() {
                 : "Don't download synced lyrics files alongside tracks"
             }
             checked={settings.no_synced_lyrics}
-            onChange={(checked) =>
-              updateSettings({ no_synced_lyrics: checked })
-            }
+            onChange={(checked) => updateSettings({ no_synced_lyrics: checked })}
             disabled={settings.embed_lyrics_and_sidecar}
           />
 
@@ -189,9 +168,7 @@ export function LyricsTab() {
             label="Synced Lyrics Only"
             description="Only download synced lyrics without downloading the audio/video"
             checked={settings.synced_lyrics_only}
-            onChange={(checked) =>
-              updateSettings({ synced_lyrics_only: checked })
-            }
+            onChange={(checked) => updateSettings({ synced_lyrics_only: checked })}
           />
         </div>
       </div>

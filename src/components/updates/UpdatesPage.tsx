@@ -55,9 +55,7 @@ export function UpdatesPage() {
   const isDownloadingUpdate = useUpdateStore((s) => s.isDownloadingUpdate);
   const downloadProgress = useUpdateStore((s) => s.downloadProgress);
   const updateInstalled = useUpdateStore((s) => s.updateInstalled);
-  const downloadAndInstallAppUpdate = useUpdateStore(
-    (s) => s.downloadAndInstallAppUpdate,
-  );
+  const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
 
   // Settings store for the prefer_stable_rollback toggle
@@ -67,10 +65,7 @@ export function UpdatesPage() {
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
-      (c) =>
-        c.update_available &&
-        c.is_compatible &&
-        !dismissed.includes(c.name),
+      (c) => c.update_available && c.is_compatible && !dismissed.includes(c.name)
     );
   }, [lastResult, dismissed]);
 
@@ -152,11 +147,10 @@ export function UpdatesPage() {
         <div className="mx-6 mt-4 p-4 rounded-platform border border-status-warning-bg bg-status-warning-bg/30">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-content-primary">
-                Pre-Release Version
-              </p>
+              <p className="text-sm font-medium text-content-primary">Pre-Release Version</p>
               <p className="text-xs text-content-secondary mt-0.5">
-                You are running v{currentVersion}. Toggle the switch to check for the latest official release as a rollback target.
+                You are running v{currentVersion}. Toggle the switch to check for the latest
+                official release as a rollback target.
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -173,7 +167,8 @@ export function UpdatesPage() {
           </div>
           {settings.prefer_stable_rollback && (
             <p className="text-[11px] text-status-warning mt-2">
-              Roll Back to Official Release is enabled. Update checks will offer the latest stable release, even if it has a lower version number.
+              Roll Back to Official Release is enabled. Update checks will offer the latest stable
+              release, even if it has a lower version number.
             </p>
           )}
         </div>
@@ -188,9 +183,7 @@ export function UpdatesPage() {
               You&apos;re up to date!
             </h3>
             {currentVersion && (
-              <p className="text-sm text-content-secondary">
-                Current version: v{currentVersion}
-              </p>
+              <p className="text-sm text-content-secondary">Current version: v{currentVersion}</p>
             )}
             {lastResult && (
               <p className="text-xs text-content-tertiary mt-2">
@@ -216,9 +209,7 @@ export function UpdatesPage() {
                 {/* Header row: component name, versions, actions */}
                 <div className="flex items-center justify-between gap-4 mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-content-primary">
-                      {update.name}
-                    </span>
+                    <span className="font-semibold text-content-primary">{update.name}</span>
                     {update.current_version && (
                       <span className="text-sm text-content-secondary">
                         v{update.current_version}
@@ -280,9 +271,7 @@ export function UpdatesPage() {
                               />
                             </div>
                             <span className="text-[10px] text-content-tertiary tabular-nums">
-                              {downloadProgress != null
-                                ? `${downloadProgress}%`
-                                : '...'}
+                              {downloadProgress != null ? `${downloadProgress}%` : '...'}
                             </span>
                           </div>
                         ) : (
@@ -290,10 +279,14 @@ export function UpdatesPage() {
                             <Button
                               variant="primary"
                               size="sm"
-                              icon={update.is_rollback ? <RotateCcw size={12} /> : <Download size={12} />}
-                              onClick={() =>
-                                handleDownloadAndInstall(update.tag_name!)
+                              icon={
+                                update.is_rollback ? (
+                                  <RotateCcw size={12} />
+                                ) : (
+                                  <Download size={12} />
+                                )
                               }
+                              onClick={() => handleDownloadAndInstall(update.tag_name!)}
                             >
                               {update.is_rollback ? 'Roll Back to Stable' : 'Download & Install'}
                             </Button>
@@ -310,19 +303,12 @@ export function UpdatesPage() {
                         className="p-1.5 rounded hover:bg-surface-secondary transition-colors"
                         title="View release on GitHub"
                       >
-                        <ExternalLink
-                          size={14}
-                          className="text-content-tertiary"
-                        />
+                        <ExternalLink size={14} className="text-content-tertiary" />
                       </button>
                     )}
 
                     {/* Dismiss */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => dismissUpdate(update.name)}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => dismissUpdate(update.name)}>
                       Dismiss
                     </Button>
                   </div>
@@ -331,13 +317,13 @@ export function UpdatesPage() {
                 {/* Rollback description or pre-release warning */}
                 {update.is_rollback ? (
                   <p className="text-[11px] text-content-secondary mb-3">
-                    Install the latest official release, replacing your current
-                    pre-release version. Future updates will only offer stable releases.
+                    Install the latest official release, replacing your current pre-release version.
+                    Future updates will only offer stable releases.
                   </p>
                 ) : update.is_prerelease ? (
                   <p className="text-[11px] text-status-warning mb-3">
-                    This is a pre-release version and may contain bugs or
-                    incomplete features. Not recommended for production use.
+                    This is a pre-release version and may contain bugs or incomplete features. Not
+                    recommended for production use.
                   </p>
                 ) : null}
 
@@ -348,18 +334,14 @@ export function UpdatesPage() {
                       Release Notes
                     </h4>
                     <div className="prose prose-sm max-w-none text-content-primary">
-                      <ReactMarkdown>
-                        {stripDownloadSection(update.release_body)}
-                      </ReactMarkdown>
+                      <ReactMarkdown>{stripDownloadSection(update.release_body)}</ReactMarkdown>
                     </div>
                   </div>
                 )}
 
                 {/* Description for non-MeedyaDL components */}
                 {update.name !== 'MeedyaDL' && update.description && (
-                  <p className="text-sm text-content-secondary">
-                    {update.description}
-                  </p>
+                  <p className="text-sm text-content-secondary">{update.description}</p>
                 )}
               </div>
             ))}
@@ -376,17 +358,13 @@ export function UpdatesPage() {
               label="Auto-Check for Updates"
               description="Automatically check for updates on startup"
               checked={settings.auto_check_updates}
-              onChange={(checked) =>
-                updateSettings({ auto_check_updates: checked })
-              }
+              onChange={(checked) => updateSettings({ auto_check_updates: checked })}
             />
             <Toggle
               label="Include Pre-Release Versions"
               description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features."
               checked={settings.check_pre_releases}
-              onChange={(checked) =>
-                updateSettings({ check_pre_releases: checked })
-              }
+              onChange={(checked) => updateSettings({ check_pre_releases: checked })}
             />
           </div>
         </div>

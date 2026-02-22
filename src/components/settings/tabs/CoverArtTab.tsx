@@ -107,11 +107,13 @@ export function CoverArtTab() {
   // Check if a private key is already stored on mount and when the tab becomes visible.
   useEffect(() => {
     if (settings.animated_artwork_enabled) {
-      getCredential('musickit_private_key').then((val) => {
-        setKeyStored(val !== null);
-      }).catch(() => {
-        setKeyStored(false);
-      });
+      getCredential('musickit_private_key')
+        .then((val) => {
+          setKeyStored(val !== null);
+        })
+        .catch(() => {
+          setKeyStored(false);
+        });
     }
   }, [settings.animated_artwork_enabled]);
 
@@ -137,9 +139,7 @@ export function CoverArtTab() {
       {/* Section 1: Static Cover Art (GAMDL) */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Cover Art
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Cover Art</h3>
 
         <div className="space-y-4">
           {/* Save cover art */}
@@ -182,7 +182,8 @@ export function CoverArtTab() {
                 value={settings.cover_size.toString()} /* Convert number to string for the input value */
                 onChange={(e) => {
                   const size = parseInt(e.target.value, 10); // Parse the input string to a base-10 integer
-                  if (!isNaN(size) && size >= 100 && size <= 10000) { // Validate within acceptable range
+                  if (!isNaN(size) && size >= 100 && size <= 10000) {
+                    // Validate within acceptable range
                     updateSettings({ cover_size: size }); // Only persist valid values
                   }
                 }}
@@ -196,9 +197,7 @@ export function CoverArtTab() {
       {/* Section 2: Animated Artwork (Apple MusicKit API) */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Animated Artwork
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Animated Artwork</h3>
 
         <div className="space-y-4">
           {/* Master toggle for animated artwork downloading */}
@@ -206,9 +205,7 @@ export function CoverArtTab() {
             label="Download Animated Cover Art"
             description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and PortraitCover.mp4 alongside album files."
             checked={settings.animated_artwork_enabled}
-            onChange={(checked) =>
-              updateSettings({ animated_artwork_enabled: checked })
-            }
+            onChange={(checked) => updateSettings({ animated_artwork_enabled: checked })}
             helpTopic="settings-help"
           />
 
@@ -218,9 +215,7 @@ export function CoverArtTab() {
               label="Hide Animated Artwork Files"
               description="Set the OS hidden attribute on FrontCover.mp4 and PortraitCover.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
               checked={settings.hide_animated_artwork}
-              onChange={(checked) =>
-                updateSettings({ hide_animated_artwork: checked })
-              }
+              onChange={(checked) => updateSettings({ hide_animated_artwork: checked })}
             />
           )}
 
@@ -229,16 +224,15 @@ export function CoverArtTab() {
             <>
               {/* Informational note about requirements */}
               <p className="text-xs text-content-secondary">
-                Requires an Apple Developer account (free) with a MusicKit key.
-                See the{' '}
+                Requires an Apple Developer account (free) with a MusicKit key. See the{' '}
                 <button
                   type="button"
                   className="text-accent underline cursor-pointer hover:opacity-80"
                   onClick={() => navigateToHelp('animated-artwork')}
                 >
                   Animated Artwork help page
-                </button>
-                {' '}for setup instructions.
+                </button>{' '}
+                for setup instructions.
               </p>
 
               {/* MusicKit Team ID -- stored in settings (non-sensitive) */}
@@ -299,11 +293,14 @@ export function CoverArtTab() {
               <div className="space-y-2">
                 <label className="flex items-center gap-1.5 text-sm font-medium text-content-primary">
                   MusicKit Private Key
-                  <HelpButton topic="animated-artwork" tooltip="How to get your MusicKit private key" />
+                  <HelpButton
+                    topic="animated-artwork"
+                    tooltip="How to get your MusicKit private key"
+                  />
                 </label>
                 <p className="text-xs text-content-secondary">
-                  Paste the content of your .p8 private key file. This is stored
-                  securely in your OS keychain, not in the settings file.
+                  Paste the content of your .p8 private key file. This is stored securely in your OS
+                  keychain, not in the settings file.
                 </p>
 
                 {/* Show key status indicator */}
@@ -342,11 +339,7 @@ export function CoverArtTab() {
                   >
                     Save to Keychain
                   </button>
-                  {keyStatus && (
-                    <span className="text-xs text-content-secondary">
-                      {keyStatus}
-                    </span>
-                  )}
+                  {keyStatus && <span className="text-xs text-content-secondary">{keyStatus}</span>}
                 </div>
               </div>
             </>

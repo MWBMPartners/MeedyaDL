@@ -93,78 +93,60 @@ export function TemplatesTab() {
 
       {/* Section: Folder Templates */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary">
-          Folder Templates
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary">Folder Templates</h3>
 
         <Input
           label="Album Folder"
           description="Folder structure for regular album downloads"
           value={settings.album_folder_template}
-          onChange={(e) =>
-            updateSettings({ album_folder_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ album_folder_template: e.target.value })}
         />
 
         <Input
           label="Compilation Folder"
           description="Folder structure for compilation/various artist albums"
           value={settings.compilation_folder_template}
-          onChange={(e) =>
-            updateSettings({ compilation_folder_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ compilation_folder_template: e.target.value })}
         />
 
         <Input
           label="No Album Folder"
           description="Folder structure when album information is not available"
           value={settings.no_album_folder_template}
-          onChange={(e) =>
-            updateSettings({ no_album_folder_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ no_album_folder_template: e.target.value })}
         />
       </div>
 
       {/* Section: File Templates */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary">
-          File Templates
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary">File Templates</h3>
 
         <Input
           label="Single Disc File"
           description="Filename template for tracks from single-disc albums"
           value={settings.single_disc_file_template}
-          onChange={(e) =>
-            updateSettings({ single_disc_file_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ single_disc_file_template: e.target.value })}
         />
 
         <Input
           label="Multi Disc File"
           description="Filename template for tracks from multi-disc albums"
           value={settings.multi_disc_file_template}
-          onChange={(e) =>
-            updateSettings({ multi_disc_file_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ multi_disc_file_template: e.target.value })}
         />
 
         <Input
           label="No Album File"
           description="Filename template when album information is not available"
           value={settings.no_album_file_template}
-          onChange={(e) =>
-            updateSettings({ no_album_file_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ no_album_file_template: e.target.value })}
         />
 
         <Input
           label="Playlist File"
           description="Filename template for playlist downloads"
           value={settings.playlist_file_template}
-          onChange={(e) =>
-            updateSettings({ playlist_file_template: e.target.value })
-          }
+          onChange={(e) => updateSettings({ playlist_file_template: e.target.value })}
         />
       </div>
     </div>

@@ -124,7 +124,7 @@ describe('Toggle', () => {
         onChange={vi.fn()}
         label="Save Lyrics"
         description="Download and embed lyrics when available"
-      />,
+      />
     );
 
     /* The description text should be visible below the label */
@@ -143,7 +143,7 @@ describe('Toggle', () => {
    */
   it('applies disabled styling when disabled', () => {
     const { container } = render(
-      <Toggle checked={false} onChange={vi.fn()} disabled label="Disabled Toggle" />,
+      <Toggle checked={false} onChange={vi.fn()} disabled label="Disabled Toggle" />
     );
 
     /* The outer <label> element should have the disabled opacity class */

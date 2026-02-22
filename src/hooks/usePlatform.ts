@@ -151,9 +151,7 @@ export function usePlatform(): UsePlatformResult {
          * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/#platform}
          * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/#arch}
          */
-        const { platform: getPlatform, arch: getArch } = await import(
-          '@tauri-apps/plugin-os'
-        );
+        const { platform: getPlatform, arch: getArch } = await import('@tauri-apps/plugin-os');
         const detectedPlatformValue = getPlatform();
         const detectedArchValue = getArch();
 

@@ -51,19 +51,12 @@ export function ServiceStatusBanner() {
             key={serviceId}
             className="flex items-start gap-2.5 rounded-platform border border-status-warning/30 bg-status-warning-bg/30 px-3 py-2.5"
           >
-            <AlertTriangle
-              size={16}
-              className="text-status-warning flex-shrink-0 mt-0.5"
-            />
+            <AlertTriangle size={16} className="text-status-warning flex-shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-content-primary">
                 {label} downloads are temporarily unavailable
               </p>
-              {message && (
-                <p className="text-[11px] text-content-secondary mt-0.5">
-                  {message}
-                </p>
-              )}
+              {message && <p className="text-[11px] text-content-secondary mt-0.5">{message}</p>}
             </div>
           </div>
         );
