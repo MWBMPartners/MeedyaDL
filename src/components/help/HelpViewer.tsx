@@ -580,7 +580,7 @@ Sign up at [developer.apple.com](https://developer.apple.com) using any Apple Ac
 2. Go to **Certificates, Identifiers & Profiles** (under Program resources)
 3. Click **[Keys](https://developer.apple.com/account/resources/authkeys/list)** in the left sidebar
 4. Click the **+** button to create a new key
-5. Enter a name (e.g., "MeedyaDL"), check **MusicKit**, then click **Continue** > **Register**
+5. Enter a name (e.g., "MeedyaDL"), check **MusicKit** or **(Media Services (MusicKit, ShazamKit, Apple Music Feed))**, then click **Continue** > **Register**
 
 ### Step 3: Download Your Private Key
 
