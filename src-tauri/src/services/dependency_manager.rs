@@ -3,8 +3,9 @@
 //
 // Dependency manager service.
 // Downloads, installs, and manages external tool dependencies required
-// by GAMDL: FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box (all required),
-// plus the optional AMDecrypt tool (used with the wrapper system).
+// by MeedyaDL: FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box (all required),
+// plus optional tools: AMDecrypt (wrapper system), aria2c (download accelerator),
+// and fpcalc (AcousticID fingerprinting fallback).
 // Each tool is downloaded from its official release source and installed
 // to {app_data}/tools/{tool_name}/.
 //
@@ -34,6 +35,8 @@
 // | N_m3u8DL-RE | Yes      | nilaoda/N_m3u8DL-RE           | HLS/DASH stream downloading |
 // | MP4Box      | Yes      | GPAC project                  | MP4 muxing and remuxing     |
 // | AMDecrypt   | No       | Mirror only (no upstream)     | Apple Music DRM (wrapper)   |
+// | aria2c      | No       | aria2/aria2 + mirror          | Download acceleration       |
+// | fpcalc      | No       | acoustid/chromaprint + mirror | AcousticID fingerprinting   |
 //
 // ## Cross-Platform URL Selection
 //
@@ -575,6 +578,18 @@ const TOOLS: &[ToolInfo] = &[
         required: false,
         description: "Apple Music DRM decryption (wrapper system)",
     },
+    ToolInfo {
+        name: "aria2c",
+        id: "aria2c",
+        required: false,
+        description: "Download accelerator (optional, for faster parallel downloads)",
+    },
+    ToolInfo {
+        name: "fpcalc",
+        id: "fpcalc",
+        required: false,
+        description: "AcousticID fingerprinting (optional fallback for Chromaprint)",
+    },
 ];
 
 /// Returns the download URL and archive format for a tool on the current platform.
@@ -607,6 +622,8 @@ async fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::Archiv
         "nm3u8dlre" => get_nm3u8dlre_url(os, arch).await,
         "mp4box" => get_mp4box_url(os, arch),
         "amdecrypt" => get_amdecrypt_url(os, arch),
+        "aria2c" => get_aria2c_url(os, arch),
+        "fpcalc" => get_fpcalc_url(os, arch),
         _ => Err(format!("Unknown tool: {}", tool_id)),
     }
 }
@@ -784,6 +801,44 @@ fn get_amdecrypt_url(_os: &str, _arch: &str) -> Result<(String, archive::Archive
     )
 }
 
+/// Returns the aria2c download URL for the given platform.
+///
+/// aria2 only provides pre-built Windows binaries from upstream.
+/// macOS/Linux users should install via Homebrew/apt, or the mirror
+/// fallback will be attempted.
+///
+/// Ref: https://github.com/aria2/aria2
+fn get_aria2c_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    // aria2 only has Windows pre-built binaries from upstream.
+    // For all platforms, fall through to the mirror fallback.
+    Err(
+        "No direct upstream URL for aria2c (platform-specific). \
+         Will attempt mirror fallback."
+            .to_string(),
+    )
+}
+
+/// Returns the fpcalc (Chromaprint) download URL for the given platform.
+///
+/// fpcalc is the command-line audio fingerprinting tool from Chromaprint.
+/// Used as an optional fallback for AcousticID fingerprinting (MeedyaDL
+/// normally uses rusty-chromaprint natively).
+///
+/// For runtime downloads, we use the mirror fallback since the upstream
+/// naming convention (chromaprint-fpcalc-{version}-{os}-{arch}) varies
+/// by release. The mirror provides standardized naming.
+///
+/// Ref: https://github.com/acoustid/chromaprint
+fn get_fpcalc_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    // Use the mirror for standardized naming. The upstream naming convention
+    // includes version numbers that change with each release.
+    Err(
+        "No direct upstream URL for fpcalc (version-dependent naming). \
+         Will attempt mirror fallback."
+            .to_string(),
+    )
+}
+
 /// Returns the path to a tool's installation directory.
 ///
 /// Each tool gets its own subdirectory under {app_data}/tools/.
@@ -822,6 +877,8 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
         "nm3u8dlre" => format!("N_m3u8DL-RE{}", exe_ext),
         "mp4box" => format!("MP4Box{}", exe_ext),
         "amdecrypt" => format!("amdecrypt{}", exe_ext),
+        "aria2c" => format!("aria2c{}", exe_ext),
+        "fpcalc" => format!("fpcalc{}", exe_ext),
         _ => format!("{}{}", tool_id, exe_ext),
     };
 
@@ -1678,6 +1735,8 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
         "ffmpeg" => vec![format!("ffmpeg{}", exe_ext)],
         "mp4decrypt" => vec![format!("mp4decrypt{}", exe_ext)],
         "amdecrypt" => vec![format!("amdecrypt{}", exe_ext)],
+        "aria2c" => vec![format!("aria2c{}", exe_ext)],
+        "fpcalc" => vec![format!("fpcalc{}", exe_ext)],
         // N_m3u8DL-RE: check both the expected case and lowercase variant
         "nm3u8dlre" => vec![
             format!("N_m3u8DL-RE{}", exe_ext),

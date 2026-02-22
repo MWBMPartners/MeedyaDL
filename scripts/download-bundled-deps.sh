@@ -19,12 +19,17 @@
 #
 # Output structure:
 #   <output>/
-#   ├── python/          # Portable Python + GAMDL (pip-installed)
+#   ├── python/          # Portable Python + pip packages (gamdl, votify, gytmdl, yt-dlp)
 #   ├── tools/
 #   │   ├── ffmpeg/      # FFmpeg binary
 #   │   ├── mp4decrypt/  # mp4decrypt binary
 #   │   ├── nm3u8dlre/   # N_m3u8DL-RE binary
-#   │   └── mp4box/      # MP4Box binary (+ lib/ on macOS)
+#   │   ├── mp4box/      # MP4Box binary (+ lib/ on macOS)
+#   │   ├── aria2c/      # aria2c binary (Windows only; optional)
+#   │   ├── fpcalc/      # fpcalc binary (optional AcousticID fallback)
+#   │   ├── amdecrypt/   # amdecrypt binary (optional; from mirror)
+#   │   └── get_iplayer/ # get_iplayer Perl script (BBC iPlayer)
+#   ├── perl/            # Portable Perl runtime (for get_iplayer)
 #   └── manifest.json    # Records which deps were successfully bundled
 #
 # The script is designed to be fault-tolerant: if a specific tool download
@@ -82,10 +87,15 @@ echo ""
 
 # Create output directory structure
 mkdir -p "${OUTPUT_DIR}/python"
+mkdir -p "${OUTPUT_DIR}/perl"
 mkdir -p "${OUTPUT_DIR}/tools/ffmpeg"
 mkdir -p "${OUTPUT_DIR}/tools/mp4decrypt"
 mkdir -p "${OUTPUT_DIR}/tools/nm3u8dlre"
 mkdir -p "${OUTPUT_DIR}/tools/mp4box"
+mkdir -p "${OUTPUT_DIR}/tools/aria2c"
+mkdir -p "${OUTPUT_DIR}/tools/fpcalc"
+mkdir -p "${OUTPUT_DIR}/tools/amdecrypt"
+mkdir -p "${OUTPUT_DIR}/tools/get_iplayer"
 
 # Temporary download directory
 TMPDIR_DL="$(mktemp -d)"
@@ -93,10 +103,19 @@ trap 'rm -rf "${TMPDIR_DL}"' EXIT
 
 # Track success/failure per dependency (simple variables for bash 3.2 compat)
 MANIFEST_python="false"
+MANIFEST_gamdl="false"
+MANIFEST_votify="false"
+MANIFEST_gytmdl="false"
+MANIFEST_ytdlp="false"
 MANIFEST_ffmpeg="false"
 MANIFEST_mp4decrypt="false"
 MANIFEST_nm3u8dlre="false"
 MANIFEST_mp4box="false"
+MANIFEST_aria2c="false"
+MANIFEST_fpcalc="false"
+MANIFEST_amdecrypt="false"
+MANIFEST_perl="false"
+MANIFEST_get_iplayer="false"
 
 # GitHub API auth header (if token is available)
 GH_AUTH_HEADER=""
@@ -203,15 +222,15 @@ download_python() {
     log_info "Extracting Python..."
     tar xzf "${archive_path}" -C "${OUTPUT_DIR}/python" --strip-components=1
 
-    # Install GAMDL into the Python environment
-    install_gamdl || { MANIFEST_python="false"; return 1; }
+    # Install Python packages into the environment
+    install_python_packages || { MANIFEST_python="false"; return 1; }
 
-    log_success "Python ${PYTHON_VERSION} + GAMDL bundled"
+    log_success "Python ${PYTHON_VERSION} + packages bundled"
     MANIFEST_python="true"
 }
 
-install_gamdl() {
-    log_info "Installing GAMDL into bundled Python..."
+install_python_packages() {
+    log_info "Installing Python packages into bundled Python..."
 
     local python_bin
     if [[ "${TARGET_OS}" == "windows" ]]; then
@@ -230,14 +249,28 @@ install_gamdl() {
         x86_64) host_arch="x86_64" ;;
     esac
 
+    # Define all Python packages to install
+    # Each package is installed individually so we can track success/failure per package
+    local packages="gamdl votify gytmdl yt-dlp"
+
     if [[ "${host_arch}" == "${TARGET_ARCH}" && -x "${python_bin}" ]]; then
         # Native: run the downloaded Python directly
-        log_info "Installing GAMDL (native pip install)..."
+        log_info "Installing packages (native pip install)..."
         "${python_bin}" -m pip install --upgrade pip --quiet 2>/dev/null || true
-        "${python_bin}" -m pip install gamdl --quiet
+
+        for pkg in ${packages}; do
+            log_info "Installing ${pkg}..."
+            if "${python_bin}" -m pip install "${pkg}" --quiet; then
+                log_success "${pkg} installed"
+                set_package_manifest "${pkg}" "true"
+            else
+                log_error "Failed to install ${pkg}"
+                set_package_manifest "${pkg}" "false"
+            fi
+        done
     else
         # Cross-compile: use host Python with --target pointing to target's site-packages
-        log_info "Installing GAMDL (cross-arch via host Python)..."
+        log_info "Installing packages (cross-arch via host Python)..."
 
         # Determine the target site-packages directory
         local site_packages
@@ -255,9 +288,31 @@ install_gamdl() {
         fi
 
         mkdir -p "${site_packages}"
-        python3 -m pip install gamdl --target="${site_packages}" --quiet 2>/dev/null || \
-        python -m pip install gamdl --target="${site_packages}" --quiet
+
+        for pkg in ${packages}; do
+            log_info "Installing ${pkg} (cross-arch)..."
+            if python3 -m pip install "${pkg}" --target="${site_packages}" --quiet 2>/dev/null || \
+               python -m pip install "${pkg}" --target="${site_packages}" --quiet 2>/dev/null; then
+                log_success "${pkg} installed"
+                set_package_manifest "${pkg}" "true"
+            else
+                log_error "Failed to install ${pkg}"
+                set_package_manifest "${pkg}" "false"
+            fi
+        done
     fi
+}
+
+# Helper to set manifest variable for a Python package by name
+set_package_manifest() {
+    local pkg="$1"
+    local value="$2"
+    case "${pkg}" in
+        gamdl)   MANIFEST_gamdl="${value}" ;;
+        votify)  MANIFEST_votify="${value}" ;;
+        gytmdl)  MANIFEST_gytmdl="${value}" ;;
+        yt-dlp)  MANIFEST_ytdlp="${value}" ;;
+    esac
 }
 
 # ============================================================
@@ -609,6 +664,311 @@ download_mp4box_linux() {
 }
 
 # ============================================================
+# 6. aria2c (optional download accelerator)
+# Source: aria2/aria2 GitHub releases (Windows only)
+# macOS/Linux: not available as pre-built upstream binaries
+# ============================================================
+
+download_aria2c() {
+    log_info "=== Downloading aria2c ==="
+
+    # Only Windows has pre-built binaries from upstream
+    if [[ "${TARGET_OS}" != "windows" ]]; then
+        log_info "aria2c: No pre-built binary for ${TARGET_OS} — skipping (install via Homebrew/apt)"
+        MANIFEST_aria2c="false"
+        return 0
+    fi
+
+    # Resolve the latest release asset from GitHub
+    local url
+    url=$(resolve_github_asset "aria2/aria2" "latest" "win-64bit")
+
+    if [[ -z "${url}" ]]; then
+        log_error "Could not resolve aria2c asset for Windows x64"
+        MANIFEST_aria2c="false"
+        return 0
+    fi
+
+    local archive_path="${TMPDIR_DL}/aria2c.zip"
+    download_file "${url}" "${archive_path}" || { MANIFEST_aria2c="false"; return 0; }
+
+    log_info "Extracting aria2c..."
+    local extract_dir="${TMPDIR_DL}/aria2c_extract"
+    mkdir -p "${extract_dir}"
+    unzip -qo "${archive_path}" -d "${extract_dir}"
+
+    local found_binary
+    found_binary=$(find "${extract_dir}" -name "aria2c.exe" -type f | head -1)
+
+    if [[ -n "${found_binary}" ]]; then
+        cp "${found_binary}" "${OUTPUT_DIR}/tools/aria2c/aria2c.exe"
+        log_success "aria2c bundled (Windows)"
+        MANIFEST_aria2c="true"
+    else
+        log_error "aria2c.exe not found in archive"
+        MANIFEST_aria2c="false"
+    fi
+}
+
+# ============================================================
+# 7. fpcalc (Chromaprint — optional AcousticID fingerprinting)
+# Source: acoustid/chromaprint GitHub releases
+# ============================================================
+
+download_fpcalc() {
+    log_info "=== Downloading fpcalc (Chromaprint) ==="
+
+    # Map to chromaprint asset naming
+    local asset_match=""
+    case "${TARGET_OS}-${TARGET_ARCH}" in
+        macos-aarch64|macos-x86_64) asset_match="macos-universal" ;;
+        linux-x86_64)               asset_match="linux-x86_64" ;;
+        linux-aarch64)              asset_match="linux-arm64" ;;
+        windows-x86_64)             asset_match="windows-x86_64" ;;
+        *)
+            log_info "fpcalc: No pre-built binary for ${TARGET_OS}/${TARGET_ARCH} — skipping"
+            MANIFEST_fpcalc="false"
+            return 0
+            ;;
+    esac
+
+    local url
+    url=$(resolve_github_asset "acoustid/chromaprint" "latest" "${asset_match}")
+
+    if [[ -z "${url}" ]]; then
+        log_error "Could not resolve fpcalc asset matching '${asset_match}'"
+        MANIFEST_fpcalc="false"
+        return 0
+    fi
+
+    # Determine archive format from URL
+    local format="tar.gz"
+    [[ "${url}" == *.zip ]] && format="zip"
+
+    local archive_path="${TMPDIR_DL}/fpcalc.${format}"
+    download_file "${url}" "${archive_path}" || { MANIFEST_fpcalc="false"; return 0; }
+
+    log_info "Extracting fpcalc..."
+    local extract_dir="${TMPDIR_DL}/fpcalc_extract"
+    mkdir -p "${extract_dir}"
+
+    case "${format}" in
+        tar.gz)  tar xzf "${archive_path}" -C "${extract_dir}" ;;
+        zip)     unzip -qo "${archive_path}" -d "${extract_dir}" ;;
+    esac
+
+    local binary_name="fpcalc"
+    [[ "${TARGET_OS}" == "windows" ]] && binary_name="fpcalc.exe"
+
+    local found_binary
+    found_binary=$(find "${extract_dir}" -name "${binary_name}" -type f | head -1)
+
+    if [[ -n "${found_binary}" ]]; then
+        cp "${found_binary}" "${OUTPUT_DIR}/tools/fpcalc/${binary_name}"
+        chmod +x "${OUTPUT_DIR}/tools/fpcalc/${binary_name}" 2>/dev/null || true
+        log_success "fpcalc bundled"
+        MANIFEST_fpcalc="true"
+    else
+        log_error "fpcalc binary not found in extracted archive"
+        MANIFEST_fpcalc="false"
+    fi
+}
+
+# ============================================================
+# 8. amdecrypt (optional — from MeedyaDL-Tools mirror)
+# No public upstream; assets are manually uploaded to mirror
+# ============================================================
+
+download_amdecrypt() {
+    log_info "=== Downloading amdecrypt (from mirror) ==="
+
+    local os_name=""
+    local arch_name="${TARGET_ARCH}"
+    case "${TARGET_OS}" in
+        macos)   os_name="macos" ;;
+        linux)   os_name="linux" ;;
+        windows) os_name="windows" ;;
+    esac
+
+    local ext="tar.gz"
+    [[ "${TARGET_OS}" == "windows" ]] && ext="zip"
+
+    local asset_match="amdecrypt-${os_name}-${arch_name}"
+    local url
+    url=$(resolve_github_asset "MeedyaDL/MeedyaDL-Tools" "latest" "${asset_match}")
+
+    if [[ -z "${url}" ]]; then
+        log_info "amdecrypt: Not available in mirror for ${os_name}/${arch_name} — skipping (optional)"
+        MANIFEST_amdecrypt="false"
+        return 0
+    fi
+
+    local archive_path="${TMPDIR_DL}/amdecrypt.${ext}"
+    download_file "${url}" "${archive_path}" || { MANIFEST_amdecrypt="false"; return 0; }
+
+    log_info "Extracting amdecrypt..."
+    local extract_dir="${TMPDIR_DL}/amdecrypt_extract"
+    mkdir -p "${extract_dir}"
+
+    case "${ext}" in
+        tar.gz)  tar xzf "${archive_path}" -C "${extract_dir}" ;;
+        zip)     unzip -qo "${archive_path}" -d "${extract_dir}" ;;
+    esac
+
+    local binary_name="amdecrypt"
+    [[ "${TARGET_OS}" == "windows" ]] && binary_name="amdecrypt.exe"
+
+    local found_binary
+    found_binary=$(find "${extract_dir}" -name "${binary_name}" -type f | head -1)
+
+    if [[ -n "${found_binary}" ]]; then
+        cp "${found_binary}" "${OUTPUT_DIR}/tools/amdecrypt/${binary_name}"
+        chmod +x "${OUTPUT_DIR}/tools/amdecrypt/${binary_name}" 2>/dev/null || true
+        log_success "amdecrypt bundled"
+        MANIFEST_amdecrypt="true"
+    else
+        log_error "amdecrypt binary not found in archive"
+        MANIFEST_amdecrypt="false"
+    fi
+}
+
+# ============================================================
+# 9. Perl + get_iplayer (BBC iPlayer support)
+# Source: skaji/relocatable-perl (macOS/Linux)
+#         get-iplayer/get_iplayer (Perl script from GitHub)
+# Note: Windows uses Strawberry Perl Portable (not yet implemented)
+# ============================================================
+
+download_perl() {
+    log_info "=== Downloading Perl (relocatable) ==="
+
+    # Map to skaji/relocatable-perl asset naming
+    local asset_match=""
+    case "${TARGET_OS}-${TARGET_ARCH}" in
+        macos-aarch64)  asset_match="perl-darwin-arm64.tar.gz" ;;
+        macos-x86_64)   asset_match="perl-darwin-amd64.tar.gz" ;;
+        linux-x86_64)   asset_match="perl-linux-amd64.tar.gz" ;;
+        linux-aarch64)  asset_match="perl-linux-arm64.tar.gz" ;;
+        windows-*)
+            log_info "Perl: Windows bundling not yet implemented — skipping"
+            MANIFEST_perl="false"
+            return 0
+            ;;
+        *)
+            log_error "No relocatable Perl for ${TARGET_OS}/${TARGET_ARCH}"
+            MANIFEST_perl="false"
+            return 0
+            ;;
+    esac
+
+    local url
+    url=$(resolve_github_asset "skaji/relocatable-perl" "latest" "${asset_match}")
+
+    if [[ -z "${url}" ]]; then
+        log_error "Could not resolve Perl asset matching '${asset_match}'"
+        MANIFEST_perl="false"
+        return 0
+    fi
+
+    local archive_path="${TMPDIR_DL}/perl.tar.gz"
+    download_file "${url}" "${archive_path}" || { MANIFEST_perl="false"; return 0; }
+
+    log_info "Extracting Perl..."
+    tar xzf "${archive_path}" -C "${OUTPUT_DIR}/perl" --strip-components=1
+
+    # Verify the perl binary exists
+    local perl_bin="${OUTPUT_DIR}/perl/bin/perl"
+    if [[ ! -x "${perl_bin}" ]]; then
+        log_error "Perl binary not found after extraction"
+        MANIFEST_perl="false"
+        return 0
+    fi
+
+    log_success "Perl bundled"
+    MANIFEST_perl="true"
+
+    # Install get_iplayer and its dependencies into the bundled Perl
+    install_get_iplayer || { MANIFEST_get_iplayer="false"; return 0; }
+}
+
+install_get_iplayer() {
+    log_info "Installing get_iplayer into bundled Perl..."
+
+    local perl_bin="${OUTPUT_DIR}/perl/bin/perl"
+
+    # For native builds, run the bundled Perl directly
+    local host_arch
+    host_arch=$(uname -m)
+    case "${host_arch}" in
+        arm64)  host_arch="aarch64" ;;
+        x86_64) host_arch="x86_64" ;;
+    esac
+
+    if [[ "${host_arch}" != "${TARGET_ARCH}" ]]; then
+        log_info "Cross-arch: skipping get_iplayer CPAN module installation"
+        log_info "CPAN modules will be installed at first launch"
+
+        # Still download the get_iplayer script
+        download_get_iplayer_script || return 1
+        return 0
+    fi
+
+    # Install cpanm (CPAN module installer) into the bundled Perl
+    log_info "Installing cpanm..."
+    local cpanm_url="https://cpanmin.us"
+    local cpanm_path="${TMPDIR_DL}/cpanm"
+    download_file "${cpanm_url}" "${cpanm_path}" || {
+        log_error "Failed to download cpanm"
+        return 1
+    }
+    chmod +x "${cpanm_path}"
+
+    # Install required CPAN modules for get_iplayer
+    # LWP::UserAgent — HTTP client
+    # XML::LibXML — XML parsing (requires libxml2-dev on CI)
+    # Mojolicious — Web framework (used by get_iplayer for recording)
+    # CGI — CGI support (used by get_iplayer web PVR)
+    local modules="LWP::UserAgent XML::LibXML Mojolicious CGI"
+    log_info "Installing CPAN modules: ${modules}"
+
+    for module in ${modules}; do
+        log_info "Installing ${module}..."
+        "${perl_bin}" "${cpanm_path}" --notest "${module}" 2>/dev/null || {
+            log_error "Failed to install CPAN module: ${module}"
+            # Continue with other modules — some are optional
+        }
+    done
+
+    # Download the get_iplayer script
+    download_get_iplayer_script || return 1
+
+    log_success "get_iplayer installed"
+    MANIFEST_get_iplayer="true"
+}
+
+download_get_iplayer_script() {
+    log_info "Downloading get_iplayer script..."
+
+    # Download the main get_iplayer script from the latest release
+    local url
+    url=$(resolve_github_asset "get-iplayer/get_iplayer" "latest" "get_iplayer")
+
+    if [[ -z "${url}" ]]; then
+        # Fallback: download from the raw GitHub content (main branch)
+        url="https://raw.githubusercontent.com/get-iplayer/get_iplayer/master/get_iplayer"
+    fi
+
+    local script_path="${OUTPUT_DIR}/tools/get_iplayer/get_iplayer"
+    download_file "${url}" "${script_path}" || {
+        log_error "Failed to download get_iplayer script"
+        return 1
+    }
+
+    chmod +x "${script_path}"
+    log_success "get_iplayer script downloaded"
+}
+
+# ============================================================
 # Write Manifest
 # ============================================================
 
@@ -626,10 +986,19 @@ write_manifest() {
   "python_version": "${PYTHON_VERSION}",
   "dependencies": {
     "python": ${MANIFEST_python},
+    "gamdl": ${MANIFEST_gamdl},
+    "votify": ${MANIFEST_votify},
+    "gytmdl": ${MANIFEST_gytmdl},
+    "ytdlp": ${MANIFEST_ytdlp},
     "ffmpeg": ${MANIFEST_ffmpeg},
     "mp4decrypt": ${MANIFEST_mp4decrypt},
     "nm3u8dlre": ${MANIFEST_nm3u8dlre},
-    "mp4box": ${MANIFEST_mp4box}
+    "mp4box": ${MANIFEST_mp4box},
+    "aria2c": ${MANIFEST_aria2c},
+    "fpcalc": ${MANIFEST_fpcalc},
+    "amdecrypt": ${MANIFEST_amdecrypt},
+    "perl": ${MANIFEST_perl},
+    "get_iplayer": ${MANIFEST_get_iplayer}
   }
 }
 EOF
@@ -648,6 +1017,10 @@ main() {
     download_mp4decrypt || true
     download_nm3u8dlre || true
     download_mp4box || true
+    download_aria2c || true
+    download_fpcalc || true
+    download_amdecrypt || true
+    download_perl || true
 
     # Write the manifest
     write_manifest
@@ -655,11 +1028,23 @@ main() {
     # Summary
     echo ""
     echo "=== Bundle Summary ==="
-    echo "  Python:      ${MANIFEST_python}"
+    echo "  Python:       ${MANIFEST_python}"
+    echo "  --- Python Packages ---"
+    echo "  GAMDL:        ${MANIFEST_gamdl}"
+    echo "  Votify:       ${MANIFEST_votify}"
+    echo "  gytmdl:       ${MANIFEST_gytmdl}"
+    echo "  yt-dlp:       ${MANIFEST_ytdlp}"
+    echo "  --- Binary Tools ---"
     echo "  FFmpeg:       ${MANIFEST_ffmpeg}"
     echo "  mp4decrypt:   ${MANIFEST_mp4decrypt}"
     echo "  N_m3u8DL-RE:  ${MANIFEST_nm3u8dlre}"
     echo "  MP4Box:       ${MANIFEST_mp4box}"
+    echo "  aria2c:       ${MANIFEST_aria2c}"
+    echo "  fpcalc:       ${MANIFEST_fpcalc}"
+    echo "  amdecrypt:    ${MANIFEST_amdecrypt}"
+    echo "  --- Perl + get_iplayer ---"
+    echo "  Perl:         ${MANIFEST_perl}"
+    echo "  get_iplayer:  ${MANIFEST_get_iplayer}"
     echo ""
 
     # Create tar.gz archive for Tauri resource bundling

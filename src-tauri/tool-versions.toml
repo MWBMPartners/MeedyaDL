@@ -66,3 +66,13 @@ version_flag = "-version"
 minimum_version = "1.0"
 binary_name = "amdecrypt"
 version_flag = "--version"
+
+[aria2c]
+minimum_version = "1.35"
+binary_name = "aria2c"
+version_flag = "--version"
+
+[fpcalc]
+minimum_version = "1.4"
+binary_name = "fpcalc"
+version_flag = "-version"

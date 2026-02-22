@@ -38,6 +38,7 @@
 //   +-- youtube_service.rs       -- YouTube downloads via yt-dlp (stub)
 //   +-- bbc_iplayer_service.rs   -- BBC iPlayer downloads via get_iplayer (stub)
 //   +-- spotify_service.rs       -- Spotify downloads via votify (stub)
+//   +-- perl_manager.rs          -- Manage bundled Perl runtime for get_iplayer
 //
 // Thread safety:
 //   Services that access shared state (like the download queue) use
@@ -193,3 +194,12 @@ pub mod bbc_iplayer_service;
 ///
 /// Status: Stub — returns "not yet implemented" errors.
 pub mod spotify_service;
+
+/// Perl runtime manager: manages the bundled portable Perl runtime used by
+/// get_iplayer for BBC iPlayer downloads. Provides path resolution for the
+/// Perl binary and get_iplayer script, plus status checking.
+///
+/// Unlike Python (downloaded at runtime), Perl is bundled into the installer
+/// by CI (`download-bundled-deps.sh`) using skaji/relocatable-perl and
+/// extracted at first launch by `bundled_deps_service`.
+pub mod perl_manager;

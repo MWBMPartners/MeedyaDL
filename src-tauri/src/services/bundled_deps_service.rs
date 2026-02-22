@@ -7,10 +7,11 @@
 // This service handles first-launch extraction of dependencies that were
 // bundled into the application installer at build time by CI. During CI
 // builds, `scripts/download-bundled-deps.sh` downloads platform-specific
-// binaries (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box),
-// places them under `src-tauri/bundled-deps/`, and creates a
-// `bundled-deps.tar.gz` archive. Tauri bundles this single archive file
-// as a resource (configured in `tauri.conf.json`).
+// binaries (Python + pip packages [gamdl, votify, gytmdl, yt-dlp],
+// FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, Perl + get_iplayer), places them under
+// `src-tauri/bundled-deps/`, and creates a `bundled-deps.tar.gz` archive.
+// Tauri bundles this single archive file as a resource (configured in
+// `tauri.conf.json`).
 //
 // On first launch, this service:
 //   1. Checks whether bundled deps have already been extracted
@@ -85,10 +86,16 @@ const MIN_ARCHIVE_SIZE: u64 = 1024;
 ///   "python_version": "3.12.8",
 ///   "dependencies": {
 ///     "python": true,
+///     "gamdl": true,
+///     "votify": true,
+///     "gytmdl": true,
+///     "ytdlp": true,
 ///     "ffmpeg": true,
 ///     "mp4decrypt": true,
 ///     "nm3u8dlre": true,
-///     "mp4box": true
+///     "mp4box": true,
+///     "perl": true,
+///     "get_iplayer": true
 ///   }
 /// }
 /// ```
@@ -103,17 +110,31 @@ struct ManifestFile {
 ///
 /// Each field records whether the corresponding dependency was successfully
 /// downloaded and staged during the CI build.
+///
+/// Python packages (gamdl, votify, gytmdl, ytdlp) are informational only —
+/// they live inside the `python/` directory's site-packages, so extracting
+/// Python automatically extracts all installed packages.
 #[derive(Debug, Default, serde::Deserialize)]
 struct BundledDeps {
     /// Whether the Python runtime was bundled
     #[serde(default)]
     python: bool,
-    /// Whether GAMDL was installed into the bundled Python.
-    /// Not read explicitly because GAMDL lives inside the Python directory
-    /// (pip installs it into site-packages), so extracting Python extracts GAMDL too.
+    /// Whether GAMDL was installed into the bundled Python (Apple Music engine)
     #[serde(default)]
     #[allow(dead_code)]
     gamdl: bool,
+    /// Whether Votify was installed into the bundled Python (Spotify engine)
+    #[serde(default)]
+    #[allow(dead_code)]
+    votify: bool,
+    /// Whether gytmdl was installed into the bundled Python (YouTube Music engine)
+    #[serde(default)]
+    #[allow(dead_code)]
+    gytmdl: bool,
+    /// Whether yt-dlp was installed into the bundled Python (YouTube/BBC iPlayer engine)
+    #[serde(default)]
+    #[allow(dead_code)]
+    ytdlp: bool,
     /// Whether FFmpeg was bundled
     #[serde(default)]
     ffmpeg: bool,
@@ -126,6 +147,21 @@ struct BundledDeps {
     /// Whether MP4Box (GPAC) was bundled
     #[serde(default)]
     mp4box: bool,
+    /// Whether aria2c was bundled (optional download accelerator)
+    #[serde(default)]
+    aria2c: bool,
+    /// Whether fpcalc was bundled (optional AcousticID fallback)
+    #[serde(default)]
+    fpcalc: bool,
+    /// Whether amdecrypt was bundled (optional wrapper system)
+    #[serde(default)]
+    amdecrypt: bool,
+    /// Whether the portable Perl runtime was bundled (for get_iplayer)
+    #[serde(default)]
+    perl: bool,
+    /// Whether get_iplayer was bundled (BBC iPlayer engine, requires Perl)
+    #[serde(default)]
+    get_iplayer: bool,
 }
 
 /// Locates the bundled-deps.tar.gz archive in the app's resource directory.
@@ -167,11 +203,16 @@ fn get_bundled_archive_path(app: &AppHandle) -> Option<PathBuf> {
 /// │   ├── bin/
 /// │   ├── lib/
 /// │   └── ...
+/// ├── perl/
+/// │   ├── bin/perl
+/// │   ├── lib/
+/// │   └── ...
 /// └── tools/
 ///     ├── ffmpeg/
 ///     ├── mp4decrypt/
 ///     ├── nm3u8dlre/
-///     └── mp4box/
+///     ├── mp4box/
+///     └── get_iplayer/
 /// ```
 ///
 /// Returns the path to the extracted `bundled-deps/` directory inside
@@ -334,6 +375,12 @@ fn set_executable_if_needed(file_path: &Path, parent_dir: &Path) {
                     | "mp4decrypt"
                     | "N_m3u8DL-RE"
                     | "MP4Box"
+                    | "aria2c"
+                    | "fpcalc"
+                    | "amdecrypt"
+                    | "perl"
+                    | "cpanm"
+                    | "get_iplayer"
                     | "python3"
                     | "python3.12"
                     | "pip3"
@@ -423,10 +470,18 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
         BundledDeps {
             python: true,
             gamdl: true,
+            votify: true,
+            gytmdl: true,
+            ytdlp: true,
             ffmpeg: true,
             mp4decrypt: true,
             nm3u8dlre: true,
             mp4box: true,
+            aria2c: false,  // Optional tools default to false when no manifest
+            fpcalc: false,
+            amdecrypt: false,
+            perl: true,
+            get_iplayer: true,
         }
     });
 
@@ -451,12 +506,30 @@ pub fn extract_bundled_deps(app: &AppHandle) -> Result<bool, String> {
         }
     }
 
-    // Step 5b: Extract tool dependencies
+    // Step 5b: Extract Perl runtime (similar to Python — a standalone directory)
+    if manifest.perl {
+        let src = extracted_dir.join("perl");
+        let dst = app_data_dir.join("perl");
+        if src.exists() && !dst.exists() {
+            log::info!("Extracting bundled Perl runtime...");
+            let count = copy_dir_recursive(&src, &dst)?;
+            total_files += count;
+            log::info!("Extracted Perl: {} files", count);
+        } else if dst.exists() {
+            log::info!("Perl already exists at {}, skipping", dst.display());
+        }
+    }
+
+    // Step 5c: Extract tool dependencies
     let tools = [
         ("ffmpeg", manifest.ffmpeg),
         ("mp4decrypt", manifest.mp4decrypt),
         ("nm3u8dlre", manifest.nm3u8dlre),
         ("mp4box", manifest.mp4box),
+        ("aria2c", manifest.aria2c),
+        ("fpcalc", manifest.fpcalc),
+        ("amdecrypt", manifest.amdecrypt),
+        ("get_iplayer", manifest.get_iplayer),
     ];
 
     for (tool_id, bundled) in &tools {
@@ -625,13 +698,21 @@ mod tests {
         assert!(manifest.dependencies.python);
         assert!(manifest.dependencies.ffmpeg);
         assert!(!manifest.dependencies.gamdl);
+        assert!(!manifest.dependencies.votify);
+        assert!(!manifest.dependencies.gytmdl);
+        assert!(!manifest.dependencies.ytdlp);
         assert!(!manifest.dependencies.mp4decrypt);
         assert!(!manifest.dependencies.nm3u8dlre);
         assert!(!manifest.dependencies.mp4box);
+        assert!(!manifest.dependencies.aria2c);
+        assert!(!manifest.dependencies.fpcalc);
+        assert!(!manifest.dependencies.amdecrypt);
+        assert!(!manifest.dependencies.perl);
+        assert!(!manifest.dependencies.get_iplayer);
     }
 
     /// Tests ManifestFile deserialization with the full format produced by the
-    /// download script, including metadata fields.
+    /// download script, including metadata fields and all Python packages.
     #[test]
     fn test_manifest_full_deserialization() {
         let json = r#"{
@@ -642,19 +723,35 @@ mod tests {
             "dependencies": {
                 "python": true,
                 "gamdl": true,
+                "votify": true,
+                "gytmdl": true,
+                "ytdlp": true,
                 "ffmpeg": true,
                 "mp4decrypt": true,
                 "nm3u8dlre": true,
-                "mp4box": true
+                "mp4box": true,
+                "aria2c": true,
+                "fpcalc": true,
+                "amdecrypt": true,
+                "perl": true,
+                "get_iplayer": true
             }
         }"#;
         let manifest: ManifestFile = serde_json::from_str(json).unwrap();
         assert!(manifest.dependencies.python);
         assert!(manifest.dependencies.gamdl);
+        assert!(manifest.dependencies.votify);
+        assert!(manifest.dependencies.gytmdl);
+        assert!(manifest.dependencies.ytdlp);
         assert!(manifest.dependencies.ffmpeg);
         assert!(manifest.dependencies.mp4decrypt);
         assert!(manifest.dependencies.nm3u8dlre);
         assert!(manifest.dependencies.mp4box);
+        assert!(manifest.dependencies.aria2c);
+        assert!(manifest.dependencies.fpcalc);
+        assert!(manifest.dependencies.amdecrypt);
+        assert!(manifest.dependencies.perl);
+        assert!(manifest.dependencies.get_iplayer);
     }
 
     /// Tests tar.gz extraction to temporary directory.
