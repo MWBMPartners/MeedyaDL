@@ -153,6 +153,7 @@ Architectural changes across milestones (status):
 
 ### Future Ideas
 
+- **Enhanced Apple Music (MusicKit) Integration** — server-side MusicKit token generation via MeedyaDL API (Cloudflare Workers initially, internal API long-term), removing the user requirement to provide their own Apple Developer credentials. Dual-mode: server token (default) + user-provided key (fallback). Apple's Developer Program License Agreement (Sections 2.1, 2.8) prohibits embedding the `.p8` private key in the app binary. See `Dev_Notes.md` for full architecture and policy analysis. Target: v2.x or v3.x (TBD, pending API infrastructure)
 - **Native SwiftUI UI for macOS** — replace the web-based Tauri frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance (no target version)
 
 ## Build Targets

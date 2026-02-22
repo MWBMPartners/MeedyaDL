@@ -814,6 +814,100 @@ To complete them, you need to add keys for every other section of the UI (all ot
 
 ---
 
+## Enhanced Apple Music (MusicKit) Integration — Future Feature
+
+### Target Version
+
+v2.x or v3.x (TBD). This feature is tabled for a future release pending internal API infrastructure readiness.
+
+### Current State
+
+MeedyaDL uses Apple's MusicKit API for:
+
+- **Animated cover art** — downloading motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit catalog API + FFmpeg HLS conversion
+- **Metadata enrichment** — ISRC, UPC, genre, advisory ratings, artist IDs, and artwork URLs via the Apple Music catalog API
+- **Cross-platform content matching** — ISRC/UPC lookup for Smart Download's cross-service quality comparison
+
+**Current authentication**: Users must provide their own MusicKit credentials (Team ID, Key ID, and `.p8` private key) from their own Apple Developer account. The app generates ES256-signed JWTs (developer tokens) locally.
+
+### Why We Cannot Embed Our Own MusicKit Key
+
+As a paid Apple Developer Programme member organisation, we investigated embedding our MusicKit `.p8` private key in the application for a seamless user experience. **This is not permitted.**
+
+The [Apple Developer Program License Agreement](https://developer.apple.com/support/terms/apple-developer-program-license-agreement/) explicitly prohibits distributing authentication credentials:
+
+- **Section 2.1** — Authentication credentials (keys, tokens) must be safeguarded and must not be shared with anyone who is not an Authorized Developer on your team.
+- **Section 2.8** — You must not share access to mechanisms provided by Apple for the use of Services with any third party (except formal Service Providers under Section 2.9).
+
+Shipping the `.p8` key inside the application binary constitutes distributing it to every user, violating both sections.
+
+### Permitted Architecture: Server-Side Token Generation
+
+Apple's intended architecture for non-Apple-platform apps is **server-side token generation**:
+
+```
+MeedyaDL desktop app  →  GET https://api.meedyadl.io/musickit/token  →  Server signs JWT  →  returns short-lived token
+         ↓
+    Uses token to call Apple Music API (amp-api.music.apple.com)
+```
+
+The `.p8` private key stays on the server. The app receives only a short-lived JWT (developer token) designed for client use.
+
+### Implementation Plan
+
+#### Phase 1: Serverless Token Service (Initial deployment)
+
+Deploy a lightweight serverless function to generate MusicKit developer tokens:
+
+- **Cloudflare Workers** (recommended initially — free tier: 100K requests/day)
+- Alternatively: AWS Lambda, Vercel Edge Functions, or similar
+
+The worker stores the `.p8` key as an encrypted environment secret, generates ES256-signed JWTs with short expiry (e.g., 1 hour), includes rate limiting and origin validation.
+
+#### Phase 2: Internal API Integration (Long-term)
+
+Migrate the token endpoint from Cloudflare to MWBM Partners' internal API infrastructure when ready. The app-side code remains the same — only the endpoint URL changes.
+
+#### Phase 3: Dual-Mode Fallback
+
+The app should support both modes:
+
+| Mode | When used |
+|------|-----------|
+| **Server token** (default) | App fetches tokens from the MeedyaDL token API |
+| **User-provided key** (fallback) | User provides own credentials in Settings, as today |
+
+If the token API is unreachable, the app falls back to user-provided credentials if configured. This mirrors the fail-open pattern used by the Remote Service Status system.
+
+### App-Side Changes Required
+
+1. **New setting**: `musickit_token_source` — enum: `"server"` (default) | `"user_provided"`
+2. **Token fetcher service**: `src-tauri/src/services/musickit_token_service.rs` — fetch tokens from API, cache until near-expiry, fall back to local generation
+3. **Update `apple_music_api.rs`**: Use the token fetcher instead of always generating locally
+4. **Settings UI**: Show "Using MeedyaDL's built-in access" by default, with expandable "Advanced: use your own credentials" section
+5. **Setup wizard**: MusicKit credential step becomes optional (no longer required for animated artwork)
+
+### iTunes Search API (Free Alternative for Basic Metadata)
+
+The [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/) is free, public, and requires no authentication. It can supplement MusicKit for simpler lookups:
+
+| Data | iTunes Search API | Apple Music API (MusicKit) |
+|------|-------------------|---------------------------|
+| Album artwork (static) | Yes | Yes |
+| Track metadata (title, artist, album) | Yes | Yes |
+| ISRC codes | **No** | Yes |
+| Animated/motion artwork | **No** | Yes |
+| Lossless/Atmos availability flags | **No** | Yes |
+
+### References
+
+- [Apple Developer Program License Agreement](https://developer.apple.com/support/terms/apple-developer-program-license-agreement/) — Sections 2.1, 2.8, 2.9
+- [Generating Developer Tokens](https://developer.apple.com/documentation/applemusicapi/generating-developer-tokens)
+- [Apple Music API Documentation](https://developer.apple.com/documentation/applemusicapi)
+- [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/)
+
+---
+
 ## 📁 Project Structure
 
 ```text
