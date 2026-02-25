@@ -9,6 +9,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### ✨ Features
 
 - Add multi-format lyrics support with companion downloads and update settings
+- Restore Raw cover art format as default now that GAMDL 2.9 fixes `get_cover_file_extension()` crash
+- Bump minimum GAMDL version to 2.9.0 (required for raw cover art support and reduced external tool dependencies)
 
 ### 🐛 Bug Fixes
 

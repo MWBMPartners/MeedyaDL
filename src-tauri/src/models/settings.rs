@@ -702,11 +702,11 @@ impl Default for AppSettings {
     ///   maximum audio quality, so we default to lossless ALAC.
     /// - **`default_video_resolution: P2160`** -- Same reasoning: highest
     ///   available quality (4K UHD).
-    /// - **`cover_format: Jpg`** -- JPEG is the safest default because
-    ///   GAMDL 2.8.4 has a bug in `get_cover_file_extension()` that crashes
-    ///   when `cover_format` is `Raw`. JPEG still provides high-quality
-    ///   artwork at the requested resolution. Users can switch to Raw once
-    ///   the upstream bug is fixed.
+    /// - **`cover_format: Raw`** -- Raw preserves the original format from
+    ///   Apple Music's CDN (typically high-quality JPEG) without
+    ///   re-encoding. This was previously defaulted to Jpg as a workaround
+    ///   for a GAMDL 2.8.4 bug in `get_cover_file_extension()`, which has
+    ///   been fixed in GAMDL 2.9 (now the minimum required version).
     /// - **`fallback_enabled: true`** -- Ensures downloads succeed even
     ///   when the preferred codec/resolution is not available. The project
     ///   brief explicitly defines the fallback chains below.
@@ -815,9 +815,9 @@ impl Default for AppSettings {
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.
             save_cover: true,
-            // JPEG = high-quality artwork. Raw is preferred but GAMDL 2.8.4
-            // has a bug in get_cover_file_extension() that crashes with Raw format.
-            cover_format: CoverFormat::Jpg,
+            // Raw preserves the original format from Apple Music's CDN without
+            // re-encoding. Fixed in GAMDL 2.9 (was Jpg due to 2.8.4 bug).
+            cover_format: CoverFormat::Raw,
             // 10000px requests the highest available resolution from Apple Music's
             // CDN. The CDN returns the largest version it has (typically 3000x3000),
             // so this effectively means "give me the best you have".

@@ -133,8 +133,10 @@ pub struct UpdateCheckResult {
 /// Minimum GAMDL version known to be compatible with this app version.
 /// Versions below this may have different CLI argument formats or missing features.
 /// When GAMDL makes a breaking CLI change, update this to exclude old versions.
-/// For example, GAMDL 2.0.0 introduced the current CLI argument format.
-const MIN_COMPATIBLE_GAMDL: &str = "2.0.0";
+/// GAMDL 2.9.0 is required because it fixes the raw cover art bug
+/// (`get_cover_file_extension()` crash) and removes the requirement for
+/// FFmpeg/MP4Box/mp4decrypt when downloading songs.
+const MIN_COMPATIBLE_GAMDL: &str = "2.9.0";
 
 /// Maximum GAMDL version known to be compatible (inclusive).
 /// Set to a deliberately high value (99.99.99) to allow all future patch and
@@ -699,10 +701,14 @@ mod tests {
     #[test]
     fn test_is_gamdl_compatible() {
         // Within range: compatible
-        assert!(is_gamdl_compatible("2.8.4"));
+        assert!(is_gamdl_compatible("2.9.0"));
+        assert!(is_gamdl_compatible("2.9.1"));
+        assert!(is_gamdl_compatible("3.0.0"));
         // At minimum boundary: compatible (inclusive)
-        assert!(is_gamdl_compatible("2.0.0"));
-        // Below minimum: incompatible (old CLI format)
+        assert!(is_gamdl_compatible("2.9.0"));
+        // Below minimum: incompatible (missing raw cover fix, old CLI quirks)
+        assert!(!is_gamdl_compatible("2.8.4"));
+        assert!(!is_gamdl_compatible("2.0.0"));
         assert!(!is_gamdl_compatible("1.9.9"));
         // Unparseable string: incompatible (safe default)
         assert!(!is_gamdl_compatible("invalid"));
