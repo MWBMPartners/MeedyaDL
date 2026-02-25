@@ -44,12 +44,12 @@ use std::path::{Path, PathBuf};
 // Reference: https://docs.rs/tauri/latest/tauri/trait.Manager.html
 use tauri::{AppHandle, Manager};
 
-/// Returns the root application data directory for MeedyaDL.
+/// Returns the root application data directory for `MeedyaDL`.
 ///
 /// This is the self-contained directory where all application data lives:
 /// - Python runtime
 /// - GAMDL installation
-/// - External tools (FFmpeg, mp4decrypt, etc.)
+/// - External tools (`FFmpeg`, mp4decrypt, etc.)
 /// - Application settings
 /// - GAMDL configuration
 ///
@@ -74,6 +74,7 @@ use tauri::{AppHandle, Manager};
 /// # Reference
 /// - `AppHandle::path()`: <https://docs.rs/tauri/latest/tauri/struct.AppHandle.html#method.path>
 /// - `PathResolver::app_data_dir()`: <https://docs.rs/tauri/latest/tauri/path/struct.PathResolver.html>
+#[must_use] 
 pub fn get_app_data_dir(app: &AppHandle) -> PathBuf {
     // Tauri's `app.path().app_data_dir()` reads the `identifier` field from
     // `tauri.conf.json` (e.g., "io.github.meedyadl") and appends it
@@ -109,6 +110,7 @@ pub fn get_app_data_dir(app: &AppHandle) -> PathBuf {
 ///
 /// # Connection
 /// Called by `services::python_manager` when installing or verifying Python.
+#[must_use] 
 pub fn get_python_dir(app: &AppHandle) -> PathBuf {
     get_app_data_dir(app).join("python")
 }
@@ -135,6 +137,7 @@ pub fn get_python_dir(app: &AppHandle) -> PathBuf {
 /// # Reference
 /// - `cfg!` macro: <https://doc.rust-lang.org/std/macro.cfg.html>
 /// - `Path::join`: <https://doc.rust-lang.org/std/path/struct.Path.html#method.join>
+#[must_use] 
 pub fn get_python_binary_path(python_dir: &Path) -> PathBuf {
     if cfg!(target_os = "windows") {
         // Windows python-build-standalone layout: python.exe at root
@@ -160,6 +163,7 @@ pub fn get_python_binary_path(python_dir: &Path) -> PathBuf {
 /// # Connection
 /// Called by `services::python_manager` to run `pip install gamdl` and
 /// by `services::gamdl_service` to verify GAMDL is installed.
+#[must_use] 
 pub fn get_pip_binary_path(python_dir: &Path) -> PathBuf {
     if cfg!(target_os = "windows") {
         // Windows: pip is installed in the Scripts subdirectory
@@ -189,6 +193,7 @@ pub fn get_pip_binary_path(python_dir: &Path) -> PathBuf {
 /// # Connection
 /// Called by `services::dependency_manager` when installing or locating
 /// external tool binaries.
+#[must_use] 
 pub fn get_tools_dir(app: &AppHandle) -> PathBuf {
     get_app_data_dir(app).join("tools")
 }
@@ -212,6 +217,7 @@ pub fn get_tools_dir(app: &AppHandle) -> PathBuf {
 /// Called by `services::config_service` when syncing settings to GAMDL's
 /// INI format, and by `services::gamdl_service` when launching GAMDL
 /// with `--config-path`.
+#[must_use] 
 pub fn get_gamdl_data_dir(app: &AppHandle) -> PathBuf {
     get_app_data_dir(app).join("gamdl")
 }
@@ -235,6 +241,7 @@ pub fn get_gamdl_data_dir(app: &AppHandle) -> PathBuf {
 /// # Connection
 /// Called by `services::config_service::sync_gamdl_config()` and
 /// `services::gamdl_service::build_gamdl_command()`.
+#[must_use] 
 pub fn get_gamdl_config_path(app: &AppHandle) -> PathBuf {
     get_gamdl_data_dir(app).join("config.ini")
 }

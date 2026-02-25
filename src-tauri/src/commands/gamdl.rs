@@ -60,7 +60,7 @@ use crate::services::download_queue::{self, QueueHandle};
 /// UI panel with progress bars, status badges, and action buttons.
 ///
 /// Implements `Serialize` (required by Tauri for IPC return values).
-/// See: https://v2.tauri.app/develop/calling-rust/#return-types
+/// See: <https://v2.tauri.app/develop/calling-rust/#return-types>
 #[derive(Debug, Clone, Serialize)]
 pub struct QueueStatus {
     /// Total number of items in the queue (all states combined)
@@ -90,11 +90,11 @@ pub struct QueueStatus {
 /// Returns a unique download ID (UUID) for tracking progress and cancellation.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle, injected automatically by the IPC runtime.
+/// * `app` - Tauri `AppHandle`, injected automatically by the IPC runtime.
 ///   Used to access managed state, emit events, and resolve paths.
 /// * `queue` - The download queue state, injected via `State<'_, QueueHandle>`.
 ///   This is a Tokio Mutex-wrapped `DownloadQueue` registered in `main.rs`.
-///   See: https://v2.tauri.app/develop/state-management/
+///   See: <https://v2.tauri.app/develop/state-management>/
 /// * `request` - The download request payload deserialized from the frontend JSON.
 ///   Contains `urls: Vec<String>` and optional override fields.
 ///
@@ -102,10 +102,13 @@ pub struct QueueStatus {
 /// * `Ok(String)` - The unique download ID (UUID v4) assigned to this download.
 /// * `Err(String)` - Human-readable error message if the event emission fails.
 ///
+/// # Errors
+/// Returns an error if emitting the `"download-queued"` event to the frontend fails.
+///
 /// # Events Emitted
 /// * `"download-queued"` - Emitted with the download ID after successful enqueue.
 ///   The frontend listens for this to update the queue UI immediately.
-///   See: https://v2.tauri.app/develop/calling-frontend/
+///   See: <https://v2.tauri.app/develop/calling-frontend>/
 #[tauri::command]
 pub async fn start_download(
     app: AppHandle,
@@ -126,7 +129,7 @@ pub async fn start_download(
         q.enqueue(request, &settings)
     };
 
-    log::info!("Download {} queued", download_id);
+    log::info!("Download {download_id} queued");
 
     // Persist the updated queue to disk for crash recovery.
     // This ensures the new item survives an unexpected app close/crash.
@@ -136,7 +139,7 @@ pub async fn start_download(
     // Emit a Tauri event to notify the frontend that the download has been queued.
     // The frontend listens for "download-queued" events to refresh the queue UI.
     app.emit("download-queued", &download_id)
-        .map_err(|e| format!("Failed to emit event: {}", e))?;
+        .map_err(|e| format!("Failed to emit event: {e}"))?;
 
     // Trigger queue processing if auto-start is enabled. When disabled,
     // the item stays in Queued state until the user manually starts
@@ -157,16 +160,20 @@ pub async fn start_download(
 /// it's moved directly to the Cancelled state without ever spawning a process.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for event emission.
+/// * `app` - Tauri `AppHandle` for event emission.
 /// * `queue` - Managed download queue state.
 /// * `download_id` - The unique ID (UUID) returned by `start_download`.
 ///   The frontend passes this as `downloadId` (camelCase) and Tauri
-///   automatically converts it to `download_id` (snake_case).
-///   See: https://v2.tauri.app/develop/calling-rust/#command-arguments
+///   automatically converts it to `download_id` (`snake_case`).
+///   See: <https://v2.tauri.app/develop/calling-rust/#command-arguments>
 ///
 /// # Returns
 /// * `Ok(())` - The download was successfully cancelled.
 /// * `Err(String)` - The download ID was not found or the item already finished.
+///
+/// # Errors
+/// Returns an error if the download ID was not found or the item has already
+/// completed or failed (i.e., it is no longer in a cancellable state).
 ///
 /// # Events Emitted
 /// * `"download-cancelled"` - Emitted with the download ID on successful cancellation.
@@ -176,7 +183,7 @@ pub async fn cancel_download(
     queue: State<'_, QueueHandle>,
     download_id: String,
 ) -> Result<(), String> {
-    log::info!("Cancel requested for download: {}", download_id);
+    log::info!("Cancel requested for download: {download_id}");
 
     // Acquire lock, attempt cancellation, then release lock.
     // q.cancel() returns true if the item was found and successfully cancelled.
@@ -197,7 +204,7 @@ pub async fn cancel_download(
         Ok(())
     } else {
         // The download ID was not found, or the item has already completed/failed.
-        Err(format!("Download {} not found or already finished", download_id))
+        Err(format!("Download {download_id} not found or already finished"))
     }
 }
 
@@ -210,7 +217,7 @@ pub async fn cancel_download(
 /// and triggers queue processing to start it.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for settings access and event emission.
+/// * `app` - Tauri `AppHandle` for settings access and event emission.
 /// * `queue` - Managed download queue state.
 /// * `download_id` - The unique ID of the failed/cancelled download to retry.
 ///
@@ -218,6 +225,10 @@ pub async fn cancel_download(
 /// * `Ok(())` - The download was reset to Queued and queue processing triggered.
 /// * `Err(String)` - The download ID was not found, or the item is in a state
 ///   that cannot be retried (e.g., currently active or already completed).
+///
+/// # Errors
+/// Returns an error if the download ID was not found or the item is not in a
+/// retryable state (only Failed and Cancelled items can be retried).
 ///
 /// # Events Emitted
 /// * `"download-queued"` - Emitted with the download ID after successful re-queue.
@@ -227,7 +238,7 @@ pub async fn retry_download(
     queue: State<'_, QueueHandle>,
     download_id: String,
 ) -> Result<(), String> {
-    log::info!("Retry requested for download: {}", download_id);
+    log::info!("Retry requested for download: {download_id}");
 
     // Re-load settings so retries pick up any changes the user made
     // (e.g., switching from AAC to ALAC after a failed attempt).
@@ -254,7 +265,7 @@ pub async fn retry_download(
         }
         Ok(())
     } else {
-        Err(format!("Download {} cannot be retried", download_id))
+        Err(format!("Download {download_id} cannot be retried"))
     }
 }
 
@@ -271,6 +282,10 @@ pub async fn retry_download(
 ///
 /// # Returns
 /// * `Ok(usize)` - The number of items that were removed from the queue.
+///
+/// # Errors
+/// This function is infallible in practice but returns `Result` to satisfy
+/// the Tauri IPC command signature convention.
 #[tauri::command]
 pub async fn clear_queue(
     app: AppHandle,
@@ -304,6 +319,10 @@ pub async fn clear_queue(
 /// # Returns
 /// * `Ok(QueueStatus)` - Aggregated counts plus per-item status details.
 ///   This struct is serialized to JSON by Tauri's IPC layer.
+///
+/// # Errors
+/// This function is infallible in practice but returns `Result` to satisfy
+/// the Tauri IPC command signature convention.
 #[tauri::command]
 pub async fn get_queue_status(
     queue: State<'_, QueueHandle>,
@@ -313,6 +332,9 @@ pub async fn get_queue_status(
     let (total, active, queued, completed, failed) = q.get_counts();
     // get_status() returns a Vec<QueueItemStatus> with per-item details
     let items = q.get_status();
+    // Release the queue lock as soon as possible to avoid holding it while
+    // assembling the response struct (reduces resource contention).
+    drop(q);
 
     // Assemble and return the complete queue snapshot
     Ok(QueueStatus {
@@ -325,13 +347,13 @@ pub async fn get_queue_status(
     })
 }
 
-/// Checks the latest GAMDL version available on PyPI.
+/// Checks the latest GAMDL version available on `PyPI`.
 ///
 /// **Frontend caller:** `checkGamdlUpdate()` in `src/lib/tauri-commands.ts`
 ///
 /// Used by the update checker to notify the user when a new GAMDL
-/// version is available. Queries the PyPI JSON API at:
-///   https://pypi.org/pypi/gamdl/json
+/// version is available. Queries the `PyPI` JSON API at:
+///   <https://pypi.org/pypi/gamdl/json>
 ///
 /// This command takes no parameters because it only needs network access.
 /// It does not require the `AppHandle` or `State` since it doesn't access
@@ -339,7 +361,11 @@ pub async fn get_queue_status(
 ///
 /// # Returns
 /// * `Ok(String)` - The latest version string (e.g., "2.8.4").
-/// * `Err(String)` - Network error or PyPI API parsing failure.
+/// * `Err(String)` - Network error or `PyPI` API parsing failure.
+///
+/// # Errors
+/// Returns an error if the HTTP request to `PyPI` fails (network timeout,
+/// DNS failure) or if the JSON response cannot be parsed.
 #[tauri::command]
 pub async fn check_gamdl_update() -> Result<String, String> {
     // Delegates to the gamdl_service which handles the HTTP request and
@@ -358,11 +384,23 @@ pub async fn check_gamdl_update() -> Result<String, String> {
 /// # Returns
 /// * `Ok(usize)` - The number of items exported.
 /// * `Err(String)` - No items to export, dialog cancelled, or write error.
+///
+/// # Errors
+/// Returns an error if:
+/// - The queue has no exportable (non-terminal) items.
+/// - The user cancels the native save dialog.
+/// - JSON serialization fails.
+/// - The file system write fails (permissions, disk full, etc.).
+/// - The selected file path cannot be resolved.
 #[tauri::command]
 pub async fn export_queue(
     app: AppHandle,
     queue: State<'_, QueueHandle>,
 ) -> Result<usize, String> {
+    // Import DialogExt at the top of the function body to satisfy
+    // clippy::items_after_statements (items must precede statements).
+    use tauri_plugin_dialog::DialogExt;
+
     // Get exportable items (non-terminal)
     let items = {
         let q = queue.lock().await;
@@ -385,10 +423,9 @@ pub async fn export_queue(
 
     // Serialize to pretty-printed JSON
     let json = serde_json::to_string_pretty(&export_file)
-        .map_err(|e| format!("Failed to serialize queue: {}", e))?;
+        .map_err(|e| format!("Failed to serialize queue: {e}"))?;
 
     // Open a native save dialog with the .meedyadl file filter
-    use tauri_plugin_dialog::DialogExt;
     let file_path = app
         .dialog()
         .file()
@@ -398,9 +435,11 @@ pub async fn export_queue(
 
     match file_path {
         Some(path) => {
-            std::fs::write(path.as_path().unwrap(), json)
-                .map_err(|e| format!("Failed to write export file: {}", e))?;
-            log::info!("Exported {} queue item(s) to file", count);
+            let resolved = path.as_path()
+                .ok_or_else(|| "Failed to resolve export file path".to_string())?;
+            std::fs::write(resolved, json)
+                .map_err(|e| format!("Failed to write export file: {e}"))?;
+            log::info!("Exported {count} queue item(s) to file");
             Ok(count)
         }
         None => Err("Export cancelled".to_string()),
@@ -418,6 +457,15 @@ pub async fn export_queue(
 /// # Returns
 /// * `Ok(usize)` - The number of items imported.
 /// * `Err(String)` - Dialog cancelled, invalid file, or parse error.
+///
+/// # Errors
+/// Returns an error if:
+/// - The user cancels the native file picker dialog.
+/// - The selected file path cannot be resolved.
+/// - The file cannot be read (permissions, not found, etc.).
+/// - The file contents are not valid `QueueExportFile` JSON.
+/// - The schema version is not 1 (unsupported format).
+/// - The file contains no items.
 #[tauri::command]
 pub async fn import_queue(
     app: AppHandle,
@@ -431,17 +479,18 @@ pub async fn import_queue(
         .add_filter("MeedyaDL Queue", &["meedyadl"])
         .blocking_pick_file();
 
-    let path = match file_path {
-        Some(p) => p,
-        None => return Err("Import cancelled".to_string()),
+    let Some(path) = file_path else {
+        return Err("Import cancelled".to_string());
     };
 
     // Read and parse the export file
-    let json = std::fs::read_to_string(path.as_path().unwrap())
-        .map_err(|e| format!("Failed to read import file: {}", e))?;
+    let resolved = path.as_path()
+        .ok_or_else(|| "Failed to resolve import file path".to_string())?;
+    let json = std::fs::read_to_string(resolved)
+        .map_err(|e| format!("Failed to read import file: {e}"))?;
 
     let export_file: download_queue::QueueExportFile = serde_json::from_str(&json)
-        .map_err(|e| format!("Invalid queue file format: {}", e))?;
+        .map_err(|e| format!("Invalid queue file format: {e}"))?;
 
     // Validate schema version
     if export_file.version != 1 {
@@ -459,12 +508,10 @@ pub async fn import_queue(
     let settings = crate::services::config_service::load_settings(&app)
         .unwrap_or_default();
 
-    // Import items into the queue
-    let count = {
-        let mut q = queue.lock().await;
-        let ids = q.import_items(export_file.items, &settings);
-        ids.len()
-    };
+    // Import items into the queue. The lock is acquired inline and
+    // released immediately after import_items() returns, avoiding
+    // unnecessary resource contention (clippy::significant_drop_tightening).
+    let count = queue.lock().await.import_items(export_file.items, &settings).len();
 
     // Persist the updated queue
     let queue_handle = queue.inner().clone();
@@ -473,7 +520,7 @@ pub async fn import_queue(
     // Notify the frontend that items were imported
     let _ = app.emit("queue-imported", count);
 
-    log::info!("Imported {} queue item(s) from file", count);
+    log::info!("Imported {count} queue item(s) from file");
 
     // Start processing the imported items if auto-start is enabled.
     if settings.auto_start_queue {
@@ -495,11 +542,15 @@ pub async fn import_queue(
 /// concurrency limit is already reached.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for subprocess management and event emission.
+/// * `app` - Tauri `AppHandle` for subprocess management and event emission.
 /// * `queue` - Managed download queue state (injected by Tauri).
 ///
 /// # Returns
 /// * `Ok(())` - Queue processing was triggered successfully.
+///
+/// # Errors
+/// This function is infallible in practice but returns `Result` to satisfy
+/// the Tauri IPC command signature convention.
 #[tauri::command]
 pub async fn process_queue_manual(
     app: AppHandle,

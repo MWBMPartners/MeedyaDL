@@ -55,7 +55,7 @@ use crate::services::config_service;
 /// The Netscape cookie format is a tab-separated text format originally
 /// defined by Netscape Navigator and still used by curl, wget, and browser
 /// cookie export extensions.
-/// See: https://curl.se/docs/http-cookies.html
+/// See: <https://curl.se/docs/http-cookies.html>
 ///
 /// Implements `Serialize` for Tauri IPC serialization to JSON.
 #[derive(Debug, Clone, Serialize)]
@@ -64,7 +64,7 @@ pub struct CookieValidation {
     pub valid: bool,
     /// Total number of cookie entries found in the file (across all domains)
     pub cookie_count: usize,
-    /// Unique domains present in the cookie file (e.g., ["apple.com", "mzstatic.com"])
+    /// Unique domains present in the cookie file (e.g., `["apple.com", "mzstatic.com"]`)
     pub domains: Vec<String>,
     /// Number of cookies specifically for Apple Music domains (apple.com, mzstatic.com).
     /// GAMDL requires Apple Music cookies for authentication.
@@ -87,7 +87,11 @@ pub struct CookieValidation {
 /// Settings are loaded from `{app_data}/settings.json`.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving the settings.json file path.
+/// * `app` - Tauri `AppHandle` for resolving the settings.json file path.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file cannot be read or parsed.
 ///
 /// # Returns
 /// * `Ok(AppSettings)` - The current settings, serialized to JSON for the frontend.
@@ -110,10 +114,14 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 /// file (not settings.json) when invoked as a subprocess during downloads.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving file paths.
+/// * `app` - Tauri `AppHandle` for resolving file paths.
 /// * `settings` - The complete settings object from the frontend.
 ///   Deserialized from the JSON payload sent by `invoke("save_settings", { settings })`.
-///   See: https://v2.tauri.app/develop/calling-rust/#command-arguments
+///   See: <https://v2.tauri.app/develop/calling-rust/#command-arguments>
+///
+/// # Errors
+///
+/// Returns `Err(String)` if settings serialization or file write fails.
 ///
 /// # Returns
 /// * `Ok(())` - Settings saved and synced successfully.
@@ -137,12 +145,17 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
 /// - Whether any Apple Music cookies have expired
 /// - Whether cookies are about to expire (within 7 days)
 ///
-/// This command does NOT require the AppHandle because it only reads the
+/// This command does NOT require the `AppHandle` because it only reads the
 /// file at the user-provided path — no app state or data directory needed.
 ///
 /// # Arguments
 /// * `path` - Absolute path to the cookies.txt file to validate.
 ///   Provided by the frontend's file picker dialog.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the cookies file cannot be read (not found,
+/// permission denied, etc.).
 ///
 /// # Returns
 /// * `Ok(CookieValidation)` - Detailed validation result with counts and warnings.
@@ -152,13 +165,13 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
 /// Each cookie line is tab-separated with 7 fields:
 /// `domain \t subdomains \t path \t secure \t expiry \t name \t value`
 /// Lines starting with `#` are comments. Empty lines are skipped.
-/// See: https://curl.se/docs/http-cookies.html
+/// See: <https://curl.se/docs/http-cookies.html>
 #[tauri::command]
 pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, String> {
     // Read the entire cookie file into memory.
     // Cookie files are typically small (< 100KB) so reading all at once is fine.
     let contents =
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read cookie file: {}", e))?;
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read cookie file: {e}"))?;
 
     // Tracking variables for the validation scan
     let mut cookie_count = 0;
@@ -208,8 +221,7 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
                         let days_until_expiry = (expiry - now) / 86400;
                         if days_until_expiry < 7 {
                             warnings.push(format!(
-                                "Apple Music cookies expire in {} day(s)",
-                                days_until_expiry
+                                "Apple Music cookies expire in {days_until_expiry} day(s)"
                             ));
                         }
                     }
@@ -256,7 +268,11 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
 /// This is a synchronous command (no `async`) because it only resolves
 /// paths using environment variables — no I/O or network access needed.
 /// Note: Tauri allows both sync and async command handlers.
-/// See: https://v2.tauri.app/develop/calling-rust/#async-commands
+/// See: <https://v2.tauri.app/develop/calling-rust/#async-commands>
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the user's home or music directory cannot be determined.
 ///
 /// # Returns
 /// * `Ok(String)` - The absolute path to the default music output directory.

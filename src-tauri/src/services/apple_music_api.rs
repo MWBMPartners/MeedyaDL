@@ -129,9 +129,14 @@ pub struct TrackMetadata {
 /// For album URLs with `?i=` query parameter, both the album ID and the
 /// individual song ID are extracted.
 ///
+/// # Panics
+///
+/// Panics if the hardcoded regex patterns are invalid (should never happen).
+///
 /// # Returns
 /// * `Some(ParsedAppleMusicUrl)` - URL matched an Apple Music pattern
 /// * `None` - URL doesn't match any supported Apple Music pattern
+#[must_use]
 pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // Match album URLs: /storefront/album/slug/album_id with optional ?i=song_id
     let album_re = Regex::new(
@@ -182,17 +187,21 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
 // JWT Generation
 // ============================================================
 
-/// Generate a short-lived MusicKit Developer Token (ES256-signed JWT).
+/// Generate a short-lived `MusicKit` Developer Token (ES256-signed JWT).
 ///
-/// Apple's MusicKit API requires a JWT signed with the developer's private
+/// Apple's `MusicKit` API requires a JWT signed with the developer's private
 /// key (P8 format, ECDSA P-256). The JWT contains:
 /// - Header: `alg: ES256`, `kid: {key_id}`, `typ: JWT`
 /// - Claims: `iss: {team_id}`, `iat: {now}`, `exp: {now + 1 hour}`
 ///
 /// # Arguments
 /// * `team_id` - Apple Developer Team ID (10-character alphanumeric)
-/// * `key_id` - MusicKit Key ID (10-character alphanumeric)
+/// * `key_id` - `MusicKit` Key ID (10-character alphanumeric)
 /// * `private_key_pem` - Content of the `.p8` private key file (PEM format)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the private key is invalid or JWT signing fails.
 ///
 /// # Returns
 /// * `Ok(String)` - The signed JWT string
@@ -212,7 +221,7 @@ pub fn generate_musickit_jwt(
     // Calculate timestamps for the JWT claims.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| format!("System time error: {}", e))?
+        .map_err(|e| format!("System time error: {e}"))?
         .as_secs();
 
     // Build the JWT claims: issuer (team ID), issued-at, and expiry.
@@ -224,22 +233,27 @@ pub fn generate_musickit_jwt(
 
     // Parse the PEM private key and sign the JWT.
     let encoding_key = EncodingKey::from_ec_pem(private_key_pem.as_bytes())
-        .map_err(|e| format!("Invalid MusicKit private key: {}", e))?;
+        .map_err(|e| format!("Invalid MusicKit private key: {e}"))?;
 
     encode(&header, &claims, &encoding_key)
-        .map_err(|e| format!("Failed to sign MusicKit JWT: {}", e))
+        .map_err(|e| format!("Failed to sign MusicKit JWT: {e}"))
 }
 
 // ============================================================
 // Keychain Integration
 // ============================================================
 
-/// Retrieve the MusicKit private key from the OS keychain.
+/// Retrieve the `MusicKit` private key from the OS keychain.
 ///
 /// Uses the `keyring` crate with the same service name as the rest of
-/// MeedyaDL's credential system. The key is stored under:
+/// `MeedyaDL`'s credential system. The key is stored under:
 ///   Service: "io.github.meedyadl"
-///   Account: "musickit_private_key"
+///   Account: "`musickit_private_key`"
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the OS keychain is inaccessible (locked, permission
+/// denied, or backend unavailable).
 ///
 /// # Returns
 /// * `Ok(Some(String))` - Private key PEM content found
@@ -250,12 +264,12 @@ pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
     const KEY_NAME: &str = "musickit_private_key";
 
     let entry = keyring::Entry::new(SERVICE_NAME, KEY_NAME)
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
 
     match entry.get_password() {
         Ok(password) => Ok(Some(password)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("Failed to retrieve MusicKit private key: {}", e)),
+        Err(e) => Err(format!("Failed to retrieve MusicKit private key: {e}")),
     }
 }
 
@@ -274,9 +288,14 @@ pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
 /// animated artwork, one for metadata) into a single request.
 ///
 /// # Arguments
-/// * `jwt` - MusicKit Developer Token (signed JWT)
+/// * `jwt` - `MusicKit` Developer Token (signed JWT)
 /// * `storefront` - Two-letter country code (e.g., "us")
 /// * `album_id` - Numeric album identifier
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the HTTP request fails or the API response
+/// cannot be parsed.
 ///
 /// # Returns
 /// * `Ok(Some(AlbumMetadata))` - Album found with metadata
@@ -289,63 +308,59 @@ pub async fn fetch_album_metadata(
 ) -> Result<Option<AlbumMetadata>, String> {
     // Enriched API call: include tracks and artists, extend with editorialVideo
     let url = format!(
-        "https://amp-api.music.apple.com/v1/catalog/{}/albums/{}?include=tracks,artists&extend=editorialVideo",
-        storefront, album_id
+        "https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo"
     );
 
-    log::debug!("Querying Apple Music API for album metadata: {}", url);
+    log::debug!("Querying Apple Music API for album metadata: {url}");
 
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", jwt))
+        .header("Authorization", format!("Bearer {jwt}"))
         .header("User-Agent", "meedyadl")
         .header("Origin", "https://music.apple.com")
         .send()
         .await
-        .map_err(|e| format!("Apple Music API request failed: {}", e))?;
+        .map_err(|e| format!("Apple Music API request failed: {e}"))?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
         return Err(format!(
-            "Apple Music API returned HTTP {} for album {}",
-            status, album_id
+            "Apple Music API returned HTTP {status} for album {album_id}"
         ));
     }
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse Apple Music API response: {}", e))?;
+        .map_err(|e| format!("Failed to parse Apple Music API response: {e}"))?;
 
     // Navigate to data[0] — the album object
-    let album_data = match json.get("data").and_then(|d| d.get(0)) {
-        Some(data) => data,
-        None => return Ok(None),
+    let Some(album_data) = json.get("data").and_then(|d| d.get(0)) else {
+        return Ok(None);
     };
 
-    let attributes = match album_data.get("attributes") {
-        Some(attrs) => attrs,
-        None => return Ok(None),
+    let Some(attributes) = album_data.get("attributes") else {
+        return Ok(None);
     };
 
     // Extract album-level fields
     let upc = attributes
         .get("upc")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     let content_rating = attributes
         .get("contentRating")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     let genre_names = attributes
         .get("genreNames")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
                 .collect()
         })
         .unwrap_or_default();
@@ -353,7 +368,7 @@ pub async fn fetch_album_metadata(
     let album_artist_name = attributes
         .get("artistName")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     // Extract album artist ID from relationships.artists
     let album_artist_id = album_data
@@ -363,7 +378,7 @@ pub async fn fetch_album_metadata(
         .and_then(|d| d.get(0))
         .and_then(|artist| artist.get("id"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     // Extract animated artwork HLS URLs from editorialVideo
     let editorial_video = attributes.get("editorialVideo");
@@ -372,13 +387,13 @@ pub async fn fetch_album_metadata(
         .and_then(|ev| ev.get("motionDetailSquare"))
         .and_then(|m| m.get("video"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     let artwork_tall_url = editorial_video
         .and_then(|ev| ev.get("motionDetailTall"))
         .and_then(|m| m.get("video"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
 
     // Extract track metadata from relationships.tracks
     let tracks = parse_tracks_from_response(album_data);
@@ -402,14 +417,13 @@ pub async fn fetch_album_metadata(
 /// Each track has: id, attributes (name, isrc, contentRating, trackNumber,
 /// discNumber, artistName), and relationships.artists.
 fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetadata> {
-    let track_data = match album_data
+    let Some(track_data) = album_data
         .get("relationships")
         .and_then(|r| r.get("tracks"))
         .and_then(|t| t.get("data"))
         .and_then(|d| d.as_array())
-    {
-        Some(tracks) => tracks,
-        None => return Vec::new(),
+    else {
+        return Vec::new();
     };
 
     track_data
@@ -427,17 +441,17 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
             let isrc = attrs
                 .get("isrc")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             let content_rating = attrs
                 .get("contentRating")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             let artist_name = attrs
                 .get("artistName")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             // Extract track artist ID from per-track relationships
             let artist_id = track
@@ -447,17 +461,19 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 .and_then(|d| d.get(0))
                 .and_then(|artist| artist.get("id"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             let track_number = attrs
                 .get("trackNumber")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(0);
 
             let disc_number = attrs
                 .get("discNumber")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1) as u32;
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(1);
 
             Some(TrackMetadata {
                 song_id,

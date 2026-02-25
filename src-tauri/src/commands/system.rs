@@ -53,7 +53,7 @@ pub struct PlatformInfo {
     /// Used as the key for theme selection in the frontend's platform provider.
     pub platform: String,
     /// CPU architecture string from `std::env::consts::ARCH`.
-    /// Common values: "aarch64" (Apple Silicon / ARM64), "x86_64" (Intel/AMD 64-bit).
+    /// Common values: "aarch64" (Apple Silicon / ARM64), "`x86_64`" (Intel/AMD 64-bit).
     /// Used for display purposes and dependency download URL resolution.
     pub arch: String,
     /// Raw Rust target OS constant from `std::env::consts::OS`.
@@ -80,8 +80,9 @@ pub struct PlatformInfo {
 /// `std::env::consts` values are always available).
 /// Note: Commands that don't return `Result<T, String>` can still be
 /// called from the frontend — Tauri wraps them in a Result automatically.
-/// See: https://v2.tauri.app/develop/calling-rust/#return-types
+/// See: <https://v2.tauri.app/develop/calling-rust/#return-types>
 #[tauri::command]
+#[must_use] 
 pub fn get_platform_info() -> PlatformInfo {
     PlatformInfo {
         // Map Rust OS constants to our frontend platform identifiers.
@@ -119,14 +120,20 @@ pub fn get_platform_info() -> PlatformInfo {
 /// - Showing the user where their downloads and tools are stored
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle, needed for Tauri's path resolver which
+/// * `app` - Tauri `AppHandle`, needed for Tauri's path resolver which
 ///   provides the platform-appropriate app data directory.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the resolved app data path contains non-UTF-8
+/// characters (extremely rare on modern systems).
 ///
 /// # Returns
 /// * `Ok(String)` - The absolute path as a UTF-8 string.
 /// * `Err(String)` - If the path contains non-UTF-8 characters
 ///   (extremely rare on modern systems).
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri IPC commands require owned parameters
 pub fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
     // Resolve the app data directory using our platform utility.
     // This wraps Tauri's `app.path().app_data_dir()` with fallback logic.
@@ -136,6 +143,6 @@ pub fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
     // PathBuf::to_str() returns None if the path is not valid UTF-8,
     // which is theoretically possible on some Unix systems but extremely rare.
     dir.to_str()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| "Failed to convert app data path to string".to_string())
 }

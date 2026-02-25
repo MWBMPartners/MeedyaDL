@@ -47,9 +47,9 @@
 ///
 /// This means credentials appear in Keychain Access (macOS) as:
 ///   Service: "io.github.meedyadl"
-///   Account: "wrapper_url" (or whatever key was used)
+///   Account: "`wrapper_url`" (or whatever key was used)
 ///
-/// See: https://docs.rs/keyring/latest/keyring/struct.Entry.html
+/// See: <https://docs.rs/keyring/latest/keyring/struct.Entry.html>
 const SERVICE_NAME: &str = "io.github.meedyadl";
 
 /// Stores a credential securely in the OS keychain.
@@ -58,17 +58,22 @@ const SERVICE_NAME: &str = "io.github.meedyadl";
 ///
 /// If a credential with the same key already exists, it is overwritten.
 /// This is used for storing wrapper URLs, future API keys for
-/// YouTube Music / Spotify integrations, and other sensitive data.
+/// `YouTube` Music / Spotify integrations, and other sensitive data.
 ///
 /// The credential is stored using the OS native secure storage:
 /// - macOS: Keychain Services (encrypted, requires user authentication)
 /// - Windows: Credential Manager (DPAPI encrypted)
-/// - Linux: Secret Service API (GNOME Keyring or KWallet)
+/// - Linux: Secret Service API (GNOME Keyring or `KWallet`)
 ///
 /// # Arguments
-/// * `key` - A unique identifier for the credential (e.g., "wrapper_url").
+/// * `key` - A unique identifier for the credential (e.g., "`wrapper_url`").
 ///   This becomes the "account" field in the keychain entry.
 /// * `value` - The secret value to store. Stored as the "password" field.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the OS keychain is inaccessible (locked, permission
+/// denied, or backend unavailable).
 ///
 /// # Returns
 /// * `Ok(())` - Credential stored (or overwritten) successfully.
@@ -82,16 +87,16 @@ pub async fn store_credential(key: String, value: String) -> Result<(), String> 
     // Entry::new() can fail if the OS keychain backend is unavailable.
     // See: https://docs.rs/keyring/latest/keyring/struct.Entry.html#method.new
     let entry = keyring::Entry::new(SERVICE_NAME, &key)
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
 
     // Store the credential in the OS keychain.
     // set_password() creates or overwrites the credential atomically.
     entry
         .set_password(&value)
-        .map_err(|e| format!("Failed to store credential '{}': {}", key, e))?;
+        .map_err(|e| format!("Failed to store credential '{key}': {e}"))?;
 
     // Log the key name only (never the value) for debugging and auditing
-    log::info!("Credential '{}' stored securely", key);
+    log::info!("Credential '{key}' stored securely");
     Ok(())
 }
 
@@ -109,7 +114,12 @@ pub async fn store_credential(key: String, value: String) -> Result<(), String> 
 ///
 /// # Arguments
 /// * `key` - The unique identifier used when storing the credential
-///   (e.g., "wrapper_url").
+///   (e.g., "`wrapper_url`").
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the OS keychain is inaccessible (locked, permission
+/// denied, or backend unavailable).
 ///
 /// # Returns
 /// * `Ok(Some(String))` - The credential value was retrieved successfully.
@@ -119,7 +129,7 @@ pub async fn store_credential(key: String, value: String) -> Result<(), String> 
 pub async fn get_credential(key: String) -> Result<Option<String>, String> {
     // Create a keyring entry handle for the lookup
     let entry = keyring::Entry::new(SERVICE_NAME, &key)
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
 
     // Attempt to retrieve the stored password.
     // The keyring crate distinguishes between "not found" and other errors,
@@ -133,7 +143,7 @@ pub async fn get_credential(key: String) -> Result<Option<String>, String> {
         Err(keyring::Error::NoEntry) => Ok(None),
         // Any other error indicates a system-level problem:
         // locked keychain, permission denied, backend unavailable, etc.
-        Err(e) => Err(format!("Failed to retrieve credential '{}': {}", key, e)),
+        Err(e) => Err(format!("Failed to retrieve credential '{key}': {e}")),
     }
 }
 
@@ -147,7 +157,12 @@ pub async fn get_credential(key: String) -> Result<Option<String>, String> {
 ///
 /// # Arguments
 /// * `key` - The unique identifier of the credential to delete
-///   (e.g., "wrapper_url").
+///   (e.g., "`wrapper_url`").
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the OS keychain is inaccessible (locked, permission
+/// denied, or backend unavailable).
 ///
 /// # Returns
 /// * `Ok(())` - Credential deleted, or it didn't exist (both are success).
@@ -156,13 +171,13 @@ pub async fn get_credential(key: String) -> Result<Option<String>, String> {
 pub async fn delete_credential(key: String) -> Result<(), String> {
     // Create a keyring entry handle for the deletion
     let entry = keyring::Entry::new(SERVICE_NAME, &key)
-        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
 
     // Attempt to delete the credential from the OS keychain.
     // We explicitly handle NoEntry as a success case for idempotency.
     match entry.delete_credential() {
         Ok(()) => {
-            log::info!("Credential '{}' deleted", key);
+            log::info!("Credential '{key}' deleted");
             Ok(())
         }
         Err(keyring::Error::NoEntry) => {
@@ -171,6 +186,6 @@ pub async fn delete_credential(key: String) -> Result<(), String> {
             Ok(())
         }
         // Any other error is a real failure (locked keychain, etc.)
-        Err(e) => Err(format!("Failed to delete credential '{}': {}", key, e)),
+        Err(e) => Err(format!("Failed to delete credential '{key}': {e}")),
     }
 }

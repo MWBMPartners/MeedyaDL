@@ -167,7 +167,7 @@ static PYTHON_EXCEPTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 ///   - `\x1b[2K`    -- erase entire line
 ///   - `\x1b[?25l`  -- hide cursor
 ///
-/// Reference: https://en.wikipedia.org/wiki/ANSI_escape_code
+/// Reference: <https://en.wikipedia.org/wiki/ANSI_escape_code>
 static ANSI_ESCAPE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07").expect("Invalid ANSI escape regex")
 });
@@ -253,7 +253,7 @@ pub enum GamdlOutputEvent {
 
 /// Parses a single line of GAMDL output into a structured event.
 ///
-/// GAMDL and its subprocesses (yt-dlp, FFmpeg) output progress and status
+/// GAMDL and its subprocesses (yt-dlp, `FFmpeg`) output progress and status
 /// information in various formats. This parser applies regex patterns in
 /// priority order to categorize each line:
 ///
@@ -352,9 +352,7 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     // Priority 4: Explicit error messages with ERROR/Error prefix
     if let Some(captures) = ERROR_PREFIX_REGEX.captures(trimmed) {
         let message = captures
-            .get(1)
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_else(|| trimmed.to_string());
+            .get(1).map_or_else(|| trimmed.to_string(), |m| m.as_str().to_string());
         return GamdlOutputEvent::Error { message };
     }
 
@@ -464,6 +462,7 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
 /// # Connection
 /// Called by `services::download_queue` after a download fails, before
 /// deciding whether to enqueue a retry with a lower-quality codec.
+#[must_use] 
 pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     lower.contains("codec not available")      // yt-dlp: requested codec not in manifest
@@ -480,8 +479,8 @@ pub fn is_codec_error(error_message: &str) -> bool {
 ///
 /// Used to distinguish filesystem timeouts (e.g., cloud-mounted drives
 /// timing out when writing cover art or output files) from network timeouts
-/// or codec errors. Cloud storage paths like CloudMounter, Google Drive
-/// File Stream, OneDrive, or iCloud Drive may experience I/O timeouts when
+/// or codec errors. Cloud storage paths like `CloudMounter`, Google Drive
+/// File Stream, `OneDrive`, or iCloud Drive may experience I/O timeouts when
 /// the remote service is slow or unreachable, while the actual audio
 /// download (to a local temp directory) may have succeeded.
 ///
@@ -495,6 +494,7 @@ pub fn is_codec_error(error_message: &str) -> bool {
 /// Called by `services::download_queue` in the success path to determine
 /// whether "no output" is due to a filesystem issue (recoverable — files
 /// may exist) vs. a codec issue (needs fallback) vs. a genuine failure.
+#[must_use] 
 pub fn is_io_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     lower.contains("operation timed out")       // macOS ETIMEDOUT (errno 60)
@@ -540,6 +540,7 @@ pub fn is_io_error(error_message: &str) -> bool {
 /// # Connection
 /// Called by `services::download_queue` and `commands::gamdl` when reporting
 /// errors to the frontend.
+#[must_use] 
 pub fn classify_error(error_message: &str) -> &'static str {
     let lower = error_message.to_lowercase();
 

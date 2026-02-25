@@ -47,17 +47,17 @@ use tokio::process::Command;
 
 use crate::services::dependency_manager;
 
-/// Apple iTunes freeform atom namespace (standard for ReplayGain in M4A files).
+/// Apple iTunes freeform atom namespace (standard for `ReplayGain` in M4A files).
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
-/// ReplayGain reference level in LUFS (EBU R128 standard).
+/// `ReplayGain` reference level in LUFS (EBU R128 standard).
 const REFERENCE_LEVEL: f64 = -18.0;
 
 // ============================================================
 // Public Types
 // ============================================================
 
-/// Result of a ReplayGain loudness analysis for a single track.
+/// Result of a `ReplayGain` loudness analysis for a single track.
 #[derive(Debug, Clone)]
 pub struct ReplayGainResult {
     /// Integrated loudness in LUFS (e.g., -14.2)
@@ -72,18 +72,22 @@ pub struct ReplayGainResult {
 // Public API
 // ============================================================
 
-/// Process all M4A files in the output directory for ReplayGain analysis.
+/// Process all M4A files in the output directory for `ReplayGain` analysis.
 ///
-/// For each file: analyses loudness using FFmpeg's ebur128 filter, calculates
-/// the ReplayGain adjustment, and writes the gain and peak tags.
+/// For each file: analyses loudness using `FFmpeg`'s ebur128 filter, calculates
+/// the `ReplayGain` adjustment, and writes the gain and peak tags.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for tool path resolution
+/// * `app` - Tauri `AppHandle` for tool path resolution
 /// * `output_path` - Download output path (file or album directory)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if `FFmpeg` is not installed or the output path is invalid.
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
-/// * `Err(message)` - FFmpeg not installed or output path invalid
+/// * `Err(message)` - `FFmpeg` not installed or output path invalid
 pub async fn process_replaygain_for_directory(
     app: &AppHandle,
     output_path: &str,
@@ -129,7 +133,7 @@ pub async fn process_replaygain_for_directory(
 // Internal: Per-File Analysis and Tagging
 // ============================================================
 
-/// Analyse a single file's loudness and write ReplayGain tags.
+/// Analyse a single file's loudness and write `ReplayGain` tags.
 async fn analyse_and_tag(
     ffmpeg_path: &Path,
     file_path: &Path,
@@ -139,7 +143,7 @@ async fn analyse_and_tag(
 
     // Write tags
     let mut tag = Tag::read_from_path(file_path)
-        .map_err(|e| format!("Failed to read M4A: {}", e))?;
+        .map_err(|e| format!("Failed to read M4A: {e}"))?;
 
     // replaygain_track_gain — e.g., "-4.20 dB"
     tag.set_data(
@@ -154,7 +158,7 @@ async fn analyse_and_tag(
     );
 
     tag.write_to_path(file_path)
-        .map_err(|e| format!("Failed to write M4A: {}", e))?;
+        .map_err(|e| format!("Failed to write M4A: {e}"))?;
 
     Ok(result)
 }
@@ -163,7 +167,7 @@ async fn analyse_and_tag(
 // Internal: Loudness Analysis (via FFmpeg ebur128)
 // ============================================================
 
-/// Resolve the managed FFmpeg binary path.
+/// Resolve the managed `FFmpeg` binary path.
 fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     let ffmpeg_bin = dependency_manager::get_tool_binary_path(app, "ffmpeg");
     if !ffmpeg_bin.exists() {
@@ -172,14 +176,14 @@ fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(ffmpeg_bin)
 }
 
-/// Analyse a single audio file's loudness using FFmpeg's ebur128 filter.
+/// Analyse a single audio file's loudness using `FFmpeg`'s ebur128 filter.
 ///
 /// Runs `ffmpeg -i file -af ebur128=peak=true -f null -` and parses the
 /// Summary section of stderr for integrated loudness and true peak values.
 ///
 /// # Returns
 /// * `Ok(ReplayGainResult)` - Loudness measurements and calculated gain
-/// * `Err(message)` - FFmpeg execution or parsing failed
+/// * `Err(message)` - `FFmpeg` execution or parsing failed
 async fn analyse_track_loudness(
     ffmpeg_path: &Path,
     file_path: &Path,
@@ -196,7 +200,7 @@ async fn analyse_track_loudness(
         ])
         .output()
         .await
-        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
+        .map_err(|e| format!("Failed to spawn FFmpeg: {e}"))?;
 
     // ebur128 writes its output to stderr (FFmpeg convention)
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -214,7 +218,7 @@ async fn analyse_track_loudness(
     parse_ebur128_output(&stderr)
 }
 
-/// Parse FFmpeg ebur128 filter output to extract loudness measurements.
+/// Parse `FFmpeg` ebur128 filter output to extract loudness measurements.
 ///
 /// Looks for the "Summary:" section in stderr and extracts:
 /// - Integrated loudness (I: value in LUFS)
@@ -297,9 +301,8 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
 
 /// Recursively collect M4A file paths from a directory tree.
 fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
 
     for entry in entries.flatten() {
@@ -316,8 +319,7 @@ fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 fn is_m4a(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("m4a"))
-        .unwrap_or(false)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("m4a"))
 }
 
 // ============================================================

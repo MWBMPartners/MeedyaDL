@@ -114,7 +114,7 @@ fn load_mirror_config() -> Option<MirrorConfig> {
 ///   - "6.1.2" → (6, 1, 2)
 ///   - "5.0" → (5, 0, 0)
 ///   - "2.4-DEV" → (2, 4, 0)
-///   - "N-112479-..." → None (FFmpeg nightly builds without numeric version)
+///   - "N-112479-..." → None (`FFmpeg` nightly builds without numeric version)
 fn parse_version_tuple(version_str: &str) -> Option<(u32, u32, u32)> {
     // Use regex to extract the first version-like pattern (digits.digits[.digits])
     let re = regex::Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").ok()?;
@@ -133,9 +133,9 @@ fn parse_version_tuple(version_str: &str) -> Option<(u32, u32, u32)> {
 /// tool-specific parsing to extract the semver-like version.
 ///
 /// Examples:
-///   - FFmpeg: "ffmpeg version 6.1.2-..." → "6.1.2"
-///   - FFmpeg nightly: "ffmpeg version N-112479-..." → skipped (returns None)
-///   - MP4Box: "MP4Box - GPAC version 2.4-DEV-rev18-..." → "2.4"
+///   - `FFmpeg`: "ffmpeg version 6.1.2-..." → "6.1.2"
+///   - `FFmpeg` nightly: "ffmpeg version N-112479-..." → skipped (returns None)
+///   - `MP4Box`: "`MP4Box` - GPAC version 2.4-DEV-rev18-..." → "2.4"
 ///   - mp4decrypt: "mp4decrypt version 1.6.0.641" → "1.6.0"
 ///   - N_m3u8DL-RE: "N_m3u8DL-RE version 0.5.1-beta" → "0.5.1"
 fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
@@ -188,21 +188,19 @@ fn meets_minimum_version(detected_version: &str, minimum_version: &str) -> bool 
         return true;
     }
 
-    let detected = match parse_version_tuple(detected_version) {
-        Some(v) => v,
-        None => return false, // Can't parse → assume incompatible
+    let Some(detected) = parse_version_tuple(detected_version) else {
+        return false; // Can't parse → assume incompatible
     };
 
-    let minimum = match parse_version_tuple(minimum_version) {
-        Some(v) => v,
-        None => return true, // Can't parse minimum → accept anything
+    let Some(minimum) = parse_version_tuple(minimum_version) else {
+        return true; // Can't parse minimum → accept anything
     };
 
     // Compare: major, then minor, then patch
     detected >= minimum
 }
 
-/// Checks if Rosetta 2 is available on macOS for running x86_64 binaries
+/// Checks if Rosetta 2 is available on macOS for running `x86_64` binaries
 /// on Apple Silicon.
 ///
 /// Returns `true` on non-macOS platforms or on Intel Macs (where Rosetta
@@ -322,11 +320,10 @@ async fn resolve_github_release_asset(
     // Use the /releases/latest endpoint for "latest" tag,
     // or /releases/tags/{tag} for specific tags.
     let api_url = if tag == "latest" {
-        format!("https://api.github.com/repos/{}/releases/latest", repo)
+        format!("https://api.github.com/repos/{repo}/releases/latest")
     } else {
         format!(
-            "https://api.github.com/repos/{}/releases/tags/{}",
-            repo, tag
+            "https://api.github.com/repos/{repo}/releases/tags/{tag}"
         )
     };
 
@@ -337,7 +334,7 @@ async fn resolve_github_release_asset(
         .header("User-Agent", "MeedyaDL")
         .send()
         .await
-        .map_err(|e| format!("GitHub API request failed for {}: {}", repo, e))?;
+        .map_err(|e| format!("GitHub API request failed for {repo}: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!(
@@ -351,11 +348,11 @@ async fn resolve_github_release_asset(
     let release: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse GitHub release JSON from {}: {}", repo, e))?;
+        .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?;
 
     let assets = release["assets"]
         .as_array()
-        .ok_or_else(|| format!("No assets in {}/releases/{}", repo, tag))?;
+        .ok_or_else(|| format!("No assets in {repo}/releases/{tag}"))?;
 
     // Search for an asset whose filename contains the specified pattern
     for asset in assets {
@@ -391,11 +388,11 @@ fn get_mirror_asset_prefix(tool_id: &str) -> Result<String, String> {
         "windows" => "windows",
         "macos" => "macos",
         "linux" => "linux",
-        other => return Err(format!("Unsupported OS for mirror: {}", other)),
+        other => return Err(format!("Unsupported OS for mirror: {other}")),
     };
     let arch = std::env::consts::ARCH; // "x86_64" or "aarch64"
 
-    Ok(format!("{}-{}-{}", tool_id, os_name, arch))
+    Ok(format!("{tool_id}-{os_name}-{arch}"))
 }
 
 /// Queries the mirror repository for a tool's download URL.
@@ -432,14 +429,18 @@ async fn get_mirror_download_url(
     )
     .await?;
 
-    // Determine archive format from the matched filename extension
-    let format = if filename.ends_with(".zip") {
+    // Determine archive format from the matched filename extension.
+    // Uses Path-based extension check for case-insensitive comparison.
+    let format = if std::path::Path::new(&filename)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
         archive::ArchiveFormat::Zip
     } else {
         archive::ArchiveFormat::TarGz // Covers .tar.gz, .tar.xz, etc.
     };
 
-    log::info!("Mirror resolved: {} → {}", asset_prefix, url);
+    log::info!("Mirror resolved: {asset_prefix} → {url}");
     Ok((url, format))
 }
 
@@ -460,27 +461,27 @@ async fn download_tool_with_fallback(
 ) -> Result<(), String> {
     // Prepare the directory (clean up any existing contents)
     if tool_dir.exists() {
-        log::info!("Removing existing {} installation", tool_id);
+        log::info!("Removing existing {tool_id} installation");
         std::fs::remove_dir_all(tool_dir)
-            .map_err(|e| format!("Failed to remove existing {} directory: {}", tool_id, e))?;
+            .map_err(|e| format!("Failed to remove existing {tool_id} directory: {e}"))?;
     }
     std::fs::create_dir_all(tool_dir)
-        .map_err(|e| format!("Failed to create tool directory: {}", e))?;
+        .map_err(|e| format!("Failed to create tool directory: {e}"))?;
 
     // Try primary upstream source
     let primary_error = match get_tool_download_url(tool_id).await {
         Ok((url, format)) => {
-            log::info!("Downloading {} from primary source: {}", tool_id, url);
+            log::info!("Downloading {tool_id} from primary source: {url}");
             match archive::download_and_extract(&url, tool_dir, format).await {
                 Ok(()) => return Ok(()),
                 Err(e) => {
-                    log::warn!("Primary download failed for {}: {}", tool_id, e);
+                    log::warn!("Primary download failed for {tool_id}: {e}");
                     e
                 }
             }
         }
         Err(e) => {
-            log::warn!("Primary URL resolution failed for {}: {}", tool_id, e);
+            log::warn!("Primary URL resolution failed for {tool_id}: {e}");
             e
         }
     };
@@ -490,27 +491,24 @@ async fn download_tool_with_fallback(
         std::fs::remove_dir_all(tool_dir).ok();
     }
     std::fs::create_dir_all(tool_dir)
-        .map_err(|e| format!("Failed to recreate tool directory: {}", e))?;
+        .map_err(|e| format!("Failed to recreate tool directory: {e}"))?;
 
     log::info!(
-        "Trying mirror fallback for {}...",
-        tool_id
+        "Trying mirror fallback for {tool_id}..."
     );
     match get_mirror_download_url(tool_id).await {
         Ok((mirror_url, mirror_format)) => {
-            log::info!("Downloading {} from mirror: {}", tool_id, mirror_url);
+            log::info!("Downloading {tool_id} from mirror: {mirror_url}");
             archive::download_and_extract(&mirror_url, tool_dir, mirror_format)
                 .await
                 .map_err(|e| {
                     format!(
-                        "All download sources failed for {}.\n  Primary: {}\n  Mirror: {}",
-                        tool_id, primary_error, e
+                        "All download sources failed for {tool_id}.\n  Primary: {primary_error}\n  Mirror: {e}"
                     )
                 })
         }
         Err(mirror_err) => Err(format!(
-            "All download sources failed for {}.\n  Primary: {}\n  Mirror: {}",
-            tool_id, primary_error, mirror_err
+            "All download sources failed for {tool_id}.\n  Primary: {primary_error}\n  Mirror: {mirror_err}"
         )),
     }
 }
@@ -527,10 +525,10 @@ async fn download_tool_with_fallback(
 /// as the tool's directory name and identifier in all API calls.
 #[derive(Debug, Clone)]
 pub struct ToolInfo {
-    /// Human-readable display name shown in the UI (e.g., "FFmpeg")
+    /// Human-readable display name shown in the UI (e.g., "`FFmpeg`")
     pub name: &'static str,
     /// Short machine-readable identifier used for directory names and API calls.
-    /// Must match the tool_id parameter used in install_tool(), get_tool_binary_path(), etc.
+    /// Must match the `tool_id` parameter used in `install_tool()`, `get_tool_binary_path()`, etc.
     pub id: &'static str,
     /// Whether this tool is required for basic GAMDL functionality.
     /// The setup wizard highlights required tools and blocks completion until they're installed.
@@ -540,10 +538,10 @@ pub struct ToolInfo {
 }
 
 /// All external tool dependencies and their metadata.
-/// The first four tools are required for full functionality: FFmpeg for remuxing,
+/// The first four tools are required for full functionality: `FFmpeg` for remuxing,
 /// mp4decrypt for DRM decryption, N_m3u8DL-RE for HLS/DASH streams, and
-/// MP4Box for MP4 muxing. AMDecrypt is optional (used with the wrapper system).
-/// This list is returned by get_all_tools() for the setup wizard UI.
+/// `MP4Box` for MP4 muxing. `AMDecrypt` is optional (used with the wrapper system).
+/// This list is returned by `get_all_tools()` for the setup wizard UI.
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "FFmpeg",
@@ -607,15 +605,15 @@ async fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::Archiv
         "nm3u8dlre" => get_nm3u8dlre_url(os, arch).await,
         "mp4box" => get_mp4box_url(os, arch),
         "amdecrypt" => get_amdecrypt_url(os, arch),
-        _ => Err(format!("Unknown tool: {}", tool_id)),
+        _ => Err(format!("Unknown tool: {tool_id}")),
     }
 }
 
-/// Returns the FFmpeg download URL for the given platform.
+/// Returns the `FFmpeg` download URL for the given platform.
 ///
 /// Sources:
 /// - Linux/Windows: BtbN/FFmpeg-Builds GitHub releases (latest master build)
-/// - macOS: evermeet.cx static builds (x86_64) or osxcross builds (aarch64)
+/// - macOS: evermeet.cx static builds (`x86_64`) or osxcross builds (aarch64)
 fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     match (os, arch) {
         // Linux x86_64: BtbN/FFmpeg-Builds provides GPL-licensed static builds.
@@ -629,7 +627,7 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
         )),
         // Windows x86_64 and aarch64: BtbN builds (x64 binary, runs on ARM64 via emulation).
         // The ZIP archive contains ffmpeg.exe, ffprobe.exe, and ffplay.exe.
-        ("windows", "x86_64") | ("windows", "aarch64") => Ok((
+        ("windows", "x86_64" | "aarch64") => Ok((
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
                 .to_string(),
             archive::ArchiveFormat::Zip,
@@ -653,8 +651,7 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
             ))
         }
         _ => Err(format!(
-            "No pre-built FFmpeg available for {}/{}. Install FFmpeg manually and set the path in Settings.",
-            os, arch
+            "No pre-built FFmpeg available for {os}/{arch}. Install FFmpeg manually and set the path in Settings."
         )),
     }
 }
@@ -666,22 +663,21 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
 ///
 /// Bento4 provides pre-built binaries hosted at bok.net (the Bento4 author's site).
 /// The SDK ZIP contains multiple tools; we only need the mp4decrypt binary.
-/// Ref: https://www.bento4.com/
+/// Ref: <https://www.bento4.com>/
 fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     // Map OS/arch to Bento4's platform suffix naming convention
     let platform_suffix = match (os, arch) {
         // macOS: universal build (works on both x86_64 and aarch64 natively)
-        ("macos", "x86_64") | ("macos", "aarch64") => "universal-apple-macosx",
+        ("macos", "x86_64" | "aarch64") => "universal-apple-macosx",
         // Linux: x86_64 only (ARM64 users would need to compile from source)
         // Naming convention changed at build 633: "linux-x86_64" → "x86_64-unknown-linux"
-        ("linux", "x86_64") | ("linux", "aarch64") => "x86_64-unknown-linux",
+        ("linux", "x86_64" | "aarch64") => "x86_64-unknown-linux",
         // Windows: 64-bit only (32-bit builds dropped at build 633)
         // Naming convention changed: "win32" → "x86_64-microsoft-win32"
-        ("windows", "x86_64") | ("windows", "aarch64") => "x86_64-microsoft-win32",
+        ("windows", "x86_64" | "aarch64") => "x86_64-microsoft-win32",
         _ => {
             return Err(format!(
-                "No pre-built mp4decrypt available for {}/{}",
-                os, arch
+                "No pre-built mp4decrypt available for {os}/{arch}"
             ))
         }
     };
@@ -690,8 +686,7 @@ fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveF
     // The ZIP contains bin/{mp4decrypt, mp4info, mp4fragment, ...}.
     Ok((
         format!(
-            "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.{}.zip",
-            platform_suffix
+            "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.{platform_suffix}.zip"
         ),
         archive::ArchiveFormat::Zip,
     ))
@@ -709,7 +704,7 @@ fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveF
 /// `N_m3u8DL-RE_v0.5.1-beta_osx-arm64_20251029.tar.gz`), which can't be
 /// predicted with a static URL pattern.
 ///
-/// Ref: https://github.com/nilaoda/N_m3u8DL-RE
+/// Ref: <https://github.com/nilaoda/N_m3u8DL-RE>
 async fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     // N_m3u8DL-RE uses .NET Runtime Identifiers (RIDs) in their release asset names.
     // RID format: {os}-{arch} (e.g., "osx-arm64", "linux-x64", "win-x64").
@@ -723,8 +718,7 @@ async fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::Arc
         ("windows", "aarch64") => "win-arm64",
         _ => {
             return Err(format!(
-                "No pre-built N_m3u8DL-RE available for {}/{}",
-                os, arch
+                "No pre-built N_m3u8DL-RE available for {os}/{arch}"
             ))
         }
     };
@@ -738,26 +732,30 @@ async fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::Arc
     )
     .await?;
 
-    // Determine archive format from the matched filename extension
-    let format = if filename.ends_with(".zip") {
+    // Determine archive format from the matched filename extension.
+    // Uses Path-based extension check for case-insensitive comparison.
+    let format = if std::path::Path::new(&filename)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
         archive::ArchiveFormat::Zip
     } else {
         archive::ArchiveFormat::TarGz
     };
 
-    log::info!("Resolved N_m3u8DL-RE asset: {}", filename);
+    log::info!("Resolved N_m3u8DL-RE asset: {filename}");
     Ok((url, format))
 }
 
-/// Returns the MP4Box (GPAC) download URL for the given platform.
+/// Returns the `MP4Box` (GPAC) download URL for the given platform.
 ///
-/// MP4Box is the command-line tool from the GPAC multimedia framework.
-/// GAMDL can use it as an alternative to FFmpeg for MP4 container operations
+/// `MP4Box` is the command-line tool from the GPAC multimedia framework.
+/// GAMDL can use it as an alternative to `FFmpeg` for MP4 container operations
 /// (muxing, demuxing, encryption handling).
 ///
 /// GPAC provides nightly builds from their CI server at Telecom Paris.
-/// Ref: https://gpac.io/
-/// Ref: https://github.com/gpac/gpac
+/// Ref: <https://gpac.io>/
+/// Ref: <https://github.com/gpac/gpac>
 fn get_mp4box_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     // MP4Box installation is handled entirely by platform-specific functions
     // (install_mp4box_macos, install_mp4box_windows, install_mp4box_linux)
@@ -766,15 +764,15 @@ fn get_mp4box_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFor
     Err("MP4Box installation is handled by platform-specific install functions".to_string())
 }
 
-/// Returns the AMDecrypt download URL for the given platform.
+/// Returns the `AMDecrypt` download URL for the given platform.
 ///
-/// AMDecrypt is an optional tool used with the wrapper system for Apple Music
+/// `AMDecrypt` is an optional tool used with the wrapper system for Apple Music
 /// DRM decryption. There is no stable public upstream download source, so this
 /// function always returns an error. The mirror fallback in
 /// `download_tool_with_fallback()` will then attempt to download from the
 /// MWBMPartners/meedyadl-tools GitHub releases mirror.
 ///
-/// Users can also install AMDecrypt manually and point to it via the
+/// Users can also install `AMDecrypt` manually and point to it via the
 /// `amdecrypt_path` setting.
 fn get_amdecrypt_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     Err(
@@ -786,12 +784,13 @@ fn get_amdecrypt_url(_os: &str, _arch: &str) -> Result<(String, archive::Archive
 
 /// Returns the path to a tool's installation directory.
 ///
-/// Each tool gets its own subdirectory under {app_data}/tools/.
-/// Example: {app_data}/tools/ffmpeg/
+/// Each tool gets its own subdirectory under {`app_data}/tools`/.
+/// Example: {`app_data}/tools/ffmpeg`/
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
+#[must_use] 
 pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
     platform::get_tools_dir(app).join(tool_id)
 }
@@ -803,6 +802,7 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `tool_id` - The tool identifier
+#[must_use] 
 pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     let tool_dir = get_tool_dir(app, tool_id);
     // On Windows, executables require the .exe extension
@@ -817,12 +817,12 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     // - nm3u8dlre -> N_m3u8DL-RE (the binary has uppercase/mixed case)
     // - mp4box -> MP4Box (the binary has uppercase)
     let binary_name = match tool_id {
-        "ffmpeg" => format!("ffmpeg{}", exe_ext),
-        "mp4decrypt" => format!("mp4decrypt{}", exe_ext),
-        "nm3u8dlre" => format!("N_m3u8DL-RE{}", exe_ext),
-        "mp4box" => format!("MP4Box{}", exe_ext),
-        "amdecrypt" => format!("amdecrypt{}", exe_ext),
-        _ => format!("{}{}", tool_id, exe_ext),
+        "ffmpeg" => format!("ffmpeg{exe_ext}"),
+        "mp4decrypt" => format!("mp4decrypt{exe_ext}"),
+        "nm3u8dlre" => format!("N_m3u8DL-RE{exe_ext}"),
+        "mp4box" => format!("MP4Box{exe_ext}"),
+        "amdecrypt" => format!("amdecrypt{exe_ext}"),
+        _ => format!("{tool_id}{exe_ext}"),
     };
 
     // The binary is expected at {app_data}/tools/{tool_id}/{binary_name}
@@ -832,7 +832,7 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
 
 /// Resolves a tool display name or ID to the canonical tool ID.
 ///
-/// The frontend sends tool display names (e.g., "FFmpeg", "N_m3u8DL-RE")
+/// The frontend sends tool display names (e.g., "`FFmpeg`", "N_m3u8DL-RE")
 /// while the backend URL resolver expects tool IDs (e.g., "ffmpeg", "nm3u8dlre").
 /// This function accepts either form and returns the canonical ID.
 ///
@@ -848,7 +848,7 @@ fn resolve_tool_id(name_or_id: &str) -> Result<&'static str, String> {
             return Ok(tool.id);
         }
     }
-    Err(format!("Unknown tool: {}", name_or_id))
+    Err(format!("Unknown tool: {name_or_id}"))
 }
 
 /// Downloads and installs a specific tool dependency.
@@ -863,7 +863,12 @@ fn resolve_tool_id(name_or_id: &str) -> Result<&'static str, String> {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
-/// * `name_or_id` - The tool display name or identifier (e.g., "FFmpeg" or "ffmpeg")
+/// * `name_or_id` - The tool display name or identifier (e.g., "`FFmpeg`" or "ffmpeg")
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the tool ID is unrecognized, the download fails,
+/// archive extraction fails, or the installed binary fails verification.
 ///
 /// # Returns
 /// * `Ok(version)` - The installed version string (or "installed" if version detection fails)
@@ -871,7 +876,7 @@ fn resolve_tool_id(name_or_id: &str) -> Result<&'static str, String> {
 pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, String> {
     // Resolve display name to canonical tool ID (e.g., "FFmpeg" -> "ffmpeg")
     let tool_id = resolve_tool_id(name_or_id)?;
-    log::info!("Starting installation of tool: {}", tool_id);
+    log::info!("Starting installation of tool: {tool_id}");
 
     // Step 0: Check if a compatible version exists in the system PATH.
     // If found, copy it to our managed tools directory instead of downloading.
@@ -880,8 +885,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
         let config = load_tool_version_config(tool_id);
         let is_compatible = config
             .as_ref()
-            .map(|c| meets_minimum_version(&system_version, &c.minimum_version))
-            .unwrap_or(true); // If no config, accept any version
+            .is_none_or(|c| meets_minimum_version(&system_version, &c.minimum_version)); // If no config, accept any version
 
         if is_compatible {
             log::info!(
@@ -897,7 +901,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
                 std::fs::remove_dir_all(&tool_dir).ok();
             }
             std::fs::create_dir_all(&tool_dir)
-                .map_err(|e| format!("Failed to create tool directory: {}", e))?;
+                .map_err(|e| format!("Failed to create tool directory: {e}"))?;
 
             let expected_binary = get_tool_binary_path(app, tool_id);
             std::fs::copy(&system_path, &expected_binary).map_err(|e| {
@@ -921,14 +925,11 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
                 tool_id,
                 expected_binary.display()
             );
-            return Ok(format!("{} (system)", system_version));
-        } else {
-            log::info!(
-                "System {} version {} does not meet minimum requirement, downloading fresh copy",
-                tool_id,
-                system_version
-            );
+            return Ok(format!("{system_version} (system)"));
         }
+        log::info!(
+            "System {tool_id} version {system_version} does not meet minimum requirement, downloading fresh copy"
+        );
     }
 
     // Special case: MP4Box requires platform-specific installation on all platforms.
@@ -961,8 +962,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
             // We use copy instead of rename to handle cross-filesystem scenarios.
             std::fs::copy(&found, &expected_binary).map_err(|e| {
                 format!(
-                    "Failed to copy {} binary to expected location: {}",
-                    tool_id, e
+                    "Failed to copy {tool_id} binary to expected location: {e}"
                 )
             })?;
             log::info!(
@@ -994,19 +994,19 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
         .await
         .unwrap_or_else(|_| "installed".to_string());
 
-    log::info!("{} {} installed successfully", tool_id, version);
+    log::info!("{tool_id} {version} installed successfully");
     Ok(version)
 }
 
-/// Installs MP4Box on macOS using a layered strategy.
+/// Installs `MP4Box` on macOS using a layered strategy.
 ///
-/// GPAC (the project that provides MP4Box) doesn't publish downloadable
+/// GPAC (the project that provides `MP4Box`) doesn't publish downloadable
 /// ZIP/tar.gz archives for macOS. This function tries two approaches:
 ///
 /// 1. **Primary**: Homebrew (`brew install gpac`) — gives a native ARM64
 ///    build on Apple Silicon, handles all dependencies automatically.
 /// 2. **Fallback**: Extract from GPAC's official `.pkg` installer — works
-///    for everyone without needing Homebrew. The `.pkg` contains x86_64
+///    for everyone without needing Homebrew. The `.pkg` contains `x86_64`
 ///    binaries that run on Apple Silicon via Rosetta 2. **Note**: Rosetta 2
 ///    may be deprecated in a future macOS release, so the Homebrew path
 ///    should be preferred on Apple Silicon.
@@ -1030,13 +1030,12 @@ async fn install_mp4box_macos(app: &AppHandle) -> Result<String, String> {
     };
 
     if let Some(brew) = brew_path {
-        log::info!("Found Homebrew at {}, attempting brew install gpac", brew);
+        log::info!("Found Homebrew at {brew}, attempting brew install gpac");
         match install_mp4box_via_homebrew(app, brew).await {
             Ok(version) => return Ok(version),
             Err(e) => {
                 log::warn!(
-                    "Homebrew installation failed: {}. Falling back to GPAC .pkg extraction.",
-                    e
+                    "Homebrew installation failed: {e}. Falling back to GPAC .pkg extraction."
                 );
             }
         }
@@ -1048,10 +1047,10 @@ async fn install_mp4box_macos(app: &AppHandle) -> Result<String, String> {
     install_mp4box_from_pkg(app).await
 }
 
-/// Attempts to install MP4Box via Homebrew (`brew install gpac`).
+/// Attempts to install `MP4Box` via Homebrew (`brew install gpac`).
 ///
-/// Runs `brew install gpac`, then locates the installed MP4Box binary
-/// and copies it to MeedyaDL's tool directory.
+/// Runs `brew install gpac`, then locates the installed `MP4Box` binary
+/// and copies it to `MeedyaDL`'s tool directory.
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
@@ -1063,7 +1062,7 @@ async fn install_mp4box_via_homebrew(app: &AppHandle, brew_path: &str) -> Result
         .args(["install", "gpac"])
         .output()
         .await
-        .map_err(|e| format!("Failed to run 'brew install gpac': {}", e))?;
+        .map_err(|e| format!("Failed to run 'brew install gpac': {e}"))?;
 
     if !install_output.status.success() {
         let stderr = String::from_utf8_lossy(&install_output.stderr);
@@ -1078,7 +1077,7 @@ async fn install_mp4box_via_homebrew(app: &AppHandle, brew_path: &str) -> Result
         .args(["--prefix", "gpac"])
         .output()
         .await
-        .map_err(|e| format!("Failed to get gpac prefix: {}", e))?;
+        .map_err(|e| format!("Failed to get gpac prefix: {e}"))?;
 
     let prefix = String::from_utf8_lossy(&prefix_output.stdout)
         .trim()
@@ -1105,19 +1104,19 @@ async fn install_mp4box_via_homebrew(app: &AppHandle, brew_path: &str) -> Result
     copy_and_verify_mp4box(app, &brew_binary, "Homebrew").await
 }
 
-/// Installs MP4Box by downloading and extracting GPAC's official macOS `.pkg`.
+/// Installs `MP4Box` by downloading and extracting GPAC's official macOS `.pkg`.
 ///
 /// The `.pkg` installer from GPAC's CI server contains a full `GPAC.app`
 /// bundle with `MP4Box` and its required dynamic libraries under
 /// `Contents/MacOS/lib/`. The binary uses `@executable_path/lib/` references,
 /// so it works from any location as long as the `lib/` directory is a sibling.
 ///
-/// Note: The `.pkg` currently provides x86_64 binaries only. On Apple Silicon,
+/// Note: The `.pkg` currently provides `x86_64` binaries only. On Apple Silicon,
 /// these require Rosetta 2 for translation. If Rosetta 2 is not installed,
 /// this function returns an error directing the user to install via Homebrew.
 ///
-/// Source: https://gpac.io/downloads/
-/// Nightly permalink: https://download.tsi.telecom-paristech.fr/gpac/new_builds/
+/// Source: <https://gpac.io/downloads>/
+/// Nightly permalink: <https://download.tsi.telecom-paristech.fr/gpac/new_builds>/
 async fn install_mp4box_from_pkg(app: &AppHandle) -> Result<String, String> {
     // On Apple Silicon, the .pkg only contains x86_64 binaries — Rosetta 2 is required
     if std::env::consts::ARCH == "aarch64" && !is_rosetta2_available() {
@@ -1135,7 +1134,7 @@ async fn install_mp4box_from_pkg(app: &AppHandle) -> Result<String, String> {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
     std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+        .map_err(|e| format!("Failed to create temp directory: {e}"))?;
 
     // Run the extraction in an inner function so we can clean up regardless of result
     let result = install_mp4box_from_pkg_inner(app, &temp_dir).await;
@@ -1159,7 +1158,7 @@ async fn install_mp4box_from_pkg_inner(
         "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg";
     let pkg_path = temp_dir.join("gpac.pkg");
 
-    log::info!("Downloading GPAC .pkg from {}", pkg_url);
+    log::info!("Downloading GPAC .pkg from {pkg_url}");
     archive::download_file(pkg_url, &pkg_path).await?;
 
     // Step 1: Expand the .pkg using pkgutil (standard macOS tool).
@@ -1174,7 +1173,7 @@ async fn install_mp4box_from_pkg_inner(
         ])
         .output()
         .await
-        .map_err(|e| format!("Failed to run pkgutil --expand: {}", e))?;
+        .map_err(|e| format!("Failed to run pkgutil --expand: {e}"))?;
 
     if !expand_status.status.success() {
         let stderr = String::from_utf8_lossy(&expand_status.stderr);
@@ -1189,7 +1188,7 @@ async fn install_mp4box_from_pkg_inner(
     // Uses macOS system tools: gunzip decompresses, cpio extracts the archive.
     let payload_dir = temp_dir.join("payload");
     std::fs::create_dir_all(&payload_dir)
-        .map_err(|e| format!("Failed to create payload directory: {}", e))?;
+        .map_err(|e| format!("Failed to create payload directory: {e}"))?;
 
     let extract_status = tokio::process::Command::new("sh")
         .args([
@@ -1202,7 +1201,7 @@ async fn install_mp4box_from_pkg_inner(
         .current_dir(&payload_dir)
         .output()
         .await
-        .map_err(|e| format!("Failed to extract GPAC payload: {}", e))?;
+        .map_err(|e| format!("Failed to extract GPAC payload: {e}"))?;
 
     if !extract_status.status.success() {
         let stderr = String::from_utf8_lossy(&extract_status.stderr);
@@ -1233,24 +1232,24 @@ async fn install_mp4box_from_pkg_inner(
     let tool_dir = get_tool_dir(app, "mp4box");
     if tool_dir.exists() {
         std::fs::remove_dir_all(&tool_dir)
-            .map_err(|e| format!("Failed to remove existing mp4box directory: {}", e))?;
+            .map_err(|e| format!("Failed to remove existing mp4box directory: {e}"))?;
     }
     std::fs::create_dir_all(&tool_dir)
-        .map_err(|e| format!("Failed to create mp4box tool directory: {}", e))?;
+        .map_err(|e| format!("Failed to create mp4box tool directory: {e}"))?;
 
     // Copy the MP4Box binary
     let mp4box_dest = get_tool_binary_path(app, "mp4box");
     std::fs::copy(&mp4box_src, &mp4box_dest)
-        .map_err(|e| format!("Failed to copy MP4Box binary: {}", e))?;
+        .map_err(|e| format!("Failed to copy MP4Box binary: {e}"))?;
 
     // Copy the lib/ directory (contains libgpac.dylib and its transitive deps)
     if lib_src.exists() && lib_src.is_dir() {
         let lib_dest = tool_dir.join("lib");
         copy_dir_all(&lib_src, &lib_dest)
-            .map_err(|e| format!("Failed to copy GPAC libraries: {}", e))?;
+            .map_err(|e| format!("Failed to copy GPAC libraries: {e}"))?;
         log::info!(
             "Copied GPAC lib/ directory ({} entries) to {}",
-            std::fs::read_dir(&lib_dest).map(|d| d.count()).unwrap_or(0),
+            std::fs::read_dir(&lib_dest).map(std::iter::Iterator::count).unwrap_or(0),
             lib_dest.display()
         );
     }
@@ -1262,7 +1261,7 @@ async fn install_mp4box_from_pkg_inner(
         .await
         .unwrap_or_else(|_| "installed".to_string());
 
-    log::info!("MP4Box {} installed from GPAC .pkg successfully", version);
+    log::info!("MP4Box {version} installed from GPAC .pkg successfully");
     Ok(version)
 }
 
@@ -1306,7 +1305,7 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), Stri
 
     for entry in entries {
         let entry =
-            entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
@@ -1327,13 +1326,13 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), Stri
     Ok(())
 }
 
-/// Copies an MP4Box binary to MeedyaDL's tool directory and verifies it works.
+/// Copies an `MP4Box` binary to `MeedyaDL`'s tool directory and verifies it works.
 ///
 /// Used by both the Homebrew and .pkg installation paths to finalize the install.
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
-/// * `source_binary` - Path to the MP4Box binary to copy
+/// * `source_binary` - Path to the `MP4Box` binary to copy
 /// * `source_label` - Label for log messages (e.g., "Homebrew", "GPAC .pkg")
 async fn copy_and_verify_mp4box(
     app: &AppHandle,
@@ -1345,12 +1344,12 @@ async fn copy_and_verify_mp4box(
     // Clean up existing installation if present
     if tool_dir.exists() {
         std::fs::remove_dir_all(&tool_dir).map_err(|e| {
-            format!("Failed to remove existing mp4box directory: {}", e)
+            format!("Failed to remove existing mp4box directory: {e}")
         })?;
     }
 
     std::fs::create_dir_all(&tool_dir)
-        .map_err(|e| format!("Failed to create mp4box tool directory: {}", e))?;
+        .map_err(|e| format!("Failed to create mp4box tool directory: {e}"))?;
 
     let expected_binary = get_tool_binary_path(app, "mp4box");
     std::fs::copy(source_binary, &expected_binary).map_err(|e| {
@@ -1379,21 +1378,21 @@ async fn copy_and_verify_mp4box(
         .await
         .unwrap_or_else(|_| "installed".to_string());
 
-    log::info!("MP4Box {} installed via {} successfully", version, source_label);
+    log::info!("MP4Box {version} installed via {source_label} successfully");
     Ok(version)
 }
 
-/// Installs MP4Box on Windows by downloading and silently running GPAC's NSIS installer.
+/// Installs `MP4Box` on Windows by downloading and silently running GPAC's NSIS installer.
 ///
 /// GPAC discontinued ZIP archives for Windows — only NSIS `.exe` installers remain.
 /// This function downloads the installer, runs it with `/S` (silent) and `/D=` (custom
 /// install directory) to extract files without user interaction, then copies MP4Box.exe
-/// to MeedyaDL's tool directory.
+/// to `MeedyaDL`'s tool directory.
 ///
 /// The NSIS `/D=` flag installs to a user-specified directory without requiring admin
 /// privileges (as long as the directory is user-writable).
 ///
-/// Source: https://download.tsi.telecom-paristech.fr/gpac/new_builds/
+/// Source: <https://download.tsi.telecom-paristech.fr/gpac/new_builds>/
 async fn install_mp4box_windows(app: &AppHandle) -> Result<String, String> {
     log::info!("Installing MP4Box on Windows via GPAC NSIS installer");
 
@@ -1403,7 +1402,7 @@ async fn install_mp4box_windows(app: &AppHandle) -> Result<String, String> {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
     std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+        .map_err(|e| format!("Failed to create temp directory: {e}"))?;
 
     let result = install_mp4box_windows_inner(app, &temp_dir).await;
 
@@ -1425,7 +1424,7 @@ async fn install_mp4box_windows_inner(
         "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe";
     let installer_path = temp_dir.join("gpac_installer.exe");
 
-    log::info!("Downloading GPAC installer from {}", installer_url);
+    log::info!("Downloading GPAC installer from {installer_url}");
     archive::download_file(installer_url, &installer_path).await?;
 
     // Run the NSIS installer silently with /S (silent) and /D= (install directory).
@@ -1433,7 +1432,7 @@ async fn install_mp4box_windows_inner(
     // parameter and must not be quoted.
     let install_dir = temp_dir.join("gpac");
     std::fs::create_dir_all(&install_dir)
-        .map_err(|e| format!("Failed to create GPAC install directory: {}", e))?;
+        .map_err(|e| format!("Failed to create GPAC install directory: {e}"))?;
 
     log::info!(
         "Running GPAC installer silently to {}",
@@ -1444,7 +1443,7 @@ async fn install_mp4box_windows_inner(
         .arg(format!("/D={}", install_dir.display()))
         .output()
         .await
-        .map_err(|e| format!("Failed to run GPAC installer: {}", e))?;
+        .map_err(|e| format!("Failed to run GPAC installer: {e}"))?;
 
     if !install_status.status.success() {
         let stderr = String::from_utf8_lossy(&install_status.stderr);
@@ -1466,7 +1465,7 @@ async fn install_mp4box_windows_inner(
     copy_and_verify_mp4box(app, &mp4box_src, "GPAC NSIS installer").await
 }
 
-/// Installs MP4Box on Linux by downloading and extracting GPAC's `.deb` package.
+/// Installs `MP4Box` on Linux by downloading and extracting GPAC's `.deb` package.
 ///
 /// GPAC provides nightly `.deb` packages (not tar.gz archives) for Linux.
 /// This function downloads the `.deb` and extracts it without installing it
@@ -1478,7 +1477,7 @@ async fn install_mp4box_windows_inner(
 ///   - `control.tar.*` (package metadata)
 ///   - `data.tar.*` (actual installed files)
 ///
-/// Source: https://download.tsi.telecom-paristech.fr/gpac/new_builds/
+/// Source: <https://download.tsi.telecom-paristech.fr/gpac/new_builds>/
 async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
     log::info!("Installing MP4Box on Linux from GPAC .deb package");
 
@@ -1488,7 +1487,7 @@ async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
         std::fs::remove_dir_all(&temp_dir).ok();
     }
     std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+        .map_err(|e| format!("Failed to create temp directory: {e}"))?;
 
     let result = install_mp4box_linux_inner(app, &temp_dir).await;
 
@@ -1510,7 +1509,7 @@ async fn install_mp4box_linux_inner(
         "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_linux64.deb";
     let deb_path = temp_dir.join("gpac.deb");
 
-    log::info!("Downloading GPAC .deb from {}", deb_url);
+    log::info!("Downloading GPAC .deb from {deb_url}");
     archive::download_file(deb_url, &deb_path).await?;
 
     // Extract the .deb using `ar` (part of binutils, standard on Linux)
@@ -1519,7 +1518,7 @@ async fn install_mp4box_linux_inner(
         .current_dir(temp_dir)
         .output()
         .await
-        .map_err(|e| format!("Failed to run 'ar x' on .deb: {}", e))?;
+        .map_err(|e| format!("Failed to run 'ar x' on .deb: {e}"))?;
 
     if !ar_status.status.success() {
         let stderr = String::from_utf8_lossy(&ar_status.stderr);
@@ -1529,7 +1528,7 @@ async fn install_mp4box_linux_inner(
     // Find the data archive (could be data.tar.xz, data.tar.gz, or data.tar.zst)
     let data_dir = temp_dir.join("data");
     std::fs::create_dir_all(&data_dir)
-        .map_err(|e| format!("Failed to create data directory: {}", e))?;
+        .map_err(|e| format!("Failed to create data directory: {e}"))?;
 
     // Use shell globbing to find and extract the data archive
     let extract_status = tokio::process::Command::new("sh")
@@ -1543,7 +1542,7 @@ async fn install_mp4box_linux_inner(
         ])
         .output()
         .await
-        .map_err(|e| format!("Failed to extract data archive: {}", e))?;
+        .map_err(|e| format!("Failed to extract data archive: {e}"))?;
 
     if !extract_status.status.success() {
         let stderr = String::from_utf8_lossy(&extract_status.stderr);
@@ -1569,7 +1568,7 @@ async fn install_mp4box_linux_inner(
     copy_and_verify_mp4box(app, &mp4box_src, "GPAC .deb package").await
 }
 
-/// Installs MP4Box using platform-specific installers with mirror fallback.
+/// Installs `MP4Box` using platform-specific installers with mirror fallback.
 ///
 /// First tries the platform's native installation method:
 ///   - macOS: Homebrew → .pkg extraction
@@ -1594,8 +1593,7 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
         Ok(version) => Ok(version),
         Err(primary_err) => {
             log::warn!(
-                "Platform-specific MP4Box install failed: {}. Trying mirror...",
-                primary_err
+                "Platform-specific MP4Box install failed: {primary_err}. Trying mirror..."
             );
 
             // Fall back to mirror directly (skip get_tool_download_url which
@@ -1605,23 +1603,21 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
                 std::fs::remove_dir_all(&tool_dir).ok();
             }
             std::fs::create_dir_all(&tool_dir)
-                .map_err(|e| format!("Failed to create tool directory: {}", e))?;
+                .map_err(|e| format!("Failed to create tool directory: {e}"))?;
 
             let (mirror_url, mirror_format) =
                 get_mirror_download_url("mp4box").await.map_err(|e| {
                     format!(
-                        "All sources failed for MP4Box.\n  Platform: {}\n  Mirror: {}",
-                        primary_err, e
+                        "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror: {e}"
                     )
                 })?;
 
-            log::info!("Downloading MP4Box from mirror: {}", mirror_url);
+            log::info!("Downloading MP4Box from mirror: {mirror_url}");
             archive::download_and_extract(&mirror_url, &tool_dir, mirror_format)
                 .await
                 .map_err(|e| {
                     format!(
-                        "All sources failed for MP4Box.\n  Platform: {}\n  Mirror download: {}",
-                        primary_err, e
+                        "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror download: {e}"
                     )
                 })?;
 
@@ -1630,12 +1626,11 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             if !expected_binary.exists() {
                 if let Some(found) = find_binary_recursive(&tool_dir, "mp4box") {
                     std::fs::copy(&found, &expected_binary).map_err(|e| {
-                        format!("Failed to copy MP4Box binary: {}", e)
+                        format!("Failed to copy MP4Box binary: {e}")
                     })?;
                 } else {
                     return Err(format!(
-                        "All sources failed for MP4Box.\n  Platform: {}\n  Mirror: binary not found in archive",
-                        primary_err
+                        "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror: binary not found in archive"
                     ));
                 }
             }
@@ -1650,7 +1645,7 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
                 .await
                 .unwrap_or_else(|_| "installed".to_string());
 
-            log::info!("MP4Box {} installed from mirror", version);
+            log::info!("MP4Box {version} installed from mirror");
             Ok(version)
         }
     }
@@ -1725,8 +1720,8 @@ async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String
     // - FFmpeg and MP4Box use single-dash "-version" (non-standard but that's how they work)
     // - Most other tools use double-dash "--version" (GNU convention)
     let version_flag = match tool_id {
-        "ffmpeg" => "-version",   // e.g., "ffmpeg version N-112479-..."
-        "mp4box" => "-version",   // e.g., "MP4Box - GPAC version 2.4-DEV..."
+        // Both FFmpeg and MP4Box use single-dash "-version" (non-standard)
+        "ffmpeg" | "mp4box" => "-version",
         _ => "--version",         // Standard GNU-style flag
     };
 
@@ -1737,7 +1732,7 @@ async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String
         .arg(version_flag)
         .output()
         .await
-        .map_err(|e| format!("Failed to run {} --version: {}", tool_id, e))?;
+        .map_err(|e| format!("Failed to run {tool_id} --version: {e}"))?;
 
     // Extract the first line of stdout as the version string.
     // Most tools output their version on the first line of stdout.
@@ -1766,6 +1761,7 @@ async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String
 ///
 /// # Returns
 /// `true` if the tool binary exists at the expected path
+#[must_use] 
 pub fn is_tool_installed(app: &AppHandle, tool_id: &str) -> bool {
     get_tool_binary_path(app, tool_id).exists()
 }
@@ -1774,7 +1770,8 @@ pub fn is_tool_installed(app: &AppHandle, tool_id: &str) -> bool {
 ///
 /// Used by the setup wizard and dependency status UI to display
 /// the full list of tools with their installation requirements.
-pub fn get_all_tools() -> &'static [ToolInfo] {
+#[must_use] 
+pub const fn get_all_tools() -> &'static [ToolInfo] {
     TOOLS
 }
 
@@ -1783,11 +1780,15 @@ pub fn get_all_tools() -> &'static [ToolInfo] {
 /// Used when the user wants to reinstall a tool or when the installation
 /// is detected as corrupt. Uses async filesystem operations to avoid
 /// blocking the Tokio runtime.
-/// Ref: https://docs.rs/tokio/latest/tokio/fs/fn.remove_dir_all.html
+/// Ref: <https://docs.rs/tokio/latest/tokio/fs/fn.remove_dir_all.html>
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg", "mp4decrypt")
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the tool directory cannot be removed.
 pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String> {
     let tool_dir = get_tool_dir(app, tool_id);
 
@@ -1795,7 +1796,7 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
         log::info!("Removing {} installation at {}", tool_id, tool_dir.display());
         tokio::fs::remove_dir_all(&tool_dir)
             .await
-            .map_err(|e| format!("Failed to remove {} directory: {}", tool_id, e))?;
+            .map_err(|e| format!("Failed to remove {tool_id} directory: {e}"))?;
     }
 
     Ok(())

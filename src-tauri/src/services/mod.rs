@@ -58,7 +58,7 @@ pub mod python_manager;
 pub mod gamdl_service;
 
 /// Dependency manager: download and install external tool binaries
-/// (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) from their official
+/// (`FFmpeg`, mp4decrypt, N_m3u8DL-RE, `MP4Box`) from their official
 /// GitHub release pages.
 ///
 /// Handles platform/architecture selection, archive download and
@@ -75,19 +75,22 @@ pub mod dependency_manager;
 /// flag can read.
 pub mod config_service;
 
-/// Download queue manager: manages the ordered queue of download
-/// requests with support for concurrent execution, automatic
-/// quality-chain fallback retries (e.g., AAC-HE -> AAC-LC), and
-/// per-item cancellation.
+/// Download queue manager.
+///
+/// Manages the ordered queue of download requests with support for
+/// concurrent execution, automatic quality-chain fallback retries
+/// (e.g., AAC-HE -> AAC-LC), and per-item cancellation.
 ///
 /// The queue state is stored as Tauri managed state
 /// (`State<'_, QueueHandle>`) and accessed from both command handlers
 /// and background download tasks.
 pub mod download_queue;
 
-/// Update checker: queries PyPI (for GAMDL/gamdl version) and GitHub
-/// Releases (for Python, FFmpeg, mp4decrypt, etc.) to determine whether
-/// newer versions are available, and provides an upgrade function for GAMDL.
+/// Update checker.
+///
+/// Queries `PyPI` (for GAMDL/gamdl version) and GitHub Releases (for
+/// Python, `FFmpeg`, mp4decrypt, etc.) to determine whether newer
+/// versions are available, and provides an upgrade function for GAMDL.
 pub mod update_checker;
 
 /// Browser cookie extraction service: detects installed browsers,
@@ -99,11 +102,12 @@ pub mod update_checker;
 /// DPAPI decryption, and Linux D-Bus Secret Service integration.
 pub mod cookie_service;
 
-/// Embedded Apple Music login window service: manages a secondary webview
-/// window where users can sign in to Apple Music directly. Uses Tauri's
-/// native `cookies_for_url()` API to extract authentication cookies
-/// (including HttpOnly) from the webview after login, converts them to
-/// Netscape format, and saves them for GAMDL.
+/// Embedded Apple Music login window service.
+///
+/// Manages a secondary webview window where users can sign in to Apple
+/// Music directly. Uses Tauri's native `cookies_for_url()` API to extract
+/// authentication cookies (including `HttpOnly`) from the webview after
+/// login, converts them to Netscape format, and saves them for GAMDL.
 ///
 /// Addresses the scenario where users have no existing browser cookies
 /// to auto-import. The login window loads `https://music.apple.com` and
@@ -112,42 +116,49 @@ pub mod login_window_service;
 
 /// Animated artwork (motion cover art) download service: queries the
 /// Apple Music catalog API for animated album covers (`editorialVideo`)
-/// and downloads them via FFmpeg HLS-to-MP4 conversion.
+/// and downloads them via `FFmpeg` HLS-to-MP4 conversion.
 ///
 /// Saves `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4`
 /// (portrait, 3:4) alongside downloaded album files. Requires user-provided
-/// MusicKit credentials (Team ID, Key ID, private key in OS keychain).
+/// `MusicKit` credentials (Team ID, Key ID, private key in OS keychain).
 pub mod animated_artwork_service;
 
-/// Shared Apple Music (MusicKit) API client and authentication module.
+/// Shared Apple Music (`MusicKit`) API client and authentication module.
+///
 /// Provides JWT generation, URL parsing, keychain access, and the enriched
 /// catalog API call that returns album metadata (ISRC, UPC, genre, advisory,
 /// artist IDs) plus animated artwork URLs in a single request.
 ///
-/// Used by: animated_artwork_service, metadata_tag_service
+/// Used by: `animated_artwork_service`, `metadata_tag_service`
 pub mod apple_music_api;
 
-/// Post-download metadata enrichment service: injects comprehensive custom
-/// metadata into downloaded M4A files. Codec tags (isLossless, SpatialType),
-/// source tags (SourceStore, EncodeSource, ChannelConfig), and Apple Music
-/// API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs) are
-/// written as freeform atoms. Channel detection uses ffprobe; API metadata
-/// requires MusicKit credentials configured in settings.
+/// Post-download metadata enrichment service.
+///
+/// Injects comprehensive custom metadata into downloaded M4A files.
+/// Codec tags (isLossless, `SpatialType`), source tags (`SourceStore`,
+/// `EncodeSource`, `ChannelConfig`), and Apple Music API metadata (ISRC,
+/// UPC, genre, advisory, artist IDs, artwork URLs) are written as freeform
+/// atoms. Channel detection uses ffprobe; API metadata requires `MusicKit`
+/// credentials configured in settings.
 pub mod metadata_tag_service;
 
-/// AcousticID fingerprinting service: generates Chromaprint audio fingerprints
-/// using the embedded rusty-chromaprint library (pure Rust) and looks up
-/// AcousticID identifiers via the acoustid.org web service. Writes
-/// `Acoustid Id` and `Acoustid Fingerprint` freeform atoms to M4A files.
-/// Opt-in feature with no external binary dependencies.
+/// `AcousticID` fingerprinting service.
 ///
-/// Used by: download_queue (post-download enrichment, when acoustid_enabled)
+/// Generates Chromaprint audio fingerprints using the embedded
+/// rusty-chromaprint library (pure Rust) and looks up `AcousticID`
+/// identifiers via the acoustid.org web service. Writes `Acoustid Id`
+/// and `Acoustid Fingerprint` freeform atoms to M4A files. Opt-in
+/// feature with no external binary dependencies.
+///
+/// Used by: `download_queue` (post-download enrichment, when `acoustid_enabled`)
 pub mod acoustid_service;
 
-/// ReplayGain loudness analysis service: analyses audio loudness using
-/// FFmpeg's EBU R128 filter and writes non-destructive ReplayGain metadata
-/// tags (`replaygain_track_gain`, `replaygain_track_peak`). Enables volume
-/// normalisation in media players that support ReplayGain. Opt-in feature.
+/// `ReplayGain` loudness analysis service.
 ///
-/// Used by: download_queue (post-download enrichment, when replaygain_enabled)
+/// Analyses audio loudness using `FFmpeg`'s EBU R128 filter and writes
+/// non-destructive `ReplayGain` metadata tags (`replaygain_track_gain`,
+/// `replaygain_track_peak`). Enables volume normalisation in media
+/// players that support `ReplayGain`. Opt-in feature.
+///
+/// Used by: `download_queue` (post-download enrichment, when `replaygain_enabled`)
 pub mod replaygain_service;

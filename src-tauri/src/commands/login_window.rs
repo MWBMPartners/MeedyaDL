@@ -51,6 +51,10 @@ use crate::services::login_window_service;
 /// If a login window is already open, the existing window is focused instead
 /// of creating a duplicate.
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the login window cannot be created.
+///
 /// # Returns
 /// * `Ok(())` - Window opened (or existing window focused).
 /// * `Err(String)` - Window creation failed.
@@ -72,6 +76,10 @@ pub async fn open_apple_login(app: AppHandle) -> Result<(), String> {
 /// converts to Netscape format, saves to `{app_data}/cookies.txt`, and
 /// updates `settings.cookies_path`.
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the login window is not open or cookie extraction fails.
+///
 /// # Returns
 /// * `Ok(CookieImportResult)` - Extraction result with cookie counts and path.
 /// * `Err(String)` - If the login window isn't open or extraction failed.
@@ -92,6 +100,11 @@ pub async fn extract_login_cookies(
 ///
 /// The `login-window-closed` event will be emitted by the window's destroy
 /// handler when the window actually closes.
+///
+/// # Errors
+///
+/// This function currently always returns `Ok(())` but uses `Result` for
+/// consistency with other IPC commands.
 ///
 /// # Returns
 /// * `Ok(())` - Window closed (or was already closed).

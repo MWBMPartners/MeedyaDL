@@ -101,7 +101,7 @@ pub struct DownloadRequest {
 /// The React frontend pattern-matches on these string values to render
 /// the appropriate status badge, progress bar, and action buttons for
 /// each queue item in the download queue UI.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DownloadState {
     /// **Initial state.** The item is waiting in the queue to be picked

@@ -43,26 +43,26 @@ use crate::utils::{archive, platform};
 // ============================================================
 
 /// The Python version to install (used in the download URL and version checks).
-/// This must correspond to a CPython version available in the python-build-standalone
-/// release specified by RELEASE_TAG. Check the release assets at:
-/// https://github.com/indygreg/python-build-standalone/releases/tag/{RELEASE_TAG}
+/// This must correspond to a `CPython` version available in the python-build-standalone
+/// release specified by `RELEASE_TAG`. Check the release assets at:
+/// <https://github.com/indygreg/python-build-standalone/releases/tag/{RELEASE_TAG>}
 const PYTHON_VERSION: &str = "3.12.8";
 
 /// The python-build-standalone release tag on GitHub (date-based, format: YYYYMMDD).
 /// Each release bundles multiple Python versions as pre-compiled archives.
-/// Browse available releases: https://github.com/indygreg/python-build-standalone/releases
+/// Browse available releases: <https://github.com/indygreg/python-build-standalone/releases>
 const RELEASE_TAG: &str = "20250106";
 
 /// The base URL for python-build-standalone release downloads on GitHub.
 /// The full URL is constructed as: {base}/{tag}/cpython-{version}+{tag}-{triple}-install_only.tar.gz
-/// See: https://github.com/indygreg/python-build-standalone#available-distributions
+/// See: <https://github.com/indygreg/python-build-standalone#available-distributions>
 const DOWNLOAD_BASE_URL: &str =
     "https://github.com/indygreg/python-build-standalone/releases/download";
 
 /// Constructs the download URL for the portable Python archive matching
 /// the current platform and architecture.
 ///
-/// Uses the python-build-standalone project's install_only variant, which
+/// Uses the python-build-standalone project's `install_only` variant, which
 /// provides a minimal Python installation suitable for running pip and
 /// Python packages like GAMDL.
 ///
@@ -90,8 +90,7 @@ fn get_python_download_url() -> Result<String, String> {
         ("windows", "aarch64") => "aarch64-pc-windows-msvc",
         (os, arch) => {
             return Err(format!(
-                "Unsupported platform for portable Python: {}/{}",
-                os, arch
+                "Unsupported platform for portable Python: {os}/{arch}"
             ))
         }
     };
@@ -100,11 +99,10 @@ fn get_python_download_url() -> Result<String, String> {
     // Example: https://github.com/indygreg/python-build-standalone/releases/download/
     //          20250106/cpython-3.12.8+20250106-aarch64-apple-darwin-install_only.tar.gz
     let url = format!(
-        "{}/{}/cpython-{}+{}-{}-install_only.tar.gz",
-        DOWNLOAD_BASE_URL, RELEASE_TAG, PYTHON_VERSION, RELEASE_TAG, triple
+        "{DOWNLOAD_BASE_URL}/{RELEASE_TAG}/cpython-{PYTHON_VERSION}+{RELEASE_TAG}-{triple}-install_only.tar.gz"
     );
 
-    log::info!("Python download URL: {}", url);
+    log::info!("Python download URL: {url}");
     Ok(url)
 }
 
@@ -124,6 +122,11 @@ fn get_python_download_url() -> Result<String, String> {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle, used for path resolution
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the download URL cannot be determined, the archive
+/// download or extraction fails, or the installed Python binary fails verification.
 ///
 /// # Returns
 /// * `Ok(version)` - The installed Python version (e.g., "3.12.8")
@@ -213,7 +216,7 @@ async fn get_python_version_from_binary(python_bin: &PathBuf) -> Result<String, 
         .arg("--version")
         .output()
         .await
-        .map_err(|e| format!("Failed to run Python binary: {}", e))?;
+        .map_err(|e| format!("Failed to run Python binary: {e}"))?;
 
     // Parse "Python 3.12.8" -> "3.12.8"
     // CPython always outputs "Python X.Y.Z" to stdout. We strip that prefix
@@ -222,7 +225,7 @@ async fn get_python_version_from_binary(python_bin: &PathBuf) -> Result<String, 
     let version = version_str
         .trim()
         .strip_prefix("Python ")
-        .unwrap_or(version_str.trim())
+        .unwrap_or_else(|| version_str.trim())
         .to_string();
 
     if version.is_empty() {
@@ -246,6 +249,11 @@ async fn get_python_version_from_binary(python_bin: &PathBuf) -> Result<String, 
 /// # Arguments
 /// * `app` - The Tauri app handle
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if an unexpected error occurs while checking the
+/// Python binary (e.g., path resolution failure).
+///
 /// # Returns
 /// * `Ok(Some(version))` - Python is installed with the given version
 /// * `Ok(None)` - Python is not installed
@@ -265,7 +273,7 @@ pub async fn check_python_status(app: &AppHandle) -> Result<Option<String>, Stri
     match get_python_version_from_binary(&python_bin).await {
         Ok(version) => Ok(Some(version)),
         Err(e) => {
-            log::warn!("Python binary exists but failed to get version: {}", e);
+            log::warn!("Python binary exists but failed to get version: {e}");
             // Binary exists but isn't working — treat as not installed so that
             // the setup wizard will offer to reinstall.
             Ok(None)
@@ -277,15 +285,18 @@ pub async fn check_python_status(app: &AppHandle) -> Result<Option<String>, Stri
 ///
 /// This is the version that will be installed (or should be installed).
 /// Called by the frontend's setup wizard to show "Python X.Y.Z will be installed".
-pub fn expected_python_version() -> &'static str {
+#[must_use] 
+pub const fn expected_python_version() -> &'static str {
     PYTHON_VERSION
 }
 
 /// Returns the target Python version constant.
+///
 /// Used by `update_checker.rs` to compare the installed version against the
 /// version we expect, enabling the update UI to prompt for a Python update
 /// when a newer python-build-standalone release is configured.
-pub fn get_target_python_version() -> &'static str {
+#[must_use] 
+pub const fn get_target_python_version() -> &'static str {
     PYTHON_VERSION
 }
 
@@ -293,10 +304,10 @@ pub fn get_target_python_version() -> &'static str {
 /// Returns None if Python is not installed or the binary fails.
 ///
 /// This is a lightweight query used by `update_checker.rs` to determine
-/// the currently installed version without needing the full AppHandle.
+/// the currently installed version without needing the full `AppHandle`.
 ///
 /// # Arguments
-/// * `python_dir` - The directory where Python is installed (e.g., {app_data}/python/)
+/// * `python_dir` - The directory where Python is installed (e.g., {`app_data}/python`/)
 pub async fn get_installed_python_version(python_dir: &std::path::Path) -> Option<String> {
     // Resolve the binary path (e.g., python/bin/python3 on Unix, python/python.exe on Windows)
     let python_bin = crate::utils::platform::get_python_binary_path(python_dir);
@@ -315,10 +326,14 @@ pub async fn get_installed_python_version(python_dir: &std::path::Path) -> Optio
 ///
 /// Uses `tokio::fs::remove_dir_all` for async directory removal, which
 /// avoids blocking the Tokio runtime on potentially slow filesystem operations.
-/// Ref: https://docs.rs/tokio/latest/tokio/fs/fn.remove_dir_all.html
+/// Ref: <https://docs.rs/tokio/latest/tokio/fs/fn.remove_dir_all.html>
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the Python directory cannot be removed.
 pub async fn uninstall_python(app: &AppHandle) -> Result<(), String> {
     let python_dir = platform::get_python_dir(app);
 
@@ -326,7 +341,7 @@ pub async fn uninstall_python(app: &AppHandle) -> Result<(), String> {
         log::info!("Removing Python installation at {}", python_dir.display());
         tokio::fs::remove_dir_all(&python_dir)
             .await
-            .map_err(|e| format!("Failed to remove Python directory: {}", e))?;
+            .map_err(|e| format!("Failed to remove Python directory: {e}"))?;
     }
 
     Ok(())

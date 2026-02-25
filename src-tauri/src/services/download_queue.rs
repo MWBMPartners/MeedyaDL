@@ -123,13 +123,13 @@ struct ActivityLogEvent {
 
 /// Internal representation of a download job in the queue.
 ///
-/// Contains the public-facing QueueItemStatus (sent to the frontend) plus
+/// Contains the public-facing `QueueItemStatus` (sent to the frontend) plus
 /// additional private tracking fields used by the queue manager for retry
-/// and fallback logic. The frontend never sees fallback_index or
-/// network_retries_left directly.
+/// and fallback logic. The frontend never sees `fallback_index` or
+/// `network_retries_left` directly.
 #[derive(Debug, Clone)]
 struct QueueItem {
-    /// Public status sent to the frontend via get_status().
+    /// Public status sent to the frontend via `get_status()`.
     /// This is the serializable subset of the item's state.
     pub status: QueueItemStatus,
     /// The original download request as submitted by the user.
@@ -139,12 +139,12 @@ struct QueueItem {
     /// These are the "effective" options passed to GAMDL for this download.
     /// Updated during fallback (e.g., codec changes from alac to aac-he).
     pub merged_options: GamdlOptions,
-    /// Index into the settings.music_fallback_chain array.
+    /// Index into the `settings.music_fallback_chain` array.
     /// 0 = preferred codec (initial attempt), 1 = first fallback, etc.
-    /// Incremented by try_fallback() on codec-related errors.
+    /// Incremented by `try_fallback()` on codec-related errors.
     pub fallback_index: usize,
     /// Number of network retry attempts remaining before giving up.
-    /// Decremented by try_network_retry() on network-related errors.
+    /// Decremented by `try_network_retry()` on network-related errors.
     pub network_retries_left: u32,
 }
 
@@ -162,7 +162,7 @@ struct QueueItem {
 /// options from the previous session).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PersistedQueueItem {
-    /// The unique download ID (UUID v4), matching the original QueueItem's ID.
+    /// The unique download ID (UUID v4), matching the original `QueueItem`'s ID.
     pub id: String,
     /// The original download request as submitted by the user (URLs + optional overrides).
     pub request: DownloadRequest,
@@ -179,7 +179,7 @@ pub struct PersistedQueueItem {
 pub struct QueueExportFile {
     /// Schema version (always 1 for the initial format).
     pub version: u32,
-    /// Application identifier (always "MeedyaDL").
+    /// Application identifier (always "`MeedyaDL`").
     pub app: String,
     /// ISO 8601 timestamp of when the export was created.
     pub exported_at: String,
@@ -219,7 +219,7 @@ pub struct ExportedItem {
 #[derive(Debug)]
 pub struct DownloadQueue {
     /// The queue of download jobs (front = next to process).
-    /// VecDeque allows efficient push_back (enqueue) and iteration
+    /// `VecDeque` allows efficient `push_back` (enqueue) and iteration
     /// to find the next Queued item.
     items: VecDeque<QueueItem>,
     /// Maximum number of concurrent downloads (default: 1).
@@ -227,7 +227,7 @@ pub struct DownloadQueue {
     /// memory usage from concurrent GAMDL processes.
     max_concurrent: usize,
     /// Number of currently active (Downloading/Processing) downloads.
-    /// Incremented by next_pending(), decremented by on_task_finished().
+    /// Incremented by `next_pending()`, decremented by `on_task_finished()`.
     active_count: usize,
     /// Maximum number of network retry attempts per download (default: 3).
     /// Each download starts with this many retries; decremented on network errors.
@@ -235,13 +235,15 @@ pub struct DownloadQueue {
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
+///
 /// This type alias is used throughout the codebase when accessing the queue.
 /// Tauri's `State<QueueHandle>` injector provides this to command handlers.
-/// Ref: https://v2.tauri.app/develop/calling-rust/#accessing-managed-state
+/// Ref: <https://v2.tauri.app/develop/calling-rust/#accessing-managed-state>
 pub type QueueHandle = Arc<Mutex<DownloadQueue>>;
 
 /// Creates a new queue handle for use as Tauri managed state.
 /// Called once during app initialization (typically in main.rs setup).
+#[must_use] 
 pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
@@ -254,7 +256,8 @@ impl Default for DownloadQueue {
 
 impl DownloadQueue {
     /// Creates a new empty download queue.
-    pub fn new() -> Self {
+    #[must_use] 
+    pub const fn new() -> Self {
         Self {
             items: VecDeque::new(),
             max_concurrent: 1,
@@ -302,9 +305,7 @@ impl DownloadQueue {
                 codec_used: Some(
                     merged_options
                         .song_codec
-                        .as_ref()
-                        .map(|c| c.to_cli_string().to_string())
-                        .unwrap_or_else(|| settings.default_song_codec.to_cli_string().to_string()),
+                        .as_ref().map_or_else(|| settings.default_song_codec.to_cli_string().to_string(), |c| c.to_cli_string().to_string()),
                 ),
                 fallback_occurred: false,
                 warnings: Vec::new(),
@@ -329,12 +330,14 @@ impl DownloadQueue {
     /// Returns the public status of all queue items for display in the frontend.
     /// The frontend calls this (via a Tauri command) to render the queue list.
     /// Returns cloned statuses to avoid holding the lock during serialization.
+    #[must_use] 
     pub fn get_status(&self) -> Vec<QueueItemStatus> {
         self.items.iter().map(|item| item.status.clone()).collect()
     }
 
     /// Returns summary counts for the queue: (total, active, queued, completed, failed).
     /// Used by the frontend to display queue statistics in the header/badge.
+    #[must_use] 
     pub fn get_counts(&self) -> (usize, usize, usize, usize, usize) {
         let total = self.items.len();
         // Active includes both Downloading and Processing states
@@ -360,23 +363,23 @@ impl DownloadQueue {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
-                    log::info!("Download {} cancelled (was queued)", download_id);
+                    log::info!("Download {download_id} cancelled (was queued)");
                     true
                 }
                 DownloadState::Downloading | DownloadState::Processing => {
                     item.status.state = DownloadState::Cancelled;
                     // The active_count will be decremented when the running task
                     // detects the cancellation and stops
-                    log::info!("Download {} marked for cancellation", download_id);
+                    log::info!("Download {download_id} marked for cancellation");
                     true
                 }
                 _ => {
-                    log::debug!("Download {} already in terminal state", download_id);
+                    log::debug!("Download {download_id} already in terminal state");
                     false
                 }
             }
         } else {
-            log::warn!("Download {} not found in queue", download_id);
+            log::warn!("Download {download_id} not found in queue");
             false
         }
     }
@@ -396,7 +399,7 @@ impl DownloadQueue {
         });
         let removed = before - self.items.len();
         if removed > 0 {
-            log::info!("Cleared {} finished items from queue", removed);
+            log::info!("Cleared {removed} finished items from queue");
         }
         removed
     }
@@ -411,13 +414,13 @@ impl DownloadQueue {
 
     /// Updates progress information for a queue item based on a parsed GAMDL event.
     ///
-    /// Called by the stdout/stderr reader tasks in run_download_with_events()
+    /// Called by the stdout/stderr reader tasks in `run_download_with_events()`
     /// each time a line is parsed from GAMDL's output. The event type determines
     /// which status fields are updated:
     ///
-    /// - DownloadProgress: Updates percentage, speed, ETA (shown in progress bar)
-    /// - TrackInfo: Updates current track name (shown above progress bar)
-    /// - ProcessingStep: Transitions state to Processing (e.g., remuxing, tagging)
+    /// - `DownloadProgress`: Updates percentage, speed, ETA (shown in progress bar)
+    /// - `TrackInfo`: Updates current track name (shown above progress bar)
+    /// - `ProcessingStep`: Transitions state to Processing (e.g., remuxing, tagging)
     /// - Complete: Sets output path and 100% progress
     /// - Error: Records the error message for display
     pub fn update_item_progress(
@@ -439,7 +442,7 @@ impl DownloadQueue {
                     let track_name = if artist.is_empty() {
                         title.clone()
                     } else {
-                        format!("{} - {}", artist, title)
+                        format!("{artist} - {title}")
                     };
                     item.status.current_track = Some(track_name);
                 }
@@ -459,7 +462,10 @@ impl DownloadQueue {
                     // will determine the final state (retry, fallback, or Error).
                     item.status.error = Some(message.clone());
                 }
-                _ => {}
+                // Unknown events are raw GAMDL output lines that don't match
+                // any recognized pattern; they're logged for debugging but
+                // don't affect queue item state.
+                process::GamdlOutputEvent::Unknown { .. } => {}
             }
         }
     }
@@ -491,14 +497,14 @@ impl DownloadQueue {
 
     /// Checks if a download should attempt a fallback codec/resolution.
     ///
-    /// The fallback chain is defined in AppSettings::music_fallback_chain, e.g.:
+    /// The fallback chain is defined in `AppSettings::music_fallback_chain`, e.g.:
     /// `[Alac, AacHe, AacBinaural]`
     ///
     /// On each codec error, we advance to the next codec in the chain.
     /// This handles the case where Apple Music doesn't offer a track in the
     /// user's preferred codec (e.g., ALAC not available for all tracks).
     ///
-    /// The item is reset to Queued state so process_queue() will pick it up again.
+    /// The item is reset to Queued state so `process_queue()` will pick it up again.
     ///
     /// # Returns
     /// `Some(new_options)` if fallback should be attempted, `None` if all fallbacks exhausted.
@@ -550,8 +556,7 @@ impl DownloadQueue {
             // All codecs in the fallback chain have been tried and failed.
             // The download will remain in the Error state.
             log::info!(
-                "Download {} exhausted all fallback codecs",
-                download_id
+                "Download {download_id} exhausted all fallback codecs"
             );
             None
         }
@@ -575,7 +580,7 @@ impl DownloadQueue {
                 );
                 true
             } else {
-                log::info!("Download {} exhausted network retries", download_id);
+                log::info!("Download {download_id} exhausted network retries");
                 false
             }
         } else {
@@ -591,8 +596,8 @@ impl DownloadQueue {
     /// - The max concurrent limit has been reached
     ///
     /// When an item is selected, it transitions from Queued -> Downloading
-    /// and the active count is incremented. The caller (process_queue) must
-    /// eventually call on_task_finished() when the download completes.
+    /// and the active count is incremented. The caller (`process_queue`) must
+    /// eventually call `on_task_finished()` when the download completes.
     pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions)> {
         // Check if we're at the concurrent download limit
         if self.active_count >= self.max_concurrent {
@@ -615,25 +620,25 @@ impl DownloadQueue {
 
     /// Called when a download task finishes (success, error, or cancel).
     /// Decrements the active count so new downloads can start.
-    /// This must be called exactly once per next_pending() call to keep
-    /// the active_count accurate. The guard `if self.active_count > 0`
+    /// This must be called exactly once per `next_pending()` call to keep
+    /// the `active_count` accurate. The guard `if self.active_count > 0`
     /// prevents underflow in edge cases.
-    pub fn on_task_finished(&mut self) {
+    pub const fn on_task_finished(&mut self) {
         if self.active_count > 0 {
             self.active_count -= 1;
         }
     }
 
     /// Checks if a download has been cancelled by the user.
-    /// Called by the cancellation polling loop in run_download_with_events()
+    /// Called by the cancellation polling loop in `run_download_with_events()`
     /// every 250ms to detect if the user cancelled while the process is running.
     /// If true, the caller should kill the GAMDL subprocess.
+    #[must_use] 
     pub fn is_cancelled(&self, download_id: &str) -> bool {
         self.items
             .iter()
             .find(|i| i.status.id == download_id)
-            .map(|i| i.status.state == DownloadState::Cancelled)
-            .unwrap_or(false)
+            .is_some_and(|i| i.status.state == DownloadState::Cancelled)
     }
 
     /// Retries a failed or cancelled download by fully resetting it to the Queued state.
@@ -641,7 +646,7 @@ impl DownloadQueue {
     /// This is a "full reset" — the download starts from scratch with fresh options
     /// (re-merged from the original request + current settings), a reset fallback
     /// index, and full network retry budget. This differs from automatic retries
-    /// (try_fallback, try_network_retry) which only adjust specific fields.
+    /// (`try_fallback`, `try_network_retry`) which only adjust specific fields.
     ///
     /// Called by the frontend's "Retry" button via a Tauri command.
     ///
@@ -664,11 +669,9 @@ impl DownloadQueue {
                 item.status.codec_used = Some(
                     item.merged_options
                         .song_codec
-                        .as_ref()
-                        .map(|c| c.to_cli_string().to_string())
-                        .unwrap_or_else(|| settings.default_song_codec.to_cli_string().to_string()),
+                        .as_ref().map_or_else(|| settings.default_song_codec.to_cli_string().to_string(), |c| c.to_cli_string().to_string()),
                 );
-                log::info!("Download {} reset for retry", download_id);
+                log::info!("Download {download_id} reset for retry");
                 return true;
             }
         }
@@ -685,6 +688,7 @@ impl DownloadQueue {
     /// Only items in Queued, Downloading, or Processing states are included;
     /// completed/failed/cancelled items are not persisted (they are cleared
     /// on restart per the user's preference).
+    #[must_use] 
     pub fn get_persistable_items(&self) -> Vec<PersistedQueueItem> {
         self.items
             .iter()
@@ -742,10 +746,10 @@ impl DownloadQueue {
                         merged_options
                             .song_codec
                             .as_ref()
-                            .map(|c| c.to_cli_string().to_string())
-                            .unwrap_or_else(|| {
-                                settings.default_song_codec.to_cli_string().to_string()
-                            }),
+                            .map_or_else(
+                                || settings.default_song_codec.to_cli_string().to_string(),
+                                |c| c.to_cli_string().to_string(),
+                            ),
                     ),
                     fallback_occurred: false,
                     warnings: Vec::new(),
@@ -771,6 +775,7 @@ impl DownloadQueue {
     /// Includes all non-terminal items (Queued/Downloading/Processing).
     /// Each item contains only the original URLs and per-download overrides,
     /// so the importing device will merge them with its own settings.
+    #[must_use] 
     pub fn get_exportable_items(&self) -> Vec<ExportedItem> {
         self.items
             .iter()
@@ -823,13 +828,13 @@ impl DownloadQueue {
 /// to produce the final set of GAMDL CLI options.
 ///
 /// The merge follows a two-layer priority system:
-/// 1. **Global settings** (from AppSettings) form the base layer
+/// 1. **Global settings** (from `AppSettings`) form the base layer
 /// 2. **Per-download overrides** (from the frontend) override specific fields
 ///
 /// This allows users to set global defaults (e.g., always use ALAC) while
 /// still customizing individual downloads (e.g., this one in AAC-HE).
 ///
-/// The resulting GamdlOptions struct is what actually gets passed to
+/// The resulting `GamdlOptions` struct is what actually gets passed to
 /// `gamdl_service::build_gamdl_command_public()` to construct the CLI command.
 #[allow(clippy::field_reassign_with_default)]
 fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
@@ -870,24 +875,24 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     // /tmp/MeedyaDL on Linux). Using a dedicated subdirectory keeps
     // intermediate files isolated and easy to clean up. This avoids GAMDL's
     // default of "." which is unwritable from /Applications on macOS.
-    if !settings.temp_path.is_empty() {
-        options.temp_path = Some(settings.temp_path.clone());
-    } else {
+    if settings.temp_path.is_empty() {
         options.temp_path = Some(
             std::env::temp_dir()
                 .join("MeedyaDL")
                 .to_string_lossy()
                 .to_string(),
         );
+    } else {
+        options.temp_path = Some(settings.temp_path.clone());
     }
 
     // Apply tool paths from settings
-    options.cookies_path = settings.cookies_path.clone();
-    options.ffmpeg_path = settings.ffmpeg_path.clone();
-    options.mp4decrypt_path = settings.mp4decrypt_path.clone();
-    options.mp4box_path = settings.mp4box_path.clone();
-    options.nm3u8dlre_path = settings.nm3u8dlre_path.clone();
-    options.amdecrypt_path = settings.amdecrypt_path.clone();
+    options.cookies_path.clone_from(&settings.cookies_path);
+    options.ffmpeg_path.clone_from(&settings.ffmpeg_path);
+    options.mp4decrypt_path.clone_from(&settings.mp4decrypt_path);
+    options.mp4box_path.clone_from(&settings.mp4box_path);
+    options.nm3u8dlre_path.clone_from(&settings.nm3u8dlre_path);
+    options.amdecrypt_path.clone_from(&settings.amdecrypt_path);
 
     // Set download and remux modes
     options.download_mode = Some(settings.download_mode.clone());
@@ -906,19 +911,19 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     // This selective merge allows partial overrides (e.g., only change codec).
     if let Some(overrides) = overrides {
         if overrides.song_codec.is_some() {
-            options.song_codec = overrides.song_codec.clone();
+            options.song_codec.clone_from(&overrides.song_codec);
         }
         if overrides.music_video_resolution.is_some() {
-            options.music_video_resolution = overrides.music_video_resolution.clone();
+            options.music_video_resolution.clone_from(&overrides.music_video_resolution);
         }
         if overrides.music_video_codec_priority.is_some() {
-            options.music_video_codec_priority = overrides.music_video_codec_priority.clone();
+            options.music_video_codec_priority.clone_from(&overrides.music_video_codec_priority);
         }
         if overrides.music_video_remux_format.is_some() {
-            options.music_video_remux_format = overrides.music_video_remux_format.clone();
+            options.music_video_remux_format.clone_from(&overrides.music_video_remux_format);
         }
         if overrides.output_path.is_some() {
-            options.output_path = overrides.output_path.clone();
+            options.output_path.clone_from(&overrides.output_path);
         }
         if overrides.overwrite.is_some() {
             options.overwrite = overrides.overwrite;
@@ -939,7 +944,7 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         if let Some(ref tags) = options.exclude_tags {
             let filtered: Vec<&str> = tags
                 .split(',')
-                .map(|t| t.trim())
+                .map(str::trim)
                 .filter(|t| !t.eq_ignore_ascii_case("lyrics"))
                 .collect();
             if filtered.is_empty() {
@@ -972,7 +977,7 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
 /// When companion downloads are enabled, multiple codec versions of the same
 /// track can coexist in the same album folder. The suffix prevents filename
 /// collisions and makes the format instantly visible in file browsers.
-fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
+const fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
     match codec {
         SongCodec::Alac => Some("[Lossless]"),
         SongCodec::Atmos => Some("[Dolby Atmos]"),
@@ -1006,25 +1011,21 @@ fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
 /// | `AtmosToLosslessAndLossy`  | Yes                | Yes               | No      |
 /// | `SpecialistToLossy`        | Yes                | Yes               | No      |
 /// | `AtmosToAllFormats`        | Yes                | No                | No      |
-fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
+const fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
     match mode {
         // No companions → no suffix needed (only one version exists)
         CompanionMode::Disabled => false,
-        // Only Atmos gets a companion (ALAC), so only Atmos needs a suffix.
-        // ALAC downloads in this mode have no companion → no suffix.
-        CompanionMode::AtmosToLossless => matches!(codec, SongCodec::Atmos),
+        // Only Atmos gets a companion (ALAC or all formats), so only Atmos
+        // needs a suffix. ALAC downloads in these modes have no companion → no suffix.
+        CompanionMode::AtmosToLossless | CompanionMode::AtmosToAllFormats => {
+            matches!(codec, SongCodec::Atmos)
+        }
         // Both Atmos and ALAC get companions (at least a lossy one),
         // so both need suffixes to coexist with the clean-filename companion.
-        CompanionMode::AtmosToLosslessAndLossy => {
+        // Same for SpecialistToLossy: any specialist codec gets a lossy companion.
+        CompanionMode::AtmosToLosslessAndLossy | CompanionMode::SpecialistToLossy => {
             matches!(codec, SongCodec::Atmos | SongCodec::Alac)
         }
-        // Same as above: any specialist codec gets a lossy companion.
-        CompanionMode::SpecialistToLossy => {
-            matches!(codec, SongCodec::Atmos | SongCodec::Alac)
-        }
-        // Atmos → 3 companions (AC3, ALAC, AAC): primary Atmos gets suffix.
-        // Non-Atmos codecs in this mode have no companions → no suffix.
-        CompanionMode::AtmosToAllFormats => matches!(codec, SongCodec::Atmos),
     }
 }
 
@@ -1170,31 +1171,30 @@ fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
     // For each file template, append the suffix to the existing value.
     // If the template is None (not set), use the GAMDL default with the suffix.
     if let Some(ref template) = options.single_disc_file_template {
-        options.single_disc_file_template = Some(format!("{} {}", template, suffix));
+        options.single_disc_file_template = Some(format!("{template} {suffix}"));
     } else {
         options.single_disc_file_template =
-            Some(format!("{{track:02d}} {{title}} {}", suffix));
+            Some(format!("{{track:02d}} {{title}} {suffix}"));
     }
 
     if let Some(ref template) = options.multi_disc_file_template {
-        options.multi_disc_file_template = Some(format!("{} {}", template, suffix));
+        options.multi_disc_file_template = Some(format!("{template} {suffix}"));
     } else {
         options.multi_disc_file_template =
-            Some(format!("{{disc}}-{{track:02d}} {{title}} {}", suffix));
+            Some(format!("{{disc}}-{{track:02d}} {{title}} {suffix}"));
     }
 
     if let Some(ref template) = options.no_album_file_template {
-        options.no_album_file_template = Some(format!("{} {}", template, suffix));
+        options.no_album_file_template = Some(format!("{template} {suffix}"));
     } else {
-        options.no_album_file_template = Some(format!("{{title}} {}", suffix));
+        options.no_album_file_template = Some(format!("{{title}} {suffix}"));
     }
 
     if let Some(ref template) = options.playlist_file_template {
-        options.playlist_file_template = Some(format!("{} {}", template, suffix));
+        options.playlist_file_template = Some(format!("{template} {suffix}"));
     } else {
         options.playlist_file_template = Some(format!(
-            "Playlists/{{playlist_artist}}/{{playlist_title}} {}",
-            suffix
+            "Playlists/{{playlist_artist}}/{{playlist_title}} {suffix}"
         ));
     }
 
@@ -1217,6 +1217,12 @@ fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
 /// # Arguments
 /// * `app` - Tauri app handle for event emission and path resolution
 /// * `queue` - Shared queue handle
+// Monolithic by necessity: this function orchestrates the entire queue lifecycle
+// including async closures with complex move semantics, cancellation polling,
+// fallback/retry decision trees, companion spawning, and recursive self-calls.
+// Extracting helper functions would require passing many Arc/Mutex handles and
+// would fragment the sequential orchestration logic without meaningful benefit.
+#[allow(clippy::too_many_lines)]
 pub fn process_queue(
     app: AppHandle,
     queue: QueueHandle,
@@ -1234,7 +1240,7 @@ pub fn process_queue(
         return;
     };
 
-    log::info!("Processing download {}", download_id);
+    log::info!("Processing download {download_id}");
 
     // === Codec suffix: modify file templates for companion coexistence ===
     // When the companion mode would produce companions for this codec,
@@ -1244,7 +1250,7 @@ pub fn process_queue(
     // Keep the original (unsuffixed) options for companion downloads later.
     let companion_base_options = options.clone();
     let mut download_options = options;
-    let settings_for_companion = load_settings_for_queue(&app).await;
+    let settings_for_companion = load_settings_for_queue(&app);
     if let Some(ref codec) = download_options.song_codec {
         if needs_primary_suffix(codec, &settings_for_companion.companion_mode) {
             apply_codec_suffix(&mut download_options);
@@ -1264,7 +1270,7 @@ pub fn process_queue(
     // This allows process_queue() to return immediately while the download runs.
     let app_clone = app.clone();
     let queue_clone = queue.clone();
-    let dl_id = download_id.clone();
+    let dl_id = download_id;
 
     tokio::spawn(async move {
         // Run the GAMDL download with real-time event forwarding.
@@ -1312,16 +1318,14 @@ pub fn process_queue(
                                 "Requested format is not available".to_string()
                             });
                             log::info!(
-                                "Download {} exited 0 with codec error, attempting fallback: {}",
-                                dl_id,
-                                error_msg
+                                "Download {dl_id} exited 0 with codec error, attempting fallback: {error_msg}"
                             );
-                            let settings = load_settings_for_queue(&app_clone).await;
+                            let settings = load_settings_for_queue(&app_clone);
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
 
                             if let Some(_new_options) = q.try_fallback(&dl_id, &settings) {
-                                log::info!("Download {} will retry with fallback codec", dl_id);
+                                log::info!("Download {dl_id} will retry with fallback codec");
                                 drop(q);
                                 save_queue_to_disk(&app_clone, &queue_clone).await;
                                 process_queue(app_clone.clone(), queue_clone.clone()).await;
@@ -1347,9 +1351,8 @@ pub fn process_queue(
                                 }
                             }
                             log::warn!(
-                                "Download {} completed with IO errors — recovering with \
-                                 configured output path",
-                                dl_id
+                                "Download {dl_id} completed with IO errors — recovering with \
+                                 configured output path"
                             );
                             // Fall through to normal completion with IO warnings
                         } else if !has_io_error || has_codec_error {
@@ -1365,8 +1368,7 @@ pub fn process_queue(
                             } else if let Some(last_warning) = warnings.last() {
                                 format!(
                                     "Download completed but no output files were \
-                                     produced: {}",
-                                    last_warning
+                                     produced: {last_warning}"
                                 )
                             } else {
                                 "Download completed but no output files were produced. \
@@ -1374,9 +1376,7 @@ pub fn process_queue(
                                     .to_string()
                             };
                             log::warn!(
-                                "Download {} exited 0 but produced no output: {}",
-                                dl_id,
-                                error_msg
+                                "Download {dl_id} exited 0 but produced no output: {error_msg}"
                             );
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
@@ -1416,10 +1416,12 @@ pub fn process_queue(
                     // Extract output_path and codec_used while we have the lock
                     let status = q.get_status();
                     let item = status.iter().find(|s| s.id == dl_id);
-                    (
+                    let result = (
                         item.and_then(|s| s.output_path.clone()),
                         item.and_then(|s| s.codec_used.clone()),
-                    )
+                    );
+                    drop(q);
+                    result
                 };
 
                 // Verify the output path actually exists on disk. If GAMDL
@@ -1427,9 +1429,7 @@ pub fn process_queue(
                 if let Some(ref path) = output_path_for_artwork {
                     if !std::path::Path::new(path).exists() {
                         log::warn!(
-                            "Download {} output path does not exist: {}",
-                            dl_id,
-                            path
+                            "Download {dl_id} output path does not exist: {path}"
                         );
                         let mut q = queue_clone.lock().await;
                         q.add_warnings(
@@ -1441,7 +1441,7 @@ pub fn process_queue(
                     }
                 }
 
-                log::info!("Download {} completed successfully", dl_id);
+                log::info!("Download {dl_id} completed successfully");
 
                 // Persist queue state: completed item is now in terminal state,
                 // so it will be excluded from the persistence file (only
@@ -1480,8 +1480,7 @@ pub fn process_queue(
                             output_dir.clone()
                         } else {
                             dir.parent()
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or(output_dir.clone())
+                                .map_or_else(|| output_dir.clone(), |p| p.to_string_lossy().to_string())
                         };
 
                         // --- Step 1: Enriched metadata tagging ---
@@ -1511,18 +1510,14 @@ pub fn process_queue(
                                 Ok((count, metadata)) => {
                                     if count > 0 {
                                         log::info!(
-                                            "Enriched {} file(s) with metadata for {}",
-                                            count,
-                                            enrich_dl_id
+                                            "Enriched {count} file(s) with metadata for {enrich_dl_id}"
                                         );
                                     }
                                     metadata
                                 }
                                 Err(e) => {
                                     log::debug!(
-                                        "Metadata enrichment failed for {}: {}",
-                                        enrich_dl_id,
-                                        e
+                                        "Metadata enrichment failed for {enrich_dl_id}: {e}"
                                     );
                                     None
                                 }
@@ -1535,7 +1530,7 @@ pub fn process_queue(
                         // Reuse the AlbumMetadata from enrichment to avoid a
                         // duplicate API call. Falls back to a fresh API call
                         // if enrichment didn't produce metadata.
-                        let enrich_settings = load_settings_for_queue(&enrich_app).await;
+                        let enrich_settings = load_settings_for_queue(&enrich_app);
 
                         let artwork_result = if let Some(ref metadata) = album_metadata {
                             super::animated_artwork_service::process_album_artwork_from_metadata(
@@ -1555,8 +1550,7 @@ pub fn process_queue(
                             Ok(result) => {
                                 if result.square_downloaded || result.portrait_downloaded {
                                     log::info!(
-                                        "Animated artwork downloaded for {}",
-                                        enrich_dl_id
+                                        "Animated artwork downloaded for {enrich_dl_id}"
                                     );
 
                                     // Hide artwork files if enabled in settings
@@ -1566,14 +1560,14 @@ pub fn process_queue(
                                             if let Err(e) = super::animated_artwork_service::hide_file(
                                                 &dir.join("FrontCover.mp4"),
                                             ).await {
-                                                log::debug!("Failed to hide FrontCover.mp4: {}", e);
+                                                log::debug!("Failed to hide FrontCover.mp4: {e}");
                                             }
                                         }
                                         if result.portrait_downloaded {
                                             if let Err(e) = super::animated_artwork_service::hide_file(
                                                 &dir.join("PortraitCover.mp4"),
                                             ).await {
-                                                log::debug!("Failed to hide PortraitCover.mp4: {}", e);
+                                                log::debug!("Failed to hide PortraitCover.mp4: {e}");
                                             }
                                         }
                                     }
@@ -1584,9 +1578,7 @@ pub fn process_queue(
                             }
                             Err(e) => {
                                 log::debug!(
-                                    "Animated artwork skipped for {}: {}",
-                                    enrich_dl_id,
-                                    e
+                                    "Animated artwork skipped for {enrich_dl_id}: {e}"
                                 );
                             }
                         }
@@ -1601,17 +1593,13 @@ pub fn process_queue(
                             ).await {
                                 Ok(count) if count > 0 => {
                                     log::info!(
-                                        "AcousticID tagged {} file(s) for {}",
-                                        count,
-                                        enrich_dl_id
+                                        "AcousticID tagged {count} file(s) for {enrich_dl_id}"
                                     );
                                 }
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::debug!(
-                                        "AcousticID skipped for {}: {}",
-                                        enrich_dl_id,
-                                        e
+                                        "AcousticID skipped for {enrich_dl_id}: {e}"
                                     );
                                 }
                             }
@@ -1627,17 +1615,13 @@ pub fn process_queue(
                             ).await {
                                 Ok(count) if count > 0 => {
                                     log::info!(
-                                        "ReplayGain analysed {} file(s) for {}",
-                                        count,
-                                        enrich_dl_id
+                                        "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
                                     );
                                 }
                                 Ok(_) => {}
                                 Err(e) => {
                                     log::debug!(
-                                        "ReplayGain skipped for {}: {}",
-                                        enrich_dl_id,
-                                        e
+                                        "ReplayGain skipped for {enrich_dl_id}: {e}"
                                     );
                                 }
                             }
@@ -1653,7 +1637,7 @@ pub fn process_queue(
                 // a single background task to avoid concurrent writes to the
                 // same album directory.
                 {
-                    let companion_settings = load_settings_for_queue(&app_clone).await;
+                    let companion_settings = load_settings_for_queue(&app_clone);
                     let primary_codec_str = completed_codec.unwrap_or_default();
                     let companion_tiers = plan_companions(
                         &companion_settings.companion_mode,
@@ -1749,9 +1733,7 @@ pub fn process_queue(
                                                             Err(e) => {
                                                                 log::debug!(
                                                                     "Companion metadata tagging \
-                                                                     failed for {}: {}",
-                                                                    comp_dl_id,
-                                                                    e
+                                                                     failed for {comp_dl_id}: {e}"
                                                                 );
                                                             }
                                                         }
@@ -1778,16 +1760,14 @@ pub fn process_queue(
                                                 }
                                                 Err(e) => {
                                                     log::debug!(
-                                                        "Companion process error: {}",
-                                                        e
+                                                        "Companion process error: {e}"
                                                     );
                                                 }
                                             }
                                         }
                                         Err(e) => {
                                             log::debug!(
-                                                "Failed to spawn companion: {}",
-                                                e
+                                                "Failed to spawn companion: {e}"
                                             );
                                         }
                                     }
@@ -1795,9 +1775,7 @@ pub fn process_queue(
 
                                 if !tier_succeeded {
                                     log::debug!(
-                                        "Companion tier {} exhausted all codecs for {}",
-                                        tier_idx,
-                                        comp_dl_id
+                                        "Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}"
                                     );
                                 }
                             }
@@ -1811,7 +1789,7 @@ pub fn process_queue(
                 // format using --synced-lyrics-only. This produces sidecar lyrics
                 // files (.lrc, .srt, .ttml) without re-downloading audio.
                 {
-                    let lyrics_settings = load_settings_for_queue(&app_clone).await;
+                    let lyrics_settings = load_settings_for_queue(&app_clone);
 
                     // Only spawn lyrics companions when:
                     // 1. There are companion formats configured
@@ -1825,7 +1803,7 @@ pub fn process_queue(
                         let lyrics_base_opts = companion_base_options.clone();
                         let lyrics_dl_id = dl_id.clone();
                         let lyrics_formats =
-                            lyrics_settings.companion_lyrics_formats.clone();
+                            lyrics_settings.companion_lyrics_formats;
 
                         tokio::spawn(async move {
                             // Process each companion lyrics format sequentially
@@ -1901,16 +1879,14 @@ pub fn process_queue(
                                             Err(e) => {
                                                 log::debug!(
                                                     "Lyrics companion process \
-                                                     error: {}",
-                                                    e
+                                                     error: {e}"
                                                 );
                                             }
                                         }
                                     }
                                     Err(e) => {
                                         log::debug!(
-                                            "Failed to spawn lyrics companion: {}",
-                                            e
+                                            "Failed to spawn lyrics companion: {e}"
                                         );
                                     }
                                 }
@@ -1924,25 +1900,23 @@ pub fn process_queue(
                 // Classify the error to determine the appropriate retry strategy.
                 // process::classify_error() returns "codec", "network", or "unknown".
                 let error_category = process::classify_error(&error_msg);
-                log::error!("Download {} failed ({}): {}", dl_id, error_category, error_msg);
+                log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
 
                 // Determine if we should retry or fallback based on error category
                 let should_retry = match error_category {
                     "codec" => {
                         // Codec error: the requested audio codec isn't available for this track.
                         // Try the next codec in the fallback chain (e.g., alac -> aac-he).
-                        let settings = load_settings_for_queue(&app_clone).await;
+                        let settings = load_settings_for_queue(&app_clone);
                         let mut q = queue_clone.lock().await;
                         q.set_error(&dl_id, &error_msg);
                         q.on_task_finished();
 
-                        if let Some(_new_options) = q.try_fallback(&dl_id, &settings) {
+                        q.try_fallback(&dl_id, &settings).is_some_and(|_new_options| {
                             // try_fallback resets the item to Queued with the new codec
-                            log::info!("Download {} will retry with fallback codec", dl_id);
+                            log::info!("Download {dl_id} will retry with fallback codec");
                             true
-                        } else {
-                            false
-                        }
+                        })
                     }
                     "network" => {
                         // Network error: transient connection issue.
@@ -1953,7 +1927,7 @@ pub fn process_queue(
 
                         if q.try_network_retry(&dl_id) {
                             // try_network_retry resets the item to Queued with same options
-                            log::info!("Download {} will retry (network error)", dl_id);
+                            log::info!("Download {dl_id} will retry (network error)");
                             true
                         } else {
                             false
@@ -2034,7 +2008,7 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
         }
     }
 
-    exception_line.map(|s| s.to_string())
+    exception_line.map(std::string::ToString::to_string)
 }
 
 /// Runs a GAMDL download while forwarding parsed events to both
@@ -2054,6 +2028,10 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
 /// message if the process exits with a non-zero code. On success, returns
 /// any non-fatal warning messages collected during the run (error-pattern
 /// lines from GAMDL output that didn't cause a non-zero exit).
+// Monolithic by necessity: manages subprocess lifecycle (spawn, stdout/stderr
+// readers, cancellation polling loop, exit status handling) with shared
+// Arc<Mutex> state that makes extraction impractical.
+#[allow(clippy::too_many_lines)]
 async fn run_download_with_events(
     app: &AppHandle,
     download_id: &str,
@@ -2077,7 +2055,7 @@ async fn run_download_with_events(
     // Spawn the GAMDL subprocess
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to start GAMDL process: {}", e))?;
+        .map_err(|e| format!("Failed to start GAMDL process: {e}"))?;
 
     // Take stdout/stderr handles
     let stdout = child
@@ -2126,7 +2104,7 @@ async fn run_download_with_events(
                 // outputs for terminal colouring but render as garbage
                 // in the Activity Log's HTML view.
                 let clean_line = process::strip_ansi_codes(&line);
-                log::debug!("[gamdl stdout] {}", clean_line);
+                log::debug!("[gamdl stdout] {clean_line}");
 
                 // Deduplicate: only emit to Activity Log if this line
                 // hasn't already been emitted by the other reader.
@@ -2181,7 +2159,7 @@ async fn run_download_with_events(
             while let Ok(Some(line)) = lines.next_line().await {
                 // Strip ANSI escape codes before display and parsing
                 let clean_line = process::strip_ansi_codes(&line);
-                log::debug!("[gamdl stderr] {}", clean_line);
+                log::debug!("[gamdl stderr] {clean_line}");
 
                 // Deduplicate: only emit to Activity Log if this line
                 // hasn't already been emitted by the stdout reader.
@@ -2237,7 +2215,7 @@ async fn run_download_with_events(
         {
             let q = queue.lock().await;
             if q.is_cancelled(download_id) {
-                log::info!("Download {} cancelled, killing process", download_id);
+                log::info!("Download {download_id} cancelled, killing process");
                 // Kill the GAMDL process and wait for cleanup
                 let _ = child.kill().await;
                 let _ = child.wait().await;
@@ -2258,7 +2236,7 @@ async fn run_download_with_events(
                 // 250ms provides a good balance between responsiveness and CPU usage.
                 tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
             }
-            Err(e) => return Err(format!("Failed to wait for GAMDL process: {}", e)),
+            Err(e) => return Err(format!("Failed to wait for GAMDL process: {e}")),
         }
     };
 
@@ -2281,44 +2259,44 @@ async fn run_download_with_events(
         let errors = collected_errors.lock().await;
         let raw_lines = raw_stderr_lines.lock().await;
 
-        if let Some(last_error) = errors.last() {
-            // If the last collected error is just the "Traceback" header,
-            // try to extract the actual Python exception from raw stderr.
-            // The parser processes lines independently, so the intermediate
-            // traceback frames and the final exception line may not have been
-            // captured as Error events.
-            let lower = last_error.to_lowercase();
-            if lower.contains("traceback") {
-                if let Some(exception) = extract_python_exception(&raw_lines) {
-                    Err(exception)
+        errors.last().map_or_else(
+            || {
+                // Fallback to exit code if no error messages were collected
+                // (e.g., GAMDL crashed without printing an error)
+                let code = status.code().unwrap_or(-1);
+                Err(format!("GAMDL process exited with code {code}"))
+            },
+            |last_error| {
+                // If the last collected error is just the "Traceback" header,
+                // try to extract the actual Python exception from raw stderr.
+                // The parser processes lines independently, so the intermediate
+                // traceback frames and the final exception line may not have been
+                // captured as Error events.
+                let lower = last_error.to_lowercase();
+                if lower.contains("traceback") {
+                    extract_python_exception(&raw_lines)
+                        .map_or_else(|| Err(last_error.clone()), Err)
                 } else {
                     Err(last_error.clone())
                 }
-            } else {
-                Err(last_error.clone())
-            }
-        } else {
-            // Fallback to exit code if no error messages were collected
-            // (e.g., GAMDL crashed without printing an error)
-            let code = status.code().unwrap_or(-1);
-            Err(format!("GAMDL process exited with code {}", code))
-        }
+            },
+        )
     }
 }
 
 /// Loads the current app settings for use during queue processing decisions.
 ///
-/// This is called during the error handling path of process_queue() to
-/// access the fallback chain configuration. It uses config_service::load_settings()
+/// This is called during the error handling path of `process_queue()` to
+/// access the fallback chain configuration. It uses `config_service::load_settings()`
 /// rather than cached settings to ensure the latest user preferences are used
 /// (the user might change settings while downloads are running).
 ///
-/// Returns AppSettings::default() on load failure to avoid blocking queue processing.
-async fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
+/// Returns `AppSettings::default()` on load failure to avoid blocking queue processing.
+fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
     match config_service::load_settings(app) {
         Ok(settings) => settings,
         Err(e) => {
-            log::warn!("Failed to load settings for fallback: {}, using defaults", e);
+            log::warn!("Failed to load settings for fallback: {e}, using defaults");
             AppSettings::default()
         }
     }
@@ -2352,11 +2330,11 @@ pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
     match serde_json::to_string_pretty(&items) {
         Ok(json) => {
             if let Err(e) = std::fs::write(&queue_path, json) {
-                log::debug!("Failed to save queue to disk: {}", e);
+                log::debug!("Failed to save queue to disk: {e}");
             }
         }
         Err(e) => {
-            log::debug!("Failed to serialize queue: {}", e);
+            log::debug!("Failed to serialize queue: {e}");
         }
     }
 }
@@ -2366,10 +2344,12 @@ pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
 /// Returns an empty `Vec` on missing or invalid file (graceful degradation
 /// for first run or file corruption). This is intentional: the queue should
 /// start empty rather than crash if persistence data is unavailable.
+#[must_use] 
 pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
-    match std::fs::read_to_string(&queue_path) {
-        Ok(json) => match serde_json::from_str::<Vec<PersistedQueueItem>>(&json) {
+    std::fs::read_to_string(&queue_path).map_or_else(
+        |_| vec![], // File doesn't exist (first run) — not an error
+        |json| match serde_json::from_str::<Vec<PersistedQueueItem>>(&json) {
             Ok(items) => {
                 if !items.is_empty() {
                     log::info!("Loaded {} persisted queue item(s) from disk", items.len());
@@ -2377,12 +2357,11 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
                 items
             }
             Err(e) => {
-                log::debug!("Failed to parse queue.json: {}", e);
+                log::debug!("Failed to parse queue.json: {e}");
                 vec![]
             }
         },
-        Err(_) => vec![], // File doesn't exist (first run) — not an error
-    }
+    )
 }
 
 /// Deletes the `queue.json` persistence file.

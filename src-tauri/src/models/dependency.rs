@@ -57,10 +57,10 @@ use serde::{Deserialize, Serialize};
 /// |---------------|----------|----------------------------------------------|
 /// | Python 3.12+  | Yes      | Runtime for GAMDL CLI                        |
 /// | GAMDL         | Yes      | Core Apple Music downloader                  |
-/// | FFmpeg        | Yes      | Audio/video remuxing and conversion          |
+/// | `FFmpeg`        | Yes      | Audio/video remuxing and conversion          |
 /// | mp4decrypt    | No       | Widevine DRM content decryption              |
 /// | N_m3u8DL-RE   | No       | Alternative (faster) HLS stream downloader   |
-/// | MP4Box        | No       | Alternative remuxer (GPAC)                   |
+/// | `MP4Box`        | No       | Alternative remuxer (GPAC)                   |
 ///
 /// ## Serialization
 ///
@@ -96,7 +96,7 @@ pub struct DependencyInfo {
     /// constructing CLI arguments. `None` when not installed.
     pub path: Option<String>,
 
-    /// Latest available version as reported by the update check (PyPI for
+    /// Latest available version as reported by the update check (`PyPI` for
     /// Python packages, GitHub releases for binaries). `None` when the
     /// update check has not been performed or is not applicable.
     pub latest_version: Option<String>,
@@ -132,7 +132,7 @@ pub struct DependencyInfo {
 /// `#[serde(rename_all = "snake_case")]` produces `"not_installed"`,
 /// `"installing"`, `"installed"`, and `"error"` in JSON -- matching the
 /// TypeScript union type in the frontend.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyInstallStatus {
     /// The dependency is not present on the system. The setup wizard
@@ -165,9 +165,9 @@ pub enum DependencyInstallStatus {
 ///
 /// ## Update sources
 ///
-/// - **GAMDL**: checked via PyPI JSON API (`https://pypi.org/pypi/gamdl/json`).
-/// - **FFmpeg**: checked via GitHub releases API.
-/// - **mp4decrypt, N_m3u8DL-RE, MP4Box**: checked via their respective
+/// - **GAMDL**: checked via `PyPI` JSON API (`https://pypi.org/pypi/gamdl/json`).
+/// - **`FFmpeg`**: checked via GitHub releases API.
+/// - **mp4decrypt, N_m3u8DL-RE, `MP4Box`**: checked via their respective
 ///   GitHub release pages.
 /// - **Python**: checked via the `python-build-standalone` GitHub releases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,7 +193,7 @@ pub struct UpdateInfo {
     /// importance. `None` when release notes are not available.
     pub release_notes: Option<String>,
 
-    /// Whether this update is compatible with the current MeedyaDL version.
+    /// Whether this update is compatible with the current `MeedyaDL` version.
     /// Set to `false` if a major version bump in the dependency would
     /// require changes to the GUI's integration code. When `false`, the
     /// update UI shows a warning and may block the update until the GUI

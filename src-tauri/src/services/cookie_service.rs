@@ -307,6 +307,7 @@ const BROWSER_DEFS: &[BrowserDef] = &[
 ///
 /// # Returns
 /// A vector of `DetectedBrowser` entries for each installed browser.
+#[must_use] 
 pub fn detect_browsers() -> Vec<DetectedBrowser> {
     let mut detected = Vec::new();
 
@@ -338,17 +339,13 @@ fn is_browser_installed(def: &BrowserDef) -> bool {
 
     // Get the base directory for browser profiles
     let base_dir = get_browser_base_dir();
-    let base_dir = match base_dir {
-        Some(dir) => dir,
-        None => return false,
+    let Some(base_dir) = base_dir else {
+        return false;
     };
 
     // Check if the browser's profile directory exists
     let profile_path = get_browser_profile_path(def, &base_dir);
-    match profile_path {
-        Some(path) => path.exists(),
-        None => false,
-    }
+    profile_path.is_some_and(|path| path.exists())
 }
 
 /// Returns the base directory where browsers store their profiles.
@@ -428,8 +425,14 @@ const APPLE_MUSIC_DOMAINS: &[&str] = &["apple.com", "mzstatic.com"];
 /// - **Windows/Linux**: Transparent decryption via DPAPI / Secret Service
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving the app data directory and updating settings
+/// * `app` - Tauri `AppHandle` for resolving the app data directory and updating settings
 /// * `browser_id` - The machine-readable browser identifier (e.g., "chrome", "firefox")
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the browser is not recognized, cookie extraction
+/// fails (permission denied, decryption error), or the cookies file cannot
+/// be written.
 ///
 /// # Returns
 /// * `Ok(CookieImportResult)` - Import result with cookie counts and file path
@@ -439,7 +442,7 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
     let domain_filter = Some(
         APPLE_MUSIC_DOMAINS
             .iter()
-            .map(|d| d.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<String>>(),
     );
 
@@ -454,11 +457,11 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
     // Ensure the parent directory exists
     if let Some(parent) = cookies_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create cookies directory: {}", e))?;
+            .map_err(|e| format!("Failed to create cookies directory: {e}"))?;
     }
 
     std::fs::write(&cookies_path, &netscape_content)
-        .map_err(|e| format!("Failed to write cookies file: {}", e))?;
+        .map_err(|e| format!("Failed to write cookies file: {e}"))?;
 
     let cookies_path_str = cookies_path
         .to_str()
@@ -476,7 +479,7 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
     if let Ok(mut settings) = config_service::load_settings(app) {
         settings.cookies_path = Some(cookies_path_str.clone());
         if let Err(e) = config_service::save_settings(app, &settings) {
-            log::warn!("Failed to update settings with new cookies path: {}", e);
+            log::warn!("Failed to update settings with new cookies path: {e}");
         }
     }
 
@@ -491,15 +494,14 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
         if cookie.domain.contains("apple.com") || cookie.domain.contains("mzstatic.com") {
             apple_music_count += 1;
             if let Some(expires) = cookie.expires {
-                let expires_i64 = expires as i64;
+                let expires_i64 = i64::try_from(expires).unwrap_or(i64::MAX);
                 if expires_i64 > 0 && expires_i64 < now {
                     has_expired = true;
                 } else if expires_i64 > 0 {
                     let days_until = (expires_i64 - now) / 86400;
                     if days_until < 7 {
                         warnings.push(format!(
-                            "Apple Music cookies expire in {} day(s)",
-                            days_until
+                            "Apple Music cookies expire in {days_until} day(s)"
                         ));
                     }
                 }
@@ -554,13 +556,13 @@ fn call_rookie(
         "arc" => rookie::arc(domains),
         #[cfg(target_os = "macos")]
         "safari" => rookie::safari(domains),
-        _ => return Err(format!("Unsupported browser: {}", browser_id)),
+        _ => return Err(format!("Unsupported browser: {browser_id}")),
     };
 
-    result.map_err(|e| format!("Failed to extract cookies from {}: {}", browser_id, e))
+    result.map_err(|e| format!("Failed to extract cookies from {browser_id}: {e}"))
 }
 
-/// Converts a vector of rookie::enums::Cookie structs to Netscape cookie file format.
+/// Converts a vector of `rookie::enums::Cookie` structs to Netscape cookie file format.
 ///
 /// The Netscape cookie format is a tab-separated text format with 7 fields per line:
 ///   `domain \t subdomain_flag \t path \t secure \t expires \t name \t value`
@@ -575,7 +577,7 @@ fn call_rookie(
 /// standard header comment.
 ///
 /// # Reference
-/// https://curl.se/docs/http-cookies.html
+/// <https://curl.se/docs/http-cookies.html>
 fn cookies_to_netscape(cookies: &[rookie::enums::Cookie]) -> String {
     let mut lines = Vec::new();
 
@@ -611,8 +613,7 @@ fn cookies_to_netscape(cookies: &[rookie::enums::Cookie]) -> String {
         let value = &cookie.value;
 
         lines.push(format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            domain, subdomain_flag, path, secure, expires, name, value
+            "{domain}\t{subdomain_flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}"
         ));
     }
 
@@ -639,6 +640,7 @@ fn cookies_to_netscape(cookies: &[rookie::enums::Cookie]) -> String {
 ///
 /// # Returns
 /// `true` if Full Disk Access is granted (or not required on this platform).
+#[must_use] 
 pub fn check_full_disk_access() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -647,7 +649,7 @@ pub fn check_full_disk_access() -> bool {
         // 1. Safari is always installed on macOS
         // 2. The file is always TCC-protected
         // 3. Reading it requires FDA (not just the Safari data directory)
-        if let Some(home) = dirs::home_dir() {
+        dirs::home_dir().is_some_and(|home| {
             let test_path = home.join("Library/Safari/Bookmarks.plist");
             // Attempt to open the file. If we can open it, FDA is granted.
             // If the error is "permission denied", FDA is not granted.
@@ -666,9 +668,7 @@ pub fn check_full_disk_access() -> bool {
                     }
                 }
             }
-        } else {
-            false
-        }
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
