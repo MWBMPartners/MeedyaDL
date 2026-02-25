@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add sys-locale dependency for localized Apple Music storefront detection
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.24] - 2026-02-25
+
 ### 🐛 Bug Fixes
 
 - Sign bundled macOS dependencies with Developer ID for notarization [skip ci]
