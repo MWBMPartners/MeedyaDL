@@ -40,6 +40,11 @@ use crate::services::cookie_service::{CookieImportResult, DetectedBrowser};
 /// profile directories on disk. No cookies are read during detection, and
 /// no OS permission prompts are triggered.
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if browser detection encounters an unexpected
+/// filesystem error (unlikely in practice).
+///
 /// # Returns
 /// * `Ok(Vec<DetectedBrowser>)` - List of installed browsers with metadata
 ///   (id, name, icon hint, and whether Full Disk Access is required).
@@ -69,8 +74,13 @@ pub async fn detect_browsers() -> Result<Vec<DetectedBrowser>, String> {
 /// - **Linux**: Uses D-Bus Secret Service for Chromium key decryption.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving paths and updating settings
+/// * `app` - Tauri `AppHandle` for resolving paths and updating settings
 /// * `browser_id` - Machine-readable browser identifier (e.g., "chrome", "firefox")
+///
+/// # Errors
+///
+/// Returns `Err(String)` if cookie extraction fails (browser not found,
+/// permission denied, decryption failure, etc.).
 ///
 /// # Returns
 /// * `Ok(CookieImportResult)` - Result with cookie counts, warnings, and saved file path
@@ -80,7 +90,7 @@ pub async fn import_cookies_from_browser(
     app: AppHandle,
     browser_id: String,
 ) -> Result<CookieImportResult, String> {
-    log::info!("Importing cookies from browser: {}", browser_id);
+    log::info!("Importing cookies from browser: {browser_id}");
     cookie_service::extract_and_save(&app, &browser_id)
 }
 
@@ -94,6 +104,10 @@ pub async fn import_cookies_from_browser(
 ///
 /// On non-macOS platforms, this always returns `true` since FDA is a
 /// macOS-only concept.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the FDA check encounters an unexpected error.
 ///
 /// # Returns
 /// * `Ok(true)` - FDA is granted (or not required on this platform)

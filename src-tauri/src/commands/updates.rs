@@ -63,13 +63,18 @@ use crate::services::update_checker::{self, ComponentUpdate, UpdateCheckResult};
 /// - When the user manually clicks "Check for Updates" in the settings page
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for accessing installed versions and Python path.
+/// * `app` - Tauri `AppHandle` for accessing installed versions and Python path.
 ///
 /// # Returns
 /// * `Ok(UpdateCheckResult)` - Aggregated update status for all components.
 ///   The `has_updates` field provides a quick boolean check.
 ///   The `components` field contains per-component details including
 ///   current version, latest version, and whether an update is available.
+///
+/// # Errors
+/// This function is infallible in practice -- individual component check failures
+/// are captured per-component in the result rather than failing the entire operation.
+/// Returns `Result` to satisfy the Tauri IPC command signature convention.
 ///
 /// # Logging
 /// Logs which components have updates available, or "all up to date"
@@ -118,11 +123,15 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 /// The frontend shows a loading/progress indicator while awaiting the result.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for locating the Python/pip binaries.
+/// * `app` - Tauri `AppHandle` for locating the Python/pip binaries.
 ///
 /// # Returns
 /// * `Ok(String)` - The new version string after upgrade (e.g., "2.9.0").
 /// * `Err(String)` - pip upgrade failure message (network error, dependency conflict, etc.).
+///
+/// # Errors
+/// Returns an error if the pip upgrade subprocess fails (network timeout,
+/// dependency conflict, disk full, missing Python runtime, etc.).
 #[tauri::command]
 pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
     log::info!("Upgrading GAMDL...");
@@ -130,7 +139,7 @@ pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
     // The --upgrade flag ensures pip upgrades to the latest version if
     // an older version is already installed.
     let version = crate::services::gamdl_service::install_gamdl(&app).await?;
-    log::info!("GAMDL upgraded to {}", version);
+    log::info!("GAMDL upgraded to {version}");
     Ok(version)
 }
 
@@ -144,7 +153,7 @@ pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
 /// so it doesn't save network calls — but it simplifies the frontend API.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for version detection.
+/// * `app` - Tauri `AppHandle` for version detection.
 /// * `name` - Component name to look up. Uses case-insensitive substring
 ///   matching, so "gamdl", "GAMDL", or "Gamdl" all work. Valid values:
 ///   - `"gamdl"` - The GAMDL Python package
@@ -154,6 +163,10 @@ pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
 /// # Returns
 /// * `Ok(ComponentUpdate)` - Update status for the matched component.
 /// * `Err(String)` - If no component name matches the given string.
+///
+/// # Errors
+/// Returns an error if no component name matches the given search string
+/// (case-insensitive substring match).
 ///
 /// # Note
 /// The name matching uses `contains()` rather than exact equality, so
@@ -175,10 +188,10 @@ pub async fn check_component_update(
         .components
         .into_iter()
         .find(|c| c.name.to_lowercase().contains(&name.to_lowercase()))
-        .ok_or_else(|| format!("Unknown component: {}", name))
+        .ok_or_else(|| format!("Unknown component: {name}"))
 }
 
-/// Downloads and installs a MeedyaDL app update from GitHub Releases.
+/// Downloads and installs a `MeedyaDL` app update from GitHub Releases.
 ///
 /// **Frontend caller:** `downloadAndInstallAppUpdate(tag)` in `src/lib/tauri-commands.ts`
 ///
@@ -200,12 +213,20 @@ pub async fn check_component_update(
 /// to load the new version.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for accessing the updater plugin
+/// * `app` - Tauri `AppHandle` for accessing the updater plugin
 /// * `tag` - Git tag of the release to install (e.g., "v0.3.7")
 ///
 /// # Returns
 /// * `Ok(String)` - Success message indicating the update was installed
 /// * `Err(String)` - Error message if download, verification, or installation failed
+///
+/// # Errors
+/// Returns an error if:
+/// - The endpoint URL cannot be parsed.
+/// - The updater builder fails to initialize.
+/// - The `latest.json` manifest cannot be downloaded or parsed.
+/// - No update is found at the specified release tag.
+/// - The update binary download, signature verification, or installation fails.
 ///
 /// # Prerequisites
 /// - The release must contain a `latest.json` manifest and signed update artifacts
@@ -216,39 +237,39 @@ pub async fn download_and_install_app_update(
     app: AppHandle,
     tag: String,
 ) -> Result<String, String> {
-    log::info!("Downloading app update from tag: {}", tag);
+    // Import UpdaterExt at the top of the function body to satisfy
+    // clippy::items_after_statements (items must precede statements).
+    // `UpdaterExt` trait provides `updater_builder()` on the AppHandle.
+    use tauri_plugin_updater::UpdaterExt;
+
+    log::info!("Downloading app update from tag: {tag}");
 
     // Construct the endpoint URL for the specific release tag.
     // Each GitHub Release contains a `latest.json` manifest that describes
     // the available update binaries and their signatures for each platform.
     let endpoint_url = format!(
-        "https://github.com/MWBMPartners/MeedyaDL/releases/download/{}/latest.json",
-        tag
+        "https://github.com/MWBMPartners/MeedyaDL/releases/download/{tag}/latest.json"
     );
-
-    // Use the Tauri updater's Rust API to build an updater with a custom endpoint.
-    // `UpdaterExt` trait provides `updater_builder()` on the AppHandle.
-    use tauri_plugin_updater::UpdaterExt;
 
     // Parse the endpoint URL and build the updater with the custom endpoint.
     // `endpoints()` returns a Result (validates the URLs), so we unwrap before `.build()`.
     let endpoint = endpoint_url
         .parse()
-        .map_err(|e: url::ParseError| format!("Invalid endpoint URL: {}", e))?;
+        .map_err(|e: url::ParseError| format!("Invalid endpoint URL: {e}"))?;
 
     let updater = app
         .updater_builder()
         .endpoints(vec![endpoint])
-        .map_err(|e| format!("Failed to set updater endpoints: {}", e))?
+        .map_err(|e| format!("Failed to set updater endpoints: {e}"))?
         .build()
-        .map_err(|e| format!("Failed to build updater: {}", e))?;
+        .map_err(|e| format!("Failed to build updater: {e}"))?;
 
     // Check if an update is available at the specified endpoint.
     // This downloads and parses the `latest.json` manifest.
     let update: Option<tauri_plugin_updater::Update> = updater
         .check()
         .await
-        .map_err(|e| format!("Failed to check for update: {}", e))?;
+        .map_err(|e| format!("Failed to check for update: {e}"))?;
 
     let Some(update) = update else {
         return Err("No update found at the specified release tag".to_string());
@@ -289,7 +310,7 @@ pub async fn download_and_install_app_update(
             },
         )
         .await
-        .map_err(|e| format!("Failed to download and install update: {}", e))?;
+        .map_err(|e| format!("Failed to download and install update: {e}"))?;
 
     log::info!("App update installed successfully. Restart required.");
 

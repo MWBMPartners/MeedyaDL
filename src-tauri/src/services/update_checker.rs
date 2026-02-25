@@ -63,32 +63,32 @@ use crate::utils::platform;
 /// Represents the update status of a single component.
 ///
 /// This struct is serialized to JSON and sent to the frontend via a Tauri command.
-/// The frontend renders an update card for each ComponentUpdate with the
+/// The frontend renders an update card for each `ComponentUpdate` with the
 /// current version, latest version, and an "Update" button if applicable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentUpdate {
-    /// Human-readable component name (e.g., "GAMDL", "Python Runtime", "MeedyaDL")
+    /// Human-readable component name (e.g., "GAMDL", "Python Runtime", "`MeedyaDL`")
     pub name: String,
     /// Currently installed version (None if not installed).
     /// For GAMDL: from `pip show gamdl`. For Python: from `python --version`.
     /// For the app: from tauri.conf.json package version.
     pub current_version: Option<String>,
     /// Latest available version (None if the check failed or no releases exist).
-    /// For GAMDL: from PyPI JSON API. For the app: from GitHub Releases.
-    /// For Python: from python_manager::PYTHON_VERSION constant.
+    /// For GAMDL: from `PyPI` JSON API. For the app: from GitHub Releases.
+    /// For Python: from `python_manager::PYTHON_VERSION` constant.
     pub latest_version: Option<String>,
     /// Whether an update is available (latest > current via semver comparison).
     /// True if not installed and a version is available on the remote source.
     pub update_available: bool,
     /// Whether this update is compatible with the current app version.
-    /// For GAMDL: checked via is_gamdl_compatible() range gate.
+    /// For GAMDL: checked via `is_gamdl_compatible()` range gate.
     /// For app and Python: always true (updates are self-compatible).
     pub is_compatible: bool,
     /// Human-readable description of the update (e.g., release notes excerpt).
     /// For app updates: truncated first 200 chars of the GitHub release body.
     pub description: Option<String>,
     /// URL to the release page for the user to review before updating.
-    /// For GAMDL: PyPI project page. For app: GitHub release page.
+    /// For GAMDL: `PyPI` project page. For app: GitHub release page.
     pub release_url: Option<String>,
     /// Full release notes body from GitHub Releases (untruncated).
     /// Only populated for app updates. Used by the Updates page to display
@@ -104,7 +104,7 @@ pub struct ComponentUpdate {
 
 /// Combined update status for all components.
 ///
-/// Returned by check_all_updates() and sent to the frontend as a single response.
+/// Returned by `check_all_updates()` and sent to the frontend as a single response.
 /// The frontend uses `has_updates` to show/hide an update badge in the toolbar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCheckResult {
@@ -112,12 +112,12 @@ pub struct UpdateCheckResult {
     /// Used by the frontend to display "Last checked: X minutes ago".
     pub checked_at: String,
     /// Whether any compatible updates are available (quick check for badge display).
-    /// True if any component has update_available && is_compatible.
+    /// True if any component has `update_available` && `is_compatible`.
     pub has_updates: bool,
     /// Per-component update status (one entry per checked component).
     pub components: Vec<ComponentUpdate>,
     /// Non-fatal errors that occurred during individual checks.
-    /// For example, a network timeout on PyPI doesn't prevent checking GitHub.
+    /// For example, a network timeout on `PyPI` doesn't prevent checking GitHub.
     pub errors: Vec<String>,
 }
 
@@ -187,9 +187,9 @@ fn is_gamdl_compatible(version: &str) -> bool {
 /// Equal versions return false (not newer).
 ///
 /// Examples:
-/// - is_newer("1.0.0", "1.0.1") => true  (patch bump)
-/// - is_newer("1.0.0", "1.0.0") => false (same version)
-/// - is_newer("2.0.0", "1.9.9") => false (downgrade)
+/// - `is_newer("1.0.0`", "1.0.1") => true  (patch bump)
+/// - `is_newer("1.0.0`", "1.0.0") => false (same version)
+/// - `is_newer("2.0.0`", "1.9.9") => false (downgrade)
 fn is_newer(current: &str, latest: &str) -> bool {
     // Parse version string into (major, minor, patch) tuple.
     // Missing or unparseable parts default to 0, making this forgiving
@@ -228,7 +228,7 @@ fn is_newer(current: &str, latest: &str) -> bool {
 /// | Windows ARM64     | `_arm64-setup.exe`                             |
 /// | Linux x64         | `_amd64.deb`, `_amd64.AppImage`               |
 /// | Linux ARM64       | `_arm64.deb`                                  |
-/// | Linux ARMv7       | `_armv7.deb`                                  |
+/// | Linux `ARMv7`       | `_armv7.deb`                                  |
 ///
 /// # Returns
 /// A list of substrings that should appear in at least one asset name.
@@ -325,9 +325,8 @@ fn has_platform_assets(assets: Option<&Vec<serde_json::Value>>) -> bool {
 
     if !has_platform {
         log::info!(
-            "Release has latest.json but no assets matching platform patterns {:?} — \
-             this platform's build may have failed",
-            patterns
+            "Release has latest.json but no assets matching platform patterns {patterns:?} — \
+             this platform's build may have failed"
         );
     }
 
@@ -357,7 +356,7 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // This is the most important check since GAMDL receives frequent updates.
     match check_gamdl_update(app).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("GAMDL check failed: {}", e)),
+        Err(e) => errors.push(format!("GAMDL check failed: {e}")),
     }
 
     // Check for app self-updates via GitHub Releases API.
@@ -365,14 +364,14 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // When check_pre_releases is true, includes beta/RC releases in the check.
     match check_app_update(app, check_pre_releases).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("App update check failed: {}", e)),
+        Err(e) => errors.push(format!("App update check failed: {e}")),
     }
 
     // Check Python runtime update by comparing the installed version
     // against the target version defined in python_manager.rs constants.
     match check_python_update(app).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("Python check failed: {}", e)),
+        Err(e) => errors.push(format!("Python check failed: {e}")),
     }
 
     // Aggregate: an update is "available" only if it's both newer AND compatible.
@@ -387,7 +386,7 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     }
 }
 
-/// Checks for GAMDL updates by comparing the installed version with PyPI.
+/// Checks for GAMDL updates by comparing the installed version with `PyPI`.
 ///
 /// # Returns
 /// A `ComponentUpdate` with the current and latest GAMDL versions.
@@ -420,8 +419,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // This prevents upgrading to a GAMDL version with incompatible CLI changes.
     let is_compatible = latest
         .as_ref()
-        .map(|v| is_gamdl_compatible(v))
-        .unwrap_or(false);
+        .is_some_and(|v| is_gamdl_compatible(v));
 
     Ok(ComponentUpdate {
         name: "GAMDL".to_string(),
@@ -434,7 +432,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         } else {
             None
         },
-        release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{}/", v)),
+        release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{v}/")),
         release_body: None,
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
         is_prerelease: false,
@@ -489,7 +487,7 @@ async fn check_app_update(
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
-        .map_err(|e| format!("GitHub API request failed: {}", e))?;
+        .map_err(|e| format!("GitHub API request failed: {e}"))?;
 
     if !response.status().is_success() {
         // 404 means no releases have been published yet — not an error condition.
@@ -515,7 +513,7 @@ async fn check_app_update(
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
+        .map_err(|e| format!("Failed to parse GitHub response: {e}"))?;
 
     // Extract the release object: either the single response (stable mode)
     // or the first item from the array (pre-release mode, newest first).
@@ -544,15 +542,36 @@ async fn check_app_update(
         &json
     };
 
+    // Delegate to the response parser to extract fields and build the ComponentUpdate.
+    Ok(parse_release_from_response(release, &current_version))
+}
+
+/// Parses a single GitHub release JSON object into a `ComponentUpdate`.
+///
+/// Extracts the tag name, release URL, release body, pre-release flag, and
+/// asset list from the release object. Compares the tag version against the
+/// current app version and verifies platform asset availability.
+///
+/// # Arguments
+/// * `release` - A single GitHub release JSON object (from `releases/latest`
+///   or `releases[0]` in the array endpoint).
+/// * `current_version` - The running app version string (e.g., "0.3.7").
+///
+/// # Returns
+/// A fully populated `ComponentUpdate` for the app.
+fn parse_release_from_response(
+    release: &serde_json::Value,
+    current_version: &str,
+) -> ComponentUpdate {
     // Extract the tag name (e.g., "v0.3.7") and strip the "v" prefix
     // to get a bare semver string for comparison with the current version.
     let raw_tag = release["tag_name"].as_str().unwrap_or("");
     let tag = raw_tag.trim_start_matches('v').to_string();
 
     // Extract the release page URL for the "View Release" button in the UI
-    let html_url = release["html_url"].as_str().map(|s| s.to_string());
+    let html_url = release["html_url"].as_str().map(std::string::ToString::to_string);
     // Extract the full release notes body for the Updates page (untruncated).
-    let full_body = release["body"].as_str().map(|s| s.to_string());
+    let full_body = release["body"].as_str().map(std::string::ToString::to_string);
     // Extract and truncate the release notes for display in the update card.
     // Long release notes are cut to 200 characters to keep the UI compact.
     let body = release["body"].as_str().map(|s| {
@@ -569,7 +588,7 @@ async fn check_app_update(
     let mut update_available = if tag.is_empty() {
         false
     } else {
-        is_newer(&current_version, &tag)
+        is_newer(current_version, &tag)
     };
 
     // If a newer version exists, verify that the release actually has
@@ -582,18 +601,16 @@ async fn check_app_update(
         let assets = release["assets"].as_array();
         if !has_platform_assets(assets) {
             log::info!(
-                "Version {} is newer than {} but has no assets for this platform — \
-                 suppressing update notification",
-                tag,
-                current_version
+                "Version {tag} is newer than {current_version} but has no assets for this platform — \
+                 suppressing update notification"
             );
             update_available = false;
         }
     }
 
-    Ok(ComponentUpdate {
+    ComponentUpdate {
         name: "MeedyaDL".to_string(),
-        current_version: Some(current_version),
+        current_version: Some(current_version.to_string()),
         latest_version: if tag.is_empty() { None } else { Some(tag) },
         update_available,
         // App updates are always "compatible" — the new version replaces the old one entirely.
@@ -610,7 +627,7 @@ async fn check_app_update(
         } else {
             Some(raw_tag.to_string())
         },
-    })
+    }
 }
 
 /// Checks for Python runtime updates by comparing with python-build-standalone.
@@ -633,10 +650,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // Only show an update if Python is installed AND the installed version is
     // older than the target. If Python is not installed, the setup wizard
     // handles installation — we don't show it as an "update".
-    let update_available = match &current {
-        Some(c) => is_newer(c, target),
-        None => false, // Can't update what's not installed
-    };
+    let update_available = current.as_ref().is_some_and(|c| is_newer(c, target));
 
     Ok(ComponentUpdate {
         name: "Python Runtime".to_string(),
@@ -647,7 +661,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // and test it with GAMDL before shipping.
         is_compatible: true,
         description: if update_available {
-            Some(format!("Python {} available (portable runtime)", target))
+            Some(format!("Python {target} available (portable runtime)"))
         } else {
             None
         },

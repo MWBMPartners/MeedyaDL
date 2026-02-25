@@ -81,7 +81,7 @@ pub struct ArtworkResult {
 }
 
 /// Default result with both artwork types not downloaded.
-fn empty_result() -> ArtworkResult {
+const fn empty_result() -> ArtworkResult {
     ArtworkResult {
         square_downloaded: false,
         portrait_downloaded: false,
@@ -98,7 +98,7 @@ fn empty_result() -> ArtworkResult {
 /// the entire flow: credential loading, URL parsing, API query, HLS download.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for accessing settings, keychain, and tool paths
+/// * `app` - Tauri `AppHandle` for accessing settings, keychain, and tool paths
 /// * `urls` - The Apple Music URL(s) from the download request
 /// * `output_dir` - The album output directory where audio files were saved
 ///
@@ -106,12 +106,17 @@ fn empty_result() -> ArtworkResult {
 /// * `Ok(ArtworkResult)` - Which artwork types were downloaded (may be both false)
 /// * `Err(String)` - Only for unexpected failures (not "no artwork available")
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if settings cannot be loaded, the Apple Music API
+/// request fails, or `FFmpeg` download of the artwork fails.
+///
 /// # Graceful exits (returns Ok with both false):
 /// * Feature disabled in settings
-/// * MusicKit credentials not configured
+/// * `MusicKit` credentials not configured
 /// * URL is not an album URL (single track, playlist, music video)
 /// * Album has no animated artwork
-/// * FFmpeg not installed
+/// * `FFmpeg` not installed
 pub async fn process_album_artwork(
     app: &AppHandle,
     urls: &[String],
@@ -150,7 +155,7 @@ pub async fn process_album_artwork(
             return Ok(empty_result());
         }
         Err(e) => {
-            log::warn!("Failed to read MusicKit private key from keychain: {}", e);
+            log::warn!("Failed to read MusicKit private key from keychain: {e}");
             return Ok(empty_result());
         }
     };
@@ -178,16 +183,13 @@ pub async fn process_album_artwork(
         &parsed.album_id,
     ).await?;
 
-    let metadata = match metadata {
-        Some(m) => m,
-        None => {
-            log::debug!(
-                "No metadata returned for album {} (storefront: {})",
-                parsed.album_id,
-                parsed.storefront
-            );
-            return Ok(empty_result());
-        }
+    let Some(metadata) = metadata else {
+        log::debug!(
+            "No metadata returned for album {} (storefront: {})",
+            parsed.album_id,
+            parsed.storefront
+        );
+        return Ok(empty_result());
     };
 
     // --- Step 5: Download artwork using the fetched metadata ---
@@ -202,9 +204,14 @@ pub async fn process_album_artwork(
 /// animated artwork are enabled.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for accessing settings and tool paths
+/// * `app` - Tauri `AppHandle` for accessing settings and tool paths
 /// * `metadata` - Pre-fetched album metadata from `apple_music_api::fetch_album_metadata()`
 /// * `output_dir` - The album output directory where audio files were saved
+///
+/// # Errors
+///
+/// Returns `Err(String)` if settings cannot be loaded, the `FFmpeg` binary
+/// is missing, or the HLS download fails.
 ///
 /// # Returns
 /// * `Ok(ArtworkResult)` - Which artwork types were downloaded
@@ -258,7 +265,7 @@ async fn download_artwork_from_metadata(
                 result.square_downloaded = true;
             }
             Err(e) => {
-                log::warn!("Failed to download square animated artwork: {}", e);
+                log::warn!("Failed to download square animated artwork: {e}");
             }
         }
     }
@@ -272,7 +279,7 @@ async fn download_artwork_from_metadata(
                 result.portrait_downloaded = true;
             }
             Err(e) => {
-                log::warn!("Failed to download portrait animated artwork: {}", e);
+                log::warn!("Failed to download portrait animated artwork: {e}");
             }
         }
     }
@@ -284,7 +291,7 @@ async fn download_artwork_from_metadata(
 // HLS Download via FFmpeg
 // ============================================================
 
-/// Resolve the managed FFmpeg binary path.
+/// Resolve the managed `FFmpeg` binary path.
 fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     let ffmpeg_bin = dependency_manager::get_tool_binary_path(app, "ffmpeg");
     if !ffmpeg_bin.exists() {
@@ -293,9 +300,9 @@ fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(ffmpeg_bin)
 }
 
-/// Download an HLS stream to an MP4 file using FFmpeg.
+/// Download an HLS stream to an MP4 file using `FFmpeg`.
 ///
-/// Uses FFmpeg's native HLS protocol support to download the M3U8 playlist
+/// Uses `FFmpeg`'s native HLS protocol support to download the M3U8 playlist
 /// and all its segments, then remuxes them into a single MP4 file without
 /// re-encoding (`-c copy`).
 async fn download_hls_to_mp4(
@@ -333,7 +340,7 @@ async fn download_hls_to_mp4(
         .arg(output_path)
         .output()
         .await
-        .map_err(|e| format!("Failed to spawn FFmpeg: {}", e))?;
+        .map_err(|e| format!("Failed to spawn FFmpeg: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -367,6 +374,11 @@ async fn download_hls_to_mp4(
 ///   → `.FrontCover.mp4`). This is the only standard mechanism on Linux
 ///   but it changes the filename, so software looking for `FrontCover.mp4`
 ///   by name will not find it.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the file does not exist or the OS-specific hide
+/// operation fails (e.g., `chflags` on macOS, `attrib` on Windows, rename on Linux).
 pub async fn hide_file(file_path: &Path) -> Result<(), String> {
     if !file_path.exists() {
         return Err(format!("File does not exist: {}", file_path.display()));
@@ -380,7 +392,7 @@ pub async fn hide_file(file_path: &Path) -> Result<(), String> {
             .arg(file_path)
             .output()
             .await
-            .map_err(|e| format!("Failed to run chflags: {}", e))?;
+            .map_err(|e| format!("Failed to run chflags: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

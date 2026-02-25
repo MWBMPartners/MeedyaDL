@@ -80,6 +80,10 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   - `SongCodec::Atmos` → `SpatialType = Dolby Atmos` (both namespaces)
 ///   - All other codecs → no tags written (returns Ok immediately)
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the output path does not exist or cannot be read.
+///
 /// # Returns
 ///
 /// * `Ok(count)` -- The number of files successfully tagged.
@@ -119,8 +123,7 @@ pub fn apply_codec_metadata_tags(
         tagged_count += tag_directory_recursive(path, &tag_writer);
     } else {
         return Err(format!(
-            "Output path does not exist: {}",
-            output_path
+            "Output path does not exist: {output_path}"
         ));
     }
 
@@ -215,8 +218,7 @@ fn write_atmos_tags(tag: &mut Tag) {
 fn is_m4a(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("m4a"))
-        .unwrap_or(false)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("m4a"))
 }
 
 // ============================================================
@@ -231,12 +233,16 @@ fn is_m4a(path: &Path) -> bool {
 /// via ffprobe, and Apple Music API metadata — all in a single pass per file.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for settings, keychain, and tool paths
+/// * `app` - Tauri `AppHandle` for settings, keychain, and tool paths
 /// * `output_path` - Download output path (file or album directory)
 /// * `codec` - Audio codec used for this download
 /// * `urls` - Apple Music URL(s) from the download request
 /// * `pre_fetched_metadata` - Pre-fetched API metadata to reuse (avoids
 ///   duplicate API calls when called from companion downloads)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the output path does not exist or cannot be read.
 ///
 /// # Returns
 /// * `Ok((count, Some(metadata)))` - Files tagged; API metadata for reuse
@@ -267,7 +273,7 @@ pub async fn apply_enriched_metadata_tags(
     // Process each M4A file with all enrichment layers
     let mut tagged_count = 0;
     for file_path in &m4a_files {
-        match enrich_single_file(file_path, codec, &ffprobe_path, &album_metadata).await {
+        match enrich_single_file(file_path, codec, ffprobe_path.as_ref(), album_metadata.as_ref()).await {
             Ok(()) => tagged_count += 1,
             Err(e) => {
                 log::debug!("Failed to enrich {}: {}", file_path.display(), e);
@@ -295,12 +301,12 @@ pub async fn apply_enriched_metadata_tags(
 async fn enrich_single_file(
     file_path: &Path,
     codec: &SongCodec,
-    ffprobe_path: &Option<PathBuf>,
-    album_metadata: &Option<AlbumMetadata>,
+    ffprobe_path: Option<&PathBuf>,
+    album_metadata: Option<&AlbumMetadata>,
 ) -> Result<(), String> {
     // Run ffprobe first (async I/O) before opening the tag for sync writes
     let channel_config = match ffprobe_path {
-        Some(ref ffprobe) => detect_channel_config(ffprobe, file_path).await,
+        Some(ffprobe) => detect_channel_config(ffprobe, file_path).await,
         None => None,
     };
 
@@ -325,7 +331,7 @@ async fn enrich_single_file(
     }
 
     // --- Layer 4: Apple Music API metadata (if available) ---
-    if let Some(ref metadata) = album_metadata {
+    if let Some(metadata) = album_metadata {
         // Per-album tags (same on all files in the album)
         write_api_album_tags(&mut tag, metadata);
 
@@ -355,15 +361,14 @@ async fn enrich_single_file(
 /// Write always-on local tags that don't require any API calls.
 ///
 /// Tags written:
-///   - `SourceStore = Apple Music` (iTunes + MeedyaMeta namespaces)
+///   - `SourceStore = Apple Music` (iTunes + `MeedyaMeta` namespaces)
 ///   - `EncodeSource = Web`
 ///   - `iTunesMediaType = Music`
 ///   - `isMedley = Y` (only when title contains "Medley", case-insensitive)
 fn write_local_tags(tag: &mut Tag) {
     // Extract isMedley flag before any mutable operations (avoids borrow conflict)
     let is_medley = tag.title()
-        .map(|t| t.to_ascii_lowercase().contains("medley"))
-        .unwrap_or(false);
+        .is_some_and(|t| t.to_ascii_lowercase().contains("medley"));
 
     // SourceStore in both namespaces
     tag.set_data(
@@ -399,7 +404,7 @@ fn write_local_tags(tag: &mut Tag) {
 /// Write per-album tags from the Apple Music API response.
 ///
 /// These tags have the same value for every file in the album:
-///   - AlbumAdvisory, AlbumArtistID, AlbumArtistSort, AlbumGenre, UPC, Barcode
+///   - `AlbumAdvisory`, `AlbumArtistID`, `AlbumArtistSort`, `AlbumGenre`, UPC, Barcode
 fn write_api_album_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
     if let Some(ref rating) = metadata.content_rating {
         tag.set_data(
@@ -533,9 +538,8 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
 
 /// Recursively collect M4A file paths from a directory tree.
 fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
 
     for entry in entries.flatten() {
@@ -552,10 +556,10 @@ fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 // Internal: Channel Detection (via ffprobe)
 // ============================================================
 
-/// Resolve the ffprobe binary path (sibling to the managed FFmpeg binary).
+/// Resolve the ffprobe binary path (sibling to the managed `FFmpeg` binary).
 ///
-/// ffprobe ships alongside FFmpeg in the same download archive. Its path
-/// is derived by replacing the FFmpeg binary name with "ffprobe".
+/// ffprobe ships alongside `FFmpeg` in the same download archive. Its path
+/// is derived by replacing the `FFmpeg` binary name with "ffprobe".
 fn get_ffprobe_path(app: &AppHandle) -> Result<PathBuf, String> {
     let ffmpeg_bin = dependency_manager::get_tool_binary_path(app, "ffmpeg");
     let ffprobe_name = if cfg!(target_os = "windows") {
@@ -619,7 +623,7 @@ fn channels_to_config(channels: u64) -> String {
         3 => "2.1".to_string(),
         6 => "5.1".to_string(),
         8 => "7.1".to_string(),
-        n => format!("{}.0", n),
+        n => format!("{n}.0"),
     }
 }
 
@@ -637,8 +641,8 @@ fn match_track_to_metadata(
     disc_num: u16,
     tracks: &[apple_music_api::TrackMetadata],
 ) -> Option<&apple_music_api::TrackMetadata> {
-    let track_num = track_num? as u32;
-    let disc_num = disc_num as u32;
+    let track_num = u32::from(track_num?);
+    let disc_num = u32::from(disc_num);
     tracks.iter().find(|t| t.track_number == track_num && t.disc_number == disc_num)
 }
 
@@ -648,7 +652,7 @@ fn match_track_to_metadata(
 
 /// Try to fetch album metadata from the Apple Music API.
 ///
-/// This is a best-effort fetch: returns `None` if MusicKit credentials are
+/// This is a best-effort fetch: returns `None` if `MusicKit` credentials are
 /// not configured, the URL isn't an album URL, or the API call fails.
 /// Failures are logged at warn level but do not propagate as errors.
 async fn try_fetch_metadata(
@@ -669,7 +673,7 @@ async fn try_fetch_metadata(
             return None;
         }
         Err(e) => {
-            log::warn!("Failed to read MusicKit private key: {}", e);
+            log::warn!("Failed to read MusicKit private key: {e}");
             return None;
         }
     };
@@ -683,7 +687,7 @@ async fn try_fetch_metadata(
     let jwt = match apple_music_api::generate_musickit_jwt(team_id, key_id, &private_key) {
         Ok(jwt) => jwt,
         Err(e) => {
-            log::warn!("Failed to generate MusicKit JWT for enrichment: {}", e);
+            log::warn!("Failed to generate MusicKit JWT for enrichment: {e}");
             return None;
         }
     };
@@ -691,7 +695,7 @@ async fn try_fetch_metadata(
     match apple_music_api::fetch_album_metadata(&jwt, &parsed.storefront, &parsed.album_id).await {
         Ok(metadata) => metadata,
         Err(e) => {
-            log::warn!("Failed to fetch album metadata for enrichment: {}", e);
+            log::warn!("Failed to fetch album metadata for enrichment: {e}");
             None
         }
     }

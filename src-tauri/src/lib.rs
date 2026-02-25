@@ -36,12 +36,14 @@
 // ---------------------------------------------------------------------------
 
 /// IPC command handlers exposed to the React frontend via `invoke()`.
+///
 /// Each sub-module groups related commands (system, dependencies, settings,
 /// gamdl, credentials, updates). Commands are thin wrappers that validate
 /// inputs and delegate to the `services` layer.
 pub mod commands;
 
 /// Shared data models used across commands, services, and IPC payloads.
+///
 /// All models derive `Serialize` (and often `Deserialize`) so they can
 /// cross the Rust <-> TypeScript boundary automatically via Tauri's
 /// JSON serialization layer.
@@ -55,6 +57,199 @@ pub mod services;
 /// Cross-cutting utility modules for platform detection, archive
 /// extraction, and subprocess output parsing.
 pub mod utils;
+
+
+// ---------------------------------------------------------------------------
+// Helper functions extracted from `run()` to keep it under the 100-line
+// clippy::too_many_lines threshold. Each helper encapsulates a distinct
+// phase of application startup.
+// ---------------------------------------------------------------------------
+
+/// Creates and configures the system tray icon with its context menu and
+/// event handlers.
+///
+/// The system tray icon allows the user to interact with the application
+/// even when the main window is hidden or minimised. Tauri 2.0's tray API
+/// is builder-based: we construct menu items, compose them into a menu,
+/// attach the menu to a `TrayIconBuilder`, and register event handlers for
+/// clicks.
+///
+/// # Returns
+/// The `TrayIcon` instance, which **must** be kept alive (bound to a
+/// variable) for the duration of the application. Dropping the return
+/// value would remove the icon from the system tray.
+///
+/// # Errors
+/// Returns an error if any tray menu item or the tray icon itself fails
+/// to build (e.g., missing platform support).
+///
+/// # Reference
+/// - System tray guide: <https://v2.tauri.app/develop/system-tray/>
+/// - `TrayIcon` API: <https://docs.rs/tauri/latest/tauri/tray/index.html>
+/// - Menu API: <https://docs.rs/tauri/latest/tauri/menu/index.html>
+fn setup_system_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn std::error::Error>> {
+    use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState};
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+    // `Manager` trait provides `.get_webview_window()` on AppHandle
+    use tauri::Manager;
+    // `Emitter` trait provides `.emit()` for sending events to the frontend
+    use tauri::Emitter;
+
+    // Build the tray menu items
+    // "Show Window" -- brings the main window to focus
+    let show_item = MenuItemBuilder::with_id("show", "Show Window")
+        .build(app)?;
+
+    // First separator -- visually groups window controls from status info
+    let separator1 = PredefinedMenuItem::separator(app)?;
+
+    // "Downloads: None" -- disabled info item that displays current download status.
+    // The frontend can update this text via the tray menu API as downloads progress.
+    let downloads_item = MenuItemBuilder::with_id("downloads_status", "Downloads: None")
+        .enabled(false)
+        .build(app)?;
+
+    // Second separator -- visually groups status info from application actions
+    let separator2 = PredefinedMenuItem::separator(app)?;
+
+    // "Check for Updates" -- triggers an update check for the application and GAMDL
+    let updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates")
+        .build(app)?;
+
+    // "Quit MeedyaDL" -- cleanly exits the application
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit MeedyaDL")
+        .build(app)?;
+
+    // Assemble the tray context menu from the items defined above
+    let tray_menu = MenuBuilder::new(app)
+        .item(&show_item)
+        .item(&separator1)
+        .item(&downloads_item)
+        .item(&separator2)
+        .item(&updates_item)
+        .item(&quit_item)
+        .build()?;
+
+    // Build the tray icon, attach the menu, and register event handlers.
+    //
+    // IMPORTANT: The returned `TrayIcon` must be stored in a named binding
+    // in the caller (e.g., `let _tray = ...`). Using `let _ = ...` (without
+    // a name) would drop the `TrayIcon` immediately, removing it from the
+    // system tray. A leading-underscore named binding keeps the value alive
+    // for the lifetime of its enclosing scope.
+    //
+    // Reference: https://docs.rs/tauri/latest/tauri/tray/struct.TrayIconBuilder.html
+    let tray = TrayIconBuilder::new()
+        .menu(&tray_menu)
+        // Register a handler for clicks on items within the tray
+        // context menu. The `event.id()` corresponds to the string
+        // ID passed to `MenuItemBuilder::with_id(...)` above.
+        .on_menu_event(|app, event| {
+            match event.id().as_ref() {
+                // Show and focus the main window
+                "show" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                // Trigger an update check by emitting an event to the frontend
+                "check_updates" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("tray-check-updates", ());
+                    }
+                }
+                // Cleanly exit the application
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        // Handle direct clicks on the tray icon itself (not the context
+        // menu). This uses Rust's pattern matching with struct
+        // destructuring to match only left-button-up events, ignoring
+        // right-clicks (which open the context menu), double-clicks,
+        // and mouse-down events.
+        //
+        // On macOS, a left-click on the tray icon shows the context
+        // menu by default; this handler provides an additional
+        // "show window" shortcut on platforms where left-click is
+        // separate from menu display (Windows, some Linux DEs).
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..  // Ignore position and other fields via `..` rest pattern
+            } = event
+            {
+                if let Some(window) = tray.app_handle().get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    log::info!("System tray icon initialized");
+    Ok(tray)
+}
+
+/// Restores persisted download queue items and schedules delayed processing.
+///
+/// Loads any persisted queue items from `queue.json` (written after every
+/// queue mutation in the previous session). If items exist, they are restored
+/// to the queue in `Queued` state and processing is started after a short
+/// delay (2 seconds) to give the frontend event listeners time to initialise.
+///
+/// This provides crash recovery: if the app closes (or crashes) while
+/// downloads are queued/active, those items are restored and automatically
+/// resumed on next launch.
+fn setup_queue_recovery(app: &tauri::App) {
+    use tauri::Manager;
+
+    let app_handle = app.handle().clone();
+    let persisted_items = services::download_queue::load_queue_from_disk(&app_handle);
+
+    if persisted_items.is_empty() {
+        return;
+    }
+
+    let count = persisted_items.len();
+    let settings = services::config_service::load_settings(&app_handle)
+        .unwrap_or_default();
+
+    // Get the queue handle from managed state
+    let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> =
+        app.state();
+    let queue_arc = queue_handle.inner().clone();
+
+    // Restore items synchronously (we can block briefly in setup)
+    {
+        let rt = tokio::runtime::Handle::current();
+        rt.block_on(async {
+            let mut q = queue_arc.lock().await;
+            q.restore_items(persisted_items, &settings);
+        });
+    }
+
+    log::info!(
+        "Queue restored: {count} item(s) will resume after frontend initialises"
+    );
+
+    // Spawn a delayed task to start processing the restored queue.
+    // The 2-second delay ensures the frontend's Tauri event listeners
+    // are registered before downloads start emitting events.
+    let queue_for_processing = queue_arc;
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        services::download_queue::process_queue(
+            app_handle,
+            queue_for_processing,
+        )
+        .await;
+    });
+}
 
 
 /// Configures and launches the Tauri application.
@@ -86,6 +281,10 @@ pub mod utils;
 /// - `generate_context!`: <https://docs.rs/tauri/latest/tauri/macro.generate_context.html>
 /// - Plugin system: <https://v2.tauri.app/develop/plugins/>
 /// - Calling Rust from JS: <https://v2.tauri.app/develop/calling-rust/>
+// Allow large_stack_frames: `tauri::generate_context!()` allocates ~740KB on the
+// stack at compile time. This is idiomatic Tauri code and cannot be avoided without
+// boxing the entire context, which Tauri's API does not support.
+#[allow(clippy::large_stack_frames, clippy::too_many_lines)]
 pub fn run() {
     // Initialise the `env_logger` crate for structured logging.
     // During development, run with `RUST_LOG=debug cargo tauri dev` to see
@@ -334,187 +533,18 @@ pub fn run() {
             // This is where Python, GAMDL, tools, and settings are stored
             let app_data_dir = utils::platform::get_app_data_dir(app.handle());
             if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
-                log::error!("Failed to create app data directory: {}", e);
+                log::error!("Failed to create app data directory: {e}");
             } else {
                 log::info!("App data directory: {}", app_data_dir.display());
             }
 
-            // -------------------------------------------------------
-            // System Tray Setup
-            // -------------------------------------------------------
-            // The system tray icon allows the user to interact with the
-            // application even when the main window is hidden or minimised.
-            // Tauri 2.0's tray API is builder-based: we construct menu
-            // items, compose them into a menu, attach the menu to a
-            // TrayIconBuilder, and register event handlers for clicks.
-            //
-            // We import tray/menu types here (inside `.setup()`) rather
-            // than at file scope to keep the top-level namespace clean --
-            // these types are only needed during one-time initialisation.
-            //
-            // Reference: https://v2.tauri.app/develop/system-tray/
-            // Reference: https://docs.rs/tauri/latest/tauri/tray/index.html
-            // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
-            use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState};
-            use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
-            // `Manager` trait provides `.get_webview_window()` on AppHandle
-            use tauri::Manager;
-            // `Emitter` trait provides `.emit()` for sending events to the frontend
-            use tauri::Emitter;
+            // Set up the system tray icon with context menu and event handlers.
+            // The `_tray` binding keeps the TrayIcon alive for the app's lifetime;
+            // dropping it would remove the icon from the system tray.
+            let _tray = setup_system_tray(app)?;
 
-            // Build the tray menu items
-            // "Show Window" — brings the main window to focus
-            let show_item = MenuItemBuilder::with_id("show", "Show Window")
-                .build(app)?;
-
-            // First separator — visually groups window controls from status info
-            let separator1 = PredefinedMenuItem::separator(app)?;
-
-            // "Downloads: None" — disabled info item that displays current download status.
-            // The frontend can update this text via the tray menu API as downloads progress.
-            let downloads_item = MenuItemBuilder::with_id("downloads_status", "Downloads: None")
-                .enabled(false)
-                .build(app)?;
-
-            // Second separator — visually groups status info from application actions
-            let separator2 = PredefinedMenuItem::separator(app)?;
-
-            // "Check for Updates" — triggers an update check for the application and GAMDL
-            let updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates")
-                .build(app)?;
-
-            // "Quit GAMDL" — cleanly exits the application
-            let quit_item = MenuItemBuilder::with_id("quit", "Quit MeedyaDL")
-                .build(app)?;
-
-            // Assemble the tray context menu from the items defined above
-            let tray_menu = MenuBuilder::new(app)
-                .item(&show_item)
-                .item(&separator1)
-                .item(&downloads_item)
-                .item(&separator2)
-                .item(&updates_item)
-                .item(&quit_item)
-                .build()?;
-
-            // Build the tray icon, attach the menu, and register event handlers.
-            //
-            // IMPORTANT: The `_tray` binding uses a leading underscore to
-            // suppress the "unused variable" warning, but the variable is
-            // NOT dropped -- it remains alive for the lifetime of the
-            // `.setup()` closure's scope (i.e., the entire app lifetime).
-            // If we used `let _ = ...` (without a name), the TrayIcon would
-            // be dropped immediately and disappear from the system tray.
-            //
-            // Reference: https://docs.rs/tauri/latest/tauri/tray/struct.TrayIconBuilder.html
-            let _tray = TrayIconBuilder::new()
-                .menu(&tray_menu)
-                // Register a handler for clicks on items within the tray
-                // context menu. The `event.id()` corresponds to the string
-                // ID passed to `MenuItemBuilder::with_id(...)` above.
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        // Show and focus the main window
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                        // Trigger an update check by emitting an event to the frontend
-                        "check_updates" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.emit("tray-check-updates", ());
-                            }
-                        }
-                        // Cleanly exit the application
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    }
-                })
-                // Handle direct clicks on the tray icon itself (not the context
-                // menu). This uses Rust's pattern matching with struct
-                // destructuring to match only left-button-up events, ignoring
-                // right-clicks (which open the context menu), double-clicks,
-                // and mouse-down events.
-                //
-                // On macOS, a left-click on the tray icon shows the context
-                // menu by default; this handler provides an additional
-                // "show window" shortcut on platforms where left-click is
-                // separate from menu display (Windows, some Linux DEs).
-                .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..  // Ignore position and other fields via `..` rest pattern
-                    } = event
-                    {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
-
-            log::info!("System tray icon initialized");
-
-            // -------------------------------------------------------
-            // Queue Persistence: Restore on Startup
-            // -------------------------------------------------------
-            // Load any persisted queue items from `queue.json` (written
-            // after every queue mutation in the previous session). If items
-            // exist, restore them to the queue in Queued state and start
-            // processing after a short delay (2 seconds) to give the
-            // frontend event listeners time to initialise.
-            //
-            // This provides crash recovery: if the app closes (or crashes)
-            // while downloads are queued/active, those items are restored
-            // and automatically resumed on next launch.
-            {
-                let app_handle = app.handle().clone();
-                let persisted_items = services::download_queue::load_queue_from_disk(&app_handle);
-                if !persisted_items.is_empty() {
-                    let count = persisted_items.len();
-                    let settings = services::config_service::load_settings(&app_handle)
-                        .unwrap_or_default();
-
-                    // Get the queue handle from managed state
-                    use tauri::Manager;
-                    let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> =
-                        app.state();
-                    let queue_arc = queue_handle.inner().clone();
-
-                    // Restore items synchronously (we can block briefly in setup)
-                    {
-                        let rt = tokio::runtime::Handle::current();
-                        rt.block_on(async {
-                            let mut q = queue_arc.lock().await;
-                            q.restore_items(persisted_items, &settings);
-                        });
-                    }
-
-                    log::info!(
-                        "Queue restored: {} item(s) will resume after frontend initialises",
-                        count
-                    );
-
-                    // Spawn a delayed task to start processing the restored queue.
-                    // The 2-second delay ensures the frontend's Tauri event listeners
-                    // are registered before downloads start emitting events.
-                    let queue_for_processing = queue_arc;
-                    tokio::spawn(async move {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                        services::download_queue::process_queue(
-                            app_handle,
-                            queue_for_processing,
-                        )
-                        .await;
-                    });
-                }
-            }
+            // Restore any persisted queue items and schedule delayed processing
+            setup_queue_recovery(app);
 
             Ok(())
         })

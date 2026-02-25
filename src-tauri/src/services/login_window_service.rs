@@ -86,7 +86,7 @@ const APPLE_MUSIC_URL: &str = "https://music.apple.com";
 /// This is Apple's primary authentication token for Apple Music.
 const AUTH_COOKIE_NAME: &str = "media-user-token";
 
-/// Apple Music domains to filter cookies for (same as cookie_service).
+/// Apple Music domains to filter cookies for (same as `cookie_service`).
 /// Only cookies matching these domains are saved to the cookies file.
 const APPLE_MUSIC_DOMAINS: &[&str] = &["apple.com", "mzstatic.com"];
 
@@ -102,7 +102,7 @@ const AUTO_CLOSE_DELAY_MS: u64 = 1000;
 const AUTH_COOKIE_CHECK_RETRIES: u32 = 5;
 
 /// Delay (in milliseconds) between cookie detection retry attempts.
-/// Total maximum wait: AUTH_COOKIE_CHECK_RETRIES × AUTH_COOKIE_RETRY_DELAY_MS
+/// Total maximum wait: `AUTH_COOKIE_CHECK_RETRIES` × `AUTH_COOKIE_RETRY_DELAY_MS`
 /// (e.g., 5 × 1000ms = 5 seconds).
 const AUTH_COOKIE_RETRY_DELAY_MS: u64 = 1000;
 
@@ -134,7 +134,11 @@ const AUTH_COOKIE_RETRY_DELAY_MS: u64 = 1000;
 ///   detection.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for window creation and event emission.
+/// * `app` - Tauri `AppHandle` for window creation and event emission.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the webview window cannot be created or focused.
 ///
 /// # Returns
 /// * `Ok(())` - Window was created (or existing window was focused).
@@ -145,7 +149,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
         existing
             .set_focus()
-            .map_err(|e| format!("Failed to focus login window: {}", e))?;
+            .map_err(|e| format!("Failed to focus login window: {e}"))?;
         return Ok(());
     }
 
@@ -159,7 +163,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
     let url = WebviewUrl::External(
         login_url
             .parse()
-            .map_err(|e| format!("Failed to parse Apple Music URL: {}", e))?,
+            .map_err(|e| format!("Failed to parse Apple Music URL: {e}"))?,
     );
 
     // Clone the app handle for use inside the on_page_load callback.
@@ -183,7 +187,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
             // Only check cookies after the page has fully loaded (not on "Started").
             // The Finished event fires when the DOM is ready and initial resources
             // are loaded, which is when cookies from the login flow will be set.
-            if let tauri::webview::PageLoadEvent::Finished = payload.event() {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
                 let url_str = payload.url().to_string();
 
                 // Only check for cookies when we're on Apple Music's main site.
@@ -251,8 +255,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
                                     // Cookie check failed -- log but don't surface to user.
                                     // The manual "I've signed in" button provides a fallback.
                                     log::warn!(
-                                        "Failed to check auth cookies: {}",
-                                        e
+                                        "Failed to check auth cookies: {e}"
                                     );
                                     break; // Don't retry on errors
                                 }
@@ -271,21 +274,21 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
             }
         })
         .build()
-        .map_err(|e| format!("Failed to create login window: {}", e))?;
+        .map_err(|e| format!("Failed to create login window: {e}"))?;
 
     // Register a window event handler to detect when the login window is closed
     // (either by the user clicking X, or programmatically via close_login_window).
     // This emits the "login-window-closed" event so the frontend can reset its state.
     let app_for_close = app.clone();
     window.on_window_event(move |event| {
-        if let tauri::WindowEvent::Destroyed = event {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
             log::info!("Login window closed");
             // Emit the close event to all listeners (the main window's frontend).
             let _ = app_for_close.emit("login-window-closed", ());
         }
     });
 
-    log::info!("Login window opened to {}", login_url);
+    log::info!("Login window opened to {login_url}");
     Ok(())
 }
 
@@ -300,11 +303,19 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
 /// format, writes to `{app_data}/cookies.txt`, and updates settings.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for webview access and settings update.
+/// * `app` - Tauri `AppHandle` for webview access and settings update.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the login window is not open, cookie extraction
+/// fails, or the cookies file cannot be written.
 ///
 /// # Returns
 /// * `Ok(CookieImportResult)` - Extraction result with cookie counts and path.
 /// * `Err(String)` - If the login window isn't open or extraction failed.
+// Tauri cookie API should be called from async context on Windows
+// (WebView2 deadlock avoidance), so we keep the async signature.
+#[allow(clippy::unused_async)]
 pub async fn extract_login_cookies(
     app: &AppHandle,
 ) -> Result<CookieImportResult, String> {
@@ -316,7 +327,7 @@ pub async fn extract_login_cookies(
     // Parse the URL for cookie extraction.
     // cookies_for_url() requires a url::Url instance.
     let url = Url::parse(APPLE_MUSIC_URL)
-        .map_err(|e| format!("Failed to parse URL: {}", e))?;
+        .map_err(|e| format!("Failed to parse URL: {e}"))?;
 
     // Extract all cookies from the webview's cookie store for this URL.
     // This returns ALL cookies including HttpOnly and Secure ones.
@@ -324,7 +335,7 @@ pub async fn extract_login_cookies(
     // an async context on Windows to avoid blocking the main thread.
     let cookies = window
         .cookies_for_url(url)
-        .map_err(|e| format!("Failed to extract cookies from webview: {}", e))?;
+        .map_err(|e| format!("Failed to extract cookies from webview: {e}"))?;
 
     log::info!(
         "Extracted {} total cookies from login webview",
@@ -345,12 +356,12 @@ pub async fn extract_login_cookies(
 /// emit the `login-window-closed` event when the window is destroyed.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for window access.
+/// * `app` - Tauri `AppHandle` for window access.
 pub fn close_login_window(app: &AppHandle) {
     // Attempt to close the login window. If it doesn't exist, silently succeed.
     if let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
         if let Err(e) = window.close() {
-            log::warn!("Failed to close login window: {}", e);
+            log::warn!("Failed to close login window: {e}");
         }
     }
 }
@@ -373,24 +384,21 @@ pub fn close_login_window(app: &AppHandle) {
 /// # Returns
 /// A URL string pointing to the user's localized Apple Music storefront.
 fn build_storefront_url() -> String {
-    match detect_storefront() {
-        Some(storefront) => {
-            let url = format!("{}/{}/browse", APPLE_MUSIC_URL, storefront);
+    detect_storefront().map_or_else(
+        || {
             log::info!(
-                "Detected storefront '{}' from system locale, using URL: {}",
-                storefront,
-                url
-            );
-            url
-        }
-        None => {
-            log::info!(
-                "Could not detect storefront from system locale, using default: {}",
-                APPLE_MUSIC_URL
+                "Could not detect storefront from system locale, using default: {APPLE_MUSIC_URL}"
             );
             APPLE_MUSIC_URL.to_string()
-        }
-    }
+        },
+        |storefront| {
+            let url = format!("{APPLE_MUSIC_URL}/{storefront}/browse");
+            log::info!(
+                "Detected storefront '{storefront}' from system locale, using URL: {url}"
+            );
+            url
+        },
+    )
 }
 
 /// Detects the user's Apple Music storefront code from the system locale.
@@ -403,12 +411,12 @@ fn build_storefront_url() -> String {
 ///
 /// | System Locale | Country Code | Apple Music URL                        |
 /// |---------------|-------------|----------------------------------------|
-/// | en-US         | us          | https://music.apple.com/us/browse      |
-/// | en-GB         | gb          | https://music.apple.com/gb/browse      |
-/// | de-DE         | de          | https://music.apple.com/de/browse      |
-/// | ja-JP         | jp          | https://music.apple.com/jp/browse      |
-/// | fr-FR         | fr          | https://music.apple.com/fr/browse      |
-/// | pt-BR         | br          | https://music.apple.com/br/browse      |
+/// | en-US         | us          | <https://music.apple.com/us/browse>      |
+/// | en-GB         | gb          | <https://music.apple.com/gb/browse>      |
+/// | de-DE         | de          | <https://music.apple.com/de/browse>      |
+/// | ja-JP         | jp          | <https://music.apple.com/jp/browse>      |
+/// | fr-FR         | fr          | <https://music.apple.com/fr/browse>      |
+/// | pt-BR         | br          | <https://music.apple.com/br/browse>      |
 ///
 /// # Returns
 /// * `Some(String)` - Lowercase 2-letter country code (e.g., "gb", "de").
@@ -419,7 +427,7 @@ fn detect_storefront() -> Option<String> {
     // or POSIX (e.g., "en_US.UTF-8").
     let locale = sys_locale::get_locale()?;
 
-    log::debug!("System locale detected: {}", locale);
+    log::debug!("System locale detected: {locale}");
 
     // Split on common locale separators: hyphen (BCP 47: "en-US"),
     // underscore (POSIX: "en_US"), or period (strip encoding suffix like ".UTF-8").
@@ -437,8 +445,7 @@ fn detect_storefront() -> Option<String> {
         Some(country.to_lowercase())
     } else {
         log::debug!(
-            "Locale '{}' did not yield a valid 2-letter country code",
-            locale
+            "Locale '{locale}' did not yield a valid 2-letter country code"
         );
         None
     }
@@ -455,29 +462,31 @@ fn detect_storefront() -> Option<String> {
 /// yet), returns `Ok(None)`.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for webview access.
+/// * `app` - Tauri `AppHandle` for webview access.
 ///
 /// # Returns
 /// * `Ok(Some(result))` - Auth cookies found, extracted, and saved.
 /// * `Ok(None)` - No auth cookies found yet (login not complete).
 /// * `Err(String)` - Extraction failed.
+// Tauri cookie API should be called from async context on Windows
+// (WebView2 deadlock avoidance), so we keep the async signature.
+#[allow(clippy::unused_async)]
 async fn check_for_auth_cookies(
     app: &AppHandle,
 ) -> Result<Option<CookieImportResult>, String> {
     // Get the login window.
-    let window = match app.get_webview_window(LOGIN_WINDOW_LABEL) {
-        Some(w) => w,
-        None => return Ok(None), // Window was closed; nothing to check
+    let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) else {
+        return Ok(None); // Window was closed; nothing to check
     };
 
     // Parse the URL for cookie extraction.
     let url = Url::parse(APPLE_MUSIC_URL)
-        .map_err(|e| format!("Failed to parse URL: {}", e))?;
+        .map_err(|e| format!("Failed to parse URL: {e}"))?;
 
     // Extract cookies from the webview's cookie store.
     let cookies = window
         .cookies_for_url(url)
-        .map_err(|e| format!("Failed to read cookies: {}", e))?;
+        .map_err(|e| format!("Failed to read cookies: {e}"))?;
 
     // Check if the media-user-token cookie exists.
     // This is the primary authentication indicator for Apple Music.
@@ -511,7 +520,7 @@ async fn check_for_auth_cookies(
 /// 5. Returns a `CookieImportResult`
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for file paths and settings.
+/// * `app` - Tauri `AppHandle` for file paths and settings.
 /// * `cookies` - All cookies extracted from the webview.
 ///
 /// # Returns
@@ -533,9 +542,7 @@ fn save_cookies_from_webview(
     let total_count = cookies.len();
 
     log::info!(
-        "Filtered to {} Apple Music cookies out of {} total",
-        apple_music_count,
-        total_count
+        "Filtered to {apple_music_count} Apple Music cookies out of {total_count} total"
     );
 
     // Convert filtered cookies to Netscape format.
@@ -547,11 +554,11 @@ fn save_cookies_from_webview(
     // Ensure the parent directory exists (first-run safety).
     if let Some(parent) = cookies_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create cookies directory: {}", e))?;
+            .map_err(|e| format!("Failed to create cookies directory: {e}"))?;
     }
 
     std::fs::write(&cookies_path, &netscape_content)
-        .map_err(|e| format!("Failed to write cookies file: {}", e))?;
+        .map_err(|e| format!("Failed to write cookies file: {e}"))?;
 
     // Convert path to string for the result and settings.
     let cookies_path_str = cookies_path
@@ -560,16 +567,14 @@ fn save_cookies_from_webview(
         .to_string();
 
     log::info!(
-        "Saved {} Apple Music cookies to {}",
-        apple_music_count,
-        cookies_path_str
+        "Saved {apple_music_count} Apple Music cookies to {cookies_path_str}"
     );
 
     // Update application settings to point to the new cookies file.
     if let Ok(mut settings) = config_service::load_settings(app) {
         settings.cookies_path = Some(cookies_path_str.clone());
         if let Err(e) = config_service::save_settings(app, &settings) {
-            log::warn!("Failed to update settings with new cookies path: {}", e);
+            log::warn!("Failed to update settings with new cookies path: {e}");
         }
     }
 
@@ -588,8 +593,7 @@ fn save_cookies_from_webview(
         .any(|c| c.name() == AUTH_COOKIE_NAME);
     if apple_music_count > 0 && !has_auth_token {
         warnings.push(format!(
-            "The {} cookie was not found. Authentication may not work.",
-            AUTH_COOKIE_NAME
+            "The {AUTH_COOKIE_NAME} cookie was not found. Authentication may not work."
         ));
     }
 
@@ -605,8 +609,7 @@ fn save_cookies_from_webview(
                 let days_until = (expires_ts - now) / 86400;
                 if days_until < 7 {
                     warnings.push(format!(
-                        "Apple Music cookies expire in {} day(s)",
-                        days_until
+                        "Apple Music cookies expire in {days_until} day(s)"
                     ));
                     break; // Only report the first expiry warning
                 }
@@ -648,7 +651,7 @@ fn is_apple_music_domain(domain: &str) -> bool {
 
     APPLE_MUSIC_DOMAINS
         .iter()
-        .any(|&d| clean_domain == d || clean_domain.ends_with(&format!(".{}", d)))
+        .any(|&d| clean_domain == d || clean_domain.ends_with(&format!(".{d}")))
 }
 
 /// Converts a slice of webview cookies to Netscape cookie file format.
@@ -682,7 +685,7 @@ fn webview_cookies_to_netscape(cookies: &[&cookie::Cookie]) -> String {
 
 /// Formats a single cookie as a Netscape cookie file line.
 ///
-/// Extracts all fields from the cookie::Cookie struct and formats them
+/// Extracts all fields from the `cookie::Cookie` struct and formats them
 /// as a tab-separated line in the Netscape/Mozilla cookie format.
 ///
 /// ## Field Mapping
@@ -698,7 +701,7 @@ fn webview_cookies_to_netscape(cookies: &[&cookie::Cookie]) -> String {
 /// | 7 | value           | `cookie.value()`           | Cookie value                       |
 ///
 /// # Arguments
-/// * `cookie` - A reference to a cookie::Cookie struct.
+/// * `cookie` - A reference to a `cookie::Cookie` struct.
 ///
 /// # Returns
 /// A single tab-separated line in Netscape format (without trailing newline).
@@ -708,7 +711,7 @@ fn format_netscape_line(cookie: &cookie::Cookie) -> String {
     let domain = if raw_domain.starts_with('.') {
         raw_domain.to_string()
     } else {
-        format!(".{}", raw_domain)
+        format!(".{raw_domain}")
     };
 
     // Field 2: subdomain flag (always TRUE for dotted domains)
@@ -737,8 +740,7 @@ fn format_netscape_line(cookie: &cookie::Cookie) -> String {
     let value = cookie.value();
 
     format!(
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-        domain, subdomain_flag, path, secure, expires, name, value
+        "{domain}\t{subdomain_flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}"
     )
 }
 

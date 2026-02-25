@@ -53,38 +53,42 @@ use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use tokio::time::sleep;
 
-/// Apple iTunes freeform atom namespace (matches MusicBrainz Picard's convention).
+/// Apple iTunes freeform atom namespace (matches `MusicBrainz` Picard's convention).
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
-/// AcousticID API endpoint for fingerprint lookups.
+/// `AcousticID` API endpoint for fingerprint lookups.
 const ACOUSTID_API_URL: &str = "https://api.acoustid.org/v2/lookup";
 
-/// Delay between AcousticID API requests (~3 req/sec rate limit).
+/// Delay between `AcousticID` API requests (~3 req/sec rate limit).
 const API_RATE_LIMIT_DELAY: Duration = Duration::from_millis(334);
 
-/// MeedyaDL application API key for AcousticID.
-/// Registered at https://acoustid.org/new-application
+/// `MeedyaDL` application API key for `AcousticID`.
+/// Registered at <https://acoustid.org/new-application>
 /// This is a public application key (not a secret) — same practice as
-/// MusicBrainz Picard and other open-source music taggers.
+/// `MusicBrainz` Picard and other open-source music taggers.
 const ACOUSTID_API_KEY: &str = "PLACEHOLDER_REGISTER_AT_ACOUSTID_ORG";
 
 // ============================================================
 // Public API
 // ============================================================
 
-/// Process all M4A files in the output directory for AcousticID fingerprinting.
+/// Process all M4A files in the output directory for `AcousticID` fingerprinting.
 ///
 /// For each file: generates a Chromaprint fingerprint using the embedded
-/// rusty-chromaprint library, looks up the AcousticID via the web service,
-/// and writes both the fingerprint and AcousticID UUID as metadata tags.
+/// rusty-chromaprint library, looks up the `AcousticID` via the web service,
+/// and writes both the fingerprint and `AcousticID` UUID as metadata tags.
 ///
 /// # Arguments
 /// * `output_path` - Download output path (file or album directory)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the output path is invalid or file processing fails.
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully fingerprinted and tagged
@@ -132,7 +136,7 @@ pub async fn process_acoustid_for_directory(
 // Internal: Per-File Processing
 // ============================================================
 
-/// Generate fingerprint, look up AcousticID, and write tags for a single file.
+/// Generate fingerprint, look up `AcousticID`, and write tags for a single file.
 ///
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
 async fn process_single_file(
@@ -146,17 +150,16 @@ async fn process_single_file(
         generate_fingerprint(&fp_path)
     })
     .await
-    .map_err(|e| format!("Fingerprint task panicked: {}", e))??;
+    .map_err(|e| format!("Fingerprint task panicked: {e}"))??;
 
     // Step 2: Look up AcousticID
-    let acoustid = match lookup_acoustid(&fingerprint, duration).await? {
-        Some(id) => id,
-        None => return Ok(false), // No match found
+    let Some(acoustid) = lookup_acoustid(&fingerprint, duration).await? else {
+        return Ok(false); // No match found
     };
 
     // Step 3: Write tags
     let mut tag = Tag::read_from_path(file_path)
-        .map_err(|e| format!("Failed to read M4A: {}", e))?;
+        .map_err(|e| format!("Failed to read M4A: {e}"))?;
 
     // Acoustid Id — the UUID from acoustid.org
     tag.set_data(
@@ -171,7 +174,7 @@ async fn process_single_file(
     );
 
     tag.write_to_path(file_path)
-        .map_err(|e| format!("Failed to write M4A: {}", e))?;
+        .map_err(|e| format!("Failed to write M4A: {e}"))?;
 
     log::debug!("AcousticID tagged: {}", file_path.display());
     Ok(true)
@@ -186,16 +189,17 @@ async fn process_single_file(
 /// Uses Symphonia to decode the M4A file to raw interleaved i16 PCM
 /// samples, then feeds them to rusty-chromaprint's Fingerprinter.
 /// The resulting fingerprint is compressed and encoded in URL-safe base64
-/// format compatible with the AcousticID API.
+/// format compatible with the `AcousticID` API.
 ///
 /// # Returns
 /// * `Ok((fingerprint, duration))` - Encoded fingerprint and duration in seconds
 /// * `Err(message)` - Decoding or fingerprinting failed
+#[allow(clippy::similar_names)] // `decoded` and `decoder` are standard audio terminology
 fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
     // Open the audio file and wrap in a MediaSourceStream
     let file = std::fs::File::open(file_path)
-        .map_err(|e| format!("Failed to open audio file: {}", e))?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        .map_err(|e| format!("Failed to open audio file: {e}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
 
     // Provide a file extension hint for format detection
     let mut hint = Hint::new();
@@ -211,7 +215,7 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
             &FormatOptions::default(),
             &MetadataOptions::default(),
         )
-        .map_err(|e| format!("Failed to probe audio format: {}", e))?;
+        .map_err(|e| format!("Failed to probe audio format: {e}"))?;
 
     let mut format_reader = probed.format;
 
@@ -228,14 +232,14 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
         .ok_or("Audio track has no sample rate")?;
     let channels = codec_params
         .channels
-        .map(|ch| ch.count() as u32)
+        .map(|ch| u32::try_from(ch.count()).unwrap_or(0))
         .ok_or("Audio track has no channel info")?;
     let track_id = track.id;
 
     // Create a decoder for the audio track
     let mut decoder = symphonia::default::get_codecs()
         .make(codec_params, &DecoderOptions::default())
-        .map_err(|e| format!("Failed to create audio decoder: {}", e))?;
+        .map_err(|e| format!("Failed to create audio decoder: {e}"))?;
 
     // Initialize the Chromaprint fingerprinter with the standard preset
     // (preset_test2 matches fpcalc's default algorithm)
@@ -243,7 +247,7 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
     let mut printer = Fingerprinter::new(&config);
     printer
         .start(sample_rate, channels)
-        .map_err(|e| format!("Failed to start fingerprinter: {:?}", e))?;
+        .map_err(|e| format!("Failed to start fingerprinter: {e:?}"))?;
 
     // Decode all audio packets and feed interleaved i16 samples to the fingerprinter
     let mut total_samples: u64 = 0;
@@ -257,7 +261,7 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
             {
                 break; // End of stream
             }
-            Err(e) => return Err(format!("Error reading audio packet: {}", e)),
+            Err(e) => return Err(format!("Error reading audio packet: {e}")),
         };
 
         // Skip packets from other tracks (unlikely for M4A but defensive)
@@ -286,9 +290,8 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
             }
             Err(symphonia::core::errors::Error::DecodeError(_)) => {
                 // Skip corrupted packets
-                continue;
             }
-            Err(e) => return Err(format!("Audio decode error: {}", e)),
+            Err(e) => return Err(format!("Audio decode error: {e}")),
         }
     }
 
@@ -307,8 +310,12 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
     // Encode in URL-safe base64 (no padding) — matches Chromaprint's convention
     let encoded = URL_SAFE_NO_PAD.encode(&compressed);
 
-    // Calculate duration from total decoded samples
-    let duration_seconds = (total_samples / channels as u64 / sample_rate as u64) as u32;
+    // Calculate duration from total decoded samples.
+    // u64::from() used for lossless widening; try_from() guards against truncation.
+    let duration_seconds = u32::try_from(
+        total_samples / u64::from(channels) / u64::from(sample_rate)
+    )
+    .unwrap_or(u32::MAX);
 
     Ok((encoded, duration_seconds))
 }
@@ -317,14 +324,14 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
 // Internal: AcousticID API Lookup
 // ============================================================
 
-/// Look up an AcousticID by fingerprint and duration.
+/// Look up an `AcousticID` by fingerprint and duration.
 ///
-/// Sends a POST request to the AcousticID web service with the Chromaprint
-/// fingerprint. Returns the AcousticID UUID if a match is found with
+/// Sends a POST request to the `AcousticID` web service with the Chromaprint
+/// fingerprint. Returns the `AcousticID` UUID if a match is found with
 /// sufficient confidence (score >= 0.5).
 ///
 /// # Returns
-/// * `Ok(Some(uuid))` - AcousticID found
+/// * `Ok(Some(uuid))` - `AcousticID` found
 /// * `Ok(None)` - No match with sufficient confidence
 /// * `Err(message)` - API request or parsing failed
 async fn lookup_acoustid(
@@ -343,17 +350,17 @@ async fn lookup_acoustid(
         ])
         .send()
         .await
-        .map_err(|e| format!("AcousticID API request failed: {}", e))?;
+        .map_err(|e| format!("AcousticID API request failed: {e}"))?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        return Err(format!("AcousticID API returned HTTP {}", status));
+        return Err(format!("AcousticID API returned HTTP {status}"));
     }
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse AcousticID response: {}", e))?;
+        .map_err(|e| format!("Failed to parse AcousticID response: {e}"))?;
 
     // Check API status
     let status = json
@@ -367,7 +374,7 @@ async fn lookup_acoustid(
             .and_then(|e| e.get("message"))
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown API error");
-        return Err(format!("AcousticID API error: {}", error_msg));
+        return Err(format!("AcousticID API error: {error_msg}"));
     }
 
     // Find the best matching result with score >= 0.5
@@ -379,21 +386,18 @@ async fn lookup_acoustid(
         .and_then(|arr| {
             arr.iter().find(|r| {
                 r.get("score")
-                    .and_then(|s| s.as_f64())
+                    .and_then(serde_json::Value::as_f64)
                     .unwrap_or(0.0) >= 0.5
             })
         });
 
-    match best_match {
-        Some(result) => {
-            let acoustid = result
-                .get("id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            Ok(acoustid)
-        }
-        None => Ok(None),
-    }
+    best_match.map_or(Ok(None), |result| {
+        let acoustid = result
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        Ok(acoustid)
+    })
 }
 
 // ============================================================
@@ -418,9 +422,8 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
 
 /// Recursively collect M4A file paths from a directory tree.
 fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
 
     for entry in entries.flatten() {
@@ -437,8 +440,7 @@ fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 fn is_m4a(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("m4a"))
-        .unwrap_or(false)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("m4a"))
 }
 
 // ============================================================
