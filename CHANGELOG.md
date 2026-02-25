@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Sign bundled macOS dependencies with Developer ID for notarization [skip ci]
+
+Apple's notarization service inspects all Mach-O binaries inside the
+  .app bundle, including those inside tar.gz archives. Third-party binaries
+  (Python, Perl, FFmpeg, MP4Box libs, etc.) from bundled-deps must be
+  re-signed with our Developer ID certificate before Tauri packages them.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -13,6 +23,19 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update HelpViewer.tsx to clarify MusicKit key creation instructions
 - Update CHANGELOG.md [skip ci]
 - Update DEV_NOTES and CHANGELOG to document macOS codesign timestamp workaround and future MusicKit integration
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Update dependencies and add new icons
+
+- Updated `vitest` from `^2.1.8` to `^4.0.18` in `package.json`.
+  - Added `sharp` dependency with version `^0.34.5`.
+  - Updated various icon files in `src-tauri/icons` for different resolutions and platforms, including:
+    - New icons for Android adaptive launcher and various mipmap resolutions.
+    - New iOS app icons for multiple sizes.
+    - Updated existing icon files for various resolutions.
+
 
 ## [0.3.23] - 2026-02-22
 
