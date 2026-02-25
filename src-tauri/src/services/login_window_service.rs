@@ -75,7 +75,11 @@ use crate::utils::platform;
 /// Tauri identifies windows by label, so this must be unique across the app.
 const LOGIN_WINDOW_LABEL: &str = "apple-login";
 
-/// The URL that the login window navigates to on open.
+/// The base URL for Apple Music (used for cookie extraction scope).
+/// Cookie extraction always uses this base URL because cookies are domain-scoped,
+/// not path-scoped, so `cookies_for_url("https://music.apple.com")` returns all
+/// cookies for the `.apple.com` domain regardless of which storefront the user
+/// navigated to.
 const APPLE_MUSIC_URL: &str = "https://music.apple.com";
 
 /// The cookie name that indicates a successful Apple Music login.
@@ -91,13 +95,29 @@ const APPLE_MUSIC_DOMAINS: &[&str] = &["apple.com", "mzstatic.com"];
 /// page has loaded before the window disappears.
 const AUTO_CLOSE_DELAY_MS: u64 = 1000;
 
+/// Number of retry attempts for cookie detection after a page loads.
+/// After signing in, Apple Music may set the `media-user-token` cookie
+/// via JavaScript after the page load event fires. This retry mechanism
+/// accounts for that delay by re-checking cookies at short intervals.
+const AUTH_COOKIE_CHECK_RETRIES: u32 = 5;
+
+/// Delay (in milliseconds) between cookie detection retry attempts.
+/// Total maximum wait: AUTH_COOKIE_CHECK_RETRIES × AUTH_COOKIE_RETRY_DELAY_MS
+/// (e.g., 5 × 1000ms = 5 seconds).
+const AUTH_COOKIE_RETRY_DELAY_MS: u64 = 1000;
+
 // ============================================================
 // Public Functions
 // ============================================================
 
 /// Opens an embedded browser window for Apple Music login.
 ///
-/// Creates a secondary `WebviewWindow` that loads `https://music.apple.com`.
+/// Creates a secondary `WebviewWindow` that loads Apple Music's website.
+/// The URL is automatically localized to the user's country based on their
+/// system locale (e.g., `https://music.apple.com/gb/browse` for UK users).
+/// This avoids the "Visit your local store" redirect prompt that Apple shows
+/// to non-US users when loading the generic `music.apple.com` URL.
+///
 /// The user can sign in with their Apple ID in this window. An `on_page_load`
 /// callback monitors page navigations and automatically extracts cookies when
 /// a successful login is detected (via the `media-user-token` cookie).
@@ -129,10 +149,15 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    // Parse the Apple Music URL for the WebviewUrl::External variant.
+    // Build the localized Apple Music URL based on the user's system locale.
+    // This pre-loads the correct storefront (e.g., /gb/browse for UK users)
+    // instead of showing the US store and prompting the user to switch.
+    let login_url = build_storefront_url();
+
+    // Parse the URL for the WebviewUrl::External variant.
     // This tells Tauri to load an external website (not the app's own frontend).
     let url = WebviewUrl::External(
-        APPLE_MUSIC_URL
+        login_url
             .parse()
             .map_err(|e| format!("Failed to parse Apple Music URL: {}", e))?,
     );
@@ -171,45 +196,75 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
                     let app_handle = app_for_page_load.clone();
 
                     // Spawn an async task to check cookies without blocking the UI.
+                    // Uses a retry loop because Apple Music may set the
+                    // `media-user-token` cookie via JavaScript after the page
+                    // load event fires, so the cookie might not be present on
+                    // the first check.
                     tauri::async_runtime::spawn(async move {
-                        match check_for_auth_cookies(&app_handle).await {
-                            Ok(Some(result)) => {
-                                // Authentication cookies were found and saved.
-                                // Emit the result to the main window so the frontend
-                                // can update its state.
-                                if let Some(main_window) =
-                                    app_handle.get_webview_window("main")
-                                {
-                                    let _ = main_window
-                                        .emit("login-cookies-extracted", &result);
+                        let mut found = false;
+
+                        for attempt in 0..=AUTH_COOKIE_CHECK_RETRIES {
+                            match check_for_auth_cookies(&app_handle).await {
+                                Ok(Some(result)) => {
+                                    // Authentication cookies were found and saved.
+                                    // Emit the result to the main window so the
+                                    // frontend can update its state.
+                                    if let Some(main_window) =
+                                        app_handle.get_webview_window("main")
+                                    {
+                                        let _ = main_window
+                                            .emit("login-cookies-extracted", &result);
+                                    }
+
+                                    log::info!(
+                                        "Auth cookies detected on attempt {} of {}",
+                                        attempt + 1,
+                                        AUTH_COOKIE_CHECK_RETRIES + 1
+                                    );
+
+                                    // Wait briefly before closing the login window,
+                                    // giving the user a moment to see the logged-in page.
+                                    tokio::time::sleep(std::time::Duration::from_millis(
+                                        AUTO_CLOSE_DELAY_MS,
+                                    ))
+                                    .await;
+
+                                    // Auto-close the login window after successful extraction
+                                    close_login_window(&app_handle);
+                                    found = true;
+                                    break;
                                 }
+                                Ok(None) => {
+                                    // No auth cookies yet on this attempt.
+                                    if attempt < AUTH_COOKIE_CHECK_RETRIES {
+                                        // Wait before retrying to give JavaScript
+                                        // time to set cookies after page load.
+                                        tokio::time::sleep(
+                                            std::time::Duration::from_millis(
+                                                AUTH_COOKIE_RETRY_DELAY_MS,
+                                            ),
+                                        )
+                                        .await;
+                                    }
+                                }
+                                Err(e) => {
+                                    // Cookie check failed -- log but don't surface to user.
+                                    // The manual "I've signed in" button provides a fallback.
+                                    log::warn!(
+                                        "Failed to check auth cookies: {}",
+                                        e
+                                    );
+                                    break; // Don't retry on errors
+                                }
+                            }
+                        }
 
-                                // Wait briefly before closing the login window,
-                                // giving the user a moment to see the logged-in page.
-                                tokio::time::sleep(std::time::Duration::from_millis(
-                                    AUTO_CLOSE_DELAY_MS,
-                                ))
-                                .await;
-
-                                // Auto-close the login window after successful extraction
-                                close_login_window(&app_handle);
-                            }
-                            Ok(None) => {
-                                // No auth cookies yet -- user hasn't completed login.
-                                // This is normal during the login flow.
-                                log::debug!(
-                                    "No auth cookies found yet on page: {}",
-                                    url_str
-                                );
-                            }
-                            Err(e) => {
-                                // Cookie check failed -- log but don't surface to user.
-                                // The manual "I've signed in" button provides a fallback.
-                                log::warn!(
-                                    "Failed to check auth cookies: {}",
-                                    e
-                                );
-                            }
+                        if !found {
+                            log::debug!(
+                                "No auth cookies found after {} checks on page: {}",
+                                AUTH_COOKIE_CHECK_RETRIES + 1,
+                                url_str
+                            );
                         }
                     });
                 }
@@ -230,7 +285,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
         }
     });
 
-    log::info!("Login window opened to {}", APPLE_MUSIC_URL);
+    log::info!("Login window opened to {}", login_url);
     Ok(())
 }
 
@@ -303,6 +358,91 @@ pub fn close_login_window(app: &AppHandle) {
 // ============================================================
 // Private Functions
 // ============================================================
+
+/// Builds the Apple Music URL with the user's local storefront pre-selected.
+///
+/// Detects the system locale to determine the user's country code, then
+/// constructs a URL like `https://music.apple.com/gb/browse` (for UK users).
+/// If locale detection fails or the country code cannot be extracted, falls
+/// back to the generic `https://music.apple.com` URL.
+///
+/// Apple Music storefronts use lowercase ISO 3166-1 alpha-2 country codes
+/// in their URL paths, which match the country portion of standard locale
+/// strings (e.g., `en-GB` → `gb`, `de-DE` → `de`, `ja-JP` → `jp`).
+///
+/// # Returns
+/// A URL string pointing to the user's localized Apple Music storefront.
+fn build_storefront_url() -> String {
+    match detect_storefront() {
+        Some(storefront) => {
+            let url = format!("{}/{}/browse", APPLE_MUSIC_URL, storefront);
+            log::info!(
+                "Detected storefront '{}' from system locale, using URL: {}",
+                storefront,
+                url
+            );
+            url
+        }
+        None => {
+            log::info!(
+                "Could not detect storefront from system locale, using default: {}",
+                APPLE_MUSIC_URL
+            );
+            APPLE_MUSIC_URL.to_string()
+        }
+    }
+}
+
+/// Detects the user's Apple Music storefront code from the system locale.
+///
+/// Uses the `sys-locale` crate to read the OS-configured locale (e.g.,
+/// `en-GB`, `de-DE`, `fr-FR`, `ja-JP`), then extracts the country code
+/// portion and converts it to lowercase for use in Apple Music URLs.
+///
+/// ## Locale Format Examples
+///
+/// | System Locale | Country Code | Apple Music URL                        |
+/// |---------------|-------------|----------------------------------------|
+/// | en-US         | us          | https://music.apple.com/us/browse      |
+/// | en-GB         | gb          | https://music.apple.com/gb/browse      |
+/// | de-DE         | de          | https://music.apple.com/de/browse      |
+/// | ja-JP         | jp          | https://music.apple.com/jp/browse      |
+/// | fr-FR         | fr          | https://music.apple.com/fr/browse      |
+/// | pt-BR         | br          | https://music.apple.com/br/browse      |
+///
+/// # Returns
+/// * `Some(String)` - Lowercase 2-letter country code (e.g., "gb", "de").
+/// * `None` - If locale detection fails or the locale has no country component.
+fn detect_storefront() -> Option<String> {
+    // sys-locale::get_locale() returns the primary system locale as a string.
+    // The format varies by OS but typically follows BCP 47 (e.g., "en-US")
+    // or POSIX (e.g., "en_US.UTF-8").
+    let locale = sys_locale::get_locale()?;
+
+    log::debug!("System locale detected: {}", locale);
+
+    // Split on common locale separators: hyphen (BCP 47: "en-US"),
+    // underscore (POSIX: "en_US"), or period (strip encoding suffix like ".UTF-8").
+    // We want the second component, which is the country/region code.
+    let country = locale
+        .split(|c: char| c == '-' || c == '_')
+        .nth(1)?
+        // Strip any encoding suffix (e.g., "US.UTF-8" → "US")
+        .split('.')
+        .next()?;
+
+    // Apple Music storefronts require exactly 2-letter country codes.
+    // Filter out invalid results (e.g., locale strings with no country part).
+    if country.len() == 2 && country.chars().all(|c| c.is_ascii_alphabetic()) {
+        Some(country.to_lowercase())
+    } else {
+        log::debug!(
+            "Locale '{}' did not yield a valid 2-letter country code",
+            locale
+        );
+        None
+    }
+}
 
 /// Checks whether authentication cookies exist in the login webview.
 ///
@@ -788,5 +928,40 @@ mod tests {
 
         assert!(output.contains("name1\tval1"));
         assert!(output.contains("name2\tval2"));
+    }
+
+    // ----------------------------------------------------------
+    // build_storefront_url: locale-based URL construction
+    // ----------------------------------------------------------
+
+    /// Verifies that detect_storefront returns a result on the current system.
+    /// (We can't assert a specific value since it depends on the test machine's
+    /// locale, but we can verify the function doesn't panic.)
+    #[test]
+    fn detect_storefront_does_not_panic() {
+        let _ = detect_storefront();
+    }
+
+    /// Verifies that build_storefront_url returns a valid URL.
+    /// On any system, it should return a URL starting with the Apple Music base.
+    #[test]
+    fn build_storefront_url_starts_with_base() {
+        let url = build_storefront_url();
+        assert!(
+            url.starts_with(APPLE_MUSIC_URL),
+            "Storefront URL should start with Apple Music base URL, got: {}",
+            url
+        );
+    }
+
+    /// Verifies that build_storefront_url returns a parseable URL.
+    #[test]
+    fn build_storefront_url_is_valid_url() {
+        let url = build_storefront_url();
+        assert!(
+            Url::parse(&url).is_ok(),
+            "Storefront URL should be a valid URL, got: {}",
+            url
+        );
     }
 }
