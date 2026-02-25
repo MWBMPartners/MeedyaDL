@@ -302,7 +302,7 @@ fn has_platform_assets(assets: Option<&Vec<serde_json::Value>>) -> bool {
         .collect();
 
     // Check 1: The Tauri updater manifest must exist.
-    let has_manifest = asset_names.iter().any(|name| *name == "latest.json");
+    let has_manifest = asset_names.contains(&"latest.json");
     if !has_manifest {
         log::info!(
             "Release has {} assets but no latest.json manifest — builds may still be in progress",
