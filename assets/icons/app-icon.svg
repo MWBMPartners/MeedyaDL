@@ -3,44 +3,39 @@
   Licensed under the MIT License. See LICENSE file in the project root.
 
   MeedyaDL Application Icon
-  A musical note with a download arrow, representing music downloading.
-  This SVG source is used to generate platform-specific icons.
+  Interlocking media frame + downward arrow motif representing fast, reliable downloads.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <!-- Background circle with gradient -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="MeedyaDL icon">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#007AFF"/>
-      <stop offset="100%" stop-color="#5856D6"/>
+    <linearGradient id="bg" x1="56" y1="44" x2="464" y2="476" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B132B"/>
+      <stop offset="0.52" stop-color="#1C2541"/>
+      <stop offset="1" stop-color="#3A506B"/>
     </linearGradient>
-    <linearGradient id="note" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#E0E0FF"/>
+    <linearGradient id="edge" x1="96" y1="86" x2="426" y2="410" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5BC0BE" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#6FFFE9" stop-opacity="0.75"/>
+    </linearGradient>
+    <linearGradient id="core" x1="152" y1="146" x2="360" y2="368" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DFF8FF"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="256" y1="224" x2="256" y2="392" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7BFFD8"/>
+      <stop offset="1" stop-color="#3BC9FF"/>
     </linearGradient>
   </defs>
 
-  <!-- Rounded square background -->
-  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)"/>
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bg)"/>
 
-  <!-- Musical note shape -->
-  <g transform="translate(130, 100)" fill="url(#note)">
-    <!-- Note stem -->
-    <rect x="200" y="0" width="16" height="220" rx="8"/>
+  <rect x="98" y="94" width="316" height="316" rx="76" fill="none" stroke="url(#edge)" stroke-width="20"/>
+  <rect x="152" y="148" width="208" height="208" rx="44" fill="url(#core)" opacity="0.97"/>
 
-    <!-- Note flag/beam -->
-    <path d="M216 0 C216 0 260 20 260 60 C260 100 216 80 216 80 Z"/>
+  <path d="M214 219L214 289" stroke="#1C2541" stroke-width="18" stroke-linecap="round"/>
+  <path d="M298 219L298 289" stroke="#1C2541" stroke-width="18" stroke-linecap="round"/>
+  <rect x="186" y="194" width="140" height="24" rx="12" fill="#1C2541"/>
 
-    <!-- Note head -->
-    <ellipse cx="160" cy="230" rx="56" ry="42" transform="rotate(-20, 160, 230)"/>
-  </g>
-
-  <!-- Download arrow overlay -->
-  <g transform="translate(256, 340)">
-    <!-- Arrow shaft -->
-    <rect x="-8" y="-50" width="16" height="60" rx="4" fill="white" opacity="0.9"/>
-    <!-- Arrow head -->
-    <polygon points="-24,10 0,36 24,10" fill="white" opacity="0.9"/>
-    <!-- Base line -->
-    <rect x="-30" y="42" width="60" height="6" rx="3" fill="white" opacity="0.7"/>
-  </g>
+  <rect x="240" y="248" width="32" height="90" rx="16" fill="url(#arrow)"/>
+  <path d="M199 317L256 378L313 317" fill="url(#arrow)"/>
+  <rect x="188" y="391" width="136" height="16" rx="8" fill="url(#arrow)" opacity="0.96"/>
 </svg>
