@@ -24,6 +24,7 @@ Apple's notarization service inspects all Mach-O binaries inside the
 - Update CHANGELOG.md [skip ci]
 - Update DEV_NOTES and CHANGELOG to document macOS codesign timestamp workaround and future MusicKit integration
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
