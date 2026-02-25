@@ -132,8 +132,7 @@ import { SetupWizard } from './components/setup';
 /* ─── Common Components ──────────────────────────────────────────────── */
 
 /** LoadingSpinner: Animated spinner shown during async loading states */
-/** UpdateBanner: Dismissible banner shown when updates are available */
-import { LoadingSpinner, UpdateBanner } from './components/common';
+import { LoadingSpinner } from './components/common';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -737,16 +736,16 @@ function App() {
   /*
    * ─── Render: Main Application ──────────────────────────────────────
    * The main UI consists of:
-   * - MainLayout: provides sidebar navigation and status bar chrome
-   * - UpdateBanner: dismissible notification when updates are available
+   * - MainLayout: provides sidebar navigation, update banner, and status bar chrome
    * - renderPage(): the currently active page component
    *
    * MainLayout uses children composition, so the content area is flexible.
+   * The UpdateBanner is rendered by MainLayout above the scrollable content
+   * area so it remains visible regardless of page scroll position.
    * @see ./components/layout/MainLayout.tsx
    */
   return (
     <MainLayout>
-      <UpdateBanner />
       {renderPage()}
     </MainLayout>
   );
