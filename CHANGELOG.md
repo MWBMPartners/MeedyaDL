@@ -8,6 +8,21 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add platform asset validation for GitHub releases
+- Refactor UpdateBanner integration in MainLayout and App components
+
+### 🐛 Bug Fixes
+
+- Improve asset manifest check in has_platform_assets function
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.25] - 2026-02-25
+
+### ✨ Features
+
 - Add sys-locale dependency for localized Apple Music storefront detection
 
 ### 📚 Documentation
