@@ -11,8 +11,10 @@
  * ┌──────────────────────────────────────────────────┐
  * │               TitleBar (Win/Linux)               │
  * ├──────────┬───────────────────────────────────────┤
- * │          │          <main> (scrollable)          │
- * │ Sidebar  │   children (active page component)    │
+ * │          │    UpdateBanner (pinned, non-scroll)   │
+ * │          ├───────────────────────────────────────┤
+ * │ Sidebar  │          <main> (scrollable)          │
+ * │          │   children (active page component)    │
  * │          │                                       │
  * │          ├───────────────────────────────────────┤
  * │          │             StatusBar                 │
@@ -49,7 +51,8 @@ import { TitleBar } from './TitleBar';
 import { StatusBar } from './StatusBar';
 
 /** Toast notification overlay rendered outside the normal document flow. */
-import { ToastContainer } from '@/components/common';
+/** UpdateBanner: dismissible notification shown when updates are available. */
+import { ToastContainer, UpdateBanner } from '@/components/common';
 
 /**
  * Props for the {@link MainLayout} component.
@@ -71,18 +74,21 @@ interface MainLayoutProps {
 /**
  * Root layout shell for the entire application window.
  *
- * Renders five distinct regions:
+ * Renders six distinct regions:
  *  1. **TitleBar** -- Custom window chrome (minimize / maximize / close)
  *     rendered only on Windows & Linux; macOS uses the native traffic-light
  *     buttons via `titleBarStyle: 'overlay'` in `tauri.conf.json`.
  *  2. **Sidebar** -- Left-hand navigation panel that links to each
  *     application page. Collapsible to icon-only mode.
- *  3. **<main>** -- Scrollable content area where `children` (the active
+ *  3. **UpdateBanner** -- Dismissible notification banner shown when app
+ *     or component updates are available. Rendered above the scrollable
+ *     content area so it stays visible regardless of page scroll position.
+ *  4. **<main>** -- Scrollable content area where `children` (the active
  *     page) is injected. `overflow-y-auto` allows vertical scrolling when
  *     content exceeds the viewport.
- *  4. **StatusBar** -- Fixed footer displaying active download counts,
+ *  5. **StatusBar** -- Fixed footer displaying active download counts,
  *     queued items, and the application version string.
- *  5. **ToastContainer** -- Absolutely-positioned overlay that renders
+ *  6. **ToastContainer** -- Absolutely-positioned overlay that renders
  *     transient notification toasts (success, error, info, warning).
  *
  * Layout mechanics (Tailwind CSS):
@@ -140,6 +146,17 @@ export function MainLayout({ children }: MainLayoutProps) {
          * `overflow-hidden` prevents this column itself from scrolling.
          */}
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/*
+           * Update banner -- rendered ABOVE the scrollable <main> so it
+           * stays visible regardless of page scroll position. It lives in
+           * the flex column between the top edge and <main>, taking only
+           * the vertical space it needs (flex-shrink-0 is implicit for
+           * non-flex-1 children). When dismissed or when no updates are
+           * available, it renders nothing and takes zero space.
+           * @see UpdateBanner component in @/components/common
+           */}
+          <UpdateBanner />
+
           {/*
            * Scrollable page content area.
            * `flex-1` makes it grow to fill the column; `overflow-y-auto`
