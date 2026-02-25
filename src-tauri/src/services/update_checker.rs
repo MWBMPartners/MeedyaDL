@@ -209,6 +209,132 @@ fn is_newer(current: &str, latest: &str) -> bool {
 }
 
 // ============================================================
+// Platform asset validation
+// ============================================================
+
+/// Returns the expected asset name substrings for the current platform.
+///
+/// These patterns are matched against GitHub release asset names to verify
+/// that a downloadable binary exists for the user's OS and architecture.
+/// Uses compile-time `cfg!()` macros, so only the current platform's
+/// patterns are included in the binary.
+///
+/// ## Asset Naming Convention (from release.yml)
+///
+/// | Platform          | Pattern(s)                                    |
+/// |-------------------|-----------------------------------------------|
+/// | macOS ARM64       | `_aarch64.dmg`, `_aarch64.app.tar.gz`         |
+/// | Windows x64       | `_x64-setup.exe`                              |
+/// | Windows ARM64     | `_arm64-setup.exe`                             |
+/// | Linux x64         | `_amd64.deb`, `_amd64.AppImage`               |
+/// | Linux ARM64       | `_arm64.deb`                                  |
+/// | Linux ARMv7       | `_armv7.deb`                                  |
+///
+/// # Returns
+/// A list of substrings that should appear in at least one asset name.
+/// Any single match is sufficient (the patterns are OR'd, not AND'd).
+fn get_platform_asset_patterns() -> Vec<&'static str> {
+    if cfg!(target_os = "macos") {
+        // macOS currently only ships ARM64 (Apple Silicon).
+        // The .dmg is the user-facing installer; the .app.tar.gz is the
+        // Tauri updater artifact (used by in-app updates).
+        vec!["_aarch64.dmg", "_aarch64.app.tar.gz"]
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            vec!["_arm64-setup.exe"]
+        } else {
+            // x86_64 (also works on ARM64 via Windows emulation)
+            vec!["_x64-setup.exe"]
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            vec!["_arm64.deb"]
+        } else if cfg!(target_arch = "arm") {
+            vec!["_armv7.deb", "_armhf.deb"]
+        } else {
+            // x86_64
+            vec!["_amd64.deb", "_amd64.AppImage"]
+        }
+    } else {
+        // Unknown platform — no expected assets, so the check will fail
+        // gracefully (update won't be shown).
+        vec![]
+    }
+}
+
+/// Checks whether a GitHub release has downloadable assets for the current platform.
+///
+/// Performs two checks:
+/// 1. **Updater manifest**: The `latest.json` file must exist. This is the
+///    Tauri updater manifest that contains platform-specific download URLs
+///    and signature hashes. Without it, the in-app updater cannot function.
+/// 2. **Platform binary**: At least one asset must match the current OS/arch
+///    patterns from [`get_platform_asset_patterns()`]. This ensures the user's
+///    platform build actually succeeded.
+///
+/// ## Why Both Checks?
+///
+/// - `latest.json` missing → release was just created, no builds completed yet
+/// - `latest.json` exists but no platform asset → other platforms built, but
+///   this platform's build failed (e.g., macOS DMG bundling error)
+///
+/// # Arguments
+/// * `assets` - The `assets` array from the GitHub Releases API response.
+///   Each element is a JSON object with at least a `name` field.
+///
+/// # Returns
+/// `true` if both the updater manifest and a platform-specific asset exist.
+fn has_platform_assets(assets: Option<&Vec<serde_json::Value>>) -> bool {
+    let Some(assets) = assets else {
+        log::debug!("Release has no assets array");
+        return false;
+    };
+
+    if assets.is_empty() {
+        log::debug!("Release has an empty assets array");
+        return false;
+    }
+
+    // Collect asset names for matching.
+    let asset_names: Vec<&str> = assets
+        .iter()
+        .filter_map(|a| a["name"].as_str())
+        .collect();
+
+    // Check 1: The Tauri updater manifest must exist.
+    let has_manifest = asset_names.iter().any(|name| *name == "latest.json");
+    if !has_manifest {
+        log::info!(
+            "Release has {} assets but no latest.json manifest — builds may still be in progress",
+            asset_names.len()
+        );
+        return false;
+    }
+
+    // Check 2: At least one asset must match the current platform.
+    let patterns = get_platform_asset_patterns();
+    if patterns.is_empty() {
+        // Unknown platform — can't verify, assume unavailable.
+        log::debug!("No platform asset patterns defined for this target");
+        return false;
+    }
+
+    let has_platform = asset_names.iter().any(|name| {
+        patterns.iter().any(|pattern| name.contains(pattern))
+    });
+
+    if !has_platform {
+        log::info!(
+            "Release has latest.json but no assets matching platform patterns {:?} — \
+             this platform's build may have failed",
+            patterns
+        );
+    }
+
+    has_platform
+}
+
+// ============================================================
 // Update check functions
 // ============================================================
 
@@ -440,11 +566,30 @@ async fn check_app_update(
     // This is `true` for releases marked as pre-release on GitHub.
     let is_prerelease = release["prerelease"].as_bool().unwrap_or(false);
 
-    let update_available = if tag.is_empty() {
+    let mut update_available = if tag.is_empty() {
         false
     } else {
         is_newer(&current_version, &tag)
     };
+
+    // If a newer version exists, verify that the release actually has
+    // downloadable assets for this platform. This prevents showing an
+    // update prompt when:
+    //   - The release was just created and builds haven't completed yet
+    //   - This platform's build failed (e.g., macOS DMG bundling error)
+    //   - The release is an empty tag with no binaries attached
+    if update_available {
+        let assets = release["assets"].as_array();
+        if !has_platform_assets(assets) {
+            log::info!(
+                "Version {} is newer than {} but has no assets for this platform — \
+                 suppressing update notification",
+                tag,
+                current_version
+            );
+            update_available = false;
+        }
+    }
 
     Ok(ComponentUpdate {
         name: "MeedyaDL".to_string(),
@@ -553,5 +698,102 @@ mod tests {
         assert!(!is_gamdl_compatible("1.9.9"));
         // Unparseable string: incompatible (safe default)
         assert!(!is_gamdl_compatible("invalid"));
+    }
+
+    /// Tests that get_platform_asset_patterns() returns a non-empty list
+    /// of expected asset name substrings for the current compile target.
+    #[test]
+    fn test_get_platform_asset_patterns_returns_patterns() {
+        let patterns = get_platform_asset_patterns();
+        // Every supported platform should have at least one pattern.
+        // This would only be empty for an unsupported/exotic target.
+        assert!(
+            !patterns.is_empty(),
+            "Expected at least one asset pattern for the current platform"
+        );
+        // Every pattern should be a non-empty substring that appears in release asset names.
+        for pattern in &patterns {
+            assert!(!pattern.is_empty(), "Asset pattern must not be empty");
+        }
+    }
+
+    /// Helper to build a mock GitHub release `assets` JSON array from a list
+    /// of asset filenames.
+    fn mock_assets(names: &[&str]) -> Vec<serde_json::Value> {
+        names
+            .iter()
+            .map(|name| serde_json::json!({ "name": name }))
+            .collect()
+    }
+
+    /// Tests has_platform_assets() with a complete set of assets (latest.json
+    /// + platform binary). Should return true.
+    #[test]
+    fn test_has_platform_assets_with_full_release() {
+        // Simulate a complete v0.3.23-style release with all platform assets.
+        let assets = mock_assets(&[
+            "latest.json",
+            "MeedyaDL_0.3.23_aarch64.dmg",
+            "MeedyaDL_0.3.23_aarch64.app.tar.gz",
+            "MeedyaDL_0.3.23_aarch64.app.tar.gz.sig",
+            "MeedyaDL_0.3.23_x64-setup.exe",
+            "MeedyaDL_0.3.23_arm64-setup.exe",
+            "MeedyaDL_0.3.23_amd64.deb",
+            "MeedyaDL_0.3.23_amd64.AppImage",
+            "MeedyaDL_0.3.23_arm64.deb",
+            "MeedyaDL_0.3.23_armv7.deb",
+        ]);
+        assert!(
+            has_platform_assets(Some(&assets)),
+            "Should detect platform assets in a fully-populated release"
+        );
+    }
+
+    /// Tests has_platform_assets() when the assets array is completely empty
+    /// (release just created, no builds have completed yet).
+    #[test]
+    fn test_has_platform_assets_empty_assets() {
+        let assets: Vec<serde_json::Value> = vec![];
+        assert!(
+            !has_platform_assets(Some(&assets)),
+            "Empty assets array should return false"
+        );
+    }
+
+    /// Tests has_platform_assets() when the assets array is None
+    /// (unexpected API response format).
+    #[test]
+    fn test_has_platform_assets_none() {
+        assert!(
+            !has_platform_assets(None),
+            "None assets should return false"
+        );
+    }
+
+    /// Tests has_platform_assets() when latest.json is missing but platform
+    /// binaries exist. This happens if the updater manifest upload failed.
+    #[test]
+    fn test_has_platform_assets_missing_manifest() {
+        let assets = mock_assets(&[
+            "MeedyaDL_0.3.23_aarch64.dmg",
+            "MeedyaDL_0.3.23_x64-setup.exe",
+            "MeedyaDL_0.3.23_amd64.deb",
+        ]);
+        assert!(
+            !has_platform_assets(Some(&assets)),
+            "Should return false when latest.json is missing"
+        );
+    }
+
+    /// Tests has_platform_assets() when latest.json exists but no platform
+    /// binaries match. This can happen if only some platform builds succeeded
+    /// and this platform's build failed.
+    #[test]
+    fn test_has_platform_assets_manifest_only() {
+        let assets = mock_assets(&["latest.json"]);
+        assert!(
+            !has_platform_assets(Some(&assets)),
+            "Should return false when only latest.json exists (no platform binaries)"
+        );
     }
 }
