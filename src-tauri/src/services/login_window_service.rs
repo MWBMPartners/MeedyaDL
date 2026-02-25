@@ -425,7 +425,7 @@ fn detect_storefront() -> Option<String> {
     // underscore (POSIX: "en_US"), or period (strip encoding suffix like ".UTF-8").
     // We want the second component, which is the country/region code.
     let country = locale
-        .split(|c: char| c == '-' || c == '_')
+        .split(['-', '_'])
         .nth(1)?
         // Strip any encoding suffix (e.g., "US.UTF-8" → "US")
         .split('.')
