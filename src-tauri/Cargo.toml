@@ -371,6 +371,17 @@ cookie = "0.18"
 # @see https://docs.rs/url/ -- url crate documentation
 url = "2"
 
+# ---- System Locale Detection ----
+
+# sys-locale -- Cross-platform system locale detection.
+# Returns the user's configured locale (e.g., "en-GB", "de-DE", "ja-JP")
+# from OS-level settings. Used by the login window service to detect the
+# user's country and pre-load their local Apple Music storefront instead
+# of defaulting to the US store. This avoids the "Visit your local store"
+# redirect prompt that Apple Music shows to non-US users.
+# @see https://docs.rs/sys-locale/ -- sys-locale crate documentation
+sys-locale = "0.3"
+
 # ---- Audio Metadata Tagging ----
 
 # mp4ameta -- MPEG-4 audio (M4A) metadata reader/writer.
