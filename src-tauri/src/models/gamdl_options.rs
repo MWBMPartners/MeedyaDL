@@ -52,7 +52,7 @@ use serde::{Deserialize, Serialize};
 /// ## Reference
 ///
 /// - GAMDL `--song-codec` flag: <https://github.com/glomatico/gamdl#usage>
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SongCodec {
     /// Apple Lossless Audio Codec (ALAC) -- the highest-quality option.
@@ -121,19 +121,20 @@ impl SongCodec {
     /// Note: although serde's `rename_all = "kebab-case"` produces
     /// identical strings for JSON serialization, we maintain an explicit
     /// mapping here so that CLI generation is decoupled from serde config.
-    pub fn to_cli_string(&self) -> &str {
+    #[must_use] 
+    pub const fn to_cli_string(&self) -> &str {
         match self {
-            SongCodec::Alac => "alac",
-            SongCodec::Atmos => "atmos",
-            SongCodec::Ac3 => "ac3",
-            SongCodec::AacBinaural => "aac-binaural",
-            SongCodec::Aac => "aac",
-            SongCodec::AacLegacy => "aac-legacy",
-            SongCodec::AacHeLegacy => "aac-he-legacy",
-            SongCodec::AacHe => "aac-he",
-            SongCodec::AacDownmix => "aac-downmix",
-            SongCodec::AacHeBinaural => "aac-he-binaural",
-            SongCodec::AacHeDownmix => "aac-he-downmix",
+            Self::Alac => "alac",
+            Self::Atmos => "atmos",
+            Self::Ac3 => "ac3",
+            Self::AacBinaural => "aac-binaural",
+            Self::Aac => "aac",
+            Self::AacLegacy => "aac-legacy",
+            Self::AacHeLegacy => "aac-he-legacy",
+            Self::AacHe => "aac-he",
+            Self::AacDownmix => "aac-downmix",
+            Self::AacHeBinaural => "aac-he-binaural",
+            Self::AacHeDownmix => "aac-he-downmix",
         }
     }
 
@@ -144,19 +145,20 @@ impl SongCodec {
     /// They include the bitrate and sample-rate characteristics so the
     /// user can make an informed choice without needing to look up the
     /// codec specifications.
-    pub fn display_name(&self) -> &str {
+    #[must_use] 
+    pub const fn display_name(&self) -> &str {
         match self {
-            SongCodec::Alac => "Lossless (ALAC) (Experimental)",
-            SongCodec::Atmos => "Dolby Atmos (Experimental)",
-            SongCodec::Ac3 => "Dolby Digital (AC3) (Experimental)",
-            SongCodec::AacBinaural => "AAC (256kbps) Binaural (Experimental)",
-            SongCodec::Aac => "AAC (256kbps at up to 48kHz) (Experimental)",
-            SongCodec::AacLegacy => "AAC Legacy (256kbps at up to 44.1kHz)",
-            SongCodec::AacHeLegacy => "AAC-HE Legacy (64kbps)",
-            SongCodec::AacHe => "AAC-HE (Experimental)",
-            SongCodec::AacDownmix => "AAC Downmix (Experimental)",
-            SongCodec::AacHeBinaural => "AAC-HE Binaural (Experimental)",
-            SongCodec::AacHeDownmix => "AAC-HE Downmix (Experimental)",
+            Self::Alac => "Lossless (ALAC) (Experimental)",
+            Self::Atmos => "Dolby Atmos (Experimental)",
+            Self::Ac3 => "Dolby Digital (AC3) (Experimental)",
+            Self::AacBinaural => "AAC (256kbps) Binaural (Experimental)",
+            Self::Aac => "AAC (256kbps at up to 48kHz) (Experimental)",
+            Self::AacLegacy => "AAC Legacy (256kbps at up to 44.1kHz)",
+            Self::AacHeLegacy => "AAC-HE Legacy (64kbps)",
+            Self::AacHe => "AAC-HE (Experimental)",
+            Self::AacDownmix => "AAC Downmix (Experimental)",
+            Self::AacHeBinaural => "AAC-HE Binaural (Experimental)",
+            Self::AacHeDownmix => "AAC-HE Downmix (Experimental)",
         }
     }
 }
@@ -181,7 +183,7 @@ impl SongCodec {
 /// ## Reference
 ///
 /// - GAMDL `--music-video-resolution` flag: <https://github.com/glomatico/gamdl#usage>
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VideoResolution {
     /// 4K Ultra HD (2160p / 3840x2160). Requires H.265 codec. Produces the
@@ -231,16 +233,17 @@ impl VideoResolution {
     /// to the GAMDL subprocess. These strings are identical to the serde
     /// rename values but maintained explicitly for the same decoupling reason
     /// as `SongCodec::to_cli_string()`.
-    pub fn to_cli_string(&self) -> &str {
+    #[must_use] 
+    pub const fn to_cli_string(&self) -> &str {
         match self {
-            VideoResolution::P2160 => "2160p",
-            VideoResolution::P1440 => "1440p",
-            VideoResolution::P1080 => "1080p",
-            VideoResolution::P720 => "720p",
-            VideoResolution::P540 => "540p",
-            VideoResolution::P480 => "480p",
-            VideoResolution::P360 => "360p",
-            VideoResolution::P240 => "240p",
+            Self::P2160 => "2160p",
+            Self::P1440 => "1440p",
+            Self::P1080 => "1080p",
+            Self::P720 => "720p",
+            Self::P540 => "540p",
+            Self::P480 => "480p",
+            Self::P360 => "360p",
+            Self::P240 => "240p",
         }
     }
 }
@@ -255,15 +258,15 @@ impl VideoResolution {
 /// ## Reference
 ///
 /// - GAMDL lyrics options: <https://github.com/glomatico/gamdl#usage>
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LyricsFormat {
     /// LRC format -- the most common timestamped lyrics format, widely
-    /// supported by music players (foobar2000, MusicBee, etc.). Each line
+    /// supported by music players (foobar2000, `MusicBee`, etc.). Each line
     /// has a `[mm:ss.xx]` timestamp prefix. Default for song downloads.
     Lrc,
 
-    /// SRT (SubRip) subtitle format. Numbered entries with
+    /// SRT (`SubRip`) subtitle format. Numbered entries with
     /// `HH:MM:SS,mmm --> HH:MM:SS,mmm` timestamps. More common in
     /// video contexts; included here for users who prefer SRT tooling.
     Srt,
@@ -277,11 +280,12 @@ pub enum LyricsFormat {
 
 impl LyricsFormat {
     /// Converts to the CLI string GAMDL expects for `--synced-lyrics-format`.
-    pub fn to_cli_string(&self) -> &str {
+    #[must_use] 
+    pub const fn to_cli_string(&self) -> &str {
         match self {
-            LyricsFormat::Lrc => "lrc",
-            LyricsFormat::Srt => "srt",
-            LyricsFormat::Ttml => "ttml",
+            Self::Lrc => "lrc",
+            Self::Srt => "srt",
+            Self::Ttml => "ttml",
         }
     }
 }
@@ -295,7 +299,7 @@ impl LyricsFormat {
 /// ## Reference
 ///
 /// - GAMDL `--cover-format` flag: <https://github.com/glomatico/gamdl#usage>
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CoverFormat {
     /// JPEG format -- lossy compression, smaller file size (~100-300 KB
@@ -315,11 +319,12 @@ pub enum CoverFormat {
 
 impl CoverFormat {
     /// Converts to the CLI string GAMDL expects for `--cover-format`.
-    pub fn to_cli_string(&self) -> &str {
+    #[must_use] 
+    pub const fn to_cli_string(&self) -> &str {
         match self {
-            CoverFormat::Jpg => "jpg",
-            CoverFormat::Png => "png",
-            CoverFormat::Raw => "raw",
+            Self::Jpg => "jpg",
+            Self::Png => "png",
+            Self::Raw => "raw",
         }
     }
 }
@@ -334,7 +339,7 @@ impl CoverFormat {
 ///
 /// - yt-dlp: <https://github.com/yt-dlp/yt-dlp>
 /// - N_m3u8DL-RE: <https://github.com/nilaoda/N_m3u8DL-RE>
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DownloadMode {
     /// Use yt-dlp for downloading. This is the default and most compatible
@@ -357,18 +362,18 @@ pub enum DownloadMode {
 ///
 /// ## Reference
 ///
-/// - FFmpeg: <https://ffmpeg.org/>
-/// - MP4Box (GPAC): <https://github.com/gpac/gpac/wiki/MP4Box>
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// - `FFmpeg`: <https://ffmpeg.org/>
+/// - `MP4Box` (GPAC): <https://github.com/gpac/gpac/wiki/MP4Box>
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RemuxMode {
-    /// Use FFmpeg for remuxing (default). FFmpeg is a required dependency
+    /// Use `FFmpeg` for remuxing (default). `FFmpeg` is a required dependency
     /// (see `dependency.rs`) and handles both audio and video remuxing
     /// reliably. It is also used for format conversion when needed.
     Ffmpeg,
 
-    /// Use MP4Box (from GPAC) for remuxing. An alternative to FFmpeg that
-    /// some users prefer for MP4 container manipulation. MP4Box is tracked
+    /// Use `MP4Box` (from GPAC) for remuxing. An alternative to `FFmpeg` that
+    /// some users prefer for MP4 container manipulation. `MP4Box` is tracked
     /// as an optional dependency in `dependency.rs`.
     Mp4box,
 }
@@ -384,7 +389,7 @@ pub enum RemuxMode {
 /// `#[serde(rename_all = "UPPERCASE")]` ensures these serialize to
 /// `"DEBUG"`, `"INFO"`, etc. -- matching Python's standard logging levels
 /// that GAMDL uses internally.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum LogLevel {
     /// Most verbose. Logs every HTTP request, decryption step, and internal
@@ -521,11 +526,11 @@ pub struct GamdlOptions {
     pub playlist_file_template: Option<String>,
 
     // --- Tool Paths ---
-    /// Path to FFmpeg binary
+    /// Path to `FFmpeg` binary
     pub ffmpeg_path: Option<String>,
     /// Path to mp4decrypt binary
     pub mp4decrypt_path: Option<String>,
-    /// Path to MP4Box binary
+    /// Path to `MP4Box` binary
     pub mp4box_path: Option<String>,
     /// Path to N_m3u8DL-RE binary
     pub nm3u8dlre_path: Option<String>,
@@ -537,7 +542,7 @@ pub struct GamdlOptions {
     // --- Modes ---
     /// Download mode selection (yt-dlp or N_m3u8DL-RE)
     pub download_mode: Option<DownloadMode>,
-    /// Remux mode selection (FFmpeg or MP4Box)
+    /// Remux mode selection (`FFmpeg` or `MP4Box`)
     pub remux_mode: Option<RemuxMode>,
 
     // --- Other ---
@@ -574,12 +579,34 @@ impl GamdlOptions {
     /// The returned `Vec<String>` is passed directly to
     /// `std::process::Command::args()` when spawning the GAMDL subprocess.
     ///
+    /// Delegates to four helper methods (`audio_cli_args`, `video_cli_args`,
+    /// `path_cli_args`, `flag_cli_args`) to keep each section under the
+    /// clippy `too_many_lines` threshold.
+    ///
     /// ## Reference
     ///
     /// - `std::process::Command::args`: <https://doc.rust-lang.org/std/process/struct.Command.html#method.args>
+    #[must_use]
     pub fn to_cli_args(&self) -> Vec<String> {
         // Pre-allocate with a reasonable capacity to avoid frequent reallocation.
         // Most invocations produce 10-30 arguments.
+        let mut args = Vec::new();
+
+        // Collect arguments from each logical group of CLI options.
+        // The ordering matches GAMDL's own help output for readability.
+        args.extend(self.audio_cli_args());
+        args.extend(self.video_cli_args());
+        args.extend(self.path_cli_args());
+        args.extend(self.flag_cli_args());
+
+        args
+    }
+
+    /// Builds CLI arguments for audio quality, lyrics, and cover art options.
+    ///
+    /// Covers: `--song-codec`, `--synced-lyrics-format`, `--no-synced-lyrics`,
+    /// `--synced-lyrics-only`, `--save-cover`, `--cover-format`, `--cover-size`.
+    fn audio_cli_args(&self) -> Vec<String> {
         let mut args = Vec::new();
 
         // --- Audio Quality ---
@@ -587,30 +614,6 @@ impl GamdlOptions {
         if let Some(ref codec) = self.song_codec {
             args.push("--song-codec".to_string());
             args.push(codec.to_cli_string().to_string());
-        }
-
-        // --- Video Quality ---
-        if let Some(ref priority) = self.music_video_codec_priority {
-            args.push("--music-video-codec-priority".to_string());
-            args.push(priority.clone());
-        }
-        if let Some(ref resolution) = self.music_video_resolution {
-            args.push("--music-video-resolution".to_string());
-            args.push(resolution.to_cli_string().to_string());
-        }
-        if let Some(ref format) = self.music_video_remux_format {
-            args.push("--music-video-remux-format".to_string());
-            args.push(format.clone());
-        }
-        if let Some(ref quality) = self.uploaded_video_quality {
-            args.push("--uploaded-video-quality".to_string());
-            args.push(quality.clone());
-        }
-        // Boolean flag pattern: only emit the flag when the value is explicitly
-        // `Some(true)`. `Some(false)` and `None` both result in omission,
-        // meaning GAMDL uses its default behavior (music video skip enabled).
-        if self.disable_music_video_skip == Some(true) {
-            args.push("--disable-music-video-skip".to_string());
         }
 
         // --- Lyrics ---
@@ -640,6 +643,52 @@ impl GamdlOptions {
             args.push(size.to_string());
         }
 
+        args
+    }
+
+    /// Builds CLI arguments for video quality and music video flags.
+    ///
+    /// Covers: `--music-video-codec-priority`, `--music-video-resolution`,
+    /// `--music-video-remux-format`, `--uploaded-video-quality`,
+    /// `--disable-music-video-skip`.
+    fn video_cli_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        if let Some(ref priority) = self.music_video_codec_priority {
+            args.push("--music-video-codec-priority".to_string());
+            args.push(priority.clone());
+        }
+        if let Some(ref resolution) = self.music_video_resolution {
+            args.push("--music-video-resolution".to_string());
+            args.push(resolution.to_cli_string().to_string());
+        }
+        if let Some(ref format) = self.music_video_remux_format {
+            args.push("--music-video-remux-format".to_string());
+            args.push(format.clone());
+        }
+        if let Some(ref quality) = self.uploaded_video_quality {
+            args.push("--uploaded-video-quality".to_string());
+            args.push(quality.clone());
+        }
+        // Boolean flag pattern: only emit the flag when the value is explicitly
+        // `Some(true)`. `Some(false)` and `None` both result in omission,
+        // meaning GAMDL uses its default behavior (music video skip enabled).
+        if self.disable_music_video_skip == Some(true) {
+            args.push("--disable-music-video-skip".to_string());
+        }
+
+        args
+    }
+
+    /// Builds CLI arguments for output paths, authentication, templates,
+    /// and external tool paths.
+    ///
+    /// Covers: `--output-path`, `--temp-path`, `--cookies-path`,
+    /// `--wrapper-account-url`, `--wrapper-decrypt-ip`, folder/file templates,
+    /// and binary paths (`--ffmpeg-path`, `--mp4decrypt-path`, etc.).
+    fn path_cli_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
         // --- Output ---
         if let Some(ref path) = self.output_path {
             args.push("--output-path".to_string());
@@ -648,9 +697,6 @@ impl GamdlOptions {
         if let Some(ref path) = self.temp_path {
             args.push("--temp-path".to_string());
             args.push(path.clone());
-        }
-        if self.overwrite == Some(true) {
-            args.push("--overwrite".to_string());
         }
         if let Some(truncate) = self.truncate {
             args.push("--truncate".to_string());
@@ -662,9 +708,6 @@ impl GamdlOptions {
             args.push("--cookies-path".to_string());
             args.push(path.clone());
         }
-        if self.use_wrapper == Some(true) {
-            args.push("--use-wrapper".to_string());
-        }
         if let Some(ref url) = self.wrapper_account_url {
             args.push("--wrapper-account-url".to_string());
             args.push(url.clone());
@@ -674,7 +717,7 @@ impl GamdlOptions {
             args.push(ip.clone());
         }
 
-        // --- Metadata ---
+        // --- Metadata (string-valued) ---
         if let Some(ref lang) = self.language {
             args.push("--language".to_string());
             args.push(lang.clone());
@@ -682,12 +725,6 @@ impl GamdlOptions {
         if let Some(ref tags) = self.exclude_tags {
             args.push("--exclude-tags".to_string());
             args.push(tags.clone());
-        }
-        if self.use_album_date == Some(true) {
-            args.push("--use-album-date".to_string());
-        }
-        if self.fetch_extra_tags == Some(true) {
-            args.push("--fetch-extra-tags".to_string());
         }
         if let Some(ref template) = self.date_tag_template {
             args.push("--date-tag-template".to_string());
@@ -748,6 +785,31 @@ impl GamdlOptions {
         if let Some(ref path) = self.wvd_path {
             args.push("--wvd-path".to_string());
             args.push(path.clone());
+        }
+
+        args
+    }
+
+    /// Builds CLI arguments for boolean flags, mode enums, and log level.
+    ///
+    /// Covers: `--overwrite`, `--use-wrapper`, `--use-album-date`,
+    /// `--fetch-extra-tags`, `--download-mode`, `--remux-mode`, `--log-level`,
+    /// `--no-exceptions`, `--save-playlist`, `--no-config-file`.
+    fn flag_cli_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+
+        // --- Boolean flags ---
+        if self.overwrite == Some(true) {
+            args.push("--overwrite".to_string());
+        }
+        if self.use_wrapper == Some(true) {
+            args.push("--use-wrapper".to_string());
+        }
+        if self.use_album_date == Some(true) {
+            args.push("--use-album-date".to_string());
+        }
+        if self.fetch_extra_tags == Some(true) {
+            args.push("--fetch-extra-tags".to_string());
         }
 
         // --- Modes ---

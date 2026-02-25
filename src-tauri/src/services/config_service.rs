@@ -77,6 +77,10 @@ use crate::utils::platform;
 /// # Arguments
 /// * `app` - The Tauri app handle (for path resolution)
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file exists but cannot be parsed.
+///
 /// # Returns
 /// * `Ok(settings)` - The loaded or default settings
 /// * `Err(message)` - If the settings file exists but couldn't be parsed
@@ -92,7 +96,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // since settings are loaded during Tauri command handlers which run on
         // the Tokio thread pool and can tolerate brief blocking.
         let contents = std::fs::read_to_string(&settings_path)
-            .map_err(|e| format!("Failed to read settings file: {}", e))?;
+            .map_err(|e| format!("Failed to read settings file: {e}"))?;
 
         // Deserialize the JSON into AppSettings. serde_json handles:
         // - Missing fields: filled with #[serde(default)] values
@@ -100,7 +104,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // - Type mismatches: returns a descriptive parse error
         // Ref: https://docs.rs/serde_json/latest/serde_json/fn.from_str.html
         serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse settings file: {}", e))?
+            .map_err(|e| format!("Failed to parse settings file: {e}"))?
     } else {
         // First run: no settings file exists yet. Return the default settings
         // which are defined via #[derive(Default)] on AppSettings.
@@ -114,7 +118,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // Without this, upgrading from a version that wrote hyphens/bare keys would
     // leave a stale config.ini that GAMDL's configparser rejects.
     if let Err(e) = sync_to_gamdl_config(app, &settings) {
-        log::warn!("Failed to sync config.ini on load: {}", e);
+        log::warn!("Failed to sync config.ini on load: {e}");
     }
 
     Ok(settings)
@@ -129,26 +133,31 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
 /// # Arguments
 /// * `app` - The Tauri app handle (for path resolution)
 /// * `settings` - The settings to save
+///
+/// # Errors
+///
+/// Returns `Err(String)` if directory creation, JSON serialization, or
+/// file write fails.
 pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
     // Ensure the parent directory exists (important on first run or after data dir deletion)
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create settings directory: {}", e))?;
+            .map_err(|e| format!("Failed to create settings directory: {e}"))?;
     }
 
     // Serialize to pretty-printed JSON for human readability.
     // Pretty printing adds indentation, making the file easy to inspect and debug.
     // Ref: https://docs.rs/serde_json/latest/serde_json/fn.to_string_pretty.html
     let json = serde_json::to_string_pretty(settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+        .map_err(|e| format!("Failed to serialize settings: {e}"))?;
 
     // Atomically write the settings file. Note: std::fs::write is not truly atomic
     // (no rename-based write), but is sufficient for our use case where concurrent
     // writes are prevented by the Tauri command serialization.
     std::fs::write(&settings_path, json)
-        .map_err(|e| format!("Failed to write settings file: {}", e))?;
+        .map_err(|e| format!("Failed to write settings file: {e}"))?;
 
     log::info!("Settings saved to {}", settings_path.display());
 
@@ -156,14 +165,14 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     // This is a best-effort operation: if it fails, the JSON save still succeeds.
     // GAMDL will still work via CLI flags; the config.ini is a convenience.
     if let Err(e) = sync_to_gamdl_config(app, settings) {
-        log::warn!("Failed to sync settings to GAMDL config: {}", e);
+        log::warn!("Failed to sync settings to GAMDL config: {e}");
         // Don't fail the save operation — the JSON settings are the source of truth
     }
 
     Ok(())
 }
 
-/// Syncs relevant AppSettings fields to GAMDL's config.ini file.
+/// Syncs relevant `AppSettings` fields to GAMDL's config.ini file.
 ///
 /// GAMDL reads its configuration from an INI file. The GUI manages all
 /// settings in JSON, but we also write a config.ini so that GAMDL CLI
@@ -193,7 +202,7 @@ fn sync_to_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), S
     // Ensure the GAMDL data directory exists
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create GAMDL config directory: {}", e))?;
+            .map_err(|e| format!("Failed to create GAMDL config directory: {e}"))?;
     }
 
     // Build the INI file content by converting AppSettings fields to INI key-value pairs.
@@ -204,13 +213,13 @@ fn sync_to_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), S
     // GAMDL parses this file using Python's configparser module.
     // Ref: https://docs.python.org/3/library/configparser.html
     std::fs::write(&config_path, ini_content)
-        .map_err(|e| format!("Failed to write GAMDL config: {}", e))?;
+        .map_err(|e| format!("Failed to write GAMDL config: {e}"))?;
 
     log::info!("GAMDL config synced to {}", config_path.display());
     Ok(())
 }
 
-/// Converts AppSettings into GAMDL's INI config format.
+/// Converts `AppSettings` into GAMDL's INI config format.
 ///
 /// Only includes settings that GAMDL actually reads from its config file.
 /// Key names use underscores to match GAMDL's Click parameter names
@@ -231,23 +240,45 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // Ref: https://github.com/glomatico/gamdl#configuration
     lines.push("[gamdl]".to_string());
 
-    // === Authentication ===
+    // Build INI content from each settings section.
+    ini_auth_section(&mut lines, settings);
+    ini_audio_section(&mut lines, settings);
+    ini_video_section(&mut lines, settings);
+    ini_lyrics_section(&mut lines, settings);
+    ini_cover_section(&mut lines, settings);
+    ini_output_section(&mut lines, settings);
+    ini_metadata_section(&mut lines, settings);
+    ini_template_section(&mut lines, settings);
+    ini_tool_path_section(&mut lines, settings);
+    ini_advanced_section(&mut lines, settings);
+
+    // Join all lines with newlines and add a trailing newline.
+    // The trailing newline ensures the file ends properly for configparser.
+    lines.join("\n") + "\n"
+}
+
+/// Appends authentication-related INI key-value pairs (cookies path).
+fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // The cookies path is the most important setting — GAMDL needs it to
     // authenticate with Apple Music. Without cookies, downloads will fail.
     // The cookies.txt file is extracted from a browser session (Netscape format).
     if let Some(ref path) = settings.cookies_path {
-        lines.push(format!("cookies_path = {}", path));
+        lines.push(format!("cookies_path = {path}"));
     }
+}
 
-    // === Audio Quality ===
+/// Appends audio quality INI key-value pairs (song codec).
+fn ini_audio_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Maps to GAMDL's --song-codec flag. Valid values: alac, aac-he, aac-binaural, etc.
     // The to_cli_string() method on the SongCodec enum returns the GAMDL-compatible string.
     lines.push(format!(
         "song_codec = {}",
         settings.default_song_codec.to_cli_string()
     ));
+}
 
-    // === Video Quality ===
+/// Appends video quality INI key-value pairs (resolution, codec priority, remux format).
+fn ini_video_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Maps to GAMDL's --music-video-resolution flag. Values like "1080p", "4k", etc.
     lines.push(format!(
         "music_video_resolution = {}",
@@ -268,8 +299,10 @@ fn settings_to_ini(settings: &AppSettings) -> String {
             settings.default_video_remux_format
         ));
     }
+}
 
-    // === Lyrics ===
+/// Appends lyrics-related INI key-value pairs (format, `no_synced_lyrics` flag).
+fn ini_lyrics_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Synced lyrics format (e.g., "lrc", "srt").
     lines.push(format!(
         "synced_lyrics_format = {}",
@@ -279,8 +312,10 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     if settings.no_synced_lyrics {
         lines.push("no_synced_lyrics = true".to_string());
     }
+}
 
-    // === Cover Art ===
+/// Appends cover art INI key-value pairs (`save_cover`, format, size).
+fn ini_cover_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Boolean flag: when true, GAMDL saves cover art as a separate file.
     if settings.save_cover {
         lines.push("save_cover = true".to_string());
@@ -292,8 +327,10 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     ));
     // Cover size as a single integer (pixels). GAMDL uses square covers.
     lines.push(format!("cover_size = {}", settings.cover_size));
+}
 
-    // === Output ===
+/// Appends output/path INI key-value pairs (`output_path`, `temp_path`, overwrite, truncate).
+fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output directory for downloaded files. Only written if non-empty.
     if !settings.output_path.is_empty() {
         lines.push(format!("output_path = {}", settings.output_path));
@@ -301,13 +338,13 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     // Temp directory for intermediate files. If the user left this empty,
     // resolve to a "MeedyaDL" subdirectory within the OS temp directory so
     // GAMDL doesn't default to "." (unwritable from /Applications on macOS).
-    if !settings.temp_path.is_empty() {
-        lines.push(format!("temp_path = {}", settings.temp_path));
-    } else {
+    if settings.temp_path.is_empty() {
         lines.push(format!(
             "temp_path = {}",
             std::env::temp_dir().join("MeedyaDL").to_string_lossy()
         ));
+    } else {
+        lines.push(format!("temp_path = {}", settings.temp_path));
     }
     // Boolean flag: when true, existing files are overwritten without prompting.
     if settings.overwrite {
@@ -315,10 +352,12 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     }
     // Truncate file/folder names to this many characters (avoids filesystem limits).
     if let Some(truncate) = settings.truncate {
-        lines.push(format!("truncate = {}", truncate));
+        lines.push(format!("truncate = {truncate}"));
     }
+}
 
-    // === Metadata ===
+/// Appends metadata INI key-value pairs (language, `fetch_extra_tags`).
+fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
     lines.push(format!("language = {}", settings.language));
@@ -327,8 +366,10 @@ fn settings_to_ini(settings: &AppSettings) -> String {
     if settings.fetch_extra_tags {
         lines.push("fetch_extra_tags = true".to_string());
     }
+}
 
-    // === Templates ===
+/// Appends output path template INI key-value pairs.
+fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output path templates use Python format strings with metadata placeholders.
     // Example: "{album_artist}/{album}" -> "Taylor Swift/1989 (Taylor's Version)"
     // Ref: https://github.com/glomatico/gamdl#output-path-template
@@ -374,25 +415,29 @@ fn settings_to_ini(settings: &AppSettings) -> String {
             settings.playlist_file_template
         ));
     }
+}
 
-    // === Tool Paths (custom user-specified paths only) ===
+/// Appends custom tool path INI key-value pairs (user-specified paths only).
+fn ini_tool_path_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // These are tool paths the user explicitly configured in Settings.
     // Note: managed tool paths (installed by dependency_manager.rs) are injected
     // separately via gamdl_service::inject_tool_paths() at command build time.
     if let Some(ref path) = settings.ffmpeg_path {
-        lines.push(format!("ffmpeg_path = {}", path));
+        lines.push(format!("ffmpeg_path = {path}"));
     }
     if let Some(ref path) = settings.mp4decrypt_path {
-        lines.push(format!("mp4decrypt_path = {}", path));
+        lines.push(format!("mp4decrypt_path = {path}"));
     }
     if let Some(ref path) = settings.mp4box_path {
-        lines.push(format!("mp4box_path = {}", path));
+        lines.push(format!("mp4box_path = {path}"));
     }
     if let Some(ref path) = settings.nm3u8dlre_path {
-        lines.push(format!("nm3u8dlre_path = {}", path));
+        lines.push(format!("nm3u8dlre_path = {path}"));
     }
+}
 
-    // === Advanced ===
+/// Appends advanced settings INI key-value pairs (wrapper mode).
+fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Wrapper mode uses an alternative authentication method via a web service.
     // Both the flag and the URL must be present for GAMDL to use the wrapper.
     if settings.use_wrapper {
@@ -402,16 +447,16 @@ fn settings_to_ini(settings: &AppSettings) -> String {
             settings.wrapper_account_url
         ));
     }
-
-    // Join all lines with newlines and add a trailing newline.
-    // The trailing newline ensures the file ends properly for configparser.
-    lines.join("\n") + "\n"
 }
 
 /// Resolves the default output path for downloaded music.
 ///
 /// Uses the platform's standard Music/Audio directory with an
 /// "Apple Music" subdirectory appended.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the user's home directory cannot be determined.
 ///
 /// # Returns
 /// * `Ok(path)` - The default output path string
@@ -435,7 +480,7 @@ pub fn get_default_output_path() -> Result<String, String> {
     // contains non-UTF-8 characters, which is extremely rare on modern systems.
     output_path
         .to_str()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| "Failed to convert output path to string".to_string())
 }
 

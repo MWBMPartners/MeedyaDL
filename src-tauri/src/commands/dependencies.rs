@@ -57,15 +57,15 @@ use crate::services::{dependency_manager, gamdl_service, python_manager};
 /// defined in `src/types/index.ts`.
 ///
 /// Implements `Serialize` for Tauri IPC serialization to JSON.
-/// See: https://v2.tauri.app/develop/calling-rust/#return-types
+/// See: <https://v2.tauri.app/develop/calling-rust/#return-types>
 #[derive(Debug, Clone, Serialize)]
 pub struct DependencyStatus {
-    /// Human-readable name of the dependency (e.g., "Python 3.12", "FFmpeg").
+    /// Human-readable name of the dependency (e.g., "Python 3.12", "`FFmpeg`").
     /// Displayed as the label in the setup wizard dependency list.
     pub name: String,
     /// Whether this dependency is required for basic functionality.
     /// Required dependencies block downloads; optional ones just limit features.
-    /// For example, FFmpeg is required but MP4Box is optional.
+    /// For example, `FFmpeg` is required but `MP4Box` is optional.
     pub required: bool,
     /// Whether the dependency is currently installed and accessible.
     /// Determined by checking for the binary at the expected path.
@@ -93,7 +93,12 @@ pub struct DependencyStatus {
 /// Python installation step can be skipped.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving the app data directory path.
+/// * `app` - Tauri `AppHandle` for resolving the app data directory path.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the Python status check fails (e.g., cannot
+/// read the app data directory or the Python binary path cannot be resolved).
 ///
 /// # Returns
 /// * `Ok(DependencyStatus)` - Python status with version and path info.
@@ -123,7 +128,7 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
         installed: version.is_some(), // None means not installed
         version,
         // Convert PathBuf to String for JSON serialization
-        path: python_bin.to_str().map(|s| s.to_string()),
+        path: python_bin.to_str().map(std::string::ToString::to_string),
         source: None, // Python is always managed (portable runtime)
     })
 }
@@ -133,7 +138,7 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
 /// **Frontend caller:** `installPython()` in `src/lib/tauri-commands.ts`
 ///
 /// Downloads a platform-appropriate Python build from python-build-standalone
-/// GitHub releases (https://github.com/indygreg/python-build-standalone),
+/// GitHub releases (<https://github.com/indygreg/python-build-standalone>),
 /// extracts it to `{app_data}/python/`, and verifies the installation by
 /// running `python --version`.
 ///
@@ -141,7 +146,11 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
 /// The frontend should show a loading indicator while awaiting the result.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving download and extraction paths.
+/// * `app` - Tauri `AppHandle` for resolving download and extraction paths.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the Python download, extraction, or verification fails.
 ///
 /// # Returns
 /// * `Ok(String)` - The installed Python version string (e.g., "3.12.8").
@@ -164,7 +173,11 @@ pub async fn install_python(app: AppHandle) -> Result<String, String> {
 /// detect the package and extract the version number from pip's output.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for locating the Python binary.
+/// * `app` - Tauri `AppHandle` for locating the Python binary.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the pip check command fails to execute.
 ///
 /// # Returns
 /// * `Ok(DependencyStatus)` - GAMDL status with version info.
@@ -199,7 +212,11 @@ pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, Stri
 /// if GAMDL is already installed, it will be upgraded to the latest version.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for locating the Python/pip binaries.
+/// * `app` - Tauri `AppHandle` for locating the Python/pip binaries.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if pip installation of GAMDL fails.
 ///
 /// # Returns
 /// * `Ok(String)` - The installed GAMDL version string (e.g., "2.8.4").
@@ -214,8 +231,8 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
 ///
 /// **Frontend caller:** `checkAllDependencies()` in `src/lib/tauri-commands.ts`
 ///
-/// Returns a list of all external tool dependencies (FFmpeg, mp4decrypt,
-/// N_m3u8DL-RE, MP4Box) with their current installation status. Each tool
+/// Returns a list of all external tool dependencies (`FFmpeg`, mp4decrypt,
+/// N_m3u8DL-RE, `MP4Box`) with their current installation status. Each tool
 /// is checked by verifying whether a binary exists at its expected path
 /// inside the app data directory.
 ///
@@ -224,7 +241,11 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
 /// setup wizard's "installed/not installed" display.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving tool binary paths.
+/// * `app` - Tauri `AppHandle` for resolving tool binary paths.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if tool binary path resolution fails.
 ///
 /// # Returns
 /// * `Ok(Vec<DependencyStatus>)` - Status for each registered tool.
@@ -262,7 +283,7 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
             version: None, // Version detection is slow; skip for batch checks
             // Only include the path if the binary actually exists
             path: if installed {
-                binary_path.to_str().map(|s| s.to_string())
+                binary_path.to_str().map(std::string::ToString::to_string)
             } else {
                 None
             },
@@ -285,12 +306,16 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
 /// The frontend shows a loading state while awaiting the result.
 ///
 /// # Arguments
-/// * `app` - Tauri AppHandle for resolving paths and platform detection.
+/// * `app` - Tauri `AppHandle` for resolving paths and platform detection.
 /// * `name` - The tool identifier string. Must be one of:
 ///   - `"ffmpeg"` - Audio/video codec tool (required for GAMDL)
 ///   - `"mp4decrypt"` - Bento4 MP4 decryption tool (required for DRM content)
 ///   - `"nm3u8dlre"` - N_m3u8DL-RE stream downloader (required for HLS streams)
-///   - `"mp4box"` - GPAC MP4Box muxing tool (optional, improves metadata)
+///   - `"mp4box"` - GPAC `MP4Box` muxing tool (optional, improves metadata)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the tool download, extraction, or verification fails.
 ///
 /// # Returns
 /// * `Ok(String)` - Success message with the installed tool path.

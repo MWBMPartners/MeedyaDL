@@ -54,13 +54,13 @@ use tokio::io::AsyncWriteExt;
 pub enum ArchiveFormat {
     /// ZIP archive (commonly used for Windows tool downloads).
     /// Extracted by [`extract_zip`] using the `zip` crate.
-    /// Reference: https://docs.rs/zip/latest/zip/
+    /// Reference: <https://docs.rs/zip/latest/zip>/
     Zip,
     /// TAR.GZ (gzip-compressed tar) archive.
     /// Used for macOS/Linux downloads and python-build-standalone releases.
     /// Extracted by [`extract_tar_gz`] using the `flate2` + `tar` crates.
-    /// Reference: https://docs.rs/flate2/latest/flate2/
-    /// Reference: https://docs.rs/tar/latest/tar/
+    /// Reference: <https://docs.rs/flate2/latest/flate2>/
+    /// Reference: <https://docs.rs/tar/latest/tar>/
     TarGz,
 }
 
@@ -68,7 +68,7 @@ pub enum ArchiveFormat {
 ///
 /// Writes chunks to disk as they arrive via `reqwest`'s `.chunk()` iterator
 /// rather than buffering the entire response body in memory. This is critical
-/// for large downloads (Python runtime ~70 MB, FFmpeg ~90 MB) where holding
+/// for large downloads (Python runtime ~70 MB, `FFmpeg` ~90 MB) where holding
 /// the full payload in RAM would be wasteful.
 ///
 /// Progress is logged at every 10% milestone using `log::info!`. The total
@@ -82,6 +82,11 @@ pub enum ArchiveFormat {
 ///   automatically by `reqwest`.
 /// * `dest` - The local file path to write the downloaded content to.
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the HTTP request fails, the response status is
+/// non-success, or writing to the destination file fails.
+///
 /// # Returns
 /// * `Ok(total_bytes)` - The total number of bytes written to disk.
 /// * `Err(message)` - A human-readable error message if any step failed
@@ -91,6 +96,7 @@ pub enum ArchiveFormat {
 /// - `reqwest::get`: <https://docs.rs/reqwest/latest/reqwest/fn.get.html>
 /// - `Response::chunk`: <https://docs.rs/reqwest/latest/reqwest/struct.Response.html#method.chunk>
 /// - `tokio::fs::File`: <https://docs.rs/tokio/latest/tokio/fs/struct.File.html>
+#[allow(clippy::cast_precision_loss)] // Byte-to-MB conversion for display; precision loss is negligible
 pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
     log::info!("Downloading: {} -> {}", url, dest.display());
 
@@ -107,12 +113,12 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
     // through the response body.
     let mut response = reqwest::get(url)
         .await
-        .map_err(|e| format!("Failed to start download from {}: {}", url, e))?;
+        .map_err(|e| format!("Failed to start download from {url}: {e}"))?;
 
     // Check for HTTP errors (4xx, 5xx status codes)
     let status = response.status();
     if !status.is_success() {
-        return Err(format!("HTTP error {} downloading {}", status, url));
+        return Err(format!("HTTP error {status} downloading {url}"));
     }
 
     // Get total size for progress reporting (0 if server doesn't provide Content-Length)
@@ -139,7 +145,7 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|e| format!("Failed to read download chunk: {}", e))?
+        .map_err(|e| format!("Failed to read download chunk: {e}"))?
     {
         // Write the received chunk to the output file
         file.write_all(&chunk)
@@ -179,7 +185,7 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
 /// entries (extracted via `std::io::copy`). On Unix systems, file
 /// permissions stored in the ZIP metadata (the "external attributes"
 /// field) are preserved, which is important for executable binaries
-/// like FFmpeg and mp4decrypt.
+/// like `FFmpeg` and mp4decrypt.
 ///
 /// # Security
 /// Uses `ZipFile::enclosed_name()` instead of `name()` to prevent
@@ -195,6 +201,11 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
 /// # Arguments
 /// * `archive_path` - Path to the ZIP file to extract.
 /// * `dest` - Directory to extract contents into (created if it doesn't exist).
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the archive cannot be opened, read, or extracted
+/// to the destination directory.
 ///
 /// # Returns
 /// * `Ok(())` on successful extraction.
@@ -230,28 +241,25 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
         // for all entries, allowing random access by index.
         // Reference: https://docs.rs/zip/latest/zip/read/struct.ZipArchive.html
         let file = std::fs::File::open(&archive_path)
-            .map_err(|e| format!("Failed to open ZIP file: {}", e))?;
+            .map_err(|e| format!("Failed to open ZIP file: {e}"))?;
         let mut archive =
-            zip::ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
+            zip::ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {e}"))?;
 
         let total_entries = archive.len();
-        log::info!("ZIP contains {} entries", total_entries);
+        log::info!("ZIP contains {total_entries} entries");
 
         // Extract each entry in the archive
         for i in 0..total_entries {
             let mut entry = archive
                 .by_index(i)
-                .map_err(|e| format!("Failed to read ZIP entry {}: {}", i, e))?;
+                .map_err(|e| format!("Failed to read ZIP entry {i}: {e}"))?;
 
             // Use `enclosed_name()` for security -- it validates that the
             // entry's path does not escape the extraction directory via `..`
             // components or absolute paths (zip-slip prevention).
-            let outpath = match entry.enclosed_name() {
-                Some(path) => dest.join(path),
-                None => {
-                    log::warn!("Skipping ZIP entry with unsafe path at index {}", i);
-                    continue;
-                }
+            let outpath = if let Some(path) = entry.enclosed_name() { dest.join(path) } else {
+                log::warn!("Skipping ZIP entry with unsafe path at index {i}");
+                continue;
             };
 
             if entry.is_dir() {
@@ -302,11 +310,11 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
             }
         }
 
-        log::info!("ZIP extraction complete: {} entries", total_entries);
+        log::info!("ZIP extraction complete: {total_entries} entries");
         Ok(())
     })
     .await
-    .map_err(|e| format!("ZIP extraction task panicked: {}", e))?
+    .map_err(|e| format!("ZIP extraction task panicked: {e}"))?
 }
 
 /// Extracts a TAR.GZ archive to the specified destination directory.
@@ -328,6 +336,11 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
 /// # Arguments
 /// * `archive_path` - Path to the `.tar.gz` file to extract.
 /// * `dest` - Directory to extract contents into (created if it doesn't exist).
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the archive cannot be opened, decompressed,
+/// or unpacked to the destination directory.
 ///
 /// # Returns
 /// * `Ok(())` on successful extraction.
@@ -382,13 +395,13 @@ pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), Stri
         // subdirectories and permission setting automatically.
         archive
             .unpack(&dest)
-            .map_err(|e| format!("Failed to extract tar.gz archive: {}", e))?;
+            .map_err(|e| format!("Failed to extract tar.gz archive: {e}"))?;
 
         log::info!("TAR.GZ extraction complete to {}", dest.display());
         Ok(())
     })
     .await
-    .map_err(|e| format!("TAR.GZ extraction task panicked: {}", e))?
+    .map_err(|e| format!("TAR.GZ extraction task panicked: {e}"))?
 }
 
 /// Downloads a file from a URL and extracts it to the destination directory.
@@ -411,6 +424,10 @@ pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), Stri
 /// * `format` - The expected archive format ([`ArchiveFormat::Zip`] or
 ///   [`ArchiveFormat::TarGz`]).
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the download or extraction step fails.
+///
 /// # Returns
 /// * `Ok(())` if both download and extraction succeeded.
 /// * `Err(message)` if either step failed.
@@ -432,7 +449,7 @@ pub async fn download_and_extract(
     // Use a MeedyaDL-specific temp directory to avoid conflicts
     let temp_dir = std::env::temp_dir().join("meedyadl-downloads");
     std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+        .map_err(|e| format!("Failed to create temp directory: {e}"))?;
     let temp_file = temp_dir.join(file_name);
 
     // Step 1: Download the archive to the temp file
@@ -478,6 +495,10 @@ pub async fn download_and_extract(
 /// # Connection
 /// Called by `services::dependency_manager` after extracting tool binaries
 /// on macOS/Linux to ensure they can be executed as subprocesses.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if reading file metadata or setting permissions fails.
 ///
 /// # Reference
 /// - `PermissionsExt`: <https://doc.rust-lang.org/std/os/unix/fs/trait.PermissionsExt.html>

@@ -67,16 +67,16 @@ use std::path::PathBuf;
 pub enum MusicServiceId {
     /// Apple Music -- supported via the GAMDL CLI tool.
     /// This is the only service currently implemented at runtime.
-    /// CLI tool: `gamdl` (PyPI: <https://pypi.org/project/gamdl/>).
+    /// CLI tool: `gamdl` (`PyPI`: <https://pypi.org/project/gamdl/>).
     AppleMusic,
 
-    /// YouTube Music -- planned for Phase 6+, will use the gytmdl CLI tool.
-    /// CLI tool: `gytmdl` (PyPI: <https://pypi.org/project/gytmdl/>).
+    /// `YouTube` Music -- planned for Phase 6+, will use the gytmdl CLI tool.
+    /// CLI tool: `gytmdl` (`PyPI`: <https://pypi.org/project/gytmdl/>).
     /// Not yet implemented; included here to define the interface contract.
     YouTubeMusic,
 
     /// Spotify -- planned for Phase 6+, will use the votify CLI tool.
-    /// CLI tool: `votify` (PyPI: <https://pypi.org/project/votify/>).
+    /// CLI tool: `votify` (`PyPI`: <https://pypi.org/project/votify/>).
     /// Not yet implemented; included here to define the interface contract.
     Spotify,
 }
@@ -86,11 +86,12 @@ impl MusicServiceId {
     ///
     /// Used in the React frontend's sidebar, status messages, and error
     /// dialogs to identify which service a download is associated with.
-    pub fn display_name(&self) -> &'static str {
+    #[must_use] 
+    pub const fn display_name(&self) -> &'static str {
         match self {
-            MusicServiceId::AppleMusic => "Apple Music",
-            MusicServiceId::YouTubeMusic => "YouTube Music",
-            MusicServiceId::Spotify => "Spotify",
+            Self::AppleMusic => "Apple Music",
+            Self::YouTubeMusic => "YouTube Music",
+            Self::Spotify => "Spotify",
         }
     }
 
@@ -101,24 +102,26 @@ impl MusicServiceId {
     /// service has regional subdomains). The detection uses a simple
     /// `String::contains()` check, so these are substring patterns
     /// rather than full-domain matches.
-    pub fn url_domains(&self) -> &'static [&'static str] {
+    #[must_use] 
+    pub const fn url_domains(&self) -> &'static [&'static str] {
         match self {
-            MusicServiceId::AppleMusic => &["music.apple.com"],
-            MusicServiceId::YouTubeMusic => &["music.youtube.com"],
-            MusicServiceId::Spotify => &["open.spotify.com"],
+            Self::AppleMusic => &["music.apple.com"],
+            Self::YouTubeMusic => &["music.youtube.com"],
+            Self::Spotify => &["open.spotify.com"],
         }
     }
 
-    /// Returns the PyPI package name for the service's CLI tool.
+    /// Returns the `PyPI` package name for the service's CLI tool.
     ///
     /// Used by the dependency management system (`commands/dependency.rs`)
     /// to install and update the CLI tool via `pip install <package>`.
-    /// Each service's CLI tool is distributed as a Python package on PyPI.
-    pub fn pip_package(&self) -> &'static str {
+    /// Each service's CLI tool is distributed as a Python package on `PyPI`.
+    #[must_use] 
+    pub const fn pip_package(&self) -> &'static str {
         match self {
-            MusicServiceId::AppleMusic => "gamdl",
-            MusicServiceId::YouTubeMusic => "gytmdl",
-            MusicServiceId::Spotify => "votify",
+            Self::AppleMusic => "gamdl",
+            Self::YouTubeMusic => "gytmdl",
+            Self::Spotify => "votify",
         }
     }
 
@@ -132,7 +135,7 @@ impl MusicServiceId {
     ///
     /// Iterates over every `MusicServiceId` variant and checks each
     /// variant's `url_domains()` against the input URL. The first match
-    /// wins. This is O(services * domains_per_service), which is trivial
+    /// wins. This is O(services * `domains_per_service`), which is trivial
     /// given the small number of services.
     ///
     /// ## Example
@@ -142,15 +145,16 @@ impl MusicServiceId {
     /// let id = MusicServiceId::from_url("https://music.apple.com/us/album/test/123");
     /// assert_eq!(id, Some(MusicServiceId::AppleMusic));
     /// ```
+    #[must_use] 
     pub fn from_url(url: &str) -> Option<Self> {
         // Lowercase the URL once so domain matching is case-insensitive.
         let url_lower = url.to_lowercase();
         // Iterate over all known services. The order does not matter
         // because each service has unique, non-overlapping domains.
         for service in [
-            MusicServiceId::AppleMusic,
-            MusicServiceId::YouTubeMusic,
-            MusicServiceId::Spotify,
+            Self::AppleMusic,
+            Self::YouTubeMusic,
+            Self::Spotify,
         ] {
             // Check each domain pattern for this service.
             for domain in service.url_domains() {
@@ -177,7 +181,7 @@ impl MusicServiceId {
 ///
 /// ## Per-service capability examples
 ///
-/// | Capability           | Apple Music | YouTube Music | Spotify (planned) |
+/// | Capability           | Apple Music | `YouTube` Music | Spotify (planned) |
 /// |----------------------|:-----------:|:-------------:|:-----------------:|
 /// | Lossless audio       |     Yes     |      No       |       No*         |
 /// | Spatial audio        |     Yes     |      No       |       No          |
@@ -187,8 +191,9 @@ impl MusicServiceId {
 /// | Requires cookies     |     Yes     |      Yes      |       No          |
 /// | Requires OAuth       |     No      |      No       |       Yes         |
 ///
-/// *Spotify offers lossless via HiFi tier but votify may not support it yet.
+/// *Spotify offers lossless via `HiFi` tier but votify may not support it yet.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // Independent capability flags for each media service
 pub struct ServiceCapabilities {
     /// Whether the service supports lossless audio downloads (e.g., ALAC
     /// for Apple Music). Controls visibility of lossless codec options.
@@ -371,7 +376,7 @@ pub trait MusicService: Send + Sync {
     >;
 
     /// Checks for updates to the service's CLI tool by querying the
-    /// upstream package registry (PyPI).
+    /// upstream package registry (`PyPI`).
     ///
     /// Returns `Ok("x.y.z")` with the latest available version, or
     /// `Err(message)` if the check failed (e.g., network error).

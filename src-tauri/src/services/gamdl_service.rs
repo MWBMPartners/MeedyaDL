@@ -77,14 +77,14 @@ use crate::utils::{platform, process};
 ///
 /// Serialized to JSON via serde and sent through Tauri's event system.
 /// The frontend receives this as: `{ download_id: string, event: GamdlOutputEvent }`.
-/// Ref: https://v2.tauri.app/develop/calling-rust/#events
+/// Ref: <https://v2.tauri.app/develop/calling-rust/#events>
 #[derive(Debug, Clone, Serialize)]
 pub struct GamdlProgress {
     /// Unique identifier for the download this event belongs to.
-    /// Matches the download_id assigned by `download_queue::enqueue()`.
+    /// Matches the `download_id` assigned by `download_queue::enqueue()`.
     pub download_id: String,
     /// The structured event parsed from GAMDL's output line.
-    /// Variants include DownloadProgress, TrackInfo, ProcessingStep, Complete, Error, etc.
+    /// Variants include `DownloadProgress`, `TrackInfo`, `ProcessingStep`, Complete, Error, etc.
     /// See `process::parse_gamdl_output()` for the parsing logic.
     pub event: process::GamdlOutputEvent,
 }
@@ -96,6 +96,11 @@ pub struct GamdlProgress {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
+///
+/// # Errors
+///
+/// Returns `Err(String)` if Python is not installed, the pip command fails,
+/// or GAMDL version verification fails after installation.
 ///
 /// # Returns
 /// * `Ok(version)` - The installed GAMDL version (e.g., "2.8.4")
@@ -125,7 +130,7 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
         .args(["-m", "pip", "install", "--upgrade", "gamdl"])
         .output()
         .await
-        .map_err(|e| format!("Failed to run pip install: {}", e))?;
+        .map_err(|e| format!("Failed to run pip install: {e}"))?;
 
     // Check if pip install succeeded
     if !output.status.success() {
@@ -143,7 +148,7 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
         .await?
         .unwrap_or_else(|| "unknown".to_string());
 
-    log::info!("GAMDL {} installed successfully", version);
+    log::info!("GAMDL {version} installed successfully");
     Ok(version)
 }
 
@@ -153,6 +158,10 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the pip show command fails to execute.
 ///
 /// # Returns
 /// * `Ok(Some(version))` - GAMDL is installed with the given version
@@ -177,7 +186,7 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
         .args(["-m", "pip", "show", "gamdl"])
         .output()
         .await
-        .map_err(|e| format!("Failed to run pip show: {}", e))?;
+        .map_err(|e| format!("Failed to run pip show: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -198,7 +207,7 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
 /// 1. Builds the full GAMDL CLI command with all options
 /// 2. Spawns the process with piped stdout/stderr
 /// 3. Reads output line-by-line in real-time
-/// 4. Parses each line into a GamdlOutputEvent
+/// 4. Parses each line into a `GamdlOutputEvent`
 /// 5. Emits the event to the frontend via Tauri's event system
 ///
 /// # Arguments
@@ -206,6 +215,11 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
 /// * `download_id` - Unique identifier for this download (for event routing)
 /// * `urls` - One or more Apple Music URLs to download
 /// * `options` - GAMDL CLI options (quality, format, paths, etc.)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the GAMDL process fails to start, exits with
+/// a non-zero code, or encounters a fatal error during download.
 ///
 /// # Returns
 /// * `Ok(())` - The download completed (check events for per-track status)
@@ -237,7 +251,7 @@ pub async fn run_gamdl(
     // The child process runs independently; we read its output via the piped handles.
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to start GAMDL process: {}", e))?;
+        .map_err(|e| format!("Failed to start GAMDL process: {e}"))?;
 
     // Clone the download_id and app handle for use in the spawned reader tasks.
     // Each reader task needs its own owned copies since they run independently.
@@ -271,7 +285,7 @@ pub async fn run_gamdl(
                 // The parser uses regex patterns to identify progress bars,
                 // track info, errors, and other GAMDL output formats.
                 let event = process::parse_gamdl_output(&line);
-                log::debug!("[gamdl stdout] {}", line);
+                log::debug!("[gamdl stdout] {line}");
 
                 // Emit the parsed event to the frontend as a "gamdl-output" event.
                 // The frontend's React useEffect listener receives this and updates
@@ -297,7 +311,7 @@ pub async fn run_gamdl(
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 let event = process::parse_gamdl_output(&line);
-                log::debug!("[gamdl stderr] {}", line);
+                log::debug!("[gamdl stderr] {line}");
 
                 let progress = GamdlProgress {
                     download_id: download_id.clone(),
@@ -313,7 +327,7 @@ pub async fn run_gamdl(
     let status = child
         .wait()
         .await
-        .map_err(|e| format!("Failed to wait for GAMDL process: {}", e))?;
+        .map_err(|e| format!("Failed to wait for GAMDL process: {e}"))?;
 
     // Wait for the stdout/stderr reader tasks to finish draining all remaining output.
     // This ensures we don't miss any final output lines emitted just before process exit.
@@ -325,15 +339,15 @@ pub async fn run_gamdl(
     // Individual track failures may still result in a 0 exit code if the overall
     // batch had some successes — check per-track events for detailed status.
     if status.success() {
-        log::info!("GAMDL download {} completed successfully", download_id);
+        log::info!("GAMDL download {download_id} completed successfully");
         Ok(())
     } else {
         let code = status.code().unwrap_or(-1);
-        Err(format!("GAMDL process exited with code {}", code))
+        Err(format!("GAMDL process exited with code {code}"))
     }
 }
 
-/// Public entry point for build_gamdl_command, used by download_queue.
+/// Public entry point for `build_gamdl_command`, used by `download_queue`.
 ///
 /// Constructs a `tokio::process::Command` that runs:
 /// `{python} -m gamdl {urls...} {--option value...}`
@@ -342,6 +356,10 @@ pub async fn run_gamdl(
 /// * `app` - The Tauri app handle (for path resolution)
 /// * `urls` - Apple Music URLs to download
 /// * `options` - GAMDL CLI options
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the Python binary path cannot be resolved.
 pub fn build_gamdl_command_public(
     app: &AppHandle,
     urls: &[String],
@@ -355,7 +373,7 @@ pub fn build_gamdl_command_public(
 /// Constructs a `tokio::process::Command` that runs:
 /// `{python} -m gamdl {urls...} {--option value...}`
 ///
-/// Automatically injects tool paths (FFmpeg, mp4decrypt, etc.) if
+/// Automatically injects tool paths (`FFmpeg`, mp4decrypt, etc.) if
 /// managed versions are installed and no custom path is specified.
 ///
 /// # Arguments
@@ -411,26 +429,26 @@ fn build_gamdl_command(
         cmd.arg(config_path);
     }
 
-    log::debug!("GAMDL command: python -m gamdl {:?} {:?}", urls, cli_args);
+    log::debug!("GAMDL command: python -m gamdl {urls:?} {cli_args:?}");
 
     Ok(cmd)
 }
 
 /// Injects paths to managed tool installations into the GAMDL command.
 ///
-/// For each tool (FFmpeg, mp4decrypt, etc.), if the user hasn't specified
+/// For each tool (`FFmpeg`, mp4decrypt, etc.), if the user hasn't specified
 /// a custom path in their options AND the managed version is installed,
 /// we add the `--{tool}-path` argument pointing to our managed binary.
 ///
 /// This implements a "managed with override" pattern:
-/// - If the user sets a custom tool path in Settings, that path is used (via GamdlOptions)
-/// - If no custom path is set, we check if our managed copy exists (installed by dependency_manager)
+/// - If the user sets a custom tool path in Settings, that path is used (via `GamdlOptions`)
+/// - If no custom path is set, we check if our managed copy exists (installed by `dependency_manager`)
 /// - If neither exists, GAMDL will try to find the tool on the system PATH
 ///
 /// The tool paths correspond to these GAMDL CLI flags:
-/// - `--ffmpeg-path` - FFmpeg binary for audio/video processing
+/// - `--ffmpeg-path` - `FFmpeg` binary for audio/video processing
 /// - `--mp4decrypt-path` - Bento4 mp4decrypt for DRM decryption
-/// - `--mp4box-path` - GPAC MP4Box for MP4 muxing
+/// - `--mp4box-path` - GPAC `MP4Box` for MP4 muxing
 /// - `--nm3u8dlre-path` - N_m3u8DL-RE for HLS/DASH downloading
 ///
 /// # Arguments
@@ -479,14 +497,19 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     }
 }
 
-/// Checks the latest GAMDL version available on PyPI.
+/// Checks the latest GAMDL version available on `PyPI`.
 ///
-/// Queries the PyPI JSON API to determine the latest published version,
+/// Queries the `PyPI` JSON API to determine the latest published version,
 /// which is used for update notifications.
 ///
+/// # Errors
+///
+/// Returns `Err(String)` if the `PyPI` API request fails or the response
+/// cannot be parsed.
+///
 /// # Returns
-/// * `Ok(version)` - The latest version on PyPI (e.g., "2.8.4")
-/// * `Err(message)` - If the PyPI API request failed
+/// * `Ok(version)` - The latest version on `PyPI` (e.g., "2.8.4")
+/// * `Err(message)` - If the `PyPI` API request failed
 pub async fn check_latest_gamdl_version() -> Result<String, String> {
     // Query the PyPI JSON API for the GAMDL package.
     // The PyPI JSON API returns package metadata including the latest version.
@@ -496,7 +519,7 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
     let url = "https://pypi.org/pypi/gamdl/json";
     let response = reqwest::get(url)
         .await
-        .map_err(|e| format!("Failed to check PyPI: {}", e))?;
+        .map_err(|e| format!("Failed to check PyPI: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!("PyPI returned HTTP {}", response.status()));
@@ -508,12 +531,12 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse PyPI response: {}", e))?;
+        .map_err(|e| format!("Failed to parse PyPI response: {e}"))?;
 
     // Navigate to info.version in the JSON response.
     // This is the latest stable version published on PyPI.
     json["info"]["version"]
         .as_str()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| "Could not find version in PyPI response".to_string())
 }

@@ -39,7 +39,7 @@ use super::gamdl_options::{
 
 /// Companion download mode configuration.
 ///
-/// Controls whether MeedyaDL automatically downloads additional format
+/// Controls whether `MeedyaDL` automatically downloads additional format
 /// versions alongside the primary download. This allows users to have
 /// both high-fidelity (lossless/spatial) and universally compatible
 /// (lossy) versions of their music without downloading separately.
@@ -64,7 +64,7 @@ use super::gamdl_options::{
 ///   01 Song Title [Dolby Atmos].m4a   ← Primary (spatial audio)
 ///   01 Song Title.m4a                 ← ALAC companion (clean filename)
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CompanionMode {
     /// No companion downloads. Only the user's selected format is downloaded.
@@ -150,6 +150,7 @@ impl Default for CompanionMode {
 /// See <https://docs.rs/serde/latest/serde/> for derive macro details.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(clippy::struct_excessive_bools)] // User-facing settings with genuinely independent boolean flags
 pub struct AppSettings {
     // ================================================================
     // General
@@ -188,7 +189,7 @@ pub struct AppSettings {
     pub ui_language: String,
 
     /// Whether to automatically check for GAMDL/tool updates on startup.
-    /// When enabled, the app queries PyPI and GitHub releases for newer
+    /// When enabled, the app queries `PyPI` and GitHub releases for newer
     /// versions of GAMDL and its dependencies (see `dependency.rs`).
     pub auto_check_updates: bool,
 
@@ -262,9 +263,9 @@ pub struct AppSettings {
     // Companion Downloads
     // ================================================================
 
-    /// Controls whether and how MeedyaDL downloads companion format
+    /// Controls whether and how `MeedyaDL` downloads companion format
     /// versions alongside the primary download. When companions are enabled,
-    /// MeedyaDL triggers additional GAMDL invocations after the primary
+    /// `MeedyaDL` triggers additional GAMDL invocations after the primary
     /// download succeeds, downloading the same content in different codecs.
     /// Specialist format files receive a codec suffix in their filenames
     /// (e.g., `[Dolby Atmos]`, `[Lossless]`) while the most universally
@@ -334,12 +335,12 @@ pub struct AppSettings {
     // ================================================================
 
     /// Whether to download animated cover art (motion artwork) from Apple
-    /// Music after each album download. When enabled, MeedyaDL queries the
+    /// Music after each album download. When enabled, `MeedyaDL` queries the
     /// Apple Music catalog API (`extend=editorialVideo`) and saves
     /// `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4` (portrait,
     /// 3:4) alongside the audio files, if animated artwork is available.
     ///
-    /// Requires valid MusicKit credentials (`musickit_team_id`,
+    /// Requires valid `MusicKit` credentials (`musickit_team_id`,
     /// `musickit_key_id`, and a private key stored in the OS keychain).
     pub animated_artwork_enabled: bool,
 
@@ -356,14 +357,14 @@ pub struct AppSettings {
     ///   cross-compatible hiding mechanism on Linux.
     pub hide_animated_artwork: bool,
 
-    /// Apple MusicKit Team ID for API authentication. This is the
+    /// Apple `MusicKit` Team ID for API authentication. This is the
     /// 10-character team identifier from the Apple Developer portal
     /// (e.g., `"ABCDE12345"`). Required when `animated_artwork_enabled`
     /// is `true`.
     pub musickit_team_id: Option<String>,
 
-    /// Apple MusicKit Key ID for API authentication. This is the
-    /// 10-character identifier for the MusicKit private key created in
+    /// Apple `MusicKit` Key ID for API authentication. This is the
+    /// 10-character identifier for the `MusicKit` private key created in
     /// the Apple Developer portal (e.g., `"ABC123DEFG"`). Required when
     /// `animated_artwork_enabled` is `true`.
     ///
@@ -376,22 +377,22 @@ pub struct AppSettings {
     // Metadata Enrichment (Opt-In)
     // ================================================================
 
-    /// Enable AcousticID fingerprinting for downloaded tracks. When enabled,
-    /// MeedyaDL generates Chromaprint audio fingerprints using the embedded
-    /// rusty-chromaprint library and looks up AcousticID identifiers from
+    /// Enable `AcousticID` fingerprinting for downloaded tracks. When enabled,
+    /// `MeedyaDL` generates Chromaprint audio fingerprints using the embedded
+    /// rusty-chromaprint library and looks up `AcousticID` identifiers from
     /// acoustid.org after each download. No external tools required.
     /// CPU-intensive: each audio file must be fully decoded to generate the
     /// fingerprint, and each lookup requires a network request.
     #[serde(default)]
     pub acoustid_enabled: bool,
 
-    /// Enable ReplayGain loudness analysis for downloaded tracks. When enabled,
-    /// MeedyaDL analyses each audio file's loudness using FFmpeg's EBU R128
-    /// filter and writes non-destructive ReplayGain metadata tags
+    /// Enable `ReplayGain` loudness analysis for downloaded tracks. When enabled,
+    /// `MeedyaDL` analyses each audio file's loudness using `FFmpeg`'s EBU R128
+    /// filter and writes non-destructive `ReplayGain` metadata tags
     /// (`replaygain_track_gain`, `replaygain_track_peak`). This enables volume
-    /// normalisation in media players that support ReplayGain (foobar2000,
-    /// Kodi, VLC, etc.) without altering the actual audio data. Uses FFmpeg
-    /// (already installed). CPU-intensive: FFmpeg must decode each file.
+    /// normalisation in media players that support `ReplayGain` (foobar2000,
+    /// Kodi, VLC, etc.) without altering the actual audio data. Uses `FFmpeg`
+    /// (already installed). CPU-intensive: `FFmpeg` must decode each file.
     #[serde(default)]
     pub replaygain_enabled: bool,
 
@@ -444,7 +445,7 @@ pub struct AppSettings {
     /// See GAMDL docs for how to export cookies from a browser.
     pub cookies_path: Option<String>,
 
-    /// Custom FFmpeg binary path. `None` = use the managed FFmpeg
+    /// Custom `FFmpeg` binary path. `None` = use the managed `FFmpeg`
     /// installation (see `dependency.rs` and `commands/dependency.rs`).
     pub ffmpeg_path: Option<String>,
 
@@ -452,7 +453,7 @@ pub struct AppSettings {
     /// decrypt Widevine-protected content.
     pub mp4decrypt_path: Option<String>,
 
-    /// Custom MP4Box binary path (from GPAC). Alternative remuxer.
+    /// Custom `MP4Box` binary path (from GPAC). Alternative remuxer.
     pub mp4box_path: Option<String>,
 
     /// Custom N_m3u8DL-RE binary path. Alternative HLS downloader.
@@ -471,7 +472,7 @@ pub struct AppSettings {
     pub download_mode: DownloadMode,
 
     /// Remux tool selection. See `RemuxMode` in `gamdl_options.rs`.
-    /// Default: `Ffmpeg` because FFmpeg is a required dependency anyway.
+    /// Default: `Ffmpeg` because `FFmpeg` is a required dependency anyway.
     pub remux_mode: RemuxMode,
 
     /// Whether to use the wrapper/amdecrypt authentication system for
@@ -535,7 +536,7 @@ pub struct AppSettings {
 /// Used by `#[serde(default = "default_auto_start_queue")]` because
 /// `bool::default()` returns `false`, but we need `true` for backward
 /// compatibility (existing users expect downloads to start automatically).
-fn default_auto_start_queue() -> bool {
+const fn default_auto_start_queue() -> bool {
     true
 }
 
@@ -569,6 +570,7 @@ impl Default for AppSettings {
     ///   `dirs::audio_dir()` or equivalent).
     /// - **Templates** -- Use GAMDL's own default templates so that files
     ///   are organized identically to a standalone GAMDL installation.
+    #[allow(clippy::literal_string_with_formatting_args)] // GAMDL template strings, not Rust format args
     fn default() -> Self {
         Self {
             // --- General ---

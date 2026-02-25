@@ -43,7 +43,7 @@
 /// to discover the current OS, architecture, and data directory at startup.
 pub mod system;
 
-/// Dependency management commands (Python, GAMDL, FFmpeg, mp4decrypt, etc.).
+/// Dependency management commands (Python, GAMDL, `FFmpeg`, mp4decrypt, etc.).
 ///
 /// Provides commands to check installation status and install each
 /// dependency. Delegates to `services::python_manager` and

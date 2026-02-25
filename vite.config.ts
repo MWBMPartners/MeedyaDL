@@ -136,6 +136,33 @@ export default defineConfig({
      * but should not be included in release builds.
      */
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+
+    /**
+     * `chunkSizeWarningLimit` -- Threshold (in kB) for the "chunk too large" warning.
+     *
+     * The default is 500 kB. MeedyaDL's main bundle is ~605 kB minified (~180 kB
+     * gzipped) due to the feature-rich UI (markdown rendering, i18n, Zustand stores,
+     * multiple page components). This is acceptable for a desktop app where the
+     * bundle is loaded from the local filesystem, not over a network.
+     */
+    chunkSizeWarningLimit: 700,
+
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress the "dynamically imported by X but also statically imported by Y"
+        // warning for uiStore.ts. The dynamic imports in main.tsx's global error
+        // handlers are intentional — they avoid circular dependencies during early
+        // bootstrap, while other components statically import the same store.
+        if (
+          warning.code === 'MIXED_IMPORTS' ||
+          (warning.message?.includes('is dynamically imported') &&
+            warning.message?.includes('uiStore'))
+        ) {
+          return;
+        }
+        warn(warning);
+      },
+    },
   },
 
   clearScreen: false,
