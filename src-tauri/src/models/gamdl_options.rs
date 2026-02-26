@@ -407,6 +407,72 @@ pub enum LogLevel {
     Error,
 }
 
+/// Artist content auto-selection mode for GAMDL's `--artist-auto-select` flag.
+///
+/// Controls what content is automatically downloaded when the user provides
+/// an artist URL instead of a specific album/song URL. New in GAMDL 2.9.1.
+///
+/// Without this flag, GAMDL prompts interactively when given an artist URL,
+/// which doesn't work in a subprocess context. This enum allows the user to
+/// pre-select the content type in settings.
+///
+/// ## Serialization
+///
+/// `#[serde(rename_all = "kebab-case")]` maps `MainAlbums` to `"main-albums"`, etc.
+///
+/// ## Reference
+///
+/// - GAMDL `--artist-auto-select` flag: <https://github.com/glomatico/gamdl#usage>
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArtistAutoSelect {
+    /// Download main studio albums only.
+    MainAlbums,
+    /// Download compilation albums only.
+    CompilationAlbums,
+    /// Download live albums only.
+    LiveAlbums,
+    /// Download singles and EPs only.
+    SinglesEps,
+    /// Download all album types (main, compilation, live, singles).
+    AllAlbums,
+    /// Download the artist's top songs.
+    TopSongs,
+    /// Download the artist's music videos.
+    MusicVideos,
+}
+
+impl ArtistAutoSelect {
+    /// Converts the enum variant to the exact CLI string for GAMDL's
+    /// `--artist-auto-select` flag.
+    #[must_use]
+    pub const fn to_cli_string(&self) -> &str {
+        match self {
+            Self::MainAlbums => "main-albums",
+            Self::CompilationAlbums => "compilation-albums",
+            Self::LiveAlbums => "live-albums",
+            Self::SinglesEps => "singles-eps",
+            Self::AllAlbums => "all-albums",
+            Self::TopSongs => "top-songs",
+            Self::MusicVideos => "music-videos",
+        }
+    }
+
+    /// Human-readable display name for the UI dropdown/selector.
+    #[must_use]
+    pub const fn display_name(&self) -> &str {
+        match self {
+            Self::MainAlbums => "Main Albums",
+            Self::CompilationAlbums => "Compilation Albums",
+            Self::LiveAlbums => "Live Albums",
+            Self::SinglesEps => "Singles & EPs",
+            Self::AllAlbums => "All Albums",
+            Self::TopSongs => "Top Songs",
+            Self::MusicVideos => "Music Videos",
+        }
+    }
+}
+
 /// Complete set of GAMDL CLI options.
 ///
 /// This struct is the central data structure for constructing GAMDL CLI
@@ -446,8 +512,15 @@ pub enum LogLevel {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GamdlOptions {
     // --- Audio Quality ---
-    /// Audio codec for music downloads
+    /// Audio codec for music downloads (used with GAMDL < 2.9.1's `--song-codec`)
     pub song_codec: Option<SongCodec>,
+
+    /// Comma-separated codec priority list for GAMDL >= 2.9.1's
+    /// `--song-codec-priority` flag. When set, GAMDL tries each codec
+    /// in order within a single process, using the first that returns
+    /// valid stream info. Built from the fallback chain at download time.
+    /// Example: `"alac,atmos,ac3,aac-binaural,aac,aac-legacy"`
+    pub song_codec_priority: Option<String>,
 
     // --- Video Quality ---
     /// Comma-separated codec priority for music videos (e.g., "h265,h264")
@@ -545,6 +618,12 @@ pub struct GamdlOptions {
     /// Remux mode selection (`FFmpeg` or `MP4Box`)
     pub remux_mode: Option<RemuxMode>,
 
+    // --- Artist ---
+    /// Auto-selection mode for artist URL downloads (GAMDL >= 2.9.1).
+    /// Controls which content type is automatically downloaded when the
+    /// user provides an artist URL.
+    pub artist_auto_select: Option<ArtistAutoSelect>,
+
     // --- Other ---
     /// Log verbosity level
     pub log_level: Option<LogLevel>,
@@ -610,8 +689,13 @@ impl GamdlOptions {
         let mut args = Vec::new();
 
         // --- Audio Quality ---
-        // Enum-valued option: push the flag name, then the CLI string representation.
-        if let Some(ref codec) = self.song_codec {
+        // Prefer song_codec_priority (GAMDL >= 2.9.1) over song_codec.
+        // When both are set, song_codec_priority takes precedence because
+        // GAMDL handles codec fallback natively within a single process.
+        if let Some(ref priority) = self.song_codec_priority {
+            args.push("--song-codec-priority".to_string());
+            args.push(priority.clone());
+        } else if let Some(ref codec) = self.song_codec {
             args.push("--song-codec".to_string());
             args.push(codec.to_cli_string().to_string());
         }
@@ -854,6 +938,12 @@ impl GamdlOptions {
         // and do not conflict with a user's pre-existing GAMDL config.
         if self.no_config_file == Some(true) {
             args.push("--no-config-file".to_string());
+        }
+
+        // --- Artist auto-select (GAMDL >= 2.9.1) ---
+        if let Some(ref mode) = self.artist_auto_select {
+            args.push("--artist-auto-select".to_string());
+            args.push(mode.to_cli_string().to_string());
         }
 
         args
@@ -1168,5 +1258,83 @@ mod tests {
 
         let deserialized: VideoResolution = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, res);
+    }
+
+    // ----------------------------------------------------------
+    // song_codec_priority takes precedence over song_codec
+    // ----------------------------------------------------------
+
+    #[test]
+    fn song_codec_priority_takes_precedence() {
+        let options = GamdlOptions {
+            song_codec: Some(SongCodec::Alac),
+            song_codec_priority: Some("alac,aac,aac-legacy".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(args.contains(&"--song-codec-priority".to_string()));
+        assert!(args.contains(&"alac,aac,aac-legacy".to_string()));
+        assert!(!args.contains(&"--song-codec".to_string()));
+    }
+
+    #[test]
+    fn song_codec_used_when_priority_not_set() {
+        let options = GamdlOptions {
+            song_codec: Some(SongCodec::Aac),
+            song_codec_priority: None,
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(args.contains(&"--song-codec".to_string()));
+        assert!(args.contains(&"aac".to_string()));
+        assert!(!args.contains(&"--song-codec-priority".to_string()));
+    }
+
+    #[test]
+    fn neither_codec_field_produces_no_codec_args() {
+        let options = GamdlOptions {
+            song_codec: None,
+            song_codec_priority: None,
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(!args.contains(&"--song-codec".to_string()));
+        assert!(!args.contains(&"--song-codec-priority".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // ArtistAutoSelect
+    // ----------------------------------------------------------
+
+    #[test]
+    fn artist_auto_select_cli_strings() {
+        assert_eq!(ArtistAutoSelect::MainAlbums.to_cli_string(), "main-albums");
+        assert_eq!(ArtistAutoSelect::CompilationAlbums.to_cli_string(), "compilation-albums");
+        assert_eq!(ArtistAutoSelect::LiveAlbums.to_cli_string(), "live-albums");
+        assert_eq!(ArtistAutoSelect::SinglesEps.to_cli_string(), "singles-eps");
+        assert_eq!(ArtistAutoSelect::AllAlbums.to_cli_string(), "all-albums");
+        assert_eq!(ArtistAutoSelect::TopSongs.to_cli_string(), "top-songs");
+        assert_eq!(ArtistAutoSelect::MusicVideos.to_cli_string(), "music-videos");
+    }
+
+    #[test]
+    fn artist_auto_select_serde_roundtrip() {
+        let mode = ArtistAutoSelect::TopSongs;
+        let json = serde_json::to_string(&mode).unwrap();
+        assert_eq!(json, "\"top-songs\"");
+
+        let deserialized: ArtistAutoSelect = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, mode);
+    }
+
+    #[test]
+    fn artist_auto_select_cli_arg() {
+        let options = GamdlOptions {
+            artist_auto_select: Some(ArtistAutoSelect::AllAlbums),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(args.contains(&"--artist-auto-select".to_string()));
+        assert!(args.contains(&"all-albums".to_string()));
     }
 }

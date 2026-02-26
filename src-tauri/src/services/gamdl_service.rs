@@ -497,6 +497,34 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     }
 }
 
+/// Checks whether a GAMDL version string meets a minimum version requirement.
+///
+/// Parses both version strings as "X.Y.Z" semver tuples and compares them.
+/// Used to gate features that require specific GAMDL versions (e.g.,
+/// `song_codec_priority` requires >= 2.9.1).
+///
+/// Unparseable version parts default to 0, and 2-part versions (e.g., "2.9")
+/// are treated as "2.9.0".
+///
+/// # Examples
+///
+/// ```
+/// assert!(is_version_at_least("2.9.1", "2.9.1")); // exact match
+/// assert!(!is_version_at_least("2.8.4", "2.9.1")); // lower
+/// assert!(is_version_at_least("3.0.0", "2.9.1")); // higher
+/// ```
+#[must_use]
+pub fn is_version_at_least(version: &str, minimum: &str) -> bool {
+    let parse = |v: &str| -> (u32, u32, u32) {
+        let parts: Vec<&str> = v.split('.').collect();
+        let major = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+        let minor = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+        let patch = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
+        (major, minor, patch)
+    };
+    parse(version) >= parse(minimum)
+}
+
 /// Checks the latest GAMDL version available on `PyPI`.
 ///
 /// Queries the `PyPI` JSON API to determine the latest published version,
@@ -539,4 +567,44 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
         .as_str()
         .map(std::string::ToString::to_string)
         .ok_or_else(|| "Could not find version in PyPI response".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_at_least_exact_match() {
+        assert!(is_version_at_least("2.9.1", "2.9.1"));
+    }
+
+    #[test]
+    fn version_at_least_higher() {
+        assert!(is_version_at_least("3.0.0", "2.9.1"));
+        assert!(is_version_at_least("2.10.0", "2.9.1"));
+        assert!(is_version_at_least("2.9.2", "2.9.1"));
+    }
+
+    #[test]
+    fn version_at_least_lower() {
+        assert!(!is_version_at_least("2.8.4", "2.9.1"));
+        assert!(!is_version_at_least("2.9.0", "2.9.1"));
+        assert!(!is_version_at_least("1.0.0", "2.9.1"));
+    }
+
+    #[test]
+    fn version_at_least_two_part_versions() {
+        // "2.9" is treated as "2.9.0" which is < "2.9.1"
+        assert!(!is_version_at_least("2.9", "2.9.1"));
+        // "3.0" is treated as "3.0.0" which is > "2.9.1"
+        assert!(is_version_at_least("3.0", "2.9.1"));
+    }
+
+    #[test]
+    fn version_at_least_invalid_strings() {
+        // Unparseable parts default to 0
+        assert!(!is_version_at_least("", "2.9.1"));
+        assert!(!is_version_at_least("abc", "2.9.1"));
+        assert!(is_version_at_least("2.9.1", ""));
+    }
 }

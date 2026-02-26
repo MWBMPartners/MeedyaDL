@@ -62,6 +62,7 @@ use tauri::AppHandle;
 // AppSettings is the Rust struct that mirrors all GUI settings.
 // It derives Serialize/Deserialize for JSON round-tripping and Default for first-run defaults.
 // Defined in models/settings.rs.
+use crate::models::gamdl_options::SongCodec;
 use crate::models::settings::AppSettings;
 // Platform utilities for resolving the app data directory and config file paths
 // across macOS, Windows, and Linux.
@@ -267,14 +268,26 @@ fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     }
 }
 
-/// Appends audio quality INI key-value pairs (song codec).
+/// Appends audio quality INI key-value pairs (song codec, codec priority).
 fn ini_audio_section(lines: &mut Vec<String>, settings: &AppSettings) {
-    // Maps to GAMDL's --song-codec flag. Valid values: alac, aac-he, aac-binaural, etc.
-    // The to_cli_string() method on the SongCodec enum returns the GAMDL-compatible string.
+    // Write single codec for GAMDL < 2.9.1 compatibility
     lines.push(format!(
         "song_codec = {}",
         settings.default_song_codec.to_cli_string()
     ));
+
+    // Also write the full fallback chain as song_codec_priority for GAMDL >= 2.9.1.
+    // GAMDL 2.9.1+ reads this key and ignores song_codec when it's present.
+    // GAMDL < 2.9.1 silently ignores the unknown key.
+    if settings.fallback_enabled && !settings.music_fallback_chain.is_empty() {
+        let priority: String = settings
+            .music_fallback_chain
+            .iter()
+            .map(SongCodec::to_cli_string)
+            .collect::<Vec<&str>>()
+            .join(",");
+        lines.push(format!("song_codec_priority = {priority}"));
+    }
 }
 
 /// Appends video quality INI key-value pairs (resolution, codec priority, remux format).
@@ -356,7 +369,7 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     }
 }
 
-/// Appends metadata INI key-value pairs (language, `fetch_extra_tags`).
+/// Appends metadata INI key-value pairs (language, `fetch_extra_tags`, `artist_auto_select`).
 fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
@@ -365,6 +378,13 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // (normalization info, smooth playback data, etc.) from Apple Music.
     if settings.fetch_extra_tags {
         lines.push("fetch_extra_tags = true".to_string());
+    }
+    // Artist auto-selection mode (GAMDL >= 2.9.1). Controls which content
+    // type is automatically downloaded when the user provides an artist URL.
+    // Only written when explicitly set; omitted otherwise to let GAMDL use
+    // its own default behavior.
+    if let Some(ref mode) = settings.artist_auto_select {
+        lines.push(format!("artist_auto_select = {}", mode.to_cli_string()));
     }
 }
 
@@ -774,6 +794,47 @@ mod tests {
                 trimmed
             );
         }
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: song_codec_priority
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_contains_song_codec_priority_when_fallback_enabled() {
+        let settings = default_settings(); // fallback_enabled is true by default
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("song_codec_priority ="));
+        // Should contain the full default fallback chain
+        assert!(ini.contains("alac"));
+    }
+
+    #[test]
+    fn ini_omits_song_codec_priority_when_fallback_disabled() {
+        let mut settings = default_settings();
+        settings.fallback_enabled = false;
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("song_codec_priority ="));
+    }
+
+    // ----------------------------------------------------------
+    // settings_to_ini: artist_auto_select
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ini_omits_artist_auto_select_when_none() {
+        let settings = default_settings(); // artist_auto_select defaults to None
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("artist_auto_select"));
+    }
+
+    #[test]
+    fn ini_includes_artist_auto_select_when_set() {
+        let mut settings = default_settings();
+        settings.artist_auto_select =
+            Some(crate::models::gamdl_options::ArtistAutoSelect::AllAlbums);
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("artist_auto_select = all-albums"));
     }
 
     // ----------------------------------------------------------

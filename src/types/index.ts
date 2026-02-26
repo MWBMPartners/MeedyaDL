@@ -280,6 +280,8 @@ export const VIDEO_CODEC_LABELS: Record<VideoCodec, string> = {
 export interface GamdlOptions {
   /** Audio codec to use (--song-codec flag) */
   song_codec?: SongCodec;
+  /** Comma-separated codec priority for GAMDL >= 2.9.1 (--song-codec-priority flag) */
+  song_codec_priority?: string;
   /** Codec priority string for music videos (e.g., "h265,h264") */
   music_video_codec_priority?: string;
   /** Maximum video resolution (--music-video-resolution flag) */
@@ -290,6 +292,8 @@ export interface GamdlOptions {
   uploaded_video_quality?: string;
   /** When true, does not skip music videos in album downloads */
   disable_music_video_skip?: boolean;
+  /** Auto-select mode for artist URL downloads (--artist-auto-select flag, GAMDL >= 2.9.1) */
+  artist_auto_select?: ArtistAutoSelect;
   /** Format for synced lyrics files (--synced-lyrics-format flag) */
   synced_lyrics_format?: LyricsFormat;
   /** When true, skips downloading synced lyrics */
@@ -428,6 +432,8 @@ export interface AppSettings {
   video_fallback_chain: VideoResolution[];
   /** Companion download mode: controls automatic multi-format downloads */
   companion_mode: CompanionMode;
+  /** Default artist auto-selection mode for artist URL downloads (GAMDL >= 2.9.1) */
+  artist_auto_select?: ArtistAutoSelect;
   /** Whether to both embed lyrics in file metadata AND keep sidecar lyrics files */
   embed_lyrics_and_sidecar: boolean;
   /** Default format for synced lyrics output */
@@ -863,6 +869,20 @@ export type AppleMusicContentType =
   | 'music-video'
   | 'artist'
   | 'unknown';
+
+/**
+ * Artist content auto-selection modes for GAMDL's --artist-auto-select flag.
+ * Controls what content is downloaded when the user provides an artist URL.
+ * New in GAMDL 2.9.1.
+ */
+export type ArtistAutoSelect =
+  | 'main-albums'
+  | 'compilation-albums'
+  | 'live-albums'
+  | 'singles-eps'
+  | 'all-albums'
+  | 'top-songs'
+  | 'music-videos';
 
 /**
  * Result of parsing an Apple Music URL.
