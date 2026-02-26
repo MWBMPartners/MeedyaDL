@@ -27,6 +27,7 @@ beforeEach(() => {
       companion_lyrics_formats: [],
       no_synced_lyrics: false,
       embed_lyrics_and_sidecar: true,
+      enhanced_lrc: false,
     },
   });
 });
@@ -43,9 +44,9 @@ describe('LyricsTab', () => {
     expect(checkboxes.length).toBeGreaterThanOrEqual(3);
 
     /* Verify format labels are present */
-    expect(screen.getByText(/LRC/)).toBeInTheDocument();
-    expect(screen.getByText(/SRT/)).toBeInTheDocument();
-    expect(screen.getByText(/TTML/)).toBeInTheDocument();
+    expect(screen.getByText(/^LRC/)).toBeInTheDocument();
+    expect(screen.getByText(/^SRT/)).toBeInTheDocument();
+    expect(screen.getByText(/^TTML/)).toBeInTheDocument();
   });
 
   it('checks only LRC by default', () => {
