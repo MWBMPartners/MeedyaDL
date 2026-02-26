@@ -73,6 +73,19 @@ export { FallbackChainList } from './FallbackChainList';
  */
 export { Modal } from './Modal';
 
+/**
+ * Right-click context menu overlay positioned at cursor coordinates.
+ * Renders via a portal and auto-adjusts to stay within the viewport.
+ * Used in: QueueItem (download queue right-click actions).
+ */
+export { ContextMenu } from './ContextMenu';
+
+/**
+ * TypeScript interface for individual context menu items.
+ * Re-exported as a type so consumers can strongly type their menu arrays.
+ */
+export type { ContextMenuItem } from './ContextMenu';
+
 /* -------------------------------------------------------------------------- */
 /*  Feedback / status components                                               */
 /* -------------------------------------------------------------------------- */
