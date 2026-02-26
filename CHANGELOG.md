@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add new app icon variants and previews
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.29] - 2026-02-26
+
+### ✨ Features
+
 - Update app icons and logos
 
 - Updated the MeedyaDL logo in both light and dark variants (SVG and PNG formats) with a new design and color scheme.
