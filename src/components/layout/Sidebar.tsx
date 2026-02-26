@@ -216,14 +216,14 @@ export function Sidebar() {
         `}
       >
         {/*
-         * App icon: a rounded accent-colored square with a Download icon.
-         * `rounded-platform` uses the platform-aware border radius token
-         * (more rounded on macOS, slightly sharper on Windows).
-         * `flex-shrink-0` prevents the icon from shrinking when space is tight.
+         * App icon: shared brand mark asset used across app/platform icons.
+         * `no-drag` ensures the image itself isn't treated as a drag handle.
          */}
-        <div className="w-8 h-8 rounded-platform bg-accent flex items-center justify-center flex-shrink-0">
-          <Download size={16} className="text-content-inverse" />
-        </div>
+        <img
+          src="/app-icon.svg"
+          alt="MeedyaDL icon"
+          className="w-8 h-8 rounded-platform flex-shrink-0 no-drag"
+        />
         {/*
          * App name and subtitle -- hidden when the sidebar is collapsed.
          * `no-drag` exempts this text from the drag-region so that future
