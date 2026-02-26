@@ -354,7 +354,7 @@ pub enum DownloadMode {
     Nm3u8dlre,
 }
 
-/// Remux mode options for GAMDL's `--remux-mode` flag.
+/// Remux mode options for GAMDL's `--music-video-remux-mode` flag.
 ///
 /// After downloading encrypted stream segments, GAMDL decrypts and remuxes
 /// them into the final container format. This enum controls which tool
@@ -754,12 +754,10 @@ impl GamdlOptions {
             args.push("--uploaded-video-quality".to_string());
             args.push(quality.clone());
         }
-        // Boolean flag pattern: only emit the flag when the value is explicitly
-        // `Some(true)`. `Some(false)` and `None` both result in omission,
-        // meaning GAMDL uses its default behavior (music video skip enabled).
-        if self.disable_music_video_skip == Some(true) {
-            args.push("--disable-music-video-skip".to_string());
-        }
+        // NOTE: `disable_music_video_skip` is kept as a field for potential
+        // future use, but GAMDL does not expose a `--disable-music-video-skip`
+        // CLI flag (as of v2.9.1). Passing it would cause an "unrecognized
+        // option" error, so we intentionally do not emit it.
 
         args
     }
@@ -862,10 +860,10 @@ impl GamdlOptions {
             args.push("--nm3u8dlre-path".to_string());
             args.push(path.clone());
         }
-        if let Some(ref path) = self.amdecrypt_path {
-            args.push("--amdecrypt-path".to_string());
-            args.push(path.clone());
-        }
+        // NOTE: `amdecrypt_path` is kept as a settings field, but GAMDL does
+        // not expose `--amdecrypt-path` as a CLI option (amdecrypt is an
+        // internal module within GAMDL). Passing it would cause an
+        // "unrecognized option" error.
         if let Some(ref path) = self.wvd_path {
             args.push("--wvd-path".to_string());
             args.push(path.clone());
@@ -909,7 +907,7 @@ impl GamdlOptions {
             }.to_string());
         }
         if let Some(ref mode) = self.remux_mode {
-            args.push("--remux-mode".to_string());
+            args.push("--music-video-remux-mode".to_string());
             args.push(match mode {
                 RemuxMode::Ffmpeg => "ffmpeg",
                 RemuxMode::Mp4box => "mp4box",
