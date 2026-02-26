@@ -509,6 +509,7 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
 /// # Examples
 ///
 /// ```
+/// use meedyadl::services::gamdl_service::is_version_at_least;
 /// assert!(is_version_at_least("2.9.1", "2.9.1")); // exact match
 /// assert!(!is_version_at_least("2.8.4", "2.9.1")); // lower
 /// assert!(is_version_at_least("3.0.0", "2.9.1")); // higher
