@@ -6,6 +6,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Add use import to doc test for is_version_at_least
+
+The doc test example needed `use meedyadl::services::gamdl_service::is_version_at_least`
+  to resolve the function in cargo test --doc (which runs examples as standalone crates).
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.27] - 2026-02-26
+
 ### ✨ Features
 
 - Integrate GAMDL v2.9.1 native codec priority, artist auto-select, and Apple Music Classical URLs
