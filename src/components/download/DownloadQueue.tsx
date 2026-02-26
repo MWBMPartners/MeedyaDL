@@ -431,6 +431,7 @@ export function DownloadQueue() {
                 item={item}
                 onCancel={handleCancel}
                 onRetry={handleRetry}
+                onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
               />
             ))}
           </div>
