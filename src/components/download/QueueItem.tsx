@@ -56,8 +56,10 @@
  *  - `FileOutput`    -> open file     (@see https://lucide.dev/icons/file-output)
  *  - `AlertTriangle` -> fallback warn (@see https://lucide.dev/icons/alert-triangle)
  */
+import { useState } from 'react';
 import {
   Clock,
+  Copy,
   Download,
   CheckCircle,
   XCircle,
@@ -74,7 +76,8 @@ import {
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { ProgressBar } from '@/components/common';
+import { ProgressBar, ContextMenu } from '@/components/common';
+import type { ContextMenuItem } from '@/components/common';
 
 /**
  * Type imports for queue item data and download state.
@@ -113,6 +116,13 @@ interface QueueItemProps {
    * The parent uses this to call `downloadStore.retryDownload(id)`.
    */
   onRetry: (id: string) => void;
+
+  /**
+   * Callback invoked after the source URL is copied to the clipboard
+   * via the context menu. The parent uses this to show a toast
+   * notification confirming the copy.
+   */
+  onCopyUrl: (url: string) => void;
 }
 
 /**
@@ -187,12 +197,19 @@ const STATE_CONFIG: Record<
  * @see https://tailwindcss.com/docs/animation#spin
  *      Tailwind animate-spin for the processing spinner.
  */
-export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
+export function QueueItem({ item, onCancel, onRetry, onCopyUrl }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
    * current download state from the static `STATE_CONFIG` record.
    */
   const config = STATE_CONFIG[item.state];
+
+  /** Right-click context menu position and visibility state. */
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    visible: boolean;
+  }>({ x: 0, y: 0, visible: false });
 
   /**
    * Whether this completed item has non-fatal warnings. When true, the
@@ -269,6 +286,55 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
     }
   };
 
+  /**
+   * Opens the right-click context menu at the cursor position.
+   * Suppresses the native browser context menu.
+   */
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, visible: true });
+  };
+
+  /**
+   * Build context menu items dynamically based on the item's current
+   * state and available data. Items are conditionally included so the
+   * menu only shows actions that are relevant.
+   */
+  const contextMenuItems: ContextMenuItem[] = [
+    // Always available: copy the source URL to clipboard
+    {
+      label: 'Copy Source Link',
+      icon: <Copy size={14} />,
+      onClick: () => {
+        navigator.clipboard.writeText(item.urls[0]).then(() => {
+          onCopyUrl(item.urls[0]);
+        });
+      },
+    },
+    // Available when output files exist (complete, or error with output)
+    ...(item.output_path
+      ? [
+          {
+            label: 'Open Folder',
+            icon: <FolderOpen size={14} />,
+            onClick: handleOpenFolder,
+            separator: true,
+          },
+        ]
+      : []),
+    // Available for failed or cancelled downloads
+    ...(item.state === 'error' || item.state === 'cancelled'
+      ? [
+          {
+            label: 'Retry Download',
+            icon: <RotateCcw size={14} />,
+            onClick: () => onRetry(item.id),
+            separator: !item.output_path, // separator only if Open Folder wasn't shown
+          },
+        ]
+      : []),
+  ];
+
   return (
     /**
      * Queue item row container.
@@ -279,7 +345,10 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
      * `hover:bg-surface-secondary` provides a subtle highlight on hover.
      * `transition-colors` smoothly animates the background change.
      */
-    <div className="px-4 py-3 border-b border-border-light last:border-b-0 hover:bg-surface-secondary transition-colors">
+    <div
+      className="px-4 py-3 border-b border-border-light last:border-b-0 hover:bg-surface-secondary transition-colors"
+      onContextMenu={handleContextMenu}
+    >
       {/*
        * Top row: three-column flex layout.
        * Left: status icon | Center: URL + track info | Right: action buttons.
@@ -501,6 +570,18 @@ export function QueueItem({ item, onCancel, onRetry }: QueueItemProps) {
             Open Folder
           </button>
         </div>
+      )}
+
+      {/* Right-click context menu (rendered via portal) */}
+      {contextMenu.visible && (
+        <ContextMenu
+          items={contextMenuItems}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() =>
+            setContextMenu((prev) => ({ ...prev, visible: false }))
+          }
+        />
       )}
     </div>
   );
