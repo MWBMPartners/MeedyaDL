@@ -1466,6 +1466,33 @@ pub fn process_queue(
                             }
                         }
 
+                        // Partial-success recovery: GAMDL exited 0 with codec
+                        // skip warnings, meaning some tracks were unavailable in
+                        // the requested format but others downloaded successfully.
+                        // Verify the output directory contains files before
+                        // declaring success. This handles GAMDL 2.9.1+ which
+                        // doesn't emit "Saved to:" lines for album downloads.
+                        if has_codec_error && !has_io_error {
+                            if let Some(item) = q.items.iter_mut()
+                                .find(|i| i.status.id == dl_id)
+                            {
+                                if let Some(ref dir) = item.merged_options.output_path.clone() {
+                                    let path = std::path::Path::new(dir);
+                                    let has_files = path.is_dir()
+                                        && std::fs::read_dir(path)
+                                            .map(|mut entries| entries.next().is_some())
+                                            .unwrap_or(false);
+                                    if has_files {
+                                        item.status.output_path = Some(dir.clone());
+                                        log::info!(
+                                            "Download {dl_id} partial success: output \
+                                             directory has files despite codec skip warnings"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
                         if has_io_error && !has_codec_error {
                             // Filesystem I/O error recovery: GAMDL exited 0 with IO
                             // errors (e.g., cloud storage timeout writing Cover.jpg)
@@ -1487,9 +1514,18 @@ pub fn process_queue(
                                  configured output path"
                             );
                             // Fall through to normal completion with IO warnings
-                        } else if !has_io_error || has_codec_error {
-                            // Terminal: no output, no IO recovery, codec fallback
-                            // exhausted or not applicable.
+                        }
+
+                        // Re-check output: partial-success or IO recovery may
+                        // have set output_path above.
+                        let has_output_now = q.items.iter()
+                            .find(|i| i.status.id == dl_id)
+                            .and_then(|i| i.status.output_path.as_ref())
+                            .is_some();
+
+                        if !has_output_now {
+                            // Terminal: no output, no IO recovery, no files on
+                            // disk despite codec fallback exhausted.
                             let error_msg = if has_io_error {
                                 format!(
                                     "Output path may be unreachable or too slow. \
