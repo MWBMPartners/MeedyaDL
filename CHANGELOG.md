@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Update remux mode flag and clean up unused options in GamdlOptions
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.30] - 2026-02-26
+
 ### ✨ Features
 
 - Add new app icon variants and previews
