@@ -20,7 +20,7 @@ MeedyaDL can download synchronized lyrics alongside your music and embed rich me
 
 ### LRC (LyRiCs)
 
-LRC is a time-stamped text format and the default lyric format for songs downloaded with MeedyaDL. Each line in an LRC file pairs a timestamp with the corresponding lyric text:
+LRC is a time-stamped text format and one of the most widely supported lyric formats. Each line in an LRC file pairs a timestamp with the corresponding lyric text:
 
 ```
 [00:12.34] First line of the song
@@ -33,6 +33,40 @@ LRC is a time-stamped text format and the default lyric format for songs downloa
 - LRC is one of the most widely supported lyric formats. It works with music players such as foobar2000, MusicBee, Poweramp, and Apple Music (via third-party plugins).
 - When downloaded, LRC files are saved as sidecar files (e.g., `Song Title.lrc`) in the same directory as the corresponding audio file, sharing the same base filename.
 - The format stores line-level synchronized timestamps, allowing your music player to scroll lyrics in time with playback.
+
+### Enhanced LRC (Word-by-Word Sync)
+
+Enhanced LRC extends the standard LRC format with inline word-level timestamps, enabling karaoke-style word-by-word highlighting. MeedyaDL is one of the first tools to generate Enhanced LRC from Apple Music's word-level timing data.
+
+```
+[ar:Artist Name]
+[ti:Song Title]
+[la:en]
+[by:MeedyaDL]
+[re:MeedyaDL Enhanced LRC]
+
+[00:12.45]<00:12.45>Midnight <00:13.20>rain <00:14.10>on <00:14.50>my <00:15.00>window
+[00:17.50]<00:17.50>Memories <00:18.20>fade <00:18.90>away
+```
+
+**Key details:**
+
+- Each line has a standard `[mm:ss.xx]` line timestamp, plus `<mm:ss.xx>` word timestamps before each word.
+- Standard LRC players ignore the `<...>` word timestamps and display lyrics as normal line-by-line sync — Enhanced LRC is fully backward-compatible.
+- Compatible players (foobar2000 with ESLyric, Poweramp, AIMP, Musixmatch) highlight individual words as they are sung, similar to Apple Music Sing's karaoke feature.
+- Background vocals are automatically wrapped in parentheses.
+- A metadata header is included with artist, title, language, and tool information.
+
+**How it works:**
+
+1. GAMDL downloads the raw TTML lyrics file from Apple Music (TTML preserves Apple's word-level timing data in `<span>` elements).
+2. MeedyaDL's `enhanced_lyrics_service` parses the TTML XML and extracts word-by-word timestamps.
+3. The Enhanced LRC is saved as a `.lrc` sidecar file AND embedded in the audio file's metadata.
+4. Songs without word-level timing in their TTML gracefully fall back to standard line-level LRC.
+
+**Enabling Enhanced LRC:**
+
+Enhanced LRC is enabled by default. The toggle is in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**. When enabled, TTML is automatically set as the primary lyrics download format (this cannot be changed while Enhanced LRC is active, since the raw TTML is needed for conversion).
 
 ### SRT (SubRip Subtitle)
 
@@ -72,10 +106,11 @@ TTML is an XML-based timed text format used natively by Apple Music. It is the d
 
 **Key details:**
 
-- TTML is the format Apple Music uses internally for its synchronized lyrics, so it preserves the richest timing data available from the source.
+- TTML is the format Apple Music uses internally for its synchronized lyrics, so it preserves the richest timing data available from the source — including word-level timing for Apple Music Sing.
 - TTML files are saved as sidecar files (e.g., `Song Title.ttml`) alongside the downloaded media file.
 - Because TTML is an XML-based standard, it can carry more detailed timing and styling information than simpler text formats.
-- TTML has more limited support among third-party music players compared to LRC or SRT. It is best suited for workflows that specifically require Apple's native lyric format or for further processing and conversion.
+- TTML is the default primary lyrics format when Enhanced LRC is enabled, because it preserves the word-level timing data needed for Enhanced LRC conversion.
+- TTML has more limited support among third-party music players compared to LRC or SRT. However, MeedyaDL automatically converts TTML to Enhanced LRC when the feature is enabled, so you get the best of both worlds: rich timing data from TTML with broad player compatibility from LRC.
 
 ---
 
@@ -91,11 +126,12 @@ In **Settings > Lyrics**, you can select one or more lyric output formats using 
 
 | Format | Best For | Notes |
 |--------|----------|-------|
-| **LRC** | Music / audio files | Widest music player support. Default for songs. |
+| **LRC** | Music / audio files | Widest music player support. |
+| **Enhanced LRC** | Music with karaoke/word sync | Word-by-word highlighting. Backward-compatible with standard LRC. |
 | **SRT** | Videos / subtitle workflows | Universal video player support. |
-| **TTML** | Apple Music native workflows | Richest timing data. Limited third-party support. |
+| **TTML** | Apple Music native workflows | Richest timing data. Default primary when Enhanced LRC is enabled. |
 
-**Guidance:** Choose **LRC** if you primarily listen to music on desktop or mobile players. Choose **SRT** if you download music videos and want subtitles that work everywhere. Choose **TTML** if you need the original Apple Music lyric format for specialized processing.
+**Guidance:** Enable **Enhanced LRC** (default) for the best experience — you get word-by-word sync where available, with automatic fallback to line-level sync. SRT is automatically downloaded as a companion format. Choose **SRT** if you download music videos and want subtitles that work everywhere. Choose **TTML** if you need the original Apple Music lyric format for specialized processing.
 
 ### Multi-Format Lyrics
 
@@ -169,7 +205,15 @@ MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files.
 
 ### MeedyaDL Metadata Enrichment
 
-In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally audio fingerprints and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 5-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+
+The enrichment stages run in order:
+
+1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on)
+2. **Enhanced LRC conversion** (opt-in, default on) — converts TTML to Enhanced LRC, saves `.lrc` sidecar, embeds in `©lyr` atom
+3. **Animated artwork download** (requires MusicKit credentials)
+4. **AcousticID fingerprinting** (opt-in)
+5. **ReplayGain analysis** (opt-in)
 
 #### Codec Tags (Always-On)
 

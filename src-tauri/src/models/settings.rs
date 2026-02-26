@@ -38,6 +38,13 @@ use super::gamdl_options::{
     VideoResolution,
 };
 
+/// Serde default helper that returns `true`. Used for boolean settings
+/// that should default to enabled when the field is missing from an
+/// older settings.json (backward compatibility during upgrades).
+fn default_true() -> bool {
+    true
+}
+
 /// Companion download mode configuration.
 ///
 /// Controls whether `MeedyaDL` automatically downloads additional format
@@ -306,9 +313,26 @@ pub struct AppSettings {
     /// after the primary download completes. Each format in this list
     /// triggers a separate `--synced-lyrics-only` GAMDL invocation.
     /// The primary format (`synced_lyrics_format`) is NOT included here.
-    /// Empty by default (single-format behavior, backward compatible).
+    /// Defaults to `[Srt]` so users get SRT alongside the primary format.
     #[serde(default)]
     pub companion_lyrics_formats: Vec<LyricsFormat>,
+
+    /// When enabled, MeedyaDL post-processes TTML lyrics files to produce
+    /// Enhanced LRC with word-by-word synchronized timestamps. The TTML
+    /// is automatically set as the primary lyrics download format, and the
+    /// resulting Enhanced LRC is saved as a `.lrc` sidecar and embedded
+    /// in the audio file's metadata.
+    ///
+    /// Enhanced LRC uses inline `<mm:ss.xx>` word timestamps within standard
+    /// `[mm:ss.xx]` line timestamps, enabling karaoke-style word-by-word
+    /// highlighting in compatible players (foobar2000, Poweramp, AIMP, etc.).
+    /// It is fully backward-compatible with standard LRC players.
+    ///
+    /// Requires: Apple Music TTML lyrics with `itunes:timing="Word"`.
+    /// Songs without word-level timing gracefully fall back to standard
+    /// line-level LRC.
+    #[serde(default = "default_true")]
+    pub enhanced_lrc: bool,
 
     // ================================================================
     // Cover Art
@@ -573,9 +597,9 @@ impl Default for AppSettings {
     ///   audio to standard lossy, matching the project brief's order.
     /// - **`video_fallback_chain`** -- 2160p -> 1440p -> ... -> 240p.
     ///   Every resolution Apple Music offers, in descending order.
-    /// - **`synced_lyrics_format: Lrc`** -- LRC is the most widely
-    ///   supported lyrics format. For music videos, the download manager
-    ///   overrides this to TTML at download time.
+    /// - **`synced_lyrics_format: Ttml`** -- TTML preserves Apple Music's
+    ///   word-level timing data for Enhanced LRC conversion. For music
+    ///   videos, the download manager also uses TTML.
     /// - **`output_path: ""`** -- An empty string signals the app to use
     ///   the platform's default Music directory at runtime (resolved by
     ///   `dirs::audio_dir()` or equivalent).
@@ -655,15 +679,19 @@ impl Default for AppSettings {
             // Enabled by default: embed lyrics in audio metadata AND keep
             // sidecar files for maximum player compatibility.
             embed_lyrics_and_sidecar: true,
-            // LRC is the most widely supported format for music players.
-            synced_lyrics_format: LyricsFormat::Lrc,
+            // TTML is the primary format because it preserves Apple Music's
+            // word-level timing data for Enhanced LRC conversion.
+            synced_lyrics_format: LyricsFormat::Ttml,
             // Download lyrics by default (they are small and useful).
             no_synced_lyrics: false,
             // Download audio + lyrics, not lyrics-only.
             synced_lyrics_only: false,
-            // No companion lyrics formats by default (single-format behavior).
-            // Users can enable additional formats in Settings > Lyrics.
-            companion_lyrics_formats: vec![],
+            // SRT as companion format for video player subtitle compatibility.
+            companion_lyrics_formats: vec![LyricsFormat::Srt],
+            // Enabled by default: converts TTML to Enhanced LRC with
+            // word-by-word synchronised timestamps. Falls back to
+            // line-level LRC for songs without word-level timing.
+            enhanced_lrc: true,
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.
@@ -924,6 +952,7 @@ mod tests {
         assert_eq!(deserialized.no_synced_lyrics, settings.no_synced_lyrics);
         assert_eq!(deserialized.synced_lyrics_only, settings.synced_lyrics_only);
         assert_eq!(deserialized.companion_lyrics_formats, settings.companion_lyrics_formats);
+        assert_eq!(deserialized.enhanced_lrc, settings.enhanced_lrc);
 
         // Cover art
         assert_eq!(deserialized.save_cover, settings.save_cover);
@@ -1023,22 +1052,66 @@ mod tests {
     // companion_lyrics_formats -- backward compatibility
     // ----------------------------------------------------------
 
-    /// Verifies that companion_lyrics_formats defaults to an empty vec,
-    /// preserving single-format behavior for existing users.
+    /// Verifies that companion_lyrics_formats defaults to `[Srt]`.
     #[test]
-    fn default_companion_lyrics_formats_is_empty() {
+    fn default_companion_lyrics_formats_contains_srt() {
         let settings = AppSettings::default();
-        assert!(settings.companion_lyrics_formats.is_empty());
+        assert_eq!(settings.companion_lyrics_formats.len(), 1);
+        assert_eq!(settings.companion_lyrics_formats[0], LyricsFormat::Srt);
     }
 
     /// Verifies that JSON without companion_lyrics_formats deserializes
     /// successfully with the field defaulting to an empty vec. This
-    /// ensures backward compatibility with existing settings.json files.
+    /// ensures backward compatibility with existing settings.json files
+    /// that predate the companion lyrics feature.
     #[test]
     fn companion_lyrics_formats_missing_from_json_defaults_to_empty() {
         let json = r#"{"synced_lyrics_format": "lrc"}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
         assert!(settings.companion_lyrics_formats.is_empty());
+    }
+
+    // ----------------------------------------------------------
+    // enhanced_lrc -- Enhanced LRC word-by-word sync
+    // ----------------------------------------------------------
+
+    /// Verifies that enhanced_lrc defaults to true (enabled by default
+    /// for new installations).
+    #[test]
+    fn default_enhanced_lrc_is_true() {
+        let settings = AppSettings::default();
+        assert!(settings.enhanced_lrc);
+    }
+
+    /// Verifies that JSON without the enhanced_lrc field deserializes
+    /// with enhanced_lrc defaulting to true. This ensures users upgrading
+    /// from v0.3.x automatically get Enhanced LRC enabled.
+    #[test]
+    fn enhanced_lrc_missing_from_json_defaults_to_true() {
+        let json = r#"{"synced_lyrics_format": "lrc"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert!(settings.enhanced_lrc);
+    }
+
+    /// Verifies that enhanced_lrc can be explicitly set to false and
+    /// round-trips correctly through serde.
+    #[test]
+    fn enhanced_lrc_false_roundtrip() {
+        let settings = AppSettings {
+            enhanced_lrc: false,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+        assert!(!deserialized.enhanced_lrc);
+    }
+
+    /// Verifies that the default synced_lyrics_format is Ttml (for
+    /// Enhanced LRC conversion with word-level timing preservation).
+    #[test]
+    fn default_synced_lyrics_format_is_ttml() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.synced_lyrics_format, LyricsFormat::Ttml);
     }
 
     /// Verifies that companion_lyrics_formats round-trips through serde

@@ -114,6 +114,16 @@ export function LyricsTab() {
         </h3>
 
         <div className="space-y-4">
+          {/* Enhanced LRC (word-by-word sync) */}
+          <Toggle
+            label="Enhanced Lyrics (Word-by-Word Sync)"
+            description="Automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-by-word synchronized timestamps. Creates a .lrc sidecar file and embeds in audio metadata. Falls back to line-level sync for songs without word-level data."
+            checked={settings.enhanced_lrc}
+            onChange={(checked) =>
+              updateSettings({ enhanced_lrc: checked })
+            }
+          />
+
           {/* Embed lyrics + keep sidecar */}
           <Toggle
             label="Embed Lyrics and Keep Sidecar"
@@ -125,14 +135,14 @@ export function LyricsTab() {
           />
 
           {/* Synced lyrics format checkboxes */}
-          <div className={formatsDisabled ? 'opacity-50' : ''}>
+          <div className={formatsDisabled || settings.enhanced_lrc ? 'opacity-50' : ''}>
             <span className="text-sm font-medium text-content-primary">
               Synced Lyrics Formats
             </span>
             <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
-              Select one or more formats. The first format is used with the
-              primary download; additional formats are downloaded as lightweight
-              companion passes.
+              {settings.enhanced_lrc
+                ? 'TTML is automatically used as the primary format when Enhanced Lyrics is enabled.'
+                : 'Select one or more formats. The first format is used with the primary download; additional formats are downloaded as lightweight companion passes.'}
             </span>
             <div className="space-y-2">
               {LYRICS_FORMAT_OPTIONS.map(({ value, label }) => {
@@ -144,12 +154,12 @@ export function LyricsTab() {
                 return (
                   <label
                     key={value}
-                    className={`flex items-center gap-2.5 ${formatsDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                    className={`flex items-center gap-2.5 ${formatsDisabled || settings.enhanced_lrc ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <input
                       type="checkbox"
                       checked={isChecked}
-                      disabled={formatsDisabled}
+                      disabled={formatsDisabled || settings.enhanced_lrc}
                       onChange={(e) =>
                         handleFormatToggle(value, e.target.checked)
                       }
