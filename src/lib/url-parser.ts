@@ -19,7 +19,8 @@
  *   └────────────────────────────────────────────────── Base domain
  * ```
  *
- * Also accepts the legacy `itunes.apple.com` domain (auto-redirects to music.apple.com).
+ * Also accepts `classical.apple.com` (Apple Music Classical) and the legacy
+ * `itunes.apple.com` domain (auto-redirects to music.apple.com).
  *
  * This parser is purely frontend logic (no IPC calls to Rust). It uses the
  * built-in `URL` Web API for reliable URL parsing instead of regex-based
@@ -62,6 +63,9 @@ import type { AppleMusicContentType, ParsedUrl } from '@/types';
  *
  * const song = parseAppleMusicUrl('https://music.apple.com/us/album/love-story/1440935016?i=1440935018');
  * // song = { url: '...', contentType: 'song', isValid: true }
+ *
+ * const classical = parseAppleMusicUrl('https://classical.apple.com/us/album/beethoven-symphony-no-9/1234567890');
+ * // classical = { url: '...', contentType: 'album', isValid: true }
  * ```
  */
 export function parseAppleMusicUrl(url: string): ParsedUrl {
@@ -94,6 +98,7 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
  *
  * Accepted domains:
  * - `music.apple.com` - Current Apple Music web player domain
+ * - `classical.apple.com` - Apple Music Classical domain
  * - `itunes.apple.com` - Legacy iTunes Store domain (still used in some links)
  *
  * @param url - The URL string to validate
@@ -108,6 +113,7 @@ export function isAppleMusicUrl(url: string): boolean {
     /* Check hostname against both the current and legacy Apple Music domains */
     return (
       parsed.hostname === 'music.apple.com' ||
+      parsed.hostname === 'classical.apple.com' ||
       parsed.hostname === 'itunes.apple.com'
     );
   } catch {

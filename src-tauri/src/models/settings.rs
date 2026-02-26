@@ -34,7 +34,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::gamdl_options::{
-    CoverFormat, DownloadMode, LyricsFormat, RemuxMode, SongCodec, VideoResolution,
+    ArtistAutoSelect, CoverFormat, DownloadMode, LyricsFormat, RemuxMode, SongCodec,
+    VideoResolution,
 };
 
 /// Companion download mode configuration.
@@ -504,6 +505,16 @@ pub struct AppSettings {
     pub exclude_tags: Vec<String>,
 
     // ================================================================
+    // Artist
+    // ================================================================
+
+    /// Default artist auto-selection mode when downloading from artist URLs.
+    /// Controls which content type is automatically downloaded. New in GAMDL 2.9.1.
+    /// Default: `None` (omit the flag, let GAMDL use its own default behavior).
+    #[serde(default)]
+    pub artist_auto_select: Option<ArtistAutoSelect>,
+
+    // ================================================================
     // Application State
     // ================================================================
 
@@ -723,6 +734,11 @@ impl Default for AppSettings {
             fetch_extra_tags: true,
             // No tags excluded by default -- embed all available metadata.
             exclude_tags: Vec::new(),
+
+            // --- Artist ---
+            // No auto-selection by default: omit the flag so GAMDL uses its
+            // own default behavior when the user provides an artist URL.
+            artist_auto_select: None,
 
             // --- Application state ---
             // Setup wizard has not been completed yet on a fresh install.

@@ -120,11 +120,15 @@ pub struct TrackMetadata {
 
 /// Parse an Apple Music URL to extract the storefront, content type, and IDs.
 ///
-/// Supports these URL patterns:
+/// Supports these URL patterns (both `music.apple.com` and `classical.apple.com`):
 /// - `https://music.apple.com/us/album/album-name/1234567890`
+/// - `https://classical.apple.com/us/album/beethoven-symphony/1234567890`
 /// - `https://music.apple.com/us/album/album-name/1234567890?i=9876543210`
 /// - `https://music.apple.com/us/song/song-name/9876543210`
 /// - `https://music.apple.com/us/music-video/video-name/1234567890`
+///
+/// Apple Music Classical URLs (`classical.apple.com`) share the same path
+/// structure as standard Apple Music URLs and are treated identically.
 ///
 /// For album URLs with `?i=` query parameter, both the album ID and the
 /// individual song ID are extracted.
@@ -139,8 +143,9 @@ pub struct TrackMetadata {
 #[must_use]
 pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // Match album URLs: /storefront/album/slug/album_id with optional ?i=song_id
+    // Accepts both music.apple.com and classical.apple.com domains
     let album_re = Regex::new(
-        r"https?://music\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?"
+        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?"
     ).expect("Invalid regex");
 
     if let Some(caps) = album_re.captures(url) {
@@ -153,8 +158,9 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     }
 
     // Match song URLs: /storefront/song/slug/song_id
+    // Accepts both music.apple.com and classical.apple.com domains
     let song_re = Regex::new(
-        r"https?://music\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)"
+        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)"
     ).expect("Invalid regex");
 
     if let Some(caps) = song_re.captures(url) {
@@ -167,8 +173,9 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     }
 
     // Match music-video URLs: /storefront/music-video/slug/video_id
+    // Accepts both music.apple.com and classical.apple.com domains
     let mv_re = Regex::new(
-        r"https?://music\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)"
+        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)"
     ).expect("Invalid regex");
 
     if let Some(caps) = mv_re.captures(url) {
@@ -582,6 +589,30 @@ mod tests {
     fn parse_empty_string_returns_none() {
         let result = parse_apple_music_url("");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_classical_album_url() {
+        let url = "https://classical.apple.com/us/album/beethoven-symphony-no-9/1234567890";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.content_type, "album");
+        assert_eq!(parsed.album_id, "1234567890");
+        assert!(parsed.song_id.is_none());
+    }
+
+    #[test]
+    fn parse_classical_album_url_with_track() {
+        let url = "https://classical.apple.com/gb/album/beethoven-symphony/1234567890?i=9876543210";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "gb");
+        assert_eq!(parsed.content_type, "album");
+        assert_eq!(parsed.album_id, "1234567890");
+        assert_eq!(parsed.song_id.unwrap(), "9876543210");
     }
 
     // ----------------------------------------------------------

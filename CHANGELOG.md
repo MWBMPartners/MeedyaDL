@@ -10,6 +10,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Add platform asset validation for GitHub releases
 - Refactor UpdateBanner integration in MainLayout and App components
+- Add native codec priority support for GAMDL >= 2.9.1 (`--song-codec-priority`)
+
+  MeedyaDL now detects the installed GAMDL version at runtime. When >= 2.9.1,
+  it uses GAMDL's native `--song-codec-priority alac,aac,...` flag to try
+  multiple codecs in a single process invocation. For older GAMDL versions,
+  MeedyaDL falls back to its own `try_fallback` retry system. The config.ini
+  dual-key strategy writes both `song_codec` (< 2.9.1) and
+  `song_codec_priority` (>= 2.9.1) for compatibility.
+
+- Add `artist_auto_select` GAMDL option with 7 selection variants
+
+  New setting for artist URL downloads: main-albums, compilation-albums,
+  live-albums, singles-eps, all-albums, top-songs, music-videos. Passed as
+  `--artist-auto-select` CLI argument to GAMDL.
+
+- Add Apple Music Classical URL support (`classical.apple.com`)
+
+  Both the frontend URL parser and backend regex patterns now accept
+  `classical.apple.com` URLs alongside the existing `music.apple.com`
+  and `itunes.apple.com` domains.
 
 ### 🐛 Bug Fixes
 
