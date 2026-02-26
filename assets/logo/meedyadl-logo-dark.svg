@@ -7,7 +7,7 @@
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 560" role="img" aria-labelledby="title desc">
   <title id="title">MeedyaDL logo dark</title>
-  <desc id="desc">A rounded-square media mark combining a clapperboard, download arrow, and music note followed by the MeedyaDL wordmark.</desc>
+  <desc id="desc">A rounded-square media mark combining an open clapperboard, download arrow, and music note followed by the MeedyaDL wordmark.</desc>
 
   <defs>
     <linearGradient id="bg" x1="60" y1="40" x2="452" y2="472" gradientUnits="userSpaceOnUse">
@@ -28,23 +28,25 @@
     <rect x="24" y="24" width="464" height="464" rx="106" fill="url(#shine)"/>
     <rect x="70" y="70" width="372" height="372" rx="84" fill="none" stroke="#C8E5FF" stroke-opacity="0.24" stroke-width="8"/>
 
-    <rect x="146" y="144" width="220" height="58" rx="16" fill="#061B37" fill-opacity="0.92"/>
-    <line x1="168" y1="154" x2="188" y2="192" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
-    <line x1="206" y1="154" x2="226" y2="192" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
-    <line x1="244" y1="154" x2="264" y2="192" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
-    <line x1="282" y1="154" x2="302" y2="192" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
+    <g transform="rotate(-12 256 166)">
+      <rect x="140" y="132" width="232" height="54" rx="15" fill="#061B37" fill-opacity="0.92"/>
+      <line x1="162" y1="140" x2="184" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
+      <line x1="206" y1="140" x2="228" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
+      <line x1="250" y1="140" x2="272" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
+      <line x1="294" y1="140" x2="316" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
+    </g>
 
-    <rect x="154" y="198" width="204" height="162" rx="24" fill="#061B37" fill-opacity="0.90"/>
-    <path d="M256 228V292" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"/>
+    <rect x="154" y="210" width="204" height="150" rx="24" fill="#061B37" fill-opacity="0.90"/>
+    <path d="M256 236V292" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"/>
     <path d="M224 270L256 302L288 270" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M214 322V338C214 347.941 222.059 356 232 356H280C289.941 356 298 347.941 298 338V322" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+    <path d="M214 322V336C214 346.493 222.507 355 233 355H279C289.493 355 298 346.493 298 336V322" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
 
-    <circle cx="352" cy="350" r="42" fill="#0C66D9" stroke="#9BD2FF" stroke-width="4"/>
-    <circle cx="338" cy="368" r="10" fill="#FFFFFF"/>
-    <circle cx="364" cy="360" r="10" fill="#FFFFFF"/>
-    <rect x="349" y="328" width="8" height="38" rx="4" fill="#FFFFFF"/>
-    <rect x="375" y="320" width="8" height="34" rx="4" fill="#FFFFFF"/>
-    <path d="M353 330L379 322V336L353 344V330Z" fill="#FFFFFF"/>
+    <circle cx="352" cy="352" r="40" fill="#0C66D9" stroke="#9BD2FF" stroke-width="4"/>
+    <circle cx="349" cy="366" r="9" fill="#FFFFFF"/>
+    <circle cx="371" cy="356" r="9" fill="#FFFFFF"/>
+    <rect x="345" y="320" width="8" height="42" rx="4" fill="#FFFFFF"/>
+    <rect x="367" y="312" width="8" height="38" rx="4" fill="#FFFFFF"/>
+    <path d="M349 322L371 314V326L349 334V322Z" fill="#FFFFFF"/>
   </g>
 
   <g font-family="Avenir Next, Montserrat, Poppins, Segoe UI, Arial, sans-serif">
