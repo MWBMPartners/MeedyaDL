@@ -1641,6 +1641,19 @@ pub fn process_queue(
         .as_ref()
         .map_or_else(String::new, |c| c.to_cli_string().to_string());
 
+    // Capture wrapper URL for logging inside the tokio::spawn block.
+    // download_options will be moved into the spawn, so extract this before.
+    let wrapper_url_for_logging = if download_options.use_wrapper == Some(true) {
+        download_options.wrapper_account_url.clone()
+    } else {
+        None
+    };
+
+    // Log wrapper URL at download start for troubleshooting connectivity
+    if let Some(ref url) = wrapper_url_for_logging {
+        log::info!("Download {download_id} using wrapper at {url}");
+    }
+
     // Spawn the download in a separate tokio task so it runs independently.
     // This allows process_queue() to return immediately while the download runs.
     let app_clone = app.clone();
@@ -2091,6 +2104,16 @@ pub fn process_queue(
                 // process::classify_error() returns "codec", "network", or "unknown".
                 let error_category = process::classify_error(&error_msg);
                 log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
+
+                // Add wrapper-specific context for network errors to aid troubleshooting
+                if error_category == "network" {
+                    if let Some(ref url) = wrapper_url_for_logging {
+                        log::error!(
+                            "Wrapper URL was: {url} -- check that the wrapper \
+                             service is running and reachable"
+                        );
+                    }
+                }
 
                 // Determine if we should retry or fallback based on error category
                 let should_retry = match error_category {
