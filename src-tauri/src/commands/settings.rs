@@ -21,12 +21,13 @@
 //
 // ## Frontend Mapping (src/lib/tauri-commands.ts)
 //
-// | Rust Command            | TypeScript Function        | Line |
-// |-------------------------|----------------------------|------|
-// | get_settings            | getSettings()              | ~75  |
-// | save_settings           | saveSettings(settings)     | ~80  |
-// | validate_cookies_file   | validateCookiesFile(path)  | ~85  |
-// | get_default_output_path | getDefaultOutputPath()     | ~90  |
+// | Rust Command              | TypeScript Function            | Line |
+// |---------------------------|--------------------------------|------|
+// | get_settings              | getSettings()                  | ~75  |
+// | save_settings             | saveSettings(settings)         | ~80  |
+// | validate_cookies_file     | validateCookiesFile(path)      | ~85  |
+// | get_default_output_path   | getDefaultOutputPath()         | ~90  |
+// | test_wrapper_connection   | testWrapperConnection(url)     | ~95  |
 //
 // ## References
 //
@@ -280,4 +281,90 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
 #[tauri::command]
 pub fn get_default_output_path() -> Result<String, String> {
     config_service::get_default_output_path()
+}
+
+/// Result of testing connectivity to the wrapper service.
+///
+/// Returned by `test_wrapper_connection()`. The command always returns
+/// `Ok(WrapperTestResult)` for both reachable and unreachable hosts —
+/// it only returns `Err` for invalid URL format or client build failure.
+///
+/// Any HTTP response (even 404/500) counts as "reachable" since we are
+/// testing network connectivity, not endpoint correctness.
+#[derive(Debug, Clone, Serialize)]
+pub struct WrapperTestResult {
+    /// Whether the wrapper service responded at all
+    pub reachable: bool,
+    /// HTTP status code if a response was received
+    pub status_code: Option<u16>,
+    /// Round-trip time in milliseconds
+    pub response_time_ms: Option<u64>,
+    /// Human-readable error message if connection failed
+    pub error: Option<String>,
+}
+
+/// Tests connectivity to the configured wrapper service URL.
+///
+/// **Frontend caller:** `testWrapperConnection(url)` in `src/lib/tauri-commands.ts`
+///
+/// Makes an HTTP GET request to the provided wrapper URL with a short
+/// timeout (5 seconds). Returns a structured result indicating whether the
+/// connection succeeded, the HTTP status code (if any), and the response
+/// time in milliseconds.
+///
+/// This does NOT validate that the wrapper is functioning correctly for
+/// authentication — it only verifies network reachability and that
+/// something is listening on the specified address/port.
+///
+/// # Arguments
+/// * `url` - The wrapper account URL to test (e.g., `"http://192.168.3.179:30020"`)
+///
+/// # Returns
+/// * `Ok(WrapperTestResult)` - Connection test completed (may indicate failure via `reachable: false`)
+/// * `Err(String)` - Invalid URL or unexpected error
+#[tauri::command]
+pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, String> {
+    // Basic URL validation before attempting the request
+    let parsed =
+        url::Url::parse(&url).map_err(|e| format!("Invalid URL: {e}"))?;
+
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("URL must use http:// or https:// scheme".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let start = std::time::Instant::now();
+    match client.get(&url).send().await {
+        Ok(response) => {
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            Ok(WrapperTestResult {
+                reachable: true,
+                status_code: Some(response.status().as_u16()),
+                response_time_ms: Some(elapsed_ms),
+                error: None,
+            })
+        }
+        Err(e) => {
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            let error_msg = if e.is_timeout() {
+                "Connection timed out (5s)".to_string()
+            } else if e.is_connect() {
+                format!(
+                    "Connection refused — is the wrapper running at {url}?"
+                )
+            } else {
+                format!("{e}")
+            };
+            Ok(WrapperTestResult {
+                reachable: false,
+                status_code: None,
+                response_time_ms: Some(elapsed_ms),
+                error: Some(error_msg),
+            })
+        }
+    }
 }

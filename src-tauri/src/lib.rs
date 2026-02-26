@@ -405,6 +405,7 @@ pub fn run() {
             commands::settings::save_settings,
             commands::settings::validate_cookies_file,
             commands::settings::get_default_output_path,
+            commands::settings::test_wrapper_connection,
             // GAMDL download and queue management commands
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
@@ -417,6 +418,8 @@ pub fn run() {
             commands::gamdl::import_queue,
             // Manual queue processing trigger
             commands::gamdl::process_queue_manual,
+            // Activity log export
+            commands::gamdl::export_activity_log,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,

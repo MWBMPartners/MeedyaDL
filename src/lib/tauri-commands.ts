@@ -456,6 +456,49 @@ export function processQueue(): Promise<void> {
   return invoke<void>('process_queue_manual');
 }
 
+/**
+ * Exports activity log entries to a `.txt` file via a native save dialog.
+ *
+ * Rust handler: `export_activity_log()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * Called by: ActivityLog component's Export button
+ *
+ * @param entries - Array of ActivityLogEntry objects from the activity store
+ * @returns Promise resolving to the count of exported entries
+ */
+export function exportActivityLog(
+  entries: import('@/types').ActivityLogEntry[],
+): Promise<number> {
+  return invoke<number>('export_activity_log', { entries });
+}
+
+// ============================================================
+// Settings Utility Commands
+// ============================================================
+
+/**
+ * Tests connectivity to the wrapper service at the given URL.
+ *
+ * Rust handler: `test_wrapper_connection()` in `src-tauri/src/commands/settings.rs`
+ *
+ * Makes an HTTP GET request with a 5-second timeout. Any HTTP response
+ * (even 404) counts as "reachable" — we test network connectivity, not
+ * endpoint correctness.
+ *
+ * Called by: AdvancedTab "Test Connection" button
+ *
+ * @param url - The wrapper account URL to test
+ * @returns Promise resolving to the test result
+ */
+export function testWrapperConnection(
+  url: string,
+): Promise<import('@/types').WrapperTestResult> {
+  return invoke<import('@/types').WrapperTestResult>(
+    'test_wrapper_connection',
+    { url },
+  );
+}
+
 // ============================================================
 // Credential Commands
 // ============================================================

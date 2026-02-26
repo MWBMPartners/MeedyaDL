@@ -847,6 +847,23 @@ export interface ActivityLogEntry {
   timestamp: string;
 }
 
+/**
+ * Result of testing connectivity to the wrapper service.
+ * Returned by the `test_wrapper_connection` Tauri command.
+ *
+ * @see AdvancedTab "Test Connection" button
+ */
+export interface WrapperTestResult {
+  /** Whether the wrapper service responded at all */
+  reachable: boolean;
+  /** HTTP status code if a response was received */
+  status_code: number | null;
+  /** Round-trip time in milliseconds */
+  response_time_ms: number | null;
+  /** Human-readable error message if connection failed */
+  error: string | null;
+}
+
 // ============================================================
 // URL Parser Types
 // ============================================================

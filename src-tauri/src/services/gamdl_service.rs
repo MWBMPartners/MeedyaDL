@@ -429,7 +429,7 @@ fn build_gamdl_command(
         cmd.arg(config_path);
     }
 
-    log::debug!("GAMDL command: python -m gamdl {urls:?} {cli_args:?}");
+    log::info!("GAMDL command: python -m gamdl {urls:?} {cli_args:?}");
 
     Ok(cmd)
 }
