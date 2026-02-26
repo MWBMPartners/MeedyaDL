@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Enhance queue persistence to include failed downloads for manual retry
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.31] - 2026-02-26
+
+### ✨ Features
+
 - Enhance persistence of download queue items to include failed states
 
 ### 🐛 Bug Fixes
