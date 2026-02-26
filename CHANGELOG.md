@@ -8,6 +8,18 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(download)** Implement partial-success recovery for codec errors
+- **(download)** Implement companion and lyrics downloads as background tasks
+- **(activity-log)** Implement export functionality and wrapper connection test
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.32] - 2026-02-26
+
+### ✨ Features
+
 - Enhance queue persistence to include failed downloads for manual retry
 
 ### 📚 Documentation
