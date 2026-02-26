@@ -435,7 +435,8 @@ MeedyaDL/
 │       │   ├── apple_music_api.rs   # Shared MusicKit JWT, URL parsing, API
 │       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
 │       │   ├── acoustid_service.rs  # AcousticID fingerprinting (opt-in)
-│       │   └── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
+│       │   ├── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
+│       │   └── enhanced_lyrics_service.rs # TTML → Enhanced LRC conversion
 │       └── utils/              #    Utility modules
 │           ├── platform.rs     #    OS detection & paths
 │           ├── archive.rs      #    ZIP/tar extraction
@@ -444,7 +445,7 @@ MeedyaDL/
 │   ├── en/translation.json     #    English (default/fallback)
 │   ├── de/translation.json     #    German (stub)
 │   └── fr/translation.json     #    French (stub)
-├── help/                       # Markdown help documentation (11 topics)
+├── help/                       # Markdown help documentation (12 topics)
 ├── assets/screenshots/         # App screenshots for README
 ├── .github/workflows/          # CI/CD
 │   ├── ci.yml                  #    Test & lint on push/PR

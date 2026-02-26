@@ -33,6 +33,7 @@
 //   +-- metadata_tag_service.rs  -- Post-download metadata enrichment (codec + API tags)
 //   +-- acoustid_service.rs      -- AcousticID fingerprinting via embedded Chromaprint (opt-in)
 //   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
+//   +-- enhanced_lyrics_service  -- TTML → Enhanced LRC with word-by-word timestamps
 //
 // Thread safety:
 //   Services that access shared state (like the download queue) use
@@ -162,3 +163,18 @@ pub mod acoustid_service;
 ///
 /// Used by: `download_queue` (post-download enrichment, when `replaygain_enabled`)
 pub mod replaygain_service;
+
+/// Enhanced LRC lyrics conversion service.
+///
+/// Post-processes Apple Music TTML lyrics files to produce Enhanced LRC
+/// with word-by-word synchronized timestamps. Parses TTML XML using
+/// `roxmltree`, extracts `<span>` word timing from `itunes:timing="Word"`
+/// documents, and generates backward-compatible Enhanced LRC format with
+/// inline `<mm:ss.xx>` word timestamps.
+///
+/// Also embeds the resulting Enhanced LRC in M4A/M4V audio metadata via
+/// the `©lyr` atom. Songs without word-level timing in their TTML
+/// gracefully fall back to standard line-level LRC.
+///
+/// Used by: `download_queue` (post-download enrichment, when `enhanced_lrc` enabled)
+pub mod enhanced_lyrics_service;

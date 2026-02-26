@@ -2764,7 +2764,7 @@ checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
 
 [[package]]
 name = "meedyadl"
-version = "0.3.33"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2780,6 +2780,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "rookie",
+ "roxmltree",
  "rusty-chromaprint",
  "serde",
  "serde_json",
@@ -4328,6 +4329,12 @@ dependencies = [
  "zbus",
  "zvariant",
 ]
+
+[[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rubato"

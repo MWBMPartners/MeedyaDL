@@ -444,6 +444,8 @@ export interface AppSettings {
   synced_lyrics_only: boolean;
   /** Additional lyrics formats to download as companions after the primary download */
   companion_lyrics_formats: LyricsFormat[];
+  /** When true, TTML lyrics are converted to Enhanced LRC with word-by-word sync */
+  enhanced_lrc: boolean;
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */

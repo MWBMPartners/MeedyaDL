@@ -574,7 +574,7 @@ mod tests {
     fn ini_contains_lyrics_format() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("synced_lyrics_format = lrc"));
+        assert!(ini.contains("synced_lyrics_format = ttml"));
     }
 
     #[test]

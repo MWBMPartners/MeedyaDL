@@ -91,7 +91,7 @@ use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // after merging per-download overrides with global settings.
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
-use crate::models::gamdl_options::{GamdlOptions, SongCodec};
+use crate::models::gamdl_options::{GamdlOptions, LyricsFormat, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
 use crate::models::settings::{AppSettings, CompanionMode};
@@ -988,6 +988,19 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
             }
         }
         // Force sidecar lyrics creation regardless of the no_synced_lyrics setting.
+        options.no_synced_lyrics = Some(false);
+    }
+
+    // === Layer 4: Enhanced LRC enforcement ===
+    // When Enhanced LRC is enabled, force TTML as the primary lyrics format
+    // so the raw word-level timing data is preserved in the sidecar file.
+    // GAMDL's TTML output retains the full XML including <span> word timestamps,
+    // which are then converted to Enhanced LRC in the enrichment pipeline.
+    // This runs after Layer 3 so it overrides the lyrics format regardless
+    // of what the user selected, ensuring TTML is always available for conversion.
+    if settings.enhanced_lrc {
+        options.synced_lyrics_format = Some(LyricsFormat::Ttml);
+        // Ensure sidecar creation (needed for TTML → Enhanced LRC conversion)
         options.no_synced_lyrics = Some(false);
     }
 
@@ -1914,9 +1927,10 @@ pub fn process_queue(
                 // background task:
                 //   1. Metadata enrichment (codec tags + source tags + channel
                 //      detection + API metadata)
-                //   2. Animated artwork download (reuses API data from step 1)
-                //   3. AcousticID fingerprinting (opt-in, requires fpcalc)
-                //   4. ReplayGain loudness analysis (opt-in, uses FFmpeg)
+                //   2. Enhanced LRC conversion (TTML → word-by-word LRC, opt-in)
+                //   3. Animated artwork download (reuses API data from step 1)
+                //   4. AcousticID fingerprinting (opt-in, requires fpcalc)
+                //   5. ReplayGain loudness analysis (opt-in, uses FFmpeg)
                 //
                 // The enrichment fetches Apple Music API data once and shares it
                 // with animated artwork, avoiding duplicate API calls.
@@ -1984,11 +1998,35 @@ pub fn process_queue(
                             None
                         };
 
-                        // --- Step 2: Animated artwork download ---
+                        // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
+                        // When enabled, converts TTML sidecar files to Enhanced LRC
+                        // with word-by-word timestamps. Saves a `.lrc` sidecar file
+                        // and embeds the Enhanced LRC in M4A/M4V metadata.
+                        // Falls back to standard line-level LRC for songs without
+                        // word-level timing in their TTML.
+                        let enrich_settings = load_settings_for_queue(&enrich_app);
+                        if enrich_settings.enhanced_lrc {
+                            match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
+                                &album_dir,
+                            ).await {
+                                Ok(count) if count > 0 => {
+                                    log::info!(
+                                        "Enhanced LRC generated for {count} file(s) for {enrich_dl_id}"
+                                    );
+                                }
+                                Ok(_) => {}
+                                Err(e) => {
+                                    log::debug!(
+                                        "Enhanced LRC conversion skipped for {enrich_dl_id}: {e}"
+                                    );
+                                }
+                            }
+                        }
+
+                        // --- Step 3: Animated artwork download ---
                         // Reuse the AlbumMetadata from enrichment to avoid a
                         // duplicate API call. Falls back to a fresh API call
                         // if enrichment didn't produce metadata.
-                        let enrich_settings = load_settings_for_queue(&enrich_app);
 
                         let artwork_result = if let Some(ref metadata) = album_metadata {
                             super::animated_artwork_service::process_album_artwork_from_metadata(
@@ -2041,7 +2079,7 @@ pub fn process_queue(
                             }
                         }
 
-                        // --- Step 3: AcousticID fingerprinting (opt-in) ---
+                        // --- Step 4: AcousticID fingerprinting (opt-in) ---
                         // When enabled, generates Chromaprint fingerprints using the
                         // embedded rusty-chromaprint library and looks up AcousticID
                         // identifiers from acoustid.org.
@@ -2063,7 +2101,7 @@ pub fn process_queue(
                             }
                         }
 
-                        // --- Step 4: ReplayGain loudness analysis (opt-in) ---
+                        // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                         // When enabled, analyses each file's loudness via FFmpeg's
                         // ebur128 filter and writes non-destructive ReplayGain tags.
                         if enrich_settings.replaygain_enabled {

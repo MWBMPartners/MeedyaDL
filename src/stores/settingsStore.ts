@@ -93,10 +93,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   ],
   companion_mode: 'atmos_to_lossless', // Atmos → also download ALAC companion (default)
   embed_lyrics_and_sidecar: true,  // Embed lyrics in metadata AND keep sidecar files
-  synced_lyrics_format: 'lrc',   // Default lyrics format (LRC is most widely supported)
+  enhanced_lrc: true,            // Convert TTML to Enhanced LRC with word-by-word sync
+  synced_lyrics_format: 'ttml',  // Default lyrics format (TTML preserves word-level timing)
   no_synced_lyrics: false,       // Do download synced lyrics
   synced_lyrics_only: false,     // Also download plain-text lyrics
-  companion_lyrics_formats: [],  // No companion lyrics formats by default (single-format)
+  companion_lyrics_formats: ['srt'],  // SRT as companion format
   save_cover: true,              // Save album artwork alongside audio files
   cover_format: 'jpg',           // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
   cover_size: 10000,             // Request maximum available artwork resolution from Apple CDN
