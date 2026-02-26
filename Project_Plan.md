@@ -246,7 +246,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Metadata enrichment** - Comprehensive post-download enrichment: codec tags, source/channel tags, Apple Music API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs). Shared `apple_music_api.rs` module for MusicKit JWT, URL parsing, and catalog API.
 - ✅ **AcousticID fingerprinting** (opt-in) - Chromaprint audio fingerprints via embedded rusty-chromaprint library + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags. No external binary required.
 - ✅ **ReplayGain loudness analysis** (opt-in) - FFmpeg EBU R128 filter for non-destructive volume normalisation tags (`replaygain_track_gain`, `replaygain_track_peak`)
-- ✅ **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup
+- ✅ **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup. Failed downloads persist across restarts with error messages for manual retry
 - ✅ **Queue export/import** - `.meedyadl` file format with native save/open dialogs for cross-device transfer
 - ✅ **Manual workflow dispatch** - `workflow_dispatch` on CI, Changelog, Release Please, Release for conserving Actions minutes
 - ✅ **Release-please branch fix** - Corrected branch naming to `release-please--branches--main--components--meedyadl`
