@@ -34,6 +34,8 @@
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
 
 ### 📝 Metadata & Extras
+
+- **Enhanced LRC with word-by-word sync** — automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-level synchronized timestamps for karaoke-style highlighting in compatible players (foobar2000, Poweramp, AIMP). Falls back to standard line-level LRC for songs without word-level data.
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
@@ -57,7 +59,7 @@
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
 - **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
 - **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
-- **Built-in help documentation** — 11 topics with search, accessible in-app
+- **Built-in help documentation** — 12 topics with search, accessible in-app
 - **System tray support** for background operation
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 
@@ -264,10 +266,11 @@ refactor(backend): simplify dependency management
 - ✅ Animated cover art via MusicKit API with OS-level file hiding
 - ✅ Configurable companion downloads (4 modes)
 - ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcousticID, ReplayGain)
+- ✅ Enhanced LRC with word-by-word synchronized lyrics (TTML → Enhanced LRC conversion)
 - ✅ Lyrics embed + sidecar (LRC, SRT, TTML)
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
-- ✅ In-app help viewer with 11 topics and search
+- ✅ In-app help viewer with 12 topics and search
 - ✅ i18n infrastructure (i18next, OS language detection, English)
 
 ### v2.x — Multi-Service Expansion
