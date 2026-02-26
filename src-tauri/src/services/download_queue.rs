@@ -154,8 +154,10 @@ struct QueueItem {
 
 /// Persistable snapshot of a queue item, saved to `queue.json` for crash recovery.
 ///
-/// Only items in non-terminal states (Queued/Downloading/Processing) are persisted;
-/// terminal states (Complete, Error, Cancelled) are discarded on restart.
+/// Items in active states (Queued/Downloading/Processing) and failed items (Error)
+/// are persisted; only Complete and Cancelled items are discarded on restart.
+/// Failed items are restored in their Error state so the user can review and
+/// manually retry them — they are not auto-retried.
 ///
 /// The original `DownloadRequest` is preserved so that on restore, options are
 /// re-merged with the current device's settings (rather than using stale merged
@@ -168,6 +170,10 @@ pub struct PersistedQueueItem {
     pub request: DownloadRequest,
     /// ISO 8601 timestamp of when the download was originally queued.
     pub created_at: String,
+    /// Error message for failed items (`None` for active/queued items).
+    /// Preserved so the failure reason is visible after app restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Top-level schema for a `.meedyadl` export file (JSON content inside).
@@ -698,17 +704,22 @@ impl DownloadQueue {
         self.items
             .iter()
             .filter(|item| {
+                // Persist active items AND failed items. Only Complete and
+                // Cancelled are discarded — errored items stay so the user
+                // can retry them after restarting the app.
                 matches!(
                     item.status.state,
                     DownloadState::Queued
                         | DownloadState::Downloading
                         | DownloadState::Processing
+                        | DownloadState::Error
                 )
             })
             .map(|item| PersistedQueueItem {
                 id: item.status.id.clone(),
                 request: item.request.clone(),
                 created_at: item.status.created_at.clone(),
+                error: item.status.error.clone(),
             })
             .collect()
     }
@@ -716,11 +727,13 @@ impl DownloadQueue {
     /// Restores items from persisted data, re-merging with current settings.
     ///
     /// Called during startup to recover the queue after a crash or app close.
-    /// All restored items are set to the Queued state regardless of their
-    /// previous state (a Downloading item that was interrupted should be
-    /// re-downloaded from scratch). Options are re-merged with the current
-    /// device's settings so any changes made since the last session are
-    /// picked up.
+    /// Active items (Queued/Downloading/Processing) are reset to Queued so
+    /// they re-download from scratch. Failed items (those with a persisted
+    /// error message) are restored in Error state so the user can review the
+    /// failure reason and manually retry — they are not auto-retried.
+    ///
+    /// Options are re-merged with the current device's settings so any
+    /// changes made since the last session are respected.
     ///
     /// # Arguments
     /// * `persisted` - The items loaded from `queue.json`
@@ -734,18 +747,28 @@ impl DownloadQueue {
             // Re-merge the original request's overrides with the current settings.
             // This ensures setting changes made between sessions are respected.
             let merged_options = merge_options(p.request.options.as_ref(), settings);
+
+            // Items with a persisted error are restored in Error state so the
+            // user sees the failure reason and can choose to retry. Active
+            // items are reset to Queued for automatic re-processing.
+            let (state, error) = if p.error.is_some() {
+                (DownloadState::Error, p.error)
+            } else {
+                (DownloadState::Queued, None)
+            };
+
             let item = QueueItem {
                 status: QueueItemStatus {
                     id: p.id.clone(),
                     urls: p.request.urls.clone(),
-                    state: DownloadState::Queued,
+                    state,
                     progress: 0.0,
                     current_track: None,
                     total_tracks: None,
                     completed_tracks: None,
                     speed: None,
                     eta: None,
-                    error: None,
+                    error,
                     output_path: None,
                     codec_used: Some(
                         merged_options
