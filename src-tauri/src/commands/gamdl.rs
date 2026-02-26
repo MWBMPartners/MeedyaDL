@@ -22,14 +22,15 @@
 //
 // ## Frontend Mapping (src/lib/tauri-commands.ts)
 //
-// | Rust Command         | TypeScript Function    | Line |
-// |----------------------|------------------------|------|
-// | start_download       | startDownload()        | ~99  |
-// | cancel_download      | cancelDownload()       | ~104 |
-// | retry_download       | retryDownload()        | ~109 |
-// | clear_queue          | clearQueue()           | ~114 |
-// | get_queue_status     | getQueueStatus()       | ~119 |
-// | check_gamdl_update   | checkGamdlUpdate()     | ~124 |
+// | Rust Command          | TypeScript Function        | Line |
+// |-----------------------|----------------------------|------|
+// | start_download        | startDownload()            | ~99  |
+// | cancel_download       | cancelDownload()           | ~104 |
+// | retry_download        | retryDownload()            | ~109 |
+// | clear_queue           | clearQueue()               | ~114 |
+// | get_queue_status      | getQueueStatus()           | ~119 |
+// | check_gamdl_update    | checkGamdlUpdate()         | ~124 |
+// | export_activity_log   | exportActivityLog(entries)  |      |
 //
 // ## References
 //
@@ -560,4 +561,102 @@ pub async fn process_queue_manual(
     let queue_handle = queue.inner().clone();
     download_queue::process_queue(app, queue_handle).await;
     Ok(())
+}
+
+/// Entry payload for activity log export (received from frontend).
+///
+/// The activity log entries live in the frontend Zustand store
+/// (`activityStore.ts`) and are passed to this command for formatting
+/// and writing to a file.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ActivityLogExportEntry {
+    /// Unique download ID this log line belongs to
+    pub download_id: String,
+    /// Output stream: "stdout" or "stderr"
+    pub stream: String,
+    /// Raw line content from GAMDL subprocess
+    pub line: String,
+    /// ISO 8601 timestamp (UTC) when the line was emitted
+    pub timestamp: String,
+}
+
+/// Formats an ISO 8601 timestamp to a short HH:MM:SS string for the export file.
+fn format_timestamp_short(iso: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .map(|dt| dt.format("%H:%M:%S").to_string())
+        .unwrap_or_else(|_| iso.to_string())
+}
+
+/// Exports activity log entries to a `.txt` file via a native save dialog.
+///
+/// **Frontend caller:** `exportActivityLog(entries)` in `src/lib/tauri-commands.ts`
+///
+/// Activity log entries are maintained in the frontend Zustand store and
+/// passed to this command for formatting and writing. Each entry is
+/// formatted as: `[HH:MM:SS] [download_id_prefix] [stream] line_content`
+///
+/// # Arguments
+/// * `app` - The Tauri app handle (for dialog access)
+/// * `entries` - Vec of activity log entries from the frontend store
+///
+/// # Returns
+/// * `Ok(usize)` - Number of lines exported
+/// * `Err(String)` if the dialog is cancelled, serialization fails, or I/O fails
+#[tauri::command]
+pub async fn export_activity_log(
+    app: AppHandle,
+    entries: Vec<ActivityLogExportEntry>,
+) -> Result<usize, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    if entries.is_empty() {
+        return Err("No log entries to export".to_string());
+    }
+
+    let count = entries.len();
+
+    // Format entries as human-readable text lines
+    let mut lines = Vec::with_capacity(count + 3);
+    lines.push(format!(
+        "MeedyaDL Activity Log -- Exported {}",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    ));
+    lines.push(format!("{count} entries"));
+    lines.push(String::new()); // blank separator
+
+    for entry in &entries {
+        let time = format_timestamp_short(&entry.timestamp);
+        let id_prefix = if entry.download_id.len() > 8 {
+            &entry.download_id[..8]
+        } else {
+            &entry.download_id
+        };
+        lines.push(format!(
+            "[{}] [{}] [{}] {}",
+            time, id_prefix, entry.stream, entry.line
+        ));
+    }
+
+    let text = lines.join("\n");
+
+    // Open native save dialog with .txt filter (same pattern as export_queue)
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("Text File", &["txt"])
+        .set_file_name("meedyadl-activity-log.txt")
+        .blocking_save_file();
+
+    match file_path {
+        Some(path) => {
+            let resolved = path
+                .as_path()
+                .ok_or_else(|| "Failed to resolve export file path".to_string())?;
+            std::fs::write(resolved, text)
+                .map_err(|e| format!("Failed to write log file: {e}"))?;
+            log::info!("Exported {count} activity log entries to file");
+            Ok(count)
+        }
+        None => Err("Export cancelled".to_string()),
+    }
 }

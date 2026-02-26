@@ -14,7 +14,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useActivityStore } from '@/stores/activityStore';
 import { Button } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Pause, Play, Trash2 } from 'lucide-react';
+import { Download, Pause, Play, Trash2 } from 'lucide-react';
+import { exportActivityLog } from '@/lib/tauri-commands';
 
 /**
  * Formats an ISO 8601 timestamp to a short HH:MM:SS format.
@@ -95,6 +96,18 @@ export function ActivityLog() {
   }, [paused, setPaused]);
 
   /**
+   * Export all log entries to a .txt file via native save dialog.
+   * Silently catches cancellation (user closed the dialog).
+   */
+  const handleExport = async () => {
+    try {
+      await exportActivityLog(entries);
+    } catch {
+      // User cancelled or error — no action needed
+    }
+  };
+
+  /**
    * Toggle pause/resume. When resuming, reset the scroll flag so
    * auto-scroll kicks in on the next entry.
    */
@@ -128,6 +141,15 @@ export function ActivityLog() {
               onClick={handleTogglePause}
             >
               {paused ? 'Resume' : 'Pause'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Download size={14} />}
+              onClick={handleExport}
+              disabled={entries.length === 0}
+            >
+              Export
             </Button>
             <Button
               variant="ghost"

@@ -48,18 +48,23 @@
  * @see {@link @/types/index.ts}           -- DownloadMode, RemuxMode types
  */
 
+import { useState, useEffect } from 'react';
+
 // Zustand store for reading/writing advanced settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
-// Input for text/number fields.
-import { Select, Toggle, Input } from '@/components/common';
+// Input for text/number fields, Button for actions.
+import { Select, Toggle, Input, Button } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
-import type { DownloadMode, RemuxMode } from '@/types';
+import type { DownloadMode, RemuxMode, WrapperTestResult } from '@/types';
 
 // Platform detection hook for Wrapper/AMdecrypt feature gating.
 import { usePlatform } from '@/hooks/usePlatform';
+
+// IPC command for wrapper connection testing.
+import { testWrapperConnection } from '@/lib/tauri-commands';
 
 /**
  * Download mode dropdown options.
@@ -95,6 +100,32 @@ export function AdvancedTab() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   /** Platform detection for Wrapper feature gating (Linux x86_64 only) */
   const { supportsWrapper } = usePlatform();
+
+  /** Wrapper connection test state */
+  const [testState, setTestState] = useState<
+    'idle' | 'testing' | 'success' | 'error'
+  >('idle');
+  const [testResult, setTestResult] = useState<WrapperTestResult | null>(null);
+
+  // Reset test result when the wrapper URL changes
+  useEffect(() => {
+    setTestState('idle');
+    setTestResult(null);
+  }, [settings?.wrapper_account_url]);
+
+  /** Handles the "Test Connection" button click */
+  const handleTestConnection = async () => {
+    if (!settings?.wrapper_account_url) return;
+    setTestState('testing');
+    try {
+      const result = await testWrapperConnection(settings.wrapper_account_url);
+      setTestResult(result);
+      setTestState(result.reachable ? 'success' : 'error');
+    } catch {
+      setTestResult(null);
+      setTestState('error');
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -151,14 +182,40 @@ export function AdvancedTab() {
         />
 
         {settings.use_wrapper && (
-          <Input
-            label="Wrapper Account URL"
-            description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper / AMdecrypt for setup instructions."
-            value={settings.wrapper_account_url}
-            onChange={(e) =>
-              updateSettings({ wrapper_account_url: e.target.value })
-            }
-          />
+          <>
+            <Input
+              label="Wrapper Account URL"
+              description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper / AMdecrypt for setup instructions."
+              value={settings.wrapper_account_url}
+              onChange={(e) =>
+                updateSettings({ wrapper_account_url: e.target.value })
+              }
+            />
+
+            {/* Test Connection button with inline result display */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTestConnection}
+                disabled={
+                  testState === 'testing' || !settings.wrapper_account_url
+                }
+              >
+                {testState === 'testing' ? 'Testing...' : 'Test Connection'}
+              </Button>
+              {testState === 'success' && testResult && (
+                <span className="text-xs text-status-success">
+                  Connected ({testResult.response_time_ms}ms)
+                </span>
+              )}
+              {testState === 'error' && (
+                <span className="text-xs text-status-error">
+                  {testResult?.error || 'Connection failed'}
+                </span>
+              )}
+            </div>
+          </>
         )}
       </div>
 
