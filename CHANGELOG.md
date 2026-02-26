@@ -8,6 +8,32 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add Enhanced LRC with word-by-word synchronized lyrics
+
+Convert Apple Music TTML lyrics to Enhanced LRC format with inline
+  word-level timestamps (<mm:ss.xx>) for karaoke-style highlighting.
+
+  - New enhanced_lyrics_service.rs: TTML XML parser (roxmltree), word
+    timestamp extraction, Enhanced LRC generation, M4A/M4V embedding
+  - New enhanced_lrc setting (default: true) with TTML as default
+    primary lyrics format and SRT as companion format
+  - merge_options() Layer 4: forces TTML when Enhanced LRC is enabled
+  - Enrichment pipeline Step 2: TTML → Enhanced LRC conversion
+  - Frontend: Enhanced Lyrics toggle in Settings > Lyrics tab
+  - Falls back to standard line-level LRC for songs without word data
+  - Handles both iTunes namespace URIs and background vocals
+  - 20 unit tests, all 339 tests passing, clippy clean
+  - Version bump to v0.4.0
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.33] - 2026-02-26
+
+### ✨ Features
+
 - **(download)** Implement partial-success recovery for codec errors
 - **(download)** Implement companion and lyrics downloads as background tasks
 - **(activity-log)** Implement export functionality and wrapper connection test
