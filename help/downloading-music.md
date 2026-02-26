@@ -91,14 +91,15 @@ The following queue actions are available:
 
 ### Queue Persistence and Crash Recovery
 
-MeedyaDL automatically saves the download queue to disk after every state change. If the app is closed or crashes while downloads are queued or in progress, those items are automatically restored and resumed on the next launch. This means you never lose your download queue due to an unexpected shutdown.
+MeedyaDL automatically saves the download queue to disk after every state change. If the app is closed or crashes while downloads are queued or in progress, those items are automatically restored and resumed on the next launch. Failed downloads are also preserved so you can review the error and retry them later.
 
 **How it works:**
 
 - The queue state is saved to a `queue.json` file in the app's data directory after every mutation (enqueue, cancel, retry, clear, completion, error, or fallback)
-- Only non-terminal items (queued, downloading, or processing) are persisted. Completed, failed, and cancelled items are cleared on restart
-- When the app launches and finds a saved queue, it restores the items and automatically begins processing after a short delay (to allow the UI to initialize), regardless of the auto-start setting
-- No manual action is required -- recovery is fully automatic
+- Active items (queued, downloading, or processing) and failed items are persisted. Only completed and cancelled items are cleared on restart
+- Failed items are restored in their error state with the original error message visible, so you can review what went wrong and retry when ready -- they are not automatically retried
+- When the app launches and finds a saved queue, it restores the items and automatically begins processing queued items after a short delay (to allow the UI to initialize), regardless of the auto-start setting
+- No manual action is required for active items -- recovery is fully automatic. Failed items persist until you manually retry or clear them
 
 ### Queue Export and Import
 

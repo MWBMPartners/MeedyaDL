@@ -29,7 +29,7 @@
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
 - **Companion downloads** — configurable multi-format downloads: automatically download ALAC and/or lossy AAC companions alongside Dolby Atmos or ALAC primary downloads (4 modes: Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy)
-- **Persistent download queue** — queue survives app close/crash; auto-resumes on restart
+- **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
 
