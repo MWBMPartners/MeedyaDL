@@ -6,12 +6,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Enhance persistence of download queue items to include failed states
+
 ### 🐛 Bug Fixes
 
 - Update remux mode flag and clean up unused options in GamdlOptions
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.3.30] - 2026-02-26
