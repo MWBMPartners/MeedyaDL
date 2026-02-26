@@ -1237,6 +1237,264 @@ fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
 
 // ============================================================
 // Queue processing: runs downloads and handles fallback/retry
+/// Spawns companion and lyrics companion downloads as background tasks.
+///
+/// Companions are independent downloads of the same content in different
+/// codecs (e.g., ALAC companion for an Atmos primary). They fire regardless
+/// of whether the primary download succeeded or failed — the companion codec
+/// may succeed where the primary format was unavailable.
+///
+/// This is called after any terminal download outcome (success or final
+/// failure), but NOT after fallback/network retries (where the download
+/// will be re-attempted and companions will fire on the final outcome).
+fn spawn_companion_downloads(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    urls: &[String],
+    primary_codec_str: &str,
+    companion_base_options: &GamdlOptions,
+) {
+    let companion_settings = load_settings_for_queue(app);
+    let companion_tiers = plan_companions(
+        &companion_settings.companion_mode,
+        primary_codec_str,
+    );
+
+    if !companion_tiers.is_empty() {
+        let comp_app = app.clone();
+        let comp_urls = urls.to_vec();
+        let comp_base_opts = companion_base_options.clone();
+        let comp_dl_id = dl_id.to_string();
+
+        tokio::spawn(async move {
+            // Process each companion tier sequentially
+            for (tier_idx, tier) in companion_tiers.iter().enumerate() {
+                let mut tier_succeeded = false;
+
+                // Try each codec in the tier until one succeeds
+                for codec in &tier.codecs_to_try {
+                    let mut opts = comp_base_opts.clone();
+                    opts.song_codec = Some(codec.clone());
+                    // Companions always target a specific single codec,
+                    // so clear any native priority to force --song-codec.
+                    opts.song_codec_priority = None;
+
+                    // If this tier needs a suffix (e.g., ALAC
+                    // companion in AtmosToLosslessAndLossy mode
+                    // gets [Lossless]), apply it to the options.
+                    if tier.apply_suffix {
+                        apply_codec_suffix(&mut opts);
+                    }
+                    // If not suffixed, the base options already
+                    // have clean (unsuffixed) templates.
+
+                    // Build the GAMDL CLI command for the companion
+                    let mut cmd = match gamdl_service::build_gamdl_command_public(
+                        &comp_app,
+                        &comp_urls,
+                        &opts,
+                    ) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            log::debug!(
+                                "Companion tier {}: failed to build \
+                                 command ({}) for {}: {}",
+                                tier_idx,
+                                codec.to_cli_string(),
+                                comp_dl_id,
+                                e
+                            );
+                            continue; // Try next codec in tier
+                        }
+                    };
+
+                    // Pipe stdout/stderr for the companion process.
+                    // We don't parse progress events (fire-and-forget),
+                    // but we capture output for error diagnosis.
+                    cmd.stdout(std::process::Stdio::piped());
+                    cmd.stderr(std::process::Stdio::piped());
+
+                    match cmd.spawn() {
+                        Ok(child) => {
+                            match child.wait_with_output().await {
+                                Ok(output) if output.status.success() => {
+                                    log::info!(
+                                        "Companion tier {} ({}) downloaded \
+                                         for {}",
+                                        tier_idx,
+                                        codec.to_cli_string(),
+                                        comp_dl_id
+                                    );
+                                    let _ = comp_app.emit(
+                                        "companion-downloaded",
+                                        &comp_dl_id,
+                                    );
+
+                                    // Apply custom metadata tags for specialist
+                                    // companion codecs (e.g., isLossless=Y for
+                                    // ALAC). Only ALAC and Atmos have custom
+                                    // tags; lossy codecs return immediately.
+                                    if let Some(ref output_dir) = opts.output_path {
+                                        match super::metadata_tag_service::apply_codec_metadata_tags(
+                                            output_dir,
+                                            codec,
+                                        ) {
+                                            Ok(count) if count > 0 => {
+                                                log::info!(
+                                                    "Tagged {} companion file(s) \
+                                                     with {} metadata for {}",
+                                                    count,
+                                                    codec.to_cli_string(),
+                                                    comp_dl_id
+                                                );
+                                            }
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                log::debug!(
+                                                    "Companion metadata tagging \
+                                                     failed for {comp_dl_id}: {e}"
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    tier_succeeded = true;
+                                    break; // This tier done, move to next
+                                }
+                                Ok(output) => {
+                                    // Non-zero exit: codec may be
+                                    // unavailable for this content
+                                    let stderr = String::from_utf8_lossy(
+                                        &output.stderr,
+                                    );
+                                    log::debug!(
+                                        "Companion tier {} ({}) failed \
+                                         for {}: {}",
+                                        tier_idx,
+                                        codec.to_cli_string(),
+                                        comp_dl_id,
+                                        stderr.lines().last().unwrap_or("")
+                                    );
+                                    // Continue to next codec in tier
+                                }
+                                Err(e) => {
+                                    log::debug!(
+                                        "Companion process error: {e}"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::debug!(
+                                "Failed to spawn companion: {e}"
+                            );
+                        }
+                    }
+                }
+
+                if !tier_succeeded {
+                    log::debug!(
+                        "Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}"
+                    );
+                }
+            }
+        });
+    }
+
+    // === Lyrics companion downloads (background, fire-and-forget) ===
+    // When the user has selected additional lyrics formats beyond the
+    // primary, spawn a lightweight GAMDL invocation for each extra
+    // format using --synced-lyrics-only. This produces sidecar lyrics
+    // files (.lrc, .srt, .ttml) without re-downloading audio.
+    let lyrics_settings = load_settings_for_queue(app);
+    if !lyrics_settings.companion_lyrics_formats.is_empty()
+        && (!lyrics_settings.no_synced_lyrics
+            || lyrics_settings.embed_lyrics_and_sidecar)
+    {
+        let lyrics_app = app.clone();
+        let lyrics_urls = urls.to_vec();
+        let lyrics_base_opts = companion_base_options.clone();
+        let lyrics_dl_id = dl_id.to_string();
+        let lyrics_formats = lyrics_settings.companion_lyrics_formats.clone();
+
+        tokio::spawn(async move {
+            for format in &lyrics_formats {
+                let mut opts = lyrics_base_opts.clone();
+                opts.synced_lyrics_format = Some(format.clone());
+                opts.synced_lyrics_only = Some(true);
+
+                let mut cmd = match gamdl_service::build_gamdl_command_public(
+                    &lyrics_app,
+                    &lyrics_urls,
+                    &opts,
+                ) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::debug!(
+                            "Lyrics companion ({}) command error: {e}",
+                            format.to_cli_string()
+                        );
+                        continue;
+                    }
+                };
+
+                cmd.stdout(std::process::Stdio::piped());
+                cmd.stderr(std::process::Stdio::piped());
+
+                match cmd.spawn() {
+                    Ok(child) => {
+                        match child.wait_with_output().await {
+                            Ok(output) if output.status.success() =>
+                            {
+                                log::info!(
+                                    "Lyrics companion ({}) \
+                                     downloaded for {}",
+                                    format.to_cli_string(),
+                                    lyrics_dl_id
+                                );
+                                let _ = lyrics_app.emit(
+                                    "lyrics-companion-downloaded",
+                                    serde_json::json!({
+                                        "download_id": lyrics_dl_id,
+                                        "format": format.to_cli_string(),
+                                    }),
+                                );
+                            }
+                            Ok(output) => {
+                                let stderr =
+                                    String::from_utf8_lossy(
+                                        &output.stderr,
+                                    );
+                                log::debug!(
+                                    "Lyrics companion ({}) \
+                                     failed for {}: {}",
+                                    format.to_cli_string(),
+                                    lyrics_dl_id,
+                                    stderr
+                                        .lines()
+                                        .last()
+                                        .unwrap_or("")
+                                );
+                            }
+                            Err(e) => {
+                                log::debug!(
+                                    "Lyrics companion process \
+                                     error: {e}"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!(
+                            "Failed to spawn lyrics companion: {e}"
+                        );
+                    }
+                }
+            }
+        });
+    }
+}
+
 // ============================================================
 
 /// Processes the next queued download if a slot is available.
@@ -1374,6 +1632,14 @@ pub fn process_queue(
     // Notify the frontend that this download is starting.
     // The frontend uses this event to transition the download card's UI state.
     let _ = app.emit("download-started", &download_id);
+
+    // Extract the primary codec string for companion planning. This is the
+    // codec the user requested (e.g., "atmos"), used to determine which
+    // companion tiers to spawn after the download attempt completes.
+    let primary_codec_for_companions = download_options
+        .song_codec
+        .as_ref()
+        .map_or_else(String::new, |c| c.to_cli_string().to_string());
 
     // Spawn the download in a separate tokio task so it runs independently.
     // This allows process_queue() to return immediately while the download runs.
@@ -1557,6 +1823,17 @@ pub fn process_queue(
                                     "error": error_msg,
                                 }),
                             );
+                            // Spawn companion downloads even on failure —
+                            // the companion codec may succeed where the primary
+                            // format was unavailable.
+                            spawn_companion_downloads(
+                                &app_clone,
+                                &dl_id,
+                                &urls,
+                                &primary_codec_for_companions,
+                                &companion_base_options,
+                            );
+
                             // Continue processing remaining queued items
                             process_queue(app_clone.clone(), queue_clone.clone()).await;
                             return;
@@ -1797,275 +2074,16 @@ pub fn process_queue(
                     });
                 }
 
-                // === Companion downloads (background, fire-and-forget) ===
-                // Based on the companion mode and the primary codec used,
-                // plan and execute zero or more companion download tiers.
-                // Each tier is a separate GAMDL invocation for a different
-                // codec (e.g., ALAC or AAC). Tiers run sequentially within
-                // a single background task to avoid concurrent writes to the
-                // same album directory.
-                {
-                    let companion_settings = load_settings_for_queue(&app_clone);
-                    let primary_codec_str = completed_codec.unwrap_or_default();
-                    let companion_tiers = plan_companions(
-                        &companion_settings.companion_mode,
-                        &primary_codec_str,
-                    );
-
-                    if !companion_tiers.is_empty() {
-                        let comp_app = app_clone.clone();
-                        let comp_urls = urls.clone();
-                        let comp_base_opts = companion_base_options.clone();
-                        let comp_dl_id = dl_id.clone();
-
-                        tokio::spawn(async move {
-                            // Process each companion tier sequentially
-                            for (tier_idx, tier) in companion_tiers.iter().enumerate() {
-                                let mut tier_succeeded = false;
-
-                                // Try each codec in the tier until one succeeds
-                                for codec in &tier.codecs_to_try {
-                                    let mut opts = comp_base_opts.clone();
-                                    opts.song_codec = Some(codec.clone());
-                                    // Companions always target a specific single codec,
-                                    // so clear any native priority to force --song-codec.
-                                    opts.song_codec_priority = None;
-
-                                    // If this tier needs a suffix (e.g., ALAC
-                                    // companion in AtmosToLosslessAndLossy mode
-                                    // gets [Lossless]), apply it to the options.
-                                    if tier.apply_suffix {
-                                        apply_codec_suffix(&mut opts);
-                                    }
-                                    // If not suffixed, the base options already
-                                    // have clean (unsuffixed) templates.
-
-                                    // Build the GAMDL CLI command for the companion
-                                    let mut cmd = match gamdl_service::build_gamdl_command_public(
-                                        &comp_app,
-                                        &comp_urls,
-                                        &opts,
-                                    ) {
-                                        Ok(c) => c,
-                                        Err(e) => {
-                                            log::debug!(
-                                                "Companion tier {}: failed to build \
-                                                 command ({}) for {}: {}",
-                                                tier_idx,
-                                                codec.to_cli_string(),
-                                                comp_dl_id,
-                                                e
-                                            );
-                                            continue; // Try next codec in tier
-                                        }
-                                    };
-
-                                    // Pipe stdout/stderr for the companion process.
-                                    // We don't parse progress events (fire-and-forget),
-                                    // but we capture output for error diagnosis.
-                                    cmd.stdout(std::process::Stdio::piped());
-                                    cmd.stderr(std::process::Stdio::piped());
-
-                                    match cmd.spawn() {
-                                        Ok(child) => {
-                                            match child.wait_with_output().await {
-                                                Ok(output) if output.status.success() => {
-                                                    log::info!(
-                                                        "Companion tier {} ({}) downloaded \
-                                                         for {}",
-                                                        tier_idx,
-                                                        codec.to_cli_string(),
-                                                        comp_dl_id
-                                                    );
-                                                    let _ = comp_app.emit(
-                                                        "companion-downloaded",
-                                                        &comp_dl_id,
-                                                    );
-
-                                                    // Apply custom metadata tags for specialist
-                                                    // companion codecs (e.g., isLossless=Y for
-                                                    // ALAC). Only ALAC and Atmos have custom
-                                                    // tags; lossy codecs return immediately.
-                                                    if let Some(ref output_dir) = opts.output_path {
-                                                        match super::metadata_tag_service::apply_codec_metadata_tags(
-                                                            output_dir,
-                                                            codec,
-                                                        ) {
-                                                            Ok(count) if count > 0 => {
-                                                                log::info!(
-                                                                    "Tagged {} companion file(s) \
-                                                                     with {} metadata for {}",
-                                                                    count,
-                                                                    codec.to_cli_string(),
-                                                                    comp_dl_id
-                                                                );
-                                                            }
-                                                            Ok(_) => {}
-                                                            Err(e) => {
-                                                                log::debug!(
-                                                                    "Companion metadata tagging \
-                                                                     failed for {comp_dl_id}: {e}"
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-
-                                                    tier_succeeded = true;
-                                                    break; // This tier done, move to next
-                                                }
-                                                Ok(output) => {
-                                                    // Non-zero exit: codec may be
-                                                    // unavailable for this content
-                                                    let stderr = String::from_utf8_lossy(
-                                                        &output.stderr,
-                                                    );
-                                                    log::debug!(
-                                                        "Companion tier {} ({}) failed \
-                                                         for {}: {}",
-                                                        tier_idx,
-                                                        codec.to_cli_string(),
-                                                        comp_dl_id,
-                                                        stderr.lines().last().unwrap_or("")
-                                                    );
-                                                    // Continue to next codec in tier
-                                                }
-                                                Err(e) => {
-                                                    log::debug!(
-                                                        "Companion process error: {e}"
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            log::debug!(
-                                                "Failed to spawn companion: {e}"
-                                            );
-                                        }
-                                    }
-                                }
-
-                                if !tier_succeeded {
-                                    log::debug!(
-                                        "Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}"
-                                    );
-                                }
-                            }
-                        });
-                    }
-                }
-
-                // === Lyrics companion downloads (background, fire-and-forget) ===
-                // When the user has selected additional lyrics formats beyond the
-                // primary, spawn a lightweight GAMDL invocation for each extra
-                // format using --synced-lyrics-only. This produces sidecar lyrics
-                // files (.lrc, .srt, .ttml) without re-downloading audio.
-                {
-                    let lyrics_settings = load_settings_for_queue(&app_clone);
-
-                    // Only spawn lyrics companions when:
-                    // 1. There are companion formats configured
-                    // 2. Lyrics are enabled (embed_lyrics_and_sidecar overrides no_synced_lyrics)
-                    if !lyrics_settings.companion_lyrics_formats.is_empty()
-                        && (!lyrics_settings.no_synced_lyrics
-                            || lyrics_settings.embed_lyrics_and_sidecar)
-                    {
-                        let lyrics_app = app_clone.clone();
-                        let lyrics_urls = urls.clone();
-                        let lyrics_base_opts = companion_base_options.clone();
-                        let lyrics_dl_id = dl_id.clone();
-                        let lyrics_formats =
-                            lyrics_settings.companion_lyrics_formats;
-
-                        tokio::spawn(async move {
-                            // Process each companion lyrics format sequentially
-                            // to avoid concurrent writes to the same directory.
-                            for format in &lyrics_formats {
-                                let mut opts = lyrics_base_opts.clone();
-                                // Download only lyrics (no audio) in this format
-                                opts.synced_lyrics_only = Some(true);
-                                opts.synced_lyrics_format = Some(format.clone());
-                                opts.no_synced_lyrics = Some(false);
-                                // Clear audio codec to avoid GAMDL codec validation
-                                // errors when running in lyrics-only mode
-                                opts.song_codec = None;
-                                opts.song_codec_priority = None;
-
-                                let mut cmd =
-                                    match gamdl_service::build_gamdl_command_public(
-                                        &lyrics_app,
-                                        &lyrics_urls,
-                                        &opts,
-                                    ) {
-                                        Ok(c) => c,
-                                        Err(e) => {
-                                            log::debug!(
-                                                "Lyrics companion ({}): failed to build \
-                                                 command for {}: {}",
-                                                format.to_cli_string(),
-                                                lyrics_dl_id,
-                                                e
-                                            );
-                                            continue;
-                                        }
-                                    };
-
-                                cmd.stdout(std::process::Stdio::piped());
-                                cmd.stderr(std::process::Stdio::piped());
-
-                                match cmd.spawn() {
-                                    Ok(child) => {
-                                        match child.wait_with_output().await {
-                                            Ok(output)
-                                                if output.status.success() =>
-                                            {
-                                                log::info!(
-                                                    "Lyrics companion ({}) \
-                                                     downloaded for {}",
-                                                    format.to_cli_string(),
-                                                    lyrics_dl_id
-                                                );
-                                                let _ = lyrics_app.emit(
-                                                    "lyrics-companion-downloaded",
-                                                    serde_json::json!({
-                                                        "download_id": lyrics_dl_id,
-                                                        "format": format.to_cli_string(),
-                                                    }),
-                                                );
-                                            }
-                                            Ok(output) => {
-                                                let stderr =
-                                                    String::from_utf8_lossy(
-                                                        &output.stderr,
-                                                    );
-                                                log::debug!(
-                                                    "Lyrics companion ({}) \
-                                                     failed for {}: {}",
-                                                    format.to_cli_string(),
-                                                    lyrics_dl_id,
-                                                    stderr
-                                                        .lines()
-                                                        .last()
-                                                        .unwrap_or("")
-                                                );
-                                            }
-                                            Err(e) => {
-                                                log::debug!(
-                                                    "Lyrics companion process \
-                                                     error: {e}"
-                                                );
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::debug!(
-                                            "Failed to spawn lyrics companion: {e}"
-                                        );
-                                    }
-                                }
-                            }
-                        });
-                    }
-                }
+                // Spawn companion downloads (codec + lyrics) as background tasks.
+                // Uses the primary codec from pre-match extraction since
+                // completed_codec may differ (e.g., after fallback).
+                spawn_companion_downloads(
+                    &app_clone,
+                    &dl_id,
+                    &urls,
+                    &primary_codec_for_companions,
+                    &companion_base_options,
+                );
             }
             Err(error_msg) => {
                 // === Error path ===
@@ -2135,7 +2153,7 @@ pub fn process_queue(
                 // Persist queue state after error handling (whether retrying or terminal)
                 save_queue_to_disk(&app_clone, &queue_clone).await;
 
-                // If no retry will occur, notify the frontend of the final error
+                // If no retry will occur, notify the frontend and spawn companions
                 if !should_retry {
                     let _ = app_clone.emit(
                         "download-error",
@@ -2144,6 +2162,16 @@ pub fn process_queue(
                             "error": error_msg,
                             "category": error_category,
                         }),
+                    );
+
+                    // Spawn companion downloads even on failure — the companion
+                    // codec may succeed where the primary format was unavailable.
+                    spawn_companion_downloads(
+                        &app_clone,
+                        &dl_id,
+                        &urls,
+                        &primary_codec_for_companions,
+                        &companion_base_options,
                     );
                 }
             }
