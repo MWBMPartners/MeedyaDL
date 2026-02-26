@@ -6,6 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Update app icons and logos
+
+- Updated the MeedyaDL logo in both light and dark variants (SVG and PNG formats) with a new design and color scheme.
+  - Added a new application icon (app-icon.svg) that combines a clapperboard, download arrow, and music note.
+  - Updated the Sidebar component to use the new app icon instead of a placeholder.
+  - Updated various icon sizes for Android and iOS platforms to reflect the new branding.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.3.28] - 2026-02-26
+
 ### 🐛 Bug Fixes
 
 - Add use import to doc test for is_version_at_least
