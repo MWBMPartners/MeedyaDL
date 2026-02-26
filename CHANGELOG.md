@@ -17,6 +17,7 @@ The doc test example needed `use meedyadl::services::gamdl_service::is_version_a
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.3.27] - 2026-02-26
 
