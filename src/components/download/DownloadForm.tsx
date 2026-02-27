@@ -91,6 +91,9 @@ import { useUiStore } from '@/stores/uiStore';
 /** Reusable UI primitives from the common component library. */
 import { Button, Select } from '@/components/common';
 
+/** Tauri IPC commands for cookie validation. */
+import { checkCookiesBeforeDownload } from '@/lib/tauri-commands';
+
 /**
  * Type imports for Apple Music content types and audio codecs.
  * @see AppleMusicContentType in @/types/index.ts -- 'song' | 'album' | ... | 'unknown'
@@ -227,12 +230,27 @@ export function DownloadForm() {
    */
   const [showOverrides, setShowOverrides] = useState(false);
 
+  /**
+   * Cookie validation error message shown when cookies are expired or
+   * missing. Set by `handleSubmit()` before attempting to queue a download.
+   * Cleared on the next successful check or when the URL input changes.
+   */
+  const [cookieError, setCookieError] = useState<string | null>(null);
+
+  /** Navigation to the Settings page (for the "Go to Settings" link). */
+  const setPage = useUiStore((s) => s.setPage);
+
   // ---------------------------------------------------------------
   // Event handlers
   // ---------------------------------------------------------------
 
   /**
    * Handles the "Add to Queue" action.
+   *
+   * Before queuing, checks cookie validity via the Rust backend.
+   * If cookies are expired, missing, or invalid, blocks the download
+   * and shows an inline warning. This catches mid-session cookie
+   * expiry that wouldn't be caught by the startup pre-flight check.
    *
    * Calls `submitDownload()` which:
    *  1. Validates the URL (throws if invalid).
@@ -242,6 +260,20 @@ export function DownloadForm() {
    * Shows a success toast on success, or an error toast on failure.
    */
   const handleSubmit = async () => {
+    // Check cookie readiness before queuing (catches mid-session expiry)
+    try {
+      const cookieCheck = await checkCookiesBeforeDownload();
+      if (!cookieCheck.ready) {
+        setCookieError(cookieCheck.message ?? 'Cookies are not valid for downloading.');
+        return;
+      }
+      setCookieError(null);
+    } catch {
+      // If the check itself fails (e.g., IPC error), proceed anyway —
+      // the download will fail later with a more specific error.
+      setCookieError(null);
+    }
+
     try {
       await submitDownload();
       addToast('Download added to queue', 'success');
@@ -362,7 +394,11 @@ export function DownloadForm() {
                 id="url-input"
                 type="text"
                 value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
+                onChange={(e) => {
+                  setUrlInput(e.target.value);
+                  // Clear cookie error when URL changes (user is retrying)
+                  if (cookieError) setCookieError(null);
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder="https://music.apple.com/..."
                 className={`
@@ -428,6 +464,24 @@ export function DownloadForm() {
             <p className="text-xs text-content-tertiary">
               Supports songs, albums, playlists, music videos, and artist pages
             </p>
+          )}
+
+          {/* Cookie validation warning -- shown when cookies are expired,
+              missing, or invalid. Blocks downloads until cookies are fixed. */}
+          {cookieError && (
+            <div className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
+              <span className="text-status-warning text-sm mt-0.5">&#9888;</span>
+              <div className="flex-1 text-xs text-content-primary">
+                <p>{cookieError}</p>
+                <button
+                  type="button"
+                  className="mt-1 text-accent hover:text-accent-hover underline transition-colors"
+                  onClick={() => setPage('settings')}
+                >
+                  Go to Settings
+                </button>
+              </div>
+            </div>
           )}
         </div>
 

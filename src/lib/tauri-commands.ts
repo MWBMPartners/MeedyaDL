@@ -64,6 +64,7 @@ import type {
   AppSettings,
   ArtworkResult,
   ComponentUpdate,
+  CookieCheckResult,
   CookieImportResult,
   CookieValidation,
   DependencyStatus,
@@ -276,6 +277,22 @@ export function saveSettings(settings: AppSettings): Promise<void> {
  */
 export function validateCookiesFile(path: string): Promise<CookieValidation> {
   return invoke<CookieValidation>('validate_cookies_file', { path });
+}
+
+/**
+ * Checks whether cookies are valid and ready for an Apple Music download.
+ *
+ * Rust handler: `check_cookies_before_download()` in `src-tauri/src/commands/settings.rs`
+ * Returns: `CookieCheckResult` with readiness flag and optional message
+ *
+ * Called by the download form before queuing a download. This catches
+ * expired or missing cookies at submission time so the user gets
+ * immediate feedback instead of a delayed GAMDL failure.
+ *
+ * Wrapper users bypass this check (the wrapper handles authentication).
+ */
+export function checkCookiesBeforeDownload(): Promise<CookieCheckResult> {
+  return invoke<CookieCheckResult>('check_cookies_before_download');
 }
 
 /**
