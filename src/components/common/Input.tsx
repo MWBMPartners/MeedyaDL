@@ -107,77 +107,73 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
  *
  * @see https://react.dev/reference/react/forwardRef -- forwardRef pattern
  */
-export const Input = forwardRef<HTMLInputElement, InputProps>(
-  function Input(
-    { label, description, error, icon, suffix, helpTopic, className = '', id, ...props },
-    ref,
-  ) {
-    /*
-     * Generate a deterministic DOM id from the label text when the consumer
-     * does not supply one. This id is shared between the <label htmlFor> and
-     * the <input id> to satisfy accessibility requirements (clicking the label
-     * focuses the input; screen readers announce the label for the input).
-     *
-     * The regex replaces whitespace runs with hyphens to produce a valid
-     * HTML id attribute value, e.g. "Filename Template" -> "input-filename-template".
-     */
-    const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { label, description, error, icon, suffix, helpTopic, className = '', id, ...props },
+  ref
+) {
+  /*
+   * Generate a deterministic DOM id from the label text when the consumer
+   * does not supply one. This id is shared between the <label htmlFor> and
+   * the <input id> to satisfy accessibility requirements (clicking the label
+   * focuses the input; screen readers announce the label for the input).
+   *
+   * The regex replaces whitespace runs with hyphens to produce a valid
+   * HTML id attribute value, e.g. "Filename Template" -> "input-filename-template".
+   */
+  const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
 
-    return (
-      /* Outer wrapper -- space-y-1.5 adds 6px vertical gap between
-       * the label, the input, and the description/error text. */
-      <div className="space-y-1.5">
-        {/* Accessible <label> element -- only rendered when label text is provided.
-          * Uses htmlFor={inputId} to associate with the <input> below.
-          * When helpTopic is set, a HelpButton is rendered inline after the label. */}
-        {label && (
-          <div className="flex items-center gap-1.5">
-            <label
-              htmlFor={inputId}
-              className="text-sm font-medium text-content-primary"
-            >
-              {label}
-            </label>
-            {helpTopic && <HelpButton topic={helpTopic} />}
+  return (
+    /* Outer wrapper -- space-y-1.5 adds 6px vertical gap between
+     * the label, the input, and the description/error text. */
+    <div className="space-y-1.5">
+      {/* Accessible <label> element -- only rendered when label text is provided.
+       * Uses htmlFor={inputId} to associate with the <input> below.
+       * When helpTopic is set, a HelpButton is rendered inline after the label. */}
+      {label && (
+        <div className="flex items-center gap-1.5">
+          <label htmlFor={inputId} className="text-sm font-medium text-content-primary">
+            {label}
+          </label>
+          {helpTopic && <HelpButton topic={helpTopic} />}
+        </div>
+      )}
+
+      {/*
+       * Relative-positioned wrapper enables absolute positioning of the
+       * leading icon and trailing suffix elements inside the input field.
+       */}
+      <div className="relative">
+        {/*
+         * Leading icon -- absolutely positioned to the left of the input.
+         * Vertically centred with top-1/2 + -translate-y-1/2.
+         * When present, the <input> receives extra left padding (pl-9)
+         * so that typed text does not overlap the icon.
+         */}
+        {icon && (
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary">
+            {icon}
           </div>
         )}
 
         {/*
-         * Relative-positioned wrapper enables absolute positioning of the
-         * leading icon and trailing suffix elements inside the input field.
+         * The actual <input> element.
+         *
+         * Class composition:
+         * 1. Base         -- full-width, standard padding, small text
+         * 2. Platform     -- rounded-platform border radius from CSS var
+         * 3. Colours      -- surface-secondary bg, themed text and placeholder
+         * 4. Focus ring   -- accent colour border + ring on focus
+         * 5. Disabled     -- reduced opacity and not-allowed cursor
+         * 6. Icon padding -- extra left (pl-9) / right (pr-9) when icon/suffix present
+         * 7. Error state  -- red border and red focus ring when error is set
+         * 8. Consumer     -- any extra classes merged via className prop
+         *
+         * @see https://tailwindcss.com/docs/ring-width -- focus ring utilities
          */}
-        <div className="relative">
-          {/*
-           * Leading icon -- absolutely positioned to the left of the input.
-           * Vertically centred with top-1/2 + -translate-y-1/2.
-           * When present, the <input> receives extra left padding (pl-9)
-           * so that typed text does not overlap the icon.
-           */}
-          {icon && (
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary">
-              {icon}
-            </div>
-          )}
-
-          {/*
-           * The actual <input> element.
-           *
-           * Class composition:
-           * 1. Base         -- full-width, standard padding, small text
-           * 2. Platform     -- rounded-platform border radius from CSS var
-           * 3. Colours      -- surface-secondary bg, themed text and placeholder
-           * 4. Focus ring   -- accent colour border + ring on focus
-           * 5. Disabled     -- reduced opacity and not-allowed cursor
-           * 6. Icon padding -- extra left (pl-9) / right (pr-9) when icon/suffix present
-           * 7. Error state  -- red border and red focus ring when error is set
-           * 8. Consumer     -- any extra classes merged via className prop
-           *
-           * @see https://tailwindcss.com/docs/ring-width -- focus ring utilities
-           */}
-          <input
-            ref={ref}
-            id={inputId}
-            className={`
+        <input
+          ref={ref}
+          id={inputId}
+          className={`
               w-full px-3 py-2 text-sm
               rounded-platform border
               bg-surface-secondary text-content-primary
@@ -190,39 +186,34 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               ${error ? 'border-status-error focus:border-status-error focus:ring-status-error' : 'border-border'}
               ${className}
             `}
-            /* Forward all remaining native <input> attributes (value, onChange, type, etc.) */
-            {...props}
-          />
-
-          {/*
-           * Trailing suffix element -- absolutely positioned to the right.
-           * Vertically centred the same way as the leading icon.
-           * When present, the <input> receives extra right padding (pr-9).
-           */}
-          {suffix && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-content-tertiary">
-              {suffix}
-            </div>
-          )}
-        </div>
+          /* Forward all remaining native <input> attributes (value, onChange, type, etc.) */
+          {...props}
+        />
 
         {/*
-         * Error message -- rendered below the input in red text.
-         * Takes visual priority over the description: when both error and
-         * description are set, only the error is shown.
+         * Trailing suffix element -- absolutely positioned to the right.
+         * Vertically centred the same way as the leading icon.
+         * When present, the <input> receives extra right padding (pr-9).
          */}
-        {error && (
-          <p className="text-xs text-status-error">{error}</p>
-        )}
-
-        {/*
-         * Description / helper text -- rendered only when there is no error.
-         * Uses a muted tertiary text colour to visually subordinate it.
-         */}
-        {!error && description && (
-          <p className="text-xs text-content-tertiary">{description}</p>
+        {suffix && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-content-tertiary">
+            {suffix}
+          </div>
         )}
       </div>
-    );
-  },
-);
+
+      {/*
+       * Error message -- rendered below the input in red text.
+       * Takes visual priority over the description: when both error and
+       * description are set, only the error is shown.
+       */}
+      {error && <p className="text-xs text-status-error">{error}</p>}
+
+      {/*
+       * Description / helper text -- rendered only when there is no error.
+       * Uses a muted tertiary text colour to visually subordinate it.
+       */}
+      {!error && description && <p className="text-xs text-content-tertiary">{description}</p>}
+    </div>
+  );
+});

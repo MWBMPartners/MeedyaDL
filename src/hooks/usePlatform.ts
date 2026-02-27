@@ -71,7 +71,7 @@ interface UsePlatformResult {
   isLinux: boolean;
   /** Detected CPU architecture ('x86_64', 'aarch64', 'arm', etc.), or null during loading/browser fallback */
   arch: string | null;
-  /** True only when platform === 'linux' AND arch === 'x86_64' (Wrapper/AMdecrypt fully supported) */
+  /** True only when platform === 'linux' AND arch === 'x86_64' (Wrapper fully supported) */
   supportsWrapper: boolean;
 }
 
@@ -151,9 +151,7 @@ export function usePlatform(): UsePlatformResult {
          * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/#platform}
          * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/#arch}
          */
-        const { platform: getPlatform, arch: getArch } = await import(
-          '@tauri-apps/plugin-os'
-        );
+        const { platform: getPlatform, arch: getArch } = await import('@tauri-apps/plugin-os');
         const detectedPlatformValue = getPlatform();
         const detectedArchValue = getArch();
 
@@ -211,8 +209,8 @@ export function usePlatform(): UsePlatformResult {
    * synchronization issues. They update automatically when `platform` changes.
    *
    * supportsWrapper is true only on Linux x86_64, where the Wrapper service
-   * and AMdecrypt have native binary support. On all other platforms, the
-   * Wrapper UI is hidden (but settings fields remain for manual JSON config).
+   * has native binary support. On all other platforms, the Wrapper UI shows
+   * a remote-use note (but settings fields remain for manual JSON config).
    */
   return {
     platform,

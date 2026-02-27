@@ -62,12 +62,12 @@ import type { SetupStep } from '@/types';
  * pip package), and both must exist before external tools make sense.
  */
 export const SETUP_STEPS: SetupStep[] = [
-  'welcome',      // Step 0: Informational welcome splash
-  'python',       // Step 1: Install portable Python runtime
-  'gamdl',        // Step 2: Install GAMDL pip package (requires Python)
+  'welcome', // Step 0: Informational welcome splash
+  'python', // Step 1: Install portable Python runtime
+  'gamdl', // Step 2: Install GAMDL pip package (requires Python)
   'dependencies', // Step 3: Install external tools (FFmpeg, mp4decrypt, etc.)
-  'cookies',      // Step 4: Provide Apple Music cookies file for authentication
-  'complete',     // Step 5: Setup complete -- summary and "Finish" button
+  'cookies', // Step 4: Provide Apple Music cookies file for authentication
+  'complete', // Step 5: Setup complete -- summary and "Finish" button
 ];
 
 /**
@@ -211,11 +211,11 @@ export const useSetupStore = create<SetupState>((set) => ({
   // -------------------------------------------------------------------------
   // Initial state -- wizard starts at the welcome step
   // -------------------------------------------------------------------------
-  currentStep: 'welcome',       // Begin at the welcome splash screen
-  currentStepIndex: 0,          // Index 0 in the SETUP_STEPS array
-  completedSteps: new Set(),    // No steps completed yet
-  isComplete: false,            // Wizard not yet finished
-  stepError: null,              // No error on the current step
+  currentStep: 'welcome', // Begin at the welcome splash screen
+  currentStepIndex: 0, // Index 0 in the SETUP_STEPS array
+  completedSteps: new Set(), // No steps completed yet
+  isComplete: false, // Wizard not yet finished
+  stepError: null, // No error on the current step
 
   // -------------------------------------------------------------------------
   // Navigation actions
@@ -234,12 +234,9 @@ export const useSetupStore = create<SetupState>((set) => ({
   nextStep: () =>
     set((state) => {
       // Clamp to the last step index to prevent array out-of-bounds.
-      const nextIndex = Math.min(
-        state.currentStepIndex + 1,
-        SETUP_STEPS.length - 1,
-      );
+      const nextIndex = Math.min(state.currentStepIndex + 1, SETUP_STEPS.length - 1);
       return {
-        currentStep: SETUP_STEPS[nextIndex],  // Look up step name by index
+        currentStep: SETUP_STEPS[nextIndex], // Look up step name by index
         currentStepIndex: nextIndex,
         stepError: null, // Clear any error from the previous step
       };
@@ -254,7 +251,7 @@ export const useSetupStore = create<SetupState>((set) => ({
       // Clamp to index 0 to prevent negative indices.
       const prevIndex = Math.max(state.currentStepIndex - 1, 0);
       return {
-        currentStep: SETUP_STEPS[prevIndex],  // Look up step name by index
+        currentStep: SETUP_STEPS[prevIndex], // Look up step name by index
         currentStepIndex: prevIndex,
         stepError: null, // Clear any error from the current step
       };

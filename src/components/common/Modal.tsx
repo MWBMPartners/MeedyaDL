@@ -86,13 +86,7 @@ interface ModalProps {
  * @param children - Modal body content
  * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
  */
-export function Modal({
-  open,
-  onClose,
-  title,
-  children,
-  maxWidth = 'max-w-lg',
-}: ModalProps) {
+export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
   /*
    * Memoised keydown handler -- only recreated when the onClose reference
    * changes. Calls onClose() when the Escape key is pressed.
@@ -103,7 +97,7 @@ export function Modal({
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     },
-    [onClose],
+    [onClose]
   );
 
   /*
@@ -164,9 +158,7 @@ export function Modal({
          */}
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
-            <h3 className="text-base font-semibold text-content-primary">
-              {title}
-            </h3>
+            <h3 className="text-base font-semibold text-content-primary">{title}</h3>
             {/*
              * Close button -- uses the Lucide X icon at 18px.
              * aria-label="Close" ensures screen readers announce its purpose.

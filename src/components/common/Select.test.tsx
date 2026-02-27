@@ -75,12 +75,7 @@ describe('Select', () => {
    * user but cannot be selected as a valid choice.
    */
   it('renders placeholder as a disabled option', () => {
-    render(
-      <Select
-        options={testOptions}
-        placeholder="Choose a codec..."
-      />,
-    );
+    render(<Select options={testOptions} placeholder="Choose a codec..." />);
 
     /* The placeholder should appear as an option element */
     const placeholder = screen.getByText('Choose a codec...');
@@ -101,12 +96,7 @@ describe('Select', () => {
    * additional context about the selection.
    */
   it('renders description text', () => {
-    render(
-      <Select
-        options={testOptions}
-        description="Choose your preferred audio codec"
-      />,
-    );
+    render(<Select options={testOptions} description="Choose your preferred audio codec" />);
 
     /* The description text should be visible in the document */
     expect(screen.getByText('Choose your preferred audio codec')).toBeInTheDocument();
@@ -127,7 +117,7 @@ describe('Select', () => {
         options={testOptions}
         description="This will be hidden"
         error="Please select a codec"
-      />,
+      />
     );
 
     /* The error message should be visible */
@@ -171,13 +161,7 @@ describe('Select', () => {
   it('calls onChange when selection changes', () => {
     const handleChange = vi.fn();
 
-    render(
-      <Select
-        options={testOptions}
-        value="aac"
-        onChange={handleChange}
-      />,
-    );
+    render(<Select options={testOptions} value="aac" onChange={handleChange} />);
 
     const select = screen.getByRole('combobox');
 

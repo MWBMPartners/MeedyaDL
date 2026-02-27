@@ -56,12 +56,7 @@ interface CrashReportDialogProps {
  * a privacy notice, the preview, and action buttons. The "Open GitHub Issue"
  * button constructs a pre-filled URL and opens it in the default browser.
  */
-export function CrashReportDialog({
-  open,
-  onClose,
-  report,
-  onReported,
-}: CrashReportDialogProps) {
+export function CrashReportDialog({ open, onClose, report, onReported }: CrashReportDialogProps) {
   /** Markdown preview text loaded from the backend */
   const [preview, setPreview] = useState<string>('');
   /** Whether the preview is currently loading */
@@ -103,19 +98,13 @@ export function CrashReportDialog({
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Report Crash to Developer"
-      maxWidth="max-w-2xl"
-    >
+    <Modal open={open} onClose={onClose} title="Report Crash to Developer" maxWidth="max-w-2xl">
       {/* Privacy notice */}
       <div className="mb-4 p-3 rounded-platform bg-surface-secondary text-xs text-content-secondary leading-relaxed">
-        The following crash report data will be shared when you open the GitHub
-        issue. Review the information below before proceeding. You will need a{' '}
-        <span className="font-medium text-content-primary">GitHub account</span>{' '}
-        to submit the issue. No personal data, download history, or account
-        information is included.
+        The following crash report data will be shared when you open the GitHub issue. Review the
+        information below before proceeding. You will need a{' '}
+        <span className="font-medium text-content-primary">GitHub account</span> to submit the
+        issue. No personal data, download history, or account information is included.
       </div>
 
       {/* Markdown preview */}

@@ -65,16 +65,16 @@ import { useState, useEffect, useCallback } from 'react';
 
 // Lucide icons for the various UI elements.
 import {
-  Shield,         // Authentication context icon
-  CheckCircle,    // Valid/success indicator
-  AlertTriangle,  // Warning indicator
-  XCircle,        // Error indicator
-  Globe,          // Browser icon
-  FileText,       // Manual import icon
-  Loader2,        // Loading spinner
-  ExternalLink,   // External link icon (System Settings)
-  Info,           // Info notice icon
-  LogIn,          // Sign-in icon for embedded browser login
+  Shield, // Authentication context icon
+  CheckCircle, // Valid/success indicator
+  AlertTriangle, // Warning indicator
+  XCircle, // Error indicator
+  Globe, // Browser icon
+  FileText, // Manual import icon
+  Loader2, // Loading spinner
+  ExternalLink, // External link icon (System Settings)
+  Info, // Info notice icon
+  LogIn, // Sign-in icon for embedded browser login
 } from 'lucide-react';
 
 // Tauri event listener for receiving events from the Rust backend.
@@ -117,21 +117,16 @@ function BrowserRow({
   onImport: (id: string) => void;
 }) {
   /** Whether this specific browser is currently being imported from */
-  const isThisBrowserImporting =
-    isImporting && importingBrowserId === browser.id;
+  const isThisBrowserImporting = isImporting && importingBrowserId === browser.id;
 
   return (
     <div className="flex items-center justify-between py-2.5 px-3 rounded-platform hover:bg-surface-secondary transition-colors">
       <div className="flex items-center gap-2.5">
         <Globe size={16} className="text-accent flex-shrink-0" />
         <div>
-          <span className="text-sm font-medium text-content-primary">
-            {browser.name}
-          </span>
+          <span className="text-sm font-medium text-content-primary">{browser.name}</span>
           {browser.requires_fda && (
-            <span className="ml-2 text-xs text-status-warning">
-              (Full Disk Access required)
-            </span>
+            <span className="ml-2 text-xs text-status-warning">(Full Disk Access required)</span>
           )}
         </div>
       </div>
@@ -152,13 +147,7 @@ function BrowserRow({
  * Renders the macOS Full Disk Access instruction panel.
  * Shown when the user attempts to import from Safari without FDA.
  */
-function FdaInstructionPanel({
-  onRetry,
-  onCancel,
-}: {
-  onRetry: () => void;
-  onCancel: () => void;
-}) {
+function FdaInstructionPanel({ onRetry, onCancel }: { onRetry: () => void; onCancel: () => void }) {
   /**
    * Opens macOS System Settings to the Full Disk Access privacy pane.
    * Uses the Tauri shell plugin to open the URL scheme.
@@ -166,9 +155,7 @@ function FdaInstructionPanel({
   const handleOpenSettings = async () => {
     try {
       const { open } = await import('@tauri-apps/plugin-shell');
-      await open(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles',
-      );
+      await open('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
     } catch {
       // Fallback: try opening the general privacy settings
       try {
@@ -183,29 +170,23 @@ function FdaInstructionPanel({
   return (
     <div className="p-4 rounded-platform border border-status-warning bg-status-warning-bg space-y-3">
       <div className="flex items-start gap-2.5">
-        <AlertTriangle
-          size={16}
-          className="text-status-warning flex-shrink-0 mt-0.5"
-        />
+        <AlertTriangle size={16} className="text-status-warning flex-shrink-0 mt-0.5" />
         <div className="text-sm text-content-primary space-y-2">
           <p className="font-medium">Safari requires Full Disk Access</p>
           <p className="text-content-secondary text-xs">
-            macOS protects Safari&apos;s cookie database. To import cookies from
-            Safari, you need to grant Full Disk Access to MeedyaDL.
+            macOS protects Safari&apos;s cookie database. To import cookies from Safari, you need to
+            grant Full Disk Access to MeedyaDL.
           </p>
           <ol className="list-decimal list-inside text-xs text-content-secondary space-y-1.5 ml-1">
             <li>
               Open{' '}
               <span className="font-medium text-content-primary">
-                System Settings &gt; Privacy &amp; Security &gt; Full Disk
-                Access
+                System Settings &gt; Privacy &amp; Security &gt; Full Disk Access
               </span>
             </li>
             <li>
-              Click the{' '}
-              <span className="font-medium text-content-primary">&quot;+&quot;</span>{' '}
-              button and add{' '}
-              <span className="font-medium text-content-primary">MeedyaDL</span>
+              Click the <span className="font-medium text-content-primary">&quot;+&quot;</span>{' '}
+              button and add <span className="font-medium text-content-primary">MeedyaDL</span>
             </li>
             <li>Return here and click &quot;Try Again&quot;</li>
           </ol>
@@ -230,11 +211,7 @@ function FdaInstructionPanel({
 /**
  * Renders the import result panel (success or failure).
  */
-function ImportResultPanel({
-  result,
-}: {
-  result: CookieImportResult;
-}) {
+function ImportResultPanel({ result }: { result: CookieImportResult }) {
   /* Determine display state: success with cookies, success but empty, or failure */
   const hasAppleCookies = result.success && result.apple_music_cookies > 0;
   const isEmptyImport = result.success && result.apple_music_cookies === 0;
@@ -275,16 +252,13 @@ function ImportResultPanel({
         {isEmptyImport && (
           <>
             <p>
-              This browser has no Apple Music cookies. Make sure you are logged
-              in to{' '}
-              <span className="font-medium text-content-primary">
-                music.apple.com
-              </span>{' '}
-              in your browser, then try again.
+              This browser has no Apple Music cookies. Make sure you are logged in to{' '}
+              <span className="font-medium text-content-primary">music.apple.com</span> in your
+              browser, then try again.
             </p>
             <p className="mt-1">
-              Tip: Visit music.apple.com, sign in with your Apple ID, then
-              come back here and click Import again.
+              Tip: Visit music.apple.com, sign in with your Apple ID, then come back here and click
+              Import again.
             </p>
           </>
         )}
@@ -342,13 +316,9 @@ export function CookiesStep() {
   /** Whether a cookie import is in progress */
   const [isImporting, setIsImporting] = useState(false);
   /** Which browser is currently being imported from */
-  const [importingBrowserId, setImportingBrowserId] = useState<string | null>(
-    null,
-  );
+  const [importingBrowserId, setImportingBrowserId] = useState<string | null>(null);
   /** Result of the most recent auto-import */
-  const [importResult, setImportResult] = useState<CookieImportResult | null>(
-    null,
-  );
+  const [importResult, setImportResult] = useState<CookieImportResult | null>(null);
   /** Whether to show the FDA instruction panel */
   const [showFdaPanel, setShowFdaPanel] = useState(false);
   /** Error message from a failed import attempt */
@@ -403,24 +373,21 @@ export function CookiesStep() {
 
     async function setup() {
       try {
-        unlisten = await listen<CookieImportResult>(
-          'login-cookies-extracted',
-          (event) => {
-            try {
-              // Update the import result with cookies from the login window
-              setImportResult(event.payload);
-              setIsLoginWindowOpen(false);
-              setIsExtractingFromLogin(false);
+        unlisten = await listen<CookieImportResult>('login-cookies-extracted', (event) => {
+          try {
+            // Update the import result with cookies from the login window
+            setImportResult(event.payload);
+            setIsLoginWindowOpen(false);
+            setIsExtractingFromLogin(false);
 
-              // Update settings if cookies were saved successfully
-              if (event.payload.success && event.payload.path) {
-                updateSettings({ cookies_path: event.payload.path });
-              }
-            } catch (err) {
-              console.error('Error handling login-cookies-extracted:', err);
+            // Update settings if cookies were saved successfully
+            if (event.payload.success && event.payload.path) {
+              updateSettings({ cookies_path: event.payload.path });
             }
-          },
-        );
+          } catch (err) {
+            console.error('Error handling login-cookies-extracted:', err);
+          }
+        });
       } catch (err) {
         console.warn('[CookiesStep] Failed to listen for login events:', err);
       }
@@ -517,15 +484,14 @@ export function CookiesStep() {
           updateSettings({ cookies_path: result.path });
         }
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : String(err);
+        const message = err instanceof Error ? err.message : String(err);
         setImportError(message);
       }
 
       setIsImporting(false);
       setImportingBrowserId(null);
     },
-    [isMacOS, updateSettings],
+    [isMacOS, updateSettings]
   );
 
   /**
@@ -624,12 +590,9 @@ export function CookiesStep() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">
-          Apple Music Cookies
-        </h2>
+        <h2 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL needs your Apple Music cookies to authenticate downloads.
-          {' '}
+          GAMDL needs your Apple Music cookies to authenticate downloads.{' '}
           <span className="font-medium text-content-primary">
             You must be logged in to Apple Music in your browser.
           </span>
@@ -648,20 +611,14 @@ export function CookiesStep() {
           {!isLoginWindowOpen ? (
             /* Show the "Sign in" card when the login window is not open */
             <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
-              <p className="text-xs text-content-secondary">
-                Sign in with your Apple Account:
-              </p>
-              <Button
-                variant="primary"
-                onClick={handleOpenLoginWindow}
-                disabled={isImporting}
-              >
+              <p className="text-xs text-content-secondary">Sign in with your Apple Account:</p>
+              <Button variant="primary" onClick={handleOpenLoginWindow} disabled={isImporting}>
                 <LogIn size={16} className="mr-2" />
                 Sign in with Apple Music
               </Button>
               <p className="text-xs text-content-tertiary">
-                A browser window will open where you can sign in with your Apple
-                ID. Your cookies will be captured automatically.
+                A browser window will open where you can sign in with your Apple ID. Your cookies
+                will be captured automatically.
               </p>
             </div>
           ) : (
@@ -669,14 +626,11 @@ export function CookiesStep() {
             <div className="p-4 rounded-platform border border-accent bg-surface-elevated space-y-3">
               <div className="flex items-center gap-2.5">
                 <Loader2 size={16} className="animate-spin text-accent" />
-                <span className="text-sm font-medium text-content-primary">
-                  Signing in...
-                </span>
+                <span className="text-sm font-medium text-content-primary">Signing in...</span>
               </div>
               <p className="text-xs text-content-secondary">
-                A browser window is open. Sign in with your Apple ID at
-                music.apple.com, then return here. Your cookies will be
-                captured automatically when login completes.
+                A browser window is open. Sign in with your Apple ID at music.apple.com, then return
+                here. Your cookies will be captured automatically when login completes.
               </p>
               <div className="flex gap-2">
                 <Button
@@ -735,19 +689,16 @@ export function CookiesStep() {
             <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
               <Info size={14} className="text-content-tertiary flex-shrink-0 mt-0.5" />
               <p className="text-xs text-content-secondary">
-                macOS may ask for your password when importing cookies from
-                Chrome, Edge, or other Chromium-based browsers. This is a
-                standard macOS security prompt to access browser data.
+                macOS may ask for your password when importing cookies from Chrome, Edge, or other
+                Chromium-based browsers. This is a standard macOS security prompt to access browser
+                data.
               </p>
             </div>
           )}
 
           {/* FDA instruction panel (Safari on macOS) */}
           {showFdaPanel && (
-            <FdaInstructionPanel
-              onRetry={handleFdaRetry}
-              onCancel={() => setShowFdaPanel(false)}
-            />
+            <FdaInstructionPanel onRetry={handleFdaRetry} onCancel={() => setShowFdaPanel(false)} />
           )}
 
           {/* Import error */}
@@ -755,13 +706,9 @@ export function CookiesStep() {
             <div className="p-4 rounded-platform border border-status-error bg-status-error-bg">
               <div className="flex items-center gap-2 mb-1">
                 <XCircle size={16} className="text-status-error" />
-                <span className="text-sm font-medium text-content-primary">
-                  Import Failed
-                </span>
+                <span className="text-sm font-medium text-content-primary">Import Failed</span>
               </div>
-              <p className="text-xs text-content-secondary ml-6">
-                {importError}
-              </p>
+              <p className="text-xs text-content-secondary ml-6">{importError}</p>
             </div>
           )}
 
@@ -780,27 +727,18 @@ export function CookiesStep() {
             <div className="flex items-start gap-3">
               <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
               <div className="text-sm text-content-secondary space-y-2">
-                <p className="font-medium text-content-primary">
-                  How to export cookies:
-                </p>
+                <p className="font-medium text-content-primary">How to export cookies:</p>
                 <ol className="list-decimal list-inside space-y-1.5 ml-1">
                   <li>
                     Install the{' '}
-                    <span className="font-medium text-content-primary">
-                      cookies.txt
-                    </span>{' '}
-                    browser extension
+                    <span className="font-medium text-content-primary">cookies.txt</span> browser
+                    extension
                   </li>
                   <li>
-                    Go to{' '}
-                    <span className="font-mono text-xs text-accent">
-                      music.apple.com
-                    </span>{' '}
-                    and log in to your account
+                    Go to <span className="font-mono text-xs text-accent">music.apple.com</span> and
+                    log in to your account
                   </li>
-                  <li>
-                    Click the cookies.txt extension icon and export cookies
-                  </li>
+                  <li>Click the cookies.txt extension icon and export cookies</li>
                   <li>Save the file and select it below</li>
                 </ol>
               </div>
@@ -822,11 +760,7 @@ export function CookiesStep() {
 
           {/* Validate button */}
           {settings.cookies_path && (
-            <Button
-              variant="primary"
-              loading={isValidating}
-              onClick={handleValidate}
-            >
+            <Button variant="primary" loading={isValidating} onClick={handleValidate}>
               Validate Cookies
             </Button>
           )}
@@ -851,9 +785,7 @@ export function CookiesStep() {
                 </span>
               </div>
               <div className="text-xs text-content-secondary space-y-1 ml-6">
-                <p>
-                  {validation.apple_music_cookies} Apple Music cookies found
-                </p>
+                <p>{validation.apple_music_cookies} Apple Music cookies found</p>
                 {validation.warnings.map((w, i) => (
                   <p key={i} className="text-status-warning">
                     {w}
@@ -872,15 +804,9 @@ export function CookiesStep() {
         <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
           <Shield size={14} className="text-accent flex-shrink-0 mt-0.5" />
           <p className="text-xs text-content-secondary">
-            Only cookies for{' '}
-            <span className="font-medium text-content-primary">
-              apple.com
-            </span>{' '}
-            and{' '}
-            <span className="font-medium text-content-primary">
-              mzstatic.com
-            </span>{' '}
-            are read. No other browsing data is accessed.
+            Only cookies for <span className="font-medium text-content-primary">apple.com</span> and{' '}
+            <span className="font-medium text-content-primary">mzstatic.com</span> are read. No
+            other browsing data is accessed.
           </p>
         </div>
       )}

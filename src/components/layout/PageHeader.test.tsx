@@ -56,10 +56,7 @@ describe('PageHeader', () => {
   /** The actions prop renders arbitrary JSX on the right side of the header. */
   it('renders action buttons when provided', () => {
     render(
-      <PageHeader
-        title="Queue"
-        actions={<button data-testid="refresh-btn">Refresh</button>}
-      />,
+      <PageHeader title="Queue" actions={<button data-testid="refresh-btn">Refresh</button>} />
     );
 
     expect(screen.getByTestId('refresh-btn')).toBeInTheDocument();
@@ -93,7 +90,7 @@ describe('PageHeader', () => {
             <button>Refresh</button>
           </>
         }
-      />,
+      />
     );
 
     expect(screen.getByText('Clear')).toBeInTheDocument();

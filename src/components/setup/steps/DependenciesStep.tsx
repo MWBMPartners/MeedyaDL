@@ -55,10 +55,10 @@ import { useEffect } from 'react';
 
 // Lucide icons for the three tool status states and install button.
 import {
-  CheckCircle,   // Installed (green)
-  XCircle,       // Required but missing (red)
-  Download,      // Install button icon
-  AlertCircle,   // Optional and missing (grey)
+  CheckCircle, // Installed (green)
+  XCircle, // Required but missing (red)
+  Download, // Install button icon
+  AlertCircle, // Optional and missing (grey)
 } from 'lucide-react';
 
 // Zustand stores for dependency tracking and wizard step management.
@@ -68,9 +68,6 @@ import { useSetupStore } from '@/stores/setupStore';
 // Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
 
-// Platform detection hook for filtering tools on unsupported platforms.
-import { usePlatform } from '@/hooks/usePlatform';
-
 /**
  * DependenciesStep -- Renders the external tools installation step.
  *
@@ -79,10 +76,6 @@ import { usePlatform } from '@/hooks/usePlatform';
  * sequentially. Auto-completes when all required tools are installed.
  */
 export function DependenciesStep() {
-  // --- Platform detection ---
-  /** Platform info for filtering tools on unsupported platforms */
-  const { supportsWrapper } = usePlatform();
-
   // --- Dependency store selectors ---
   /** Array of tool dependency statuses */
   const tools = useDependencyStore((s) => s.tools);
@@ -122,14 +115,8 @@ export function DependenciesStep() {
     }
   }, [tools, completeStep]);
 
-  /**
-   * Filter out AMDecrypt on platforms that don't support the Wrapper service.
-   * On Linux x86_64 all tools are shown; on other platforms AMDecrypt is hidden
-   * from the UI (but remains in the backend for manual JSON configuration).
-   */
-  const displayTools = supportsWrapper
-    ? tools
-    : tools.filter((t) => t.name !== 'AMDecrypt');
+  /** All tools are displayed — the backend only returns required tools. */
+  const displayTools = tools;
 
   /**
    * Installs all missing tools sequentially.
@@ -155,12 +142,10 @@ export function DependenciesStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">
-          External Tools
-        </h2>
+        <h2 className="text-xl font-semibold text-content-primary">External Tools</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL uses several external tools for processing downloads. Required
-          tools must be installed; optional tools provide additional features.
+          GAMDL uses several external tools for processing downloads. Required tools must be
+          installed; optional tools provide additional features.
         </p>
       </div>
 
@@ -202,9 +187,7 @@ export function DependenciesStep() {
                 {/* Tool info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-content-primary">
-                      {tool.name}
-                    </span>
+                    <span className="text-sm font-medium text-content-primary">{tool.name}</span>
                     {tool.required && (
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error">
                         Required
@@ -222,9 +205,7 @@ export function DependenciesStep() {
                     )}
                   </div>
                   {tool.version && (
-                    <p className="text-xs text-content-secondary">
-                      v{tool.version}
-                    </p>
+                    <p className="text-xs text-content-secondary">v{tool.version}</p>
                   )}
                 </div>
 

@@ -51,9 +51,9 @@ interface LoadingSpinnerProps {
  * so the paths scale smoothly at any dimension.
  */
 const SIZE_MAP: Record<SpinnerSize, number> = {
-  sm: 16,  // 16px -- compact inline spinner
-  md: 24,  // 24px -- default
-  lg: 40,  // 40px -- large / hero spinner
+  sm: 16, // 16px -- compact inline spinner
+  md: 24, // 24px -- default
+  lg: 40, // 40px -- large / hero spinner
 };
 
 /**
@@ -77,11 +77,7 @@ const SIZE_MAP: Record<SpinnerSize, number> = {
  * @param label     - Optional descriptive text below the spinner
  * @param className - Additional Tailwind classes for the outer container
  */
-export function LoadingSpinner({
-  size = 'md',
-  label,
-  className = '',
-}: LoadingSpinnerProps) {
+export function LoadingSpinner({ size = 'md', label, className = '' }: LoadingSpinnerProps) {
   /* Resolve the pixel dimension from the size preset */
   const dimension = SIZE_MAP[size];
 
@@ -132,9 +128,7 @@ export function LoadingSpinner({
       </svg>
 
       {/* Optional label text displayed below the spinner in muted colour */}
-      {label && (
-        <span className="text-sm text-content-secondary">{label}</span>
-      )}
+      {label && <span className="text-sm text-content-secondary">{label}</span>}
     </div>
   );
 }

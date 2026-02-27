@@ -290,7 +290,7 @@ export function DownloadQueue() {
    * shown when this count is greater than zero.
    */
   const finishedCount = queueItems.filter(
-    (i) => i.state === 'complete' || i.state === 'cancelled',
+    (i) => i.state === 'complete' || i.state === 'cancelled'
   ).length;
 
   /**
@@ -299,7 +299,7 @@ export function DownloadQueue() {
    * shown when this count is greater than zero.
    */
   const exportableCount = queueItems.filter(
-    (i) => i.state === 'queued' || i.state === 'downloading' || i.state === 'processing',
+    (i) => i.state === 'queued' || i.state === 'downloading' || i.state === 'processing'
   ).length;
 
   /**
@@ -313,7 +313,7 @@ export function DownloadQueue() {
    * The "Start Queue" button is shown when items are queued but none active.
    */
   const activeCount = queueItems.filter(
-    (i) => i.state === 'downloading' || i.state === 'processing',
+    (i) => i.state === 'downloading' || i.state === 'processing'
   ).length;
 
   // ---------------------------------------------------------------
@@ -356,12 +356,7 @@ export function DownloadQueue() {
              * "Import" button -- always shown, opens a native file picker
              * to import queue items from a .meedyadl file.
              */}
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<Download size={14} />}
-              onClick={handleImport}
-            >
+            <Button variant="ghost" size="sm" icon={<Download size={14} />} onClick={handleImport}>
               Import
             </Button>
 
@@ -427,9 +422,7 @@ export function DownloadQueue() {
            */
           <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
             <p className="text-sm">No downloads in queue</p>
-            <p className="text-xs mt-1">
-              Add a download from the Download page to get started
-            </p>
+            <p className="text-xs mt-1">Add a download from the Download page to get started</p>
           </div>
         ) : (
           /*

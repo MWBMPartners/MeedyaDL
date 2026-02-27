@@ -81,9 +81,7 @@ export function CompleteStep() {
 
       {/* Heading */}
       <div>
-        <h2 className="text-2xl font-bold text-content-primary">
-          Setup Complete!
-        </h2>
+        <h2 className="text-2xl font-bold text-content-primary">Setup Complete!</h2>
         <p className="text-base text-content-secondary mt-2">
           Everything is ready. You can now start downloading music.
         </p>
@@ -91,9 +89,7 @@ export function CompleteStep() {
 
       {/* Installation summary */}
       <div className="text-left max-w-md mx-auto p-4 rounded-platform-lg border border-border-light bg-surface-elevated">
-        <h3 className="text-sm font-semibold text-content-primary mb-3">
-          Installation Summary
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-3">Installation Summary</h3>
         <div className="space-y-2 text-sm">
           {/* Python */}
           {python?.installed && (
@@ -113,10 +109,7 @@ export function CompleteStep() {
 
           {/* Tools */}
           {installedTools.map((tool) => (
-            <div
-              key={tool.name}
-              className="flex items-center gap-2 text-content-secondary"
-            >
+            <div key={tool.name} className="flex items-center gap-2 text-content-secondary">
               <CheckCircle size={14} className="text-status-success flex-shrink-0" />
               {tool.name} {tool.version && `v${tool.version}`}
             </div>

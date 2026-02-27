@@ -53,8 +53,8 @@
    *
    * @see https://developer.apple.com/fonts/ -- Apple's San Francisco font family
    */
-  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display',
-    'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
 
   /*
    * macOS border radii: Larger and more rounded than other platforms.
@@ -62,8 +62,8 @@
    * rounded corners, especially in the Liquid Glass era. These values
    * approximate the native NSRoundedBezelStyle and sheet corners.
    */
-  --radius: 8px;     /* Buttons, text fields, small cards */
-  --radius-sm: 6px;  /* Badges, tags, segmented controls */
+  --radius: 8px; /* Buttons, text fields, small cards */
+  --radius-sm: 6px; /* Badges, tags, segmented controls */
   --radius-lg: 12px; /* Sheets, popovers, large cards, modal dialogs */
 
   /*
@@ -72,10 +72,10 @@
    * behind the sidebar to show through (when combined with backdrop-filter below).
    * Native macOS sidebars use NSVisualEffectView with .sidebar material.
    */
-  --sidebar-bg: rgba(245, 245, 245, 0.7);     /* 70% opaque light gray (vibrancy base) */
-  --sidebar-hover: rgba(0, 0, 0, 0.04);        /* Very subtle hover: 4% black overlay */
-  --sidebar-active: rgba(0, 0, 0, 0.07);       /* Active state: 7% black overlay */
-  --sidebar-border: rgba(0, 0, 0, 0.08);       /* Translucent border for glass look */
+  --sidebar-bg: rgba(245, 245, 245, 0.7); /* 70% opaque light gray (vibrancy base) */
+  --sidebar-hover: rgba(0, 0, 0, 0.04); /* Very subtle hover: 4% black overlay */
+  --sidebar-active: rgba(0, 0, 0, 0.07); /* Active state: 7% black overlay */
+  --sidebar-border: rgba(0, 0, 0, 0.08); /* Translucent border for glass look */
 
   /*
    * macOS system accent blue.
@@ -106,13 +106,13 @@
 @media (prefers-color-scheme: dark) {
   .platform-macos:not(.theme-light) {
     /* Sidebar: Darker translucent base for dark mode vibrancy */
-    --sidebar-bg: rgba(28, 28, 30, 0.75);         /* Dark gray at 75% opacity */
-    --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay at 5% (reversed from light) */
-    --sidebar-active: rgba(255, 255, 255, 0.08);  /* White overlay at 8% for active item */
-    --sidebar-border: rgba(255, 255, 255, 0.06);  /* Subtle white border for glass edge */
+    --sidebar-bg: rgba(28, 28, 30, 0.75); /* Dark gray at 75% opacity */
+    --sidebar-hover: rgba(255, 255, 255, 0.05); /* White overlay at 5% (reversed from light) */
+    --sidebar-active: rgba(255, 255, 255, 0.08); /* White overlay at 8% for active item */
+    --sidebar-border: rgba(255, 255, 255, 0.06); /* Subtle white border for glass edge */
 
     /* Dark mode accent: Brighter blue for visibility against dark backgrounds */
-    --accent: #0a84ff;   /* NSColor.systemBlue in dark mode (higher luminance) */
+    --accent: #0a84ff; /* NSColor.systemBlue in dark mode (higher luminance) */
     --accent-hover: #409cff; /* Even brighter hover state */
 
     /* Dark mode shadows: Higher opacity because shadows are harder to see on dark surfaces */

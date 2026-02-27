@@ -143,7 +143,7 @@ export function FilePickerButton({
 
       /* Open the native dialog with the configured options */
       const selected = await open({
-        directory,       // true = directory picker, false = file picker
+        directory, // true = directory picker, false = file picker
         multiple: false, // single selection only
         filters: filters,
         title: directory ? 'Select Directory' : 'Select File',
@@ -170,11 +170,7 @@ export function FilePickerButton({
     /* Outer wrapper -- space-y-1.5 for consistent vertical spacing */
     <div className="space-y-1.5">
       {/* Label -- same styling as Input and Select labels for consistency */}
-      {label && (
-        <label className="block text-sm font-medium text-content-primary">
-          {label}
-        </label>
-      )}
+      {label && <label className="block text-sm font-medium text-content-primary">{label}</label>}
 
       {/*
        * Horizontal layout: path display area (flex-1) + Browse button.
@@ -214,20 +210,13 @@ export function FilePickerButton({
          * variant so it visually complements rather than competes with
          * the primary CTA elsewhere on the page.
          */}
-        <Button
-          variant="secondary"
-          size="md"
-          onClick={handleBrowse}
-          disabled={disabled}
-        >
+        <Button variant="secondary" size="md" onClick={handleBrowse} disabled={disabled}>
           Browse
         </Button>
       </div>
 
       {/* Helper description text below the control */}
-      {description && (
-        <p className="text-xs text-content-tertiary">{description}</p>
-      )}
+      {description && <p className="text-xs text-content-tertiary">{description}</p>}
     </div>
   );
 }

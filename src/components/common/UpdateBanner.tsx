@@ -32,14 +32,7 @@
  * Lucide icon imports for the banner UI.
  * @see https://lucide.dev/guide/packages/lucide-react
  */
-import {
-  ArrowUpCircle,
-  X,
-  ExternalLink,
-  RefreshCw,
-  Download,
-  RotateCcw,
-} from 'lucide-react';
+import { ArrowUpCircle, X, ExternalLink, RefreshCw, Download, RotateCcw } from 'lucide-react';
 
 /**
  * React `useMemo` hook for memoizing the derived active-updates list.
@@ -107,9 +100,7 @@ export function UpdateBanner() {
   const isDownloadingUpdate = useUpdateStore((s) => s.isDownloadingUpdate);
   const downloadProgress = useUpdateStore((s) => s.downloadProgress);
   const updateInstalled = useUpdateStore((s) => s.updateInstalled);
-  const downloadAndInstallAppUpdate = useUpdateStore(
-    (s) => s.downloadAndInstallAppUpdate,
-  );
+  const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
   const setPage = useUiStore((s) => s.setPage);
 
@@ -126,10 +117,7 @@ export function UpdateBanner() {
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
-      (c) =>
-        c.update_available &&
-        c.is_compatible &&
-        !dismissed.includes(c.name),
+      (c) => c.update_available && c.is_compatible && !dismissed.includes(c.name)
     );
   }, [lastResult, dismissed]);
 
@@ -204,10 +192,7 @@ export function UpdateBanner() {
          * flex-shrink-0 prevents it from compressing in narrow layouts.
          * mt-0.5 aligns it vertically with the first line of text.
          */}
-        <ArrowUpCircle
-          size={18}
-          className="text-accent flex-shrink-0 mt-0.5"
-        />
+        <ArrowUpCircle size={18} className="text-accent flex-shrink-0 mt-0.5" />
 
         {/* Update details column */}
         <div className="flex-1 space-y-2">
@@ -249,15 +234,10 @@ export function UpdateBanner() {
                 <span className="text-xs text-content-secondary">
                   <span className="font-medium">{update.name}</span>
                   {/* Current version -- only shown when known */}
-                  {update.current_version && (
-                    <span> v{update.current_version}</span>
-                  )}
+                  {update.current_version && <span> v{update.current_version}</span>}
                   {/* Latest version -- highlighted in accent colour with arrow */}
                   {update.latest_version && (
-                    <span className="text-accent">
-                      {' '}
-                      &rarr; v{update.latest_version}
-                    </span>
+                    <span className="text-accent"> &rarr; v{update.latest_version}</span>
                   )}
                   {/* Pre-release badge -- amber indicator for beta/RC versions */}
                   {update.is_prerelease && (
@@ -317,9 +297,7 @@ export function UpdateBanner() {
                             />
                           </div>
                           <span className="text-[10px] text-content-tertiary tabular-nums">
-                            {downloadProgress != null
-                              ? `${downloadProgress}%`
-                              : '...'}
+                            {downloadProgress != null ? `${downloadProgress}%` : '...'}
                           </span>
                         </div>
                       ) : (
@@ -328,9 +306,7 @@ export function UpdateBanner() {
                             variant="primary"
                             size="sm"
                             icon={<Download size={12} />}
-                            onClick={() =>
-                              handleDownloadAndInstall(update.tag_name!)
-                            }
+                            onClick={() => handleDownloadAndInstall(update.tag_name!)}
                           >
                             Download &amp; Install
                           </Button>
@@ -353,10 +329,7 @@ export function UpdateBanner() {
                       className="p-1 rounded hover:bg-surface-secondary transition-colors"
                       title="View release"
                     >
-                      <ExternalLink
-                        size={14}
-                        className="text-content-tertiary"
-                      />
+                      <ExternalLink size={14} className="text-content-tertiary" />
                     </button>
                   )}
 
@@ -383,8 +356,8 @@ export function UpdateBanner() {
                */}
               {update.is_prerelease && (
                 <p className="text-[11px] text-status-warning pl-0.5">
-                  This is a pre-release version and may contain bugs or
-                  incomplete features. Not recommended for production use.
+                  This is a pre-release version and may contain bugs or incomplete features. Not
+                  recommended for production use.
                 </p>
               )}
             </div>

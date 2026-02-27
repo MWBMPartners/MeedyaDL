@@ -45,7 +45,7 @@
 use std::path::{Path, PathBuf};
 
 use mp4ameta::{Data, FreeformIdent, Tag};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::process::Command;
 
 use crate::models::gamdl_options::SongCodec;
@@ -254,6 +254,7 @@ pub async fn apply_enriched_metadata_tags(
     codec: &SongCodec,
     urls: &[String],
     pre_fetched_metadata: Option<&AlbumMetadata>,
+    event_context: Option<(&tauri::AppHandle, &str)>,
 ) -> Result<(usize, Option<AlbumMetadata>), String> {
     // Collect all M4A files from the output path
     let m4a_files = collect_m4a_files(output_path);
@@ -267,7 +268,7 @@ pub async fn apply_enriched_metadata_tags(
     // Resolve album metadata: reuse pre-fetched or try API fetch
     let album_metadata: Option<AlbumMetadata> = match pre_fetched_metadata {
         Some(m) => Some(m.clone()),
-        None => try_fetch_metadata(app, urls).await,
+        None => try_fetch_metadata(app, urls, event_context).await,
     };
 
     // Process each M4A file with all enrichment layers
@@ -658,44 +659,100 @@ fn match_track_to_metadata(
 async fn try_fetch_metadata(
     app: &AppHandle,
     urls: &[String],
+    event_context: Option<(&tauri::AppHandle, &str)>,
 ) -> Option<AlbumMetadata> {
+    // Helper to emit to Activity Log if context is available
+    let log_event = |msg: &str| {
+        if let Some((app_handle, dl_id)) = event_context {
+            let _ = app_handle.emit(
+                "activity-log",
+                &serde_json::json!({
+                    "download_id": dl_id,
+                    "stream": "internal",
+                    "line": msg,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                }),
+            );
+        }
+    };
+
     // Load settings for MusicKit credentials
     let settings = config_service::load_settings(app).unwrap_or_default();
 
-    let team_id = settings.musickit_team_id.as_ref().filter(|s| !s.is_empty())?;
-    let key_id = settings.musickit_key_id.as_ref().filter(|s| !s.is_empty())?;
+    let team_id = match settings.musickit_team_id.as_ref().filter(|s| !s.is_empty()) {
+        Some(id) => id,
+        None => {
+            log_event("Apple Music API: MusicKit Team ID not configured, skipping API metadata");
+            return None;
+        }
+    };
+    let key_id = match settings.musickit_key_id.as_ref().filter(|s| !s.is_empty()) {
+        Some(id) => id,
+        None => {
+            log_event("Apple Music API: MusicKit Key ID not configured, skipping API metadata");
+            return None;
+        }
+    };
 
     // Private key is stored in the OS keychain (sensitive credential)
     let private_key = match apple_music_api::get_private_key_from_keychain() {
         Ok(Some(key)) => key,
         Ok(None) => {
             log::debug!("MusicKit private key not in keychain, skipping API enrichment");
+            log_event("Apple Music API: MusicKit private key not found in OS keychain");
             return None;
         }
         Err(e) => {
             log::warn!("Failed to read MusicKit private key: {e}");
+            log_event(&format!("Apple Music API: failed to read private key from keychain: {e}"));
             return None;
         }
     };
 
+    log_event("Apple Music API: MusicKit credentials found, generating JWT token...");
+
     // Parse URL to find an album URL (API enrichment only works for albums)
-    let parsed = urls
+    let parsed = match urls
         .iter()
         .find_map(|url| apple_music_api::parse_apple_music_url(url))
-        .filter(|p| p.content_type == "album")?;
+        .filter(|p| p.content_type == "album")
+    {
+        Some(p) => p,
+        None => {
+            log_event("Apple Music API: URL is not an album, skipping API metadata");
+            return None;
+        }
+    };
 
     let jwt = match apple_music_api::generate_musickit_jwt(team_id, key_id, &private_key) {
-        Ok(jwt) => jwt,
+        Ok(jwt) => {
+            log_event("Apple Music API: JWT generated, fetching album metadata...");
+            jwt
+        }
         Err(e) => {
             log::warn!("Failed to generate MusicKit JWT for enrichment: {e}");
+            log_event(&format!("Apple Music API: JWT generation failed: {e}"));
             return None;
         }
     };
 
     match apple_music_api::fetch_album_metadata(&jwt, &parsed.storefront, &parsed.album_id).await {
-        Ok(metadata) => metadata,
+        Ok(Some(metadata)) => {
+            log_event(&format!(
+                "Apple Music API: fetched metadata ({} track(s), artist: {}, UPC: {})",
+                metadata.tracks.len(),
+                metadata.artist_name.as_deref().unwrap_or("unknown"),
+                metadata.upc.as_deref().unwrap_or("N/A"),
+            ));
+            Some(metadata)
+        }
+        Ok(None) => {
+            log_event("Apple Music API: album not found in catalog");
+            None
+        }
         Err(e) => {
             log::warn!("Failed to fetch album metadata for enrichment: {e}");
+            log_event(&format!("Apple Music API: fetch failed: {e}"));
             None
         }
     }
