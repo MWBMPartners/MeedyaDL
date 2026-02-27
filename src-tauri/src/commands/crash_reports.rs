@@ -13,6 +13,7 @@
 //   - `delete_crash_report` -- Delete a report by ID
 //   - `export_crash_report` -- Export as formatted Markdown
 //   - `log_frontend_error` -- Save a frontend error as a crash report
+//   - `get_github_issue_url` -- Build a pre-filled GitHub new-issue URL
 
 use std::collections::HashMap;
 use tauri::AppHandle;
@@ -78,7 +79,7 @@ pub fn log_frontend_error(
     stack: Option<String>,
     component_stack: Option<String>,
     url: Option<String>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let mut context = HashMap::new();
     if let Some(ref cs) = component_stack {
         context.insert("component_stack".to_string(), cs.clone());
@@ -106,5 +107,22 @@ pub fn log_frontend_error(
         report.panic_message.as_deref().unwrap_or("unknown")
     );
 
-    crash_report_service::save_frontend_crash_report(&app, report)
+    let report_id = report.id.clone();
+    crash_report_service::save_frontend_crash_report(&app, report)?;
+    Ok(report_id)
+}
+
+/// Builds and returns a pre-filled GitHub new-issue URL for a crash report.
+///
+/// The URL opens `github.com/MWBMPartners/MeedyaDL/issues/new` with
+/// pre-filled title, body (Markdown-formatted crash details), and labels
+/// (`bug`, `crash-report`). The body is truncated if it would exceed
+/// browser URL length limits (~3500 chars raw).
+///
+/// Called by the frontend's CrashReportDialog "Open GitHub Issue" button.
+/// The URL is opened in the user's default browser via the Tauri shell
+/// plugin, where the user reviews and submits the issue.
+#[tauri::command]
+pub fn get_github_issue_url(app: AppHandle, id: String) -> Result<String, String> {
+    crash_report_service::build_github_issue_url(&app, &id)
 }

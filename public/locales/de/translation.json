@@ -79,6 +79,26 @@
     "preRelease": "Vorabversion",
     "preReleaseWarning": "Dies ist eine Vorabversion und kann Fehler oder unvollständige Funktionen enthalten."
   },
+  "crashReporting": {
+    "title": "Letzte Absturzberichte",
+    "noReports": "Keine Absturzberichte gefunden.",
+    "report": "Melden",
+    "delete": "Absturzbericht löschen",
+    "deleted": "Absturzbericht gelöscht",
+    "deleteFailed": "Absturzbericht konnte nicht gelöscht werden",
+    "dialogTitle": "Absturz an Entwickler melden",
+    "privacyNotice": "Die folgenden Absturzdaten werden geteilt, wenn Sie das GitHub-Issue öffnen. Überprüfen Sie die Informationen unten, bevor Sie fortfahren. Sie benötigen ein GitHub-Konto, um das Issue einzureichen.",
+    "openGitHub": "GitHub-Issue öffnen",
+    "opening": "GitHub Issues wird in Ihrem Browser geöffnet...",
+    "openFailed": "GitHub Issues konnte nicht geöffnet werden",
+    "cancel": "Abbrechen",
+    "previewFailed": "Vorschau des Absturzberichts konnte nicht geladen werden.",
+    "source": {
+      "rust_panic": "Rust-Absturz",
+      "frontend_error": "Frontend-Fehler",
+      "unhandled_rejection": "Unbehandelte Ablehnung"
+    }
+  },
   "common": {
     "loading": "Laden...",
     "error": "Fehler",

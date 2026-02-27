@@ -9,6 +9,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### ✨ Features
 
 - Add crash reporting system with local file logging and optional Sentry integration — replaces `env_logger` with `tracing` ecosystem for dual-output logging (stderr + daily-rotating file), adds custom panic handler that writes JSON crash reports to `{app_data_dir}/crashes/`, persists frontend errors (ErrorBoundary, window.onerror, unhandledrejection) to crash reports via IPC, and adds opt-in Sentry cloud reporting with toggle in Settings > Advanced
+- Add GitHub Issues crash reporting — report crashes directly to the developer from Settings > Advanced with a pre-filled GitHub Issue opened in your browser. Privacy-first design: user previews all data in a consent modal before submitting. Backtrace truncated if body exceeds 3500 chars for URL length safety. New `CrashReportSection` and `CrashReportDialog` components, `get_github_issue_url` IPC command, `crash-report` issue template, and `crash-report` label.
 - Add GitHub branch protection via Repository Ruleset — prevents force pushes and branch deletion on `main`, requires CI status checks for PRs
 
 ### 🐛 Bug Fixes
