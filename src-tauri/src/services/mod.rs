@@ -178,3 +178,17 @@ pub mod replaygain_service;
 ///
 /// Used by: `download_queue` (post-download enrichment, when `enhanced_lrc` enabled)
 pub mod enhanced_lyrics_service;
+
+/// Pre-flight health check service.
+///
+/// Provides reusable health check functions for internet connectivity,
+/// cookie validation, and wrapper service health. Called by
+/// `download_queue.rs` before queue processing begins, and by
+/// `commands/settings.rs` for on-demand validation.
+///
+/// Each check returns `Option<PreflightWarning>`:
+/// - `None` = check passed
+/// - `Some(warning)` = issue detected, shown as a persistent toast
+///
+/// Used by: `download_queue` (pre-flight checks), `commands/settings` (cookie validation)
+pub mod health_check_service;

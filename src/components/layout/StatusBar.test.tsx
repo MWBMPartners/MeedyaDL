@@ -46,6 +46,7 @@ function createItem(
     output_path: state === 'complete' ? '/tmp/output' : null,
     codec_used: 'alac',
     fallback_occurred: false,
+    used_wrapper: false,
     warnings: [],
     created_at: new Date().toISOString(),
   };

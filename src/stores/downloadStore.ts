@@ -178,6 +178,15 @@ interface DownloadState {
   retryDownload: (downloadId: string) => Promise<void>;
 
   /**
+   * Retry a failed download with wrapper authentication disabled.
+   * IPC call: `commands.retryDownloadWithoutWrapper(downloadId)` -> Rust `retry_download_without_wrapper`
+   * Falls back to cookie-based authentication by disabling the wrapper.
+   * After retrying, the queue is refreshed to reflect the new state.
+   * @param downloadId -- The unique ID of the download to retry
+   */
+  retryWithoutWrapper: (downloadId: string) => Promise<void>;
+
+  /**
    * Remove all completed, failed, and cancelled items from the queue.
    * IPC call: `commands.clearQueue()` -> Rust `clear_queue`
    * Returns the number of items removed. Refreshes the queue afterward.
@@ -391,6 +400,22 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   retryDownload: async (downloadId) => {
     try {
       await commands.retryDownload(downloadId);
+      // Fetch the updated queue snapshot to reflect the retried item's new state.
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  /**
+   * Retry a failed download with wrapper disabled.
+   * IPC call: `commands.retryDownloadWithoutWrapper(downloadId)`
+   * Falls back to cookie-based authentication by disabling the wrapper.
+   */
+  retryWithoutWrapper: async (downloadId) => {
+    try {
+      await commands.retryDownloadWithoutWrapper(downloadId);
       // Fetch the updated queue snapshot to reflect the retried item's new state.
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });

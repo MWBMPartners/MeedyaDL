@@ -578,6 +578,7 @@ function App() {
     let unlistenError: (() => void) | undefined;
     let unlistenCancelled: (() => void) | undefined;
     let unlistenQueued: (() => void) | undefined;
+    let unlistenPreflight: (() => void) | undefined;
 
     const setupListeners = async () => {
       try {
@@ -628,6 +629,23 @@ function App() {
             console.error('Error in download-queued handler:', err);
           }
         });
+
+        /* 5. Pre-flight health check warnings.
+         * Emitted by the Rust backend before queue processing begins when
+         * issues are detected (no internet, expired cookies, wrapper down).
+         * Displayed as persistent yellow toasts (duration = 0) so the user
+         * sees them and can dismiss after reading. Uses getState() to avoid
+         * adding addToast to the effect dependency array. */
+        unlistenPreflight = await listen<{ check: string; message: string }>(
+          'preflight-warning',
+          (event) => {
+            try {
+              useUiStore.getState().addToast(event.payload.message, 'warning', 0);
+            } catch (err) {
+              console.error('Error in preflight-warning handler:', err);
+            }
+          },
+        );
       } catch {
         /* Tauri API unavailable (running in browser dev mode) */
       }
@@ -645,6 +663,7 @@ function App() {
       unlistenError?.();
       unlistenCancelled?.();
       unlistenQueued?.();
+      unlistenPreflight?.();
     };
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 

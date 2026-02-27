@@ -118,6 +118,14 @@ interface QueueItemProps {
   onRetry: (id: string) => void;
 
   /**
+   * Callback invoked when the user clicks "Retry without Wrapper" on
+   * a failed download that was attempted with wrapper enabled.
+   * Receives the download ID. The parent uses this to call
+   * `downloadStore.retryWithoutWrapper(id)`.
+   */
+  onRetryWithoutWrapper: (id: string) => void;
+
+  /**
    * Callback invoked after the source URL is copied to the clipboard
    * via the context menu. The parent uses this to show a toast
    * notification confirming the copy.
@@ -197,7 +205,7 @@ const STATE_CONFIG: Record<
  * @see https://tailwindcss.com/docs/animation#spin
  *      Tailwind animate-spin for the processing spinner.
  */
-export function QueueItem({ item, onCancel, onRetry, onCopyUrl }: QueueItemProps) {
+export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCopyUrl }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
    * current download state from the static `STATE_CONFIG` record.
@@ -329,8 +337,19 @@ export function QueueItem({ item, onCancel, onRetry, onCopyUrl }: QueueItemProps
             label: 'Retry Download',
             icon: <RotateCcw size={14} />,
             onClick: () => onRetry(item.id),
-            separator: !item.output_path, // separator only if Open Folder wasn't shown
+            separator: !item.used_wrapper && !item.output_path,
           },
+          // "Retry without Wrapper" -- only for downloads that used wrapper auth
+          ...(item.used_wrapper
+            ? [
+                {
+                  label: 'Retry without Wrapper',
+                  icon: <RotateCcw size={14} />,
+                  onClick: () => onRetryWithoutWrapper(item.id),
+                  separator: !item.output_path,
+                },
+              ]
+            : []),
         ]
       : []),
   ];
@@ -522,6 +541,26 @@ export function QueueItem({ item, onCancel, onRetry, onCopyUrl }: QueueItemProps
        */}
       {item.state === 'error' && item.error && (
         <p className="mt-1.5 pl-7 text-xs text-status-error">{item.error}</p>
+      )}
+
+      {/*
+       * "Retry without Wrapper" pill button -- shown below the error message
+       * for failed downloads that were attempted with wrapper authentication.
+       * Allows users to fall back to cookie-based auth without navigating
+       * to settings. Styled as a subtle pill to avoid visual clutter.
+       */}
+      {item.state === 'error' && item.used_wrapper && (
+        <div className="mt-1.5 pl-7">
+          <button
+            type="button"
+            onClick={() => onRetryWithoutWrapper(item.id)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+            title="Disable wrapper and retry with cookie-based authentication"
+          >
+            <RotateCcw size={12} />
+            Retry without Wrapper
+          </button>
+        </div>
       )}
 
       {/*

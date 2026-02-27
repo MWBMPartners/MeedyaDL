@@ -592,10 +592,37 @@ export interface QueueItemStatus {
   codec_used: string | null;
   /** Whether a codec/resolution fallback was used for this download */
   fallback_occurred: boolean;
+  /** Whether this download was attempted using wrapper authentication.
+   * Used to conditionally show the "Retry without Wrapper" button. */
+  used_wrapper: boolean;
   /** Non-fatal warnings from the download (e.g., GAMDL errors that didn't prevent completion) */
   warnings: string[];
   /** ISO 8601 timestamp when this download was queued */
   created_at: string;
+}
+
+// ============================================================
+// Pre-flight Health Check Types
+// ============================================================
+
+/**
+ * Identifies which pre-flight health check produced a warning.
+ *
+ * Mirrors: Rust enum `PreflightCheck` in `src-tauri/src/services/health_check_service.rs`
+ */
+export type PreflightCheck = 'internet' | 'cookies' | 'wrapper';
+
+/**
+ * Payload of a `"preflight-warning"` Tauri event, emitted by the Rust
+ * backend before queue processing begins.
+ *
+ * Mirrors: Rust struct `PreflightWarning` in `src-tauri/src/services/health_check_service.rs`
+ */
+export interface PreflightWarning {
+  /** Which health check produced this warning */
+  check: PreflightCheck;
+  /** Human-readable warning message */
+  message: string;
 }
 
 /**
