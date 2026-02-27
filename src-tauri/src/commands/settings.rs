@@ -26,6 +26,7 @@
 // | get_settings              | getSettings()                  | ~75  |
 // | save_settings             | saveSettings(settings)         | ~80  |
 // | validate_cookies_file     | validateCookiesFile(path)      | ~85  |
+// | check_cookies_before_download | checkCookiesBeforeDownload() | ~88  |
 // | get_default_output_path   | getDefaultOutputPath()         | ~90  |
 // | test_wrapper_connection   | testWrapperConnection(url)     | ~95  |
 //
@@ -174,6 +175,77 @@ pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, Str
     // is reused by both this command and the pre-flight health checks in
     // download_queue.rs. See health_check_service::parse_cookies_file() for details.
     crate::services::health_check_service::parse_cookies_file(&path)
+}
+
+/// Result of checking cookie readiness before queuing a download.
+///
+/// Returned by `check_cookies_before_download()`. When `ready` is `false`,
+/// the frontend should block the download and display `message` to the user.
+#[derive(Serialize)]
+pub struct CookieCheckResult {
+    /// Whether cookies are valid and ready for downloading
+    pub ready: bool,
+    /// Human-readable explanation when `ready` is `false` (e.g., "Cookies expired")
+    pub message: Option<String>,
+}
+
+/// Checks whether cookies are valid and ready for an Apple Music download.
+///
+/// **Frontend caller:** `checkCookiesBeforeDownload()` in `src/lib/tauri-commands.ts`
+///
+/// Called by the download form before queuing a download. This catches
+/// expired or missing cookies at submission time — before GAMDL is invoked —
+/// so the user gets immediate feedback instead of a delayed failure.
+///
+/// Wrapper users bypass this check (the wrapper handles authentication).
+///
+/// Reuses `health_check_service::parse_cookies_file()` for the actual
+/// cookie parsing and expiry detection.
+#[tauri::command]
+pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult, String> {
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+
+    // Wrapper users don't need cookies — the wrapper handles authentication
+    if settings.use_wrapper {
+        return Ok(CookieCheckResult {
+            ready: true,
+            message: None,
+        });
+    }
+
+    // No cookies file configured at all
+    let Some(ref path) = settings.cookies_path else {
+        return Ok(CookieCheckResult {
+            ready: false,
+            message: Some(
+                "No cookies file configured. Go to Settings \u{203A} Cookies to import your Apple Music cookies.".to_string(),
+            ),
+        });
+    };
+
+    // Validate the cookies file contents
+    match crate::services::health_check_service::parse_cookies_file(path) {
+        Ok(v) if !v.valid || v.apple_music_cookies == 0 => Ok(CookieCheckResult {
+            ready: false,
+            message: Some(
+                "Cookies file contains no Apple Music cookies. Re-import in Settings \u{203A} Cookies.".to_string(),
+            ),
+        }),
+        Ok(v) if v.expired => Ok(CookieCheckResult {
+            ready: false,
+            message: Some(
+                "Apple Music cookies have expired. Re-import fresh cookies in Settings \u{203A} Cookies.".to_string(),
+            ),
+        }),
+        Ok(_) => Ok(CookieCheckResult {
+            ready: true,
+            message: None,
+        }),
+        Err(e) => Ok(CookieCheckResult {
+            ready: false,
+            message: Some(format!("Cannot read cookies file: {e}")),
+        }),
+    }
 }
 
 /// Returns the default output path for downloaded music.
