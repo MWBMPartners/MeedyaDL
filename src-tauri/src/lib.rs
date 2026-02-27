@@ -410,6 +410,7 @@ pub fn run() {
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
             commands::gamdl::retry_download,
+            commands::gamdl::retry_download_without_wrapper,
             commands::gamdl::clear_queue,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,

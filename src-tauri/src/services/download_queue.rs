@@ -242,6 +242,11 @@ pub struct DownloadQueue {
     /// Used to determine whether to use native `--song-codec-priority` (>= 2.9.1)
     /// or `MeedyaDL`'s own `try_fallback` system for older versions.
     gamdl_version: Option<String>,
+    /// Timestamp of the last pre-flight health check run. Used to avoid running
+    /// checks on every `process_queue()` call during a single batch (the function
+    /// is called recursively for each item). Reset to `None` when the queue drains.
+    /// A 60-second cooldown prevents duplicate warnings during rapid re-processing.
+    last_preflight_at: Option<std::time::Instant>,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -274,6 +279,7 @@ impl DownloadQueue {
             active_count: 0,
             max_network_retries: 3,
             gamdl_version: None,
+            last_preflight_at: None,
         }
     }
 
@@ -319,6 +325,7 @@ impl DownloadQueue {
                         .as_ref().map_or_else(|| settings.default_song_codec.to_cli_string().to_string(), |c| c.to_cli_string().to_string()),
                 ),
                 fallback_occurred: false,
+                used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                 warnings: Vec::new(),
                 created_at: chrono::Utc::now().to_rfc3339(),
             },
@@ -677,6 +684,7 @@ impl DownloadQueue {
                 item.status.error = None;
                 item.status.progress = 0.0;
                 item.status.fallback_occurred = false;
+                item.status.used_wrapper = item.merged_options.use_wrapper.unwrap_or(false);
                 item.status.codec_used = Some(
                     item.merged_options
                         .song_codec
@@ -687,6 +695,80 @@ impl DownloadQueue {
             }
         }
         false
+    }
+
+    /// Retries a failed download with wrapper authentication disabled.
+    ///
+    /// Clones the item's original request, disables wrapper in the merged
+    /// options, and resets the item to Queued state. This allows users to
+    /// fall back to cookie-based authentication when the wrapper service
+    /// is down or misconfigured.
+    ///
+    /// Only applies to items that were originally attempted with wrapper
+    /// enabled and are in an error or cancelled state.
+    ///
+    /// # Arguments
+    /// * `download_id` - The unique ID of the failed download to retry
+    /// * `settings` - Current app settings for option re-merging
+    ///
+    /// # Returns
+    /// `true` if the item was found, was wrapper-enabled, and was reset.
+    pub fn retry_without_wrapper(&mut self, download_id: &str, settings: &AppSettings) -> bool {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if (item.status.state == DownloadState::Error
+                || item.status.state == DownloadState::Cancelled)
+                && item.status.used_wrapper
+            {
+                // Re-merge options from the original request with current settings
+                item.merged_options = merge_options(item.request.options.as_ref(), settings);
+                // Override wrapper settings: disable wrapper, clear wrapper URLs
+                item.merged_options.use_wrapper = Some(false);
+                item.merged_options.wrapper_account_url = None;
+                item.merged_options.wrapper_decrypt_ip = None;
+                // Reset counters and state
+                item.fallback_index = 0;
+                item.network_retries_left = self.max_network_retries;
+                item.status.state = DownloadState::Queued;
+                item.status.error = None;
+                item.status.progress = 0.0;
+                item.status.fallback_occurred = false;
+                item.status.used_wrapper = false;
+                item.status.codec_used = Some(
+                    item.merged_options
+                        .song_codec
+                        .as_ref()
+                        .map_or_else(
+                            || settings.default_song_codec.to_cli_string().to_string(),
+                            |c| c.to_cli_string().to_string(),
+                        ),
+                );
+                log::info!("Download {download_id} reset for retry without wrapper");
+                return true;
+            }
+        }
+        false
+    }
+
+    // ==========================================================
+    // Pre-flight health check helpers
+    // ==========================================================
+
+    /// Returns true if pre-flight checks should run.
+    ///
+    /// Pre-flight checks run once per queue batch (not per-item) with a
+    /// 60-second cooldown to prevent duplicate warnings when `process_queue()`
+    /// is called recursively for cascading items.
+    #[must_use]
+    pub fn should_run_preflight(&self) -> bool {
+        match self.last_preflight_at {
+            None => true,
+            Some(t) => t.elapsed() > std::time::Duration::from_secs(60),
+        }
+    }
+
+    /// Marks that pre-flight checks have been run, starting the cooldown timer.
+    pub fn mark_preflight_run(&mut self) {
+        self.last_preflight_at = Some(std::time::Instant::now());
     }
 
     // ==========================================================
@@ -780,6 +862,7 @@ impl DownloadQueue {
                             ),
                     ),
                     fallback_occurred: false,
+                    used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                     warnings: Vec::new(),
                     created_at: p.created_at,
                 },
@@ -1533,6 +1616,72 @@ pub fn process_queue(
     queue: QueueHandle,
 ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     Box::pin(async move {
+    // === Pre-flight health checks (once per queue batch) ===
+    // Run lightweight health checks before processing to warn the user about
+    // potential issues (no internet, expired cookies, wrapper down). These are
+    // non-blocking warnings — the queue proceeds regardless. A 60-second
+    // cooldown prevents duplicate warnings during cascading process_queue() calls.
+    {
+        let should_run = {
+            let q = queue.lock().await;
+            q.should_run_preflight()
+        };
+
+        if should_run {
+            // Mark as run first to prevent concurrent duplicate checks
+            {
+                let mut q = queue.lock().await;
+                q.mark_preflight_run();
+            }
+
+            let settings = load_settings_for_queue(&app);
+
+            // Run internet + wrapper checks concurrently (both are HTTP GETs)
+            let internet_future = crate::services::health_check_service::check_internet_connectivity();
+            let wrapper_future = if settings.use_wrapper {
+                Some(crate::services::health_check_service::check_wrapper_health(
+                    &settings.wrapper_account_url,
+                ))
+            } else {
+                None
+            };
+
+            // Cookie check is synchronous (file I/O only) — run when not using wrapper
+            let cookie_warning = if !settings.use_wrapper {
+                if let Some(ref path) = settings.cookies_path {
+                    crate::services::health_check_service::validate_cookies(path)
+                } else {
+                    Some(crate::services::health_check_service::PreflightWarning {
+                        check: crate::services::health_check_service::PreflightCheck::Cookies,
+                        message: "No cookies file configured. Apple Music downloads require authentication via cookies or wrapper.".to_string(),
+                    })
+                }
+            } else {
+                None
+            };
+
+            // Await the async checks
+            let internet_warning = internet_future.await;
+            let wrapper_warning = match wrapper_future {
+                Some(fut) => fut.await,
+                None => None,
+            };
+
+            // Emit warnings to frontend as persistent toast notifications
+            for warning in [internet_warning, cookie_warning, wrapper_warning]
+                .into_iter()
+                .flatten()
+            {
+                log::warn!(
+                    "Pre-flight warning ({:?}): {}",
+                    warning.check,
+                    warning.message
+                );
+                let _ = app.emit("preflight-warning", &warning);
+            }
+        }
+    }
+
     // Acquire the queue lock briefly to check for the next pending item.
     // The lock is released immediately after to avoid holding it during the download.
     let pending = {

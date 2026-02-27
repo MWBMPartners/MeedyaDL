@@ -222,6 +222,13 @@ pub struct QueueItemStatus {
     /// The frontend uses this to show a warning indicator.
     pub fallback_occurred: bool,
 
+    /// Whether this download was attempted using the wrapper authentication
+    /// system. Used by the frontend to conditionally show the "Retry without
+    /// Wrapper" button on failed downloads, so users can fall back to
+    /// cookie-based auth. Set from the merged options at enqueue time.
+    #[serde(default)]
+    pub used_wrapper: bool,
+
     /// Non-fatal warnings collected during the download (e.g., GAMDL
     /// error-pattern lines that didn't prevent the process from exiting
     /// successfully). Displayed in the queue UI as amber text below the

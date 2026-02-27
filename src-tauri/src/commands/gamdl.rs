@@ -270,6 +270,67 @@ pub async fn retry_download(
     }
 }
 
+/// Retries a failed download with wrapper authentication disabled.
+///
+/// **Frontend caller:** `retryDownloadWithoutWrapper(downloadId)` in `src/lib/tauri-commands.ts`
+///
+/// Similar to `retry_download`, but explicitly disables the wrapper
+/// system and clears wrapper URLs before re-queueing. This allows
+/// users to fall back to cookie-based authentication when the wrapper
+/// service is down or misconfigured.
+///
+/// Only applies to downloads that were originally attempted with wrapper
+/// enabled and are in a retryable state (Failed or Cancelled).
+///
+/// # Arguments
+/// * `app` - Tauri `AppHandle` for settings access and event emission.
+/// * `queue` - Managed download queue state.
+/// * `download_id` - The unique ID of the failed download to retry.
+///
+/// # Returns
+/// * `Ok(())` - The download was reset with wrapper disabled and queue processing triggered.
+/// * `Err(String)` - The download ID was not found, not in a retryable state, or wasn't
+///   originally attempted with wrapper enabled.
+///
+/// # Events Emitted
+/// * `"download-queued"` - Emitted with the download ID after successful re-queue.
+#[tauri::command]
+pub async fn retry_download_without_wrapper(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<(), String> {
+    log::info!("Retry without wrapper requested for download: {download_id}");
+
+    // Re-load settings so retries pick up any changes the user made
+    let settings = crate::services::config_service::load_settings(&app)
+        .unwrap_or_default();
+
+    // Attempt to reset the download with wrapper disabled.
+    // Returns true only if the item exists, is retryable, and was using wrapper.
+    let retried = {
+        let mut q = queue.lock().await;
+        q.retry_without_wrapper(&download_id, &settings)
+    };
+
+    if retried {
+        // Persist the updated queue (retried item now Queued again)
+        let queue_handle = queue.inner().clone();
+        download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+        // Notify frontend and kick off queue processing if auto-start is enabled.
+        let _ = app.emit("download-queued", &download_id);
+        if settings.auto_start_queue {
+            download_queue::process_queue(app, queue_handle).await;
+        }
+        Ok(())
+    } else {
+        Err(format!(
+            "Download {download_id} cannot be retried without wrapper (not found, not retryable, or wasn't using wrapper)"
+        ))
+    }
+}
+
 /// Clears all completed, failed, and cancelled items from the queue.
 ///
 /// **Frontend caller:** `clearQueue()` in `src/lib/tauri-commands.ts`
