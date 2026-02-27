@@ -141,6 +141,21 @@ MeedyaDL requires certain system libraries that may not be installed by default 
      Then run it directly: `./MeedyaDL.AppImage`
   3. On non-Debian-based distributions, use your package manager to install the equivalent packages (e.g., `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
 
+#### Crash on Launch (Queue Recovery Panic)
+
+The application crashes immediately on startup, and macOS shows a dialog asking whether to "reopen windows".
+
+- **Cause:** A corrupt or incompatible `queue.json` file in the app data directory can trigger a panic during the queue restoration step at startup. This was fixed in v0.5.3, where the queue recovery code was updated to not depend on the Tokio async runtime being available during early app initialisation.
+- **Solution:** Update to the latest version of MeedyaDL. If you cannot update immediately, delete the `queue.json` file from your app data directory to allow the application to start:
+
+  | Platform | Path |
+  | --- | --- |
+  | macOS | `~/Library/Application Support/io.github.meedyadl/queue.json` |
+  | Windows | `%APPDATA%/io.github.meedyadl/queue.json` |
+  | Linux | `~/.local/share/io.github.meedyadl/queue.json` |
+
+  Deleting this file clears any queued or failed downloads from the previous session but does not affect your settings, cookies, or already-downloaded files.
+
 #### Temp Directory Write Errors
 
 Downloads fail with a permission error related to the temp or working directory.
