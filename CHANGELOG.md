@@ -30,6 +30,7 @@ Convert Apple Music TTML lyrics to Enhanced LRC format with inline
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
