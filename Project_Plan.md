@@ -282,6 +282,9 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Expanded MusicKit documentation** - 6-step setup guide with detailed Apple Developer portal navigation, platform-specific instructions for extracting the `.p8` private key
 - ✅ **Updates page** - Dedicated sidebar page (`Updates`) showing full release notes rendered as markdown via `react-markdown`. Strips "Choose your download" section from release bodies (irrelevant for in-app auto-update). Connected to update banner "View Details" link and sidebar footer update button. Shows "You're up to date" state with current version when no updates are available. External links in release notes and "View on GitHub" buttons open in the system default browser via `@tauri-apps/plugin-shell`.
 - ✅ **i18n groundwork** - Translation infrastructure using `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Translation files in `public/locales/{lang}/translation.json` (en, de, fr). `ui_language` setting in AppSettings (empty = auto-detect from OS). Language dropdown in Settings > General. Dynamic locale loading at startup. Provides migration path for translating remaining components.
+- ✅ **Crash reporting system** - Three-layer diagnostics: local file logging (`tracing` ecosystem with daily-rotating log files), local JSON crash reports (`{app_data_dir}/crashes/`), and opt-in Sentry cloud reporting. Custom panic handler captures Rust panics; frontend errors (ErrorBoundary, window.onerror, unhandledrejection) persisted via `log_frontend_error` IPC command.
+- ✅ **GitHub Issues crash reporting** - One-click crash reporting to GitHub Issues from Settings > Advanced > Crash Reporting. Pre-filled GitHub Issue URL opened in the user's browser (no tokens, no server needed). Privacy-first: user reviews all data in a `CrashReportDialog` consent modal before submitting. Backtrace truncated if body exceeds 3500 chars for URL length safety. New `crash-report` label and `.github/ISSUE_TEMPLATE/crash-report.yml` issue template. `build_github_issue_url()` in `crash_report_service.rs`, `get_github_issue_url` IPC command, `CrashReportSection` and `CrashReportDialog` frontend components.
+- ✅ **GitHub branch protection** - Repository Ruleset on `main` preventing force pushes and branch deletion, requiring CI status checks for PRs
 
 ---
 
@@ -479,6 +482,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 | **Custom themes** | User-defined accent colours and theme presets | 🔮 Future |
 | **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback | 🔮 Future |
 | **Native SwiftUI UI for macOS** | Replace the web-based frontend on Apple Silicon with a fully native SwiftUI interface for tighter macOS integration and performance | 🔮 Future |
+| **PHP relay endpoint for crash reporting** | Server-side relay that accepts anonymous crash submissions without requiring a GitHub account, creating GitHub Issues on the user's behalf (GitHub Issue [#44](https://github.com/MWBMPartners/MeedyaDL/issues/44)) | 🔮 Future |
 
 ---
 

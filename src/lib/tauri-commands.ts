@@ -805,3 +805,88 @@ export function downloadAnimatedArtwork(
 ): Promise<ArtworkResult> {
   return invoke<ArtworkResult>('download_animated_artwork', { urls, outputDir });
 }
+
+// ============================================================
+// Crash Report Commands
+// ============================================================
+//
+// These commands interact with the crash report service to list,
+// delete, export, and report saved crash reports. Crash reports
+// are JSON files stored in `{app_data_dir}/crashes/` by the Rust
+// panic handler and the frontend error persistence system.
+//
+// See: src-tauri/src/commands/crash_reports.rs
+
+/**
+ * Returns all crash reports, sorted by timestamp (newest first).
+ *
+ * Rust handler: `list_crash_reports()` in `src-tauri/src/commands/crash_reports.rs`
+ * Returns: `CrashReport[]`
+ *
+ * Reads all `crash-*.json` files from the crashes directory and
+ * deserializes them into `CrashReport` objects. Files that fail
+ * to parse are silently skipped.
+ *
+ * Called by: CrashReportSection in Settings > Advanced
+ *
+ * @returns Promise resolving to an array of crash reports (newest first)
+ */
+export function listCrashReports(): Promise<import('@/types').CrashReport[]> {
+  return invoke<import('@/types').CrashReport[]>('list_crash_reports');
+}
+
+/**
+ * Deletes a crash report by its ID.
+ *
+ * Rust handler: `delete_crash_report()` in `src-tauri/src/commands/crash_reports.rs`
+ *
+ * Removes the JSON file from the crashes directory. Idempotent:
+ * deleting a non-existent report is not an error.
+ *
+ * Called by: CrashReportSection delete button
+ *
+ * @param id - The crash report UUID to delete
+ * @returns Promise resolving when the report is deleted
+ */
+export function deleteCrashReport(id: string): Promise<void> {
+  return invoke<void>('delete_crash_report', { id });
+}
+
+/**
+ * Exports a crash report as a formatted Markdown string.
+ *
+ * Rust handler: `export_crash_report()` in `src-tauri/src/commands/crash_reports.rs`
+ * Returns: Markdown string with headers, code blocks, and metadata sections
+ *
+ * The returned string is formatted for pasting into a GitHub issue
+ * or sharing with a developer. Used by the CrashReportDialog to
+ * show the user a preview of what will be reported.
+ *
+ * Called by: CrashReportDialog preview display
+ *
+ * @param id - The crash report UUID to export
+ * @returns Promise resolving to a formatted Markdown string
+ */
+export function exportCrashReport(id: string): Promise<string> {
+  return invoke<string>('export_crash_report', { id });
+}
+
+/**
+ * Builds and returns a pre-filled GitHub new-issue URL for a crash report.
+ *
+ * Rust handler: `get_github_issue_url()` in `src-tauri/src/commands/crash_reports.rs`
+ * Returns: Full URL string for `github.com/MWBMPartners/MeedyaDL/issues/new`
+ *   with query parameters: `title`, `body` (Markdown), and `labels` (bug, crash-report)
+ *
+ * The body is truncated if it would exceed browser URL length limits
+ * (~3500 chars raw). Backtrace is truncated to first 15 + last 5 lines
+ * with a "[truncated]" marker when needed.
+ *
+ * Called by: CrashReportDialog "Open GitHub Issue" button
+ *
+ * @param id - The crash report UUID to build the GitHub issue URL for
+ * @returns Promise resolving to a pre-filled GitHub new-issue URL
+ */
+export function getGitHubIssueUrl(id: string): Promise<string> {
+  return invoke<string>('get_github_issue_url', { id });
+}

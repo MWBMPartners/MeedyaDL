@@ -79,6 +79,26 @@
     "preRelease": "Pre-Release",
     "preReleaseWarning": "This is a pre-release version and may contain bugs or incomplete features. Not recommended for production use."
   },
+  "crashReporting": {
+    "title": "Recent Crash Reports",
+    "noReports": "No crash reports found.",
+    "report": "Report",
+    "delete": "Delete crash report",
+    "deleted": "Crash report deleted",
+    "deleteFailed": "Failed to delete crash report",
+    "dialogTitle": "Report Crash to Developer",
+    "privacyNotice": "The following crash report data will be shared when you open the GitHub issue. Review the information below before proceeding. You will need a GitHub account to submit the issue.",
+    "openGitHub": "Open GitHub Issue",
+    "opening": "Opening GitHub Issues in your browser...",
+    "openFailed": "Failed to open GitHub Issues",
+    "cancel": "Cancel",
+    "previewFailed": "Failed to load crash report preview.",
+    "source": {
+      "rust_panic": "Rust Panic",
+      "frontend_error": "Frontend Error",
+      "unhandled_rejection": "Unhandled Rejection"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "error": "Error",
