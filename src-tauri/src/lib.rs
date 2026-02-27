@@ -224,13 +224,14 @@ fn setup_queue_recovery(app: &tauri::App) {
         app.state();
     let queue_arc = queue_handle.inner().clone();
 
-    // Restore items synchronously (we can block briefly in setup)
+    // Restore items synchronously (we can block briefly in setup).
+    // Use `blocking_lock()` instead of `block_on(lock().await)` because
+    // the Tokio runtime may not be set as the "current" runtime during
+    // the `setup` closure (it runs inside the macOS `did_finish_launching`
+    // callback). `blocking_lock()` works without an active Tokio context.
     {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(async {
-            let mut q = queue_arc.lock().await;
-            q.restore_items(persisted_items, &settings);
-        });
+        let mut q = queue_arc.blocking_lock();
+        q.restore_items(persisted_items, &settings);
     }
 
     log::info!(
@@ -240,8 +241,10 @@ fn setup_queue_recovery(app: &tauri::App) {
     // Spawn a delayed task to start processing the restored queue.
     // The 2-second delay ensures the frontend's Tauri event listeners
     // are registered before downloads start emitting events.
+    // Use `tauri::async_runtime::spawn` instead of `tokio::spawn` because
+    // the Tokio runtime may not be set as "current" during the `setup` closure.
     let queue_for_processing = queue_arc;
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         services::download_queue::process_queue(
             app_handle,
