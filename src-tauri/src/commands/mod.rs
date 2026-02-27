@@ -93,3 +93,10 @@ pub mod login_window;
 /// cover art from Apple Music for a specific album. Delegates to
 /// `services::animated_artwork_service` for the actual API query and download.
 pub mod artwork;
+
+/// Crash report IPC commands (list, get, delete, export, log frontend errors).
+///
+/// Provides commands for the frontend to manage crash reports and to
+/// persist frontend errors to the same crash report system used by the
+/// Rust panic handler. Delegates to `services::crash_report_service`.
+pub mod crash_reports;

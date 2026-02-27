@@ -1,0 +1,110 @@
+// Copyright (c) 2024-2026 MeedyaDL
+// Licensed under the MIT License. See LICENSE file in the project root.
+//
+// Crash report IPC command handlers.
+// ====================================
+//
+// Thin wrappers around `services::crash_report_service` that expose
+// crash report operations to the React frontend via Tauri's `invoke()`.
+//
+// Commands:
+//   - `list_crash_reports` -- List all saved crash reports
+//   - `get_crash_report` -- Get a single report by ID
+//   - `delete_crash_report` -- Delete a report by ID
+//   - `export_crash_report` -- Export as formatted Markdown
+//   - `log_frontend_error` -- Save a frontend error as a crash report
+
+use std::collections::HashMap;
+use tauri::AppHandle;
+
+use crate::models::crash_report::CrashReport;
+use crate::services::crash_report_service;
+
+/// Returns all crash reports, sorted by timestamp (newest first).
+///
+/// Called by the frontend to populate a crash reports viewer or to
+/// check if there are any crash reports to display after startup.
+#[tauri::command]
+pub fn list_crash_reports(app: AppHandle) -> Vec<CrashReport> {
+    crash_report_service::list_crash_reports(&app)
+}
+
+/// Returns a single crash report by its ID.
+///
+/// Returns `Ok(report)` if found, or `Err` if the ID does not match
+/// any stored report.
+#[tauri::command]
+pub fn get_crash_report(app: AppHandle, id: String) -> Result<CrashReport, String> {
+    crash_report_service::get_crash_report(&app, &id)
+        .ok_or_else(|| format!("Crash report not found: {id}"))
+}
+
+/// Deletes a crash report by its ID.
+///
+/// Removes the JSON file from the crashes directory. Idempotent:
+/// deleting a non-existent report is not an error.
+#[tauri::command]
+pub fn delete_crash_report(app: AppHandle, id: String) -> Result<(), String> {
+    crash_report_service::delete_crash_report(&app, &id)
+}
+
+/// Exports a crash report as a formatted Markdown string.
+///
+/// The returned string is formatted for pasting into a GitHub issue
+/// with headers, code blocks, and metadata sections.
+#[tauri::command]
+pub fn export_crash_report(app: AppHandle, id: String) -> Result<String, String> {
+    crash_report_service::export_crash_report(&app, &id)
+}
+
+/// Logs a frontend error as a crash report.
+///
+/// Called by the React ErrorBoundary, `window.onerror`, and
+/// `unhandledrejection` handlers to persist frontend errors to
+/// the crash report system. This ensures frontend errors are
+/// captured alongside Rust panics for unified diagnostics.
+///
+/// # Arguments
+/// * `source` -- Error source: `"frontend_error"` or `"unhandled_rejection"`
+/// * `message` -- The error message string
+/// * `stack` -- Optional JavaScript stack trace
+/// * `component_stack` -- Optional React component stack (from ErrorBoundary)
+/// * `url` -- Optional URL/page where the error occurred
+#[tauri::command]
+pub fn log_frontend_error(
+    app: AppHandle,
+    source: String,
+    message: String,
+    stack: Option<String>,
+    component_stack: Option<String>,
+    url: Option<String>,
+) -> Result<(), String> {
+    let mut context = HashMap::new();
+    if let Some(ref cs) = component_stack {
+        context.insert("component_stack".to_string(), cs.clone());
+    }
+    if let Some(ref u) = url {
+        context.insert("url".to_string(), u.clone());
+    }
+
+    let report = CrashReport {
+        id: uuid::Uuid::new_v4().to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        source,
+        panic_message: Some(message),
+        location: None,
+        backtrace: stack,
+        context,
+    };
+
+    // Also log to the tracing file log for correlation
+    log::error!(
+        "Frontend error: {}",
+        report.panic_message.as_deref().unwrap_or("unknown")
+    );
+
+    crash_report_service::save_frontend_crash_report(&app, report)
+}
