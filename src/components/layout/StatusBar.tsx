@@ -86,7 +86,7 @@ export function StatusBar() {
 
   /** Number of items currently downloading or being post-processed. */
   const activeCount = queueItems.filter(
-    (i) => i.state === 'downloading' || i.state === 'processing',
+    (i) => i.state === 'downloading' || i.state === 'processing'
   ).length;
 
   /** Number of items waiting in the queue that have not yet started. */

@@ -47,6 +47,12 @@
  *     from downloaded files (e.g., "lyrics, comment"). Maps to
  *     `settings.exclude_tags: string[]`.
  *
+ * ## Section 5: Setup
+ *
+ *   - **Re-run Setup Wizard** -- Button that resets `setup_completed` to
+ *     `false`, saves settings, and reloads the app. The setup wizard then
+ *     appears on reload to verify and reinstall dependencies.
+ *
  * ## Store Connection
  *
  * Reads and writes the Zustand `settingsStore`.
@@ -68,7 +74,7 @@ import { Select, Toggle, Input, Button } from '@/components/common';
 // TypeScript union types for download and remux mode values.
 import type { DownloadMode, RemuxMode, WrapperTestResult } from '@/types';
 
-// Platform detection hook for Wrapper/AMdecrypt feature gating.
+// Platform detection hook for Wrapper feature gating.
 import { usePlatform } from '@/hooks/usePlatform';
 
 // IPC command for wrapper connection testing.
@@ -109,13 +115,13 @@ export function AdvancedTab() {
   const settings = useSettingsStore((s) => s.settings);
   /** Partial-update function for persisting advanced setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  /** Persist settings to disk (needed for setup wizard reset) */
+  const saveSettings = useSettingsStore((s) => s.saveSettings);
   /** Platform detection for Wrapper feature gating (Linux x86_64 only) */
   const { supportsWrapper } = usePlatform();
 
   /** Wrapper connection test state */
-  const [testState, setTestState] = useState<
-    'idle' | 'testing' | 'success' | 'error'
-  >('idle');
+  const [testState, setTestState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testResult, setTestResult] = useState<WrapperTestResult | null>(null);
 
   // Reset test result when the wrapper URL changes
@@ -142,9 +148,7 @@ export function AdvancedTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Processing */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Processing
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Processing</h3>
 
         {/* Download mode */}
         <Select
@@ -152,9 +156,7 @@ export function AdvancedTab() {
           description="Which tool to use for downloading HLS streams"
           options={DOWNLOAD_MODE_OPTIONS}
           value={settings.download_mode}
-          onChange={(e) =>
-            updateSettings({ download_mode: e.target.value as DownloadMode })
-          }
+          onChange={(e) => updateSettings({ download_mode: e.target.value as DownloadMode })}
         />
 
         {/* Remux mode */}
@@ -163,24 +165,19 @@ export function AdvancedTab() {
           description="Which tool to use for container format conversion"
           options={REMUX_MODE_OPTIONS}
           value={settings.remux_mode}
-          onChange={(e) =>
-            updateSettings({ remux_mode: e.target.value as RemuxMode })
-          }
+          onChange={(e) => updateSettings({ remux_mode: e.target.value as RemuxMode })}
         />
       </div>
 
       {/* Section: Wrapper */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Wrapper
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Wrapper</h3>
 
         {!supportsWrapper && (
           <p className="text-xs text-content-tertiary bg-surface-secondary rounded-platform p-2">
-            The Wrapper service only provides native binaries for Linux x86_64.
-            On this platform you would need to run Wrapper remotely (e.g. on a
-            Linux server or via Docker) and point the URL below to it. See Help
-            &gt; Wrapper / AMdecrypt for details.
+            The Wrapper service only provides native binaries for Linux x86_64. On this platform you
+            would need to run Wrapper remotely (e.g. on a Linux server or via Docker) and point the
+            URL below to it. See Help &gt; Wrapper for details.
           </p>
         )}
 
@@ -196,11 +193,9 @@ export function AdvancedTab() {
           <>
             <Input
               label="Wrapper Account URL"
-              description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper / AMdecrypt for setup instructions."
+              description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper for setup instructions."
               value={settings.wrapper_account_url}
-              onChange={(e) =>
-                updateSettings({ wrapper_account_url: e.target.value })
-              }
+              onChange={(e) => updateSettings({ wrapper_account_url: e.target.value })}
             />
 
             {/* Test Connection button with inline result display */}
@@ -209,9 +204,7 @@ export function AdvancedTab() {
                 variant="secondary"
                 size="sm"
                 onClick={handleTestConnection}
-                disabled={
-                  testState === 'testing' || !settings.wrapper_account_url
-                }
+                disabled={testState === 'testing' || !settings.wrapper_account_url}
               >
                 {testState === 'testing' ? 'Testing...' : 'Test Connection'}
               </Button>
@@ -232,9 +225,7 @@ export function AdvancedTab() {
 
       {/* Section: Crash Reporting */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Crash Reporting
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Crash Reporting</h3>
 
         <Toggle
           label="Send Anonymous Crash Reports"
@@ -244,8 +235,8 @@ export function AdvancedTab() {
         />
 
         <p className="text-xs text-content-tertiary">
-          Crash reports are always saved locally to your app data directory
-          regardless of this setting. You can view and report them below.
+          Crash reports are always saved locally to your app data directory regardless of this
+          setting. You can view and report them below.
         </p>
 
         {/* Recent crash reports list with GitHub reporting */}
@@ -254,9 +245,7 @@ export function AdvancedTab() {
 
       {/* Section: File Options */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          File Options
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">File Options</h3>
 
         {/* Filename truncation -- nullable number field.
             When the input is empty, `truncate` is set to `null` (no limit).
@@ -291,12 +280,44 @@ export function AdvancedTab() {
           placeholder="e.g., lyrics, comment"
           onChange={(e) => {
             const tags = e.target.value
-              .split(',')             // Split on commas into segments
-              .map((t) => t.trim())   // Trim whitespace from each segment
-              .filter(Boolean);       // Remove empty strings (e.g., trailing comma)
+              .split(',') // Split on commas into segments
+              .map((t) => t.trim()) // Trim whitespace from each segment
+              .filter(Boolean); // Remove empty strings (e.g., trailing comma)
             updateSettings({ exclude_tags: tags }); // Persist as string[]
           }}
         />
+      </div>
+
+      {/* ================================================================
+          Section 5: Setup
+          ================================================================ */}
+      <div>
+        <h3 className="text-sm font-semibold text-content-primary mb-2">Setup</h3>
+        <p className="text-xs text-content-secondary mb-3">
+          Re-run the first-time setup wizard to verify and reinstall dependencies. Your existing
+          settings will be preserved.
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={async () => {
+            const confirmed = window.confirm(
+              'This will reset the setup wizard flag and reload the app. ' +
+                'Your settings will be preserved, but the setup wizard will ' +
+                'appear on next load to verify your dependencies. Continue?'
+            );
+            if (!confirmed) return;
+            updateSettings({ setup_completed: false });
+            try {
+              await saveSettings();
+            } catch {
+              /* Reload anyway — in-memory state has setup_completed: false */
+            }
+            window.location.reload();
+          }}
+        >
+          Re-run Setup Wizard
+        </Button>
       </div>
     </div>
   );

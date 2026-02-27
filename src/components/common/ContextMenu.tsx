@@ -136,9 +136,7 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
       {visibleItems.map((item, i) => (
         <div key={i}>
           {/* Separator line above this item */}
-          {item.separator && i > 0 && (
-            <div className="border-t border-border-light my-1" />
-          )}
+          {item.separator && i > 0 && <div className="border-t border-border-light my-1" />}
 
           <button
             type="button"
@@ -156,16 +154,12 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
                 : 'text-content-primary hover:bg-surface-secondary cursor-pointer'
             }`}
           >
-            {item.icon && (
-              <span className="text-content-secondary flex-shrink-0">
-                {item.icon}
-              </span>
-            )}
+            {item.icon && <span className="text-content-secondary flex-shrink-0">{item.icon}</span>}
             {item.label}
           </button>
         </div>
       ))}
     </div>,
-    document.body,
+    document.body
   );
 }

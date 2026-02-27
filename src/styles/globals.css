@@ -200,21 +200,21 @@
    * @see https://developer.mozilla.org/en-US/docs/Web/CSS/::-webkit-scrollbar
    */
   ::-webkit-scrollbar {
-    width: 8px;   /* Vertical scrollbar width */
-    height: 8px;  /* Horizontal scrollbar height */
+    width: 8px; /* Vertical scrollbar width */
+    height: 8px; /* Horizontal scrollbar height */
   }
 
   ::-webkit-scrollbar-track {
-    background: transparent;  /* Invisible track (no gutter background) */
+    background: transparent; /* Invisible track (no gutter background) */
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: var(--border);  /* Thumb color matches the theme's border color */
-    border-radius: 4px;               /* Rounded ends for a modern look */
+    background-color: var(--border); /* Thumb color matches the theme's border color */
+    border-radius: 4px; /* Rounded ends for a modern look */
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--border-strong);  /* Darker on hover for visibility feedback */
+    background-color: var(--border-strong); /* Darker on hover for visibility feedback */
   }
 }
 

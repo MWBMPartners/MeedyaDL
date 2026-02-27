@@ -205,7 +205,13 @@ const STATE_CONFIG: Record<
  * @see https://tailwindcss.com/docs/animation#spin
  *      Tailwind animate-spin for the processing spinner.
  */
-export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCopyUrl }: QueueItemProps) {
+export function QueueItem({
+  item,
+  onCancel,
+  onRetry,
+  onRetryWithoutWrapper,
+  onCopyUrl,
+}: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
    * current download state from the static `STATE_CONFIG` record.
@@ -224,18 +230,13 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
    * status icon switches from green CheckCircle to amber AlertTriangle
    * to signal that the download succeeded but encountered issues.
    */
-  const hasWarnings =
-    item.state === 'complete' &&
-    item.warnings &&
-    item.warnings.length > 0;
+  const hasWarnings = item.state === 'complete' && item.warnings && item.warnings.length > 0;
 
   /** The Lucide icon component for the current state, overridden for warnings. */
   const StateIcon = hasWarnings ? AlertTriangle : config.icon;
 
   /** The color class, overridden to amber for completed-with-warnings. */
-  const stateColorClass = hasWarnings
-    ? 'text-status-warning'
-    : config.colorClass;
+  const stateColorClass = hasWarnings ? 'text-status-warning' : config.colorClass;
 
   /**
    * Whether this item is currently in an "active" state (downloading or
@@ -262,16 +263,19 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
     if (!item.output_path) return;
     try {
       const { open } = await import('@tauri-apps/plugin-shell');
-      /*
-       * Extract the parent directory path from the full file path.
-       * Example: '/Users/me/Music/Artist/Album/01 Track.m4a'
-       *       -> '/Users/me/Music/Artist/Album'
-       */
-      const parentDir = item.output_path.substring(
-        0,
-        item.output_path.lastIndexOf('/'),
-      );
-      await open(parentDir);
+      if (item.output_is_directory) {
+        // Path is already a directory (album/playlist) — open it directly
+        await open(item.output_path);
+      } else {
+        /*
+         * Extract the parent directory path from the full file path.
+         * Example: '/Users/me/Music/Artist/Album/01 Track.m4a'
+         *       -> '/Users/me/Music/Artist/Album'
+         */
+        const sep = item.output_path.includes('\\') ? '\\' : '/';
+        const parentDir = item.output_path.substring(0, item.output_path.lastIndexOf(sep));
+        await open(parentDir);
+      }
     } catch {
       /* Shell API unavailable (running outside Tauri) -- silently ignore */
     }
@@ -388,10 +392,7 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
          * @see https://tailwindcss.com/docs/animation#spin
          */}
         <div className={`mt-0.5 flex-shrink-0 ${stateColorClass}`}>
-          <StateIcon
-            size={18}
-            className={item.state === 'processing' ? 'animate-spin' : ''}
-          />
+          <StateIcon size={18} className={item.state === 'processing' ? 'animate-spin' : ''} />
         </div>
 
         {/*
@@ -411,9 +412,7 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
            * typically only one URL per download request).
            * `truncate` clips long URLs with an ellipsis.
            */}
-          <p className="text-sm text-content-primary truncate">
-            {item.urls[0]}
-          </p>
+          <p className="text-sm text-content-primary truncate">{item.urls[0]}</p>
 
           {/*
            * Current track name -- shown when the backend reports which
@@ -421,9 +420,7 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
            * playlist downloads that contain multiple tracks).
            */}
           {item.current_track && (
-            <p className="text-xs text-content-secondary mt-0.5 truncate">
-              {item.current_track}
-            </p>
+            <p className="text-xs text-content-secondary mt-0.5 truncate">{item.current_track}</p>
           )}
 
           {/*
@@ -510,9 +507,7 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
        */}
       {isActive && (
         <div className="mt-2 pl-7">
-          <ProgressBar
-            value={item.state === 'downloading' ? item.progress : null}
-          />
+          <ProgressBar value={item.state === 'downloading' ? item.progress : null} />
           {/*
            * Speed and ETA information -- shown when `item.speed` is
            * available (set by `downloadStore.handleProgressEvent()`
@@ -590,15 +585,18 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
        */}
       {item.state === 'complete' && item.output_path && (
         <div className="mt-2 pl-7 flex gap-2">
-          <button
-            type="button"
-            onClick={handleOpenFile}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
-            title="Open in default application"
-          >
-            <FileOutput size={12} />
-            Open File
-          </button>
+          {/* Hide "Open File" for directories (albums/playlists) -- not meaningful for multiple files */}
+          {!item.output_is_directory && (
+            <button
+              type="button"
+              onClick={handleOpenFile}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+              title="Open in default application"
+            >
+              <FileOutput size={12} />
+              Open File
+            </button>
+          )}
           <button
             type="button"
             onClick={handleOpenFolder}
@@ -617,9 +615,7 @@ export function QueueItem({ item, onCancel, onRetry, onRetryWithoutWrapper, onCo
           items={contextMenuItems}
           x={contextMenu.x}
           y={contextMenu.y}
-          onClose={() =>
-            setContextMenu((prev) => ({ ...prev, visible: false }))
-          }
+          onClose={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
         />
       )}
     </div>

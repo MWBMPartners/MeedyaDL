@@ -95,11 +95,7 @@ const POSITION_CLASSES: Record<string, string> = {
  * @param children - The trigger element (wrapped in a relative container)
  * @param position - Placement relative to the trigger (default: 'top')
  */
-export function Tooltip({
-  content,
-  children,
-  position = 'top',
-}: TooltipProps) {
+export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   /** Whether the tooltip bubble is currently visible */
   const [visible, setVisible] = useState(false);
 

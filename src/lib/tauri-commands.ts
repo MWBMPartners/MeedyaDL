@@ -485,9 +485,7 @@ export function processQueue(): Promise<void> {
  * @param entries - Array of ActivityLogEntry objects from the activity store
  * @returns Promise resolving to the count of exported entries
  */
-export function exportActivityLog(
-  entries: import('@/types').ActivityLogEntry[],
-): Promise<number> {
+export function exportActivityLog(entries: import('@/types').ActivityLogEntry[]): Promise<number> {
   return invoke<number>('export_activity_log', { entries });
 }
 
@@ -509,13 +507,8 @@ export function exportActivityLog(
  * @param url - The wrapper account URL to test
  * @returns Promise resolving to the test result
  */
-export function testWrapperConnection(
-  url: string,
-): Promise<import('@/types').WrapperTestResult> {
-  return invoke<import('@/types').WrapperTestResult>(
-    'test_wrapper_connection',
-    { url },
-  );
+export function testWrapperConnection(url: string): Promise<import('@/types').WrapperTestResult> {
+  return invoke<import('@/types').WrapperTestResult>('test_wrapper_connection', { url });
 }
 
 // ============================================================
@@ -692,9 +685,7 @@ export function detectBrowsers(): Promise<DetectedBrowser[]> {
  * @param browserId - Machine-readable browser identifier
  * @returns Promise resolving to the import result
  */
-export function importCookiesFromBrowser(
-  browserId: string,
-): Promise<CookieImportResult> {
+export function importCookiesFromBrowser(browserId: string): Promise<CookieImportResult> {
   return invoke<CookieImportResult>('import_cookies_from_browser', {
     browserId,
   });
@@ -799,10 +790,7 @@ export function closeAppleLogin(): Promise<void> {
  * @param outputDir - The album directory where artwork files should be saved
  * @returns Promise resolving to the artwork download result
  */
-export function downloadAnimatedArtwork(
-  urls: string[],
-  outputDir: string,
-): Promise<ArtworkResult> {
+export function downloadAnimatedArtwork(urls: string[], outputDir: string): Promise<ArtworkResult> {
   return invoke<ArtworkResult>('download_animated_artwork', { urls, outputDir });
 }
 

@@ -411,6 +411,13 @@ pub struct AppSettings {
     #[serde(default)]
     pub acoustid_enabled: bool,
 
+    /// Application API key for `AcousticID` fingerprint lookups. Register a free
+    /// application key at <https://acoustid.org/new-application>. When empty,
+    /// `AcousticID` lookups are skipped (fingerprints are not generated).
+    /// This is a public application identifier (not a secret).
+    #[serde(default)]
+    pub acoustid_api_key: String,
+
     /// Enable `ReplayGain` loudness analysis for downloaded tracks. When enabled,
     /// `MeedyaDL` analyses each audio file's loudness using `FFmpeg`'s EBU R128
     /// filter and writes non-destructive `ReplayGain` metadata tags
@@ -484,10 +491,6 @@ pub struct AppSettings {
     /// Custom N_m3u8DL-RE binary path. Alternative HLS downloader.
     pub nm3u8dlre_path: Option<String>,
 
-    /// Custom amdecrypt binary path. Used with the wrapper system
-    /// for decrypting certain DRM-protected streams.
-    pub amdecrypt_path: Option<String>,
-
     // ================================================================
     // Advanced
     // ================================================================
@@ -500,10 +503,9 @@ pub struct AppSettings {
     /// Default: `Ffmpeg` because `FFmpeg` is a required dependency anyway.
     pub remux_mode: RemuxMode,
 
-    /// Whether to use the wrapper/amdecrypt authentication system for
-    /// accessing DRM-protected content. When `false` (default), standard
-    /// cookie-based authentication is used. Maps to
-    /// `GamdlOptions::use_wrapper`.
+    /// Whether to use the wrapper authentication system for accessing
+    /// DRM-protected content. When `false` (default), standard cookie-based
+    /// authentication is used. Maps to `GamdlOptions::use_wrapper`.
     pub use_wrapper: bool,
 
     /// Wrapper server URL used when `use_wrapper` is `true`. The wrapper
@@ -734,6 +736,7 @@ impl Default for AppSettings {
             // features that decode each audio file. Users enable them in the
             // Metadata settings tab when they want the extra tags.
             acoustid_enabled: false,
+            acoustid_api_key: String::new(),
             replaygain_enabled: false,
 
             // --- Templates ---
@@ -754,7 +757,6 @@ impl Default for AppSettings {
             mp4decrypt_path: None,
             mp4box_path: None,
             nm3u8dlre_path: None,
-            amdecrypt_path: None,
 
             // --- Advanced ---
             // yt-dlp is the default downloader because it is installed as
@@ -763,9 +765,9 @@ impl Default for AppSettings {
             // FFmpeg is the default remuxer because it is a required
             // dependency for GAMDL anyway.
             remux_mode: RemuxMode::Ffmpeg,
-            // Wrapper/amdecrypt is disabled by default. Most users use
-            // cookie-based auth. The wrapper is an advanced feature for
-            // accessing certain DRM-protected streams.
+            // Wrapper is disabled by default. Most users use cookie-based
+            // auth. The wrapper is an advanced feature for accessing
+            // certain DRM-protected streams.
             use_wrapper: false,
             // Default wrapper URL assumes a locally-running server.
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
@@ -1016,7 +1018,6 @@ mod tests {
         assert!(deserialized.mp4decrypt_path.is_none());
         assert!(deserialized.mp4box_path.is_none());
         assert!(deserialized.nm3u8dlre_path.is_none());
-        assert!(deserialized.amdecrypt_path.is_none());
         assert!(deserialized.truncate.is_none());
         assert!(deserialized.theme_override.is_none());
     }
@@ -1032,7 +1033,6 @@ mod tests {
             mp4decrypt_path: Some("/usr/local/bin/mp4decrypt".to_string()),
             mp4box_path: Some("/usr/local/bin/mp4box".to_string()),
             nm3u8dlre_path: Some("/usr/local/bin/N_m3u8DL-RE".to_string()),
-            amdecrypt_path: Some("/usr/local/bin/amdecrypt".to_string()),
             truncate: Some(200),
             theme_override: Some("dark".to_string()),
             ..Default::default()
@@ -1046,7 +1046,6 @@ mod tests {
         assert_eq!(deserialized.mp4decrypt_path, Some("/usr/local/bin/mp4decrypt".to_string()));
         assert_eq!(deserialized.mp4box_path, Some("/usr/local/bin/mp4box".to_string()));
         assert_eq!(deserialized.nm3u8dlre_path, Some("/usr/local/bin/N_m3u8DL-RE".to_string()));
-        assert_eq!(deserialized.amdecrypt_path, Some("/usr/local/bin/amdecrypt".to_string()));
         assert_eq!(deserialized.truncate, Some(200));
         assert_eq!(deserialized.theme_override, Some("dark".to_string()));
     }

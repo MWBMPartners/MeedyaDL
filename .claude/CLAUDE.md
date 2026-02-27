@@ -22,7 +22,7 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 src-tauri/src/          # Rust backend
   commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url])
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required + 1 optional tool], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required tools], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings [includes CrashReportSection, CrashReportDialog], setup, help, updates)

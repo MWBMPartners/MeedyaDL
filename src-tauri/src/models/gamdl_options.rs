@@ -63,7 +63,7 @@ pub enum SongCodec {
 
     /// Dolby Atmos spatial audio stream. Produces immersive multi-channel
     /// audio encoded with Dolby's object-based format. Note: reliable access
-    /// typically requires the wrapper/amdecrypt authentication pathway
+    /// typically requires the wrapper authentication pathway
     /// (`GamdlOptions::use_wrapper`).
     Atmos,
 
@@ -563,7 +563,7 @@ pub struct GamdlOptions {
     // --- Authentication ---
     /// Path to Netscape-format cookies file
     pub cookies_path: Option<String>,
-    /// Whether to use the wrapper/amdecrypt system
+    /// Whether to use the wrapper authentication system
     pub use_wrapper: Option<bool>,
     /// Wrapper server URL
     pub wrapper_account_url: Option<String>,
@@ -607,8 +607,6 @@ pub struct GamdlOptions {
     pub mp4box_path: Option<String>,
     /// Path to N_m3u8DL-RE binary
     pub nm3u8dlre_path: Option<String>,
-    /// Path to amdecrypt binary
-    pub amdecrypt_path: Option<String>,
     /// Path to .wvd (Widevine Device) file
     pub wvd_path: Option<String>,
 
@@ -860,10 +858,6 @@ impl GamdlOptions {
             args.push("--nm3u8dlre-path".to_string());
             args.push(path.clone());
         }
-        // NOTE: `amdecrypt_path` is kept as a settings field, but GAMDL does
-        // not expose `--amdecrypt-path` as a CLI option (amdecrypt is an
-        // internal module within GAMDL). Passing it would cause an
-        // "unrecognized option" error.
         if let Some(ref path) = self.wvd_path {
             args.push("--wvd-path".to_string());
             args.push(path.clone());

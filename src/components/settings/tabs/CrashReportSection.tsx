@@ -82,9 +82,7 @@ export function CrashReportSection() {
   /** List of crash reports to display (max 5, newest first) */
   const [reports, setReports] = useState<CrashReport[]>([]);
   /** The report currently selected for the report dialog */
-  const [selectedReport, setSelectedReport] = useState<CrashReport | null>(
-    null,
-  );
+  const [selectedReport, setSelectedReport] = useState<CrashReport | null>(null);
   /** Whether the CrashReportDialog is open */
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
@@ -124,15 +122,11 @@ export function CrashReportSection() {
 
   return (
     <div className="space-y-2">
-      <h4 className="text-xs font-medium text-content-secondary">
-        Recent Crash Reports
-      </h4>
+      <h4 className="text-xs font-medium text-content-secondary">Recent Crash Reports</h4>
 
       {reports.length === 0 ? (
         /* Empty state */
-        <p className="text-xs text-content-tertiary py-2">
-          No crash reports found.
-        </p>
+        <p className="text-xs text-content-tertiary py-2">No crash reports found.</p>
       ) : (
         /* Report list */
         <div className="space-y-1.5">

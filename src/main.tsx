@@ -101,7 +101,7 @@ function persistFrontendError(
   source: string,
   message: string,
   stack?: string | null,
-  componentStack?: string | null,
+  componentStack?: string | null
 ) {
   invoke('log_frontend_error', {
     source,
@@ -149,44 +149,41 @@ class ErrorBoundary extends React.Component<
     console.error('ErrorBoundary caught:', error, errorInfo);
 
     // Persist to the Rust crash report system for diagnostics
-    persistFrontendError(
-      'frontend_error',
-      error.message,
-      error.stack,
-      errorInfo.componentStack,
-    );
+    persistFrontendError('frontend_error', error.message, error.stack, errorInfo.componentStack);
   }
 
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          padding: '24px',
-          fontFamily: 'monospace',
-          fontSize: '13px',
-          color: '#ff6b6b',
-          backgroundColor: '#1a1a2e',
-          height: '100vh',
-          overflow: 'auto',
-        }}>
+        <div
+          style={{
+            padding: '24px',
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            color: '#ff6b6b',
+            backgroundColor: '#1a1a2e',
+            height: '100vh',
+            overflow: 'auto',
+          }}
+        >
           <h1 style={{ fontSize: '18px', marginBottom: '16px', color: '#fff' }}>
             React Error Caught
           </h1>
           <div style={{ marginBottom: '16px' }}>
-            <strong style={{ color: '#ffd93d' }}>Error:</strong>{' '}
-            {this.state.error?.message}
+            <strong style={{ color: '#ffd93d' }}>Error:</strong> {this.state.error?.message}
           </div>
           <div style={{ marginBottom: '16px' }}>
-            <strong style={{ color: '#ffd93d' }}>Name:</strong>{' '}
-            {this.state.error?.name}
+            <strong style={{ color: '#ffd93d' }}>Name:</strong> {this.state.error?.name}
           </div>
           <div style={{ marginBottom: '16px', whiteSpace: 'pre-wrap', fontSize: '11px' }}>
-            <strong style={{ color: '#ffd93d' }}>Stack:</strong>{'\n'}
+            <strong style={{ color: '#ffd93d' }}>Stack:</strong>
+            {'\n'}
             {this.state.error?.stack}
           </div>
           {this.state.errorInfo && (
             <div style={{ whiteSpace: 'pre-wrap', fontSize: '11px' }}>
-              <strong style={{ color: '#ffd93d' }}>Component Stack:</strong>{'\n'}
+              <strong style={{ color: '#ffd93d' }}>Component Stack:</strong>
+              {'\n'}
               {this.state.errorInfo.componentStack}
             </div>
           )}
@@ -228,20 +225,12 @@ window.onerror = (message, source, lineno, colno, error) => {
   console.error('Global error:', errorMessage, { source, lineno, colno, error });
 
   // Persist to the Rust crash report system for diagnostics
-  persistFrontendError(
-    'frontend_error',
-    errorMessage,
-    error?.stack,
-  );
+  persistFrontendError('frontend_error', errorMessage, error?.stack);
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
   import('./stores/uiStore')
     .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(
-        `Unexpected error: ${errorMessage}`,
-        'error',
-        8000,
-      );
+      useUiStore.getState().addToast(`Unexpected error: ${errorMessage}`, 'error', 8000);
     })
     .catch(() => {
       // Store not available yet (app still booting) -- console.error above is enough
@@ -260,20 +249,12 @@ window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled Promise Rejection:', reason);
 
   // Persist to the Rust crash report system for diagnostics
-  persistFrontendError(
-    'unhandled_rejection',
-    errorMessage,
-    stack,
-  );
+  persistFrontendError('unhandled_rejection', errorMessage, stack);
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
   import('./stores/uiStore')
     .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(
-        `Async error: ${errorMessage}`,
-        'error',
-        8000,
-      );
+      useUiStore.getState().addToast(`Async error: ${errorMessage}`, 'error', 8000);
     })
     .catch(() => {
       // Store not available yet (app still booting) -- console.error above is enough

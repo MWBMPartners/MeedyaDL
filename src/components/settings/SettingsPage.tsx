@@ -73,17 +73,17 @@ import { useEffect, useState } from 'react';
 // @see https://lucide.dev/icons/
 import {
   Settings as SettingsIcon, // General tab icon (aliased to avoid clash with component name)
-  Music,                    // Quality tab icon
-  ArrowDownUp,              // Fallback tab icon (up/down arrows representing reordering)
-  Package,                  // Tools tab icon
-  Cookie,                   // Cookies tab icon
-  FileText,                 // Lyrics tab icon
-  Image,                    // Cover Art tab icon
-  Code,                     // Templates tab icon (code brackets for template syntax)
-  Wrench,                   // Advanced tab icon
-  Tag,                      // Metadata tab icon
-  Save,                     // Save button icon
-  RotateCcw,                // Reset button icon (counter-clockwise rotation)
+  Music, // Quality tab icon
+  ArrowDownUp, // Fallback tab icon (up/down arrows representing reordering)
+  Package, // Tools tab icon
+  Cookie, // Cookies tab icon
+  FileText, // Lyrics tab icon
+  Image, // Cover Art tab icon
+  Code, // Templates tab icon (code brackets for template syntax)
+  Wrench, // Advanced tab icon
+  Tag, // Metadata tab icon
+  Save, // Save button icon
+  RotateCcw, // Reset button icon (counter-clockwise rotation)
 } from 'lucide-react';
 
 // Zustand stores: settingsStore holds the application settings state;
@@ -238,8 +238,7 @@ export function SettingsPage() {
    * `component` property. Falls back to GeneralTab if the activeTab ID
    * does not match any entry (defensive guard, should not happen in practice).
    */
-  const ActiveComponent =
-    TABS.find((t) => t.id === activeTab)?.component || GeneralTab;
+  const ActiveComponent = TABS.find((t) => t.id === activeTab)?.component || GeneralTab;
 
   return (
     <div className="flex flex-col h-full">
@@ -249,12 +248,7 @@ export function SettingsPage() {
         actions={
           <div className="flex gap-2">
             {/* Reset to defaults */}
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<RotateCcw size={14} />}
-              onClick={handleReset}
-            >
+            <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleReset}>
               Reset
             </Button>
 
@@ -296,7 +290,7 @@ export function SettingsPage() {
                 rounded-platform text-sm transition-colors
                 ${
                   activeTab === id
-                    ? 'bg-accent-light text-accent font-medium'   /* Active tab styling */
+                    ? 'bg-accent-light text-accent font-medium' /* Active tab styling */
                     : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
                 }
               `}

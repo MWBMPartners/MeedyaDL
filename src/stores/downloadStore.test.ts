@@ -50,6 +50,7 @@ function createMockQueueItem(overrides: Partial<QueueItemStatus> = {}): QueueIte
     codec_used: null,
     fallback_occurred: false,
     used_wrapper: false,
+    output_is_directory: false,
     warnings: [],
     created_at: '2026-02-09T12:00:00Z',
     ...overrides,
@@ -78,9 +79,9 @@ describe('downloadStore', () => {
   // =========================================================================
   describe('setUrlInput', () => {
     it('validates a valid album URL', () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/album/midnights/1649434004',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
 
       const state = useDownloadStore.getState();
       expect(state.urlInput).toBe('https://music.apple.com/us/album/midnights/1649434004');
@@ -89,27 +90,29 @@ describe('downloadStore', () => {
     });
 
     it('validates a valid song URL', () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/album/anti-hero/1649434004?i=1649434038',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/album/anti-hero/1649434004?i=1649434038');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(true);
       expect(useDownloadStore.getState().urlContentType).toBe('song');
     });
 
     it('validates a valid playlist URL', () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput(
+          'https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb'
+        );
 
       expect(useDownloadStore.getState().urlIsValid).toBe(true);
       expect(useDownloadStore.getState().urlContentType).toBe('playlist');
     });
 
     it('validates a valid music video URL', () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/music-video/bad-blood/1445927585',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/music-video/bad-blood/1445927585');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(true);
       expect(useDownloadStore.getState().urlContentType).toBe('music-video');
@@ -142,9 +145,9 @@ describe('downloadStore', () => {
   describe('submitDownload', () => {
     it('submits a valid URL and clears input on success', async () => {
       /* Set up a valid URL */
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/album/midnights/1649434004',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
 
       vi.mocked(commands.startDownload).mockResolvedValueOnce('dl-id-123');
 
@@ -164,17 +167,17 @@ describe('downloadStore', () => {
     it('rejects submission when URL is invalid', async () => {
       useDownloadStore.getState().setUrlInput('invalid-url');
 
-      await expect(
-        useDownloadStore.getState().submitDownload(),
-      ).rejects.toThrow('Invalid Apple Music URL');
+      await expect(useDownloadStore.getState().submitDownload()).rejects.toThrow(
+        'Invalid Apple Music URL'
+      );
 
       expect(useDownloadStore.getState().error).toBe('Invalid Apple Music URL');
     });
 
     it('passes override options when set', async () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/album/midnights/1649434004',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
       useDownloadStore.getState().setOverrideOptions({ song_codec: 'atmos' });
 
       vi.mocked(commands.startDownload).mockResolvedValueOnce('dl-id-456');
@@ -188,14 +191,12 @@ describe('downloadStore', () => {
     });
 
     it('sets error on backend failure', async () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/album/midnights/1649434004',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
       vi.mocked(commands.startDownload).mockRejectedValueOnce('Network timeout');
 
-      await expect(
-        useDownloadStore.getState().submitDownload(),
-      ).rejects.toThrow('Network timeout');
+      await expect(useDownloadStore.getState().submitDownload()).rejects.toThrow('Network timeout');
 
       expect(useDownloadStore.getState().error).toBe('Network timeout');
       expect(useDownloadStore.getState().isSubmitting).toBe(false);
@@ -223,9 +224,9 @@ describe('downloadStore', () => {
   // =========================================================================
   describe('clearInput', () => {
     it('resets all input-related state', () => {
-      useDownloadStore.getState().setUrlInput(
-        'https://music.apple.com/us/album/midnights/1649434004',
-      );
+      useDownloadStore
+        .getState()
+        .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
       useDownloadStore.getState().setOverrideOptions({ song_codec: 'aac' });
 
       useDownloadStore.getState().clearInput();
@@ -265,7 +266,12 @@ describe('downloadStore', () => {
 
       const progress: GamdlProgress = {
         download_id: 'dl-1',
-        event: { type: 'track_info', title: 'Anti-Hero', artist: 'Taylor Swift', album: 'Midnights' },
+        event: {
+          type: 'track_info',
+          title: 'Anti-Hero',
+          artist: 'Taylor Swift',
+          album: 'Midnights',
+        },
       };
       useDownloadStore.getState().handleProgressEvent(progress);
 
@@ -345,9 +351,9 @@ describe('downloadStore', () => {
       useDownloadStore.getState().handleProgressEvent(progress);
 
       const updated = useDownloadStore.getState().queueItems;
-      expect(updated[0].progress).toBe(0);    // dl-1 unchanged
-      expect(updated[1].progress).toBe(75);   // dl-2 updated
-      expect(updated[2].progress).toBe(0);    // dl-3 unchanged
+      expect(updated[0].progress).toBe(0); // dl-1 unchanged
+      expect(updated[1].progress).toBe(75); // dl-2 updated
+      expect(updated[2].progress).toBe(0); // dl-3 unchanged
     });
   });
 
@@ -430,7 +436,11 @@ describe('downloadStore', () => {
       const refreshedItems = [createMockQueueItem({ id: 'dl-1', state: 'queued' })];
       vi.mocked(commands.retryDownload).mockResolvedValueOnce(undefined);
       vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
-        total: 1, active: 0, queued: 1, completed: 0, failed: 0,
+        total: 1,
+        active: 0,
+        queued: 1,
+        completed: 0,
+        failed: 0,
         items: refreshedItems,
       });
 
@@ -445,7 +455,11 @@ describe('downloadStore', () => {
     it('clears finished items and returns the count', async () => {
       vi.mocked(commands.clearQueue).mockResolvedValueOnce(3);
       vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
-        total: 1, active: 1, queued: 0, completed: 0, failed: 0,
+        total: 1,
+        active: 1,
+        queued: 0,
+        completed: 0,
+        failed: 0,
         items: [createMockQueueItem({ id: 'dl-active', state: 'downloading' })],
       });
 
@@ -472,7 +486,11 @@ describe('downloadStore', () => {
         createMockQueueItem({ id: 'dl-2', state: 'downloading', progress: 50 }),
       ];
       vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
-        total: 2, active: 1, queued: 0, completed: 1, failed: 0,
+        total: 2,
+        active: 1,
+        queued: 0,
+        completed: 1,
+        failed: 0,
         items,
       });
 

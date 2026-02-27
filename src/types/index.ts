@@ -222,6 +222,25 @@ export const COMPANION_MODE_LABELS: Record<CompanionMode, string> = {
 };
 
 /**
+ * Display names for artist auto-selection modes, shown in the Quality
+ * settings tab dropdown selector. Maps GAMDL's `--artist-auto-select`
+ * values to user-friendly labels.
+ *
+ * Uses `Record<ArtistAutoSelect, string>` for compile-time exhaustiveness
+ * checking -- adding a new variant will cause a TypeScript error until a
+ * label is added here.
+ */
+export const ARTIST_AUTO_SELECT_LABELS: Record<ArtistAutoSelect, string> = {
+  'main-albums': 'Main Albums',
+  'compilation-albums': 'Compilation Albums',
+  'live-albums': 'Live Albums',
+  'singles-eps': 'Singles & EPs',
+  'all-albums': 'All Albums',
+  'top-songs': 'Top Songs',
+  'music-videos': 'Music Videos',
+};
+
+/**
  * Display names for video resolutions, shown in UI dropdown selectors.
  *
  * Uses `Record<VideoResolution, string>` for compile-time exhaustiveness.
@@ -354,8 +373,6 @@ export interface GamdlOptions {
   mp4box_path?: string;
   /** Custom path to the N_m3u8DL-RE binary (for HLS downloads) */
   nm3u8dlre_path?: string;
-  /** Custom path to the amdecrypt binary (for Apple Music DRM) */
-  amdecrypt_path?: string;
   /** Custom path to the Widevine Device file (.wvd) */
   wvd_path?: string;
   /** Which download tool to use (yt-dlp or N_m3u8DL-RE) */
@@ -433,7 +450,7 @@ export interface AppSettings {
   /** Companion download mode: controls automatic multi-format downloads */
   companion_mode: CompanionMode;
   /** Default artist auto-selection mode for artist URL downloads (GAMDL >= 2.9.1) */
-  artist_auto_select?: ArtistAutoSelect;
+  artist_auto_select: ArtistAutoSelect | null;
   /** Whether to both embed lyrics in file metadata AND keep sidecar lyrics files */
   embed_lyrics_and_sidecar: boolean;
   /** Default format for synced lyrics output */
@@ -462,6 +479,8 @@ export interface AppSettings {
   musickit_key_id: string | null;
   /** Enable AcousticID fingerprinting for downloaded tracks (opt-in) */
   acoustid_enabled: boolean;
+  /** Application API key for AcousticID lookups (register at acoustid.org/new-application) */
+  acoustid_api_key: string;
   /** Enable ReplayGain loudness analysis for downloaded tracks (opt-in) */
   replaygain_enabled: boolean;
   /** Template for album folder naming */
@@ -488,8 +507,6 @@ export interface AppSettings {
   mp4box_path: string | null;
   /** Custom N_m3u8DL-RE binary path, or null to use bundled/PATH version */
   nm3u8dlre_path: string | null;
-  /** Custom amdecrypt binary path, or null to use bundled/PATH version */
-  amdecrypt_path: string | null;
   /** Which download tool to use by default */
   download_mode: DownloadMode;
   /** Which remux tool to use by default */
@@ -597,6 +614,9 @@ export interface QueueItemStatus {
   /** Whether this download was attempted using wrapper authentication.
    * Used to conditionally show the "Retry without Wrapper" button. */
   used_wrapper: boolean;
+  /** Whether output_path points to a directory (album) rather than a single file.
+   * When true, "Open File" is hidden and "Open Folder" opens the path directly. */
+  output_is_directory: boolean;
   /** Non-fatal warnings from the download (e.g., GAMDL errors that didn't prevent completion) */
   warnings: string[];
   /** ISO 8601 timestamp when this download was queued */
@@ -870,8 +890,9 @@ export interface GamdlProgress {
 export interface ActivityLogEntry {
   /** Unique download ID this line belongs to */
   download_id: string;
-  /** Which output stream the line came from */
-  stream: 'stdout' | 'stderr';
+  /** Which output stream the line came from.
+   * 'internal' is used for MeedyaDL's own messages (enrichment, companions). */
+  stream: 'stdout' | 'stderr' | 'internal';
   /** The raw line content (untrimmed) */
   line: string;
   /** ISO 8601 timestamp when the line was captured */
@@ -1044,13 +1065,7 @@ export interface Toast {
  *
  * @see ./components/setup/SetupWizard.tsx for the step renderer
  */
-export type SetupStep =
-  | 'welcome'
-  | 'python'
-  | 'gamdl'
-  | 'dependencies'
-  | 'cookies'
-  | 'complete';
+export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cookies' | 'complete';
 
 // ============================================================
 // Music Service Types (extensibility architecture)

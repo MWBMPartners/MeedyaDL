@@ -105,12 +105,10 @@ export function GamdlStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">
-          GAMDL Package
-        </h2>
+        <h2 className="text-xl font-semibold text-content-primary">GAMDL Package</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL is the Apple Music download tool that powers this application.
-          It will be installed into the portable Python environment.
+          GAMDL is the Apple Music download tool that powers this application. It will be installed
+          into the portable Python environment.
         </p>
       </div>
 
@@ -123,24 +121,18 @@ export function GamdlStep() {
           <div className="flex items-center gap-3">
             <CheckCircle size={20} className="text-status-success" />
             <div>
-              <p className="text-sm font-medium text-content-primary">
-                GAMDL Installed
-              </p>
-              <p className="text-xs text-content-secondary">
-                Version: {gamdl.version}
-              </p>
+              <p className="text-sm font-medium text-content-primary">GAMDL Installed</p>
+              <p className="text-xs text-content-secondary">Version: {gamdl.version}</p>
             </div>
           </div>
         ) : (
           /* GAMDL is not installed */
           <div className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-content-primary">
-                GAMDL Not Found
-              </p>
+              <p className="text-sm font-medium text-content-primary">GAMDL Not Found</p>
               <p className="text-xs text-content-secondary mt-1">
-                Click below to install GAMDL from PyPI. This uses the portable
-                Python installed in the previous step.
+                Click below to install GAMDL from PyPI. This uses the portable Python installed in
+                the previous step.
               </p>
             </div>
 

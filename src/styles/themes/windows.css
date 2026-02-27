@@ -62,9 +62,9 @@
    *
    * @see https://learn.microsoft.com/en-us/windows/apps/design/style/rounded-corner
    */
-  --radius: 4px;     /* Standard controls: buttons, inputs, menu items */
-  --radius-sm: 2px;  /* Small elements: badges, pills, inline buttons */
-  --radius-lg: 8px;  /* Dialogs, flyouts, teaching tips, large cards */
+  --radius: 4px; /* Standard controls: buttons, inputs, menu items */
+  --radius-sm: 2px; /* Small elements: badges, pills, inline buttons */
+  --radius-lg: 8px; /* Dialogs, flyouts, teaching tips, large cards */
 
   /*
    * Sidebar: Solid Mica-inspired background.
@@ -74,10 +74,10 @@
    *
    * @see https://learn.microsoft.com/en-us/windows/apps/design/style/mica
    */
-  --sidebar-bg: #f3f3f3;                   /* Mica light base color */
-  --sidebar-hover: rgba(0, 0, 0, 0.04);    /* Subtle hover: 4% black overlay */
-  --sidebar-active: rgba(0, 0, 0, 0.06);   /* Active: 6% black overlay */
-  --sidebar-border: #e5e5e5;               /* Solid border (not translucent like macOS) */
+  --sidebar-bg: #f3f3f3; /* Mica light base color */
+  --sidebar-hover: rgba(0, 0, 0, 0.04); /* Subtle hover: 4% black overlay */
+  --sidebar-active: rgba(0, 0, 0, 0.06); /* Active: 6% black overlay */
+  --sidebar-border: #e5e5e5; /* Solid border (not translucent like macOS) */
 
   /*
    * Windows accent blue.
@@ -94,9 +94,9 @@
    * This inverted relationship (elevated = brighter) is the opposite of macOS
    * where elevated = slightly darker.
    */
-  --surface-primary: #fafafa;   /* Main background: warm off-white */
+  --surface-primary: #fafafa; /* Main background: warm off-white */
   --surface-secondary: #f3f3f3; /* Grouped sections: matches sidebar */
-  --surface-elevated: #ffffff;  /* Cards/modals: pure white (appears "raised") */
+  --surface-elevated: #ffffff; /* Cards/modals: pure white (appears "raised") */
 
   /*
    * Windows shadow style: Sharper and more defined than macOS.
@@ -105,8 +105,8 @@
    *
    * @see https://learn.microsoft.com/en-us/windows/apps/design/style/elevation
    */
-  --shadow: 0 1px 4px rgba(0, 0, 0, 0.08);     /* Rest elevation (cards) */
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.14);  /* Flyout elevation (dialogs, popups) */
+  --shadow: 0 1px 4px rgba(0, 0, 0, 0.08); /* Rest elevation (cards) */
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.14); /* Flyout elevation (dialogs, popups) */
 }
 
 /* ============================================================
@@ -122,10 +122,10 @@
      * Dark Mica uses very dark grays that allow a faint wallpaper tint to show through.
      * #202020 approximates the Mica dark base without wallpaper integration.
      */
-    --sidebar-bg: #202020;                         /* Mica dark base */
-    --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay hover: 5% */
-    --sidebar-active: rgba(255, 255, 255, 0.08);  /* White overlay active: 8% */
-    --sidebar-border: #333333;                     /* Visible but subtle border */
+    --sidebar-bg: #202020; /* Mica dark base */
+    --sidebar-hover: rgba(255, 255, 255, 0.05); /* White overlay hover: 5% */
+    --sidebar-active: rgba(255, 255, 255, 0.08); /* White overlay active: 8% */
+    --sidebar-border: #333333; /* Visible but subtle border */
 
     /*
      * Dark mode accent: Much brighter cyan-blue for visibility.
@@ -139,9 +139,9 @@
      * Dark surfaces: Progressively lighter for elevation hierarchy.
      * primary (#1a1a1a) < secondary (#202020) < elevated (#2a2a2a)
      */
-    --surface-primary: #1a1a1a;   /* Main dark background */
+    --surface-primary: #1a1a1a; /* Main dark background */
     --surface-secondary: #202020; /* Grouped sections */
-    --surface-elevated: #2a2a2a;  /* Cards/modals: slightly lighter for depth */
+    --surface-elevated: #2a2a2a; /* Cards/modals: slightly lighter for depth */
 
     /* Inverse text: Dark text on bright accent buttons */
     --text-inverse: #1a1a1a;
@@ -216,7 +216,7 @@
  */
 .platform-windows button.bg-accent {
   border-radius: var(--radius);
-  font-weight: 600;  /* Segoe UI Variable Semibold */
+  font-weight: 600; /* Segoe UI Variable Semibold */
 }
 
 /*
@@ -231,9 +231,5 @@
  * @see https://learn.microsoft.com/en-us/windows/apps/design/style/reveal
  */
 .platform-windows nav button:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.06) 0%,
-    transparent 50%
-  );
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, transparent 50%);
 }

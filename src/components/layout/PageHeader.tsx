@@ -96,9 +96,7 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
         {/* Page title as an <h2> heading for semantic HTML and accessibility */}
         <h2 className="text-xl font-semibold text-content-primary">{title}</h2>
         {/* Subtitle rendered only when provided (conditional rendering) */}
-        {subtitle && (
-          <p className="text-sm text-content-secondary mt-0.5">{subtitle}</p>
-        )}
+        {subtitle && <p className="text-sm text-content-secondary mt-0.5">{subtitle}</p>}
       </div>
       {/*
        * Right column: action buttons.

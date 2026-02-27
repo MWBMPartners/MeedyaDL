@@ -49,6 +49,7 @@ const MOCK_SETTINGS: AppSettings = {
   music_fallback_chain: ['aac', 'aac-legacy'],
   video_fallback_chain: ['1080p', '720p'],
   companion_mode: 'disabled',
+  artist_auto_select: 'main-albums',
   embed_lyrics_and_sidecar: false,
   enhanced_lrc: false,
   synced_lyrics_format: 'srt',
@@ -63,6 +64,7 @@ const MOCK_SETTINGS: AppSettings = {
   musickit_team_id: 'TEST123456',
   musickit_key_id: 'KEY1234567',
   acoustid_enabled: true,
+  acoustid_api_key: 'test-api-key',
   replaygain_enabled: true,
   album_folder_template: '{artist}/{album}',
   compilation_folder_template: 'Various/{album}',
@@ -76,7 +78,6 @@ const MOCK_SETTINGS: AppSettings = {
   mp4decrypt_path: null,
   mp4box_path: null,
   nm3u8dlre_path: null,
-  amdecrypt_path: null,
   download_mode: 'nm3u8dlre',
   remux_mode: 'mp4box',
   use_wrapper: true,
@@ -113,6 +114,7 @@ beforeEach(() => {
       music_fallback_chain: ['alac', 'atmos', 'ac3', 'aac-binaural', 'aac', 'aac-legacy'],
       video_fallback_chain: ['2160p', '1440p', '1080p', '720p', '540p', '480p', '360p', '240p'],
       companion_mode: 'atmos_to_lossless',
+      artist_auto_select: null,
       embed_lyrics_and_sidecar: true,
       enhanced_lrc: true,
       synced_lyrics_format: 'ttml',
@@ -127,6 +129,7 @@ beforeEach(() => {
       musickit_team_id: null,
       musickit_key_id: null,
       acoustid_enabled: false,
+      acoustid_api_key: '',
       replaygain_enabled: false,
       album_folder_template: '{album_artist}/{album}',
       compilation_folder_template: 'Compilations/{album}',
@@ -140,7 +143,6 @@ beforeEach(() => {
       mp4decrypt_path: null,
       mp4box_path: null,
       nm3u8dlre_path: null,
-      amdecrypt_path: null,
       download_mode: 'ytdlp',
       remux_mode: 'ffmpeg',
       use_wrapper: false,
@@ -204,7 +206,9 @@ describe('settingsStore', () => {
     it('sets isLoading during the load', async () => {
       /* Create a promise we control to inspect intermediate state */
       let resolve!: (value: AppSettings) => void;
-      const pending = new Promise<AppSettings>((r) => { resolve = r; });
+      const pending = new Promise<AppSettings>((r) => {
+        resolve = r;
+      });
       vi.mocked(commands.getSettings).mockReturnValueOnce(pending);
 
       const loadPromise = useSettingsStore.getState().loadSettings();
@@ -216,9 +220,7 @@ describe('settingsStore', () => {
     });
 
     it('sets error on backend failure', async () => {
-      vi.mocked(commands.getSettings).mockRejectedValueOnce(
-        new Error('File not found'),
-      );
+      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('File not found'));
 
       await useSettingsStore.getState().loadSettings();
 
@@ -263,19 +265,15 @@ describe('settingsStore', () => {
 
       /* Verify the save command was called with the current settings */
       expect(commands.saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ output_path: '/new/path' }),
+        expect.objectContaining({ output_path: '/new/path' })
       );
       expect(useSettingsStore.getState().isDirty).toBe(false);
     });
 
     it('sets error and re-throws on backend failure', async () => {
-      vi.mocked(commands.saveSettings).mockRejectedValueOnce(
-        new Error('Disk full'),
-      );
+      vi.mocked(commands.saveSettings).mockRejectedValueOnce(new Error('Disk full'));
 
-      await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow(
-        'Disk full',
-      );
+      await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow('Disk full');
 
       expect(useSettingsStore.getState().error).toBe('Disk full');
     });

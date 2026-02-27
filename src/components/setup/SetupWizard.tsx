@@ -194,8 +194,8 @@ export function SetupWizard() {
           {SETUP_STEPS.map((step, index) => {
             // Determine the visual state of this step circle
             const isCompleted = completedSteps.has(step); // Step requirements are satisfied
-            const isCurrent = index === currentStepIndex;  // This is the active step
-            const isPast = index < currentStepIndex;       // User has moved past this step
+            const isCurrent = index === currentStepIndex; // This is the active step
+            const isPast = index < currentStepIndex; // User has moved past this step
 
             return (
               <div key={step} className="flex items-center flex-1 last:flex-initial">
@@ -208,9 +208,9 @@ export function SetupWizard() {
                       transition-colors
                       ${
                         isCurrent
-                          ? 'bg-accent text-content-inverse'                                       /* Active step: accent colour */
+                          ? 'bg-accent text-content-inverse' /* Active step: accent colour */
                           : isCompleted || isPast
-                            ? 'bg-status-success text-white'                                       /* Done/past step: green */
+                            ? 'bg-status-success text-white' /* Done/past step: green */
                             : 'bg-surface-elevated text-content-tertiary border border-border-light' /* Future step: muted */
                       }
                     `}
@@ -273,11 +273,7 @@ export function SetupWizard() {
               Get Started
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              onClick={nextStep}
-              disabled={!canProceed}
-            >
+            <Button variant="primary" onClick={nextStep} disabled={!canProceed}>
               Continue
             </Button>
           )}

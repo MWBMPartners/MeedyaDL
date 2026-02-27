@@ -229,6 +229,13 @@ pub struct QueueItemStatus {
     #[serde(default)]
     pub used_wrapper: bool,
 
+    /// Whether `output_path` points to a directory (album/playlist) rather
+    /// than a single file. The frontend uses this to decide whether to show
+    /// "Open File" (single track) vs only "Open Folder" (album directory),
+    /// and to open the directory directly instead of extracting a parent path.
+    #[serde(default)]
+    pub output_is_directory: bool,
+
     /// Non-fatal warnings collected during the download (e.g., GAMDL
     /// error-pattern lines that didn't prevent the process from exiting
     /// successfully). Displayed in the queue UI as amber text below the
@@ -399,6 +406,7 @@ mod tests {
             codec_used: Some("alac".to_string()),
             fallback_occurred: false,
             used_wrapper: false,
+            output_is_directory: false,
             warnings: Vec::new(),
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
@@ -442,6 +450,7 @@ mod tests {
             codec_used: None,
             fallback_occurred: false,
             used_wrapper: false,
+            output_is_directory: false,
             warnings: Vec::new(),
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
@@ -475,6 +484,7 @@ mod tests {
             codec_used: Some("aac".to_string()),
             fallback_occurred: true,
             used_wrapper: false,
+            output_is_directory: false,
             warnings: Vec::new(),
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };

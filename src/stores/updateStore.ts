@@ -246,14 +246,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state -- no results, nothing in progress
   // -------------------------------------------------------------------------
-  lastResult: null,           // No check result until first checkForUpdates() call
-  isChecking: false,          // No check in progress
-  isUpgrading: false,         // No upgrade in progress
-  dismissed: [],              // No dismissed update notifications
-  error: null,                // No error
+  lastResult: null, // No check result until first checkForUpdates() call
+  isChecking: false, // No check in progress
+  isUpgrading: false, // No upgrade in progress
+  dismissed: [], // No dismissed update notifications
+  error: null, // No error
   isDownloadingUpdate: false, // No app update download in progress
-  downloadProgress: null,     // No download progress
-  updateInstalled: false,     // No app update pending restart
+  downloadProgress: null, // No download progress
+  updateInstalled: false, // No app update pending restart
 
   // -------------------------------------------------------------------------
   // Async actions
@@ -346,9 +346,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         const total = payload.content_length ?? 0;
         // Calculate percentage, or null if total is unknown (indeterminate)
         const progress =
-          total > 0
-            ? Math.min(100, Math.round((downloadedBytes / total) * 100))
-            : null;
+          total > 0 ? Math.min(100, Math.round((downloadedBytes / total) * 100)) : null;
         set({ downloadProgress: progress });
       } else if (payload.event === 'finished') {
         set({ downloadProgress: 100 });
@@ -406,9 +404,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     if (!lastResult) return [];
     return lastResult.components.filter(
       (c) =>
-        c.update_available &&       // A newer version exists on PyPI/GitHub
-        c.is_compatible &&          // The update is safe to install
-        !dismissed.includes(c.name), // The user hasn't dismissed this notification
+        c.update_available && // A newer version exists on PyPI/GitHub
+        c.is_compatible && // The update is safe to install
+        !dismissed.includes(c.name) // The user hasn't dismissed this notification
     );
   },
 

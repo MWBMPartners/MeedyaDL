@@ -38,11 +38,7 @@ import { describe, it, expect } from 'vitest';
  * Import the functions under test from the url-parser module.
  * These are the public API of the parser that components consume.
  */
-import {
-  parseAppleMusicUrl,
-  isAppleMusicUrl,
-  getContentTypeLabel,
-} from './url-parser';
+import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel } from './url-parser';
 
 /**
  * Test suite for `isAppleMusicUrl()` - domain validation.
@@ -55,16 +51,12 @@ import {
 describe('isAppleMusicUrl', () => {
   /** Validates that the current Apple Music domain is accepted */
   it('accepts music.apple.com URLs', () => {
-    expect(isAppleMusicUrl('https://music.apple.com/us/album/test/123')).toBe(
-      true,
-    );
+    expect(isAppleMusicUrl('https://music.apple.com/us/album/test/123')).toBe(true);
   });
 
   /** Validates that the legacy iTunes domain is also accepted (backward compatibility) */
   it('accepts itunes.apple.com URLs', () => {
-    expect(
-      isAppleMusicUrl('https://itunes.apple.com/us/album/test/123'),
-    ).toBe(true);
+    expect(isAppleMusicUrl('https://itunes.apple.com/us/album/test/123')).toBe(true);
   });
 
   /** Ensures non-Apple domains are rejected, even if the path looks valid */
@@ -96,45 +88,35 @@ describe('parseAppleMusicUrl', () => {
    * identifies the `i` parameter and classifies as 'song' rather than 'album'.
    */
   it('detects songs (album URL with ?i= parameter)', () => {
-    const result = parseAppleMusicUrl(
-      'https://music.apple.com/us/album/some-song/123456?i=789',
-    );
+    const result = parseAppleMusicUrl('https://music.apple.com/us/album/some-song/123456?i=789');
     expect(result.contentType).toBe('song');
     expect(result.isValid).toBe(true);
   });
 
   /** Albums use the /album/ path segment without any `i` query parameter */
   it('detects albums', () => {
-    const result = parseAppleMusicUrl(
-      'https://music.apple.com/us/album/some-album/123456',
-    );
+    const result = parseAppleMusicUrl('https://music.apple.com/us/album/some-album/123456');
     expect(result.contentType).toBe('album');
     expect(result.isValid).toBe(true);
   });
 
   /** Playlists use the /playlist/ path segment (IDs often prefixed with `pl.`) */
   it('detects playlists', () => {
-    const result = parseAppleMusicUrl(
-      'https://music.apple.com/us/playlist/my-playlist/pl.abc123',
-    );
+    const result = parseAppleMusicUrl('https://music.apple.com/us/playlist/my-playlist/pl.abc123');
     expect(result.contentType).toBe('playlist');
     expect(result.isValid).toBe(true);
   });
 
   /** Music videos use the /music-video/ path segment (hyphenated) */
   it('detects music videos', () => {
-    const result = parseAppleMusicUrl(
-      'https://music.apple.com/us/music-video/some-video/123456',
-    );
+    const result = parseAppleMusicUrl('https://music.apple.com/us/music-video/some-video/123456');
     expect(result.contentType).toBe('music-video');
     expect(result.isValid).toBe(true);
   });
 
   /** Artists use the /artist/ path segment */
   it('detects artists', () => {
-    const result = parseAppleMusicUrl(
-      'https://music.apple.com/us/artist/some-artist/123456',
-    );
+    const result = parseAppleMusicUrl('https://music.apple.com/us/artist/some-artist/123456');
     expect(result.contentType).toBe('artist');
     expect(result.isValid).toBe(true);
   });
@@ -159,9 +141,7 @@ describe('parseAppleMusicUrl', () => {
    * handle this gracefully.
    */
   it('trims whitespace from input', () => {
-    const result = parseAppleMusicUrl(
-      '  https://music.apple.com/us/album/test/123  ',
-    );
+    const result = parseAppleMusicUrl('  https://music.apple.com/us/album/test/123  ');
     expect(result.contentType).toBe('album');
     expect(result.isValid).toBe(true);
   });

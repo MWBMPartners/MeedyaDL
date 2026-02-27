@@ -234,9 +234,7 @@ export function Sidebar() {
             <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
               MeedyaDL
             </h1>
-            <p className="text-[11px] text-content-secondary leading-tight">
-              Media Downloader
-            </p>
+            <p className="text-[11px] text-content-secondary leading-tight">Media Downloader</p>
           </div>
         )}
       </div>
@@ -341,10 +339,7 @@ export function Sidebar() {
             {isReady ? 'Ready' : 'Setup Required'}
           </div>
         ) : (
-          <Tooltip
-            content={isReady ? 'Ready' : 'Setup Required'}
-            position="right"
-          >
+          <Tooltip content={isReady ? 'Ready' : 'Setup Required'} position="right">
             <div className="flex justify-center">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -402,10 +397,7 @@ export function Sidebar() {
               aria-label={label}
             >
               <span className="relative flex-shrink-0">
-                <RefreshCw
-                  size={14}
-                  className={isChecking ? 'animate-spin' : ''}
-                />
+                <RefreshCw size={14} className={isChecking ? 'animate-spin' : ''} />
                 {hasUpdates && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent" />
                 )}
@@ -443,11 +435,7 @@ export function Sidebar() {
           className="no-drag w-full flex items-center justify-center mt-2 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover transition-colors"
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {sidebarCollapsed ? (
-            <ChevronRight size={16} />
-          ) : (
-            <ChevronLeft size={16} />
-          )}
+          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
     </aside>

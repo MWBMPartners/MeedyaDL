@@ -90,6 +90,7 @@ tmp/
 temp/
 *.tmp
 .temp/
+.debugLogs/
 
 # ============================================================
 # Legacy (from previous PyQt5 iteration)

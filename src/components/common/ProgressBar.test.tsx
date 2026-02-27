@@ -158,9 +158,7 @@ describe('ProgressBar', () => {
    * to the progress bar wrapper without overriding internal styles.
    */
   it('applies className to outer container', () => {
-    const { container } = render(
-      <ProgressBar value={50} className="mt-4 custom-class" />,
-    );
+    const { container } = render(<ProgressBar value={50} className="mt-4 custom-class" />);
 
     /*
      * The outer container is the root div rendered by the component.

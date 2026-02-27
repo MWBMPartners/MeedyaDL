@@ -58,83 +58,84 @@ import * as commands from '@/lib/tauri-commands';
  *   - `download_mode: 'ytdlp'` -- Use yt-dlp for stream fetching
  */
 const DEFAULT_SETTINGS: AppSettings = {
-  output_path: '',               // Resolved to ~/Music (or platform equivalent) by backend
-  temp_path: '',                 // Resolved to {OS temp}/MeedyaDL by backend
-  language: 'en-US',             // Apple Music storefront language
-  overwrite: false,              // Do not overwrite existing files by default
-  ui_language: '',                // Auto-detect UI language from OS locale
-  auto_check_updates: true,      // Automatically check for updates on startup
-  check_pre_releases: false,     // Only show stable releases by default
-  auto_start_queue: true,        // Start processing immediately when items are enqueued
-  default_song_codec: 'alac',    // Preferred audio codec: Apple Lossless
+  output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
+  temp_path: '', // Resolved to {OS temp}/MeedyaDL by backend
+  language: 'en-US', // Apple Music storefront language
+  overwrite: false, // Do not overwrite existing files by default
+  ui_language: '', // Auto-detect UI language from OS locale
+  auto_check_updates: true, // Automatically check for updates on startup
+  check_pre_releases: false, // Only show stable releases by default
+  auto_start_queue: true, // Start processing immediately when items are enqueued
+  default_song_codec: 'alac', // Preferred audio codec: Apple Lossless
   default_video_resolution: '2160p', // Preferred video quality: 4K
   default_video_codec_priority: 'h265,h264', // Try H.265 first, fall back to H.264
   default_video_remux_format: 'm4v', // Container format for remuxed music videos
-  fallback_enabled: true,        // Enable quality fallback chains when preferred unavailable
+  fallback_enabled: true, // Enable quality fallback chains when preferred unavailable
   // Music codec fallback chain: tried in order when `default_song_codec` is unavailable
   music_fallback_chain: [
-    'alac',           // 1st choice -- lossless
-    'atmos',          // 2nd -- Dolby Atmos spatial audio
-    'ac3',            // 3rd -- Dolby Digital
-    'aac-binaural',   // 4th -- AAC binaural mix
-    'aac',            // 5th -- standard AAC 256kbps
-    'aac-legacy',     // 6th -- legacy AAC (44.1kHz cap)
+    'alac', // 1st choice -- lossless
+    'atmos', // 2nd -- Dolby Atmos spatial audio
+    'ac3', // 3rd -- Dolby Digital
+    'aac-binaural', // 4th -- AAC binaural mix
+    'aac', // 5th -- standard AAC 256kbps
+    'aac-legacy', // 6th -- legacy AAC (44.1kHz cap)
   ],
   // Video resolution fallback chain: tried in order when preferred resolution unavailable
   video_fallback_chain: [
-    '2160p',  // 4K
-    '1440p',  // QHD
-    '1080p',  // Full HD
-    '720p',   // HD
-    '540p',   // qHD
-    '480p',   // SD
-    '360p',   // Low
-    '240p',   // Lowest
+    '2160p', // 4K
+    '1440p', // QHD
+    '1080p', // Full HD
+    '720p', // HD
+    '540p', // qHD
+    '480p', // SD
+    '360p', // Low
+    '240p', // Lowest
   ],
   companion_mode: 'atmos_to_lossless', // Atmos → also download ALAC companion (default)
-  embed_lyrics_and_sidecar: true,  // Embed lyrics in metadata AND keep sidecar files
-  enhanced_lrc: true,            // Convert TTML to Enhanced LRC with word-by-word sync
-  synced_lyrics_format: 'ttml',  // Default lyrics format (TTML preserves word-level timing)
-  no_synced_lyrics: false,       // Do download synced lyrics
-  synced_lyrics_only: false,     // Also download plain-text lyrics
-  companion_lyrics_formats: ['srt'],  // SRT as companion format
-  save_cover: true,              // Save album artwork alongside audio files
-  cover_format: 'jpg',           // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
-  cover_size: 10000,             // Request maximum available artwork resolution from Apple CDN
+  artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
+  embed_lyrics_and_sidecar: true, // Embed lyrics in metadata AND keep sidecar files
+  enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
+  synced_lyrics_format: 'ttml', // Default lyrics format (TTML preserves word-level timing)
+  no_synced_lyrics: false, // Do download synced lyrics
+  synced_lyrics_only: false, // Also download plain-text lyrics
+  companion_lyrics_formats: ['srt'], // SRT as companion format
+  save_cover: true, // Save album artwork alongside audio files
+  cover_format: 'jpg', // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
+  cover_size: 10000, // Request maximum available artwork resolution from Apple CDN
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: false, // Disabled by default; needs Apple Developer setup
-  hide_animated_artwork: true,     // Hide artwork files from default file browser views
-  musickit_team_id: null,          // Apple Developer Team ID (10-char)
-  musickit_key_id: null,           // MusicKit private key identifier (10-char)
+  hide_animated_artwork: true, // Hide artwork files from default file browser views
+  musickit_team_id: null, // Apple Developer Team ID (10-char)
+  musickit_key_id: null, // MusicKit private key identifier (10-char)
   // Metadata enrichment (opt-in post-download processing)
-  acoustid_enabled: false,         // AcousticID fingerprinting (embedded Chromaprint)
-  replaygain_enabled: false,       // ReplayGain loudness analysis (uses FFmpeg)
+  acoustid_enabled: false, // AcousticID fingerprinting (embedded Chromaprint)
+  acoustid_api_key: '', // AcousticID application API key (user-provided)
+  replaygain_enabled: false, // ReplayGain loudness analysis (uses FFmpeg)
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
   no_album_folder_template: '{artist}/Unknown Album',
-  single_disc_file_template: '{track:02d} {title}',      // Zero-padded track number
+  single_disc_file_template: '{track:02d} {title}', // Zero-padded track number
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
   playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
   // Tool paths -- null means "auto-detect from bundled/PATH"
-  cookies_path: null,            // Netscape-format cookies file for authentication
-  ffmpeg_path: null,             // FFmpeg binary for audio/video processing
-  mp4decrypt_path: null,         // Bento4 mp4decrypt for DRM decryption
-  mp4box_path: null,             // GPAC MP4Box for container manipulation
-  nm3u8dlre_path: null,          // N_m3u8DL-RE for HLS/DASH stream downloading
-  amdecrypt_path: null,          // Apple Music decryption tool
-  download_mode: 'ytdlp',       // Stream download backend: yt-dlp (default) or N_m3u8DL-RE
-  remux_mode: 'ffmpeg',         // Remuxing backend: FFmpeg (default) or MP4Box
-  use_wrapper: false,            // Whether to use a remote account wrapper service
+  cookies_path: null, // Netscape-format cookies file for authentication
+  ffmpeg_path: null, // FFmpeg binary for audio/video processing
+  mp4decrypt_path: null, // Bento4 mp4decrypt for DRM decryption
+  mp4box_path: null, // GPAC MP4Box for container manipulation
+  nm3u8dlre_path: null, // N_m3u8DL-RE for HLS/DASH stream downloading
+  download_mode: 'ytdlp', // Stream download backend: yt-dlp (default) or N_m3u8DL-RE
+  remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
+  use_wrapper: false, // Whether to use a remote account wrapper service
   wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
-  truncate: null,                // Max filename length in characters; null = no truncation
-  fetch_extra_tags: true,        // Fetch extra metadata (normalization, smooth playback info)
-  exclude_tags: [],              // Metadata tags to exclude from output files
-  sentry_enabled: false,         // Opt-in anonymous crash reporting via Sentry (default: off)
-  setup_completed: false,        // Whether the setup wizard has been completed at least once
-  sidebar_collapsed: false,      // UI preference: sidebar expanded by default
-  theme_override: null,          // null = follow OS theme; 'light' or 'dark' to override
+  truncate: null, // Max filename length in characters; null = no truncation
+  fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
+  exclude_tags: [], // Metadata tags to exclude from output files
+  sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
+  setup_completed: false, // Whether the setup wizard has been completed at least once
+  sidebar_collapsed: false, // UI preference: sidebar expanded by default
+  theme_override: null, // null = follow OS theme; 'light' or 'dark' to override
 };
 
 /**
@@ -233,9 +234,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Initial state -- populated with defaults until loadSettings() completes
   // -------------------------------------------------------------------------
   settings: DEFAULT_SETTINGS,
-  isLoading: false,  // No load in progress at creation time
-  isDirty: false,    // No unsaved changes at creation time
-  error: null,       // No error at creation time
+  isLoading: false, // No load in progress at creation time
+  isDirty: false, // No unsaved changes at creation time
+  error: null, // No error at creation time
 
   // -------------------------------------------------------------------------
   // Actions
@@ -316,6 +317,5 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * Creates a fresh copy via spread to ensure referential inequality.
    * Marks `isDirty = true` because the reset has not been saved to disk yet.
    */
-  resetToDefaults: () =>
-    set({ settings: { ...DEFAULT_SETTINGS }, isDirty: true }),
+  resetToDefaults: () => set({ settings: { ...DEFAULT_SETTINGS }, isDirty: true }),
 }));

@@ -79,7 +79,7 @@ vi.mock('@tauri-apps/api/core', () => ({
  * @see {@link https://v2.tauri.app/reference/javascript/api/namespacevent/}
  */
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn().mockResolvedValue(() => {}),  // Returns a no-op unlisten function
+  listen: vi.fn().mockResolvedValue(() => {}), // Returns a no-op unlisten function
   emit: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -97,7 +97,7 @@ vi.mock('@tauri-apps/api/event', () => ({
  * @see {@link https://v2.tauri.app/reference/javascript/plugin-os/}
  */
 vi.mock('@tauri-apps/plugin-os', () => ({
-  platform: vi.fn().mockResolvedValue('macos'),   // Default to macOS in tests
-  arch: vi.fn().mockResolvedValue('aarch64'),      // Default to ARM64 (Apple Silicon)
-  type: vi.fn().mockResolvedValue('macos'),        // OS type string
+  platform: vi.fn().mockResolvedValue('macos'), // Default to macOS in tests
+  arch: vi.fn().mockResolvedValue('aarch64'), // Default to ARM64 (Apple Silicon)
+  type: vi.fn().mockResolvedValue('macos'), // OS type string
 }));

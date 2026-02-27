@@ -146,13 +146,10 @@ export function Select({
     /* Outer wrapper -- space-y-1.5 adds 6px vertical gap between children */
     <div className="space-y-1.5">
       {/* Accessible <label> -- only rendered when label text is provided.
-        * When helpTopic is set, a HelpButton is rendered inline after the label. */}
+       * When helpTopic is set, a HelpButton is rendered inline after the label. */}
       {label && (
         <div className="flex items-center gap-1.5">
-          <label
-            htmlFor={selectId}
-            className="text-sm font-medium text-content-primary"
-          >
+          <label htmlFor={selectId} className="text-sm font-medium text-content-primary">
             {label}
           </label>
           {helpTopic && <HelpButton topic={helpTopic} />}
@@ -205,25 +202,17 @@ export function Select({
          * within a single <select>.
          */}
         {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-            disabled={option.disabled}
-          >
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}
       </select>
 
       {/* Error message -- takes priority over description */}
-      {error && (
-        <p className="text-xs text-status-error">{error}</p>
-      )}
+      {error && <p className="text-xs text-status-error">{error}</p>}
 
       {/* Helper description text -- only shown when there is no error */}
-      {!error && description && (
-        <p className="text-xs text-content-tertiary">{description}</p>
-      )}
+      {!error && description && <p className="text-xs text-content-tertiary">{description}</p>}
     </div>
   );
 }
