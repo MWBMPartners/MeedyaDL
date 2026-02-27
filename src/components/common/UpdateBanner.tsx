@@ -179,14 +179,14 @@ export function UpdateBanner() {
   };
 
   /**
-   * Opens a release URL in the user's default browser.
-   * Uses `window.open` with `_blank` target so the Tauri webview
-   * delegates to the system browser rather than navigating in-app.
+   * Opens a release URL in the user's default system browser.
+   * Uses the Tauri shell plugin's `open()` to reliably delegate to the
+   * OS default browser rather than navigating inside the WebView.
    *
    * @param url - Full URL to the GitHub release page
    */
   const handleViewRelease = (url: string) => {
-    window.open(url, '_blank');
+    import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
   };
 
   return (

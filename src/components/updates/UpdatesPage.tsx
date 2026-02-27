@@ -107,7 +107,7 @@ export function UpdatesPage() {
   };
 
   const handleViewRelease = (url: string) => {
-    window.open(url, '_blank');
+    import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
   };
 
   return (
@@ -284,7 +284,30 @@ export function UpdatesPage() {
                       Release Notes
                     </h4>
                     <div className="prose prose-sm max-w-none text-content-primary">
-                      <ReactMarkdown>
+                      <ReactMarkdown
+                        components={{
+                          a: ({ href, children, ...props }) => (
+                            <a
+                              {...props}
+                              href={href}
+                              onClick={(e) => {
+                                if (!href) return;
+                                if (
+                                  href.startsWith('http://') ||
+                                  href.startsWith('https://')
+                                ) {
+                                  e.preventDefault();
+                                  import('@tauri-apps/plugin-shell').then(
+                                    ({ open }) => open(href),
+                                  );
+                                }
+                              }}
+                            >
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
                         {stripDownloadSection(update.release_body)}
                       </ReactMarkdown>
                     </div>
