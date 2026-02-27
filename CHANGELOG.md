@@ -41,6 +41,7 @@ cargo test compiles #[cfg(test)] modules that cargo check skips,
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.4.1] - 2026-02-27
 
