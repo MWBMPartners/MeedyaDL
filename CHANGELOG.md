@@ -8,7 +8,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
-- Update handleViewRelease to use Tauri shell plugin for opening URLs
+- Resolve startup crash caused by missing Tokio runtime in setup — queue recovery used `tokio::runtime::Handle::current()` which panics when no Tokio runtime is active during the macOS `did_finish_launching` callback; replaced with `blocking_lock()` and `tauri::async_runtime::spawn()`
+- Open external links in system browser instead of WebView — release note links in the Updates page and the "View on GitHub" buttons in both the Updates page and Update banner now use the Tauri shell plugin (`@tauri-apps/plugin-shell`) instead of `window.open()`; added custom `ReactMarkdown` link component to intercept clicks on HTTP(S) links in rendered release notes
 
 ### 📚 Documentation
 
