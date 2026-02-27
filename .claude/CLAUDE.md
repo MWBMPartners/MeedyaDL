@@ -11,15 +11,18 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 - **GAMDL Integration**: CLI subprocess calls (`python -m gamdl ...`) - never imported as a Python library
 - **Dependencies**: Self-contained in app data dir (Python via python-build-standalone, GAMDL via pip, tools)
 - **Theming**: Platform-adaptive CSS custom properties (macOS/Windows/Linux themes)
-- **Error Handling**: ErrorBoundary in main.tsx catches React crashes; unhandled rejection handler logs async errors
+- **Error Handling**: ErrorBoundary in main.tsx catches React crashes; unhandled rejection handler logs async errors. All frontend errors are persisted to Rust crash reports via `log_frontend_error` IPC command.
+- **Logging**: `tracing` ecosystem (replaces `env_logger`) with dual output: stderr + daily-rotating file in `{app_data_dir}/logs/`. Compatible with `log` facade -- all `log::*!()` macros work unchanged.
+- **Crash Reports**: JSON files in `{app_data_dir}/crashes/`. Rust panics captured by `setup_panic_handler()`, frontend errors via IPC. Auto-cleanup of reports older than 30 days.
+- **Sentry** (opt-in): `sentry_enabled` setting (default: `false`). When enabled, Rust SDK + JS SDK send anonymous crash data. Toggle in Settings > Advanced.
 
 ## Key Directories
 
 ```
 src-tauri/src/          # Rust backend
-  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork)
-  models/               # Data structures (download, settings, gamdl_options, dependency, music_service)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required + 1 optional tool], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service)
+  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork, crash_reports)
+  models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required + 1 optional tool], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings, setup, help, updates)

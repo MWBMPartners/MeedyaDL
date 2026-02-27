@@ -6,6 +6,11 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add crash reporting system with local file logging and optional Sentry integration — replaces `env_logger` with `tracing` ecosystem for dual-output logging (stderr + daily-rotating file), adds custom panic handler that writes JSON crash reports to `{app_data_dir}/crashes/`, persists frontend errors (ErrorBoundary, window.onerror, unhandledrejection) to crash reports via IPC, and adds opt-in Sentry cloud reporting with toggle in Settings > Advanced
+- Add GitHub branch protection via Repository Ruleset — prevents force pushes and branch deletion on `main`, requires CI status checks for PRs
+
 ### 🐛 Bug Fixes
 
 - Resolve startup crash caused by missing Tokio runtime in setup — queue recovery used `tokio::runtime::Handle::current()` which panics when no Tokio runtime is active during the macOS `did_finish_launching` callback; replaced with `blocking_lock()` and `tauri::async_runtime::spawn()`

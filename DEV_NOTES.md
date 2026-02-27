@@ -363,6 +363,92 @@ To update the README screenshots:
 
 ---
 
+## GitHub Branch Protection
+
+The `main` branch is protected via a GitHub Repository Ruleset (preferred over legacy branch protection rules for flexibility).
+
+**Ruleset name:** `main-protection`
+
+**Rules applied:**
+
+- **Prevent force pushes** -- No one can rewrite `main` history
+- **Prevent branch deletion** -- `main` cannot be deleted
+- **Require CI status checks** -- PRs must pass `frontend` and `backend` CI jobs before merging
+
+**Bypass actors:** Repository admin (allows direct pushes to `main` for the owner's workflow)
+
+**Managing the ruleset:**
+
+```bash
+# View current rulesets
+gh api repos/MWBMPartners/MeedyaDL/rulesets
+
+# View specific ruleset details
+gh api repos/MWBMPartners/MeedyaDL/rulesets/{ruleset_id}
+
+# Or manage via GitHub UI: Settings > Rules > Rulesets
+```
+
+---
+
+## Crash Reporting & Diagnostics
+
+### Architecture
+
+MeedyaDL has a three-layer crash reporting system:
+
+1. **Local file logging** (always on) -- `tracing` ecosystem with dual output:
+   - **stderr** -- Coloured, human-readable output for development
+   - **Rotating file** -- `{app_data_dir}/logs/meedyadl.YYYY-MM-DD.log` (daily rotation)
+
+2. **Local crash reports** (always on) -- JSON crash reports saved to `{app_data_dir}/crashes/`:
+   - Rust panics are captured by a custom `std::panic::set_hook()` handler
+   - Frontend errors (ErrorBoundary, window.onerror, unhandledrejection) are sent to Rust via the `log_frontend_error` IPC command
+   - Each report includes: error message, stack trace, app version, OS, architecture, timestamp, source
+
+3. **Sentry cloud reporting** (opt-in) -- Anonymous crash telemetry:
+   - Disabled by default (`sentry_enabled: false` in settings)
+   - Toggle in Settings > Advanced > Crash Reporting
+   - Rust SDK (`sentry` crate) + JS SDK (`@sentry/browser`)
+   - Captures panics, `tracing::error!()` events, unhandled JS exceptions
+   - No personal data, download history, or account info is ever sent
+
+### Key Crash Reporting Files
+
+| File | Role |
+| ---- | ---- |
+| `src-tauri/src/lib.rs` | `setup_tracing()`, `setup_panic_handler()`, Sentry init |
+| `src-tauri/src/models/crash_report.rs` | `CrashReport` struct |
+| `src-tauri/src/services/crash_report_service.rs` | CRUD operations for crash report files |
+| `src-tauri/src/commands/crash_reports.rs` | IPC commands (list, get, delete, export, log_frontend_error) |
+| `src/main.tsx` | Frontend error handlers + `persistFrontendError()` + Sentry JS init |
+| `src/components/settings/tabs/AdvancedTab.tsx` | Sentry opt-in toggle UI |
+
+### File Locations
+
+| Platform | Logs | Crash Reports |
+| -------- | ---- | ------------- |
+| macOS | `~/Library/Application Support/io.github.meedyadl/logs/` | `~/Library/Application Support/io.github.meedyadl/crashes/` |
+| Windows | `%APPDATA%/io.github.meedyadl/logs/` | `%APPDATA%/io.github.meedyadl/crashes/` |
+| Linux | `~/.local/share/io.github.meedyadl/logs/` | `~/.local/share/io.github.meedyadl/crashes/` |
+
+### Tracing Configuration
+
+The `tracing` ecosystem replaces the previous `env_logger`:
+
+- `tracing` -- Structured diagnostics framework (compatible with `log` facade)
+- `tracing-subscriber` -- Layered subscriber with `EnvFilter` for `RUST_LOG` support
+- `tracing-appender` -- Non-blocking rolling file appender
+- `sentry-tracing` -- Sentry integration layer (only active when opted in)
+
+All existing `log::info!()` / `log::error!()` calls work unchanged.
+
+### Crash Report Cleanup
+
+On startup, crash reports older than 30 days are automatically deleted by `clear_old_reports()`.
+
+---
+
 ## 📁 Project Structure
 
 ```text
@@ -415,13 +501,15 @@ MeedyaDL/
 │       │   ├── updates.rs      #    Update checking commands
 │       │   ├── cookies.rs      #    Browser cookie extraction
 │       │   ├── login_window.rs #    Embedded Apple Music login
-│       │   └── artwork.rs      #    Animated artwork download
+│       │   ├── artwork.rs      #    Animated artwork download
+│       │   └── crash_reports.rs#    Crash report management + frontend error logging
 │       ├── models/             #    Data structures
 │       │   ├── download.rs     #    Download request, state, queue status
 │       │   ├── gamdl_options.rs#    All GAMDL CLI options as typed enums
 │       │   ├── settings.rs     #    App configuration with defaults
 │       │   ├── dependency.rs   #    Dependency status tracking
-│       │   └── music_service.rs#    Service trait (extensibility)
+│       │   ├── music_service.rs#    Service trait (extensibility)
+│       │   └── crash_report.rs #    Crash report data model
 │       ├── services/           #    Business logic
 │       │   ├── python_manager.rs    # Portable Python download/install
 │       │   ├── gamdl_service.rs     # GAMDL CLI wrapper & subprocess
@@ -436,7 +524,8 @@ MeedyaDL/
 │       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
 │       │   ├── acoustid_service.rs  # AcousticID fingerprinting (opt-in)
 │       │   ├── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
-│       │   └── enhanced_lyrics_service.rs # TTML → Enhanced LRC conversion
+│       │   ├── enhanced_lyrics_service.rs # TTML → Enhanced LRC conversion
+│       │   └── crash_report_service.rs # Crash report CRUD + export
 │       └── utils/              #    Utility modules
 │           ├── platform.rs     #    OS detection & paths
 │           ├── archive.rs      #    ZIP/tar extraction

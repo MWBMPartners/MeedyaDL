@@ -539,6 +539,20 @@ pub struct AppSettings {
     pub artist_auto_select: Option<ArtistAutoSelect>,
 
     // ================================================================
+    // Crash Reporting & Telemetry
+    // ================================================================
+
+    /// Whether to send anonymous crash reports to Sentry (opt-in telemetry).
+    /// When `true`, the Sentry SDK is initialised at startup and captures
+    /// panics, `tracing::error!()` events, and breadcrumbs. When `false`
+    /// (the default), no data is ever sent -- crash reports are only saved
+    /// locally to `{app_data_dir}/crashes/`.
+    ///
+    /// Controlled in Settings > Advanced > Crash Reporting.
+    #[serde(default)]
+    pub sentry_enabled: bool,
+
+    // ================================================================
     // Application State
     // ================================================================
 
@@ -767,6 +781,11 @@ impl Default for AppSettings {
             // No auto-selection by default: omit the flag so GAMDL uses its
             // own default behavior when the user provides an artist URL.
             artist_auto_select: None,
+
+            // --- Crash reporting ---
+            // Sentry is disabled by default (opt-in). No data is sent until
+            // the user explicitly enables it in Settings > Advanced.
+            sentry_enabled: false,
 
             // --- Application state ---
             // Setup wizard has not been completed yet on a fresh install.

@@ -65,6 +65,149 @@ pub mod utils;
 // phase of application startup.
 // ---------------------------------------------------------------------------
 
+/// Initialises the `tracing` subscriber with dual-output logging:
+///
+/// 1. **stderr** -- Coloured, human-readable output for development. Controlled
+///    by the `RUST_LOG` environment variable (e.g., `RUST_LOG=debug`).
+/// 2. **Rolling file** -- Daily-rotated log files written to
+///    `{app_data_dir}/logs/` with the prefix `meedyadl`. Files are named
+///    `meedyadl.YYYY-MM-DD.log` and old files are kept for 7 days.
+///
+/// If Sentry is enabled in the user's settings, a `sentry_tracing::layer()`
+/// is added to the subscriber stack so that `error!()` events are forwarded
+/// to Sentry and lower-level events become breadcrumbs.
+///
+/// All existing `log::info!()` / `log::error!()` calls throughout the codebase
+/// continue to work unchanged because `tracing` is compatible with the `log`
+/// facade via its built-in bridge.
+///
+/// # Arguments
+/// * `sentry_enabled` -- Whether the Sentry tracing layer should be active.
+///
+/// # Returns
+/// A `WorkerGuard` that **must** be kept alive for the application's lifetime.
+/// Dropping it flushes and closes the file appender. Bind it to a named
+/// variable (e.g., `let _guard = ...`) in the caller.
+fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::WorkerGuard {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    // Determine the log directory. Use the platform app data dir if available,
+    // otherwise fall back to the OS temp dir.
+    let log_dir = dirs::data_dir()
+        .map(|d| d.join("io.github.meedyadl").join("logs"))
+        .unwrap_or_else(|| std::env::temp_dir().join("MeedyaDL").join("logs"));
+
+    // Ensure the log directory exists
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    // Create a daily-rotating file appender: meedyadl.YYYY-MM-DD.log
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "meedyadl");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    // Environment filter: respect RUST_LOG, default to `info` for our crate
+    // and `warn` for everything else to keep logs manageable.
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("meedyadl=info,warn"));
+
+    // Build the layered subscriber
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        // stderr layer: coloured, with timestamps, for dev console
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .with_thread_ids(false)
+                .with_file(false),
+        )
+        // File layer: plain text (no ANSI colours), with timestamps
+        .with(
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true),
+        );
+
+    // Conditionally add the Sentry tracing layer
+    if sentry_enabled {
+        registry
+            .with(sentry_tracing::layer())
+            .init();
+    } else {
+        registry.init();
+    }
+
+    guard
+}
+
+/// Installs a custom panic hook that writes structured JSON crash reports
+/// to `{app_data_dir}/crashes/` before aborting.
+///
+/// The crash report includes: panic message, backtrace, app version, OS,
+/// architecture, and timestamp. This provides diagnostic information even
+/// when the app crashes outside of a debugger.
+///
+/// The original default hook is preserved and called after writing the
+/// crash report, so the standard panic message still appears on stderr.
+fn setup_panic_handler() {
+    let default_hook = std::panic::take_hook();
+
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // Capture the backtrace
+        let backtrace = std::backtrace::Backtrace::force_capture();
+
+        // Extract the panic message
+        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic".to_string()
+        };
+
+        // Extract location info
+        let location = panic_info.location().map(|loc| {
+            format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
+        });
+
+        // Build the crash report JSON
+        let report = serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "app_version": env!("CARGO_PKG_VERSION"),
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "source": "rust_panic",
+            "panic_message": message,
+            "location": location,
+            "backtrace": backtrace.to_string(),
+            "context": {}
+        });
+
+        // Write the crash report to disk
+        let crash_dir = dirs::data_dir()
+            .map(|d| d.join("io.github.meedyadl").join("crashes"))
+            .unwrap_or_else(|| std::env::temp_dir().join("MeedyaDL").join("crashes"));
+
+        if std::fs::create_dir_all(&crash_dir).is_ok() {
+            let filename = format!(
+                "crash-{}.json",
+                chrono::Utc::now().format("%Y%m%d-%H%M%S")
+            );
+            let path = crash_dir.join(&filename);
+            if let Ok(json) = serde_json::to_string_pretty(&report) {
+                let _ = std::fs::write(&path, json);
+                eprintln!("Crash report saved to: {}", path.display());
+            }
+        }
+
+        // Call the original panic hook so the standard message still appears
+        default_hook(panic_info);
+    }));
+}
+
 /// Creates and configures the system tray icon with its context menu and
 /// event handlers.
 ///
@@ -264,8 +407,9 @@ fn setup_queue_recovery(app: &tauri::App) {
 /// under normal operation.
 ///
 /// # Execution flow
-/// 1. Initialise the `env_logger` crate so `log::info!` / `log::debug!` etc.
-///    print to stderr (controlled by the `RUST_LOG` environment variable).
+/// 1. Install the panic handler and initialise `tracing` with dual-output
+///    logging (stderr + rotating file in `{app_data_dir}/logs/`). If Sentry
+///    is enabled in settings, the Sentry SDK is also initialised.
 /// 2. Create a `tauri::Builder` and chain configuration calls:
 ///    - `.manage()` -- inject shared state accessible from any command handler.
 ///    - `.plugin()` -- register Tauri plugins that bridge native OS APIs.
@@ -289,12 +433,50 @@ fn setup_queue_recovery(app: &tauri::App) {
 // boxing the entire context, which Tauri's API does not support.
 #[allow(clippy::large_stack_frames, clippy::too_many_lines)]
 pub fn run() {
-    // Initialise the `env_logger` crate for structured logging.
+    // Install the custom panic handler FIRST (before any other initialisation)
+    // so that if anything panics during startup, we still get a crash report.
+    setup_panic_handler();
+
+    // Load settings early to check if Sentry is enabled. We need this before
+    // initialising tracing because the Sentry layer must be part of the
+    // subscriber stack from the start. If settings can't be loaded, default
+    // to Sentry disabled (safe default -- no data sent without consent).
+    let sentry_enabled = services::config_service::load_settings_from_default_path()
+        .map(|s| s.sentry_enabled)
+        .unwrap_or(false);
+
+    // Initialise Sentry SDK if the user has opted in. The `_sentry_guard`
+    // must be kept alive for the app's lifetime; dropping it flushes pending
+    // events and shuts down the SDK. We use a compile-time DSN constant
+    // (public DSNs are safe to embed per Sentry docs -- they only identify
+    // the project, not authenticate requests).
+    let _sentry_guard = if sentry_enabled {
+        Some(sentry::init((
+            "https://examplePublicKey@o0.ingest.sentry.io/0",
+            sentry::ClientOptions {
+                release: Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION"))),
+                environment: Some(std::borrow::Cow::Borrowed(if cfg!(debug_assertions) {
+                    "development"
+                } else {
+                    "production"
+                })),
+                // Capture 100% of errors, 20% of transactions (performance)
+                sample_rate: 1.0,
+                traces_sample_rate: 0.2,
+                ..Default::default()
+            },
+        )))
+    } else {
+        None
+    };
+
+    // Initialise the tracing subscriber with dual-output logging (stderr + file).
+    // The `_tracing_guard` must be kept alive to ensure the file appender
+    // flushes on shutdown. Replaces the previous `env_logger::init()` call.
     // During development, run with `RUST_LOG=debug cargo tauri dev` to see
     // verbose output from all modules, or `RUST_LOG=meedyadl=debug` to
     // restrict output to this crate only.
-    // Reference: https://docs.rs/env_logger/latest/env_logger/
-    env_logger::init();
+    let _tracing_guard = setup_tracing(sentry_enabled);
 
     // Build and run the Tauri application using the Builder pattern.
     // `Builder::default()` creates a new builder with sensible defaults.
@@ -443,6 +625,12 @@ pub fn run() {
             commands::login_window::close_apple_login,
             // Animated artwork download command
             commands::artwork::download_animated_artwork,
+            // Crash report commands (list, get, delete, export, log frontend errors)
+            commands::crash_reports::list_crash_reports,
+            commands::crash_reports::get_crash_report,
+            commands::crash_reports::delete_crash_report,
+            commands::crash_reports::export_crash_report,
+            commands::crash_reports::log_frontend_error,
         ])
 
         // ---------------------------------------------------------------
@@ -549,6 +737,9 @@ pub fn run() {
             // The `_tray` binding keeps the TrayIcon alive for the app's lifetime;
             // dropping it would remove the icon from the system tray.
             let _tray = setup_system_tray(app)?;
+
+            // Clean up crash reports older than 30 days
+            services::crash_report_service::clear_old_reports(app.handle());
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);

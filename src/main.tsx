@@ -14,6 +14,8 @@
  * 3. Locate the root DOM element (`<div id="root">`) in index.html
  * 4. Create a React 18+ concurrent root via `createRoot()` and render the app
  * 5. Wrap the app in `<React.StrictMode>` for development-time safety checks
+ * 6. Set up global error handlers that persist errors to the Rust crash report system
+ * 7. Optionally initialise Sentry for anonymous crash reporting (opt-in)
  *
  * @see {@link https://react.dev/reference/react-dom/client/createRoot} - React createRoot API
  * @see {@link https://react.dev/reference/react/StrictMode} - React StrictMode documentation
@@ -36,6 +38,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 
 /**
+ * Tauri IPC invoke function for calling Rust backend commands.
+ * Used to persist frontend errors to the crash report system via the
+ * `log_frontend_error` command.
+ * @see {@link https://v2.tauri.app/develop/calling-rust/}
+ */
+import { invoke } from '@tauri-apps/api/core';
+
+/**
  * Root application component.
  * Handles platform detection, settings initialization, dependency checking,
  * event listeners, and page routing. See ./App.tsx for full documentation.
@@ -49,6 +59,66 @@ import App from './App';
  * This import must come before any component rendering so styles are available.
  */
 import './styles/globals.css';
+
+/**
+ * Initialise Sentry for anonymous crash reporting (opt-in).
+ *
+ * Reads the user's settings to check if `sentry_enabled` is true. If so,
+ * initialises the Sentry browser SDK which captures unhandled exceptions,
+ * promise rejections, and console.error calls. No data is sent unless the
+ * user has explicitly opted in via Settings > Advanced.
+ *
+ * This runs as a fire-and-forget async IIFE so it doesn't block rendering.
+ */
+(async () => {
+  try {
+    const settings = await invoke<{ sentry_enabled?: boolean }>('get_settings');
+    if (settings?.sentry_enabled) {
+      const Sentry = await import('@sentry/browser');
+      Sentry.init({
+        dsn: 'https://examplePublicKey@o0.ingest.sentry.io/0',
+        release: `meedyadl@${__APP_VERSION__}`,
+        environment: import.meta.env.DEV ? 'development' : 'production',
+        // Capture 100% of errors, 20% of transactions
+        sampleRate: 1.0,
+        tracesSampleRate: 0.2,
+      });
+    }
+  } catch {
+    // Settings not available yet (first run, or backend not ready) -- skip Sentry init
+  }
+})();
+
+/**
+ * Persists a frontend error to the Rust crash report system via IPC.
+ * Called by the global error handlers and ErrorBoundary to ensure frontend
+ * errors are saved alongside Rust panics for unified diagnostics.
+ *
+ * This is a fire-and-forget call -- errors during persistence are logged
+ * to the console but do not propagate.
+ */
+function persistFrontendError(
+  source: string,
+  message: string,
+  stack?: string | null,
+  componentStack?: string | null,
+) {
+  invoke('log_frontend_error', {
+    source,
+    message,
+    stack: stack ?? null,
+    componentStack: componentStack ?? null,
+    url: window.location.href,
+  }).catch(() => {
+    // IPC not available yet (app still booting) -- console.error is enough
+  });
+}
+
+/**
+ * Global type declaration for the app version injected by Vite's define plugin.
+ * Falls back to 'unknown' if not defined.
+ */
+declare const __APP_VERSION__: string;
 
 /**
  * Error boundary component to catch and display React render errors visually.
@@ -77,6 +147,14 @@ class ErrorBoundary extends React.Component<
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     this.setState({ errorInfo });
     console.error('ErrorBoundary caught:', error, errorInfo);
+
+    // Persist to the Rust crash report system for diagnostics
+    persistFrontendError(
+      'frontend_error',
+      error.message,
+      error.stack,
+      errorInfo.componentStack,
+    );
   }
 
   render() {
@@ -149,6 +227,13 @@ window.onerror = (message, source, lineno, colno, error) => {
   const errorMessage = error?.message || String(message);
   console.error('Global error:', errorMessage, { source, lineno, colno, error });
 
+  // Persist to the Rust crash report system for diagnostics
+  persistFrontendError(
+    'frontend_error',
+    errorMessage,
+    error?.stack,
+  );
+
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
   import('./stores/uiStore')
     .then(({ useUiStore }) => {
@@ -171,7 +256,15 @@ window.onerror = (message, source, lineno, colno, error) => {
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason;
   const errorMessage = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
   console.error('Unhandled Promise Rejection:', reason);
+
+  // Persist to the Rust crash report system for diagnostics
+  persistFrontendError(
+    'unhandled_rejection',
+    errorMessage,
+    stack,
+  );
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
   import('./stores/uiStore')

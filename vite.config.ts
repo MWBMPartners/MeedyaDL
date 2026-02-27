@@ -27,12 +27,26 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readFileSync } from 'fs';
+
+// Read version from package.json at build time for use in Sentry release tags
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
 /**
  * defineConfig() provides type hints and auto-completion for Vite options.
  * @see https://vite.dev/config/#config-intellisense
  */
 export default defineConfig({
+  /**
+   * define -- Compile-time constants replaced in source code during build.
+   * `__APP_VERSION__` is used by the Sentry SDK integration in main.tsx
+   * for the release tag (e.g., "meedyadl@0.5.3").
+   * @see https://vite.dev/config/shared-options.html#define
+   */
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
+
   /**
    * plugins -- Array of Vite plugins to apply during build and dev.
    *

@@ -192,3 +192,13 @@ pub mod enhanced_lyrics_service;
 ///
 /// Used by: `download_queue` (pre-flight checks), `commands/settings` (cookie validation)
 pub mod health_check_service;
+
+/// Crash report service.
+///
+/// Provides CRUD operations for crash report JSON files stored in
+/// `{app_data_dir}/crashes/`. Supports listing, reading, deleting,
+/// exporting (as Markdown), and saving frontend error reports. Also
+/// provides automatic cleanup of reports older than 30 days.
+///
+/// Used by: `commands/crash_reports` (IPC handlers), `lib.rs` (startup cleanup)
+pub mod crash_report_service;

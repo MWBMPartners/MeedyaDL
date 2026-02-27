@@ -202,7 +202,7 @@ After downloading, the file does not play in your media player.
 
 ### Log File Locations
 
-MeedyaDL writes log files to the application data directory on each platform:
+MeedyaDL writes daily-rotating log files to the application data directory on each platform. Log files are named `meedyadl.YYYY-MM-DD.log` and are created automatically:
 
 | Platform | Log File Location |
 | --- | --- |
@@ -248,6 +248,26 @@ $env:RUST_LOG="debug"
 ```
 
 Verbose logging produces significantly more output and may cause log files to grow quickly. Only enable it when actively troubleshooting an issue, and remember to disable it afterward by launching the application normally without the environment variable.
+
+---
+
+## Crash Reports
+
+When MeedyaDL encounters a crash (Rust panic) or an unhandled frontend error, it automatically saves a JSON crash report to the crashes directory. These reports contain the error message, stack trace, app version, and platform information.
+
+### Crash Report Locations
+
+| Platform | Crash Report Directory |
+| --- | --- |
+| macOS | `~/Library/Application Support/io.github.meedyadl/crashes/` |
+| Windows | `%APPDATA%/io.github.meedyadl/crashes/` |
+| Linux | `~/.local/share/io.github.meedyadl/crashes/` |
+
+Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically cleaned up after 30 days.
+
+### Anonymous Crash Reporting (Optional)
+
+You can optionally help improve MeedyaDL by enabling anonymous crash reporting in **Settings > Advanced > Crash Reporting**. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is disabled by default and requires explicit opt-in.
 
 ---
 
