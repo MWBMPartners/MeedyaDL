@@ -782,6 +782,21 @@ export interface CookieValidation {
   warnings: string[];
 }
 
+/**
+ * Result of the pre-download cookie readiness check.
+ *
+ * Mirrors: Rust struct `CookieCheckResult` in `src-tauri/src/commands/settings.rs`
+ *
+ * Returned by the `check_cookies_before_download` IPC command. The download
+ * form uses this to block queuing when cookies are missing or expired.
+ */
+export interface CookieCheckResult {
+  /** Whether cookies are valid and ready for downloading */
+  ready: boolean;
+  /** Human-readable explanation when ready is false */
+  message: string | null;
+}
+
 // ============================================================
 // Browser Cookie Import Types
 // ============================================================
