@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Update handleViewRelease to use Tauri shell plugin for opening URLs
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.5.1] - 2026-02-27
+
 ### ✨ Features
 
 - Add pre-flight health checks and retry-without-wrapper
