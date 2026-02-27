@@ -4,6 +4,16 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### ✨ Features
+
+- Add cookie validation before download to enhance user feedback
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.5.3] - 2026-02-27
 
 ### ✨ Features
