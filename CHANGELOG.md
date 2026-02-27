@@ -8,6 +8,34 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add pre-flight health checks and retry-without-wrapper
+
+Add pre-flight health checks that run before queue processing begins:
+  - Internet connectivity check (pings apple.com with 5s timeout)
+  - Cookie validation (checks for valid, non-expired Apple Music cookies)
+  - Wrapper health check (pings wrapper URL when enabled)
+
+  Warnings are emitted as persistent toasts — non-blocking, queue proceeds
+  regardless. Checks run once per batch with a 60-second cooldown.
+
+  Add "Retry without Wrapper" action for failed downloads that used wrapper
+  authentication, allowing users to fall back to cookie-based auth:
+  - Pill button below error message + right-click context menu option
+  - New retry_download_without_wrapper Tauri command
+  - used_wrapper field on QueueItemStatus for conditional UI display
+
+  Also fixes LyricsTab test failures (enhanced_lrc default + /LRC/ regex)
+  and bumps version to 0.5.0.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.4.1] - 2026-02-27
+
+### ✨ Features
+
 - Add Enhanced LRC with word-by-word synchronized lyrics
 
 Convert Apple Music TTML lyrics to Enhanced LRC format with inline
