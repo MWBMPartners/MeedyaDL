@@ -625,12 +625,13 @@ pub fn run() {
             commands::login_window::close_apple_login,
             // Animated artwork download command
             commands::artwork::download_animated_artwork,
-            // Crash report commands (list, get, delete, export, log frontend errors)
+            // Crash report commands (list, get, delete, export, log, GitHub reporting)
             commands::crash_reports::list_crash_reports,
             commands::crash_reports::get_crash_report,
             commands::crash_reports::delete_crash_report,
             commands::crash_reports::export_crash_report,
             commands::crash_reports::log_frontend_error,
+            commands::crash_reports::get_github_issue_url,
         ])
 
         // ---------------------------------------------------------------

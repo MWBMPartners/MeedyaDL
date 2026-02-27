@@ -447,6 +447,54 @@ All existing `log::info!()` / `log::error!()` calls work unchanged.
 
 On startup, crash reports older than 30 days are automatically deleted by `clear_old_reports()`.
 
+### GitHub Issues Crash Reporting
+
+In addition to local crash reports and optional Sentry telemetry, users can report crashes directly to the developer via GitHub Issues from **Settings > Advanced > Crash Reporting**.
+
+#### How It Works
+
+The `build_github_issue_url()` function in `crash_report_service.rs` constructs a pre-filled GitHub Issue URL:
+
+1. **URL construction** -- Uses the `url` crate to build a `https://github.com/MWBMPartners/MeedyaDL/issues/new` URL with query parameters: `template=crash-report.yml`, `labels=crash-report`, `title`, and body fields pre-populated from the crash report data (error message, backtrace, app version, OS, architecture, timestamp, source).
+2. **Percent-encoding** -- The `url` crate handles all percent-encoding of special characters in the URL query string automatically, ensuring the URL is valid regardless of the crash report content.
+3. **Backtrace truncation** -- If the URL body would exceed **3500 characters**, the backtrace is truncated with a `... [truncated for URL length]` marker. This keeps the total URL length safely under browser and server limits (most browsers support up to ~8000 characters; GitHub accepts ~8192).
+4. **Pre-filled fields** -- The issue template (`crash-report.yml`) uses YAML form fields. The URL pre-fills the title and body with structured crash data, but the user can edit everything before submitting.
+
+#### Pre-filled URL vs. API-based Approach
+
+The pre-filled URL approach was chosen over the GitHub API approach for several reasons:
+
+- **No tokens required** -- The user's browser handles GitHub authentication. No OAuth tokens, personal access tokens, or server infrastructure needed.
+- **Privacy-first** -- The user sees exactly what will be submitted in a `CrashReportDialog` consent modal before their browser opens. Nothing is sent without explicit user action.
+- **No server dependency** -- No backend relay, no API keys to manage, no server costs.
+- **Trade-off** -- Requires a GitHub account. Users without GitHub cannot submit reports this way (the PHP relay endpoint tracked in GitHub Issue [#44](https://github.com/MWBMPartners/MeedyaDL/issues/44) would address this in the future).
+
+#### URL Length Handling Strategy
+
+Browser and server URL length limits vary:
+
+| Component | Approximate Limit |
+| --------- | ----------------- |
+| Chrome, Edge, Firefox | ~8,000-32,000 chars |
+| Safari | ~80,000 chars |
+| GitHub `issues/new` | ~8,192 chars (query string) |
+
+The 3500-character truncation threshold for the backtrace ensures the total URL (base URL + title + all body fields) stays well within GitHub's limit. The truncation is applied only to the backtrace field -- the error message, metadata fields, and title are always included in full.
+
+#### Issue Template and Label
+
+- **Template**: `.github/ISSUE_TEMPLATE/crash-report.yml` -- YAML-based issue form with structured fields for crash data, steps to reproduce, and additional context.
+- **Label**: `crash-report` -- automatically applied to all issues created via this template, enabling filtering and triage.
+
+#### Frontend Components
+
+- **`CrashReportSection`** (`src/components/settings/tabs/CrashReportSection.tsx`) -- Lists recent crash reports with Report and Delete buttons. Embedded in the Advanced settings tab below the Sentry toggle.
+- **`CrashReportDialog`** (`src/components/settings/tabs/CrashReportDialog.tsx`) -- Privacy consent modal that shows the user exactly what data will be included in the GitHub Issue. Displays the error message, backtrace preview, and metadata. The "Open GitHub Issue" button opens the pre-filled URL in the system browser via `@tauri-apps/plugin-shell`.
+
+#### IPC Command
+
+- **`get_github_issue_url`** -- Tauri command in `commands/crash_reports.rs` that takes a crash report ID and returns the pre-filled GitHub Issue URL string. Registered in `lib.rs` via `generate_handler!`.
+
 ---
 
 ## 📁 Project Structure
@@ -460,7 +508,7 @@ MeedyaDL/
 │   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
 │   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
 │   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog
-│   │   ├── settings/           #    SettingsPage + 10 tab components
+│   │   ├── settings/           #    SettingsPage + 10 tab components + CrashReportSection, CrashReportDialog
 │   │   ├── updates/            #    UpdatesPage (changelog + update actions)
 │   │   ├── setup/              #    SetupWizard + 6 step components
 │   │   └── help/               #    HelpViewer with inline topic rendering
@@ -536,11 +584,14 @@ MeedyaDL/
 │   └── fr/translation.json     #    French (stub)
 ├── help/                       # Markdown help documentation (12 topics)
 ├── assets/screenshots/         # App screenshots for README
-├── .github/workflows/          # CI/CD
-│   ├── ci.yml                  #    Test & lint on push/PR
-│   ├── release.yml             #    Build & publish releases
-│   ├── release-please.yml      #    Automated version bumps & release PRs
-│   └── changelog.yml           #    Auto-generate changelogs
+├── .github/
+│   ├── ISSUE_TEMPLATE/         # GitHub issue templates
+│   │   └── crash-report.yml    #    Crash report issue form
+│   └── workflows/              # CI/CD
+│       ├── ci.yml              #    Test & lint on push/PR
+│       ├── release.yml         #    Build & publish releases
+│       ├── release-please.yml  #    Automated version bumps & release PRs
+│       └── changelog.yml       #    Auto-generate changelogs
 ├── scripts/                    # Utility scripts
 ├── index.html                  #    Vite entry HTML
 ├── package.json                #    Node.js config

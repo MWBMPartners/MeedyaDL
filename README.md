@@ -61,6 +61,7 @@
 - **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
 - **Built-in help documentation** — 12 topics with search, accessible in-app
 - **System tray support** for background operation
+- **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 
 ---

@@ -79,6 +79,26 @@
     "preRelease": "Version préliminaire",
     "preReleaseWarning": "Ceci est une version préliminaire qui peut contenir des bugs ou des fonctionnalités incomplètes."
   },
+  "crashReporting": {
+    "title": "Rapports de plantage récents",
+    "noReports": "Aucun rapport de plantage trouvé.",
+    "report": "Signaler",
+    "delete": "Supprimer le rapport de plantage",
+    "deleted": "Rapport de plantage supprimé",
+    "deleteFailed": "Échec de la suppression du rapport de plantage",
+    "dialogTitle": "Signaler un plantage au développeur",
+    "privacyNotice": "Les données de plantage suivantes seront partagées lorsque vous ouvrirez le ticket GitHub. Vérifiez les informations ci-dessous avant de continuer. Vous aurez besoin d'un compte GitHub pour soumettre le ticket.",
+    "openGitHub": "Ouvrir un ticket GitHub",
+    "opening": "Ouverture de GitHub Issues dans votre navigateur...",
+    "openFailed": "Impossible d'ouvrir GitHub Issues",
+    "cancel": "Annuler",
+    "previewFailed": "Impossible de charger l'aperçu du rapport de plantage.",
+    "source": {
+      "rust_panic": "Plantage Rust",
+      "frontend_error": "Erreur Frontend",
+      "unhandled_rejection": "Rejet non géré"
+    }
+  },
   "common": {
     "loading": "Chargement...",
     "error": "Erreur",

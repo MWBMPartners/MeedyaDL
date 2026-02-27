@@ -23,6 +23,11 @@
 # The generated CHANGELOG.md is committed by the github-actions[bot] user,
 # which is GitHub's official bot account for Actions-generated commits.
 #
+# Authentication:
+#   Uses RELEASE_PAT (not GITHUB_TOKEN) so the changelog commit can push directly
+#   to main, bypassing repository rulesets that require pull requests and status checks.
+#   The PAT must belong to a repository admin who is a bypass actor in the rulesets.
+#
 # Related config files:
 #   - cliff.toml                -- git-cliff configuration (template, commit parsers, sorting)
 #   - commitlint.config.js      -- Ensures commits follow the conventional format that git-cliff expects
@@ -83,11 +88,18 @@ jobs:
       # Default fetch-depth: 1 (shallow clone) would only give the latest commit,
       # resulting in an incomplete changelog.
       #
+      # The RELEASE_PAT token is used instead of GITHUB_TOKEN so that the
+      # git push in the "Commit changelog" step can bypass repository rulesets
+      # (branch protection) on main. The default GITHUB_TOKEN is blocked by
+      # rulesets that require PRs and status checks for pushes to main.
+      # RELEASE_PAT belongs to a repository admin who is a bypass actor.
+      #
       # @see https://github.com/actions/checkout#fetch-all-history-for-all-tags-and-branches
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
 
       # Step 2: Generate CHANGELOG.md using git-cliff.
       # The orhun/git-cliff-action@v4 installs git-cliff and runs it with the

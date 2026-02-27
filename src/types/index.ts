@@ -896,6 +896,46 @@ export interface WrapperTestResult {
 }
 
 // ============================================================
+// Crash Report Types
+// ============================================================
+
+/**
+ * A single crash or error report from the local crash report storage.
+ *
+ * Mirrors: Rust struct `CrashReport` in `src-tauri/src/models/crash_report.rs`
+ *
+ * Created by the Rust panic handler (`setup_panic_handler()` in `lib.rs`)
+ * or by the `log_frontend_error` IPC command when the React frontend
+ * catches an unhandled error. Reports are stored as JSON files in
+ * `{app_data_dir}/crashes/` and can be listed, viewed, exported as
+ * Markdown, or reported to GitHub Issues via a pre-filled URL.
+ *
+ * @see {@link https://v2.tauri.app/develop/calling-rust/} - Tauri IPC serialization
+ */
+export interface CrashReport {
+  /** Unique identifier (UUID v4) */
+  id: string;
+  /** ISO 8601 timestamp of when the crash occurred */
+  timestamp: string;
+  /** Application version at the time of the crash (e.g., "0.5.3") */
+  app_version: string;
+  /** Operating system (e.g., "macos", "windows", "linux") */
+  os: string;
+  /** CPU architecture (e.g., "aarch64", "x86_64") */
+  arch: string;
+  /** Origin of the error report: "rust_panic", "frontend_error", or "unhandled_rejection" */
+  source: string;
+  /** The error/panic message (if available) */
+  panic_message: string | null;
+  /** Source code location where the panic/error occurred */
+  location: string | null;
+  /** Stack trace / backtrace (if available) */
+  backtrace: string | null;
+  /** Additional key-value context (e.g., component stack, URL, settings) */
+  context: Record<string, string>;
+}
+
+// ============================================================
 // URL Parser Types
 // ============================================================
 

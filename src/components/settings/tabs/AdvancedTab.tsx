@@ -30,7 +30,15 @@
  *     Only shown when the wrapper toggle is enabled (conditional render).
  *     Maps to `settings.wrapper_account_url`.
  *
- * ## Section 3: File Options
+ * ## Section 3: Crash Reporting
+ *
+ *   - **Send Anonymous Crash Reports** -- Toggle for opt-in Sentry
+ *     telemetry. Maps to `settings.sentry_enabled`.
+ *   - **Recent Crash Reports** -- List of locally saved crash reports
+ *     with "Report" (opens GitHub Issue) and "Delete" actions.
+ *     Rendered by {@link CrashReportSection}.
+ *
+ * ## Section 4: File Options
  *
  *   - **Truncate Filenames** -- Maximum filename length in characters.
  *     When set, filenames exceeding this length are truncated. Maps to
@@ -65,6 +73,9 @@ import { usePlatform } from '@/hooks/usePlatform';
 
 // IPC command for wrapper connection testing.
 import { testWrapperConnection } from '@/lib/tauri-commands';
+
+// Crash report list sub-component with GitHub reporting functionality.
+import { CrashReportSection } from './CrashReportSection';
 
 /**
  * Download mode dropdown options.
@@ -234,8 +245,11 @@ export function AdvancedTab() {
 
         <p className="text-xs text-content-tertiary">
           Crash reports are always saved locally to your app data directory
-          regardless of this setting. You can view them in the logs folder.
+          regardless of this setting. You can view and report them below.
         </p>
+
+        {/* Recent crash reports list with GitHub reporting */}
+        <CrashReportSection />
       </div>
 
       {/* Section: File Options */}

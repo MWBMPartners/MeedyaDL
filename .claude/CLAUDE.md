@@ -13,19 +13,19 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 - **Theming**: Platform-adaptive CSS custom properties (macOS/Windows/Linux themes)
 - **Error Handling**: ErrorBoundary in main.tsx catches React crashes; unhandled rejection handler logs async errors. All frontend errors are persisted to Rust crash reports via `log_frontend_error` IPC command.
 - **Logging**: `tracing` ecosystem (replaces `env_logger`) with dual output: stderr + daily-rotating file in `{app_data_dir}/logs/`. Compatible with `log` facade -- all `log::*!()` macros work unchanged.
-- **Crash Reports**: JSON files in `{app_data_dir}/crashes/`. Rust panics captured by `setup_panic_handler()`, frontend errors via IPC. Auto-cleanup of reports older than 30 days.
-- **Sentry** (opt-in): `sentry_enabled` setting (default: `false`). When enabled, Rust SDK + JS SDK send anonymous crash data. Toggle in Settings > Advanced.
+- **Crash Reports**: JSON files in `{app_data_dir}/crashes/`. Rust panics captured by `setup_panic_handler()`, frontend errors via IPC. Auto-cleanup of reports older than 30 days. Users can report crashes to GitHub Issues via `build_github_issue_url()` in `crash_report_service.rs` -- constructs a pre-filled issue URL with percent-encoded crash data, opened in the system browser. Privacy-first: `CrashReportDialog` shows a consent modal before submission. Backtrace truncated at 3500 chars for URL length safety. Issue template at `.github/ISSUE_TEMPLATE/crash-report.yml` with `crash-report` label.
+- **Sentry** (opt-in): `sentry_enabled` setting (default: `false`). When enabled, Rust SDK + JS SDK send anonymous crash data. Toggle in Settings > Advanced. Exists as a parallel path alongside the GitHub Issues reporting.
 
 ## Key Directories
 
 ```
 src-tauri/src/          # Rust backend
-  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork, crash_reports)
+  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url])
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report)
   services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required + 1 optional tool], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service)
   utils/                # Platform, archive, process utilities
 src/                    # React frontend
-  components/           # UI components (common, layout, download, settings, setup, help, updates)
+  components/           # UI components (common, layout, download, settings [includes CrashReportSection, CrashReportDialog], setup, help, updates)
   hooks/                # React hooks (usePlatform, useTheme)
   stores/               # Zustand state stores (ui, settings, download, dependency, setup, update)
   lib/                  # Utilities (tauri-commands, url-parser, quality-chains, i18n)
@@ -34,6 +34,7 @@ src/                    # React frontend
 public/locales/         # i18n translation files ({lang}/translation.json)
 help/                   # Markdown help documentation (12 topics)
 scripts/                # Build utilities (copyright year updater, version bump)
+.github/ISSUE_TEMPLATE/ # Issue templates (crash-report.yml)
 .github/workflows/      # CI, Release, Release Please, Changelog workflows
 ```
 
