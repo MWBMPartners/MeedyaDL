@@ -28,8 +28,18 @@ Add pre-flight health checks that run before queue processing begins:
   and bumps version to 0.5.0.
 
 
+### 🐛 Bug Fixes
+
+- Add missing used_wrapper field to Rust test initializers
+
+cargo test compiles #[cfg(test)] modules that cargo check skips,
+  causing CI to fail with missing field errors in 3 QueueItemStatus
+  serde roundtrip tests.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.4.1] - 2026-02-27
