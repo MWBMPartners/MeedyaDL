@@ -67,11 +67,8 @@ const ACOUSTID_API_URL: &str = "https://api.acoustid.org/v2/lookup";
 /// Delay between `AcousticID` API requests (~3 req/sec rate limit).
 const API_RATE_LIMIT_DELAY: Duration = Duration::from_millis(334);
 
-/// `MeedyaDL` application API key for `AcousticID`.
-/// Registered at <https://acoustid.org/new-application>
-/// This is a public application key (not a secret) — same practice as
-/// `MusicBrainz` Picard and other open-source music taggers.
-const ACOUSTID_API_KEY: &str = "PLACEHOLDER_REGISTER_AT_ACOUSTID_ORG";
+// The AcousticID API key is provided by the user via Settings > Metadata.
+// Users register a free application key at https://acoustid.org/new-application.
 
 // ============================================================
 // Public API
@@ -85,6 +82,7 @@ const ACOUSTID_API_KEY: &str = "PLACEHOLDER_REGISTER_AT_ACOUSTID_ORG";
 ///
 /// # Arguments
 /// * `output_path` - Download output path (file or album directory)
+/// * `api_key` - AcousticID application API key (registered at acoustid.org)
 ///
 /// # Errors
 ///
@@ -95,7 +93,11 @@ const ACOUSTID_API_KEY: &str = "PLACEHOLDER_REGISTER_AT_ACOUSTID_ORG";
 /// * `Err(message)` - Output path invalid or no M4A files found
 pub async fn process_acoustid_for_directory(
     output_path: &str,
+    api_key: &str,
 ) -> Result<usize, String> {
+    if api_key.is_empty() || api_key.contains("PLACEHOLDER") {
+        return Err("AcousticID API key not configured".to_string());
+    }
     // Collect all M4A files
     let m4a_files = collect_m4a_files(output_path);
     if m4a_files.is_empty() {
@@ -110,7 +112,7 @@ pub async fn process_acoustid_for_directory(
             sleep(API_RATE_LIMIT_DELAY).await;
         }
 
-        match process_single_file(file_path).await {
+        match process_single_file(file_path, api_key).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
                 log::debug!("No AcousticID match for {}", file_path.display());
@@ -141,6 +143,7 @@ pub async fn process_acoustid_for_directory(
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
 async fn process_single_file(
     file_path: &Path,
+    api_key: &str,
 ) -> Result<bool, String> {
     // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
     // This is CPU-intensive (decodes the entire audio file), so we run it
@@ -153,7 +156,7 @@ async fn process_single_file(
     .map_err(|e| format!("Fingerprint task panicked: {e}"))??;
 
     // Step 2: Look up AcousticID
-    let Some(acoustid) = lookup_acoustid(&fingerprint, duration).await? else {
+    let Some(acoustid) = lookup_acoustid(&fingerprint, duration, api_key).await? else {
         return Ok(false); // No match found
     };
 
@@ -337,13 +340,14 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
 async fn lookup_acoustid(
     fingerprint: &str,
     duration: u32,
+    api_key: &str,
 ) -> Result<Option<String>, String> {
     let client = reqwest::Client::new();
 
     let response = client
         .post(ACOUSTID_API_URL)
         .form(&[
-            ("client", ACOUSTID_API_KEY),
+            ("client", api_key),
             ("fingerprint", fingerprint),
             ("duration", &duration.to_string()),
             ("meta", "recordings"),

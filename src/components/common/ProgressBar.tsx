@@ -65,11 +65,7 @@ interface ProgressBarProps {
  * @param label     - Optional text displayed above the bar
  * @param className - Additional Tailwind classes for the outer container
  */
-export function ProgressBar({
-  value,
-  label,
-  className = '',
-}: ProgressBarProps) {
+export function ProgressBar({ value, label, className = '' }: ProgressBarProps) {
   /** Boolean flag for mode selection */
   const isIndeterminate = value === null;
 

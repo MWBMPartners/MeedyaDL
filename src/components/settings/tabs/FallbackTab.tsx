@@ -94,12 +94,10 @@ export function FallbackTab() {
     <div className="space-y-6 max-w-xl">
       <div>
         <p className="text-sm text-content-secondary mb-4">
-          When the preferred codec or resolution is unavailable, GAMDL will
-          automatically try the next option in the chain. Drag items to
-          reorder priority (top = highest priority). Note: codecs marked
-          (Experimental) may fail intermittently without the Wrapper
-          service — only AAC Legacy and AAC-HE Legacy are reliably
-          downloadable with cookies alone.
+          When the preferred codec or resolution is unavailable, GAMDL will automatically try the
+          next option in the chain. Drag items to reorder priority (top = highest priority). Note:
+          codecs marked (Experimental) may fail intermittently without the Wrapper service — only
+          AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone.
         </p>
       </div>
 
@@ -128,12 +126,11 @@ export function FallbackTab() {
             Audio Codec Fallback Chain
           </h3>
           <p className="text-xs text-content-tertiary mb-3">
-            <strong>ALAC</strong> = lossless (perfect quality) &middot;{' '}
-            <strong>Atmos</strong> = spatial 3D audio &middot;{' '}
-            <strong>AC3</strong> = 5.1 surround sound &middot;{' '}
+            <strong>ALAC</strong> = lossless (perfect quality) &middot; <strong>Atmos</strong> =
+            spatial 3D audio &middot; <strong>AC3</strong> = 5.1 surround sound &middot;{' '}
             <strong>AAC Binaural</strong> = spatial for regular headphones &middot;{' '}
-            <strong>AAC</strong> = standard quality &middot;{' '}
-            <strong>AAC Legacy</strong> = older device compatibility
+            <strong>AAC</strong> = standard quality &middot; <strong>AAC Legacy</strong> = older
+            device compatibility
           </p>
           <FallbackChainList<SongCodec>
             items={settings.music_fallback_chain}
@@ -152,9 +149,7 @@ export function FallbackTab() {
           <FallbackChainList<VideoResolution>
             items={settings.video_fallback_chain}
             labels={VIDEO_RESOLUTION_LABELS}
-            onChange={(chain) =>
-              updateSettings({ video_fallback_chain: chain })
-            }
+            onChange={(chain) => updateSettings({ video_fallback_chain: chain })}
           />
         </div>
       )}

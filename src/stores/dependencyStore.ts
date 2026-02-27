@@ -13,7 +13,7 @@
  *     Checked via `commands.checkGamdlStatus()` -> Rust `check_gamdl_status`.
  *
  *   **External tools** (optional but enhance functionality):
- *   - FFmpeg, mp4decrypt, MP4Box, N_m3u8DL-RE, amdecrypt, etc.
+ *   - FFmpeg, mp4decrypt, MP4Box, N_m3u8DL-RE.
  *     Checked via `commands.checkAllDependencies()` -> Rust `check_all_dependencies`.
  *     Each returns a `DependencyStatus` with name, installed, version, and path.
  *
@@ -79,8 +79,7 @@ interface DependencyState {
 
   /**
    * Array of installation statuses for external tools (FFmpeg, mp4decrypt,
-   * MP4Box, N_m3u8DL-RE, amdecrypt). Each has `required: true/false` to
-   * distinguish mandatory tools from optional ones.
+   * MP4Box, N_m3u8DL-RE). All are required for full functionality.
    */
   tools: DependencyStatus[];
 
@@ -206,13 +205,13 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state -- null statuses indicate "not yet checked"
   // -------------------------------------------------------------------------
-  python: null,           // Python status unknown until first check
-  gamdl: null,            // GAMDL status unknown until first check
-  tools: [],              // No tool statuses until first check
-  isChecking: false,      // No check in progress
-  isInstalling: false,    // No installation in progress
-  installingName: null,   // No component being installed
-  error: null,            // No error
+  python: null, // Python status unknown until first check
+  gamdl: null, // GAMDL status unknown until first check
+  tools: [], // No tool statuses until first check
+  isChecking: false, // No check in progress
+  isInstalling: false, // No installation in progress
+  installingName: null, // No component being installed
+  error: null, // No error
 
   // -------------------------------------------------------------------------
   // Check actions

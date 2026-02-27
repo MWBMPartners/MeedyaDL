@@ -82,9 +82,7 @@ export function FallbackChainList<T extends string>({
           </span>
 
           {/* Item label */}
-          <span className="flex-1 text-sm text-content-primary">
-            {labels[item]}
-          </span>
+          <span className="flex-1 text-sm text-content-primary">{labels[item]}</span>
 
           {/* Reorder buttons */}
           <div className="flex gap-0.5">

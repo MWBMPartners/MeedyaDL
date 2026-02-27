@@ -56,8 +56,7 @@
    *
    * @see https://developer.gnome.org/hig/reference/typography.html -- GNOME typography
    */
-  --font-family: system-ui, 'Cantarell', 'Noto Sans', 'Liberation Sans',
-    sans-serif;
+  --font-family: system-ui, 'Cantarell', 'Noto Sans', 'Liberation Sans', sans-serif;
 
   /*
    * Border radii: GNOME/Adwaita style.
@@ -68,8 +67,8 @@
    *
    * @see https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/style-classes.html
    */
-  --radius: 6px;     /* Buttons, inputs, list rows (GtkButton, GtkEntry) */
-  --radius-sm: 4px;  /* Tags, badges, small inline elements */
+  --radius: 6px; /* Buttons, inputs, list rows (GtkButton, GtkEntry) */
+  --radius-sm: 4px; /* Tags, badges, small inline elements */
   --radius-lg: 12px; /* Dialogs, sheets, large cards (GtkDialog, AdwMessageDialog) */
 
   /*
@@ -77,10 +76,10 @@
    * GNOME/Adwaita sidebars (GtkListBox in a side panel) use a flat, solid background
    * without translucency or vibrancy effects. This is intentionally plain.
    */
-  --sidebar-bg: #f0f0f0;                   /* Flat light gray (Adwaita base color) */
-  --sidebar-hover: rgba(0, 0, 0, 0.05);    /* Subtle hover: 5% black overlay */
-  --sidebar-active: rgba(0, 0, 0, 0.08);   /* Active row: 8% black overlay */
-  --sidebar-border: #dcdcdc;               /* Separator border */
+  --sidebar-bg: #f0f0f0; /* Flat light gray (Adwaita base color) */
+  --sidebar-hover: rgba(0, 0, 0, 0.05); /* Subtle hover: 5% black overlay */
+  --sidebar-active: rgba(0, 0, 0, 0.08); /* Active row: 8% black overlay */
+  --sidebar-border: #dcdcdc; /* Separator border */
 
   /*
    * Adwaita accent blue.
@@ -99,16 +98,16 @@
    * Linux follows the most straightforward light/elevation pattern:
    *   primary (#fafafa) < secondary (#f0f0f0 = sidebar) < elevated (#ffffff = cards)
    */
-  --surface-primary: #fafafa;   /* Main content background */
+  --surface-primary: #fafafa; /* Main content background */
   --surface-secondary: #f0f0f0; /* Grouped sections, matches sidebar for consistency */
-  --surface-elevated: #ffffff;  /* Cards and dialogs: pure white */
+  --surface-elevated: #ffffff; /* Cards and dialogs: pure white */
 
   /*
    * Shadows: Moderate depth, matching GTK's shadow conventions.
    * Adwaita uses relatively subtle shadows compared to macOS, with
    * single-layer definitions (no multi-layer border effects).
    */
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);     /* Standard elevation */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Standard elevation */
   --shadow-lg: 0 3px 10px rgba(0, 0, 0, 0.15); /* Dialog/popup elevation */
 }
 
@@ -123,10 +122,10 @@
 @media (prefers-color-scheme: dark) {
   .platform-linux:not(.theme-light) {
     /* Sidebar: Dark gray matching Adwaita dark sidebar color */
-    --sidebar-bg: #242424;                         /* @sidebar_bg_color equivalent */
-    --sidebar-hover: rgba(255, 255, 255, 0.05);   /* White overlay: 5% */
-    --sidebar-active: rgba(255, 255, 255, 0.08);  /* White overlay: 8% */
-    --sidebar-border: #3d3d3d;                     /* Visible but subtle */
+    --sidebar-bg: #242424; /* @sidebar_bg_color equivalent */
+    --sidebar-hover: rgba(255, 255, 255, 0.05); /* White overlay: 5% */
+    --sidebar-active: rgba(255, 255, 255, 0.08); /* White overlay: 8% */
+    --sidebar-border: #3d3d3d; /* Visible but subtle */
 
     /*
      * Dark mode accent: Lighter blue for contrast against dark backgrounds.
@@ -141,9 +140,9 @@
      * Dark surfaces: GNOME uses slightly warm dark grays.
      * #1e1e1e is the standard Adwaita dark background (@window_bg_color dark).
      */
-    --surface-primary: #1e1e1e;   /* Main dark background */
+    --surface-primary: #1e1e1e; /* Main dark background */
     --surface-secondary: #242424; /* Grouped sections */
-    --surface-elevated: #303030;  /* Cards and dialogs: lighter for elevation */
+    --surface-elevated: #303030; /* Cards and dialogs: lighter for elevation */
 
     /* Inverse text for buttons on accent backgrounds */
     --text-inverse: #1e1e1e;

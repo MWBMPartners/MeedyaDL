@@ -606,20 +606,17 @@ function App() {
             } catch (err) {
               console.error('Error in download-error handler:', err);
             }
-          },
+          }
         );
 
         /* 3. Download was cancelled by the user */
-        unlistenCancelled = await listen<string>(
-          'download-cancelled',
-          (event) => {
-            try {
-              handleDownloadCancelled(event.payload);
-            } catch (err) {
-              console.error('Error in download-cancelled handler:', err);
-            }
-          },
-        );
+        unlistenCancelled = await listen<string>('download-cancelled', (event) => {
+          try {
+            handleDownloadCancelled(event.payload);
+          } catch (err) {
+            console.error('Error in download-cancelled handler:', err);
+          }
+        });
 
         /* 4. New download queued or existing one retried */
         unlistenQueued = await listen('download-queued', () => {
@@ -644,7 +641,7 @@ function App() {
             } catch (err) {
               console.error('Error in preflight-warning handler:', err);
             }
-          },
+          }
         );
       } catch {
         /* Tauri API unavailable (running in browser dev mode) */
@@ -736,19 +733,19 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'download':
-        return <DownloadForm />;   // URL input form and download options
+        return <DownloadForm />; // URL input form and download options
       case 'queue':
-        return <DownloadQueue />;  // Real-time download queue with progress
+        return <DownloadQueue />; // Real-time download queue with progress
       case 'activity':
-        return <ActivityLog />;    // Live subprocess output log
+        return <ActivityLog />; // Live subprocess output log
       case 'updates':
-        return <UpdatesPage />;    // Update details with release notes
+        return <UpdatesPage />; // Update details with release notes
       case 'settings':
-        return <SettingsPage />;   // Full settings editor
+        return <SettingsPage />; // Full settings editor
       case 'help':
-        return <HelpViewer />;     // In-app help documentation
+        return <HelpViewer />; // In-app help documentation
       default:
-        return <DownloadForm />;   // Fallback to download form
+        return <DownloadForm />; // Fallback to download form
     }
   };
 
@@ -763,11 +760,7 @@ function App() {
    * area so it remains visible regardless of page scroll position.
    * @see ./components/layout/MainLayout.tsx
    */
-  return (
-    <MainLayout>
-      {renderPage()}
-    </MainLayout>
-  );
+  return <MainLayout>{renderPage()}</MainLayout>;
 }
 
 export default App;

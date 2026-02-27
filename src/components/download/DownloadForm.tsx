@@ -120,12 +120,12 @@ import { PageHeader } from '@/components/layout';
  * @see https://lucide.dev/icons/  -- full Lucide icon reference.
  */
 const CONTENT_TYPE_ICONS: Record<AppleMusicContentType, typeof Music> = {
-  song: Music,           // Single song URL
-  album: Disc3,          // Album URL
-  playlist: ListMusic,   // Playlist URL
-  'music-video': Video,  // Music video URL
-  artist: User,          // Artist page URL
-  unknown: HelpCircle,   // Unrecognised or unparseable URL
+  song: Music, // Single song URL
+  album: Disc3, // Album URL
+  playlist: ListMusic, // Playlist URL
+  'music-video': Video, // Music video URL
+  artist: User, // Artist page URL
+  unknown: HelpCircle, // Unrecognised or unparseable URL
 };
 
 /**
@@ -296,9 +296,10 @@ export function DownloadForm() {
    * `{ value, label }` objects for the video resolution `<Select>`.
    * (e.g., '2160p' -> '4K (2160p)').
    */
-  const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(
-    ([value, label]) => ({ value, label }),
-  );
+  const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(([value, label]) => ({
+    value,
+    label,
+  }));
 
   // ---------------------------------------------------------------
   // Render
@@ -329,10 +330,7 @@ export function DownloadForm() {
          */}
         <div className="space-y-2">
           {/* Accessible <label> linked to the input via `htmlFor` */}
-          <label
-            htmlFor="url-input"
-            className="block text-sm font-medium text-content-primary"
-          >
+          <label htmlFor="url-input" className="block text-sm font-medium text-content-primary">
             Apple Music URL
           </label>
 
@@ -424,9 +422,7 @@ export function DownloadForm() {
            *  - Grey helper text when the input is empty (shows supported types).
            */}
           {urlInput && !urlIsValid && (
-            <p className="text-xs text-status-error">
-              Please enter a valid Apple Music URL
-            </p>
+            <p className="text-xs text-status-error">Please enter a valid Apple Music URL</p>
           )}
           {!urlInput && (
             <p className="text-xs text-content-tertiary">
@@ -460,11 +456,7 @@ export function DownloadForm() {
               </span>
             </span>
             {/* Chevron icon flips based on expand/collapse state */}
-            {showOverrides ? (
-              <ChevronUp size={16} />
-            ) : (
-              <ChevronDown size={16} />
-            )}
+            {showOverrides ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
 
           {/*
@@ -493,11 +485,7 @@ export function DownloadForm() {
                 value={overrideOptions?.song_codec || ''}
                 onChange={(e) => {
                   const codec = e.target.value as SongCodec;
-                  setOverrideOptions(
-                    codec
-                      ? { ...overrideOptions, song_codec: codec }
-                      : null,
-                  );
+                  setOverrideOptions(codec ? { ...overrideOptions, song_codec: codec } : null);
                 }}
                 placeholder="Use default"
               />
@@ -523,7 +511,7 @@ export function DownloadForm() {
                           ...overrideOptions,
                           music_video_resolution: res as VideoResolution,
                         }
-                      : null,
+                      : null
                   );
                 }}
                 placeholder="Use default"
@@ -536,11 +524,7 @@ export function DownloadForm() {
                * meaning global defaults will be used for the next download.
                */}
               {overrideOptions && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setOverrideOptions(null)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => setOverrideOptions(null)}>
                   Clear overrides
                 </Button>
               )}

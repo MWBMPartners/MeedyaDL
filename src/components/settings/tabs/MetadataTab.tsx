@@ -7,10 +7,10 @@
  * Renders the "Metadata" tab within the {@link SettingsPage} component.
  * This tab configures post-download metadata enrichment features:
  *
- *   - **Automatic Tags** (informational) -- Explains the always-on metadata
- *     enrichment that runs after every download: codec tags, source tags,
- *     channel configuration, and Apple Music API metadata (when MusicKit
- *     credentials are configured).
+ *   - **Automatic Tags** -- Always-on metadata enrichment (codec tags,
+ *     source tags, channel configuration), plus a toggle to control
+ *     whether extra API metadata (normalization, spatial properties) is
+ *     fetched. Maps to `settings.fetch_extra_tags`.
  *
  *   - **AcousticID Fingerprinting** (opt-in) -- When enabled, generates
  *     Chromaprint audio fingerprints using the embedded fingerprinting engine and looks up AcousticID
@@ -34,8 +34,8 @@
 // Zustand store for reading/writing metadata enrichment settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// Shared form component: Toggle for boolean switches.
-import { Toggle } from '@/components/common';
+// Shared form components: Toggle for boolean switches, Input for text fields.
+import { Input, Toggle } from '@/components/common';
 
 /**
  * MetadataTab -- Renders the Metadata settings tab.
@@ -54,21 +54,25 @@ export function MetadataTab() {
   return (
     <div className="space-y-6 max-w-xl">
       {/* ================================================================
-          Section 1: Automatic Tags (informational, no controls)
+          Section 1: Automatic Tags
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-2">
-          Automatic Tags
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-2">Automatic Tags</h3>
         <p className="text-sm text-content-secondary leading-relaxed mb-2">
-          MeedyaDL automatically enriches downloaded files with metadata after
-          every download. Codec tags (lossless, spatial audio), source tags,
-          and channel configuration are always written.
+          MeedyaDL automatically enriches downloaded files with metadata after every download. Codec
+          tags (lossless, spatial audio), source tags, and channel configuration are always written.
         </p>
-        <p className="text-sm text-content-tertiary leading-relaxed">
-          API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs)
-          require MusicKit credentials. Configure them in Settings &gt; Cover Art.
+        <p className="text-sm text-content-tertiary leading-relaxed mb-4">
+          API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs) require MusicKit
+          credentials. Configure them in Settings &gt; Cover Art.
         </p>
+
+        <Toggle
+          label="Fetch Extra Tags"
+          description="Fetch additional metadata from Apple Music (normalization, spatial/lossless properties, smooth playback info). Adds a small delay per track. Disable if you only want basic codec/source tags."
+          checked={settings.fetch_extra_tags}
+          onChange={(checked) => updateSettings({ fetch_extra_tags: checked })}
+        />
       </div>
 
       {/* ================================================================
@@ -84,10 +88,18 @@ export function MetadataTab() {
             label="Enable AcousticID Fingerprinting"
             description="Generate audio fingerprints and look up AcousticID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
             checked={settings.acoustid_enabled}
-            onChange={(checked) =>
-              updateSettings({ acoustid_enabled: checked })
-            }
+            onChange={(checked) => updateSettings({ acoustid_enabled: checked })}
           />
+
+          {settings.acoustid_enabled && (
+            <Input
+              label="AcousticID API Key"
+              description="Register a free application API key at acoustid.org/new-application. Required for AcousticID lookups."
+              value={settings.acoustid_api_key ?? ''}
+              placeholder="Your AcousticID application API key"
+              onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
+            />
+          )}
         </div>
       </div>
 
@@ -95,18 +107,14 @@ export function MetadataTab() {
           Section 3: ReplayGain Analysis (opt-in)
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          ReplayGain Analysis
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">ReplayGain Analysis</h3>
 
         <div className="space-y-4">
           <Toggle
             label="Enable ReplayGain Analysis"
             description="Analyse audio loudness and embed non-destructive ReplayGain metadata for volume normalisation. Uses FFmpeg (already installed). Analyses each file individually."
             checked={settings.replaygain_enabled}
-            onChange={(checked) =>
-              updateSettings({ replaygain_enabled: checked })
-            }
+            onChange={(checked) => updateSettings({ replaygain_enabled: checked })}
           />
         </div>
       </div>

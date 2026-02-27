@@ -86,20 +86,20 @@ import remarkGfm from 'remark-gfm';
 // Lucide icons for each help topic in the sidebar.
 // Each topic has a dedicated icon for quick visual identification.
 import {
-  BookOpen,     // "Getting Started" topic
-  Download,     // "Downloading" topic
-  Settings,     // "Settings" topic
-  Cookie,       // "Cookies" topic
-  Wrench,       // "Tools" topic
-  Shield,       // "Wrapper / AMdecrypt" topic
-  Music,        // "Audio Codecs" topic
-  Video,        // "Music Videos" topic
-  Film,         // "Animated Artwork" topic
-  HelpCircle,   // "Troubleshooting" topic
-  FileText,     // "About" topic
-  ShieldAlert,  // "Disclaimer" topic
-  Search,       // Search icon in the sidebar search bar
-  X,            // Clear search button icon
+  BookOpen, // "Getting Started" topic
+  Download, // "Downloading" topic
+  Settings, // "Settings" topic
+  Cookie, // "Cookies" topic
+  Wrench, // "Tools" topic
+  Shield, // "Wrapper" topic
+  Music, // "Audio Codecs" topic
+  Video, // "Music Videos" topic
+  Film, // "Animated Artwork" topic
+  HelpCircle, // "Troubleshooting" topic
+  FileText, // "About" topic
+  ShieldAlert, // "Disclaimer" topic
+  Search, // Search icon in the sidebar search bar
+  X, // Clear search button icon
 } from 'lucide-react';
 
 // Tauri app API for reading the version from tauri.conf.json at runtime.
@@ -284,11 +284,6 @@ HLS/DASH stream downloader. Used for downloading segmented media streams from Ap
 ### MP4Box
 Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
 
-## Optional Tools
-
-### AMDecrypt
-Apple Music DRM decryption tool used with the **wrapper** authentication system. Not required for standard cookie-based authentication. See the **Wrapper / AMdecrypt** help topic for details.
-
 ## Installation & Management
 
 Tools are automatically downloaded during first-time setup. After setup, go to **Settings > Tools** to:
@@ -301,13 +296,13 @@ If new tools are added in a future update, the Tools tab will show them as missi
   },
   {
     id: 'wrapper',
-    label: 'Wrapper / AMdecrypt',
+    label: 'Wrapper',
     icon: Shield,
-    content: `# Wrapper / AMdecrypt
+    content: `# Wrapper
 
 The **wrapper** is an alternative authentication method for accessing Apple Music content. Instead of using browser cookies, it uses a locally-running server that handles Apple ID authentication and DRM key exchange.
 
-**Note:** Full managed support (setup wizard, auto-install) is only available on **Linux x86_64**. On other platforms, the Wrapper settings are hidden from the UI but can be configured manually via the settings JSON file. See the Platform Support section below.
+**Note:** The Wrapper service only provides native binaries for **Linux x86_64**. On other platforms, the Wrapper section in Settings > Advanced shows guidance for remote or Docker-based usage.
 
 ## When to Use It
 
@@ -321,28 +316,20 @@ Most users should use **cookie-based authentication** (the default). The wrapper
 
 1. A **wrapper service** runs on your computer (typically at \`http://127.0.0.1:30020\`)
 2. MeedyaDL connects to the wrapper instead of using cookies
-3. The wrapper handles Apple ID login and DRM key exchange on your behalf
-4. **AMDecrypt** is the companion decryption tool that works with the wrapper
+3. The wrapper handles Apple ID login, DRM key exchange, and decryption on your behalf
 
 ## Platform Support
 
-The Wrapper service and AMdecrypt have limited platform availability:
-
-| Platform | Wrapper | AMdecrypt | MeedyaDL Integration |
-|----------|---------|-----------|---------------------|
-| Linux x86_64 | Available | Available | Full managed support (setup wizard, auto-install) |
-| macOS (Apple Silicon) | Not available | Available | Manual setup only (settings hidden in UI) |
-| macOS (Intel) | Not available | Available | Manual setup only (settings hidden in UI) |
-| Windows x64 | Not available | Available | Manual setup only (settings hidden in UI) |
-| Windows ARM64 | Not available | Available | Manual setup only (settings hidden in UI) |
-| Linux ARM64 | Not available | Available | Manual setup only (settings hidden in UI) |
-| Linux ARMv7 | Not available | Not available | Not supported |
+| Platform | Wrapper | MeedyaDL Integration |
+|----------|---------|---------------------|
+| Linux x86_64 | Available | Full support (Settings > Advanced) |
+| All other platforms | Not natively available | Remote or Docker setup (see below) |
 
 ### Why Only Linux x86_64?
 
-The Wrapper service only provides Linux x86_64 binaries. It requires the Android NDK and LLVM to build, which are heavily Linux-oriented. On other platforms, MeedyaDL hides the Wrapper settings from the UI to avoid confusion.
+The Wrapper service only provides Linux x86_64 binaries. On other platforms, MeedyaDL still shows the Wrapper settings but includes a note about remote usage.
 
-### Manual Setup on Other Platforms
+### Remote Setup on Other Platforms
 
 Power users on unsupported platforms can still use the Wrapper by:
 
@@ -355,13 +342,10 @@ Power users on unsupported platforms can still use the Wrapper by:
 ### 1. Obtain and run the wrapper service
 The wrapper is a separate application that you run locally. It listens on \`http://127.0.0.1:30020\` by default. You will need to source this separately — it is not bundled with MeedyaDL.
 
-### 2. Install AMDecrypt (optional)
-Go to **Settings > Tools** and install AMDecrypt, or set a custom path to an existing AMDecrypt binary.
-
-### 3. Enable the wrapper in MeedyaDL
+### 2. Enable the wrapper in MeedyaDL
 Go to **Settings > Advanced** and enable the **Use Wrapper** toggle. The default URL (\`http://127.0.0.1:30020\`) should work if the wrapper is running locally with default settings.
 
-### 4. Configure the URL (if needed)
+### 3. Configure the URL (if needed)
 If your wrapper runs on a different port or host, update the **Wrapper Account URL** field in Settings > Advanced.
 
 ## Cookie Auth vs Wrapper
@@ -371,17 +355,16 @@ If your wrapper runs on a different port or host, update the **Wrapper Account U
 | Setup difficulty | Easy (browser extension export) | Advanced (local server) |
 | Dolby Atmos access | Sometimes unreliable | More reliable |
 | Session duration | Cookies expire periodically | Persistent while server runs |
-| Dependencies | None (cookies file only) | Wrapper service + AMDecrypt |
-| Platform support | All platforms | Linux x86_64 (managed) or manual setup |
-| Recommended for | Most users | Advanced users on Linux x86_64 |
+| Dependencies | None (cookies file only) | Wrapper service |
+| Platform support | All platforms | Linux x86_64 (native) or remote/Docker |
+| Recommended for | Most users | Advanced users needing reliable Atmos access |
 
 ## Settings Reference
 
 | Setting | Location | Default |
 |---------|----------|---------|
 | Use Wrapper | Settings > Advanced | Off |
-| Wrapper Account URL | Settings > Advanced | \`http://127.0.0.1:30020\` |
-| AMDecrypt path | Settings > Tools > AMDecrypt | Not configured |`,
+| Wrapper Account URL | Settings > Advanced | \`http://127.0.0.1:30020\` |`,
   },
   {
     id: 'audio-codecs',
@@ -404,7 +387,7 @@ All other codecs — including ALAC (Lossless), Dolby Atmos, AC3, AAC, and AAC B
 
 1. **Retrying** — failures are intermittent, a retry may succeed
 2. **Enabling the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Using the Wrapper service** — provides more reliable access (Linux x86_64 only, see Help > Wrapper / AMdecrypt)
+3. **Using the Wrapper service** — provides more reliable access (Linux x86_64 only, see Help > Wrapper)
 
 ---
 
@@ -470,7 +453,7 @@ All codecs except **AAC Legacy** and **AAC-HE Legacy** are marked as **(Experime
 - **AAC-HE Binaural** — AAC-HE combined with binaural rendering
 - **AAC-HE Downmix** — AAC-HE combined with stereo downmix
 
-The "Experimental" label indicates that these codecs may fail intermittently when using cookie-based authentication. The Wrapper service provides more reliable access to all codec types — see Help > Wrapper / AMdecrypt for details.
+The "Experimental" label indicates that these codecs may fail intermittently when using cookie-based authentication. The Wrapper service provides more reliable access to all codec types — see Help > Wrapper for details.
 
 ---
 
@@ -760,13 +743,7 @@ function escapeRegExp(str: string): string {
  * @param query - The current search query to highlight within the label
  * @returns A React fragment containing text nodes and <mark> elements
  */
-function HighlightedLabel({
-  label,
-  query,
-}: {
-  label: string;
-  query: string;
-}) {
+function HighlightedLabel({ label, query }: { label: string; query: string }) {
   /* When there is no search query, render the label as plain text */
   if (!query.trim()) {
     return <>{label}</>;
@@ -792,10 +769,7 @@ function HighlightedLabel({
          */
         const isMatch = part.toLowerCase() === query.trim().toLowerCase();
         return isMatch ? (
-          <mark
-            key={index}
-            className="bg-yellow-300/40 text-inherit rounded-sm px-0.5"
-          >
+          <mark key={index} className="bg-yellow-300/40 text-inherit rounded-sm px-0.5">
             {part}
           </mark>
         ) : (
@@ -887,8 +861,7 @@ export function HelpViewer() {
     /* Filter topics whose label or content contains the query substring */
     return HELP_TOPICS.filter(
       (topic) =>
-        topic.label.toLowerCase().includes(trimmed) ||
-        topic.content.toLowerCase().includes(trimmed)
+        topic.label.toLowerCase().includes(trimmed) || topic.content.toLowerCase().includes(trimmed)
     );
   }, [searchQuery]);
 
@@ -913,12 +886,9 @@ export function HelpViewer() {
    * Updates the searchQuery state which triggers re-filtering
    * of the sidebar topics via the filteredTopics memo.
    */
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setSearchQuery(e.target.value);
-    },
-    []
-  );
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  }, []);
 
   /**
    * Clears the search input and resets the filtered view to show
@@ -937,10 +907,7 @@ export function HelpViewer() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header with title and description */}
-      <PageHeader
-        title="Help"
-        subtitle="Documentation and guides for using MeedyaDL"
-      />
+      <PageHeader title="Help" subtitle="Documentation and guides for using MeedyaDL" />
 
       <div className="flex flex-1 overflow-hidden">
         {/* ----------------------------------------------------------------
@@ -1038,9 +1005,7 @@ export function HelpViewer() {
                 topics to give immediate feedback on the search scope. */}
             {isSearchActive && (
               <div className="mt-1 px-1 text-[10px] text-content-tertiary">
-                {filteredTopics.length === 1
-                  ? '1 result'
-                  : `${filteredTopics.length} results`}
+                {filteredTopics.length === 1 ? '1 result' : `${filteredTopics.length} results`}
               </div>
             )}
           </div>
@@ -1084,13 +1049,8 @@ export function HelpViewer() {
                  Provides a visual cue that the filter returned zero results
                  and encourages the user to modify their search. */
               <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Search
-                  size={24}
-                  className="text-content-tertiary mb-2 opacity-50"
-                />
-                <p className="text-xs text-content-tertiary">
-                  No matching topics found.
-                </p>
+                <Search size={24} className="text-content-tertiary mb-2 opacity-50" />
+                <p className="text-xs text-content-tertiary">No matching topics found.</p>
                 <button
                   onClick={handleClearSearch}
                   className="

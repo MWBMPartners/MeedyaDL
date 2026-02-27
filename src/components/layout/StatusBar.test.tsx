@@ -28,10 +28,7 @@ import type { QueueItemStatus } from '@/types';
  * Provides reasonable defaults for all required fields so tests
  * can focus on the state field that drives StatusBar rendering.
  */
-function createItem(
-  state: QueueItemStatus['state'],
-  id?: string,
-): QueueItemStatus {
+function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStatus {
   return {
     id: id || `item-${Math.random().toString(36).slice(2)}`,
     urls: ['https://music.apple.com/us/album/test/123'],
@@ -47,6 +44,7 @@ function createItem(
     codec_used: 'alac',
     fallback_occurred: false,
     used_wrapper: false,
+    output_is_directory: false,
     warnings: [],
     created_at: new Date().toISOString(),
   };
@@ -78,10 +76,7 @@ describe('StatusBar', () => {
   /** Items in 'downloading' state should be counted as active. */
   it('shows active download count for downloading items', () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('downloading'),
-        createItem('downloading'),
-      ],
+      queueItems: [createItem('downloading'), createItem('downloading')],
     });
 
     render(<StatusBar />);
@@ -92,10 +87,7 @@ describe('StatusBar', () => {
   /** Items in 'processing' state should also count as active. */
   it('includes processing items in active count', () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('downloading'),
-        createItem('processing'),
-      ],
+      queueItems: [createItem('downloading'), createItem('processing')],
     });
 
     render(<StatusBar />);
@@ -110,11 +102,7 @@ describe('StatusBar', () => {
   /** Items waiting in the 'queued' state should be displayed. */
   it('shows queued count', () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('queued'),
-        createItem('queued'),
-        createItem('queued'),
-      ],
+      queueItems: [createItem('queued'), createItem('queued'), createItem('queued')],
     });
 
     render(<StatusBar />);
@@ -129,9 +117,7 @@ describe('StatusBar', () => {
   /** Successfully finished items should show the completed count. */
   it('shows completed count', () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('complete'),
-      ],
+      queueItems: [createItem('complete')],
     });
 
     render(<StatusBar />);
@@ -174,10 +160,7 @@ describe('StatusBar', () => {
    */
   it('does not show "No downloads" when only error/cancelled items exist', () => {
     useDownloadStore.setState({
-      queueItems: [
-        createItem('error'),
-        createItem('cancelled'),
-      ],
+      queueItems: [createItem('error'), createItem('cancelled')],
     });
 
     render(<StatusBar />);

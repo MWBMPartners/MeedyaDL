@@ -287,13 +287,13 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state -- empty input, no queue items, no errors
   // -------------------------------------------------------------------------
-  urlInput: '',             // URL input field starts empty
-  urlIsValid: false,        // No valid URL until user types one
-  urlContentType: 'unknown',// Content type unknown until URL is parsed
-  overrideOptions: null,    // No per-download overrides; use global settings
-  queueItems: [],           // Empty queue until refreshQueue() or events arrive
-  isSubmitting: false,      // No submission in progress
-  error: null,              // No error
+  urlInput: '', // URL input field starts empty
+  urlIsValid: false, // No valid URL until user types one
+  urlContentType: 'unknown', // Content type unknown until URL is parsed
+  overrideOptions: null, // No per-download overrides; use global settings
+  queueItems: [], // Empty queue until refreshQueue() or events arrive
+  isSubmitting: false, // No submission in progress
+  error: null, // No error
 
   // -------------------------------------------------------------------------
   // URL input actions
@@ -309,7 +309,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     const parsed = parseAppleMusicUrl(url);
     set({
       urlInput: url,
-      urlIsValid: parsed.isValid,       // true if URL matches Apple Music patterns
+      urlIsValid: parsed.isValid, // true if URL matches Apple Music patterns
       urlContentType: parsed.contentType, // 'song', 'album', 'playlist', etc.
     });
   },
@@ -581,10 +581,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   handleDownloadComplete: (downloadId) => {
     set((state) => {
-      const items = state.queueItems.map((item) =>
-        item.id === downloadId
-          ? { ...item, state: 'complete' as const, progress: 100 }
-          : item, // Leave non-matching items unchanged
+      const items = state.queueItems.map(
+        (item) =>
+          item.id === downloadId ? { ...item, state: 'complete' as const, progress: 100 } : item // Leave non-matching items unchanged
       );
       return { queueItems: items };
     });
@@ -596,10 +595,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   handleDownloadError: (downloadId, error) => {
     set((state) => {
-      const items = state.queueItems.map((item) =>
-        item.id === downloadId
-          ? { ...item, state: 'error' as const, error }
-          : item, // Leave non-matching items unchanged
+      const items = state.queueItems.map(
+        (item) => (item.id === downloadId ? { ...item, state: 'error' as const, error } : item) // Leave non-matching items unchanged
       );
       return { queueItems: items };
     });
@@ -611,10 +608,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   handleDownloadCancelled: (downloadId) => {
     set((state) => {
-      const items = state.queueItems.map((item) =>
-        item.id === downloadId
-          ? { ...item, state: 'cancelled' as const }
-          : item, // Leave non-matching items unchanged
+      const items = state.queueItems.map(
+        (item) => (item.id === downloadId ? { ...item, state: 'cancelled' as const } : item) // Leave non-matching items unchanged
       );
       return { queueItems: items };
     });

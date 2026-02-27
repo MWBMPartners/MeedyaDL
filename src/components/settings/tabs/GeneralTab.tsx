@@ -153,9 +153,7 @@ export function GeneralTab() {
     try {
       const result = await checkForUpdates();
       if (result.has_updates) {
-        const count = result.components.filter(
-          (c) => c.update_available && c.is_compatible
-        ).length;
+        const count = result.components.filter((c) => c.update_available && c.is_compatible).length;
         setCheckMessage(`${count} update${count !== 1 ? 's' : ''} available`);
       } else {
         setCheckMessage('Everything is up to date');
@@ -169,9 +167,7 @@ export function GeneralTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Output */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Output
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Output</h3>
 
         {/* Output directory picker */}
         <FilePickerButton
@@ -186,16 +182,14 @@ export function GeneralTab() {
 
       {/* Section: Appearance */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Appearance
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Appearance</h3>
 
         {/*
-          * Theme mode selector -- controls dark/light/auto appearance.
-          * The 'auto' option maps to null in theme_override (follow OS).
-          * 'light' and 'dark' are stored as strings that the useTheme hook
-          * reads to apply the corresponding CSS class to <html>.
-          */}
+         * Theme mode selector -- controls dark/light/auto appearance.
+         * The 'auto' option maps to null in theme_override (follow OS).
+         * 'light' and 'dark' are stored as strings that the useTheme hook
+         * reads to apply the corresponding CSS class to <html>.
+         */}
         <Select
           label="Theme"
           description="Choose between light and dark mode, or follow your OS setting"
@@ -209,11 +203,11 @@ export function GeneralTab() {
         />
 
         {/*
-          * UI display language selector -- controls translation files loaded by i18next.
-          * 'auto' maps to empty string in settings (OS auto-detection).
-          * Other values are language codes that map to public/locales/{code}/.
-          * Requires app restart to take full effect across all components.
-          */}
+         * UI display language selector -- controls translation files loaded by i18next.
+         * 'auto' maps to empty string in settings (OS auto-detection).
+         * Other values are language codes that map to public/locales/{code}/.
+         * Requires app restart to take full effect across all components.
+         */}
         <Select
           label="Language"
           description="Application display language (requires restart to take full effect)"
@@ -228,9 +222,7 @@ export function GeneralTab() {
 
       {/* Section: Preferences */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
-          Preferences
-        </h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Preferences</h3>
 
         {/* Metadata language */}
         <Select
@@ -262,9 +254,7 @@ export function GeneralTab() {
           label="Auto-Check for Updates"
           description="Automatically check for GAMDL and tool updates on startup"
           checked={settings.auto_check_updates}
-          onChange={(checked) =>
-            updateSettings({ auto_check_updates: checked })
-          }
+          onChange={(checked) => updateSettings({ auto_check_updates: checked })}
         />
 
         {/* Pre-release channel toggle */}
@@ -272,9 +262,7 @@ export function GeneralTab() {
           label="Include Pre-Release Versions"
           description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
           checked={settings.check_pre_releases}
-          onChange={(checked) =>
-            updateSettings({ check_pre_releases: checked })
-          }
+          onChange={(checked) => updateSettings({ check_pre_releases: checked })}
         />
 
         {/* Manual update check button */}
@@ -290,14 +278,10 @@ export function GeneralTab() {
               {isChecking ? 'Checking...' : 'Check for Updates'}
             </Button>
             {checkMessage && !isChecking && (
-              <span className="text-xs text-content-secondary">
-                {checkMessage}
-              </span>
+              <span className="text-xs text-content-secondary">{checkMessage}</span>
             )}
           </div>
-          {checkError && !isChecking && (
-            <p className="text-xs text-status-error">{checkError}</p>
-          )}
+          {checkError && !isChecking && <p className="text-xs text-status-error">{checkError}</p>}
         </div>
       </div>
     </div>

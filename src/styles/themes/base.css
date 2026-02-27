@@ -90,12 +90,12 @@
    * Referenced by Tailwind classes: bg-sidebar-bg, hover:bg-sidebar-hover,
    * bg-sidebar-active, text-sidebar-text, text-sidebar-text-active, border-sidebar-border
    */
-  --sidebar-bg: #f5f5f5;                  /* Panel background: light gray */
-  --sidebar-hover: rgba(0, 0, 0, 0.05);   /* Subtle darken on hover (5% black overlay) */
-  --sidebar-active: rgba(0, 0, 0, 0.08);  /* Slightly stronger for active/selected item */
-  --sidebar-text: #555555;                 /* Default nav item text: medium gray */
-  --sidebar-text-active: #1a1a1a;          /* Active nav item text: near-black for emphasis */
-  --sidebar-border: #e0e0e0;              /* Right border separating sidebar from content */
+  --sidebar-bg: #f5f5f5; /* Panel background: light gray */
+  --sidebar-hover: rgba(0, 0, 0, 0.05); /* Subtle darken on hover (5% black overlay) */
+  --sidebar-active: rgba(0, 0, 0, 0.08); /* Slightly stronger for active/selected item */
+  --sidebar-text: #555555; /* Default nav item text: medium gray */
+  --sidebar-text-active: #1a1a1a; /* Active nav item text: near-black for emphasis */
+  --sidebar-border: #e0e0e0; /* Right border separating sidebar from content */
 
   /* ---- Colors: Surfaces ---- */
   /*
@@ -105,10 +105,10 @@
    *
    * Referenced by: bg-surface-primary, bg-surface-secondary, bg-surface-elevated, bg-surface-overlay
    */
-  --surface-primary: #ffffff;              /* Main content background: pure white */
-  --surface-secondary: #fafafa;            /* Grouped/alternate content sections: off-white */
-  --surface-elevated: #f8f8f8;             /* Cards, modals, raised panels: slightly gray */
-  --surface-overlay: rgba(0, 0, 0, 0.5);  /* Semi-transparent backdrop behind modals (50% black) */
+  --surface-primary: #ffffff; /* Main content background: pure white */
+  --surface-secondary: #fafafa; /* Grouped/alternate content sections: off-white */
+  --surface-elevated: #f8f8f8; /* Cards, modals, raised panels: slightly gray */
+  --surface-overlay: rgba(0, 0, 0, 0.5); /* Semi-transparent backdrop behind modals (50% black) */
 
   /* ---- Colors: Accent ---- */
   /*
@@ -121,9 +121,9 @@
    * The base default uses Apple's blue as a reasonable cross-platform choice.
    * Referenced by: bg-accent, hover:bg-accent-hover, bg-accent-light, text-accent
    */
-  --accent: #007aff;                             /* Primary action color: Apple blue */
-  --accent-hover: #0062cc;                        /* Darker shade for hover state */
-  --accent-light: rgba(0, 122, 255, 0.1);        /* 10% opacity tint for subtle backgrounds */
+  --accent: #007aff; /* Primary action color: Apple blue */
+  --accent-hover: #0062cc; /* Darker shade for hover state */
+  --accent-light: rgba(0, 122, 255, 0.1); /* 10% opacity tint for subtle backgrounds */
 
   /* ---- Colors: Text ---- */
   /*
@@ -133,10 +133,10 @@
    *
    * Referenced by: text-content-primary, text-content-secondary, text-content-tertiary, text-content-inverse
    */
-  --text-primary: #1a1a1a;    /* Highest emphasis: headings, body text, labels */
-  --text-secondary: #666666;  /* Medium emphasis: descriptions, metadata, supporting text */
-  --text-tertiary: #999999;   /* Low emphasis: placeholders, hints, disabled text */
-  --text-inverse: #ffffff;    /* Text on colored backgrounds (e.g., white text on accent buttons) */
+  --text-primary: #1a1a1a; /* Highest emphasis: headings, body text, labels */
+  --text-secondary: #666666; /* Medium emphasis: descriptions, metadata, supporting text */
+  --text-tertiary: #999999; /* Low emphasis: placeholders, hints, disabled text */
+  --text-inverse: #ffffff; /* Text on colored backgrounds (e.g., white text on accent buttons) */
 
   /* ---- Colors: Status ---- */
   /*
@@ -148,10 +148,10 @@
    *
    * Referenced by: text-status-success, bg-status-error, border-status-warning, text-status-info
    */
-  --status-success: #34c759;  /* Completed downloads, valid inputs (green) */
-  --status-warning: #ff9500;  /* Warnings, pending actions (orange) */
-  --status-error: #ff3b30;    /* Failed downloads, validation errors (red) */
-  --status-info: #007aff;     /* Informational messages, active downloads (blue, matches accent) */
+  --status-success: #34c759; /* Completed downloads, valid inputs (green) */
+  --status-warning: #ff9500; /* Warnings, pending actions (orange) */
+  --status-error: #ff3b30; /* Failed downloads, validation errors (red) */
+  --status-info: #007aff; /* Informational messages, active downloads (blue, matches accent) */
 
   /* ---- Colors: Status Backgrounds ---- */
   /*
@@ -162,10 +162,10 @@
    *
    * Referenced by: bg-status-success-bg, bg-status-error-bg, etc.
    */
-  --status-success-bg: #f0fdf4;  /* Tailwind green-50: very pale green tint */
-  --status-error-bg: #fef2f2;    /* Tailwind red-50: very pale red tint */
-  --status-warning-bg: #fffbeb;  /* Tailwind yellow-50: very pale yellow tint */
-  --status-info-bg: #eff6ff;     /* Tailwind blue-50: very pale blue tint */
+  --status-success-bg: #f0fdf4; /* Tailwind green-50: very pale green tint */
+  --status-error-bg: #fef2f2; /* Tailwind red-50: very pale red tint */
+  --status-warning-bg: #fffbeb; /* Tailwind yellow-50: very pale yellow tint */
+  --status-info-bg: #eff6ff; /* Tailwind blue-50: very pale blue tint */
 
   /* ---- Colors: Borders ---- */
   /*
@@ -173,9 +173,9 @@
    *
    * Referenced by: border-border (default), border-border-light, border-border-strong
    */
-  --border: #d1d1d6;          /* Standard borders: inputs, cards, table dividers */
-  --border-light: #e5e5ea;    /* Subtle dividers: between list items, section separators */
-  --border-strong: #aeaeb2;   /* Emphasized borders: focused inputs, important dividers */
+  --border: #d1d1d6; /* Standard borders: inputs, cards, table dividers */
+  --border-light: #e5e5ea; /* Subtle dividers: between list items, section separators */
+  --border-strong: #aeaeb2; /* Emphasized borders: focused inputs, important dividers */
 
   /* ---- Geometry ---- */
   /*
@@ -187,9 +187,9 @@
    *
    * Referenced by: rounded-platform, rounded-platform-sm, rounded-platform-lg
    */
-  --radius: 6px;      /* Default radius for buttons, inputs, small cards */
-  --radius-sm: 4px;   /* Smaller radius for badges, tags, inline elements */
-  --radius-lg: 10px;  /* Larger radius for modal dialogs, large cards, panels */
+  --radius: 6px; /* Default radius for buttons, inputs, small cards */
+  --radius-sm: 4px; /* Smaller radius for badges, tags, inline elements */
+  --radius-lg: 10px; /* Larger radius for modal dialogs, large cards, panels */
 
   /* ---- Shadows ---- */
   /*
@@ -201,8 +201,8 @@
    *
    * Referenced by: shadow-platform, shadow-platform-lg
    */
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);       /* Standard elevation: cards, dropdowns */
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);   /* Higher elevation: modals, floating panels */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1); /* Standard elevation: cards, dropdowns */
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15); /* Higher elevation: modals, floating panels */
 
   /* ---- Transitions ---- */
   /*
@@ -270,44 +270,44 @@
 @media (prefers-color-scheme: dark) {
   :root:not(.theme-light) {
     /* Sidebar -- Dark backgrounds with light text and white translucent hover effects */
-    --sidebar-bg: #1c1c1e;                       /* Dark gray background (Apple's system gray 6) */
-    --sidebar-hover: rgba(255, 255, 255, 0.06);  /* White overlay at 6% opacity on hover */
-    --sidebar-active: rgba(255, 255, 255, 0.1);  /* White overlay at 10% opacity for active item */
-    --sidebar-text: #a0a0a0;                      /* Medium gray text for nav items */
-    --sidebar-text-active: #ffffff;               /* Pure white for active/selected item */
-    --sidebar-border: #2c2c2e;                    /* Slightly lighter than sidebar bg for visibility */
+    --sidebar-bg: #1c1c1e; /* Dark gray background (Apple's system gray 6) */
+    --sidebar-hover: rgba(255, 255, 255, 0.06); /* White overlay at 6% opacity on hover */
+    --sidebar-active: rgba(255, 255, 255, 0.1); /* White overlay at 10% opacity for active item */
+    --sidebar-text: #a0a0a0; /* Medium gray text for nav items */
+    --sidebar-text-active: #ffffff; /* Pure white for active/selected item */
+    --sidebar-border: #2c2c2e; /* Slightly lighter than sidebar bg for visibility */
 
     /* Surfaces -- Dark backgrounds progressing from darkest (primary) to lighter (elevated) */
-    --surface-primary: #000000;                   /* True black main background */
-    --surface-secondary: #1c1c1e;                 /* Slightly elevated content sections */
-    --surface-elevated: #2c2c2e;                  /* Cards and modals: lighter for perceived depth */
-    --surface-overlay: rgba(0, 0, 0, 0.7);        /* Darker overlay in dark mode for contrast */
+    --surface-primary: #000000; /* True black main background */
+    --surface-secondary: #1c1c1e; /* Slightly elevated content sections */
+    --surface-elevated: #2c2c2e; /* Cards and modals: lighter for perceived depth */
+    --surface-overlay: rgba(0, 0, 0, 0.7); /* Darker overlay in dark mode for contrast */
 
     /* Accent -- Brighter blue in dark mode for visibility against dark backgrounds */
-    --accent: #0a84ff;                             /* iOS dark mode blue (higher luminance than light mode) */
-    --accent-hover: #409cff;                       /* Even brighter on hover for clear feedback */
-    --accent-light: rgba(10, 132, 255, 0.15);     /* 15% opacity tint (slightly more visible in dark) */
+    --accent: #0a84ff; /* iOS dark mode blue (higher luminance than light mode) */
+    --accent-hover: #409cff; /* Even brighter on hover for clear feedback */
+    --accent-light: rgba(10, 132, 255, 0.15); /* 15% opacity tint (slightly more visible in dark) */
 
     /* Text -- Inverted from light mode (white primary, gray secondary) */
-    --text-primary: #ffffff;                       /* White text on dark backgrounds */
-    --text-secondary: #a0a0a0;                     /* Medium gray for secondary content */
-    --text-tertiary: #666666;                      /* Dark gray for hints and placeholders */
-    --text-inverse: #000000;                       /* Black text on colored (accent) backgrounds */
+    --text-primary: #ffffff; /* White text on dark backgrounds */
+    --text-secondary: #a0a0a0; /* Medium gray for secondary content */
+    --text-tertiary: #666666; /* Dark gray for hints and placeholders */
+    --text-inverse: #000000; /* Black text on colored (accent) backgrounds */
 
     /* Borders -- Lighter borders for visibility against dark backgrounds */
-    --border: #3a3a3c;                             /* Standard border: visible but subtle */
-    --border-light: #2c2c2e;                       /* Subtle dividers (barely visible) */
-    --border-strong: #545458;                      /* Emphasized borders for focus states */
+    --border: #3a3a3c; /* Standard border: visible but subtle */
+    --border-light: #2c2c2e; /* Subtle dividers (barely visible) */
+    --border-strong: #545458; /* Emphasized borders for focus states */
 
     /* Shadows -- Stronger opacity in dark mode because shadows are less visible on dark surfaces */
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);       /* 30% opacity (vs 10% in light mode) */
-    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);   /* 40% opacity (vs 15% in light mode) */
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.3); /* 30% opacity (vs 10% in light mode) */
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4); /* 40% opacity (vs 15% in light mode) */
 
     /* Status backgrounds -- Darker tints for dark mode */
-    --status-success-bg: #052e16;  /* Tailwind green-950 */
-    --status-error-bg: #450a0a;    /* Tailwind red-950 */
-    --status-warning-bg: #422006;  /* Tailwind yellow-950 */
-    --status-info-bg: #172554;     /* Tailwind blue-950 */
+    --status-success-bg: #052e16; /* Tailwind green-950 */
+    --status-error-bg: #450a0a; /* Tailwind red-950 */
+    --status-warning-bg: #422006; /* Tailwind yellow-950 */
+    --status-info-bg: #172554; /* Tailwind blue-950 */
 
     /* Prose overrides inherit from the dark --text-* / --accent values above automatically */
     --tw-prose-invert-body: var(--text-primary);

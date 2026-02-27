@@ -61,8 +61,3 @@ version_flag = "--version"
 minimum_version = "2.0"
 binary_name = "MP4Box"
 version_flag = "-version"
-
-[amdecrypt]
-minimum_version = "1.0"
-binary_name = "amdecrypt"
-version_flag = "--version"

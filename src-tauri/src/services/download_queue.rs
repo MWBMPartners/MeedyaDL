@@ -107,14 +107,90 @@ use crate::utils::process;
 // ============================================================
 
 /// Payload for the "activity-log" Tauri event, emitted for every raw
-/// stdout/stderr line from GAMDL subprocesses before parsing. The Activity
-/// Log page subscribes to these events for a live terminal-style view.
+/// stdout/stderr line from GAMDL subprocesses before parsing, as well as
+/// for internal MeedyaDL actions (enrichment, companions, diagnostics).
+/// The Activity Log page subscribes to these events for a live terminal view.
+///
+/// Stream values:
+///   - `"stdout"` -- GAMDL subprocess stdout
+///   - `"stderr"` -- GAMDL subprocess stderr
+///   - `"internal"` -- MeedyaDL internal actions (enrichment, companion downloads)
 #[derive(Clone, serde::Serialize)]
 struct ActivityLogEvent {
     download_id: String,
     stream: &'static str,
     line: String,
     timestamp: String,
+}
+
+/// Emits an internal MeedyaDL activity log event (not from GAMDL subprocess).
+/// Used to surface enrichment progress, companion downloads, and diagnostic
+/// information in the Activity Log so users can see what MeedyaDL is doing
+/// behind the scenes.
+fn emit_internal_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
+    let _ = app.emit(
+        "activity-log",
+        &ActivityLogEvent {
+            download_id: download_id.to_string(),
+            stream: "internal",
+            line: message.to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        },
+    );
+}
+
+/// Checks if the given path contains any .m4a or .m4v audio/video files.
+fn has_audio_files(dir: &std::path::Path) -> bool {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("m4a") || ext.eq_ignore_ascii_case("m4v") {
+                        return true;
+                    }
+                }
+            } else if path.is_dir() {
+                // Recurse into subdirectories (GAMDL creates Artist/Album/ structure)
+                if has_audio_files(&path) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Finds the most recently modified subdirectory containing audio files (.m4a/.m4v).
+/// Used by the partial-success recovery path to find the actual album directory
+/// within the base output directory, instead of returning the base directory itself.
+fn find_album_directory(base_dir: &std::path::Path) -> Option<String> {
+    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+
+    if let Ok(entries) = std::fs::read_dir(base_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Check recursively for audio files in this subdirectory
+                if has_audio_files(&path) {
+                    if let Ok(meta) = std::fs::metadata(&path) {
+                        if let Ok(modified) = meta.modified() {
+                            if best.as_ref().is_none_or(|(t, _)| modified > *t) {
+                                best = Some((modified, path));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // If no subdirectory with audio files found, check if base itself has audio
+    if best.is_none() && has_audio_files(base_dir) {
+        return Some(base_dir.to_string_lossy().to_string());
+    }
+
+    best.map(|(_, p)| p.to_string_lossy().to_string())
 }
 
 // ============================================================
@@ -326,6 +402,7 @@ impl DownloadQueue {
                 ),
                 fallback_occurred: false,
                 used_wrapper: merged_options.use_wrapper.unwrap_or(false),
+                output_is_directory: false,
                 warnings: Vec::new(),
                 created_at: chrono::Utc::now().to_rfc3339(),
             },
@@ -863,6 +940,7 @@ impl DownloadQueue {
                     ),
                     fallback_occurred: false,
                     used_wrapper: merged_options.use_wrapper.unwrap_or(false),
+                    output_is_directory: false,
                     warnings: Vec::new(),
                     created_at: p.created_at,
                 },
@@ -1003,7 +1081,6 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.mp4decrypt_path.clone_from(&settings.mp4decrypt_path);
     options.mp4box_path.clone_from(&settings.mp4box_path);
     options.nm3u8dlre_path.clone_from(&settings.nm3u8dlre_path);
-    options.amdecrypt_path.clone_from(&settings.amdecrypt_path);
 
     // Set download and remux modes
     options.download_mode = Some(settings.download_mode.clone());
@@ -1362,6 +1439,16 @@ fn spawn_companion_downloads(
         let comp_base_opts = companion_base_options.clone();
         let comp_dl_id = dl_id.to_string();
 
+        emit_internal_log(
+            app,
+            dl_id,
+            &format!(
+                "Starting companion downloads ({} tier(s), mode: {:?})",
+                companion_tiers.len(),
+                companion_settings.companion_mode,
+            ),
+        );
+
         tokio::spawn(async move {
             // Process each companion tier sequentially
             for (tier_idx, tier) in companion_tiers.iter().enumerate() {
@@ -1420,6 +1507,15 @@ fn spawn_companion_downloads(
                                         tier_idx,
                                         codec.to_cli_string(),
                                         comp_dl_id
+                                    );
+                                    emit_internal_log(
+                                        &comp_app,
+                                        &comp_dl_id,
+                                        &format!(
+                                            "Companion download complete (tier {}, codec: {})",
+                                            tier_idx,
+                                            codec.to_cli_string(),
+                                        ),
                                     );
                                     let _ = comp_app.emit(
                                         "companion-downloaded",
@@ -1491,6 +1587,11 @@ fn spawn_companion_downloads(
                 if !tier_succeeded {
                     log::debug!(
                         "Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}"
+                    );
+                    emit_internal_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        &format!("Companion tier {tier_idx}: all codecs exhausted"),
                     );
                 }
             }
@@ -1910,24 +2011,22 @@ pub fn process_queue(
                         // Partial-success recovery: GAMDL exited 0 with codec
                         // skip warnings, meaning some tracks were unavailable in
                         // the requested format but others downloaded successfully.
-                        // Verify the output directory contains files before
-                        // declaring success. This handles GAMDL 2.9.1+ which
+                        // Find the actual album directory (not the base output dir)
+                        // containing audio files. This handles GAMDL 2.9.1+ which
                         // doesn't emit "Saved to:" lines for album downloads.
                         if has_codec_error && !has_io_error {
                             if let Some(item) = q.items.iter_mut()
                                 .find(|i| i.status.id == dl_id)
                             {
-                                if let Some(ref dir) = item.merged_options.output_path.clone() {
-                                    let path = std::path::Path::new(dir);
-                                    let has_files = path.is_dir()
-                                        && std::fs::read_dir(path)
-                                            .map(|mut entries| entries.next().is_some())
-                                            .unwrap_or(false);
-                                    if has_files {
-                                        item.status.output_path = Some(dir.clone());
+                                if let Some(ref base_dir) = item.merged_options.output_path.clone() {
+                                    let base_path = std::path::Path::new(base_dir);
+                                    // Find the actual album directory within the base output dir
+                                    if let Some(album_dir) = find_album_directory(base_path) {
+                                        item.status.output_path = Some(album_dir);
+                                        item.status.output_is_directory = true;
                                         log::info!(
-                                            "Download {dl_id} partial success: output \
-                                             directory has files despite codec skip warnings"
+                                            "Download {dl_id} partial success: found album \
+                                             directory with files despite codec skip warnings"
                                         );
                                     }
                                 }
@@ -1941,13 +2040,20 @@ pub fn process_queue(
                             // to the output directory despite the IO errors on
                             // ancillary operations (cover art, lyrics sidecar).
                             //
-                            // Set the configured output path so "Open Folder" works,
-                            // and mark as complete with IO-specific warnings.
+                            // Find the actual album directory so "Open Folder" works.
                             if let Some(item) = q.items.iter_mut()
                                 .find(|i| i.status.id == dl_id)
                             {
-                                if let Some(ref dir) = item.merged_options.output_path.clone() {
-                                    item.status.output_path = Some(dir.clone());
+                                if let Some(ref base_dir) = item.merged_options.output_path.clone() {
+                                    let base_path = std::path::Path::new(base_dir);
+                                    if let Some(album_dir) = find_album_directory(base_path) {
+                                        item.status.output_path = Some(album_dir);
+                                        item.status.output_is_directory = true;
+                                    } else {
+                                        // Fallback: use base dir if no album subdir found
+                                        item.status.output_path = Some(base_dir.clone());
+                                        item.status.output_is_directory = true;
+                                    }
                                 }
                             }
                             log::warn!(
@@ -2104,6 +2210,21 @@ pub fn process_queue(
                                 .map_or_else(|| output_dir.clone(), |p| p.to_string_lossy().to_string())
                         };
 
+                        // Log enrichment settings summary so users can see
+                        // which steps will run in the Activity Log.
+                        let enrich_settings = load_settings_for_queue(&enrich_app);
+                        emit_internal_log(
+                            &enrich_app,
+                            &enrich_dl_id,
+                            &format!(
+                                "Post-download enrichment starting (enhanced_lrc: {}, artwork: {}, acoustid: {}, replaygain: {})",
+                                if enrich_settings.enhanced_lrc { "on" } else { "off" },
+                                if enrich_settings.animated_artwork_enabled { "on" } else { "off" },
+                                if enrich_settings.acoustid_enabled { "on" } else { "off" },
+                                if enrich_settings.replaygain_enabled { "on" } else { "off" },
+                            ),
+                        );
+
                         // --- Step 1: Enriched metadata tagging ---
                         // Parse the codec string and run full enrichment (codec tags,
                         // source tags, channel detection, API metadata). Returns the
@@ -2120,6 +2241,11 @@ pub fn process_queue(
                             _ => None,
                         });
 
+                        emit_internal_log(
+                            &enrich_app,
+                            &enrich_dl_id,
+                            "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
+                        );
                         let album_metadata = if let Some(ref codec) = codec {
                             match super::metadata_tag_service::apply_enriched_metadata_tags(
                                 &enrich_app,
@@ -2127,11 +2253,22 @@ pub fn process_queue(
                                 codec,
                                 &enrich_urls,
                                 None, // No pre-fetched metadata; will fetch from API if possible
+                                Some((&enrich_app, &enrich_dl_id)),
                             ).await {
                                 Ok((count, metadata)) => {
                                     if count > 0 {
+                                        let api_note = if metadata.is_some() {
+                                            " (including Apple Music API metadata: ISRC, UPC, genre)"
+                                        } else {
+                                            " (Apple Music API metadata unavailable)"
+                                        };
                                         log::info!(
                                             "Enriched {count} file(s) with metadata for {enrich_dl_id}"
+                                        );
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Enriched {count} file(s) with metadata tags{api_note}"),
                                         );
                                     }
                                     metadata
@@ -2139,6 +2276,11 @@ pub fn process_queue(
                                 Err(e) => {
                                     log::debug!(
                                         "Metadata enrichment failed for {enrich_dl_id}: {e}"
+                                    );
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!("Metadata enrichment failed: {e}"),
                                     );
                                     None
                                 }
@@ -2153,8 +2295,12 @@ pub fn process_queue(
                         // and embeds the Enhanced LRC in M4A/M4V metadata.
                         // Falls back to standard line-level LRC for songs without
                         // word-level timing in their TTML.
-                        let enrich_settings = load_settings_for_queue(&enrich_app);
                         if enrich_settings.enhanced_lrc {
+                            emit_internal_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                "Converting TTML lyrics to Enhanced LRC (word-by-word sync)...",
+                            );
                             match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
                                 &album_dir,
                             ).await {
@@ -2162,11 +2308,27 @@ pub fn process_queue(
                                     log::info!(
                                         "Enhanced LRC generated for {count} file(s) for {enrich_dl_id}"
                                     );
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!("Enhanced LRC generated for {count} file(s)"),
+                                    );
                                 }
-                                Ok(_) => {}
+                                Ok(_) => {
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "No TTML lyrics files found for Enhanced LRC conversion",
+                                    );
+                                }
                                 Err(e) => {
                                     log::debug!(
                                         "Enhanced LRC conversion skipped for {enrich_dl_id}: {e}"
+                                    );
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!("Enhanced LRC conversion skipped: {e}"),
                                     );
                                 }
                             }
@@ -2176,55 +2338,81 @@ pub fn process_queue(
                         // Reuse the AlbumMetadata from enrichment to avoid a
                         // duplicate API call. Falls back to a fresh API call
                         // if enrichment didn't produce metadata.
-
-                        let artwork_result = if let Some(ref metadata) = album_metadata {
-                            super::animated_artwork_service::process_album_artwork_from_metadata(
+                        if enrich_settings.animated_artwork_enabled {
+                            emit_internal_log(
                                 &enrich_app,
-                                metadata,
-                                &album_dir,
-                            ).await
-                        } else {
-                            super::animated_artwork_service::process_album_artwork(
-                                &enrich_app,
-                                &enrich_urls,
-                                &album_dir,
-                            ).await
-                        };
+                                &enrich_dl_id,
+                                "Downloading animated artwork...",
+                            );
+                            let artwork_result = if let Some(ref metadata) = album_metadata {
+                                super::animated_artwork_service::process_album_artwork_from_metadata(
+                                    &enrich_app,
+                                    metadata,
+                                    &album_dir,
+                                ).await
+                            } else {
+                                super::animated_artwork_service::process_album_artwork(
+                                    &enrich_app,
+                                    &enrich_urls,
+                                    &album_dir,
+                                ).await
+                            };
 
-                        match artwork_result {
-                            Ok(result) => {
-                                if result.square_downloaded || result.portrait_downloaded {
-                                    log::info!(
-                                        "Animated artwork downloaded for {enrich_dl_id}"
-                                    );
+                            match artwork_result {
+                                Ok(result) => {
+                                    if result.square_downloaded || result.portrait_downloaded {
+                                        log::info!(
+                                            "Animated artwork downloaded for {enrich_dl_id}"
+                                        );
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Animated artwork downloaded (square: {}, portrait: {})",
+                                                if result.square_downloaded { "yes" } else { "no" },
+                                                if result.portrait_downloaded { "yes" } else { "no" },
+                                            ),
+                                        );
 
-                                    // Hide artwork files if enabled in settings
-                                    if enrich_settings.hide_animated_artwork {
-                                        let dir = std::path::Path::new(&album_dir);
-                                        if result.square_downloaded {
-                                            if let Err(e) = super::animated_artwork_service::hide_file(
-                                                &dir.join("FrontCover.mp4"),
-                                            ).await {
-                                                log::debug!("Failed to hide FrontCover.mp4: {e}");
+                                        // Hide artwork files if enabled in settings
+                                        if enrich_settings.hide_animated_artwork {
+                                            let dir = std::path::Path::new(&album_dir);
+                                            if result.square_downloaded {
+                                                if let Err(e) = super::animated_artwork_service::hide_file(
+                                                    &dir.join("FrontCover.mp4"),
+                                                ).await {
+                                                    log::debug!("Failed to hide FrontCover.mp4: {e}");
+                                                }
+                                            }
+                                            if result.portrait_downloaded {
+                                                if let Err(e) = super::animated_artwork_service::hide_file(
+                                                    &dir.join("PortraitCover.mp4"),
+                                                ).await {
+                                                    log::debug!("Failed to hide PortraitCover.mp4: {e}");
+                                                }
                                             }
                                         }
-                                        if result.portrait_downloaded {
-                                            if let Err(e) = super::animated_artwork_service::hide_file(
-                                                &dir.join("PortraitCover.mp4"),
-                                            ).await {
-                                                log::debug!("Failed to hide PortraitCover.mp4: {e}");
-                                            }
-                                        }
+
+                                        let _ = enrich_app
+                                            .emit("artwork-downloaded", &enrich_dl_id);
+                                    } else {
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "No animated artwork available for this album",
+                                        );
                                     }
-
-                                    let _ = enrich_app
-                                        .emit("artwork-downloaded", &enrich_dl_id);
                                 }
-                            }
-                            Err(e) => {
-                                log::debug!(
-                                    "Animated artwork skipped for {enrich_dl_id}: {e}"
-                                );
+                                Err(e) => {
+                                    log::debug!(
+                                        "Animated artwork skipped for {enrich_dl_id}: {e}"
+                                    );
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!("Animated artwork skipped: {e}"),
+                                    );
+                                }
                             }
                         }
 
@@ -2233,19 +2421,49 @@ pub fn process_queue(
                         // embedded rusty-chromaprint library and looks up AcousticID
                         // identifiers from acoustid.org.
                         if enrich_settings.acoustid_enabled {
-                            match super::acoustid_service::process_acoustid_for_directory(
-                                &album_dir,
-                            ).await {
-                                Ok(count) if count > 0 => {
-                                    log::info!(
-                                        "AcousticID tagged {count} file(s) for {enrich_dl_id}"
-                                    );
-                                }
-                                Ok(_) => {}
-                                Err(e) => {
-                                    log::debug!(
-                                        "AcousticID skipped for {enrich_dl_id}: {e}"
-                                    );
+                            if enrich_settings.acoustid_api_key.is_empty() {
+                                emit_internal_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "AcousticID skipped: no API key configured (register at https://acoustid.org/new-application)",
+                                );
+                            } else {
+                                emit_internal_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Running AcousticID fingerprinting...",
+                                );
+                                match super::acoustid_service::process_acoustid_for_directory(
+                                    &album_dir,
+                                    &enrich_settings.acoustid_api_key,
+                                ).await {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "AcousticID tagged {count} file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcousticID tagged {count} file(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "AcousticID: no matches found for any files",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "AcousticID skipped for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcousticID failed: {e}"),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -2254,6 +2472,11 @@ pub fn process_queue(
                         // When enabled, analyses each file's loudness via FFmpeg's
                         // ebur128 filter and writes non-destructive ReplayGain tags.
                         if enrich_settings.replaygain_enabled {
+                            emit_internal_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                "Analysing loudness (ReplayGain EBU R128)...",
+                            );
                             match super::replaygain_service::process_replaygain_for_directory(
                                 &enrich_app,
                                 &album_dir,
@@ -2262,15 +2485,37 @@ pub fn process_queue(
                                     log::info!(
                                         "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
                                     );
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!("ReplayGain analysed {count} file(s)"),
+                                    );
                                 }
-                                Ok(_) => {}
+                                Ok(_) => {
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "ReplayGain: no audio files to analyse",
+                                    );
+                                }
                                 Err(e) => {
                                     log::debug!(
                                         "ReplayGain skipped for {enrich_dl_id}: {e}"
                                     );
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!("ReplayGain failed: {e}"),
+                                    );
                                 }
                             }
                         }
+
+                        emit_internal_log(
+                            &enrich_app,
+                            &enrich_dl_id,
+                            "Post-download enrichment complete",
+                        );
                     });
                 }
 
@@ -2526,48 +2771,61 @@ async fn run_download_with_events(
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-            while let Ok(Some(line)) = lines.next_line().await {
-                // Strip ANSI escape codes (e.g., \x1b[32m) that GAMDL
-                // outputs for terminal colouring but render as garbage
-                // in the Activity Log's HTML view.
-                let clean_line = process::strip_ansi_codes(&line);
-                log::debug!("[gamdl stdout] {clean_line}");
+            while let Ok(Some(raw_line)) = lines.next_line().await {
+                // Split on \r to handle yt-dlp download progress updates.
+                // yt-dlp uses \r (carriage return) for in-place terminal
+                // updates, but AsyncBufReadExt::lines() only splits on \n.
+                // Without this split, all \r-separated progress updates
+                // concatenate into one massive line (~127KB for albums).
+                let segments: Vec<&str> = raw_line.split('\r').collect();
+                for segment in &segments {
+                    let segment = segment.trim();
+                    if segment.is_empty() {
+                        continue;
+                    }
 
-                // Deduplicate: only emit to Activity Log if this line
-                // hasn't already been emitted by the other reader.
-                let is_new = {
-                    let mut set = seen.lock().await;
-                    set.insert(clean_line.clone())
-                };
-                if is_new {
-                    let _ = app.emit("activity-log", &ActivityLogEvent {
+                    // Strip ANSI escape codes (e.g., \x1b[32m) that GAMDL
+                    // outputs for terminal colouring but render as garbage
+                    // in the Activity Log's HTML view.
+                    let clean_line = process::strip_ansi_codes(segment);
+                    log::debug!("[gamdl stdout] {clean_line}");
+
+                    // Deduplicate: only emit to Activity Log if this line
+                    // hasn't already been emitted by the other reader.
+                    let is_new = {
+                        let mut set = seen.lock().await;
+                        set.insert(clean_line.clone())
+                    };
+                    if is_new {
+                        let _ = app.emit("activity-log", &ActivityLogEvent {
+                            download_id: download_id.clone(),
+                            stream: "stdout",
+                            line: clean_line.clone(),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+
+                    let event = process::parse_gamdl_output(&clean_line);
+
+                    // Update the queue item's progress
+                    {
+                        let mut q = queue.lock().await;
+                        q.update_item_progress(&download_id, &event);
+                    }
+
+                    // Collect errors for fallback decisions
+                    if let process::GamdlOutputEvent::Error { ref message } = event {
+                        let mut errs = errors.lock().await;
+                        errs.push(message.clone());
+                    }
+
+                    // Emit parsed event to frontend
+                    let progress = gamdl_service::GamdlProgress {
                         download_id: download_id.clone(),
-                        stream: "stdout",
-                        line: clean_line.clone(),
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                    });
+                        event,
+                    };
+                    let _ = app.emit("gamdl-output", &progress);
                 }
-
-                let event = process::parse_gamdl_output(&clean_line);
-
-                // Update the queue item's progress
-                {
-                    let mut q = queue.lock().await;
-                    q.update_item_progress(&download_id, &event);
-                }
-
-                // Collect errors for fallback decisions
-                if let process::GamdlOutputEvent::Error { ref message } = event {
-                    let mut errs = errors.lock().await;
-                    errs.push(message.clone());
-                }
-
-                // Emit parsed event to frontend
-                let progress = gamdl_service::GamdlProgress {
-                    download_id: download_id.clone(),
-                    event,
-                };
-                let _ = app.emit("gamdl-output", &progress);
             }
         })
     };
@@ -2583,50 +2841,59 @@ async fn run_download_with_events(
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
-            while let Ok(Some(line)) = lines.next_line().await {
-                // Strip ANSI escape codes before display and parsing
-                let clean_line = process::strip_ansi_codes(&line);
-                log::debug!("[gamdl stderr] {clean_line}");
+            while let Ok(Some(raw_line)) = lines.next_line().await {
+                // Split on \r for yt-dlp progress updates (same as stdout)
+                let segments: Vec<&str> = raw_line.split('\r').collect();
+                for segment in &segments {
+                    let segment = segment.trim();
+                    if segment.is_empty() {
+                        continue;
+                    }
 
-                // Deduplicate: only emit to Activity Log if this line
-                // hasn't already been emitted by the stdout reader.
-                let is_new = {
-                    let mut set = seen.lock().await;
-                    set.insert(clean_line.clone())
-                };
-                if is_new {
-                    let _ = app.emit("activity-log", &ActivityLogEvent {
+                    // Strip ANSI escape codes before display and parsing
+                    let clean_line = process::strip_ansi_codes(segment);
+                    log::debug!("[gamdl stderr] {clean_line}");
+
+                    // Deduplicate: only emit to Activity Log if this line
+                    // hasn't already been emitted by the stdout reader.
+                    let is_new = {
+                        let mut set = seen.lock().await;
+                        set.insert(clean_line.clone())
+                    };
+                    if is_new {
+                        let _ = app.emit("activity-log", &ActivityLogEvent {
+                            download_id: download_id.clone(),
+                            stream: "stderr",
+                            line: clean_line.clone(),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+
+                    let event = process::parse_gamdl_output(&clean_line);
+
+                    // Collect raw stderr lines for Python traceback extraction
+                    // (always, regardless of dedup — needed for exception analysis)
+                    {
+                        let mut raw = raw_stderr.lock().await;
+                        raw.push(clean_line.clone());
+                    }
+
+                    {
+                        let mut q = queue.lock().await;
+                        q.update_item_progress(&download_id, &event);
+                    }
+
+                    if let process::GamdlOutputEvent::Error { ref message } = event {
+                        let mut errs = errors.lock().await;
+                        errs.push(message.clone());
+                    }
+
+                    let progress = gamdl_service::GamdlProgress {
                         download_id: download_id.clone(),
-                        stream: "stderr",
-                        line: clean_line.clone(),
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                    });
+                        event,
+                    };
+                    let _ = app.emit("gamdl-output", &progress);
                 }
-
-                let event = process::parse_gamdl_output(&clean_line);
-
-                // Collect raw stderr lines for Python traceback extraction
-                // (always, regardless of dedup — needed for exception analysis)
-                {
-                    let mut raw = raw_stderr.lock().await;
-                    raw.push(clean_line.clone());
-                }
-
-                {
-                    let mut q = queue.lock().await;
-                    q.update_item_progress(&download_id, &event);
-                }
-
-                if let process::GamdlOutputEvent::Error { ref message } = event {
-                    let mut errs = errors.lock().await;
-                    errs.push(message.clone());
-                }
-
-                let progress = gamdl_service::GamdlProgress {
-                    download_id: download_id.clone(),
-                    event,
-                };
-                let _ = app.emit("gamdl-output", &progress);
             }
         })
     };
