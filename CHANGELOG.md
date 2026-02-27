@@ -29,6 +29,11 @@ Convert Apple Music TTML lyrics to Enhanced LRC format with inline
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- Update LyricsTab tests to use regex for format labels
 
 ## [0.3.33] - 2026-02-26
 
