@@ -121,6 +121,12 @@ export function DownloadQueue() {
   const retryDownload = useDownloadStore((s) => s.retryDownload);
 
   /**
+   * Retries a failed download with wrapper disabled, falling back to
+   * cookie-based authentication. Only for downloads that used wrapper.
+   */
+  const retryWithoutWrapper = useDownloadStore((s) => s.retryWithoutWrapper);
+
+  /**
    * Removes all finished items (complete, error, cancelled) from the
    * backend queue and returns the number of items removed.
    */
@@ -201,6 +207,20 @@ export function DownloadQueue() {
       addToast('Download requeued', 'info');
     } catch {
       addToast('Failed to retry download', 'error');
+    }
+  };
+
+  /**
+   * Retry a failed download without the wrapper system.
+   * Wraps `retryWithoutWrapper()` with toast feedback.
+   * @param id - The unique download ID from the backend.
+   */
+  const handleRetryWithoutWrapper = async (id: string) => {
+    try {
+      await retryWithoutWrapper(id);
+      addToast('Download requeued without wrapper', 'info');
+    } catch {
+      addToast('Failed to retry download without wrapper', 'error');
     }
   };
 
@@ -431,6 +451,7 @@ export function DownloadQueue() {
                 item={item}
                 onCancel={handleCancel}
                 onRetry={handleRetry}
+                onRetryWithoutWrapper={handleRetryWithoutWrapper}
                 onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
               />
             ))}

@@ -169,91 +169,11 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
 /// See: <https://curl.se/docs/http-cookies.html>
 #[tauri::command]
 pub async fn validate_cookies_file(path: String) -> Result<CookieValidation, String> {
-    // Read the entire cookie file into memory.
-    // Cookie files are typically small (< 100KB) so reading all at once is fine.
-    let contents =
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read cookie file: {e}"))?;
-
-    // Tracking variables for the validation scan
-    let mut cookie_count = 0;
-    let mut domains = std::collections::HashSet::new(); // Deduplicates domain names
-    let mut apple_music_cookies = 0;
-    let mut expired = false;
-    let mut warnings = Vec::new();
-    // Current UTC timestamp for comparing against cookie expiry times
-    let now = chrono::Utc::now().timestamp();
-
-    // Parse each line of the Netscape cookie file
-    for line in contents.lines() {
-        // Skip comments (lines starting with #) and empty lines.
-        // The Netscape format uses "# Netscape HTTP Cookie File" as a header comment.
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        // Split the line by tabs into the 7 expected fields.
-        // Format: domain \t subdomains \t path \t secure \t expiry \t name \t value
-        // Fields[0] = domain (may have leading dot for subdomain matching)
-        // Fields[4] = expiry (Unix timestamp, 0 means session cookie)
-        let fields: Vec<&str> = trimmed.split('\t').collect();
-        if fields.len() >= 7 {
-            cookie_count += 1;
-            // Strip the leading dot from domain (e.g., ".apple.com" -> "apple.com")
-            // for consistent deduplication and display
-            let domain = fields[0].trim_start_matches('.');
-            domains.insert(domain.to_string());
-
-            // Check for Apple Music related domains — these are the cookies
-            // GAMDL needs for authenticated access to Apple Music content.
-            // apple.com covers the main site; mzstatic.com serves media assets.
-            if domain.contains("apple.com") || domain.contains("mzstatic.com") {
-                apple_music_cookies += 1;
-
-                // Parse the expiry timestamp (field index 4) to check validity.
-                // A value of 0 means "session cookie" (no expiry) — skip those.
-                if let Ok(expiry) = fields[4].parse::<i64>() {
-                    if expiry > 0 && expiry < now {
-                        // This cookie has already expired
-                        expired = true;
-                    } else if expiry > 0 {
-                        // Cookie is still valid — warn if it expires within 7 days
-                        // (86400 seconds per day)
-                        let days_until_expiry = (expiry - now) / 86400;
-                        if days_until_expiry < 7 {
-                            warnings.push(format!(
-                                "Apple Music cookies expire in {days_until_expiry} day(s)"
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // A file is considered "valid" if it contains at least one parseable cookie entry
-    let valid = cookie_count > 0;
-
-    // Add warnings for common issues that would prevent GAMDL from working
-    if apple_music_cookies == 0 {
-        warnings.push("No Apple Music cookies found in file".to_string());
-    }
-
-    if expired {
-        warnings.push(
-            "Some Apple Music cookies have expired - you may need to re-export them".to_string(),
-        );
-    }
-
-    Ok(CookieValidation {
-        valid,
-        cookie_count,
-        // Convert HashSet to Vec for JSON serialization (HashSet is not serializable)
-        domains: domains.into_iter().collect(),
-        apple_music_cookies,
-        expired,
-        warnings,
-    })
+    // Delegate to the shared health check service for cookie parsing.
+    // The parsing logic (Netscape format, expiry checks, Apple domain filtering)
+    // is reused by both this command and the pre-flight health checks in
+    // download_queue.rs. See health_check_service::parse_cookies_file() for details.
+    crate::services::health_check_service::parse_cookies_file(&path)
 }
 
 /// Returns the default output path for downloaded music.

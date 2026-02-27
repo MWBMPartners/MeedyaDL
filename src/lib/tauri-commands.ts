@@ -359,6 +359,25 @@ export function retryDownload(downloadId: string): Promise<void> {
 }
 
 /**
+ * Retries a failed download with wrapper authentication disabled.
+ *
+ * Rust handler: `retry_download_without_wrapper()` in `src-tauri/src/commands/gamdl.rs`
+ * Argument: `downloadId` - UUID of the download to retry
+ *
+ * Similar to retryDownload, but explicitly disables the wrapper system
+ * and falls back to cookie-based authentication. Only applicable to
+ * downloads that originally used the wrapper.
+ *
+ * Called by: DownloadQueue "Retry without Wrapper" button
+ *
+ * @param downloadId - UUID of the download to retry without wrapper
+ * @returns Promise resolving when the retry is queued
+ */
+export function retryDownloadWithoutWrapper(downloadId: string): Promise<void> {
+  return invoke<void>('retry_download_without_wrapper', { downloadId });
+}
+
+/**
  * Clears all completed, failed, and cancelled items from the queue.
  *
  * Rust handler: `clear_queue()` in `src-tauri/src/commands/download.rs`
