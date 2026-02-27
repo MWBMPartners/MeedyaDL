@@ -8,14 +8,56 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- Add crash reporting system with local file logging and optional Sentry integration — replaces `env_logger` with `tracing` ecosystem for dual-output logging (stderr + daily-rotating file), adds custom panic handler that writes JSON crash reports to `{app_data_dir}/crashes/`, persists frontend errors (ErrorBoundary, window.onerror, unhandledrejection) to crash reports via IPC, and adds opt-in Sentry cloud reporting with toggle in Settings > Advanced
-- Add GitHub Issues crash reporting — report crashes directly to the developer from Settings > Advanced with a pre-filled GitHub Issue opened in your browser. Privacy-first design: user previews all data in a consent modal before submitting. Backtrace truncated if body exceeds 3500 chars for URL length safety. New `CrashReportSection` and `CrashReportDialog` components, `get_github_issue_url` IPC command, `crash-report` issue template, and `crash-report` label.
-- Add GitHub branch protection via Repository Ruleset — prevents force pushes and branch deletion on `main`, requires CI status checks for PRs
+- **(crash-reports)** Implement crash reporting system with Sentry integration
+
+- Added `CrashReport` model to represent crash/error reports.
+  - Created `crash_report_service` for managing crash report files.
+  - Implemented IPC commands for listing, retrieving, deleting, exporting, and logging frontend errors.
+  - Integrated `tracing` for structured logging and added support for Sentry error tracking.
+  - Updated application settings to include `sentry_enabled` for opt-in telemetry.
+  - Enhanced frontend error handling to persist errors to the Rust crash report system.
+  - Added UI toggle in settings for enabling/disabling anonymous crash reporting.
+  - Implemented automatic cleanup of old crash reports older than 30 days.
+
+- Implement GitHub Issues crash reporting system
+
+- Added a new crash reporting feature that allows users to report crashes directly to GitHub Issues from the app.
+  - Introduced `CrashReportSection` and `CrashReportDialog` components for managing crash reports and user consent.
+  - Implemented `get_github_issue_url` command to generate pre-filled GitHub issue URLs with crash report data.
+  - Updated documentation to reflect the new crash reporting functionality and usage instructions.
+  - Enhanced localization for crash reporting features in English, German, and French.
+  - Added IPC commands for listing, deleting, and exporting crash reports.
+
 
 ### 🐛 Bug Fixes
 
-- Resolve startup crash caused by missing Tokio runtime in setup — queue recovery used `tokio::runtime::Handle::current()` which panics when no Tokio runtime is active during the macOS `did_finish_launching` callback; replaced with `blocking_lock()` and `tauri::async_runtime::spawn()`
-- Open external links in system browser instead of WebView — release note links in the Updates page and the "View on GitHub" buttons in both the Updates page and Update banner now use the Tauri shell plugin (`@tauri-apps/plugin-shell`) instead of `window.open()`; added custom `ReactMarkdown` link component to intercept clicks on HTTP(S) links in rendered release notes
+- Resolve startup crash caused by missing Tokio runtime in setup
+
+The app was crashing on launch with "there is no reactor running, must
+  be called from the context of a Tokio 1.x runtime" because the queue
+  recovery code assumed a Tokio runtime was active during the setup
+  closure. On macOS, this closure runs inside the `did_finish_launching`
+  callback where the Tokio runtime isn't registered as "current".
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update documentation for startup crash fix and external link handling
+
+- CHANGELOG.md: Add entries for both bug fixes in [Unreleased] section
+  - CLAUDE.md: Update queue persistence convention (blocking_lock, async
+    runtime spawn) and Updates page convention (shell plugin for links)
+  - Project_Plan.md: Note external link handling on Updates page entry
+  - help/troubleshooting.md: Add "Crash on Launch (Queue Recovery Panic)"
+    section with cause, fix version, and workaround for older versions
+
+
+## [0.5.2] - 2026-02-27
+
+### 🐛 Bug Fixes
+
+- Update handleViewRelease to use Tauri shell plugin for opening URLs
 
 ### 📚 Documentation
 
