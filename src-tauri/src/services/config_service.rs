@@ -125,6 +125,28 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
+/// Loads settings from the default platform path without requiring a Tauri
+/// `AppHandle`. Used during early startup (before Tauri is fully initialised)
+/// to read settings like `sentry_enabled` for tracing/Sentry configuration.
+///
+/// Falls back to `AppSettings::default()` if the file is missing or unreadable.
+/// Does NOT sync to GAMDL's config.ini (no `AppHandle` available).
+pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
+    let settings_dir = dirs::data_dir()
+        .map(|d| d.join("io.github.meedyadl"))
+        .ok_or_else(|| "Cannot determine app data directory".to_string())?;
+    let settings_path = settings_dir.join("settings.json");
+
+    if settings_path.exists() {
+        let contents = std::fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Failed to read settings file: {e}"))?;
+        serde_json::from_str(&contents)
+            .map_err(|e| format!("Failed to parse settings file: {e}"))
+    } else {
+        Ok(AppSettings::default())
+    }
+}
+
 /// Saves the application settings to the JSON settings file.
 ///
 /// Writes the settings as pretty-printed JSON for human readability.

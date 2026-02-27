@@ -219,6 +219,25 @@ export function AdvancedTab() {
         )}
       </div>
 
+      {/* Section: Crash Reporting */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-content-primary mb-4">
+          Crash Reporting
+        </h3>
+
+        <Toggle
+          label="Send Anonymous Crash Reports"
+          description="When enabled, anonymous crash data (error message, stack trace, app version, OS) is sent to our error tracking service to help identify and fix bugs. No personal data, download history, or account information is ever included. Requires an app restart to take effect."
+          checked={settings.sentry_enabled}
+          onChange={(checked) => updateSettings({ sentry_enabled: checked })}
+        />
+
+        <p className="text-xs text-content-tertiary">
+          Crash reports are always saved locally to your app data directory
+          regardless of this setting. You can view them in the logs folder.
+        </p>
+      </div>
+
       {/* Section: File Options */}
       <div className="space-y-4">
         <h3 className="text-sm font-semibold text-content-primary mb-4">

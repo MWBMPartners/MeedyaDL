@@ -260,22 +260,60 @@ uuid = { version = "1", features = ["v4"] }
 # @see https://docs.rs/chrono/ -- chrono documentation
 chrono = { version = "0.4", features = ["serde"] }
 
-# ---- Logging ----
+# ---- Logging & Telemetry ----
 
 # log -- The standard Rust logging facade (trait-based).
 # Provides the log::info!(), log::warn!(), log::error!(), log::debug!() macros
-# used throughout the application. The actual log output is handled by the
-# env_logger backend (see below).
+# used throughout the application. The `tracing` crate (below) is compatible
+# with the `log` facade via its built-in compatibility layer, so all existing
+# `log::*!()` calls continue to work without modification.
 # @see https://docs.rs/log/ -- log facade documentation
 log = "0.4"
 
-# env_logger -- Logger implementation that reads the RUST_LOG environment variable.
-# Configures which log levels and modules to display. Examples:
-#   RUST_LOG=debug        -- Show all debug and above
-#   RUST_LOG=meedyadl=trace,tauri=warn -- Verbose app logs, quiet Tauri logs
-# Outputs to stderr with timestamps, module paths, and colored levels in dev.
-# @see https://docs.rs/env_logger/ -- env_logger documentation
-env_logger = "0.11"
+# tracing -- Structured diagnostics instrumentation framework.
+# Extends the `log` facade with structured fields, spans, and async-aware
+# context. The `log` feature enables automatic bridging so that all `log::*!()`
+# macro calls from existing code and dependencies are captured by the tracing
+# subscriber configured in `lib.rs`.
+# @see https://docs.rs/tracing/ -- tracing documentation
+tracing = { version = "0.1", features = ["log"] }
+
+# tracing-subscriber -- Composable subscriber (logger backend) for `tracing`.
+# Provides `fmt::Layer` (human-readable log output), `EnvFilter` (RUST_LOG
+# parsing), and `Registry` (layered subscriber composition). Used to set up
+# dual-output logging: stderr for development + rotating file for diagnostics.
+# Features:
+#   - "env-filter": Parse RUST_LOG environment variable for per-module log levels
+#   - "fmt": Human-readable formatted output (timestamps, levels, module paths)
+#   - "json": JSON-structured output (used for crash report context)
+# @see https://docs.rs/tracing-subscriber/ -- tracing-subscriber documentation
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+# tracing-appender -- Non-blocking file appender for `tracing-subscriber`.
+# Provides `RollingFileAppender` which writes log files with automatic daily
+# rotation and retention. Logs are written to `{app_data_dir}/logs/` with
+# the pattern `meedyadl.YYYY-MM-DD.log`. The non-blocking writer ensures
+# log I/O does not block the main thread or async tasks.
+# @see https://docs.rs/tracing-appender/ -- tracing-appender documentation
+tracing-appender = "0.2"
+
+# sentry -- Application monitoring and error tracking SDK (opt-in).
+# When enabled by the user in Settings > Advanced, Sentry captures panics,
+# `tracing::error!()` events, and breadcrumbs from `tracing::info!()` calls.
+# The `tracing` feature integrates with the tracing subscriber as an additional
+# layer. Guarded by `settings.sentry_enabled` (default: false) so no data is
+# ever sent without explicit user consent.
+# @see https://docs.rs/sentry/ -- sentry SDK documentation
+# @see https://docs.sentry.io/platforms/rust/ -- Sentry Rust platform guide
+sentry = { version = "0.35", features = ["tracing"] }
+
+# sentry-tracing -- Sentry integration layer for the `tracing` ecosystem.
+# Bridges `tracing` events and spans to Sentry, sending `error!()` events
+# as Sentry events and lower-level events as breadcrumbs. Configured as an
+# optional layer in the tracing subscriber stack, only active when Sentry
+# is initialized (i.e., when the user has opted in).
+# @see https://docs.rs/sentry-tracing/ -- sentry-tracing documentation
+sentry-tracing = "0.35"
 
 # ---- Error Handling ----
 

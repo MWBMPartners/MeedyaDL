@@ -64,3 +64,10 @@ pub mod dependency;
 /// download backends, and concrete identifiers for each supported service.
 /// This enables future extensibility beyond Apple Music (GAMDL).
 pub mod music_service;
+
+/// Crash report data model.
+///
+/// Defines the `CrashReport` struct representing a single crash or error
+/// report. Used by the Rust panic handler, the frontend error logging
+/// command, and the crash report service for CRUD operations.
+pub mod crash_report;

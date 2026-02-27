@@ -131,6 +131,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   truncate: null,                // Max filename length in characters; null = no truncation
   fetch_extra_tags: true,        // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [],              // Metadata tags to exclude from output files
+  sentry_enabled: false,         // Opt-in anonymous crash reporting via Sentry (default: off)
   setup_completed: false,        // Whether the setup wizard has been completed at least once
   sidebar_collapsed: false,      // UI preference: sidebar expanded by default
   theme_override: null,          // null = follow OS theme; 'light' or 'dark' to override
