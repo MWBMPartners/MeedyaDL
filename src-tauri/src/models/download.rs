@@ -398,6 +398,7 @@ mod tests {
             output_path: None,
             codec_used: Some("alac".to_string()),
             fallback_occurred: false,
+            used_wrapper: false,
             warnings: Vec::new(),
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
@@ -440,6 +441,7 @@ mod tests {
             output_path: None,
             codec_used: None,
             fallback_occurred: false,
+            used_wrapper: false,
             warnings: Vec::new(),
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
@@ -472,6 +474,7 @@ mod tests {
             output_path: Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()),
             codec_used: Some("aac".to_string()),
             fallback_occurred: true,
+            used_wrapper: false,
             warnings: Vec::new(),
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };
