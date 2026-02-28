@@ -590,6 +590,7 @@ pub fn run() {
             commands::settings::save_settings,
             commands::settings::validate_cookies_file,
             commands::settings::check_cookies_before_download,
+            commands::settings::check_internet_before_download,
             commands::settings::get_default_output_path,
             commands::settings::test_wrapper_connection,
             // GAMDL download and queue management commands

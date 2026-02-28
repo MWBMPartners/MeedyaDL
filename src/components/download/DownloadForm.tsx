@@ -91,8 +91,8 @@ import { useUiStore } from '@/stores/uiStore';
 /** Reusable UI primitives from the common component library. */
 import { Button, Select } from '@/components/common';
 
-/** Tauri IPC commands for cookie validation. */
-import { checkCookiesBeforeDownload } from '@/lib/tauri-commands';
+/** Tauri IPC commands for pre-download checks (internet, cookies). */
+import { checkCookiesBeforeDownload, checkInternetBeforeDownload } from '@/lib/tauri-commands';
 
 /**
  * Type imports for Apple Music content types and audio codecs.
@@ -231,6 +231,13 @@ export function DownloadForm() {
   const [showOverrides, setShowOverrides] = useState(false);
 
   /**
+   * Internet connectivity error message shown when the device is offline.
+   * Set by `handleSubmit()` before attempting to queue a download.
+   * Cleared on the next successful check or when the URL input changes.
+   */
+  const [internetError, setInternetError] = useState<string | null>(null);
+
+  /**
    * Cookie validation error message shown when cookies are expired or
    * missing. Set by `handleSubmit()` before attempting to queue a download.
    * Cleared on the next successful check or when the URL input changes.
@@ -247,10 +254,10 @@ export function DownloadForm() {
   /**
    * Handles the "Add to Queue" action.
    *
-   * Before queuing, checks cookie validity via the Rust backend.
-   * If cookies are expired, missing, or invalid, blocks the download
-   * and shows an inline warning. This catches mid-session cookie
-   * expiry that wouldn't be caught by the startup pre-flight check.
+   * Before queuing, runs two pre-download checks via the Rust backend:
+   *  1. Internet connectivity — blocks if offline (no point checking cookies
+   *     or queuing downloads without internet).
+   *  2. Cookie validity — blocks if cookies are expired, missing, or invalid.
    *
    * Calls `submitDownload()` which:
    *  1. Validates the URL (throws if invalid).
@@ -260,6 +267,22 @@ export function DownloadForm() {
    * Shows a success toast on success, or an error toast on failure.
    */
   const handleSubmit = async () => {
+    // Check internet connectivity before queuing
+    try {
+      const internetCheck = await checkInternetBeforeDownload();
+      if (!internetCheck.ready) {
+        setInternetError(
+          internetCheck.message ?? 'No internet connection — check your network and try again.'
+        );
+        return;
+      }
+      setInternetError(null);
+    } catch {
+      // If the check itself fails (e.g., IPC error), proceed anyway —
+      // the download will fail later with a more specific error.
+      setInternetError(null);
+    }
+
     // Check cookie readiness before queuing (catches mid-session expiry)
     try {
       const cookieCheck = await checkCookiesBeforeDownload();
@@ -396,7 +419,8 @@ export function DownloadForm() {
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
-                  // Clear cookie error when URL changes (user is retrying)
+                  // Clear errors when URL changes (user is retrying)
+                  if (internetError) setInternetError(null);
                   if (cookieError) setCookieError(null);
                 }}
                 onKeyDown={handleKeyDown}
@@ -464,6 +488,17 @@ export function DownloadForm() {
             <p className="text-xs text-content-tertiary">
               Supports songs, albums, playlists, music videos, and artist pages
             </p>
+          )}
+
+          {/* Internet connectivity warning -- shown when the device is offline.
+              Blocks downloads until the connection is restored. */}
+          {internetError && (
+            <div className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
+              <span className="text-status-warning text-sm mt-0.5">&#9888;</span>
+              <div className="flex-1 text-xs text-content-primary">
+                <p>{internetError}</p>
+              </div>
+            </div>
           )}
 
           {/* Cookie validation warning -- shown when cookies are expired,
