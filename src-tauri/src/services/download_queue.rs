@@ -2732,6 +2732,9 @@ pub fn process_queue(
                 if !should_retry {
                     // Save a download error report so the user can optionally
                     // report it to GitHub Issues via Settings > Advanced.
+                    // Skip for network errors — these are connectivity issues,
+                    // not application bugs, and would just add noise.
+                    if error_category != "network" {
                     let mut context = std::collections::HashMap::new();
                     context.insert(
                         "error_category".to_string(),
@@ -2767,6 +2770,7 @@ pub fn process_queue(
                     ) {
                         log::debug!("Failed to save download error report: {e}");
                     }
+                    } // end: skip error reports for network errors
 
                     let _ = app_clone.emit(
                         "download-error",

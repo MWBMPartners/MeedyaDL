@@ -296,6 +296,20 @@ export function checkCookiesBeforeDownload(): Promise<CookieCheckResult> {
 }
 
 /**
+ * Checks whether the internet is reachable before queuing a download.
+ *
+ * Rust handler: `check_internet_before_download()` in `src-tauri/src/commands/settings.rs`
+ * Returns: `CookieCheckResult` (reuses same shape) with readiness flag and optional message
+ *
+ * Called by the download form before the cookie check. Reuses the existing
+ * health_check_service::check_internet_connectivity() (HTTP GET to apple.com).
+ * If offline, blocks the download with an amber warning.
+ */
+export function checkInternetBeforeDownload(): Promise<CookieCheckResult> {
+  return invoke<CookieCheckResult>('check_internet_before_download');
+}
+
+/**
  * Returns the default output path for downloaded music.
  *
  * Rust handler: `get_default_output_path()` in `src-tauri/src/commands/settings.rs`
