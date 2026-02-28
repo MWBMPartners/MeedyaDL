@@ -348,6 +348,124 @@ Go to **Settings > Advanced** and enable the **Use Wrapper** toggle. The default
 ### 3. Configure the URL (if needed)
 If your wrapper runs on a different port or host, update the **Wrapper Account URL** field in Settings > Advanced.
 
+## Verifying Connectivity
+
+MeedyaDL checks whether the wrapper is reachable in two ways:
+
+### Manual Test
+
+In **Settings > Advanced**, click the **Test Connection** button next to the Wrapper Account URL field. MeedyaDL sends an HTTP GET to the wrapper URL with a 5-second timeout:
+
+- **Success** — shows "Connected" with the round-trip latency in milliseconds (e.g., "Connected (42ms)")
+- **Timeout** — "Connection timed out (5s)" — the wrapper may not be running or the URL is wrong
+- **Connection refused** — "Connection refused — is the wrapper running at {url}?" — the host is reachable but nothing is listening on that port
+- **Other errors** — the specific error message is shown
+
+### Automatic Pre-Flight Check
+
+Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at http://192.168.3.179:30020 timed out — check that it is running").
+
+This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. The check runs at most once every 30 seconds to avoid spamming notifications.
+
+### Troubleshooting Wrapper Connectivity
+
+If MeedyaDL reports the wrapper is unreachable (yellow toast or "Test Connection" failure), work through the steps below from a terminal on the **machine running MeedyaDL**.
+
+#### Step 1 — Verify the URL in MeedyaDL
+
+Open **Settings > Advanced** and check the **Wrapper Account URL**. It should look like:
+
+- Local: \`http://127.0.0.1:30020\` (wrapper on the same machine)
+- Remote: \`http://192.168.x.x:30020\` (wrapper on another device, e.g. a Raspberry Pi)
+
+Make sure the IP address and port are correct. If the wrapper is on another device, use that device's LAN IP — not \`127.0.0.1\`.
+
+#### Step 2 — Test from your terminal with curl
+
+Open a terminal on the machine running MeedyaDL and run:
+
+\`\`\`
+curl -v http://192.168.x.x:30020
+\`\`\`
+
+Replace the URL with your actual wrapper URL. Possible outcomes:
+
+- **A response (any HTTP status)** — the wrapper is running and reachable. If MeedyaDL still fails, double-check the URL matches exactly.
+- **"Connection refused"** — the host is reachable but nothing is listening on that port. The wrapper process may not be running, or it's on a different port.
+- **"Connection timed out" / no response** — the host is not reachable. Check network, firewall, or IP address.
+- **"Could not resolve host"** — the hostname/IP is wrong. Verify the address.
+
+#### Step 3 — Check the wrapper is running on the host
+
+SSH into the wrapper host (or open a terminal locally) and check:
+
+**Docker:**
+\`\`\`
+docker ps | grep wrapper
+\`\`\`
+If no output, the container isn't running. Start it with \`docker start <container_name>\` or \`docker compose up -d\`.
+
+Check container logs for errors:
+\`\`\`
+docker logs <container_name> --tail 50
+\`\`\`
+
+**Native (systemd):**
+\`\`\`
+systemctl status wrapper
+\`\`\`
+
+**Native (manual):**
+\`\`\`
+ps aux | grep wrapper
+\`\`\`
+
+If the process isn't running, start it according to the wrapper's own documentation.
+
+#### Step 4 — Check the port is open (remote setups)
+
+If the wrapper is on a different machine, the port must be accessible over the network.
+
+**On the wrapper host**, check the port is listening:
+\`\`\`
+ss -tlnp | grep 30020
+\`\`\`
+or:
+\`\`\`
+netstat -tlnp | grep 30020
+\`\`\`
+
+You should see the wrapper listening on \`0.0.0.0:30020\` (all interfaces) or your LAN IP. If it only shows \`127.0.0.1:30020\`, the wrapper is only accepting local connections — you'll need to configure it to bind to \`0.0.0.0\` or the LAN interface.
+
+**Docker port mapping:** ensure the container maps the port to the host. Check with:
+\`\`\`
+docker port <container_name>
+\`\`\`
+You should see \`30020/tcp -> 0.0.0.0:30020\`. If not, recreate the container with \`-p 30020:30020\`.
+
+#### Step 5 — Check firewall rules
+
+**Linux (ufw):**
+\`\`\`
+sudo ufw status
+sudo ufw allow 30020/tcp
+\`\`\`
+
+**Linux (iptables):**
+\`\`\`
+sudo iptables -L -n | grep 30020
+\`\`\`
+
+**macOS:** Check System Settings > Network > Firewall (or \`/usr/libexec/ApplicationFirewall/socketfilterfw --listapps\`).
+
+**Windows:** Check Windows Defender Firewall > Inbound Rules for port 30020.
+
+**Router/NAT:** If the wrapper is behind a router on a different subnet, you may need port forwarding. For devices on the same LAN, this is usually not needed.
+
+#### Step 6 — Verify from MeedyaDL
+
+After resolving the issue, go back to **Settings > Advanced** and click **Test Connection**. You should see "Connected" with a latency reading. If it still fails, repeat from Step 2.
+
 ## Cookie Auth vs Wrapper
 
 | Feature | Cookie Auth | Wrapper |
