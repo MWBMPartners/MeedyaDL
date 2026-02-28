@@ -8,6 +8,18 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Enhance toast notifications with deduplication and clearing for preflight checks
+- Add auto-retry without wrapper option for failed downloads
+- Add pre-download connectivity check, toast notification deduplication, auto-retry without wrapper, and network error report suppression
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.5.5] - 2026-02-28
+
+### ✨ Features
+
 - Add pre-download internet connectivity check to prevent queuing downloads without internet
 - Implement pre-download checks for internet connectivity and cookie validation, update queue processing behavior
 
