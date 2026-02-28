@@ -124,8 +124,7 @@ pub async fn start_download(
     // Load current settings for merging with per-download overrides.
     // If settings can't be loaded (corrupted file, etc.), fall back to defaults
     // so the download can still proceed with sensible quality/format choices.
-    let settings = crate::services::config_service::load_settings(&app)
-        .unwrap_or_default();
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,
@@ -211,7 +210,9 @@ pub async fn cancel_download(
         Ok(())
     } else {
         // The download ID was not found, or the item has already completed/failed.
-        Err(format!("Download {download_id} not found or already finished"))
+        Err(format!(
+            "Download {download_id} not found or already finished"
+        ))
     }
 }
 
@@ -249,8 +250,7 @@ pub async fn retry_download(
 
     // Re-load settings so retries pick up any changes the user made
     // (e.g., switching from AAC to ALAC after a failed attempt).
-    let settings = crate::services::config_service::load_settings(&app)
-        .unwrap_or_default();
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
     // Attempt to reset the download item to Queued state.
     // q.retry() returns true only if the item exists and is in a retryable state
@@ -309,8 +309,7 @@ pub async fn retry_download_without_wrapper(
     log::info!("Retry without wrapper requested for download: {download_id}");
 
     // Re-load settings so retries pick up any changes the user made
-    let settings = crate::services::config_service::load_settings(&app)
-        .unwrap_or_default();
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
     // Attempt to reset the download with wrapper disabled.
     // Returns true only if the item exists, is retryable, and was using wrapper.
@@ -355,10 +354,7 @@ pub async fn retry_download_without_wrapper(
 /// This function is infallible in practice but returns `Result` to satisfy
 /// the Tauri IPC command signature convention.
 #[tauri::command]
-pub async fn clear_queue(
-    app: AppHandle,
-    queue: State<'_, QueueHandle>,
-) -> Result<usize, String> {
+pub async fn clear_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Result<usize, String> {
     let removed = {
         let mut q = queue.lock().await;
         // clear_finished() drains all terminal-state items and returns the count
@@ -392,9 +388,7 @@ pub async fn clear_queue(
 /// This function is infallible in practice but returns `Result` to satisfy
 /// the Tauri IPC command signature convention.
 #[tauri::command]
-pub async fn get_queue_status(
-    queue: State<'_, QueueHandle>,
-) -> Result<QueueStatus, String> {
+pub async fn get_queue_status(queue: State<'_, QueueHandle>) -> Result<QueueStatus, String> {
     let q = queue.lock().await;
     // get_counts() returns a tuple of (total, active, queued, completed, failed)
     let (total, active, queued, completed, failed) = q.get_counts();
@@ -461,10 +455,7 @@ pub async fn check_gamdl_update() -> Result<String, String> {
 /// - The file system write fails (permissions, disk full, etc.).
 /// - The selected file path cannot be resolved.
 #[tauri::command]
-pub async fn export_queue(
-    app: AppHandle,
-    queue: State<'_, QueueHandle>,
-) -> Result<usize, String> {
+pub async fn export_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Result<usize, String> {
     // Import DialogExt at the top of the function body to satisfy
     // clippy::items_after_statements (items must precede statements).
     use tauri_plugin_dialog::DialogExt;
@@ -503,7 +494,8 @@ pub async fn export_queue(
 
     match file_path {
         Some(path) => {
-            let resolved = path.as_path()
+            let resolved = path
+                .as_path()
                 .ok_or_else(|| "Failed to resolve export file path".to_string())?;
             std::fs::write(resolved, json)
                 .map_err(|e| format!("Failed to write export file: {e}"))?;
@@ -535,10 +527,7 @@ pub async fn export_queue(
 /// - The schema version is not 1 (unsupported format).
 /// - The file contains no items.
 #[tauri::command]
-pub async fn import_queue(
-    app: AppHandle,
-    queue: State<'_, QueueHandle>,
-) -> Result<usize, String> {
+pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Result<usize, String> {
     // Open a native file picker with the .meedyadl file filter
     use tauri_plugin_dialog::DialogExt;
     let file_path = app
@@ -552,13 +541,14 @@ pub async fn import_queue(
     };
 
     // Read and parse the export file
-    let resolved = path.as_path()
+    let resolved = path
+        .as_path()
         .ok_or_else(|| "Failed to resolve import file path".to_string())?;
     let json = std::fs::read_to_string(resolved)
         .map_err(|e| format!("Failed to read import file: {e}"))?;
 
-    let export_file: download_queue::QueueExportFile = serde_json::from_str(&json)
-        .map_err(|e| format!("Invalid queue file format: {e}"))?;
+    let export_file: download_queue::QueueExportFile =
+        serde_json::from_str(&json).map_err(|e| format!("Invalid queue file format: {e}"))?;
 
     // Validate schema version
     if export_file.version != 1 {
@@ -573,13 +563,16 @@ pub async fn import_queue(
     }
 
     // Load current settings for option merging on the importing device
-    let settings = crate::services::config_service::load_settings(&app)
-        .unwrap_or_default();
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
     // Import items into the queue. The lock is acquired inline and
     // released immediately after import_items() returns, avoiding
     // unnecessary resource contention (clippy::significant_drop_tightening).
-    let count = queue.lock().await.import_items(export_file.items, &settings).len();
+    let count = queue
+        .lock()
+        .await
+        .import_items(export_file.items, &settings)
+        .len();
 
     // Persist the updated queue
     let queue_handle = queue.inner().clone();
@@ -719,8 +712,7 @@ pub async fn export_activity_log(
             let resolved = path
                 .as_path()
                 .ok_or_else(|| "Failed to resolve export file path".to_string())?;
-            std::fs::write(resolved, text)
-                .map_err(|e| format!("Failed to write log file: {e}"))?;
+            std::fs::write(resolved, text).map_err(|e| format!("Failed to write log file: {e}"))?;
             log::info!("Exported {count} activity log entries to file");
             Ok(count)
         }

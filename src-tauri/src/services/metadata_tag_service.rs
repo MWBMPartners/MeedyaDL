@@ -49,8 +49,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::process::Command;
 
 use crate::models::gamdl_options::SongCodec;
-use crate::services::{apple_music_api, config_service, dependency_manager};
 use crate::services::apple_music_api::AlbumMetadata;
+use crate::services::{apple_music_api, config_service, dependency_manager};
 
 /// Apple iTunes freeform atom namespace. This is the standard "mean" value
 /// used by iTunes, Apple Music, and third-party tagging tools for custom
@@ -90,10 +90,7 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 /// * `Err(message)` -- A human-readable error if the operation fails.
 ///   Individual file failures are logged at debug level but do not stop
 ///   processing of remaining files.
-pub fn apply_codec_metadata_tags(
-    output_path: &str,
-    codec: &SongCodec,
-) -> Result<usize, String> {
+pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result<usize, String> {
     // Only ALAC and Atmos get custom tags; all other codecs return early.
     let tag_writer: Box<dyn Fn(&mut Tag)> = match codec {
         SongCodec::Alac => Box::new(write_lossless_tags),
@@ -110,11 +107,7 @@ pub fn apply_codec_metadata_tags(
             match tag_single_file(path, &tag_writer) {
                 Ok(()) => tagged_count += 1,
                 Err(e) => {
-                    log::debug!(
-                        "Failed to tag {}: {}",
-                        path.display(),
-                        e
-                    );
+                    log::debug!("Failed to tag {}: {}", path.display(), e);
                 }
             }
         }
@@ -122,9 +115,7 @@ pub fn apply_codec_metadata_tags(
         // Directory: walk and tag all M4A files recursively
         tagged_count += tag_directory_recursive(path, &tag_writer);
     } else {
-        return Err(format!(
-            "Output path does not exist: {output_path}"
-        ));
+        return Err(format!("Output path does not exist: {output_path}"));
     }
 
     Ok(tagged_count)
@@ -132,10 +123,7 @@ pub fn apply_codec_metadata_tags(
 
 /// Tags a single M4A file by opening it, applying the tag writer function,
 /// and saving the modified metadata back to disk.
-fn tag_single_file(
-    path: &Path,
-    tag_writer: &dyn Fn(&mut Tag),
-) -> Result<(), String> {
+fn tag_single_file(path: &Path, tag_writer: &dyn Fn(&mut Tag)) -> Result<(), String> {
     // Open the M4A file and read its existing metadata
     let mut tag = Tag::read_from_path(path)
         .map_err(|e| format!("Failed to read M4A metadata from {}: {}", path.display(), e))?;
@@ -153,10 +141,7 @@ fn tag_single_file(
 
 /// Recursively walks a directory tree and tags all M4A files found.
 /// Returns the count of successfully tagged files.
-fn tag_directory_recursive(
-    dir: &Path,
-    tag_writer: &dyn Fn(&mut Tag),
-) -> usize {
+fn tag_directory_recursive(dir: &Path, tag_writer: &dyn Fn(&mut Tag)) -> usize {
     let mut count = 0;
 
     // Read the directory entries; log and skip on permission errors
@@ -274,7 +259,14 @@ pub async fn apply_enriched_metadata_tags(
     // Process each M4A file with all enrichment layers
     let mut tagged_count = 0;
     for file_path in &m4a_files {
-        match enrich_single_file(file_path, codec, ffprobe_path.as_ref(), album_metadata.as_ref()).await {
+        match enrich_single_file(
+            file_path,
+            codec,
+            ffprobe_path.as_ref(),
+            album_metadata.as_ref(),
+        )
+        .await
+        {
             Ok(()) => tagged_count += 1,
             Err(e) => {
                 log::debug!("Failed to enrich {}: {}", file_path.display(), e);
@@ -312,8 +304,13 @@ async fn enrich_single_file(
     };
 
     // Open the M4A file for reading/writing
-    let mut tag = Tag::read_from_path(file_path)
-        .map_err(|e| format!("Failed to read M4A metadata from {}: {}", file_path.display(), e))?;
+    let mut tag = Tag::read_from_path(file_path).map_err(|e| {
+        format!(
+            "Failed to read M4A metadata from {}: {}",
+            file_path.display(),
+            e
+        )
+    })?;
 
     // --- Layer 1: Codec-specific tags (ALAC/Atmos) ---
     match codec {
@@ -348,8 +345,13 @@ async fn enrich_single_file(
     }
 
     // Write all changes back to the file in a single operation
-    tag.write_to_path(file_path)
-        .map_err(|e| format!("Failed to write M4A metadata to {}: {}", file_path.display(), e))?;
+    tag.write_to_path(file_path).map_err(|e| {
+        format!(
+            "Failed to write M4A metadata to {}: {}",
+            file_path.display(),
+            e
+        )
+    })?;
 
     log::debug!("Enriched: {}", file_path.display());
     Ok(())
@@ -368,7 +370,8 @@ async fn enrich_single_file(
 ///   - `isMedley = Y` (only when title contains "Medley", case-insensitive)
 fn write_local_tags(tag: &mut Tag) {
     // Extract isMedley flag before any mutable operations (avoids borrow conflict)
-    let is_medley = tag.title()
+    let is_medley = tag
+        .title()
         .is_some_and(|t| t.to_ascii_lowercase().contains("medley"));
 
     // SourceStore in both namespaces
@@ -588,10 +591,13 @@ fn get_ffprobe_path(app: &AppHandle) -> Result<PathBuf, String> {
 async fn detect_channel_config(ffprobe_path: &Path, file_path: &Path) -> Option<String> {
     let output = Command::new(ffprobe_path)
         .args([
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_streams",
-            "-select_streams", "a:0",
+            "-select_streams",
+            "a:0",
         ])
         .arg(file_path)
         .output()
@@ -644,7 +650,9 @@ fn match_track_to_metadata(
 ) -> Option<&apple_music_api::TrackMetadata> {
     let track_num = u32::from(track_num?);
     let disc_num = u32::from(disc_num);
-    tracks.iter().find(|t| t.track_number == track_num && t.disc_number == disc_num)
+    tracks
+        .iter()
+        .find(|t| t.track_number == track_num && t.disc_number == disc_num)
 }
 
 // ============================================================
@@ -704,7 +712,9 @@ async fn try_fetch_metadata(
         }
         Err(e) => {
             log::warn!("Failed to read MusicKit private key: {e}");
-            log_event(&format!("Apple Music API: failed to read private key from keychain: {e}"));
+            log_event(&format!(
+                "Apple Music API: failed to read private key from keychain: {e}"
+            ));
             return None;
         }
     };

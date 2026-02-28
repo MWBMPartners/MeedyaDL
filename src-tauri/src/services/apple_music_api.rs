@@ -145,8 +145,9 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // Match album URLs: /storefront/album/slug/album_id with optional ?i=song_id
     // Accepts both music.apple.com and classical.apple.com domains
     let album_re = Regex::new(
-        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?"
-    ).expect("Invalid regex");
+        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?",
+    )
+    .expect("Invalid regex");
 
     if let Some(caps) = album_re.captures(url) {
         return Some(ParsedAppleMusicUrl {
@@ -159,9 +160,9 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
 
     // Match song URLs: /storefront/song/slug/song_id
     // Accepts both music.apple.com and classical.apple.com domains
-    let song_re = Regex::new(
-        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)"
-    ).expect("Invalid regex");
+    let song_re =
+        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)")
+            .expect("Invalid regex");
 
     if let Some(caps) = song_re.captures(url) {
         return Some(ParsedAppleMusicUrl {
@@ -174,9 +175,9 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
 
     // Match music-video URLs: /storefront/music-video/slug/video_id
     // Accepts both music.apple.com and classical.apple.com domains
-    let mv_re = Regex::new(
-        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)"
-    ).expect("Invalid regex");
+    let mv_re =
+        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)")
+            .expect("Invalid regex");
 
     if let Some(caps) = mv_re.captures(url) {
         return Some(ParsedAppleMusicUrl {
@@ -242,8 +243,7 @@ pub fn generate_musickit_jwt(
     let encoding_key = EncodingKey::from_ec_pem(private_key_pem.as_bytes())
         .map_err(|e| format!("Invalid MusicKit private key: {e}"))?;
 
-    encode(&header, &claims, &encoding_key)
-        .map_err(|e| format!("Failed to sign MusicKit JWT: {e}"))
+    encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign MusicKit JWT: {e}"))
 }
 
 // ============================================================
@@ -566,7 +566,8 @@ mod tests {
 
     #[test]
     fn parse_playlist_url_returns_none() {
-        let url = "https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
+        let url =
+            "https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
         let result = parse_apple_music_url(url);
         assert!(result.is_none());
     }

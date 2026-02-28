@@ -141,19 +141,15 @@ pub async fn process_acoustid_for_directory(
 /// Generate fingerprint, look up `AcousticID`, and write tags for a single file.
 ///
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
-async fn process_single_file(
-    file_path: &Path,
-    api_key: &str,
-) -> Result<bool, String> {
+async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, String> {
     // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
     // This is CPU-intensive (decodes the entire audio file), so we run it
     // on a blocking thread to avoid starving the async runtime.
     let fp_path = file_path.to_path_buf();
-    let (fingerprint, duration) = tokio::task::spawn_blocking(move || {
-        generate_fingerprint(&fp_path)
-    })
-    .await
-    .map_err(|e| format!("Fingerprint task panicked: {e}"))??;
+    let (fingerprint, duration) =
+        tokio::task::spawn_blocking(move || generate_fingerprint(&fp_path))
+            .await
+            .map_err(|e| format!("Fingerprint task panicked: {e}"))??;
 
     // Step 2: Look up AcousticID
     let Some(acoustid) = lookup_acoustid(&fingerprint, duration, api_key).await? else {
@@ -161,8 +157,7 @@ async fn process_single_file(
     };
 
     // Step 3: Write tags
-    let mut tag = Tag::read_from_path(file_path)
-        .map_err(|e| format!("Failed to read M4A: {e}"))?;
+    let mut tag = Tag::read_from_path(file_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
     // Acoustid Id — the UUID from acoustid.org
     tag.set_data(
@@ -200,8 +195,8 @@ async fn process_single_file(
 #[allow(clippy::similar_names)] // `decoded` and `decoder` are standard audio terminology
 fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
     // Open the audio file and wrap in a MediaSourceStream
-    let file = std::fs::File::open(file_path)
-        .map_err(|e| format!("Failed to open audio file: {e}"))?;
+    let file =
+        std::fs::File::open(file_path).map_err(|e| format!("Failed to open audio file: {e}"))?;
     let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
 
     // Provide a file extension hint for format detection
@@ -278,7 +273,9 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
                 // SampleBuffer::new() takes u64 duration; capacity() returns usize.
                 let num_frames = decoded.frames();
                 if sample_buf.is_none()
-                    || sample_buf.as_ref().is_some_and(|b| b.capacity() < num_frames)
+                    || sample_buf
+                        .as_ref()
+                        .is_some_and(|b| b.capacity() < num_frames)
                 {
                     let spec = *decoded.spec();
                     sample_buf = Some(SampleBuffer::new(num_frames as u64, spec));
@@ -315,10 +312,9 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
 
     // Calculate duration from total decoded samples.
     // u64::from() used for lossless widening; try_from() guards against truncation.
-    let duration_seconds = u32::try_from(
-        total_samples / u64::from(channels) / u64::from(sample_rate)
-    )
-    .unwrap_or(u32::MAX);
+    let duration_seconds =
+        u32::try_from(total_samples / u64::from(channels) / u64::from(sample_rate))
+            .unwrap_or(u32::MAX);
 
     Ok((encoded, duration_seconds))
 }
@@ -382,18 +378,16 @@ async fn lookup_acoustid(
     }
 
     // Find the best matching result with score >= 0.5
-    let results = json
-        .get("results")
-        .and_then(|v| v.as_array());
+    let results = json.get("results").and_then(|v| v.as_array());
 
-    let best_match = results
-        .and_then(|arr| {
-            arr.iter().find(|r| {
-                r.get("score")
-                    .and_then(serde_json::Value::as_f64)
-                    .unwrap_or(0.0) >= 0.5
-            })
-        });
+    let best_match = results.and_then(|arr| {
+        arr.iter().find(|r| {
+            r.get("score")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0)
+                >= 0.5
+        })
+    });
 
     best_match.map_or(Ok(None), |result| {
         let acoustid = result
@@ -484,7 +478,8 @@ mod tests {
 
     #[test]
     fn parse_acoustid_response_with_match() {
-        let json: serde_json::Value = serde_json::from_str(r#"{
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
             "status": "ok",
             "results": [
                 {
@@ -493,12 +488,14 @@ mod tests {
                     "recordings": []
                 }
             ]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let results = json.get("results").and_then(|v| v.as_array()).unwrap();
-        let best = results.iter().find(|r| {
-            r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) >= 0.5
-        });
+        let best = results
+            .iter()
+            .find(|r| r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) >= 0.5);
         assert!(best.is_some());
         let id = best.unwrap().get("id").and_then(|v| v.as_str()).unwrap();
         assert_eq!(id, "a1b2c3d4-e5f6-7890-abcd-ef1234567890");
@@ -506,7 +503,8 @@ mod tests {
 
     #[test]
     fn parse_acoustid_response_low_score_returns_none() {
-        let json: serde_json::Value = serde_json::from_str(r#"{
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
             "status": "ok",
             "results": [
                 {
@@ -515,21 +513,26 @@ mod tests {
                     "recordings": []
                 }
             ]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let results = json.get("results").and_then(|v| v.as_array()).unwrap();
-        let best = results.iter().find(|r| {
-            r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) >= 0.5
-        });
+        let best = results
+            .iter()
+            .find(|r| r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) >= 0.5);
         assert!(best.is_none());
     }
 
     #[test]
     fn parse_acoustid_response_empty_results() {
-        let json: serde_json::Value = serde_json::from_str(r#"{
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
             "status": "ok",
             "results": []
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let results = json.get("results").and_then(|v| v.as_array()).unwrap();
         assert!(results.is_empty());
@@ -537,13 +540,16 @@ mod tests {
 
     #[test]
     fn parse_acoustid_error_response() {
-        let json: serde_json::Value = serde_json::from_str(r#"{
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
             "status": "error",
             "error": {
                 "code": 2,
                 "message": "invalid fingerprint"
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let status = json.get("status").and_then(|v| v.as_str()).unwrap();
         assert_eq!(status, "error");

@@ -121,7 +121,7 @@ impl SongCodec {
     /// Note: although serde's `rename_all = "kebab-case"` produces
     /// identical strings for JSON serialization, we maintain an explicit
     /// mapping here so that CLI generation is decoupled from serde config.
-    #[must_use] 
+    #[must_use]
     pub const fn to_cli_string(&self) -> &str {
         match self {
             Self::Alac => "alac",
@@ -145,7 +145,7 @@ impl SongCodec {
     /// They include the bitrate and sample-rate characteristics so the
     /// user can make an informed choice without needing to look up the
     /// codec specifications.
-    #[must_use] 
+    #[must_use]
     pub const fn display_name(&self) -> &str {
         match self {
             Self::Alac => "Lossless (ALAC) (Experimental)",
@@ -233,7 +233,7 @@ impl VideoResolution {
     /// to the GAMDL subprocess. These strings are identical to the serde
     /// rename values but maintained explicitly for the same decoupling reason
     /// as `SongCodec::to_cli_string()`.
-    #[must_use] 
+    #[must_use]
     pub const fn to_cli_string(&self) -> &str {
         match self {
             Self::P2160 => "2160p",
@@ -280,7 +280,7 @@ pub enum LyricsFormat {
 
 impl LyricsFormat {
     /// Converts to the CLI string GAMDL expects for `--synced-lyrics-format`.
-    #[must_use] 
+    #[must_use]
     pub const fn to_cli_string(&self) -> &str {
         match self {
             Self::Lrc => "lrc",
@@ -319,7 +319,7 @@ pub enum CoverFormat {
 
 impl CoverFormat {
     /// Converts to the CLI string GAMDL expects for `--cover-format`.
-    #[must_use] 
+    #[must_use]
     pub const fn to_cli_string(&self) -> &str {
         match self {
             Self::Jpg => "jpg",
@@ -895,29 +895,38 @@ impl GamdlOptions {
         // easy verification against GAMDL's docs.
         if let Some(ref mode) = self.download_mode {
             args.push("--download-mode".to_string());
-            args.push(match mode {
-                DownloadMode::Ytdlp => "ytdlp",
-                DownloadMode::Nm3u8dlre => "nm3u8dlre",
-            }.to_string());
+            args.push(
+                match mode {
+                    DownloadMode::Ytdlp => "ytdlp",
+                    DownloadMode::Nm3u8dlre => "nm3u8dlre",
+                }
+                .to_string(),
+            );
         }
         if let Some(ref mode) = self.remux_mode {
             args.push("--music-video-remux-mode".to_string());
-            args.push(match mode {
-                RemuxMode::Ffmpeg => "ffmpeg",
-                RemuxMode::Mp4box => "mp4box",
-            }.to_string());
+            args.push(
+                match mode {
+                    RemuxMode::Ffmpeg => "ffmpeg",
+                    RemuxMode::Mp4box => "mp4box",
+                }
+                .to_string(),
+            );
         }
 
         // --- Other ---
         // Log level uses Python's standard level names in UPPERCASE.
         if let Some(ref level) = self.log_level {
             args.push("--log-level".to_string());
-            args.push(match level {
-                LogLevel::Debug => "DEBUG",
-                LogLevel::Info => "INFO",
-                LogLevel::Warning => "WARNING",
-                LogLevel::Error => "ERROR",
-            }.to_string());
+            args.push(
+                match level {
+                    LogLevel::Debug => "DEBUG",
+                    LogLevel::Info => "INFO",
+                    LogLevel::Warning => "WARNING",
+                    LogLevel::Error => "ERROR",
+                }
+                .to_string(),
+            );
         }
         if self.no_exceptions == Some(true) {
             args.push("--no-exceptions".to_string());
@@ -980,14 +989,20 @@ mod tests {
             SongCodec::AacLegacy.display_name(),
             "AAC Legacy (256kbps at up to 44.1kHz)"
         );
-        assert_eq!(SongCodec::AacHeLegacy.display_name(), "AAC-HE Legacy (64kbps)");
+        assert_eq!(
+            SongCodec::AacHeLegacy.display_name(),
+            "AAC-HE Legacy (64kbps)"
+        );
 
         // Experimental (may fail without Wrapper service)
         assert_eq!(
             SongCodec::Alac.display_name(),
             "Lossless (ALAC) (Experimental)"
         );
-        assert_eq!(SongCodec::Atmos.display_name(), "Dolby Atmos (Experimental)");
+        assert_eq!(
+            SongCodec::Atmos.display_name(),
+            "Dolby Atmos (Experimental)"
+        );
         assert_eq!(
             SongCodec::Ac3.display_name(),
             "Dolby Digital (AC3) (Experimental)"
@@ -1301,12 +1316,18 @@ mod tests {
     #[test]
     fn artist_auto_select_cli_strings() {
         assert_eq!(ArtistAutoSelect::MainAlbums.to_cli_string(), "main-albums");
-        assert_eq!(ArtistAutoSelect::CompilationAlbums.to_cli_string(), "compilation-albums");
+        assert_eq!(
+            ArtistAutoSelect::CompilationAlbums.to_cli_string(),
+            "compilation-albums"
+        );
         assert_eq!(ArtistAutoSelect::LiveAlbums.to_cli_string(), "live-albums");
         assert_eq!(ArtistAutoSelect::SinglesEps.to_cli_string(), "singles-eps");
         assert_eq!(ArtistAutoSelect::AllAlbums.to_cli_string(), "all-albums");
         assert_eq!(ArtistAutoSelect::TopSongs.to_cli_string(), "top-songs");
-        assert_eq!(ArtistAutoSelect::MusicVideos.to_cli_string(), "music-videos");
+        assert_eq!(
+            ArtistAutoSelect::MusicVideos.to_cli_string(),
+            "music-videos"
+        );
     }
 
     #[test]

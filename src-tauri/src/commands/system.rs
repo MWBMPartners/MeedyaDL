@@ -82,7 +82,7 @@ pub struct PlatformInfo {
 /// called from the frontend — Tauri wraps them in a Result automatically.
 /// See: <https://v2.tauri.app/develop/calling-rust/#return-types>
 #[tauri::command]
-#[must_use] 
+#[must_use]
 pub fn get_platform_info() -> PlatformInfo {
     PlatformInfo {
         // Map Rust OS constants to our frontend platform identifiers.

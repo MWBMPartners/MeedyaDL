@@ -134,16 +134,12 @@ pub async fn process_replaygain_for_directory(
 // ============================================================
 
 /// Analyse a single file's loudness and write `ReplayGain` tags.
-async fn analyse_and_tag(
-    ffmpeg_path: &Path,
-    file_path: &Path,
-) -> Result<ReplayGainResult, String> {
+async fn analyse_and_tag(ffmpeg_path: &Path, file_path: &Path) -> Result<ReplayGainResult, String> {
     // Analyse loudness
     let result = analyse_track_loudness(ffmpeg_path, file_path).await?;
 
     // Write tags
-    let mut tag = Tag::read_from_path(file_path)
-        .map_err(|e| format!("Failed to read M4A: {e}"))?;
+    let mut tag = Tag::read_from_path(file_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
     // replaygain_track_gain — e.g., "-4.20 dB"
     tag.set_data(
@@ -189,15 +185,9 @@ async fn analyse_track_loudness(
     file_path: &Path,
 ) -> Result<ReplayGainResult, String> {
     let output = Command::new(ffmpeg_path)
-        .args([
-            "-i",
-        ])
+        .args(["-i"])
         .arg(file_path)
-        .args([
-            "-af", "ebur128=peak=true",
-            "-f", "null",
-            "-",
-        ])
+        .args(["-af", "ebur128=peak=true", "-f", "null", "-"])
         .output()
         .await
         .map_err(|e| format!("Failed to spawn FFmpeg: {e}"))?;
@@ -225,7 +215,8 @@ async fn analyse_track_loudness(
 /// - True peak (Peak: value in dBFS, converted to linear scale)
 fn parse_ebur128_output(stderr: &str) -> Result<ReplayGainResult, String> {
     // Find the Summary section
-    let summary_start = stderr.find("Summary:")
+    let summary_start = stderr
+        .find("Summary:")
         .ok_or("No Summary section in ebur128 output")?;
     let summary = &stderr[summary_start..];
 
@@ -398,16 +389,31 @@ mod tests {
 
     #[test]
     fn parse_lufs_value_extracts_correctly() {
-        assert_eq!(parse_lufs_value("  I:         -14.2 LUFS", "I:"), Some(-14.2));
+        assert_eq!(
+            parse_lufs_value("  I:         -14.2 LUFS", "I:"),
+            Some(-14.2)
+        );
         assert_eq!(parse_lufs_value("  I:         0.0 LUFS", "I:"), Some(0.0));
-        assert_eq!(parse_lufs_value("  I:         -70.0 LUFS", "I:"), Some(-70.0));
+        assert_eq!(
+            parse_lufs_value("  I:         -70.0 LUFS", "I:"),
+            Some(-70.0)
+        );
     }
 
     #[test]
     fn parse_dbfs_value_extracts_correctly() {
-        assert_eq!(parse_dbfs_value("  Peak:        -0.6 dBFS", "Peak:"), Some(-0.6));
-        assert_eq!(parse_dbfs_value("  Peak:        0.0 dBFS", "Peak:"), Some(0.0));
-        assert_eq!(parse_dbfs_value("  Peak:        -12.3 dBFS", "Peak:"), Some(-12.3));
+        assert_eq!(
+            parse_dbfs_value("  Peak:        -0.6 dBFS", "Peak:"),
+            Some(-0.6)
+        );
+        assert_eq!(
+            parse_dbfs_value("  Peak:        0.0 dBFS", "Peak:"),
+            Some(0.0)
+        );
+        assert_eq!(
+            parse_dbfs_value("  Peak:        -12.3 dBFS", "Peak:"),
+            Some(-12.3)
+        );
     }
 
     // ----------------------------------------------------------

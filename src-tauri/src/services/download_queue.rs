@@ -337,7 +337,7 @@ pub type QueueHandle = Arc<Mutex<DownloadQueue>>;
 
 /// Creates a new queue handle for use as Tauri managed state.
 /// Called once during app initialization (typically in main.rs setup).
-#[must_use] 
+#[must_use]
 pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
@@ -398,11 +398,10 @@ impl DownloadQueue {
                 eta: None,
                 error: None,
                 output_path: None,
-                codec_used: Some(
-                    merged_options
-                        .song_codec
-                        .as_ref().map_or_else(|| settings.default_song_codec.to_cli_string().to_string(), |c| c.to_cli_string().to_string()),
-                ),
+                codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
+                    || settings.default_song_codec.to_cli_string().to_string(),
+                    |c| c.to_cli_string().to_string(),
+                )),
                 fallback_occurred: false,
                 used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                 output_is_directory: false,
@@ -428,24 +427,40 @@ impl DownloadQueue {
     /// Returns the public status of all queue items for display in the frontend.
     /// The frontend calls this (via a Tauri command) to render the queue list.
     /// Returns cloned statuses to avoid holding the lock during serialization.
-    #[must_use] 
+    #[must_use]
     pub fn get_status(&self) -> Vec<QueueItemStatus> {
         self.items.iter().map(|item| item.status.clone()).collect()
     }
 
     /// Returns summary counts for the queue: (total, active, queued, completed, failed).
     /// Used by the frontend to display queue statistics in the header/badge.
-    #[must_use] 
+    #[must_use]
     pub fn get_counts(&self) -> (usize, usize, usize, usize, usize) {
         let total = self.items.len();
         // Active includes both Downloading and Processing states
-        let active = self.items.iter().filter(|i| {
-            i.status.state == DownloadState::Downloading
-                || i.status.state == DownloadState::Processing
-        }).count();
-        let queued = self.items.iter().filter(|i| i.status.state == DownloadState::Queued).count();
-        let completed = self.items.iter().filter(|i| i.status.state == DownloadState::Complete).count();
-        let failed = self.items.iter().filter(|i| i.status.state == DownloadState::Error).count();
+        let active = self
+            .items
+            .iter()
+            .filter(|i| {
+                i.status.state == DownloadState::Downloading
+                    || i.status.state == DownloadState::Processing
+            })
+            .count();
+        let queued = self
+            .items
+            .iter()
+            .filter(|i| i.status.state == DownloadState::Queued)
+            .count();
+        let completed = self
+            .items
+            .iter()
+            .filter(|i| i.status.state == DownloadState::Complete)
+            .count();
+        let failed = self
+            .items
+            .iter()
+            .filter(|i| i.status.state == DownloadState::Error)
+            .count();
         (total, active, queued, completed, failed)
     }
 
@@ -521,14 +536,14 @@ impl DownloadQueue {
     /// - `ProcessingStep`: Transitions state to Processing (e.g., remuxing, tagging)
     /// - Complete: Sets output path and 100% progress
     /// - Error: Records the error message for display
-    pub fn update_item_progress(
-        &mut self,
-        download_id: &str,
-        event: &process::GamdlOutputEvent,
-    ) {
+    pub fn update_item_progress(&mut self, download_id: &str, event: &process::GamdlOutputEvent) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             match event {
-                process::GamdlOutputEvent::DownloadProgress { percent, speed, eta } => {
+                process::GamdlOutputEvent::DownloadProgress {
+                    percent,
+                    speed,
+                    eta,
+                } => {
                     // Update real-time progress metrics from GAMDL's tqdm-style progress bar
                     item.status.progress = *percent;
                     item.status.speed = Some(speed.clone());
@@ -635,8 +650,7 @@ impl DownloadQueue {
             //    has the full chain) so GAMDL tries only this one codec.
             // Using --song-codec-priority with one codec is equivalent to
             // --song-codec but also overrides the config.ini key.
-            new_options.song_codec_priority =
-                Some(next_codec.to_cli_string().to_string());
+            new_options.song_codec_priority = Some(next_codec.to_cli_string().to_string());
 
             // If the companion mode would produce companions for this fallback
             // codec, apply the codec suffix to file templates so the specialist
@@ -664,9 +678,7 @@ impl DownloadQueue {
         } else {
             // All codecs in the fallback chain have been tried and failed.
             // The download will remain in the Error state.
-            log::info!(
-                "Download {download_id} exhausted all fallback codecs"
-            );
+            log::info!("Download {download_id} exhausted all fallback codecs");
             None
         }
     }
@@ -714,7 +726,10 @@ impl DownloadQueue {
         }
 
         // Find the first Queued item (FIFO order from VecDeque front)
-        let item = self.items.iter_mut().find(|i| i.status.state == DownloadState::Queued)?;
+        let item = self
+            .items
+            .iter_mut()
+            .find(|i| i.status.state == DownloadState::Queued)?;
         // Transition to Downloading and increment active count
         item.status.state = DownloadState::Downloading;
         self.active_count += 1;
@@ -742,7 +757,7 @@ impl DownloadQueue {
     /// Called by the cancellation polling loop in `run_download_with_events()`
     /// every 250ms to detect if the user cancelled while the process is running.
     /// If true, the caller should kill the GAMDL subprocess.
-    #[must_use] 
+    #[must_use]
     pub fn is_cancelled(&self, download_id: &str) -> bool {
         self.items
             .iter()
@@ -763,7 +778,9 @@ impl DownloadQueue {
     /// `true` if the item was found and reset, `false` otherwise.
     pub fn retry(&mut self, download_id: &str, settings: &AppSettings) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
-            if item.status.state == DownloadState::Error || item.status.state == DownloadState::Cancelled {
+            if item.status.state == DownloadState::Error
+                || item.status.state == DownloadState::Cancelled
+            {
                 // Re-merge options from the original request with current settings.
                 // This picks up any settings changes the user made since the original attempt.
                 item.merged_options = merge_options(item.request.options.as_ref(), settings);
@@ -776,11 +793,10 @@ impl DownloadQueue {
                 item.status.progress = 0.0;
                 item.status.fallback_occurred = false;
                 item.status.used_wrapper = item.merged_options.use_wrapper.unwrap_or(false);
-                item.status.codec_used = Some(
-                    item.merged_options
-                        .song_codec
-                        .as_ref().map_or_else(|| settings.default_song_codec.to_cli_string().to_string(), |c| c.to_cli_string().to_string()),
-                );
+                item.status.codec_used = Some(item.merged_options.song_codec.as_ref().map_or_else(
+                    || settings.default_song_codec.to_cli_string().to_string(),
+                    |c| c.to_cli_string().to_string(),
+                ));
                 log::info!("Download {download_id} reset for retry");
                 return true;
             }
@@ -824,15 +840,10 @@ impl DownloadQueue {
                 item.status.progress = 0.0;
                 item.status.fallback_occurred = false;
                 item.status.used_wrapper = false;
-                item.status.codec_used = Some(
-                    item.merged_options
-                        .song_codec
-                        .as_ref()
-                        .map_or_else(
-                            || settings.default_song_codec.to_cli_string().to_string(),
-                            |c| c.to_cli_string().to_string(),
-                        ),
-                );
+                item.status.codec_used = Some(item.merged_options.song_codec.as_ref().map_or_else(
+                    || settings.default_song_codec.to_cli_string().to_string(),
+                    |c| c.to_cli_string().to_string(),
+                ));
                 log::info!("Download {download_id} reset for retry without wrapper");
                 return true;
             }
@@ -872,7 +883,7 @@ impl DownloadQueue {
     /// Only items in Queued, Downloading, or Processing states are included;
     /// completed/failed/cancelled items are not persisted (they are cleared
     /// on restart per the user's preference).
-    #[must_use] 
+    #[must_use]
     pub fn get_persistable_items(&self) -> Vec<PersistedQueueItem> {
         self.items
             .iter()
@@ -911,11 +922,7 @@ impl DownloadQueue {
     /// # Arguments
     /// * `persisted` - The items loaded from `queue.json`
     /// * `settings` - The current app settings for option merging
-    pub fn restore_items(
-        &mut self,
-        persisted: Vec<PersistedQueueItem>,
-        settings: &AppSettings,
-    ) {
+    pub fn restore_items(&mut self, persisted: Vec<PersistedQueueItem>, settings: &AppSettings) {
         for p in persisted {
             // Re-merge the original request's overrides with the current settings.
             // This ensures setting changes made between sessions are respected.
@@ -943,15 +950,10 @@ impl DownloadQueue {
                     eta: None,
                     error,
                     output_path: None,
-                    codec_used: Some(
-                        merged_options
-                            .song_codec
-                            .as_ref()
-                            .map_or_else(
-                                || settings.default_song_codec.to_cli_string().to_string(),
-                                |c| c.to_cli_string().to_string(),
-                            ),
-                    ),
+                    codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
+                        || settings.default_song_codec.to_cli_string().to_string(),
+                        |c| c.to_cli_string().to_string(),
+                    )),
                     fallback_occurred: false,
                     used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                     output_is_directory: false,
@@ -978,16 +980,14 @@ impl DownloadQueue {
     /// Includes all non-terminal items (Queued/Downloading/Processing).
     /// Each item contains only the original URLs and per-download overrides,
     /// so the importing device will merge them with its own settings.
-    #[must_use] 
+    #[must_use]
     pub fn get_exportable_items(&self) -> Vec<ExportedItem> {
         self.items
             .iter()
             .filter(|item| {
                 matches!(
                     item.status.state,
-                    DownloadState::Queued
-                        | DownloadState::Downloading
-                        | DownloadState::Processing
+                    DownloadState::Queued | DownloadState::Downloading | DownloadState::Processing
                 )
             })
             .map(|item| ExportedItem {
@@ -1092,7 +1092,9 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     // Apply tool paths from settings
     options.cookies_path.clone_from(&settings.cookies_path);
     options.ffmpeg_path.clone_from(&settings.ffmpeg_path);
-    options.mp4decrypt_path.clone_from(&settings.mp4decrypt_path);
+    options
+        .mp4decrypt_path
+        .clone_from(&settings.mp4decrypt_path);
     options.mp4box_path.clone_from(&settings.mp4box_path);
     options.nm3u8dlre_path.clone_from(&settings.nm3u8dlre_path);
 
@@ -1109,7 +1111,9 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     }
 
     // Apply artist auto-selection mode (GAMDL >= 2.9.1)
-    options.artist_auto_select.clone_from(&settings.artist_auto_select);
+    options
+        .artist_auto_select
+        .clone_from(&settings.artist_auto_select);
 
     // === Layer 2: Apply per-download overrides (highest priority) ===
     // Only non-None fields from the override replace the global values.
@@ -1119,13 +1123,19 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
             options.song_codec.clone_from(&overrides.song_codec);
         }
         if overrides.music_video_resolution.is_some() {
-            options.music_video_resolution.clone_from(&overrides.music_video_resolution);
+            options
+                .music_video_resolution
+                .clone_from(&overrides.music_video_resolution);
         }
         if overrides.music_video_codec_priority.is_some() {
-            options.music_video_codec_priority.clone_from(&overrides.music_video_codec_priority);
+            options
+                .music_video_codec_priority
+                .clone_from(&overrides.music_video_codec_priority);
         }
         if overrides.music_video_remux_format.is_some() {
-            options.music_video_remux_format.clone_from(&overrides.music_video_remux_format);
+            options
+                .music_video_remux_format
+                .clone_from(&overrides.music_video_remux_format);
         }
         if overrides.output_path.is_some() {
             options.output_path.clone_from(&overrides.output_path);
@@ -1134,7 +1144,9 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
             options.overwrite = overrides.overwrite;
         }
         if overrides.artist_auto_select.is_some() {
-            options.artist_auto_select.clone_from(&overrides.artist_auto_select);
+            options
+                .artist_auto_select
+                .clone_from(&overrides.artist_auto_select);
         }
     }
 
@@ -1394,8 +1406,7 @@ fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
     if let Some(ref template) = options.single_disc_file_template {
         options.single_disc_file_template = Some(format!("{template} {suffix}"));
     } else {
-        options.single_disc_file_template =
-            Some(format!("{{track:02d}} {{title}} {suffix}"));
+        options.single_disc_file_template = Some(format!("{{track:02d}} {{title}} {suffix}"));
     }
 
     if let Some(ref template) = options.multi_disc_file_template {
@@ -1442,10 +1453,7 @@ fn spawn_companion_downloads(
     companion_base_options: &GamdlOptions,
 ) {
     let companion_settings = load_settings_for_queue(app);
-    let companion_tiers = plan_companions(
-        &companion_settings.companion_mode,
-        primary_codec_str,
-    );
+    let companion_tiers = plan_companions(&companion_settings.companion_mode, primary_codec_str);
 
     if !companion_tiers.is_empty() {
         let comp_app = app.clone();
@@ -1487,9 +1495,7 @@ fn spawn_companion_downloads(
 
                     // Build the GAMDL CLI command for the companion
                     let mut cmd = match gamdl_service::build_gamdl_command_public(
-                        &comp_app,
-                        &comp_urls,
-                        &opts,
+                        &comp_app, &comp_urls, &opts,
                     ) {
                         Ok(c) => c,
                         Err(e) => {
@@ -1531,10 +1537,7 @@ fn spawn_companion_downloads(
                                             codec.to_cli_string(),
                                         ),
                                     );
-                                    let _ = comp_app.emit(
-                                        "companion-downloaded",
-                                        &comp_dl_id,
-                                    );
+                                    let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
                                     // Apply custom metadata tags for specialist
                                     // companion codecs (e.g., isLossless=Y for
@@ -1542,8 +1545,7 @@ fn spawn_companion_downloads(
                                     // tags; lossy codecs return immediately.
                                     if let Some(ref output_dir) = opts.output_path {
                                         match super::metadata_tag_service::apply_codec_metadata_tags(
-                                            output_dir,
-                                            codec,
+                                            output_dir, codec,
                                         ) {
                                             Ok(count) if count > 0 => {
                                                 log::info!(
@@ -1570,9 +1572,7 @@ fn spawn_companion_downloads(
                                 Ok(output) => {
                                     // Non-zero exit: codec may be
                                     // unavailable for this content
-                                    let stderr = String::from_utf8_lossy(
-                                        &output.stderr,
-                                    );
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
                                     log::debug!(
                                         "Companion tier {} ({}) failed \
                                          for {}: {}",
@@ -1584,24 +1584,18 @@ fn spawn_companion_downloads(
                                     // Continue to next codec in tier
                                 }
                                 Err(e) => {
-                                    log::debug!(
-                                        "Companion process error: {e}"
-                                    );
+                                    log::debug!("Companion process error: {e}");
                                 }
                             }
                         }
                         Err(e) => {
-                            log::debug!(
-                                "Failed to spawn companion: {e}"
-                            );
+                            log::debug!("Failed to spawn companion: {e}");
                         }
                     }
                 }
 
                 if !tier_succeeded {
-                    log::debug!(
-                        "Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}"
-                    );
+                    log::debug!("Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}");
                     emit_internal_log(
                         &comp_app,
                         &comp_dl_id,
@@ -1619,8 +1613,7 @@ fn spawn_companion_downloads(
     // files (.lrc, .srt, .ttml) without re-downloading audio.
     let lyrics_settings = load_settings_for_queue(app);
     if !lyrics_settings.companion_lyrics_formats.is_empty()
-        && (!lyrics_settings.no_synced_lyrics
-            || lyrics_settings.embed_lyrics_and_sidecar)
+        && (!lyrics_settings.no_synced_lyrics || lyrics_settings.embed_lyrics_and_sidecar)
     {
         let lyrics_app = app.clone();
         let lyrics_urls = urls.to_vec();
@@ -1653,52 +1646,41 @@ fn spawn_companion_downloads(
                 cmd.stderr(std::process::Stdio::piped());
 
                 match cmd.spawn() {
-                    Ok(child) => {
-                        match child.wait_with_output().await {
-                            Ok(output) if output.status.success() =>
-                            {
-                                log::info!(
-                                    "Lyrics companion ({}) \
+                    Ok(child) => match child.wait_with_output().await {
+                        Ok(output) if output.status.success() => {
+                            log::info!(
+                                "Lyrics companion ({}) \
                                      downloaded for {}",
-                                    format.to_cli_string(),
-                                    lyrics_dl_id
-                                );
-                                let _ = lyrics_app.emit(
-                                    "lyrics-companion-downloaded",
-                                    serde_json::json!({
-                                        "download_id": lyrics_dl_id,
-                                        "format": format.to_cli_string(),
-                                    }),
-                                );
-                            }
-                            Ok(output) => {
-                                let stderr =
-                                    String::from_utf8_lossy(
-                                        &output.stderr,
-                                    );
-                                log::debug!(
-                                    "Lyrics companion ({}) \
-                                     failed for {}: {}",
-                                    format.to_cli_string(),
-                                    lyrics_dl_id,
-                                    stderr
-                                        .lines()
-                                        .last()
-                                        .unwrap_or("")
-                                );
-                            }
-                            Err(e) => {
-                                log::debug!(
-                                    "Lyrics companion process \
-                                     error: {e}"
-                                );
-                            }
+                                format.to_cli_string(),
+                                lyrics_dl_id
+                            );
+                            let _ = lyrics_app.emit(
+                                "lyrics-companion-downloaded",
+                                serde_json::json!({
+                                    "download_id": lyrics_dl_id,
+                                    "format": format.to_cli_string(),
+                                }),
+                            );
                         }
-                    }
+                        Ok(output) => {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            log::debug!(
+                                "Lyrics companion ({}) \
+                                     failed for {}: {}",
+                                format.to_cli_string(),
+                                lyrics_dl_id,
+                                stderr.lines().last().unwrap_or("")
+                            );
+                        }
+                        Err(e) => {
+                            log::debug!(
+                                "Lyrics companion process \
+                                     error: {e}"
+                            );
+                        }
+                    },
                     Err(e) => {
-                        log::debug!(
-                            "Failed to spawn lyrics companion: {e}"
-                        );
+                        log::debug!("Failed to spawn lyrics companion: {e}");
                     }
                 }
             }
@@ -1731,581 +1713,613 @@ pub fn process_queue(
     queue: QueueHandle,
 ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     Box::pin(async move {
-    // === Pre-flight health checks (once per queue batch) ===
-    // Run lightweight health checks before processing to warn the user about
-    // potential issues (no internet, expired cookies, wrapper down). These are
-    // non-blocking warnings — the queue proceeds regardless. A 60-second
-    // cooldown prevents duplicate warnings during cascading process_queue() calls.
-    {
-        let should_run = {
-            let q = queue.lock().await;
-            q.should_run_preflight()
-        };
-
-        if should_run {
-            // Mark as run first to prevent concurrent duplicate checks
-            {
-                let mut q = queue.lock().await;
-                q.mark_preflight_run();
-            }
-
-            let settings = load_settings_for_queue(&app);
-
-            // Run internet + wrapper checks concurrently (both are HTTP GETs)
-            let internet_future = crate::services::health_check_service::check_internet_connectivity();
-            let wrapper_future = if settings.use_wrapper {
-                Some(crate::services::health_check_service::check_wrapper_health(
-                    &settings.wrapper_account_url,
-                ))
-            } else {
-                None
+        // === Pre-flight health checks (once per queue batch) ===
+        // Run lightweight health checks before processing to warn the user about
+        // potential issues (no internet, expired cookies, wrapper down). These are
+        // non-blocking warnings — the queue proceeds regardless. A 60-second
+        // cooldown prevents duplicate warnings during cascading process_queue() calls.
+        {
+            let should_run = {
+                let q = queue.lock().await;
+                q.should_run_preflight()
             };
 
-            // Cookie check is synchronous (file I/O only) — run when not using wrapper
-            let cookie_warning = if !settings.use_wrapper {
-                if let Some(ref path) = settings.cookies_path {
-                    crate::services::health_check_service::validate_cookies(path)
+            if should_run {
+                // Mark as run first to prevent concurrent duplicate checks
+                {
+                    let mut q = queue.lock().await;
+                    q.mark_preflight_run();
+                }
+
+                let settings = load_settings_for_queue(&app);
+
+                // Run internet + wrapper checks concurrently (both are HTTP GETs)
+                let internet_future =
+                    crate::services::health_check_service::check_internet_connectivity();
+                let wrapper_future = if settings.use_wrapper {
+                    Some(crate::services::health_check_service::check_wrapper_health(
+                        &settings.wrapper_account_url,
+                    ))
                 } else {
-                    Some(crate::services::health_check_service::PreflightWarning {
+                    None
+                };
+
+                // Cookie check is synchronous (file I/O only) — run when not using wrapper
+                let cookie_warning = if !settings.use_wrapper {
+                    if let Some(ref path) = settings.cookies_path {
+                        crate::services::health_check_service::validate_cookies(path)
+                    } else {
+                        Some(crate::services::health_check_service::PreflightWarning {
                         check: crate::services::health_check_service::PreflightCheck::Cookies,
                         message: "No cookies file configured. Apple Music downloads require authentication via cookies or wrapper.".to_string(),
                     })
-                }
-            } else {
-                None
-            };
-
-            // Await the async checks
-            let internet_warning = internet_future.await;
-            let wrapper_warning = match wrapper_future {
-                Some(fut) => fut.await,
-                None => None,
-            };
-
-            // Build the list of checks that were actually run, paired with their result.
-            // Each entry is (check_type, warning_option). We use this to:
-            //   - Emit "preflight-warning" for checks that failed
-            //   - Emit "preflight-cleared" for checks that passed (so the frontend
-            //     can dismiss stale warning toasts from a previous cycle)
-            let checks_run: Vec<(crate::services::health_check_service::PreflightCheck, Option<crate::services::health_check_service::PreflightWarning>)> = {
-                use crate::services::health_check_service::PreflightCheck;
-                let mut v = vec![
-                    (PreflightCheck::Internet, internet_warning),
-                ];
-                if !settings.use_wrapper {
-                    v.push((PreflightCheck::Cookies, cookie_warning));
-                }
-                if settings.use_wrapper {
-                    v.push((PreflightCheck::Wrapper, wrapper_warning));
-                }
-                v
-            };
-
-            for (check, warning) in checks_run {
-                if let Some(w) = warning {
-                    log::warn!("Pre-flight warning ({check:?}): {}", w.message);
-                    let _ = app.emit("preflight-warning", &w);
+                    }
                 } else {
-                    // Check passed — dismiss any stale toast for this check type
-                    let _ = app.emit("preflight-cleared", &serde_json::json!({ "check": format!("{check:?}") }));
+                    None
+                };
+
+                // Await the async checks
+                let internet_warning = internet_future.await;
+                let wrapper_warning = match wrapper_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
+
+                // Build the list of checks that were actually run, paired with their result.
+                // Each entry is (check_type, warning_option). We use this to:
+                //   - Emit "preflight-warning" for checks that failed
+                //   - Emit "preflight-cleared" for checks that passed (so the frontend
+                //     can dismiss stale warning toasts from a previous cycle)
+                let checks_run: Vec<(
+                    crate::services::health_check_service::PreflightCheck,
+                    Option<crate::services::health_check_service::PreflightWarning>,
+                )> = {
+                    use crate::services::health_check_service::PreflightCheck;
+                    let mut v = vec![(PreflightCheck::Internet, internet_warning)];
+                    if !settings.use_wrapper {
+                        v.push((PreflightCheck::Cookies, cookie_warning));
+                    }
+                    if settings.use_wrapper {
+                        v.push((PreflightCheck::Wrapper, wrapper_warning));
+                    }
+                    v
+                };
+
+                for (check, warning) in checks_run {
+                    if let Some(w) = warning {
+                        log::warn!("Pre-flight warning ({check:?}): {}", w.message);
+                        let _ = app.emit("preflight-warning", &w);
+                    } else {
+                        // Check passed — dismiss any stale toast for this check type
+                        let _ = app.emit(
+                            "preflight-cleared",
+                            &serde_json::json!({ "check": format!("{check:?}") }),
+                        );
+                    }
                 }
             }
         }
-    }
 
-    // Acquire the queue lock briefly to check for the next pending item.
-    // The lock is released immediately after to avoid holding it during the download.
-    let pending = {
-        let mut q = queue.lock().await;
-        q.next_pending()
-    };
+        // Acquire the queue lock briefly to check for the next pending item.
+        // The lock is released immediately after to avoid holding it during the download.
+        let pending = {
+            let mut q = queue.lock().await;
+            q.next_pending()
+        };
 
-    // If no items are pending (queue empty or max concurrent reached), exit.
-    let Some((download_id, urls, mut options)) = pending else {
-        return;
-    };
+        // If no items are pending (queue empty or max concurrent reached), exit.
+        let Some((download_id, urls, mut options)) = pending else {
+            return;
+        };
 
-    log::info!("Processing download {download_id}");
+        log::info!("Processing download {download_id}");
 
-    // === GAMDL version detection (cached, runs once per queue lifetime) ===
-    // Detect the installed GAMDL version on the first download so we can
-    // decide whether to use native `--song-codec-priority` (>= 2.9.1) or
-    // our own `try_fallback` system for older versions.
-    let gamdl_version = {
-        let mut q = queue.lock().await;
-        if q.gamdl_version.is_none() {
-            // First download in this queue session — detect version once
-            match gamdl_service::get_gamdl_version(&app).await {
-                Ok(Some(ver)) => {
-                    log::info!("Detected GAMDL version: {ver}");
-                    q.gamdl_version = Some(ver);
-                }
-                Ok(None) => {
-                    log::warn!("GAMDL not installed — version detection skipped");
-                }
-                Err(e) => {
-                    log::warn!("Failed to detect GAMDL version: {e}");
+        // === GAMDL version detection (cached, runs once per queue lifetime) ===
+        // Detect the installed GAMDL version on the first download so we can
+        // decide whether to use native `--song-codec-priority` (>= 2.9.1) or
+        // our own `try_fallback` system for older versions.
+        let gamdl_version = {
+            let mut q = queue.lock().await;
+            if q.gamdl_version.is_none() {
+                // First download in this queue session — detect version once
+                match gamdl_service::get_gamdl_version(&app).await {
+                    Ok(Some(ver)) => {
+                        log::info!("Detected GAMDL version: {ver}");
+                        q.gamdl_version = Some(ver);
+                    }
+                    Ok(None) => {
+                        log::warn!("GAMDL not installed — version detection skipped");
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to detect GAMDL version: {e}");
+                    }
                 }
             }
-        }
-        q.gamdl_version.clone()
-    };
+            q.gamdl_version.clone()
+        };
 
-    // === Native codec priority (GAMDL >= 2.9.1) ===
-    // When GAMDL supports `--song-codec-priority`, build the priority string
-    // from the user's preferred codec + fallback chain. GAMDL tries each codec
-    // in order within a single process, which is much more efficient than our
-    // `try_fallback` system (which spawns one process per codec attempt).
-    // If native priority fails, MeedyaDL's own `try_fallback()` still runs as
-    // a safety net, retrying each codec individually via `--song-codec-priority`
-    // with a single codec (see `try_fallback()` and the "codec" error handler).
-    let uses_native_priority = if let Some(ref ver) = gamdl_version {
-        let settings_for_priority = load_settings_for_queue(&app);
-        if gamdl_service::is_version_at_least(ver, "2.9.1")
-            && settings_for_priority.fallback_enabled
-            && !settings_for_priority.music_fallback_chain.is_empty()
-            && options.song_codec_priority.is_none()
-        {
-            // Build priority string: preferred codec first, then remaining
-            // fallback chain entries (deduped to avoid redundant attempts)
-            let mut seen = HashSet::new();
-            let mut priority_codecs: Vec<String> = Vec::new();
+        // === Native codec priority (GAMDL >= 2.9.1) ===
+        // When GAMDL supports `--song-codec-priority`, build the priority string
+        // from the user's preferred codec + fallback chain. GAMDL tries each codec
+        // in order within a single process, which is much more efficient than our
+        // `try_fallback` system (which spawns one process per codec attempt).
+        // If native priority fails, MeedyaDL's own `try_fallback()` still runs as
+        // a safety net, retrying each codec individually via `--song-codec-priority`
+        // with a single codec (see `try_fallback()` and the "codec" error handler).
+        let uses_native_priority = if let Some(ref ver) = gamdl_version {
+            let settings_for_priority = load_settings_for_queue(&app);
+            if gamdl_service::is_version_at_least(ver, "2.9.1")
+                && settings_for_priority.fallback_enabled
+                && !settings_for_priority.music_fallback_chain.is_empty()
+                && options.song_codec_priority.is_none()
+            {
+                // Build priority string: preferred codec first, then remaining
+                // fallback chain entries (deduped to avoid redundant attempts)
+                let mut seen = HashSet::new();
+                let mut priority_codecs: Vec<String> = Vec::new();
 
-            // Start with the preferred codec from the merged options
-            if let Some(ref codec) = options.song_codec {
-                let cli_str = codec.to_cli_string().to_string();
-                seen.insert(cli_str.clone());
-                priority_codecs.push(cli_str);
-            }
-
-            // Append remaining fallback chain entries, skipping duplicates
-            for codec in &settings_for_priority.music_fallback_chain {
-                let cli_str = codec.to_cli_string().to_string();
-                if seen.insert(cli_str.clone()) {
+                // Start with the preferred codec from the merged options
+                if let Some(ref codec) = options.song_codec {
+                    let cli_str = codec.to_cli_string().to_string();
+                    seen.insert(cli_str.clone());
                     priority_codecs.push(cli_str);
                 }
-            }
 
-            if priority_codecs.len() > 1 {
-                let priority_str = priority_codecs.join(",");
-                log::info!(
-                    "Download {download_id} using native codec priority: {priority_str}"
-                );
-                emit_internal_log(
-                    &app,
-                    &download_id,
-                    &format!(
-                        "Using GAMDL native format priority: {}",
-                        priority_str.replace(',', " → ")
-                    ),
-                );
-                options.song_codec_priority = Some(priority_str);
-                true
+                // Append remaining fallback chain entries, skipping duplicates
+                for codec in &settings_for_priority.music_fallback_chain {
+                    let cli_str = codec.to_cli_string().to_string();
+                    if seen.insert(cli_str.clone()) {
+                        priority_codecs.push(cli_str);
+                    }
+                }
+
+                if priority_codecs.len() > 1 {
+                    let priority_str = priority_codecs.join(",");
+                    log::info!(
+                        "Download {download_id} using native codec priority: {priority_str}"
+                    );
+                    emit_internal_log(
+                        &app,
+                        &download_id,
+                        &format!(
+                            "Using GAMDL native format priority: {}",
+                            priority_str.replace(',', " → ")
+                        ),
+                    );
+                    options.song_codec_priority = Some(priority_str);
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
             }
         } else {
             false
+        };
+
+        // === Codec suffix: modify file templates for companion coexistence ===
+        // When the companion mode would produce companions for this codec,
+        // add a suffix to file naming templates so specialist format files
+        // get tagged filenames (e.g., "01 Song Title [Lossless].m4a") while
+        // the companion download uses clean filenames ("01 Song Title.m4a").
+        // Keep the original (unsuffixed) options for companion downloads later.
+        let companion_base_options = options.clone();
+        let mut download_options = options;
+        let settings_for_companion = load_settings_for_queue(&app);
+        if let Some(ref codec) = download_options.song_codec {
+            if needs_primary_suffix(codec, &settings_for_companion.companion_mode) {
+                apply_codec_suffix(&mut download_options);
+                log::info!(
+                    "Download {} using codec with file suffix (companion mode: {:?})",
+                    download_id,
+                    settings_for_companion.companion_mode
+                );
+            }
         }
-    } else {
-        false
-    };
 
-    // === Codec suffix: modify file templates for companion coexistence ===
-    // When the companion mode would produce companions for this codec,
-    // add a suffix to file naming templates so specialist format files
-    // get tagged filenames (e.g., "01 Song Title [Lossless].m4a") while
-    // the companion download uses clean filenames ("01 Song Title.m4a").
-    // Keep the original (unsuffixed) options for companion downloads later.
-    let companion_base_options = options.clone();
-    let mut download_options = options;
-    let settings_for_companion = load_settings_for_queue(&app);
-    if let Some(ref codec) = download_options.song_codec {
-        if needs_primary_suffix(codec, &settings_for_companion.companion_mode) {
-            apply_codec_suffix(&mut download_options);
-            log::info!(
-                "Download {} using codec with file suffix (companion mode: {:?})",
-                download_id,
-                settings_for_companion.companion_mode
-            );
+        // Notify the frontend that this download is starting.
+        // The frontend uses this event to transition the download card's UI state.
+        let _ = app.emit("download-started", &download_id);
+
+        // Extract the primary codec string for companion planning. This is the
+        // codec the user requested (e.g., "atmos"), used to determine which
+        // companion tiers to spawn after the download attempt completes.
+        let primary_codec_for_companions = download_options
+            .song_codec
+            .as_ref()
+            .map_or_else(String::new, |c| c.to_cli_string().to_string());
+
+        // Capture wrapper URL for logging inside the tokio::spawn block.
+        // download_options will be moved into the spawn, so extract this before.
+        let wrapper_url_for_logging = if download_options.use_wrapper == Some(true) {
+            download_options.wrapper_account_url.clone()
+        } else {
+            None
+        };
+
+        // Log wrapper URL at download start for troubleshooting connectivity
+        if let Some(ref url) = wrapper_url_for_logging {
+            log::info!("Download {download_id} using wrapper at {url}");
         }
-    }
 
-    // Notify the frontend that this download is starting.
-    // The frontend uses this event to transition the download card's UI state.
-    let _ = app.emit("download-started", &download_id);
+        // Spawn the download in a separate tokio task so it runs independently.
+        // This allows process_queue() to return immediately while the download runs.
+        let app_clone = app.clone();
+        let queue_clone = queue.clone();
+        let dl_id = download_id;
 
-    // Extract the primary codec string for companion planning. This is the
-    // codec the user requested (e.g., "atmos"), used to determine which
-    // companion tiers to spawn after the download attempt completes.
-    let primary_codec_for_companions = download_options
-        .song_codec
-        .as_ref()
-        .map_or_else(String::new, |c| c.to_cli_string().to_string());
+        tokio::spawn(async move {
+            // Run the GAMDL download with real-time event forwarding.
+            // This function handles subprocess spawning, output parsing,
+            // and cancellation polling. See run_download_with_events() below.
+            let result = run_download_with_events(
+                &app_clone,
+                &dl_id,
+                &urls,
+                &download_options,
+                &queue_clone,
+            )
+            .await;
 
-    // Capture wrapper URL for logging inside the tokio::spawn block.
-    // download_options will be moved into the spawn, so extract this before.
-    let wrapper_url_for_logging = if download_options.use_wrapper == Some(true) {
-        download_options.wrapper_account_url.clone()
-    } else {
-        None
-    };
+            // Handle the result of the download attempt
+            match result {
+                Ok(warnings) => {
+                    // === Success path ===
+                    // GAMDL exited with code 0. Check whether output files were
+                    // actually produced before declaring success.
+                    let (output_path_for_artwork, completed_codec) = {
+                        let mut q = queue_clone.lock().await;
 
-    // Log wrapper URL at download start for troubleshooting connectivity
-    if let Some(ref url) = wrapper_url_for_logging {
-        log::info!("Download {download_id} using wrapper at {url}");
-    }
-
-    // Spawn the download in a separate tokio task so it runs independently.
-    // This allows process_queue() to return immediately while the download runs.
-    let app_clone = app.clone();
-    let queue_clone = queue.clone();
-    let dl_id = download_id;
-
-    tokio::spawn(async move {
-        // Run the GAMDL download with real-time event forwarding.
-        // This function handles subprocess spawning, output parsing,
-        // and cancellation polling. See run_download_with_events() below.
-        let result = run_download_with_events(
-            &app_clone,
-            &dl_id,
-            &urls,
-            &download_options,
-            &queue_clone,
-        )
-        .await;
-
-        // Handle the result of the download attempt
-        match result {
-            Ok(warnings) => {
-                // === Success path ===
-                // GAMDL exited with code 0. Check whether output files were
-                // actually produced before declaring success.
-                let (output_path_for_artwork, completed_codec) = {
-                    let mut q = queue_clone.lock().await;
-
-                    // Check if GAMDL emitted a "Saved to:" line during the run.
-                    // If not, no files were produced despite a clean exit.
-                    let has_output = q.items.iter()
-                        .find(|i| i.status.id == dl_id)
-                        .and_then(|i| i.status.output_path.as_ref())
-                        .is_some();
-
-                    if !has_output {
-                        // No "Saved to:" line was emitted by GAMDL despite exit 0.
-                        // Classify the warnings to determine the right recovery
-                        // strategy: codec fallback, IO error recovery, or terminal.
-                        let has_codec_error = warnings.iter().any(|w| {
-                            process::is_codec_error(w)
-                        });
-                        let has_io_error = warnings.iter().any(|w| {
-                            process::is_io_error(w)
-                        });
-
-                        if has_codec_error {
-                            // Codec-related failure on success path — try fallback
-                            let error_msg = warnings.last().cloned().unwrap_or_else(|| {
-                                "Requested format is not available".to_string()
-                            });
-
-                            if uses_native_priority {
-                                // GAMDL >= 2.9.1 already tried all codecs natively
-                                // via --song-codec-priority. No point falling back
-                                // to our own try_fallback system — all codecs were
-                                // already attempted in the single GAMDL process.
-                                log::info!(
-                                    "Download {dl_id} codec error with native priority \
-                                     (all codecs exhausted by GAMDL): {error_msg}"
-                                );
-                                emit_internal_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    "GAMDL tried all formats in priority chain — none available for this content",
-                                );
-                                // Fall through to terminal error below
-                            } else {
-                                // GAMDL < 2.9.1 — use MeedyaDL's own fallback system
-                                log::info!(
-                                    "Download {dl_id} exited 0 with codec error, \
-                                     attempting fallback: {error_msg}"
-                                );
-                                let settings = load_settings_for_queue(&app_clone);
-                                q.set_error(&dl_id, &error_msg);
-                                q.on_task_finished();
-
-                                if let Some(new_options) = q.try_fallback(
-                                    &dl_id, &settings,
-                                ) {
-                                    let fallback_codec = new_options
-                                        .song_codec
-                                        .as_ref()
-                                        .map(|c| c.to_cli_string().to_string())
-                                        .unwrap_or_else(|| "unknown".to_string());
-                                    log::info!(
-                                        "Download {dl_id} will retry with fallback codec: {fallback_codec}"
-                                    );
-                                    drop(q);
-                                    emit_internal_log(
-                                        &app_clone,
-                                        &dl_id,
-                                        &format!("Format not available — retrying with: {fallback_codec}"),
-                                    );
-                                    save_queue_to_disk(
-                                        &app_clone, &queue_clone,
-                                    ).await;
-                                    process_queue(
-                                        app_clone.clone(), queue_clone.clone(),
-                                    ).await;
-                                    return;
-                                }
-                                // Fallback chain exhausted — fall through to error below
-                                emit_internal_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    "All audio formats exhausted — no compatible format found",
-                                );
-                            }
-                        }
-
-                        // Partial-success recovery: GAMDL exited 0 with codec
-                        // skip warnings, meaning some tracks were unavailable in
-                        // the requested format but others downloaded successfully.
-                        // Find the actual album directory (not the base output dir)
-                        // containing audio files. This handles GAMDL 2.9.1+ which
-                        // doesn't emit "Saved to:" lines for album downloads.
-                        if has_codec_error && !has_io_error {
-                            if let Some(item) = q.items.iter_mut()
-                                .find(|i| i.status.id == dl_id)
-                            {
-                                if let Some(ref base_dir) = item.merged_options.output_path.clone() {
-                                    let base_path = std::path::Path::new(base_dir);
-                                    // Find the actual album directory within the base output dir
-                                    if let Some(album_dir) = find_album_directory(base_path) {
-                                        item.status.output_path = Some(album_dir);
-                                        item.status.output_is_directory = true;
-                                        log::info!(
-                                            "Download {dl_id} partial success: found album \
-                                             directory with files despite codec skip warnings"
-                                        );
-                                    }
-                                }
-                            }
-                        }
-
-                        if has_io_error && !has_codec_error {
-                            // Filesystem I/O error recovery: GAMDL exited 0 with IO
-                            // errors (e.g., cloud storage timeout writing Cover.jpg)
-                            // but no codec errors. Audio files were likely downloaded
-                            // to the output directory despite the IO errors on
-                            // ancillary operations (cover art, lyrics sidecar).
-                            //
-                            // Find the actual album directory so "Open Folder" works.
-                            if let Some(item) = q.items.iter_mut()
-                                .find(|i| i.status.id == dl_id)
-                            {
-                                if let Some(ref base_dir) = item.merged_options.output_path.clone() {
-                                    let base_path = std::path::Path::new(base_dir);
-                                    if let Some(album_dir) = find_album_directory(base_path) {
-                                        item.status.output_path = Some(album_dir);
-                                        item.status.output_is_directory = true;
-                                    } else {
-                                        // Fallback: use base dir if no album subdir found
-                                        item.status.output_path = Some(base_dir.clone());
-                                        item.status.output_is_directory = true;
-                                    }
-                                }
-                            }
-                            log::warn!(
-                                "Download {dl_id} completed with IO errors — recovering with \
-                                 configured output path"
-                            );
-                            // Fall through to normal completion with IO warnings
-                        }
-
-                        // Re-check output: partial-success or IO recovery may
-                        // have set output_path above.
-                        let has_output_now = q.items.iter()
+                        // Check if GAMDL emitted a "Saved to:" line during the run.
+                        // If not, no files were produced despite a clean exit.
+                        let has_output = q
+                            .items
+                            .iter()
                             .find(|i| i.status.id == dl_id)
                             .and_then(|i| i.status.output_path.as_ref())
                             .is_some();
 
-                        if !has_output_now {
-                            // Terminal: no output, no IO recovery, no files on
-                            // disk despite codec fallback exhausted.
-                            let error_msg = if has_io_error {
-                                format!(
-                                    "Output path may be unreachable or too slow. \
+                        if !has_output {
+                            // No "Saved to:" line was emitted by GAMDL despite exit 0.
+                            // Classify the warnings to determine the right recovery
+                            // strategy: codec fallback, IO error recovery, or terminal.
+                            let has_codec_error =
+                                warnings.iter().any(|w| process::is_codec_error(w));
+                            let has_io_error = warnings.iter().any(|w| process::is_io_error(w));
+
+                            if has_codec_error {
+                                // Codec-related failure on success path — try fallback
+                                let error_msg = warnings.last().cloned().unwrap_or_else(|| {
+                                    "Requested format is not available".to_string()
+                                });
+
+                                if uses_native_priority {
+                                    // GAMDL >= 2.9.1 already tried all codecs natively
+                                    // via --song-codec-priority. No point falling back
+                                    // to our own try_fallback system — all codecs were
+                                    // already attempted in the single GAMDL process.
+                                    log::info!(
+                                        "Download {dl_id} codec error with native priority \
+                                     (all codecs exhausted by GAMDL): {error_msg}"
+                                    );
+                                    emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    "GAMDL tried all formats in priority chain — none available for this content",
+                                );
+                                    // Fall through to terminal error below
+                                } else {
+                                    // GAMDL < 2.9.1 — use MeedyaDL's own fallback system
+                                    log::info!(
+                                        "Download {dl_id} exited 0 with codec error, \
+                                     attempting fallback: {error_msg}"
+                                    );
+                                    let settings = load_settings_for_queue(&app_clone);
+                                    q.set_error(&dl_id, &error_msg);
+                                    q.on_task_finished();
+
+                                    if let Some(new_options) = q.try_fallback(&dl_id, &settings) {
+                                        let fallback_codec = new_options
+                                            .song_codec
+                                            .as_ref()
+                                            .map(|c| c.to_cli_string().to_string())
+                                            .unwrap_or_else(|| "unknown".to_string());
+                                        log::info!(
+                                        "Download {dl_id} will retry with fallback codec: {fallback_codec}"
+                                    );
+                                        drop(q);
+                                        emit_internal_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        &format!("Format not available — retrying with: {fallback_codec}"),
+                                    );
+                                        save_queue_to_disk(&app_clone, &queue_clone).await;
+                                        process_queue(app_clone.clone(), queue_clone.clone()).await;
+                                        return;
+                                    }
+                                    // Fallback chain exhausted — fall through to error below
+                                    emit_internal_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        "All audio formats exhausted — no compatible format found",
+                                    );
+                                }
+                            }
+
+                            // Partial-success recovery: GAMDL exited 0 with codec
+                            // skip warnings, meaning some tracks were unavailable in
+                            // the requested format but others downloaded successfully.
+                            // Find the actual album directory (not the base output dir)
+                            // containing audio files. This handles GAMDL 2.9.1+ which
+                            // doesn't emit "Saved to:" lines for album downloads.
+                            if has_codec_error && !has_io_error {
+                                if let Some(item) =
+                                    q.items.iter_mut().find(|i| i.status.id == dl_id)
+                                {
+                                    if let Some(ref base_dir) =
+                                        item.merged_options.output_path.clone()
+                                    {
+                                        let base_path = std::path::Path::new(base_dir);
+                                        // Find the actual album directory within the base output dir
+                                        if let Some(album_dir) = find_album_directory(base_path) {
+                                            item.status.output_path = Some(album_dir);
+                                            item.status.output_is_directory = true;
+                                            log::info!(
+                                                "Download {dl_id} partial success: found album \
+                                             directory with files despite codec skip warnings"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            if has_io_error && !has_codec_error {
+                                // Filesystem I/O error recovery: GAMDL exited 0 with IO
+                                // errors (e.g., cloud storage timeout writing Cover.jpg)
+                                // but no codec errors. Audio files were likely downloaded
+                                // to the output directory despite the IO errors on
+                                // ancillary operations (cover art, lyrics sidecar).
+                                //
+                                // Find the actual album directory so "Open Folder" works.
+                                if let Some(item) =
+                                    q.items.iter_mut().find(|i| i.status.id == dl_id)
+                                {
+                                    if let Some(ref base_dir) =
+                                        item.merged_options.output_path.clone()
+                                    {
+                                        let base_path = std::path::Path::new(base_dir);
+                                        if let Some(album_dir) = find_album_directory(base_path) {
+                                            item.status.output_path = Some(album_dir);
+                                            item.status.output_is_directory = true;
+                                        } else {
+                                            // Fallback: use base dir if no album subdir found
+                                            item.status.output_path = Some(base_dir.clone());
+                                            item.status.output_is_directory = true;
+                                        }
+                                    }
+                                }
+                                log::warn!(
+                                    "Download {dl_id} completed with IO errors — recovering with \
+                                 configured output path"
+                                );
+                                // Fall through to normal completion with IO warnings
+                            }
+
+                            // Re-check output: partial-success or IO recovery may
+                            // have set output_path above.
+                            let has_output_now = q
+                                .items
+                                .iter()
+                                .find(|i| i.status.id == dl_id)
+                                .and_then(|i| i.status.output_path.as_ref())
+                                .is_some();
+
+                            if !has_output_now {
+                                // Terminal: no output, no IO recovery, no files on
+                                // disk despite codec fallback exhausted.
+                                let error_msg = if has_io_error {
+                                    format!(
+                                        "Output path may be unreachable or too slow. \
                                      Check your storage connection and try a local \
                                      output path. Details: {}",
-                                    warnings.last().cloned().unwrap_or_default()
-                                )
-                            } else if let Some(last_warning) = warnings.last() {
-                                format!(
-                                    "Download completed but no output files were \
+                                        warnings.last().cloned().unwrap_or_default()
+                                    )
+                                } else if let Some(last_warning) = warnings.last() {
+                                    format!(
+                                        "Download completed but no output files were \
                                      produced: {last_warning}"
-                                )
-                            } else {
-                                "Download completed but no output files were produced. \
+                                    )
+                                } else {
+                                    "Download completed but no output files were produced. \
                                  Check the Activity Log for details."
-                                    .to_string()
-                            };
-                            log::warn!(
-                                "Download {dl_id} exited 0 but produced no output: {error_msg}"
+                                        .to_string()
+                                };
+                                log::warn!(
+                                    "Download {dl_id} exited 0 but produced no output: {error_msg}"
+                                );
+                                q.set_error(&dl_id, &error_msg);
+                                q.on_task_finished();
+                                drop(q);
+                                emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!("Download failed: {error_msg}"),
+                                );
+
+                                // Auto-retry without wrapper on success-path
+                                // terminal errors (same logic as the Err path).
+                                if wrapper_url_for_logging.is_some() {
+                                    let ar_settings = load_settings_for_queue(&app_clone);
+                                    if ar_settings.auto_retry_without_wrapper {
+                                        log::info!(
+                                            "Auto-retrying download {dl_id} without \
+                                         wrapper (success-path terminal error)"
+                                        );
+                                        emit_internal_log(
+                                            &app_clone,
+                                            &dl_id,
+                                            "Wrapper failed — auto-retrying without wrapper",
+                                        );
+                                        let retried = {
+                                            let mut q = queue_clone.lock().await;
+                                            q.retry_without_wrapper(&dl_id, &ar_settings)
+                                        };
+                                        if retried {
+                                            save_queue_to_disk(&app_clone, &queue_clone).await;
+                                            let _ = app_clone.emit("download-queued", &dl_id);
+                                            process_queue(app_clone.clone(), queue_clone.clone())
+                                                .await;
+                                            return;
+                                        }
+                                    }
+                                }
+
+                                // Save error report for user-reportable diagnostics
+                                let mut err_ctx = std::collections::HashMap::new();
+                                if let Some(ref url) = urls.first() {
+                                    err_ctx.insert("url".to_string(), url.to_string());
+                                }
+                                err_ctx.insert(
+                                    "error_category".to_string(),
+                                    if has_io_error { "io" } else { "codec" }.to_string(),
+                                );
+                                let report = CrashReport {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    app_version: env!("CARGO_PKG_VERSION").to_string(),
+                                    os: std::env::consts::OS.to_string(),
+                                    arch: std::env::consts::ARCH.to_string(),
+                                    source: "download_error".to_string(),
+                                    panic_message: Some(error_msg.clone()),
+                                    location: None,
+                                    backtrace: None,
+                                    context: err_ctx,
+                                };
+                                if let Err(e) =
+                                    crash_report_service::save_error_report(&app_clone, report)
+                                {
+                                    log::debug!("Failed to save download error report: {e}");
+                                }
+
+                                save_queue_to_disk(&app_clone, &queue_clone).await;
+                                let _ = app_clone.emit(
+                                    "download-error",
+                                    serde_json::json!({
+                                        "download_id": dl_id,
+                                        "error": error_msg,
+                                    }),
+                                );
+                                // Spawn companion downloads even on failure —
+                                // the companion codec may succeed where the primary
+                                // format was unavailable.
+                                spawn_companion_downloads(
+                                    &app_clone,
+                                    &dl_id,
+                                    &urls,
+                                    &primary_codec_for_companions,
+                                    &companion_base_options,
+                                );
+
+                                // Continue processing remaining queued items
+                                process_queue(app_clone.clone(), queue_clone.clone()).await;
+                                return;
+                            }
+                        }
+
+                        // Mark as complete and attach any non-fatal warnings.
+                        // Reached when has_output=true (normal) or IO error
+                        // recovery set output_path from config.
+                        q.set_complete(&dl_id);
+                        let mut all_warnings = warnings.clone();
+                        if warnings.iter().any(|w| process::is_io_error(w)) {
+                            all_warnings.push(
+                                "Some files may be incomplete due to storage I/O \
+                             errors. Consider using a local output path instead \
+                             of cloud storage."
+                                    .to_string(),
                             );
-                            q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
+                        }
+                        if !all_warnings.is_empty() {
+                            q.add_warnings(&dl_id, &all_warnings);
+                        }
+                        q.on_task_finished();
+
+                        // Extract output_path and codec_used while we have the lock
+                        let status = q.get_status();
+                        let item = status.iter().find(|s| s.id == dl_id);
+                        let result = (
+                            item.and_then(|s| s.output_path.clone()),
+                            item.and_then(|s| s.codec_used.clone()),
+                        );
+                        drop(q);
+                        result
+                    };
+
+                    // Verify the output path actually exists on disk. If GAMDL
+                    // reported a path but the file/folder is missing, add a warning.
+                    if let Some(ref path) = output_path_for_artwork {
+                        if !std::path::Path::new(path).exists() {
+                            log::warn!("Download {dl_id} output path does not exist: {path}");
+                            let mut q = queue_clone.lock().await;
+                            q.add_warnings(
+                                &dl_id,
+                                &["Output path reported by GAMDL does not exist on disk"
+                                    .to_string()],
+                            );
                             drop(q);
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                &format!("Download failed: {error_msg}"),
-                            );
-
-                            // Save error report for user-reportable diagnostics
-                            let mut err_ctx = std::collections::HashMap::new();
-                            if let Some(ref url) = urls.first() {
-                                err_ctx.insert("url".to_string(), url.to_string());
-                            }
-                            err_ctx.insert(
-                                "error_category".to_string(),
-                                if has_io_error { "io" } else { "codec" }.to_string(),
-                            );
-                            let report = CrashReport {
-                                id: uuid::Uuid::new_v4().to_string(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                                app_version: env!("CARGO_PKG_VERSION").to_string(),
-                                os: std::env::consts::OS.to_string(),
-                                arch: std::env::consts::ARCH.to_string(),
-                                source: "download_error".to_string(),
-                                panic_message: Some(error_msg.clone()),
-                                location: None,
-                                backtrace: None,
-                                context: err_ctx,
-                            };
-                            if let Err(e) = crash_report_service::save_error_report(
-                                &app_clone, report,
-                            ) {
-                                log::debug!("Failed to save download error report: {e}");
-                            }
-
-                            save_queue_to_disk(&app_clone, &queue_clone).await;
-                            let _ = app_clone.emit(
-                                "download-error",
-                                serde_json::json!({
-                                    "download_id": dl_id,
-                                    "error": error_msg,
-                                }),
-                            );
-                            // Spawn companion downloads even on failure —
-                            // the companion codec may succeed where the primary
-                            // format was unavailable.
-                            spawn_companion_downloads(
-                                &app_clone,
-                                &dl_id,
-                                &urls,
-                                &primary_codec_for_companions,
-                                &companion_base_options,
-                            );
-
-                            // Continue processing remaining queued items
-                            process_queue(app_clone.clone(), queue_clone.clone()).await;
-                            return;
                         }
                     }
 
-                    // Mark as complete and attach any non-fatal warnings.
-                    // Reached when has_output=true (normal) or IO error
-                    // recovery set output_path from config.
-                    q.set_complete(&dl_id);
-                    let mut all_warnings = warnings.clone();
-                    if warnings.iter().any(|w| process::is_io_error(w)) {
-                        all_warnings.push(
-                            "Some files may be incomplete due to storage I/O \
-                             errors. Consider using a local output path instead \
-                             of cloud storage."
-                                .to_string(),
-                        );
-                    }
-                    if !all_warnings.is_empty() {
-                        q.add_warnings(&dl_id, &all_warnings);
-                    }
-                    q.on_task_finished();
+                    log::info!("Download {dl_id} completed successfully");
 
-                    // Extract output_path and codec_used while we have the lock
-                    let status = q.get_status();
-                    let item = status.iter().find(|s| s.id == dl_id);
-                    let result = (
-                        item.and_then(|s| s.output_path.clone()),
-                        item.and_then(|s| s.codec_used.clone()),
-                    );
-                    drop(q);
-                    result
-                };
+                    // Persist queue state: completed item is now in terminal state,
+                    // so it will be excluded from the persistence file (only
+                    // Queued/Downloading/Processing items are persisted).
+                    save_queue_to_disk(&app_clone, &queue_clone).await;
 
-                // Verify the output path actually exists on disk. If GAMDL
-                // reported a path but the file/folder is missing, add a warning.
-                if let Some(ref path) = output_path_for_artwork {
-                    if !std::path::Path::new(path).exists() {
-                        log::warn!(
-                            "Download {dl_id} output path does not exist: {path}"
-                        );
-                        let mut q = queue_clone.lock().await;
-                        q.add_warnings(
-                            &dl_id,
-                            &["Output path reported by GAMDL does not exist on disk"
-                                .to_string()],
-                        );
-                        drop(q);
-                    }
-                }
+                    // Notify frontend of successful completion
+                    let _ = app_clone.emit("download-complete", &dl_id);
 
-                log::info!("Download {dl_id} completed successfully");
+                    // === Unified post-download enrichment (background, fire-and-forget) ===
+                    // After a successful download, run all post-processing in a single
+                    // background task:
+                    //   1. Metadata enrichment (codec tags + source tags + channel
+                    //      detection + API metadata)
+                    //   2. Enhanced LRC conversion (TTML → word-by-word LRC, opt-in)
+                    //   3. Animated artwork download (reuses API data from step 1)
+                    //   4. AcousticID fingerprinting (opt-in, requires fpcalc)
+                    //   5. ReplayGain loudness analysis (opt-in, uses FFmpeg)
+                    //
+                    // The enrichment fetches Apple Music API data once and shares it
+                    // with animated artwork, avoiding duplicate API calls.
+                    //
+                    // This runs in a separate tokio task so it doesn't block the queue
+                    // from processing the next download. Failures are logged but never
+                    // propagate to the user or affect the download status.
+                    if let Some(output_dir) = output_path_for_artwork {
+                        let enrich_app = app_clone.clone();
+                        let enrich_urls = urls.clone();
+                        let enrich_dl_id = dl_id.clone();
+                        let enrich_codec_str = completed_codec.clone();
+                        tokio::spawn(async move {
+                            // Determine the album directory from the output path.
+                            // For single tracks, output_path is a file -- use its parent.
+                            // For albums, output_path is already the directory.
+                            let dir = std::path::Path::new(&output_dir);
+                            let album_dir = if dir.is_dir() {
+                                output_dir.clone()
+                            } else {
+                                dir.parent().map_or_else(
+                                    || output_dir.clone(),
+                                    |p| p.to_string_lossy().to_string(),
+                                )
+                            };
 
-                // Persist queue state: completed item is now in terminal state,
-                // so it will be excluded from the persistence file (only
-                // Queued/Downloading/Processing items are persisted).
-                save_queue_to_disk(&app_clone, &queue_clone).await;
-
-                // Notify frontend of successful completion
-                let _ = app_clone.emit("download-complete", &dl_id);
-
-                // === Unified post-download enrichment (background, fire-and-forget) ===
-                // After a successful download, run all post-processing in a single
-                // background task:
-                //   1. Metadata enrichment (codec tags + source tags + channel
-                //      detection + API metadata)
-                //   2. Enhanced LRC conversion (TTML → word-by-word LRC, opt-in)
-                //   3. Animated artwork download (reuses API data from step 1)
-                //   4. AcousticID fingerprinting (opt-in, requires fpcalc)
-                //   5. ReplayGain loudness analysis (opt-in, uses FFmpeg)
-                //
-                // The enrichment fetches Apple Music API data once and shares it
-                // with animated artwork, avoiding duplicate API calls.
-                //
-                // This runs in a separate tokio task so it doesn't block the queue
-                // from processing the next download. Failures are logged but never
-                // propagate to the user or affect the download status.
-                if let Some(output_dir) = output_path_for_artwork {
-                    let enrich_app = app_clone.clone();
-                    let enrich_urls = urls.clone();
-                    let enrich_dl_id = dl_id.clone();
-                    let enrich_codec_str = completed_codec.clone();
-                    tokio::spawn(async move {
-                        // Determine the album directory from the output path.
-                        // For single tracks, output_path is a file -- use its parent.
-                        // For albums, output_path is already the directory.
-                        let dir = std::path::Path::new(&output_dir);
-                        let album_dir = if dir.is_dir() {
-                            output_dir.clone()
-                        } else {
-                            dir.parent()
-                                .map_or_else(|| output_dir.clone(), |p| p.to_string_lossy().to_string())
-                        };
-
-                        // Log enrichment settings summary so users can see
-                        // which steps will run in the Activity Log.
-                        let enrich_settings = load_settings_for_queue(&enrich_app);
-                        emit_internal_log(
+                            // Log enrichment settings summary so users can see
+                            // which steps will run in the Activity Log.
+                            let enrich_settings = load_settings_for_queue(&enrich_app);
+                            emit_internal_log(
                             &enrich_app,
                             &enrich_dl_id,
                             &format!(
@@ -2317,83 +2331,85 @@ pub fn process_queue(
                             ),
                         );
 
-                        // --- Step 1: Enriched metadata tagging ---
-                        // Parse the codec string and run full enrichment (codec tags,
-                        // source tags, channel detection, API metadata). Returns the
-                        // fetched AlbumMetadata for reuse by animated artwork.
-                        let codec = enrich_codec_str.as_deref().and_then(|s| match s {
-                            "alac" => Some(SongCodec::Alac),
-                            "atmos" => Some(SongCodec::Atmos),
-                            "aac" => Some(SongCodec::Aac),
-                            "aac-legacy" => Some(SongCodec::AacLegacy),
-                            "aac-he" => Some(SongCodec::AacHe),
-                            "aac-binaural" => Some(SongCodec::AacBinaural),
-                            "aac-downmix" => Some(SongCodec::AacDownmix),
-                            "ac3" => Some(SongCodec::Ac3),
-                            _ => None,
-                        });
+                            // --- Step 1: Enriched metadata tagging ---
+                            // Parse the codec string and run full enrichment (codec tags,
+                            // source tags, channel detection, API metadata). Returns the
+                            // fetched AlbumMetadata for reuse by animated artwork.
+                            let codec = enrich_codec_str.as_deref().and_then(|s| match s {
+                                "alac" => Some(SongCodec::Alac),
+                                "atmos" => Some(SongCodec::Atmos),
+                                "aac" => Some(SongCodec::Aac),
+                                "aac-legacy" => Some(SongCodec::AacLegacy),
+                                "aac-he" => Some(SongCodec::AacHe),
+                                "aac-binaural" => Some(SongCodec::AacBinaural),
+                                "aac-downmix" => Some(SongCodec::AacDownmix),
+                                "ac3" => Some(SongCodec::Ac3),
+                                _ => None,
+                            });
 
-                        emit_internal_log(
+                            emit_internal_log(
                             &enrich_app,
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
                         );
-                        let album_metadata = if let Some(ref codec) = codec {
-                            match super::metadata_tag_service::apply_enriched_metadata_tags(
-                                &enrich_app,
-                                &album_dir,
-                                codec,
-                                &enrich_urls,
-                                None, // No pre-fetched metadata; will fetch from API if possible
-                                Some((&enrich_app, &enrich_dl_id)),
-                            ).await {
-                                Ok((count, metadata)) => {
-                                    if count > 0 {
-                                        let api_note = if metadata.is_some() {
-                                            " (including Apple Music API metadata: ISRC, UPC, genre)"
-                                        } else {
-                                            " (Apple Music API metadata unavailable)"
-                                        };
-                                        log::info!(
+                            let album_metadata = if let Some(ref codec) = codec {
+                                match super::metadata_tag_service::apply_enriched_metadata_tags(
+                                    &enrich_app,
+                                    &album_dir,
+                                    codec,
+                                    &enrich_urls,
+                                    None, // No pre-fetched metadata; will fetch from API if possible
+                                    Some((&enrich_app, &enrich_dl_id)),
+                                )
+                                .await
+                                {
+                                    Ok((count, metadata)) => {
+                                        if count > 0 {
+                                            let api_note = if metadata.is_some() {
+                                                " (including Apple Music API metadata: ISRC, UPC, genre)"
+                                            } else {
+                                                " (Apple Music API metadata unavailable)"
+                                            };
+                                            log::info!(
                                             "Enriched {count} file(s) with metadata for {enrich_dl_id}"
                                         );
-                                        emit_internal_log(
+                                            emit_internal_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!("Enriched {count} file(s) with metadata tags{api_note}"),
                                         );
+                                        }
+                                        metadata
                                     }
-                                    metadata
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Metadata enrichment failed for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_internal_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Metadata enrichment failed: {e}"),
+                                        );
+                                        None
+                                    }
                                 }
-                                Err(e) => {
-                                    log::debug!(
-                                        "Metadata enrichment failed for {enrich_dl_id}: {e}"
-                                    );
-                                    emit_internal_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        &format!("Metadata enrichment failed: {e}"),
-                                    );
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        };
+                            } else {
+                                None
+                            };
 
-                        // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
-                        // When enabled, converts TTML sidecar files to Enhanced LRC
-                        // with word-by-word timestamps. Saves a `.lrc` sidecar file
-                        // and embeds the Enhanced LRC in M4A/M4V metadata.
-                        // Falls back to standard line-level LRC for songs without
-                        // word-level timing in their TTML.
-                        if enrich_settings.enhanced_lrc {
-                            emit_internal_log(
-                                &enrich_app,
-                                &enrich_dl_id,
-                                "Converting TTML lyrics to Enhanced LRC (word-by-word sync)...",
-                            );
-                            match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
+                            // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
+                            // When enabled, converts TTML sidecar files to Enhanced LRC
+                            // with word-by-word timestamps. Saves a `.lrc` sidecar file
+                            // and embeds the Enhanced LRC in M4A/M4V metadata.
+                            // Falls back to standard line-level LRC for songs without
+                            // word-level timing in their TTML.
+                            if enrich_settings.enhanced_lrc {
+                                emit_internal_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Converting TTML lyrics to Enhanced LRC (word-by-word sync)...",
+                                );
+                                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
                                 &album_dir,
                             ).await {
                                 Ok(count) if count > 0 => {
@@ -2424,39 +2440,40 @@ pub fn process_queue(
                                     );
                                 }
                             }
-                        }
+                            }
 
-                        // --- Step 3: Animated artwork download ---
-                        // Reuse the AlbumMetadata from enrichment to avoid a
-                        // duplicate API call. Falls back to a fresh API call
-                        // if enrichment didn't produce metadata.
-                        if enrich_settings.animated_artwork_enabled {
-                            emit_internal_log(
-                                &enrich_app,
-                                &enrich_dl_id,
-                                "Downloading animated artwork...",
-                            );
-                            let artwork_result = if let Some(ref metadata) = album_metadata {
-                                super::animated_artwork_service::process_album_artwork_from_metadata(
+                            // --- Step 3: Animated artwork download ---
+                            // Reuse the AlbumMetadata from enrichment to avoid a
+                            // duplicate API call. Falls back to a fresh API call
+                            // if enrichment didn't produce metadata.
+                            if enrich_settings.animated_artwork_enabled {
+                                emit_internal_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Downloading animated artwork...",
+                                );
+                                let artwork_result = if let Some(ref metadata) = album_metadata {
+                                    super::animated_artwork_service::process_album_artwork_from_metadata(
                                     &enrich_app,
                                     metadata,
                                     &album_dir,
                                 ).await
-                            } else {
-                                super::animated_artwork_service::process_album_artwork(
-                                    &enrich_app,
-                                    &enrich_urls,
-                                    &album_dir,
-                                ).await
-                            };
+                                } else {
+                                    super::animated_artwork_service::process_album_artwork(
+                                        &enrich_app,
+                                        &enrich_urls,
+                                        &album_dir,
+                                    )
+                                    .await
+                                };
 
-                            match artwork_result {
-                                Ok(result) => {
-                                    if result.square_downloaded || result.portrait_downloaded {
-                                        log::info!(
-                                            "Animated artwork downloaded for {enrich_dl_id}"
-                                        );
-                                        emit_internal_log(
+                                match artwork_result {
+                                    Ok(result) => {
+                                        if result.square_downloaded || result.portrait_downloaded {
+                                            log::info!(
+                                                "Animated artwork downloaded for {enrich_dl_id}"
+                                            );
+                                            emit_internal_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!(
@@ -2466,376 +2483,166 @@ pub fn process_queue(
                                             ),
                                         );
 
-                                        // Hide artwork files if enabled in settings
-                                        if enrich_settings.hide_animated_artwork {
-                                            let dir = std::path::Path::new(&album_dir);
-                                            if result.square_downloaded {
-                                                if let Err(e) = super::animated_artwork_service::hide_file(
-                                                    &dir.join("FrontCover.mp4"),
-                                                ).await {
-                                                    log::debug!("Failed to hide FrontCover.mp4: {e}");
+                                            // Hide artwork files if enabled in settings
+                                            if enrich_settings.hide_animated_artwork {
+                                                let dir = std::path::Path::new(&album_dir);
+                                                if result.square_downloaded {
+                                                    if let Err(e) =
+                                                        super::animated_artwork_service::hide_file(
+                                                            &dir.join("FrontCover.mp4"),
+                                                        )
+                                                        .await
+                                                    {
+                                                        log::debug!(
+                                                            "Failed to hide FrontCover.mp4: {e}"
+                                                        );
+                                                    }
+                                                }
+                                                if result.portrait_downloaded {
+                                                    if let Err(e) =
+                                                        super::animated_artwork_service::hide_file(
+                                                            &dir.join("PortraitCover.mp4"),
+                                                        )
+                                                        .await
+                                                    {
+                                                        log::debug!(
+                                                            "Failed to hide PortraitCover.mp4: {e}"
+                                                        );
+                                                    }
                                                 }
                                             }
-                                            if result.portrait_downloaded {
-                                                if let Err(e) = super::animated_artwork_service::hide_file(
-                                                    &dir.join("PortraitCover.mp4"),
-                                                ).await {
-                                                    log::debug!("Failed to hide PortraitCover.mp4: {e}");
-                                                }
-                                            }
-                                        }
 
-                                        let _ = enrich_app
-                                            .emit("artwork-downloaded", &enrich_dl_id);
-                                    } else {
+                                            let _ = enrich_app
+                                                .emit("artwork-downloaded", &enrich_dl_id);
+                                        } else {
+                                            emit_internal_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "No animated artwork available for this album",
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Animated artwork skipped for {enrich_dl_id}: {e}"
+                                        );
                                         emit_internal_log(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            "No animated artwork available for this album",
+                                            &format!("Animated artwork skipped: {e}"),
                                         );
                                     }
                                 }
-                                Err(e) => {
-                                    log::debug!(
-                                        "Animated artwork skipped for {enrich_dl_id}: {e}"
-                                    );
-                                    emit_internal_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        &format!("Animated artwork skipped: {e}"),
-                                    );
-                                }
                             }
-                        }
 
-                        // --- Step 4: AcousticID fingerprinting (opt-in) ---
-                        // When enabled, generates Chromaprint fingerprints using the
-                        // embedded rusty-chromaprint library and looks up AcousticID
-                        // identifiers from acoustid.org.
-                        if enrich_settings.acoustid_enabled {
-                            if enrich_settings.acoustid_api_key.is_empty() {
-                                emit_internal_log(
+                            // --- Step 4: AcousticID fingerprinting (opt-in) ---
+                            // When enabled, generates Chromaprint fingerprints using the
+                            // embedded rusty-chromaprint library and looks up AcousticID
+                            // identifiers from acoustid.org.
+                            if enrich_settings.acoustid_enabled {
+                                if enrich_settings.acoustid_api_key.is_empty() {
+                                    emit_internal_log(
                                     &enrich_app,
                                     &enrich_dl_id,
                                     "AcousticID skipped: no API key configured (register at https://acoustid.org/new-application)",
                                 );
-                            } else {
+                                } else {
+                                    emit_internal_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "Running AcousticID fingerprinting...",
+                                    );
+                                    match super::acoustid_service::process_acoustid_for_directory(
+                                        &album_dir,
+                                        &enrich_settings.acoustid_api_key,
+                                    )
+                                    .await
+                                    {
+                                        Ok(count) if count > 0 => {
+                                            log::info!(
+                                            "AcousticID tagged {count} file(s) for {enrich_dl_id}"
+                                        );
+                                            emit_internal_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!("AcousticID tagged {count} file(s)"),
+                                            );
+                                        }
+                                        Ok(_) => {
+                                            emit_internal_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "AcousticID: no matches found for any files",
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "AcousticID skipped for {enrich_dl_id}: {e}"
+                                            );
+                                            emit_internal_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!("AcousticID failed: {e}"),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // --- Step 5: ReplayGain loudness analysis (opt-in) ---
+                            // When enabled, analyses each file's loudness via FFmpeg's
+                            // ebur128 filter and writes non-destructive ReplayGain tags.
+                            if enrich_settings.replaygain_enabled {
                                 emit_internal_log(
                                     &enrich_app,
                                     &enrich_dl_id,
-                                    "Running AcousticID fingerprinting...",
+                                    "Analysing loudness (ReplayGain EBU R128)...",
                                 );
-                                match super::acoustid_service::process_acoustid_for_directory(
+                                match super::replaygain_service::process_replaygain_for_directory(
+                                    &enrich_app,
                                     &album_dir,
-                                    &enrich_settings.acoustid_api_key,
-                                ).await {
+                                )
+                                .await
+                                {
                                     Ok(count) if count > 0 => {
                                         log::info!(
-                                            "AcousticID tagged {count} file(s) for {enrich_dl_id}"
-                                        );
+                                        "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
+                                    );
                                         emit_internal_log(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            &format!("AcousticID tagged {count} file(s)"),
+                                            &format!("ReplayGain analysed {count} file(s)"),
                                         );
                                     }
                                     Ok(_) => {
                                         emit_internal_log(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            "AcousticID: no matches found for any files",
+                                            "ReplayGain: no audio files to analyse",
                                         );
                                     }
                                     Err(e) => {
-                                        log::debug!(
-                                            "AcousticID skipped for {enrich_dl_id}: {e}"
-                                        );
+                                        log::debug!("ReplayGain skipped for {enrich_dl_id}: {e}");
                                         emit_internal_log(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            &format!("AcousticID failed: {e}"),
+                                            &format!("ReplayGain failed: {e}"),
                                         );
                                     }
                                 }
                             }
-                        }
 
-                        // --- Step 5: ReplayGain loudness analysis (opt-in) ---
-                        // When enabled, analyses each file's loudness via FFmpeg's
-                        // ebur128 filter and writes non-destructive ReplayGain tags.
-                        if enrich_settings.replaygain_enabled {
                             emit_internal_log(
                                 &enrich_app,
                                 &enrich_dl_id,
-                                "Analysing loudness (ReplayGain EBU R128)...",
+                                "Post-download enrichment complete",
                             );
-                            match super::replaygain_service::process_replaygain_for_directory(
-                                &enrich_app,
-                                &album_dir,
-                            ).await {
-                                Ok(count) if count > 0 => {
-                                    log::info!(
-                                        "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
-                                    );
-                                    emit_internal_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        &format!("ReplayGain analysed {count} file(s)"),
-                                    );
-                                }
-                                Ok(_) => {
-                                    emit_internal_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        "ReplayGain: no audio files to analyse",
-                                    );
-                                }
-                                Err(e) => {
-                                    log::debug!(
-                                        "ReplayGain skipped for {enrich_dl_id}: {e}"
-                                    );
-                                    emit_internal_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        &format!("ReplayGain failed: {e}"),
-                                    );
-                                }
-                            }
-                        }
-
-                        emit_internal_log(
-                            &enrich_app,
-                            &enrich_dl_id,
-                            "Post-download enrichment complete",
-                        );
-                    });
-                }
-
-                // Spawn companion downloads (codec + lyrics) as background tasks.
-                // Uses the primary codec from pre-match extraction since
-                // completed_codec may differ (e.g., after fallback).
-                spawn_companion_downloads(
-                    &app_clone,
-                    &dl_id,
-                    &urls,
-                    &primary_codec_for_companions,
-                    &companion_base_options,
-                );
-            }
-            Err(error_msg) => {
-                // === Error path ===
-                // Classify the error to determine the appropriate retry strategy.
-                // process::classify_error() returns "codec", "network", or "unknown".
-                let error_category = process::classify_error(&error_msg);
-                log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
-
-                // Add wrapper-specific context for network errors to aid troubleshooting
-                if error_category == "network" {
-                    if let Some(ref url) = wrapper_url_for_logging {
-                        log::error!(
-                            "Wrapper URL was: {url} -- check that the wrapper \
-                             service is running and reachable"
-                        );
-                    }
-                }
-
-                // Determine if we should retry or fallback based on error category
-                let should_retry = match error_category {
-                    "codec" => {
-                        // Codec/format error: the requested audio codec isn't
-                        // available for this track. Try the next codec in the
-                        // fallback chain (e.g., atmos -> alac -> aac).
-                        //
-                        // Even when GAMDL >= 2.9.1 native priority was used
-                        // (--song-codec-priority), we still run MeedyaDL's own
-                        // fallback as a safety net. GAMDL's native priority
-                        // loop may fail without exhausting all codecs (e.g.,
-                        // AttributeError on None stream_info, DRM issues, or
-                        // partial chain traversal). Per-codec retries via
-                        // --song-codec are more reliable as a fallback path.
-                        if uses_native_priority {
-                            log::warn!(
-                                "Download {dl_id} codec error despite native \
-                                 priority — trying per-codec fallback as \
-                                 safety net"
-                            );
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                "GAMDL native priority failed — trying each format individually",
-                            );
-                        }
-
-                        let settings = load_settings_for_queue(&app_clone);
-                        let mut q = queue_clone.lock().await;
-                        q.set_error(&dl_id, &error_msg);
-                        q.on_task_finished();
-
-                        if let Some(new_options) = q.try_fallback(&dl_id, &settings) {
-                            let fallback_codec = new_options
-                                .song_codec
-                                .as_ref()
-                                .map(|c| c.to_cli_string().to_string())
-                                .unwrap_or_else(|| "unknown".to_string());
-                            log::info!(
-                                "Download {dl_id} will retry with \
-                                 fallback codec: {fallback_codec}"
-                            );
-                            drop(q);
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                &format!("Format not available — retrying with: {fallback_codec}"),
-                            );
-                            true
-                        } else {
-                            drop(q);
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                "All audio formats exhausted — download failed",
-                            );
-                            false
-                        }
-                    }
-                    "network" => {
-                        // Network error: transient connection issue.
-                        // Retry with the same options (up to max_network_retries times).
-                        let mut q = queue_clone.lock().await;
-                        q.set_error(&dl_id, &error_msg);
-                        q.on_task_finished();
-
-                        if q.try_network_retry(&dl_id) {
-                            // try_network_retry resets the item to Queued with same options
-                            log::info!("Download {dl_id} will retry (network error)");
-                            drop(q);
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                "Network error — retrying download",
-                            );
-                            true
-                        } else {
-                            drop(q);
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                "Network error — all retries exhausted",
-                            );
-                            false
-                        }
-                    }
-                    _ => {
-                        // Non-retriable error (e.g., authentication, invalid URL).
-                        // Mark as failed and don't retry.
-                        let mut q = queue_clone.lock().await;
-                        q.set_error(&dl_id, &error_msg);
-                        q.on_task_finished();
-                        drop(q);
-                        emit_internal_log(
-                            &app_clone,
-                            &dl_id,
-                            &format!("Download failed ({error_category}): {error_msg}"),
-                        );
-                        false
-                    }
-                };
-
-                // Persist queue state after error handling (whether retrying or terminal)
-                save_queue_to_disk(&app_clone, &queue_clone).await;
-
-                // If no retry will occur, check auto-retry-without-wrapper
-                // before falling through to the terminal error path.
-                if !should_retry {
-                    // Auto-retry without wrapper: if the download used wrapper
-                    // auth and the user has opted in, automatically re-queue
-                    // with wrapper disabled (cookie-based auth) instead of
-                    // treating this as a terminal failure.
-                    if wrapper_url_for_logging.is_some() {
-                        let ar_settings = load_settings_for_queue(&app_clone);
-                        if ar_settings.auto_retry_without_wrapper {
-                            log::info!(
-                                "Auto-retrying download {dl_id} without wrapper \
-                                 (auto_retry_without_wrapper enabled)"
-                            );
-                            emit_internal_log(
-                                &app_clone,
-                                &dl_id,
-                                "Wrapper failed — auto-retrying without wrapper",
-                            );
-                            let retried = {
-                                let mut q = queue_clone.lock().await;
-                                q.retry_without_wrapper(&dl_id, &ar_settings)
-                            };
-                            if retried {
-                                save_queue_to_disk(&app_clone, &queue_clone).await;
-                                let _ = app_clone.emit("download-queued", &dl_id);
-                                // Fall through to process_queue at end of spawn
-                                // block — it will pick up the re-queued item.
-
-                                // Skip the terminal error path entirely.
-                                process_queue(app_clone, queue_clone).await;
-                                return;
-                            }
-                            // If retry_without_wrapper returned false (item not
-                            // found or not eligible), fall through to normal
-                            // terminal error handling below.
-                        }
+                        });
                     }
 
-                    // Save a download error report so the user can optionally
-                    // report it to GitHub Issues via Settings > Advanced.
-                    // Skip for network errors — these are connectivity issues,
-                    // not application bugs, and would just add noise.
-                    if error_category != "network" {
-                    let mut context = std::collections::HashMap::new();
-                    context.insert(
-                        "error_category".to_string(),
-                        error_category.to_string(),
-                    );
-                    if let Some(ref url) = urls.first() {
-                        context.insert("url".to_string(), url.to_string());
-                    }
-                    if let Some(ref ver) = gamdl_version {
-                        context.insert(
-                            "gamdl_version".to_string(),
-                            ver.to_string(),
-                        );
-                    }
-                    context.insert(
-                        "native_priority".to_string(),
-                        uses_native_priority.to_string(),
-                    );
-                    let report = CrashReport {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                        app_version: env!("CARGO_PKG_VERSION").to_string(),
-                        os: std::env::consts::OS.to_string(),
-                        arch: std::env::consts::ARCH.to_string(),
-                        source: "download_error".to_string(),
-                        panic_message: Some(error_msg.clone()),
-                        location: None,
-                        backtrace: None,
-                        context,
-                    };
-                    if let Err(e) = crash_report_service::save_error_report(
-                        &app_clone, report,
-                    ) {
-                        log::debug!("Failed to save download error report: {e}");
-                    }
-                    } // end: skip error reports for network errors
-
-                    let _ = app_clone.emit(
-                        "download-error",
-                        serde_json::json!({
-                            "download_id": dl_id,
-                            "error": error_msg,
-                            "category": error_category,
-                        }),
-                    );
-
-                    // Spawn companion downloads even on failure — the companion
-                    // codec may succeed where the primary format was unavailable.
+                    // Spawn companion downloads (codec + lyrics) as background tasks.
+                    // Uses the primary codec from pre-match extraction since
+                    // completed_codec may differ (e.g., after fallback).
                     spawn_companion_downloads(
                         &app_clone,
                         &dl_id,
@@ -2844,14 +2651,250 @@ pub fn process_queue(
                         &companion_base_options,
                     );
                 }
-            }
-        }
+                Err(error_msg) => {
+                    // === Error path ===
+                    // Classify the error to determine the appropriate retry strategy.
+                    // process::classify_error() returns "codec", "network", or "unknown".
+                    let error_category = process::classify_error(&error_msg);
+                    log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
 
-        // Cascade: process the next item in the queue.
-        // This recursive call ensures continuous queue processing — when one
-        // download finishes, the next one starts automatically.
-        process_queue(app_clone, queue_clone).await;
-    });
+                    // Add wrapper-specific context for network errors to aid troubleshooting
+                    if error_category == "network" {
+                        if let Some(ref url) = wrapper_url_for_logging {
+                            log::error!(
+                                "Wrapper URL was: {url} -- check that the wrapper \
+                             service is running and reachable"
+                            );
+                        }
+                    }
+
+                    // Determine if we should retry or fallback based on error category
+                    let should_retry =
+                        match error_category {
+                            "codec" => {
+                                // Codec/format error: the requested audio codec isn't
+                                // available for this track. Try the next codec in the
+                                // fallback chain (e.g., atmos -> alac -> aac).
+                                //
+                                // Even when GAMDL >= 2.9.1 native priority was used
+                                // (--song-codec-priority), we still run MeedyaDL's own
+                                // fallback as a safety net. GAMDL's native priority
+                                // loop may fail without exhausting all codecs (e.g.,
+                                // AttributeError on None stream_info, DRM issues, or
+                                // partial chain traversal). Per-codec retries via
+                                // --song-codec are more reliable as a fallback path.
+                                if uses_native_priority {
+                                    log::warn!(
+                                        "Download {dl_id} codec error despite native \
+                                 priority — trying per-codec fallback as \
+                                 safety net"
+                                    );
+                                    emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "GAMDL native priority failed — trying each format individually",
+                            );
+                                }
+
+                                let settings = load_settings_for_queue(&app_clone);
+                                let mut q = queue_clone.lock().await;
+                                q.set_error(&dl_id, &error_msg);
+                                q.on_task_finished();
+
+                                if let Some(new_options) = q.try_fallback(&dl_id, &settings) {
+                                    let fallback_codec = new_options
+                                        .song_codec
+                                        .as_ref()
+                                        .map(|c| c.to_cli_string().to_string())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    log::info!(
+                                        "Download {dl_id} will retry with \
+                                 fallback codec: {fallback_codec}"
+                                    );
+                                    drop(q);
+                                    emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                &format!("Format not available — retrying with: {fallback_codec}"),
+                            );
+                                    true
+                                } else {
+                                    drop(q);
+                                    emit_internal_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        "All audio formats exhausted — download failed",
+                                    );
+                                    false
+                                }
+                            }
+                            "network" => {
+                                // Network error: transient connection issue.
+                                // Retry with the same options (up to max_network_retries times).
+                                let mut q = queue_clone.lock().await;
+                                q.set_error(&dl_id, &error_msg);
+                                q.on_task_finished();
+
+                                if q.try_network_retry(&dl_id) {
+                                    // try_network_retry resets the item to Queued with same options
+                                    log::info!("Download {dl_id} will retry (network error)");
+                                    drop(q);
+                                    emit_internal_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        "Network error — retrying download",
+                                    );
+                                    true
+                                } else {
+                                    drop(q);
+                                    emit_internal_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        "Network error — all retries exhausted",
+                                    );
+                                    false
+                                }
+                            }
+                            _ => {
+                                // Non-retriable error (e.g., authentication, invalid URL).
+                                // Mark as failed and don't retry.
+                                let mut q = queue_clone.lock().await;
+                                q.set_error(&dl_id, &error_msg);
+                                q.on_task_finished();
+                                drop(q);
+                                emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!("Download failed ({error_category}): {error_msg}"),
+                                );
+                                false
+                            }
+                        };
+
+                    // Persist queue state after error handling (whether retrying or terminal)
+                    save_queue_to_disk(&app_clone, &queue_clone).await;
+
+                    // If no retry will occur, check auto-retry-without-wrapper
+                    // before falling through to the terminal error path.
+                    if !should_retry {
+                        // Auto-retry without wrapper: if the download used wrapper
+                        // auth and the user has opted in, automatically re-queue
+                        // with wrapper disabled (cookie-based auth) instead of
+                        // treating this as a terminal failure.
+                        log::debug!(
+                            "Download {dl_id} terminal error path: \
+                         wrapper_url={}, error_category={error_category}",
+                            wrapper_url_for_logging.as_deref().unwrap_or("none"),
+                        );
+                        if wrapper_url_for_logging.is_some() {
+                            let ar_settings = load_settings_for_queue(&app_clone);
+                            log::debug!(
+                                "Download {dl_id} auto_retry_without_wrapper={}",
+                                ar_settings.auto_retry_without_wrapper,
+                            );
+                            if ar_settings.auto_retry_without_wrapper {
+                                log::info!(
+                                    "Auto-retrying download {dl_id} without wrapper \
+                                 (auto_retry_without_wrapper enabled)"
+                                );
+                                emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    "Wrapper failed — auto-retrying without wrapper",
+                                );
+                                let retried = {
+                                    let mut q = queue_clone.lock().await;
+                                    let item_state =
+                                        q.items.iter().find(|i| i.status.id == dl_id).map(|i| {
+                                            (i.status.state.clone(), i.status.used_wrapper)
+                                        });
+                                    log::debug!(
+                                        "Download {dl_id} before retry_without_wrapper: \
+                                     state={:?}",
+                                        item_state,
+                                    );
+                                    q.retry_without_wrapper(&dl_id, &ar_settings)
+                                };
+                                log::debug!(
+                                    "Download {dl_id} retry_without_wrapper returned {retried}"
+                                );
+                                if retried {
+                                    save_queue_to_disk(&app_clone, &queue_clone).await;
+                                    let _ = app_clone.emit("download-queued", &dl_id);
+                                    // Skip the terminal error path entirely.
+                                    process_queue(app_clone, queue_clone).await;
+                                    return;
+                                }
+                                // If retry_without_wrapper returned false (item not
+                                // found or not eligible), fall through to normal
+                                // terminal error handling below.
+                            }
+                        }
+
+                        // Save a download error report so the user can optionally
+                        // report it to GitHub Issues via Settings > Advanced.
+                        // Skip for network errors — these are connectivity issues,
+                        // not application bugs, and would just add noise.
+                        if error_category != "network" {
+                            let mut context = std::collections::HashMap::new();
+                            context
+                                .insert("error_category".to_string(), error_category.to_string());
+                            if let Some(ref url) = urls.first() {
+                                context.insert("url".to_string(), url.to_string());
+                            }
+                            if let Some(ref ver) = gamdl_version {
+                                context.insert("gamdl_version".to_string(), ver.to_string());
+                            }
+                            context.insert(
+                                "native_priority".to_string(),
+                                uses_native_priority.to_string(),
+                            );
+                            let report = CrashReport {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                app_version: env!("CARGO_PKG_VERSION").to_string(),
+                                os: std::env::consts::OS.to_string(),
+                                arch: std::env::consts::ARCH.to_string(),
+                                source: "download_error".to_string(),
+                                panic_message: Some(error_msg.clone()),
+                                location: None,
+                                backtrace: None,
+                                context,
+                            };
+                            if let Err(e) =
+                                crash_report_service::save_error_report(&app_clone, report)
+                            {
+                                log::debug!("Failed to save download error report: {e}");
+                            }
+                        } // end: skip error reports for network errors
+
+                        let _ = app_clone.emit(
+                            "download-error",
+                            serde_json::json!({
+                                "download_id": dl_id,
+                                "error": error_msg,
+                                "category": error_category,
+                            }),
+                        );
+
+                        // Spawn companion downloads even on failure — the companion
+                        // codec may succeed where the primary format was unavailable.
+                        spawn_companion_downloads(
+                            &app_clone,
+                            &dl_id,
+                            &urls,
+                            &primary_codec_for_companions,
+                            &companion_base_options,
+                        );
+                    }
+                }
+            }
+
+            // Cascade: process the next item in the queue.
+            // This recursive call ensures continuous queue processing — when one
+            // download finishes, the next one starts automatically.
+            process_queue(app_clone, queue_clone).await;
+        });
     }) // close Box::pin(async move {
 }
 
@@ -3012,12 +3055,15 @@ async fn run_download_with_events(
                         set.insert(clean_line.clone())
                     };
                     if is_new {
-                        let _ = app.emit("activity-log", &ActivityLogEvent {
-                            download_id: download_id.clone(),
-                            stream: "stdout",
-                            line: clean_line.clone(),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
+                        let _ = app.emit(
+                            "activity-log",
+                            &ActivityLogEvent {
+                                download_id: download_id.clone(),
+                                stream: "stdout",
+                                line: clean_line.clone(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -3076,12 +3122,15 @@ async fn run_download_with_events(
                         set.insert(clean_line.clone())
                     };
                     if is_new {
-                        let _ = app.emit("activity-log", &ActivityLogEvent {
-                            download_id: download_id.clone(),
-                            stream: "stderr",
-                            line: clean_line.clone(),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
+                        let _ = app.emit(
+                            "activity-log",
+                            &ActivityLogEvent {
+                                download_id: download_id.clone(),
+                                stream: "stderr",
+                                line: clean_line.clone(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -3253,7 +3302,7 @@ pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
 /// Returns an empty `Vec` on missing or invalid file (graceful degradation
 /// for first run or file corruption). This is intentional: the queue should
 /// start empty rather than crash if persistence data is unavailable.
-#[must_use] 
+#[must_use]
 pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
     std::fs::read_to_string(&queue_path).map_or_else(
@@ -3349,9 +3398,18 @@ mod tests {
     fn new_creates_empty_queue() {
         let queue = DownloadQueue::new();
         assert!(queue.items.is_empty(), "New queue should have no items");
-        assert_eq!(queue.active_count, 0, "New queue should have zero active count");
-        assert_eq!(queue.max_concurrent, 1, "Default max_concurrent should be 1");
-        assert_eq!(queue.max_network_retries, 3, "Default max_network_retries should be 3");
+        assert_eq!(
+            queue.active_count, 0,
+            "New queue should have zero active count"
+        );
+        assert_eq!(
+            queue.max_concurrent, 1,
+            "Default max_concurrent should be 1"
+        );
+        assert_eq!(
+            queue.max_network_retries, 3,
+            "Default max_network_retries should be 3"
+        );
     }
 
     /// Verifies that the Default trait implementation delegates to new().
@@ -3451,9 +3509,15 @@ mod tests {
         let statuses = queue.get_status();
 
         assert_eq!(statuses.len(), 3);
-        assert_eq!(statuses[0].id, ids[0], "First enqueued should be first in status");
+        assert_eq!(
+            statuses[0].id, ids[0],
+            "First enqueued should be first in status"
+        );
         assert_eq!(statuses[1].id, ids[1]);
-        assert_eq!(statuses[2].id, ids[2], "Last enqueued should be last in status");
+        assert_eq!(
+            statuses[2].id, ids[2],
+            "Last enqueued should be last in status"
+        );
     }
 
     /// Verifies that enqueue sets the network_retries_left field to
@@ -3464,16 +3528,28 @@ mod tests {
         let id = enqueue_one(&mut queue);
 
         // Exhaust all 3 retries
-        assert!(queue.try_network_retry(&id), "Should succeed on retry 1 of 3");
+        assert!(
+            queue.try_network_retry(&id),
+            "Should succeed on retry 1 of 3"
+        );
         // Need to set back to Error/Queued for next retry test, but try_network_retry
         // itself resets to Queued. We need to simulate re-error.
         // Actually try_network_retry sets to Queued. Let's set back to error.
         queue.set_error(&id, "network error");
-        assert!(queue.try_network_retry(&id), "Should succeed on retry 2 of 3");
+        assert!(
+            queue.try_network_retry(&id),
+            "Should succeed on retry 2 of 3"
+        );
         queue.set_error(&id, "network error");
-        assert!(queue.try_network_retry(&id), "Should succeed on retry 3 of 3");
+        assert!(
+            queue.try_network_retry(&id),
+            "Should succeed on retry 3 of 3"
+        );
         queue.set_error(&id, "network error");
-        assert!(!queue.try_network_retry(&id), "Should fail after 3 retries exhausted");
+        assert!(
+            !queue.try_network_retry(&id),
+            "Should fail after 3 retries exhausted"
+        );
     }
 
     // ==========================================================
@@ -3486,7 +3562,10 @@ mod tests {
     fn get_status_empty_queue() {
         let queue = DownloadQueue::new();
         let statuses = queue.get_status();
-        assert!(statuses.is_empty(), "Empty queue should return empty status vec");
+        assert!(
+            statuses.is_empty(),
+            "Empty queue should return empty status vec"
+        );
     }
 
     /// Verifies that get_status() returns all items in the queue, each with
@@ -3541,7 +3620,7 @@ mod tests {
         // Leave ids[0] as Queued
         // Set ids[1] to Downloading via next_pending
         let _ = queue.next_pending(); // ids[0] becomes Downloading
-        // Set ids[2] to Complete
+                                      // Set ids[2] to Complete
         queue.set_complete(&ids[2]);
         // Set ids[3] to Error
         queue.set_error(&ids[3], "test error");
@@ -3610,7 +3689,10 @@ mod tests {
         let statuses = queue.get_status();
         assert_eq!(statuses[0].state, DownloadState::Cancelled);
         // active_count is NOT decremented by cancel() -- that's the task's job
-        assert_eq!(queue.active_count, 1, "active_count should not be decremented by cancel()");
+        assert_eq!(
+            queue.active_count, 1,
+            "active_count should not be decremented by cancel()"
+        );
     }
 
     /// Verifies that cancelling a Processing item sets its state to Cancelled
@@ -3639,9 +3721,15 @@ mod tests {
         queue.set_error(&ids[1], "some error");
         queue.cancel(&ids[2]); // First cancel succeeds
 
-        assert!(!queue.cancel(&ids[0]), "Should return false for Complete item");
+        assert!(
+            !queue.cancel(&ids[0]),
+            "Should return false for Complete item"
+        );
         assert!(!queue.cancel(&ids[1]), "Should return false for Error item");
-        assert!(!queue.cancel(&ids[2]), "Should return false for already Cancelled item");
+        assert!(
+            !queue.cancel(&ids[2]),
+            "Should return false for already Cancelled item"
+        );
     }
 
     /// Verifies that cancel() returns false for a non-existent download ID.
@@ -3650,7 +3738,10 @@ mod tests {
         let mut queue = DownloadQueue::new();
         let _ = enqueue_one(&mut queue);
 
-        assert!(!queue.cancel("nonexistent-id-12345"), "Should return false for unknown ID");
+        assert!(
+            !queue.cancel("nonexistent-id-12345"),
+            "Should return false for unknown ID"
+        );
     }
 
     // ==========================================================
@@ -3691,7 +3782,10 @@ mod tests {
         let _ = enqueue_n(&mut queue, 3);
 
         let removed = queue.clear_finished();
-        assert_eq!(removed, 0, "Nothing should be removed when all items are Queued");
+        assert_eq!(
+            removed, 0,
+            "Nothing should be removed when all items are Queued"
+        );
         assert_eq!(queue.get_status().len(), 3, "All items should remain");
     }
 
@@ -3711,7 +3805,10 @@ mod tests {
     #[test]
     fn next_pending_empty_queue() {
         let mut queue = DownloadQueue::new();
-        assert!(queue.next_pending().is_none(), "Empty queue should return None");
+        assert!(
+            queue.next_pending().is_none(),
+            "Empty queue should return None"
+        );
     }
 
     /// Verifies that next_pending() returns the first Queued item, transitions
@@ -3727,12 +3824,19 @@ mod tests {
         let (dl_id, urls, _options) = result.unwrap();
         assert_eq!(dl_id, ids[0], "Should return the first queued item");
         assert_eq!(urls.len(), 1, "Should include the URLs from the request");
-        assert_eq!(queue.active_count, 1, "active_count should be incremented to 1");
+        assert_eq!(
+            queue.active_count, 1,
+            "active_count should be incremented to 1"
+        );
 
         // Verify the item's state changed to Downloading
         let statuses = queue.get_status();
         assert_eq!(statuses[0].state, DownloadState::Downloading);
-        assert_eq!(statuses[1].state, DownloadState::Queued, "Other items should remain Queued");
+        assert_eq!(
+            statuses[1].state,
+            DownloadState::Queued,
+            "Other items should remain Queued"
+        );
     }
 
     /// Verifies that next_pending() returns None when max_concurrent is reached.
@@ -3771,7 +3875,10 @@ mod tests {
         let result = queue.next_pending();
         assert!(result.is_some());
         let (dl_id, _, _) = result.unwrap();
-        assert_eq!(dl_id, ids[2], "Should return the first Queued item, skipping terminal items");
+        assert_eq!(
+            dl_id, ids[2],
+            "Should return the first Queued item, skipping terminal items"
+        );
     }
 
     /// Verifies that next_pending() returns the merged GamdlOptions for the item.
@@ -3803,7 +3910,10 @@ mod tests {
 
         assert_eq!(queue.active_count, 1);
         queue.on_task_finished();
-        assert_eq!(queue.active_count, 0, "active_count should be 0 after on_task_finished");
+        assert_eq!(
+            queue.active_count, 0,
+            "active_count should be 0 after on_task_finished"
+        );
     }
 
     /// Verifies that on_task_finished() does not underflow below zero.
@@ -3833,14 +3943,20 @@ mod tests {
         let first = queue.next_pending();
         assert!(first.is_some());
         // Verify second item can't start yet
-        assert!(queue.next_pending().is_none(), "Should be at max_concurrent");
+        assert!(
+            queue.next_pending().is_none(),
+            "Should be at max_concurrent"
+        );
 
         // Finish first task
         queue.on_task_finished();
 
         // Now second item should be startable
         let second = queue.next_pending();
-        assert!(second.is_some(), "Should be able to start next item after finishing");
+        assert!(
+            second.is_some(),
+            "Should be able to start next item after finishing"
+        );
         let (dl_id, _, _) = second.unwrap();
         assert_eq!(dl_id, ids[1]);
     }
@@ -3856,7 +3972,10 @@ mod tests {
         let id = enqueue_one(&mut queue);
         queue.cancel(&id);
 
-        assert!(queue.is_cancelled(&id), "Should return true for cancelled item");
+        assert!(
+            queue.is_cancelled(&id),
+            "Should return true for cancelled item"
+        );
     }
 
     /// Verifies that is_cancelled() returns false for non-cancelled items
@@ -3867,19 +3986,31 @@ mod tests {
         let ids = enqueue_n(&mut queue, 4);
 
         // ids[0] = Queued
-        assert!(!queue.is_cancelled(&ids[0]), "Queued item should not be cancelled");
+        assert!(
+            !queue.is_cancelled(&ids[0]),
+            "Queued item should not be cancelled"
+        );
 
         // ids[1] = Downloading (via update_item_state)
         queue.update_item_state(&ids[1], DownloadState::Downloading);
-        assert!(!queue.is_cancelled(&ids[1]), "Downloading item should not be cancelled");
+        assert!(
+            !queue.is_cancelled(&ids[1]),
+            "Downloading item should not be cancelled"
+        );
 
         // ids[2] = Complete
         queue.set_complete(&ids[2]);
-        assert!(!queue.is_cancelled(&ids[2]), "Complete item should not be cancelled");
+        assert!(
+            !queue.is_cancelled(&ids[2]),
+            "Complete item should not be cancelled"
+        );
 
         // ids[3] = Error
         queue.set_error(&ids[3], "error");
-        assert!(!queue.is_cancelled(&ids[3]), "Error item should not be cancelled");
+        assert!(
+            !queue.is_cancelled(&ids[3]),
+            "Error item should not be cancelled"
+        );
     }
 
     /// Verifies that is_cancelled() returns false for a non-existent download ID.
@@ -4041,8 +4172,15 @@ mod tests {
         queue.update_item_progress(&id, &event);
 
         let statuses = queue.get_status();
-        assert_eq!(statuses[0].state, DownloadState::Queued, "Unknown event should not change state");
-        assert_eq!(statuses[0].progress, 0.0, "Unknown event should not change progress");
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Queued,
+            "Unknown event should not change state"
+        );
+        assert_eq!(
+            statuses[0].progress, 0.0,
+            "Unknown event should not change progress"
+        );
     }
 
     /// Verifies that update_item_progress is a no-op for non-existent IDs
@@ -4211,10 +4349,20 @@ mod tests {
         );
 
         let statuses = queue.get_status();
-        assert_eq!(statuses[0].state, DownloadState::Queued, "Should reset to Queued");
-        assert!(statuses[0].fallback_occurred, "Should mark fallback_occurred as true");
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Queued,
+            "Should reset to Queued"
+        );
+        assert!(
+            statuses[0].fallback_occurred,
+            "Should mark fallback_occurred as true"
+        );
         assert_eq!(statuses[0].codec_used.as_deref(), Some("atmos"));
-        assert!(statuses[0].error.is_none(), "Error should be cleared on fallback");
+        assert!(
+            statuses[0].error.is_none(),
+            "Error should be cleared on fallback"
+        );
         assert_eq!(statuses[0].progress, 0.0, "Progress should be reset");
     }
 
@@ -4271,11 +4419,7 @@ mod tests {
     fn try_fallback_advances_through_full_chain() {
         let mut queue = DownloadQueue::new();
         let mut settings = test_settings();
-        settings.music_fallback_chain = vec![
-            SongCodec::Alac,
-            SongCodec::Atmos,
-            SongCodec::Aac,
-        ];
+        settings.music_fallback_chain = vec![SongCodec::Alac, SongCodec::Atmos, SongCodec::Aac];
         let id = queue.enqueue(test_request(), &settings);
 
         // Fallback 1: Alac -> Atmos
@@ -4362,19 +4506,31 @@ mod tests {
         let ids = enqueue_n(&mut queue, 4);
 
         // ids[0] = Queued
-        assert!(!queue.retry(&ids[0], &settings), "Should not retry Queued item");
+        assert!(
+            !queue.retry(&ids[0], &settings),
+            "Should not retry Queued item"
+        );
 
         // ids[1] = Downloading
         queue.update_item_state(&ids[1], DownloadState::Downloading);
-        assert!(!queue.retry(&ids[1], &settings), "Should not retry Downloading item");
+        assert!(
+            !queue.retry(&ids[1], &settings),
+            "Should not retry Downloading item"
+        );
 
         // ids[2] = Processing
         queue.update_item_state(&ids[2], DownloadState::Processing);
-        assert!(!queue.retry(&ids[2], &settings), "Should not retry Processing item");
+        assert!(
+            !queue.retry(&ids[2], &settings),
+            "Should not retry Processing item"
+        );
 
         // ids[3] = Complete
         queue.set_complete(&ids[3]);
-        assert!(!queue.retry(&ids[3], &settings), "Should not retry Complete item");
+        assert!(
+            !queue.retry(&ids[3], &settings),
+            "Should not retry Complete item"
+        );
     }
 
     /// Verifies that retry() returns false for a non-existent download ID.
@@ -4473,7 +4629,10 @@ mod tests {
     async fn new_queue_handle_creates_usable_handle() {
         let handle = new_queue_handle();
         let queue = handle.lock().await;
-        assert!(queue.items.is_empty(), "New queue handle should wrap an empty queue");
+        assert!(
+            queue.items.is_empty(),
+            "New queue handle should wrap an empty queue"
+        );
         assert_eq!(queue.get_counts(), (0, 0, 0, 0, 0));
     }
 
@@ -4544,7 +4703,10 @@ mod tests {
         let final_status = &queue.get_status()[0];
         assert_eq!(final_status.state, DownloadState::Complete);
         assert!((final_status.progress - 100.0).abs() < 0.001);
-        assert_eq!(final_status.output_path.as_deref(), Some("/output/test.m4a"));
+        assert_eq!(
+            final_status.output_path.as_deref(),
+            Some("/output/test.m4a")
+        );
         assert_eq!(queue.active_count, 0);
     }
 
@@ -4661,10 +4823,7 @@ mod tests {
 
     #[test]
     fn returns_none_without_traceback() {
-        let lines = vec![
-            "Normal output line".to_string(),
-            "Another line".to_string(),
-        ];
+        let lines = vec!["Normal output line".to_string(), "Another line".to_string()];
         assert_eq!(extract_python_exception(&lines), None);
     }
 

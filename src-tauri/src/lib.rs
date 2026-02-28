@@ -58,7 +58,6 @@ pub mod services;
 /// extraction, and subprocess output parsing.
 pub mod utils;
 
-
 // ---------------------------------------------------------------------------
 // Helper functions extracted from `run()` to keep it under the 100-line
 // clippy::too_many_lines threshold. Each helper encapsulates a distinct
@@ -106,8 +105,8 @@ fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::Worker
 
     // Environment filter: respect RUST_LOG, default to `info` for our crate
     // and `warn` for everything else to keep logs manageable.
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("meedyadl=info,warn"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("meedyadl=info,warn"));
 
     // Build the layered subscriber
     let registry = tracing_subscriber::registry()
@@ -132,9 +131,7 @@ fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::Worker
 
     // Conditionally add the Sentry tracing layer
     if sentry_enabled {
-        registry
-            .with(sentry_tracing::layer())
-            .init();
+        registry.with(sentry_tracing::layer()).init();
     } else {
         registry.init();
     }
@@ -168,9 +165,9 @@ fn setup_panic_handler() {
         };
 
         // Extract location info
-        let location = panic_info.location().map(|loc| {
-            format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
-        });
+        let location = panic_info
+            .location()
+            .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()));
 
         // Build the crash report JSON
         let report = serde_json::json!({
@@ -192,10 +189,7 @@ fn setup_panic_handler() {
             .unwrap_or_else(|| std::env::temp_dir().join("MeedyaDL").join("crashes"));
 
         if std::fs::create_dir_all(&crash_dir).is_ok() {
-            let filename = format!(
-                "crash-{}.json",
-                chrono::Utc::now().format("%Y%m%d-%H%M%S")
-            );
+            let filename = format!("crash-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
             let path = crash_dir.join(&filename);
             if let Ok(json) = serde_json::to_string_pretty(&report) {
                 let _ = std::fs::write(&path, json);
@@ -230,9 +224,11 @@ fn setup_panic_handler() {
 /// - System tray guide: <https://v2.tauri.app/develop/system-tray/>
 /// - `TrayIcon` API: <https://docs.rs/tauri/latest/tauri/tray/index.html>
 /// - Menu API: <https://docs.rs/tauri/latest/tauri/menu/index.html>
-fn setup_system_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn std::error::Error>> {
-    use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState};
+fn setup_system_tray(
+    app: &tauri::App,
+) -> Result<tauri::tray::TrayIcon, Box<dyn std::error::Error>> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder};
     // `Manager` trait provides `.get_webview_window()` on AppHandle
     use tauri::Manager;
     // `Emitter` trait provides `.emit()` for sending events to the frontend
@@ -240,8 +236,7 @@ fn setup_system_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn 
 
     // Build the tray menu items
     // "Show Window" -- brings the main window to focus
-    let show_item = MenuItemBuilder::with_id("show", "Show Window")
-        .build(app)?;
+    let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
 
     // First separator -- visually groups window controls from status info
     let separator1 = PredefinedMenuItem::separator(app)?;
@@ -256,12 +251,10 @@ fn setup_system_tray(app: &tauri::App) -> Result<tauri::tray::TrayIcon, Box<dyn 
     let separator2 = PredefinedMenuItem::separator(app)?;
 
     // "Check for Updates" -- triggers an update check for the application and GAMDL
-    let updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates")
-        .build(app)?;
+    let updates_item = MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
 
     // "Quit MeedyaDL" -- cleanly exits the application
-    let quit_item = MenuItemBuilder::with_id("quit", "Quit MeedyaDL")
-        .build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit MeedyaDL").build(app)?;
 
     // Assemble the tray context menu from the items defined above
     let tray_menu = MenuBuilder::new(app)
@@ -359,12 +352,10 @@ fn setup_queue_recovery(app: &tauri::App) {
     }
 
     let count = persisted_items.len();
-    let settings = services::config_service::load_settings(&app_handle)
-        .unwrap_or_default();
+    let settings = services::config_service::load_settings(&app_handle).unwrap_or_default();
 
     // Get the queue handle from managed state
-    let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> =
-        app.state();
+    let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> = app.state();
     let queue_arc = queue_handle.inner().clone();
 
     // Restore items synchronously (we can block briefly in setup).
@@ -377,9 +368,7 @@ fn setup_queue_recovery(app: &tauri::App) {
         q.restore_items(persisted_items, &settings);
     }
 
-    log::info!(
-        "Queue restored: {count} item(s) will resume after frontend initialises"
-    );
+    log::info!("Queue restored: {count} item(s) will resume after frontend initialises");
 
     // Spawn a delayed task to start processing the restored queue.
     // The 2-second delay ensures the frontend's Tauri event listeners
@@ -389,14 +378,9 @@ fn setup_queue_recovery(app: &tauri::App) {
     let queue_for_processing = queue_arc;
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        services::download_queue::process_queue(
-            app_handle,
-            queue_for_processing,
-        )
-        .await;
+        services::download_queue::process_queue(app_handle, queue_for_processing).await;
     });
 }
-
 
 /// Configures and launches the Tauri application.
 ///
@@ -498,7 +482,6 @@ pub fn run() {
         // Reference: https://docs.rs/tauri/latest/tauri/struct.Builder.html#method.manage
         // Reference: https://v2.tauri.app/develop/calling-rust/#accessing-managed-state
         .manage(services::download_queue::new_queue_handle())
-
         // ---------------------------------------------------------------
         // Plugin Registration
         // ---------------------------------------------------------------
@@ -511,36 +494,30 @@ pub fn run() {
         //
         // Reference: https://v2.tauri.app/develop/plugins/
         // Reference: https://v2.tauri.app/security/permissions/
-
         // Shell plugin: allows spawning external processes (Python, GAMDL CLI)
         // and opening URLs in the default browser. Used by `gamdl_service`
         // and `python_manager` to execute subprocess commands.
         // Reference: https://v2.tauri.app/plugin/shell/
         .plugin(tauri_plugin_shell::init())
-
         // Dialog plugin: native OS file/folder picker dialogs and message boxes.
         // Used in the frontend for selecting output directories and cookie files.
         // Reference: https://v2.tauri.app/plugin/dialog/
         .plugin(tauri_plugin_dialog::init())
-
         // Filesystem plugin: read/write files within permitted scope paths.
         // Tauri 2.0's security model requires explicit path scope grants in
         // `tauri.conf.json` -- the plugin alone does not grant blanket access.
         // Reference: https://v2.tauri.app/plugin/file-system/
         .plugin(tauri_plugin_fs::init())
-
         // Store plugin: persistent JSON key-value store backed by a file in
         // the app data directory. Used by `config_service` to persist user
         // settings between sessions. `Builder::default().build()` creates a
         // store with default options (auto-save on change).
         // Reference: https://v2.tauri.app/plugin/store/
         .plugin(tauri_plugin_store::Builder::default().build())
-
         // Process plugin: provides `process.exit()` and `process.relaunch()`
         // APIs so the frontend can cleanly shut down or restart the app.
         // Reference: https://v2.tauri.app/plugin/process/
         .plugin(tauri_plugin_process::init())
-
         // Updater plugin: cryptographically-verified application self-updates.
         // Downloads signed update binaries from GitHub Releases and applies them
         // in-place. The public key for signature verification is configured in
@@ -548,13 +525,11 @@ pub fn run() {
         // to support both stable and pre-release channels.
         // Reference: https://v2.tauri.app/plugin/updater/
         .plugin(tauri_plugin_updater::Builder::new().build())
-
         // OS plugin: exposes `os.platform()`, `os.arch()`, `os.version()`, etc.
         // Used to determine which Python/tool binaries to download for the
         // current operating system and CPU architecture.
         // Reference: https://v2.tauri.app/plugin/os/
         .plugin(tauri_plugin_os::init())
-
         // ---------------------------------------------------------------
         // IPC Command Registration
         // ---------------------------------------------------------------
@@ -635,7 +610,6 @@ pub fn run() {
             commands::crash_reports::log_frontend_error,
             commands::crash_reports::get_github_issue_url,
         ])
-
         // ---------------------------------------------------------------
         // macOS Application Menu
         // ---------------------------------------------------------------
@@ -646,9 +620,7 @@ pub fn run() {
         //
         // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
         .menu(|app| {
-            use tauri::menu::{
-                MenuBuilder, SubmenuBuilder, MenuItemBuilder, PredefinedMenuItem,
-            };
+            use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 
             let app_submenu = SubmenuBuilder::new(app, "MeedyaDL")
                 .item(&MenuItemBuilder::with_id("about_meedyadl", "About MeedyaDL").build(app)?)
@@ -691,7 +663,6 @@ pub fn run() {
                 let _ = app.emit("navigate-help-about", ());
             }
         })
-
         // ---------------------------------------------------------------
         // Application Lifecycle -- `.setup()` hook
         // ---------------------------------------------------------------

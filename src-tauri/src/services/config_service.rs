@@ -140,8 +140,7 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
     if settings_path.exists() {
         let contents = std::fs::read_to_string(&settings_path)
             .map_err(|e| format!("Failed to read settings file: {e}"))?;
-        serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse settings file: {e}"))
+        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse settings file: {e}"))
     } else {
         Ok(AppSettings::default())
     }
@@ -571,8 +570,7 @@ mod tests {
     #[test]
     fn ini_uses_custom_song_codec() {
         let mut settings = default_settings();
-        settings.default_song_codec =
-            crate::models::gamdl_options::SongCodec::Aac;
+        settings.default_song_codec = crate::models::gamdl_options::SongCodec::Aac;
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("song_codec = aac"));
     }
@@ -884,10 +882,7 @@ mod tests {
         let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
 
         // Compare a representative sample of fields
-        assert_eq!(
-            deserialized.default_song_codec,
-            settings.default_song_codec
-        );
+        assert_eq!(deserialized.default_song_codec, settings.default_song_codec);
         assert_eq!(deserialized.output_path, settings.output_path);
         assert_eq!(deserialized.save_cover, settings.save_cover);
         assert_eq!(deserialized.cover_size, settings.cover_size);
