@@ -6,10 +6,35 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add pre-download internet connectivity check to prevent queuing downloads without internet
+- Implement pre-download checks for internet connectivity and cookie validation, update queue processing behavior
+
+### 🐛 Bug Fixes
+
+- **(docs)** Add wrapper connectivity troubleshooting guide for remote and Docker setups
+
+Reclassified from docs: to fix: to trigger a patch release. The wrapper
+  troubleshooting content (Help > Wrapper, README) addresses user-facing
+  issues with diagnosing wrapper connectivity failures on remote devices.
+
+- Improve audio format fallback so downloads try all available formats
+
+When your preferred audio format (like Dolby Atmos) isn't available for
+  a track, MeedyaDL now reliably tries the next format in your fallback
+  list instead of giving up after the first failure.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Enhance README and HelpViewer with wrapper authentication details and connectivity troubleshooting
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- Unify error reporting for crashes and download failures, update UI and documentation
 
 ## [0.5.4] - 2026-02-27
 
