@@ -410,15 +410,23 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     //   - "traceback"        -- Python stack traces from GAMDL/yt-dlp
     //   - "exception"        -- Python exception messages
     let lower = trimmed.to_lowercase();
-    if lower.contains("failed")
-        || lower.contains("not found")
-        || lower.contains("permission denied")
-        || lower.contains("codec not available")
-        || lower.contains("format is not available")
-        || lower.contains("skipping")
-        || lower.contains("no entry")
-        || lower.contains("traceback")
-        || lower.contains("exception")
+    // Skip traceback frame lines: lines starting with `File "` are Python stack
+    // frames (e.g., `File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions`).
+    // These are NOT error messages and should not be captured, even if they contain
+    // keywords like "exception" in function names (e.g., `map_httpcore_exceptions`).
+    // The actual exception line (e.g., `httpx.ConnectError: ...`) is handled by
+    // Priority 4b (PYTHON_EXCEPTION_REGEX) above.
+    let is_traceback_frame = lower.starts_with("file \"");
+    if !is_traceback_frame
+        && (lower.contains("failed")
+            || lower.contains("not found")
+            || lower.contains("permission denied")
+            || lower.contains("codec not available")
+            || lower.contains("format is not available")
+            || lower.contains("skipping")
+            || lower.contains("no entry")
+            || lower.contains("traceback")
+            || lower.contains("exception"))
     {
         return GamdlOutputEvent::Error {
             message: trimmed.to_string(),
@@ -520,7 +528,7 @@ pub fn is_io_error(error_message: &str) -> bool {
 /// | Category       | Keywords matched                          | Retry? |
 /// |----------------|-------------------------------------------|--------|
 /// | `"auth"`       | cookie, auth, login                       | No     |
-/// | `"network"`    | network, timeout, timed out, connection, connecterror, dns | Yes |
+/// | `"network"`    | network, timeout, timed out, connection, connecterror, dns, httpx, httpcore | Yes |
 /// | `"codec"`      | (delegated to `is_codec_error`)           | Fallback|
 /// | `"not_found"`  | not found, 404, no results                | No     |
 /// | `"rate_limit"` | rate limit, 429, too many                 | Delayed|
@@ -551,14 +559,18 @@ pub fn classify_error(error_message: &str) -> &'static str {
     } else if is_io_error(error_message) {
         "io"
     // Network errors: transient, may resolve on retry.
-    // Includes Python httpx/httpcore exceptions (ConnectError, ReadTimeout, etc.)
-    // and common socket-level messages (connection refused, timed out, etc.).
+    // Includes Python httpx/httpcore exceptions (ConnectError, ReadTimeout, etc.),
+    // common socket-level messages (connection refused, timed out, etc.), and
+    // the httpx/httpcore library names themselves (any error from these HTTP
+    // transport libraries indicates a network/connectivity issue).
     } else if lower.contains("network")
         || lower.contains("timeout")
         || lower.contains("timed out")
         || lower.contains("connection")
         || lower.contains("connecterror")
         || lower.contains("dns")
+        || lower.contains("httpx")
+        || lower.contains("httpcore")
     {
         "network"
     // Codec/format errors: the requested quality is not available; try fallback.
@@ -957,6 +969,21 @@ mod tests {
         assert_eq!(classify_error("httpcore.ConnectError:"), "network");
         // "timed out" without "operation" prefix (network, not IO)
         assert_eq!(classify_error("Read timed out"), "network");
+        // Raw traceback frame line containing httpx library path — the exact
+        // error from the user's screenshot when wrapper is unreachable
+        assert_eq!(
+            classify_error(
+                r#"File "/Users/user/Library/Application Support/io.github.meedyadl/python/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#
+            ),
+            "network"
+        );
+        // httpcore frame line
+        assert_eq!(
+            classify_error(
+                r#"File "/path/to/httpcore/_exceptions.py", line 10, in map_exceptions"#
+            ),
+            "network"
+        );
     }
 
     #[test]
@@ -1053,6 +1080,27 @@ mod tests {
         let line = "downloading file from server";
         if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
             panic!("Should not match as Python exception");
+        }
+    }
+
+    #[test]
+    fn traceback_frame_not_captured_as_error() {
+        // Python traceback frame lines start with `File "` and should NOT be
+        // captured as Error events, even when they contain "exception" in a
+        // function name (e.g., `map_httpcore_exceptions`). These are stack
+        // frames, not error messages.
+        let line = r#"File "/path/to/httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
+        if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
+            panic!("Traceback frame should not be captured as Error");
+        }
+    }
+
+    #[test]
+    fn traceback_frame_with_indentation_not_captured() {
+        // Same as above but with leading whitespace (how it appears in actual tracebacks)
+        let line = r#"  File "/path/to/httpcore/_exceptions.py", line 10, in map_exceptions"#;
+        if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
+            panic!("Indented traceback frame should not be captured as Error");
         }
     }
 }
