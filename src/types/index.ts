@@ -513,6 +513,8 @@ export interface AppSettings {
   remux_mode: RemuxMode;
   /** Whether to use the Apple Music API wrapper */
   use_wrapper: boolean;
+  /** Auto-retry without wrapper when a wrapper download fails terminally */
+  auto_retry_without_wrapper: boolean;
   /** URL for the API wrapper account endpoint */
   wrapper_account_url: string;
   /** Maximum filename length, or null for no truncation */

@@ -2744,8 +2744,45 @@ pub fn process_queue(
                 // Persist queue state after error handling (whether retrying or terminal)
                 save_queue_to_disk(&app_clone, &queue_clone).await;
 
-                // If no retry will occur, save an error report and notify frontend
+                // If no retry will occur, check auto-retry-without-wrapper
+                // before falling through to the terminal error path.
                 if !should_retry {
+                    // Auto-retry without wrapper: if the download used wrapper
+                    // auth and the user has opted in, automatically re-queue
+                    // with wrapper disabled (cookie-based auth) instead of
+                    // treating this as a terminal failure.
+                    if wrapper_url_for_logging.is_some() {
+                        let ar_settings = load_settings_for_queue(&app_clone);
+                        if ar_settings.auto_retry_without_wrapper {
+                            log::info!(
+                                "Auto-retrying download {dl_id} without wrapper \
+                                 (auto_retry_without_wrapper enabled)"
+                            );
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "Wrapper failed — auto-retrying without wrapper",
+                            );
+                            let retried = {
+                                let mut q = queue_clone.lock().await;
+                                q.retry_without_wrapper(&dl_id, &ar_settings)
+                            };
+                            if retried {
+                                save_queue_to_disk(&app_clone, &queue_clone).await;
+                                let _ = app_clone.emit("download-queued", &dl_id);
+                                // Fall through to process_queue at end of spawn
+                                // block — it will pick up the re-queued item.
+
+                                // Skip the terminal error path entirely.
+                                process_queue(app_clone, queue_clone).await;
+                                return;
+                            }
+                            // If retry_without_wrapper returned false (item not
+                            // found or not eligible), fall through to normal
+                            // terminal error handling below.
+                        }
+                    }
+
                     // Save a download error report so the user can optionally
                     // report it to GitHub Issues via Settings > Advanced.
                     // Skip for network errors — these are connectivity issues,

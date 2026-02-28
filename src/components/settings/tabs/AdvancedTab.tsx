@@ -191,6 +191,13 @@ export function AdvancedTab() {
 
         {settings.use_wrapper && (
           <>
+            <Toggle
+              label="Auto-Retry without Wrapper"
+              description="When a download fails after exhausting all retries, automatically re-queue it with wrapper disabled (falls back to cookie-based authentication). Without this, you'll be prompted to retry manually."
+              checked={settings.auto_retry_without_wrapper}
+              onChange={(checked) => updateSettings({ auto_retry_without_wrapper: checked })}
+            />
+
             <Input
               label="Wrapper Account URL"
               description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper for setup instructions."
