@@ -106,7 +106,7 @@ export function LyricsTab() {
   return (
     <div className="space-y-6 max-w-xl">
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Synced Lyrics</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Synced Lyrics</h3>
 
         <div className="space-y-4">
           {/* Enhanced LRC (word-by-word sync) */}

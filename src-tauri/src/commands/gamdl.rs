@@ -98,6 +98,10 @@ pub struct QueueStatus {
 ///   See: <https://v2.tauri.app/develop/state-management>/
 /// * `request` - The download request payload deserialized from the frontend JSON.
 ///   Contains `urls: Vec<String>` and optional override fields.
+/// * `skip_auto_start` - When `Some(true)`, the item is queued but `process_queue()`
+///   is NOT called, regardless of the `auto_start_queue` setting. Used by the
+///   frontend when the device is offline — the item sits in `Queued` state until
+///   the user manually starts the queue or a future online download triggers processing.
 ///
 /// # Returns
 /// * `Ok(String)` - The unique download ID (UUID v4) assigned to this download.
@@ -115,6 +119,7 @@ pub async fn start_download(
     app: AppHandle,
     queue: State<'_, QueueHandle>,
     request: DownloadRequest,
+    skip_auto_start: Option<bool>,
 ) -> Result<String, String> {
     // Load current settings for merging with per-download overrides.
     // If settings can't be loaded (corrupted file, etc.), fall back to defaults
@@ -142,10 +147,11 @@ pub async fn start_download(
     app.emit("download-queued", &download_id)
         .map_err(|e| format!("Failed to emit event: {e}"))?;
 
-    // Trigger queue processing if auto-start is enabled. When disabled,
-    // the item stays in Queued state until the user manually starts
-    // processing via the `process_queue_manual` command.
-    if settings.auto_start_queue {
+    // Trigger queue processing if auto-start is enabled AND the caller
+    // didn't request skipping it. `skip_auto_start` is set by the frontend
+    // when the device is offline — the item is queued but not processed
+    // until the user retries or a future download triggers queue processing.
+    if settings.auto_start_queue && !skip_auto_start.unwrap_or(false) {
         download_queue::process_queue(app, queue_handle).await;
     }
 

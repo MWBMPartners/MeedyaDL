@@ -122,7 +122,7 @@ export function FallbackTab() {
       {/* Music fallback chain */}
       {activeChain === 'music' && (
         <div>
-          <h3 className="text-sm font-semibold text-content-primary mb-2">
+          <h3 className="text-base font-semibold text-content-primary mb-2">
             Audio Codec Fallback Chain
           </h3>
           <p className="text-xs text-content-tertiary mb-3">
@@ -143,7 +143,7 @@ export function FallbackTab() {
       {/* Video fallback chain */}
       {activeChain === 'video' && (
         <div>
-          <h3 className="text-sm font-semibold text-content-primary mb-3">
+          <h3 className="text-base font-semibold text-content-primary mb-3">
             Video Resolution Fallback Chain
           </h3>
           <FallbackChainList<VideoResolution>

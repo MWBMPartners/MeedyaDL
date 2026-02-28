@@ -346,10 +346,12 @@ export function getDefaultOutputPath(): Promise<string> {
  * Called by: downloadStore.submitDownload()
  *
  * @param request - Download request with URLs and optional overrides
+ * @param skipAutoStart - When true, the item is queued but queue processing
+ *   is not triggered. Used when the device is offline.
  * @returns Promise resolving to the download ID (UUID v4 string)
  */
-export function startDownload(request: DownloadRequest): Promise<string> {
-  return invoke<string>('start_download', { request });
+export function startDownload(request: DownloadRequest, skipAutoStart?: boolean): Promise<string> {
+  return invoke<string>('start_download', { request, skipAutoStart });
 }
 
 /**

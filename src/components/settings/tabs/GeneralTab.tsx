@@ -167,7 +167,7 @@ export function GeneralTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Output */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Output</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Output</h3>
 
         {/* Output directory picker */}
         <FilePickerButton
@@ -182,7 +182,7 @@ export function GeneralTab() {
 
       {/* Section: Appearance */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Appearance</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Appearance</h3>
 
         {/*
          * Theme mode selector -- controls dark/light/auto appearance.
@@ -222,7 +222,7 @@ export function GeneralTab() {
 
       {/* Section: Preferences */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Preferences</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Preferences</h3>
 
         {/* Metadata language */}
         <Select

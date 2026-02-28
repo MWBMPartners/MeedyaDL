@@ -38,6 +38,15 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { Input, Toggle } from '@/components/common';
 
 /**
+ * Opens a URL in the system default browser via the Tauri shell plugin.
+ * Used for the AcousticID registration link.
+ */
+async function openExternal(url: string) {
+  const { open } = await import('@tauri-apps/plugin-shell');
+  await open(url);
+}
+
+/**
  * MetadataTab -- Renders the Metadata settings tab.
  *
  * Contains three sections: an informational block about automatic tags,
@@ -57,7 +66,7 @@ export function MetadataTab() {
           Section 1: Automatic Tags
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-2">Automatic Tags</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-2">Automatic Tags</h3>
         <p className="text-sm text-content-secondary leading-relaxed mb-2">
           MeedyaDL automatically enriches downloaded files with metadata after every download. Codec
           tags (lossless, spatial audio), source tags, and channel configuration are always written.
@@ -79,7 +88,7 @@ export function MetadataTab() {
           Section 2: AcousticID Fingerprinting (opt-in)
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">
+        <h3 className="text-base font-semibold text-content-primary mb-4">
           AcousticID Fingerprinting
         </h3>
 
@@ -94,7 +103,22 @@ export function MetadataTab() {
           {settings.acoustid_enabled && (
             <Input
               label="AcousticID API Key"
-              description="Register a free application API key at acoustid.org/new-application. Required for AcousticID lookups."
+              description={
+                <>
+                  Register a free application API key at{' '}
+                  <button
+                    type="button"
+                    className="text-accent hover:text-accent-hover underline transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openExternal('https://acoustid.org/new-application');
+                    }}
+                  >
+                    acoustid.org/new-application
+                  </button>
+                  . Required for AcousticID lookups.
+                </>
+              }
               value={settings.acoustid_api_key ?? ''}
               placeholder="Your AcousticID application API key"
               onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
@@ -107,7 +131,7 @@ export function MetadataTab() {
           Section 3: ReplayGain Analysis (opt-in)
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">ReplayGain Analysis</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">ReplayGain Analysis</h3>
 
         <div className="space-y-4">
           <Toggle
