@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Improve error handling for Python exceptions and traceback frames
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.5.6] - 2026-02-28
+
 ### ✨ Features
 
 - Enhance toast notifications with deduplication and clearing for preflight checks
