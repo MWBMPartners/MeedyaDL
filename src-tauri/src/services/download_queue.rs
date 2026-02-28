@@ -624,6 +624,17 @@ impl DownloadQueue {
             let mut new_options = item.merged_options.clone();
             new_options.song_codec = Some(next_codec.clone());
 
+            // Override song_codec_priority with just this single codec.
+            // This serves two purposes:
+            // 1. Prevents process_download_item() from rebuilding the full
+            //    priority chain (the is_none() check will be false).
+            // 2. Overrides the config.ini song_codec_priority (which still
+            //    has the full chain) so GAMDL tries only this one codec.
+            // Using --song-codec-priority with one codec is equivalent to
+            // --song-codec but also overrides the config.ini key.
+            new_options.song_codec_priority =
+                Some(next_codec.to_cli_string().to_string());
+
             // If the companion mode would produce companions for this fallback
             // codec, apply the codec suffix to file templates so the specialist
             // format files don't collide with the companion files.
@@ -1826,8 +1837,9 @@ pub fn process_queue(
     // from the user's preferred codec + fallback chain. GAMDL tries each codec
     // in order within a single process, which is much more efficient than our
     // `try_fallback` system (which spawns one process per codec attempt).
-    // When this is set, `try_fallback()` is skipped on codec errors since
-    // GAMDL already tried all codecs natively.
+    // If native priority fails, MeedyaDL's own `try_fallback()` still runs as
+    // a safety net, retrying each codec individually via `--song-codec-priority`
+    // with a single codec (see `try_fallback()` and the "codec" error handler).
     let uses_native_priority = if let Some(ref ver) = gamdl_version {
         let settings_for_priority = load_settings_for_queue(&app);
         if gamdl_service::is_version_at_least(ver, "2.9.1")
@@ -2550,35 +2562,38 @@ pub fn process_queue(
                 // Determine if we should retry or fallback based on error category
                 let should_retry = match error_category {
                     "codec" => {
+                        // Codec/format error: the requested audio codec isn't
+                        // available for this track. Try the next codec in the
+                        // fallback chain (e.g., atmos -> alac -> aac).
+                        //
+                        // Even when GAMDL >= 2.9.1 native priority was used
+                        // (--song-codec-priority), we still run MeedyaDL's own
+                        // fallback as a safety net. GAMDL's native priority
+                        // loop may fail without exhausting all codecs (e.g.,
+                        // AttributeError on None stream_info, DRM issues, or
+                        // partial chain traversal). Per-codec retries via
+                        // --song-codec are more reliable as a fallback path.
                         if uses_native_priority {
-                            // GAMDL >= 2.9.1 already tried all codecs natively
-                            // via --song-codec-priority — no fallback needed.
-                            log::info!(
-                                "Download {dl_id} codec error with native priority \
-                                 (all codecs exhausted by GAMDL)"
+                            log::warn!(
+                                "Download {dl_id} codec error despite native \
+                                 priority — trying per-codec fallback as \
+                                 safety net"
                             );
-                            let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
-                            false
-                        } else {
-                            // Codec error: the requested audio codec isn't available
-                            // for this track. Try the next codec in the fallback
-                            // chain (e.g., alac -> aac-he).
-                            let settings = load_settings_for_queue(&app_clone);
-                            let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
-
-                            q.try_fallback(&dl_id, &settings)
-                                .is_some_and(|_new_options| {
-                                    log::info!(
-                                        "Download {dl_id} will retry with \
-                                         fallback codec"
-                                    );
-                                    true
-                                })
                         }
+
+                        let settings = load_settings_for_queue(&app_clone);
+                        let mut q = queue_clone.lock().await;
+                        q.set_error(&dl_id, &error_msg);
+                        q.on_task_finished();
+
+                        q.try_fallback(&dl_id, &settings)
+                            .is_some_and(|_new_options| {
+                                log::info!(
+                                    "Download {dl_id} will retry with \
+                                     fallback codec"
+                                );
+                                true
+                            })
                     }
                     "network" => {
                         // Network error: transient connection issue.
@@ -3986,6 +4001,14 @@ mod tests {
             Some(SongCodec::Atmos),
             "First fallback should be Atmos (index 1 in chain)"
         );
+        // song_codec_priority should be set to just the single fallback codec
+        // to prevent process_download_item() from rebuilding the full chain
+        // and to override config.ini's full priority chain.
+        assert_eq!(
+            new_opts.song_codec_priority,
+            Some("atmos".to_string()),
+            "song_codec_priority should be overridden to single fallback codec"
+        );
 
         let statuses = queue.get_status();
         assert_eq!(statuses[0].state, DownloadState::Queued, "Should reset to Queued");
@@ -4058,12 +4081,24 @@ mod tests {
         // Fallback 1: Alac -> Atmos
         queue.set_error(&id, "codec error");
         let r1 = queue.try_fallback(&id, &settings);
-        assert_eq!(r1.unwrap().song_codec, Some(SongCodec::Atmos));
+        let r1_opts = r1.unwrap();
+        assert_eq!(r1_opts.song_codec, Some(SongCodec::Atmos));
+        assert_eq!(
+            r1_opts.song_codec_priority,
+            Some("atmos".to_string()),
+            "Priority should be single codec on fallback"
+        );
 
         // Fallback 2: Atmos -> Aac
         queue.set_error(&id, "codec error");
         let r2 = queue.try_fallback(&id, &settings);
-        assert_eq!(r2.unwrap().song_codec, Some(SongCodec::Aac));
+        let r2_opts = r2.unwrap();
+        assert_eq!(r2_opts.song_codec, Some(SongCodec::Aac));
+        assert_eq!(
+            r2_opts.song_codec_priority,
+            Some("aac".to_string()),
+            "Priority should be single codec on fallback"
+        );
 
         // Fallback 3: exhausted
         queue.set_error(&id, "codec error");
