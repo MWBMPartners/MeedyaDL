@@ -285,6 +285,10 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Crash reporting system** - Three-layer diagnostics: local file logging (`tracing` ecosystem with daily-rotating log files), local JSON crash reports (`{app_data_dir}/crashes/`), and opt-in Sentry cloud reporting. Custom panic handler captures Rust panics; frontend errors (ErrorBoundary, window.onerror, unhandledrejection) persisted via `log_frontend_error` IPC command.
 - ✅ **GitHub Issues crash reporting** - One-click crash reporting to GitHub Issues from Settings > Advanced > Crash Reporting. Pre-filled GitHub Issue URL opened in the user's browser (no tokens, no server needed). Privacy-first: user reviews all data in a `CrashReportDialog` consent modal before submitting. Backtrace truncated if body exceeds 3500 chars for URL length safety. New `crash-report` label and `.github/ISSUE_TEMPLATE/crash-report.yml` issue template. `build_github_issue_url()` in `crash_report_service.rs`, `get_github_issue_url` IPC command, `CrashReportSection` and `CrashReportDialog` frontend components.
 - ✅ **GitHub branch protection** - Repository Ruleset on `main` preventing force pushes and branch deletion, requiring CI status checks for PRs
+- ✅ **Pre-download internet connectivity check** - Non-blocking internet check before every download (`check_internet_before_download` Tauri command). When offline, the download is still queued but auto-start is skipped (`skip_auto_start` parameter on `start_download`); a warning toast is shown. Downloads wait in Queued state until the next online download triggers `process_queue()`. Cookie validation (`check_cookies_before_download`) runs only when online and is skipped for wrapper users.
+- ✅ **Toast notification deduplication and auto-dismissal** - Prevents identical toast messages from stacking on screen (message-level dedup). Keyed toasts support category-based replacement and programmatic dismissal via `removeToastsByKey()`. Preflight warnings use keyed toasts with `preflight-cleared` events for auto-dismissal when checks pass (e.g., wrapper becomes reachable).
+- ✅ **Auto-retry without wrapper** - `auto_retry_without_wrapper` setting (default: false). When enabled and a wrapper download fails terminally, the queue automatically re-queues the item with wrapper disabled (falls back to cookie-based auth). Toggle in Settings > Advanced > Wrapper section (only visible when Use Wrapper is enabled). Activity Log entry: "Wrapper failed — auto-retrying without wrapper".
+- ✅ **Network error report suppression** - Terminal download failures with `error_category == "network"` no longer generate error reports, since network errors indicate connectivity issues rather than application bugs
 
 ---
 
@@ -502,6 +506,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-02-28*
 
 (c) 2024-2026 MeedyaDL
