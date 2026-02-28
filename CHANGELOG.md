@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Enhance README and HelpViewer with wrapper authentication details and connectivity troubleshooting
+
+## [0.5.4] - 2026-02-27
+
 ### ✨ Features
 
 - Add cookie validation before download to enhance user feedback
