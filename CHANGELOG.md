@@ -31,6 +31,7 @@ When your preferred audio format (like Dolby Atmos) isn't available for
 - Update CHANGELOG.md [skip ci]
 - Enhance README and HelpViewer with wrapper authentication details and connectivity troubleshooting
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
