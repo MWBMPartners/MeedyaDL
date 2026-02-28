@@ -93,7 +93,8 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
         Ok(_) => None,
         Err(e) => {
             let message = if e.is_timeout() {
-                "Internet connectivity check timed out — Apple Music servers may be unreachable".to_string()
+                "Internet connectivity check timed out — Apple Music servers may be unreachable"
+                    .to_string()
             } else if e.is_connect() {
                 "Cannot connect to Apple Music servers — check your internet connection".to_string()
             } else {
@@ -272,13 +273,9 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
         Ok(_) => None,
         Err(e) => {
             let message = if e.is_timeout() {
-                format!(
-                    "Wrapper service at {wrapper_url} timed out — check that it is running"
-                )
+                format!("Wrapper service at {wrapper_url} timed out — check that it is running")
             } else if e.is_connect() {
-                format!(
-                    "Cannot connect to wrapper at {wrapper_url} — is the service running?"
-                )
+                format!("Cannot connect to wrapper at {wrapper_url} — is the service running?")
             } else {
                 format!("Wrapper health check failed: {e}")
             };

@@ -124,10 +124,7 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
     // Get total size for progress reporting (0 if server doesn't provide Content-Length)
     let total_size = response.content_length().unwrap_or(0);
     if total_size > 0 {
-        log::info!(
-            "Download size: {:.1} MB",
-            total_size as f64 / 1_048_576.0
-        );
+        log::info!("Download size: {:.1} MB", total_size as f64 / 1_048_576.0);
     }
 
     // Create the output file for streaming writes
@@ -174,7 +171,10 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
         .await
         .map_err(|e| format!("Failed to flush file {}: {}", dest.display(), e))?;
 
-    log::info!("Download complete: {:.1} MB", downloaded as f64 / 1_048_576.0);
+    log::info!(
+        "Download complete: {:.1} MB",
+        downloaded as f64 / 1_048_576.0
+    );
     Ok(downloaded)
 }
 
@@ -257,7 +257,9 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
             // Use `enclosed_name()` for security -- it validates that the
             // entry's path does not escape the extraction directory via `..`
             // components or absolute paths (zip-slip prevention).
-            let outpath = if let Some(path) = entry.enclosed_name() { dest.join(path) } else {
+            let outpath = if let Some(path) = entry.enclosed_name() {
+                dest.join(path)
+            } else {
                 log::warn!("Skipping ZIP entry with unsafe path at index {i}");
                 continue;
             };
@@ -300,11 +302,8 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
                 {
                     use std::os::unix::fs::PermissionsExt;
                     if let Some(mode) = entry.unix_mode() {
-                        std::fs::set_permissions(
-                            &outpath,
-                            std::fs::Permissions::from_mode(mode),
-                        )
-                        .ok();
+                        std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode))
+                            .ok();
                     }
                 }
             }

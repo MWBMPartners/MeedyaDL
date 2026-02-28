@@ -57,9 +57,7 @@ pub fn list_crash_reports(app: &AppHandle) -> Vec<CrashReport> {
 /// Scans all crash report files and returns the one matching the
 /// given ID, or `None` if not found.
 pub fn get_crash_report(app: &AppHandle, id: &str) -> Option<CrashReport> {
-    list_crash_reports(app)
-        .into_iter()
-        .find(|r| r.id == id)
+    list_crash_reports(app).into_iter().find(|r| r.id == id)
 }
 
 /// Deletes a crash report by its ID.
@@ -92,8 +90,8 @@ pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
 /// Exports a crash report as a formatted Markdown string suitable for
 /// pasting into a GitHub issue or sharing with a developer.
 pub fn export_crash_report(app: &AppHandle, id: &str) -> Result<String, String> {
-    let report = get_crash_report(app, id)
-        .ok_or_else(|| format!("Crash report not found: {id}"))?;
+    let report =
+        get_crash_report(app, id).ok_or_else(|| format!("Crash report not found: {id}"))?;
 
     let mut md = String::new();
     md.push_str("## MeedyaDL Crash Report\n\n");
@@ -152,8 +150,8 @@ const GITHUB_REPO: &str = "MWBMPartners/MeedyaDL";
 /// Uses the `url` crate's `Url::parse()` + `query_pairs_mut()` for proper
 /// percent-encoding of all query parameter values.
 pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, String> {
-    let report = get_crash_report(app, id)
-        .ok_or_else(|| format!("Crash report not found: {id}"))?;
+    let report =
+        get_crash_report(app, id).ok_or_else(|| format!("Crash report not found: {id}"))?;
 
     // Build the issue title -- cap error message at 80 chars for readability.
     // Use different prefix and labels for download errors vs crashes.
@@ -199,9 +197,8 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
             // Truncate: keep first 15 + last 5 lines (most diagnostic)
             let head = lines[..15].join("\n");
             let tail = lines[lines.len().saturating_sub(5)..].join("\n");
-            let truncated = format!(
-                "{head}\n\n... [truncated — full backtrace saved locally] ...\n\n{tail}"
-            );
+            let truncated =
+                format!("{head}\n\n... [truncated — full backtrace saved locally] ...\n\n{tail}");
             body.push_str(&format!(
                 "\n### Backtrace (truncated)\n\n```\n{truncated}\n```\n"
             ));
@@ -243,8 +240,7 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     // `query_pairs_mut().append_pair()` delegates to `form_urlencoded`
     // which handles all special characters (backticks, newlines, etc.).
     let base = format!("https://github.com/{GITHUB_REPO}/issues/new");
-    let mut url = url::Url::parse(&base)
-        .map_err(|e| format!("Failed to parse base URL: {e}"))?;
+    let mut url = url::Url::parse(&base).map_err(|e| format!("Failed to parse base URL: {e}"))?;
 
     let labels = if is_download_error {
         "bug,error-report"
@@ -277,8 +273,7 @@ pub fn save_error_report(app: &AppHandle, report: CrashReport) -> Result<(), Str
     let json = serde_json::to_string_pretty(&report)
         .map_err(|e| format!("Failed to serialize error report: {e}"))?;
 
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Failed to write error report: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("Failed to write error report: {e}"))?;
 
     log::info!(
         "Error report saved: {} (source: {})",
@@ -304,8 +299,7 @@ pub fn save_frontend_crash_report(app: &AppHandle, report: CrashReport) -> Resul
 /// than parsing the JSON timestamp for efficiency.
 pub fn clear_old_reports(app: &AppHandle) {
     let dir = crashes_dir(app);
-    let cutoff = std::time::SystemTime::now()
-        - std::time::Duration::from_secs(30 * 24 * 60 * 60); // 30 days
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 60 * 60); // 30 days
 
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {

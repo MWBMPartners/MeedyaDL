@@ -378,7 +378,10 @@ mod tests {
         assert_eq!(deserialized.urls.len(), 1);
         assert!(deserialized.options.is_some());
         let opts = deserialized.options.unwrap();
-        assert_eq!(opts.song_codec, Some(super::super::gamdl_options::SongCodec::Alac));
+        assert_eq!(
+            opts.song_codec,
+            Some(super::super::gamdl_options::SongCodec::Alac)
+        );
         assert_eq!(opts.overwrite, Some(true));
     }
 
@@ -459,7 +462,10 @@ mod tests {
         let deserialized: QueueItemStatus = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.state, DownloadState::Error);
-        assert_eq!(deserialized.error, Some("Network timeout after 30 seconds".to_string()));
+        assert_eq!(
+            deserialized.error,
+            Some("Network timeout after 30 seconds".to_string())
+        );
         assert!(deserialized.current_track.is_none());
         assert!(deserialized.speed.is_none());
     }
@@ -493,7 +499,10 @@ mod tests {
         let deserialized: QueueItemStatus = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.state, DownloadState::Complete);
-        assert_eq!(deserialized.output_path, Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()));
+        assert_eq!(
+            deserialized.output_path,
+            Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string())
+        );
         assert_eq!(deserialized.codec_used, Some("aac".to_string()));
         assert!(deserialized.fallback_occurred);
         assert!((deserialized.progress - 100.0).abs() < f64::EPSILON);

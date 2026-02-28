@@ -84,9 +84,7 @@ pub async fn open_apple_login(app: AppHandle) -> Result<(), String> {
 /// * `Ok(CookieImportResult)` - Extraction result with cookie counts and path.
 /// * `Err(String)` - If the login window isn't open or extraction failed.
 #[tauri::command]
-pub async fn extract_login_cookies(
-    app: AppHandle,
-) -> Result<CookieImportResult, String> {
+pub async fn extract_login_cookies(app: AppHandle) -> Result<CookieImportResult, String> {
     log::info!("Manually extracting cookies from login window");
     login_window_service::extract_login_cookies(&app).await
 }

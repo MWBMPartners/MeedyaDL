@@ -163,7 +163,6 @@ pub struct AppSettings {
     // ================================================================
     // General
     // ================================================================
-
     /// Output directory for downloaded music and videos.
     /// An empty string means "use the platform's default Music directory",
     /// which is resolved at runtime (e.g., `~/Music` on macOS).
@@ -218,7 +217,6 @@ pub struct AppSettings {
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
-
     /// Default audio codec for music downloads. Maps to
     /// `GamdlOptions::song_codec`. See `SongCodec` in `gamdl_options.rs`
     /// for the full list of available codecs and their characteristics.
@@ -227,7 +225,6 @@ pub struct AppSettings {
     // ================================================================
     // Video Quality Defaults
     // ================================================================
-
     /// Default maximum video resolution. Maps to
     /// `GamdlOptions::music_video_resolution`. See `VideoResolution`
     /// in `gamdl_options.rs` for available resolutions.
@@ -248,7 +245,6 @@ pub struct AppSettings {
     // ================================================================
     // Fallback Quality Chains
     // ================================================================
-
     /// Whether the fallback quality system is enabled. When `true` and a
     /// download fails with the preferred codec/resolution, the download
     /// manager automatically retries with the next option in the fallback
@@ -270,7 +266,6 @@ pub struct AppSettings {
     // ================================================================
     // Companion Downloads
     // ================================================================
-
     /// Controls whether and how `MeedyaDL` downloads companion format
     /// versions alongside the primary download. When companions are enabled,
     /// `MeedyaDL` triggers additional GAMDL invocations after the primary
@@ -284,7 +279,6 @@ pub struct AppSettings {
     // ================================================================
     // Lyrics
     // ================================================================
-
     /// When enabled, ensures that lyrics are both embedded in the audio
     /// file's metadata tags AND saved as a sidecar file (LRC/SRT/TTML).
     /// This provides maximum compatibility: embedded lyrics for players
@@ -337,7 +331,6 @@ pub struct AppSettings {
     // ================================================================
     // Cover Art
     // ================================================================
-
     /// Whether to save cover art as a separate image file alongside the
     /// downloaded audio. The artwork is always embedded in the audio file
     /// metadata regardless of this setting; this controls the separate
@@ -358,7 +351,6 @@ pub struct AppSettings {
     // ================================================================
     // Animated Artwork (Motion Cover Art)
     // ================================================================
-
     /// Whether to download animated cover art (motion artwork) from Apple
     /// Music after each album download. When enabled, `MeedyaDL` queries the
     /// Apple Music catalog API (`extend=editorialVideo`) and saves
@@ -401,7 +393,6 @@ pub struct AppSettings {
     // ================================================================
     // Metadata Enrichment (Opt-In)
     // ================================================================
-
     /// Enable `AcousticID` fingerprinting for downloaded tracks. When enabled,
     /// `MeedyaDL` generates Chromaprint audio fingerprints using the embedded
     /// rusty-chromaprint library and looks up `AcousticID` identifiers from
@@ -435,7 +426,6 @@ pub struct AppSettings {
     // include: {album_artist}, {album}, {artist}, {title}, {track}, {disc},
     // {playlist_artist}, {playlist_title}, and others documented at
     // <https://github.com/glomatico/gamdl#usage>.
-
     /// Folder naming template for album downloads.
     /// Default: `"{album_artist}/{album}"` -- organizes by artist then album.
     pub album_folder_template: String,
@@ -471,7 +461,6 @@ pub struct AppSettings {
     // the app data directory. Users can override with custom paths if
     // they have their own installations. These map directly to the
     // corresponding `GamdlOptions` path fields.
-
     /// Path to a Netscape-format `cookies.txt` file for Apple Music
     /// authentication. Required for downloading encrypted content.
     /// See GAMDL docs for how to export cookies from a browser.
@@ -494,7 +483,6 @@ pub struct AppSettings {
     // ================================================================
     // Advanced
     // ================================================================
-
     /// Download tool selection. See `DownloadMode` in `gamdl_options.rs`.
     /// Default: `Ytdlp` (yt-dlp) because it requires no additional binary.
     pub download_mode: DownloadMode,
@@ -540,7 +528,6 @@ pub struct AppSettings {
     // ================================================================
     // Artist
     // ================================================================
-
     /// Default artist auto-selection mode when downloading from artist URLs.
     /// Controls which content type is automatically downloaded. New in GAMDL 2.9.1.
     /// Default: `None` (omit the flag, let GAMDL use its own default behavior).
@@ -550,7 +537,6 @@ pub struct AppSettings {
     // ================================================================
     // Crash Reporting & Telemetry
     // ================================================================
-
     /// Whether to send anonymous crash reports to Sentry (opt-in telemetry).
     /// When `true`, the Sentry SDK is initialised at startup and captures
     /// panics, `tracing::error!()` events, and breadcrumbs. When `false`
@@ -564,7 +550,6 @@ pub struct AppSettings {
     // ================================================================
     // Application State
     // ================================================================
-
     /// Whether the first-run setup wizard has been completed at least once.
     /// When `true`, the app skips the wizard on startup even if some
     /// dependencies are missing (shows a warning banner instead). This
@@ -578,7 +563,6 @@ pub struct AppSettings {
     // ================================================================
     // These fields persist UI layout preferences across sessions. They
     // have no effect on GAMDL CLI arguments.
-
     /// Whether the sidebar navigation panel is collapsed. Persisted so
     /// the UI remembers the user's preferred layout between sessions.
     pub sidebar_collapsed: bool,
@@ -679,7 +663,7 @@ impl Default for AppSettings {
                 SongCodec::Ac3,         // 3. Dolby Digital (AC3) -- surround
                 SongCodec::AacBinaural, // 4. AAC (256kbps) Binaural -- spatial stereo
                 SongCodec::Aac,         // 5. AAC (256kbps at up to 48kHz) -- standard lossy
-                SongCodec::AacLegacy,   // 6. AAC Legacy (256kbps at up to 44.1kHz) -- broadest compat
+                SongCodec::AacLegacy, // 6. AAC Legacy (256kbps at up to 44.1kHz) -- broadest compat
             ],
             video_fallback_chain: vec![
                 VideoResolution::P2160, // 1. H.265 2160p (4K UHD)
@@ -965,23 +949,44 @@ mod tests {
         assert_eq!(deserialized.default_song_codec, settings.default_song_codec);
 
         // Video quality
-        assert_eq!(deserialized.default_video_resolution, settings.default_video_resolution);
-        assert_eq!(deserialized.default_video_codec_priority, settings.default_video_codec_priority);
-        assert_eq!(deserialized.default_video_remux_format, settings.default_video_remux_format);
+        assert_eq!(
+            deserialized.default_video_resolution,
+            settings.default_video_resolution
+        );
+        assert_eq!(
+            deserialized.default_video_codec_priority,
+            settings.default_video_codec_priority
+        );
+        assert_eq!(
+            deserialized.default_video_remux_format,
+            settings.default_video_remux_format
+        );
 
         // Fallback
         assert_eq!(deserialized.fallback_enabled, settings.fallback_enabled);
-        assert_eq!(deserialized.music_fallback_chain.len(), settings.music_fallback_chain.len());
-        assert_eq!(deserialized.video_fallback_chain.len(), settings.video_fallback_chain.len());
+        assert_eq!(
+            deserialized.music_fallback_chain.len(),
+            settings.music_fallback_chain.len()
+        );
+        assert_eq!(
+            deserialized.video_fallback_chain.len(),
+            settings.video_fallback_chain.len()
+        );
 
         // Companion downloads
         assert_eq!(deserialized.companion_mode, settings.companion_mode);
 
         // Lyrics
-        assert_eq!(deserialized.synced_lyrics_format, settings.synced_lyrics_format);
+        assert_eq!(
+            deserialized.synced_lyrics_format,
+            settings.synced_lyrics_format
+        );
         assert_eq!(deserialized.no_synced_lyrics, settings.no_synced_lyrics);
         assert_eq!(deserialized.synced_lyrics_only, settings.synced_lyrics_only);
-        assert_eq!(deserialized.companion_lyrics_formats, settings.companion_lyrics_formats);
+        assert_eq!(
+            deserialized.companion_lyrics_formats,
+            settings.companion_lyrics_formats
+        );
         assert_eq!(deserialized.enhanced_lrc, settings.enhanced_lrc);
 
         // Cover art
@@ -990,21 +995,39 @@ mod tests {
         assert_eq!(deserialized.cover_size, settings.cover_size);
 
         // Animated artwork
-        assert_eq!(deserialized.animated_artwork_enabled, settings.animated_artwork_enabled);
-        assert_eq!(deserialized.hide_animated_artwork, settings.hide_animated_artwork);
+        assert_eq!(
+            deserialized.animated_artwork_enabled,
+            settings.animated_artwork_enabled
+        );
+        assert_eq!(
+            deserialized.hide_animated_artwork,
+            settings.hide_animated_artwork
+        );
         assert_eq!(deserialized.musickit_team_id, settings.musickit_team_id);
         assert_eq!(deserialized.musickit_key_id, settings.musickit_key_id);
 
         // Templates
-        assert_eq!(deserialized.album_folder_template, settings.album_folder_template);
-        assert_eq!(deserialized.compilation_folder_template, settings.compilation_folder_template);
-        assert_eq!(deserialized.playlist_file_template, settings.playlist_file_template);
+        assert_eq!(
+            deserialized.album_folder_template,
+            settings.album_folder_template
+        );
+        assert_eq!(
+            deserialized.compilation_folder_template,
+            settings.compilation_folder_template
+        );
+        assert_eq!(
+            deserialized.playlist_file_template,
+            settings.playlist_file_template
+        );
 
         // Advanced
         assert_eq!(deserialized.download_mode, settings.download_mode);
         assert_eq!(deserialized.remux_mode, settings.remux_mode);
         assert_eq!(deserialized.use_wrapper, settings.use_wrapper);
-        assert_eq!(deserialized.wrapper_account_url, settings.wrapper_account_url);
+        assert_eq!(
+            deserialized.wrapper_account_url,
+            settings.wrapper_account_url
+        );
         assert_eq!(deserialized.fetch_extra_tags, settings.fetch_extra_tags);
 
         // UI state
@@ -1050,11 +1073,26 @@ mod tests {
         let json = serde_json::to_string(&settings).unwrap();
         let deserialized: AppSettings = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(deserialized.cookies_path, Some("/path/to/cookies.txt".to_string()));
-        assert_eq!(deserialized.ffmpeg_path, Some("/usr/local/bin/ffmpeg".to_string()));
-        assert_eq!(deserialized.mp4decrypt_path, Some("/usr/local/bin/mp4decrypt".to_string()));
-        assert_eq!(deserialized.mp4box_path, Some("/usr/local/bin/mp4box".to_string()));
-        assert_eq!(deserialized.nm3u8dlre_path, Some("/usr/local/bin/N_m3u8DL-RE".to_string()));
+        assert_eq!(
+            deserialized.cookies_path,
+            Some("/path/to/cookies.txt".to_string())
+        );
+        assert_eq!(
+            deserialized.ffmpeg_path,
+            Some("/usr/local/bin/ffmpeg".to_string())
+        );
+        assert_eq!(
+            deserialized.mp4decrypt_path,
+            Some("/usr/local/bin/mp4decrypt".to_string())
+        );
+        assert_eq!(
+            deserialized.mp4box_path,
+            Some("/usr/local/bin/mp4box".to_string())
+        );
+        assert_eq!(
+            deserialized.nm3u8dlre_path,
+            Some("/usr/local/bin/N_m3u8DL-RE".to_string())
+        );
         assert_eq!(deserialized.truncate, Some(200));
         assert_eq!(deserialized.theme_override, Some("dark".to_string()));
     }
@@ -1146,10 +1184,7 @@ mod tests {
     #[test]
     fn companion_lyrics_formats_serde_roundtrip() {
         let settings = AppSettings {
-            companion_lyrics_formats: vec![
-                LyricsFormat::Srt,
-                LyricsFormat::Ttml,
-            ],
+            companion_lyrics_formats: vec![LyricsFormat::Srt, LyricsFormat::Ttml],
             ..Default::default()
         };
         let json = serde_json::to_string(&settings).unwrap();

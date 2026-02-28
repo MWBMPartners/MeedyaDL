@@ -68,10 +68,8 @@ use std::sync::LazyLock;
 /// `\S+` matches any non-whitespace sequence, which is flexible enough to
 /// handle varying size/speed/time formats.
 static PROGRESS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"\[download\]\s+(\d+\.?\d*)%\s+of\s+~?\s*(\S+)\s+at\s+(\S+)\s+ETA\s+(\S+)",
-    )
-    .expect("Invalid progress regex")
+    Regex::new(r"\[download\]\s+(\d+\.?\d*)%\s+of\s+~?\s*(\S+)\s+at\s+(\S+)\s+ETA\s+(\S+)")
+        .expect("Invalid progress regex")
 });
 
 /// Matches yt-dlp-style download completion output (100% reached).
@@ -116,9 +114,8 @@ static TRACK_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// The `(?i)` flag makes the match case-insensitive ("Saved", "saved",
 /// "SAVED" all match). The `:?` makes the colon optional to handle
 /// minor formatting variations across GAMDL versions.
-static SAVED_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)saved\s+to:?\s+(.+)").expect("Invalid saved regex")
-});
+static SAVED_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)saved\s+to:?\s+(.+)").expect("Invalid saved regex"));
 
 /// Matches lines containing explicit error indicators at the start.
 ///
@@ -276,9 +273,7 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
 
     // Skip empty lines
     if trimmed.is_empty() {
-        return GamdlOutputEvent::Unknown {
-            raw: String::new(),
-        };
+        return GamdlOutputEvent::Unknown { raw: String::new() };
     }
 
     // Priority 1: yt-dlp download progress (most frequent during downloads).
@@ -352,7 +347,8 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     // Priority 4: Explicit error messages with ERROR/Error prefix
     if let Some(captures) = ERROR_PREFIX_REGEX.captures(trimmed) {
         let message = captures
-            .get(1).map_or_else(|| trimmed.to_string(), |m| m.as_str().to_string());
+            .get(1)
+            .map_or_else(|| trimmed.to_string(), |m| m.as_str().to_string());
         return GamdlOutputEvent::Error { message };
     }
 
@@ -462,7 +458,7 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
 /// # Connection
 /// Called by `services::download_queue` after a download fails, before
 /// deciding whether to enqueue a retry with a lower-quality codec.
-#[must_use] 
+#[must_use]
 pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     lower.contains("codec not available")      // yt-dlp: requested codec not in manifest
@@ -472,7 +468,7 @@ pub fn is_codec_error(error_message: &str) -> bool {
         || lower.contains("unable to find matching codec") // GAMDL variant
         || lower.contains("requested codec")   // GAMDL: "requested codec X not available"
         || lower.contains("requested format")  // GAMDL 2.8.x: "Requested format is not available"
-        || lower.contains("drm")               // DRM-protected content (cannot be decoded)
+        || lower.contains("drm") // DRM-protected content (cannot be decoded)
 }
 
 /// Checks if a GAMDL error message indicates a filesystem I/O error.
@@ -494,7 +490,7 @@ pub fn is_codec_error(error_message: &str) -> bool {
 /// Called by `services::download_queue` in the success path to determine
 /// whether "no output" is due to a filesystem issue (recoverable — files
 /// may exist) vs. a codec issue (needs fallback) vs. a genuine failure.
-#[must_use] 
+#[must_use]
 pub fn is_io_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     lower.contains("operation timed out")       // macOS ETIMEDOUT (errno 60)
@@ -504,7 +500,7 @@ pub fn is_io_error(error_message: &str) -> bool {
         || lower.contains("input/output error") // Generic I/O error (EIO)
         || lower.contains("[errno 5]")          // Linux EIO
         || lower.contains("stale file handle")  // NFS stale handle (ESTALE)
-        || lower.contains("[errno 116]")        // ESTALE on Linux
+        || lower.contains("[errno 116]") // ESTALE on Linux
 }
 
 /// Classifies an error message into a named category for the React UI.
@@ -524,7 +520,7 @@ pub fn is_io_error(error_message: &str) -> bool {
 /// | Category       | Keywords matched                          | Retry? |
 /// |----------------|-------------------------------------------|--------|
 /// | `"auth"`       | cookie, auth, login                       | No     |
-/// | `"network"`    | network, timeout, connection, dns         | Yes    |
+/// | `"network"`    | network, timeout, timed out, connection, connecterror, dns | Yes |
 /// | `"codec"`      | (delegated to `is_codec_error`)           | Fallback|
 /// | `"not_found"`  | not found, 404, no results                | No     |
 /// | `"rate_limit"` | rate limit, 429, too many                 | Delayed|
@@ -540,7 +536,7 @@ pub fn is_io_error(error_message: &str) -> bool {
 /// # Connection
 /// Called by `services::download_queue` and `commands::gamdl` when reporting
 /// errors to the frontend.
-#[must_use] 
+#[must_use]
 pub fn classify_error(error_message: &str) -> &'static str {
     let lower = error_message.to_lowercase();
 
@@ -555,9 +551,13 @@ pub fn classify_error(error_message: &str) -> &'static str {
     } else if is_io_error(error_message) {
         "io"
     // Network errors: transient, may resolve on retry.
+    // Includes Python httpx/httpcore exceptions (ConnectError, ReadTimeout, etc.)
+    // and common socket-level messages (connection refused, timed out, etc.).
     } else if lower.contains("network")
         || lower.contains("timeout")
+        || lower.contains("timed out")
         || lower.contains("connection")
+        || lower.contains("connecterror")
         || lower.contains("dns")
     {
         "network"
@@ -565,12 +565,10 @@ pub fn classify_error(error_message: &str) -> &'static str {
     } else if is_codec_error(error_message) {
         "codec"
     // Content not found: the URL is invalid or the content was removed.
-    } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results")
-    {
+    } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
     // Rate limiting: the server is throttling requests; retry after delay.
-    } else if lower.contains("rate limit") || lower.contains("429") || lower.contains("too many")
-    {
+    } else if lower.contains("rate limit") || lower.contains("429") || lower.contains("too many") {
         "rate_limit"
     // External tool errors: FFmpeg, mp4decrypt, etc. failed during post-processing.
     } else if lower.contains("ffmpeg")
@@ -945,6 +943,20 @@ mod tests {
         assert_eq!(classify_error("Network timeout"), "network");
         assert_eq!(classify_error("Connection refused"), "network");
         assert_eq!(classify_error("DNS resolution failed"), "network");
+        // Python httpx/httpcore exceptions from wrapper connectivity issues
+        assert_eq!(
+            classify_error("httpx.ConnectError: [Errno 61] Connection refused"),
+            "network"
+        );
+        assert_eq!(
+            classify_error("httpcore.ConnectError: All connection attempts failed"),
+            "network"
+        );
+        assert_eq!(classify_error("httpx.ConnectTimeout: timed out"), "network");
+        // Bare ConnectError without message context
+        assert_eq!(classify_error("httpcore.ConnectError:"), "network");
+        // "timed out" without "operation" prefix (network, not IO)
+        assert_eq!(classify_error("Read timed out"), "network");
     }
 
     #[test]

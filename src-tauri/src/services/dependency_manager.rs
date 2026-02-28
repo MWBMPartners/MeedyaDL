@@ -120,7 +120,10 @@ fn parse_version_tuple(version_str: &str) -> Option<(u32, u32, u32)> {
 
     let major: u32 = caps.get(1)?.as_str().parse().ok()?;
     let minor: u32 = caps.get(2)?.as_str().parse().ok()?;
-    let patch: u32 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+    let patch: u32 = caps
+        .get(3)
+        .and_then(|m| m.as_str().parse().ok())
+        .unwrap_or(0);
 
     Some((major, minor, patch))
 }
@@ -320,9 +323,7 @@ async fn resolve_github_release_asset(
     let api_url = if tag == "latest" {
         format!("https://api.github.com/repos/{repo}/releases/latest")
     } else {
-        format!(
-            "https://api.github.com/repos/{repo}/releases/tags/{tag}"
-        )
+        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
     };
 
     // A User-Agent header is required by the GitHub API (returns 403 without it).
@@ -420,12 +421,9 @@ async fn get_mirror_download_url(
     );
 
     // Query the mirror repo's release for our platform-specific asset
-    let (url, filename) = resolve_github_release_asset(
-        &mirror.github_repo,
-        &mirror.release_tag,
-        &asset_prefix,
-    )
-    .await?;
+    let (url, filename) =
+        resolve_github_release_asset(&mirror.github_repo, &mirror.release_tag, &asset_prefix)
+            .await?;
 
     // Determine archive format from the matched filename extension.
     // Uses Path-based extension check for case-insensitive comparison.
@@ -491,9 +489,7 @@ async fn download_tool_with_fallback(
     std::fs::create_dir_all(tool_dir)
         .map_err(|e| format!("Failed to recreate tool directory: {e}"))?;
 
-    log::info!(
-        "Trying mirror fallback for {tool_id}..."
-    );
+    log::info!("Trying mirror fallback for {tool_id}...");
     match get_mirror_download_url(tool_id).await {
         Ok((mirror_url, mirror_format)) => {
             log::info!("Downloading {tool_id} from mirror: {mirror_url}");
@@ -666,19 +662,13 @@ fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveF
         // Windows: 64-bit only (32-bit builds dropped at build 633)
         // Naming convention changed: "win32" → "x86_64-microsoft-win32"
         ("windows", "x86_64" | "aarch64") => "x86_64-microsoft-win32",
-        _ => {
-            return Err(format!(
-                "No pre-built mp4decrypt available for {os}/{arch}"
-            ))
-        }
+        _ => return Err(format!("No pre-built mp4decrypt available for {os}/{arch}")),
     };
 
     // Bento4 SDK version 1.6.0-641 (latest stable as of writing).
     // The ZIP contains bin/{mp4decrypt, mp4info, mp4fragment, ...}.
     Ok((
-        format!(
-            "https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.{platform_suffix}.zip"
-        ),
+        format!("https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.{platform_suffix}.zip"),
         archive::ArchiveFormat::Zip,
     ))
 }
@@ -696,7 +686,10 @@ fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveF
 /// predicted with a static URL pattern.
 ///
 /// Ref: <https://github.com/nilaoda/N_m3u8DL-RE>
-async fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+async fn get_nm3u8dlre_url(
+    os: &str,
+    arch: &str,
+) -> Result<(String, archive::ArchiveFormat), String> {
     // N_m3u8DL-RE uses .NET Runtime Identifiers (RIDs) in their release asset names.
     // RID format: {os}-{arch} (e.g., "osx-arm64", "linux-x64", "win-x64").
     // Ref: https://learn.microsoft.com/en-us/dotnet/core/rid-catalog
@@ -716,12 +709,8 @@ async fn get_nm3u8dlre_url(os: &str, arch: &str) -> Result<(String, archive::Arc
 
     // Query the upstream GitHub Releases API to find the correct platform asset.
     // Example asset name: "N_m3u8DL-RE_v0.5.1-beta_osx-arm64_20251029.tar.gz"
-    let (url, filename) = resolve_github_release_asset(
-        "nilaoda/N_m3u8DL-RE",
-        "latest",
-        rid,
-    )
-    .await?;
+    let (url, filename) =
+        resolve_github_release_asset("nilaoda/N_m3u8DL-RE", "latest", rid).await?;
 
     // Determine archive format from the matched filename extension.
     // Uses Path-based extension check for case-insensitive comparison.
@@ -763,7 +752,7 @@ fn get_mp4box_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFor
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
-#[must_use] 
+#[must_use]
 pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
     platform::get_tools_dir(app).join(tool_id)
 }
@@ -775,7 +764,7 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `tool_id` - The tool identifier
-#[must_use] 
+#[must_use]
 pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     let tool_dir = get_tool_dir(app, tool_id);
     // On Windows, executables require the .exe extension
@@ -933,9 +922,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
             // Copy the found binary to the expected location for consistent access.
             // We use copy instead of rename to handle cross-filesystem scenarios.
             std::fs::copy(&found, &expected_binary).map_err(|e| {
-                format!(
-                    "Failed to copy {tool_id} binary to expected location: {e}"
-                )
+                format!("Failed to copy {tool_id} binary to expected location: {e}")
             })?;
             log::info!(
                 "Found {} binary at {}, copied to {}",
@@ -1221,7 +1208,9 @@ async fn install_mp4box_from_pkg_inner(
             .map_err(|e| format!("Failed to copy GPAC libraries: {e}"))?;
         log::info!(
             "Copied GPAC lib/ directory ({} entries) to {}",
-            std::fs::read_dir(&lib_dest).map(std::iter::Iterator::count).unwrap_or(0),
+            std::fs::read_dir(&lib_dest)
+                .map(std::iter::Iterator::count)
+                .unwrap_or(0),
             lib_dest.display()
         );
     }
@@ -1276,8 +1265,7 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), Stri
         .map_err(|e| format!("Failed to read directory {}: {}", src.display(), e))?;
 
     for entry in entries {
-        let entry =
-            entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
@@ -1315,9 +1303,8 @@ async fn copy_and_verify_mp4box(
 
     // Clean up existing installation if present
     if tool_dir.exists() {
-        std::fs::remove_dir_all(&tool_dir).map_err(|e| {
-            format!("Failed to remove existing mp4box directory: {e}")
-        })?;
+        std::fs::remove_dir_all(&tool_dir)
+            .map_err(|e| format!("Failed to remove existing mp4box directory: {e}"))?;
     }
 
     std::fs::create_dir_all(&tool_dir)
@@ -1564,9 +1551,7 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
     match platform_result {
         Ok(version) => Ok(version),
         Err(primary_err) => {
-            log::warn!(
-                "Platform-specific MP4Box install failed: {primary_err}. Trying mirror..."
-            );
+            log::warn!("Platform-specific MP4Box install failed: {primary_err}. Trying mirror...");
 
             // Fall back to mirror directly (skip get_tool_download_url which
             // returns Err for MP4Box since it uses platform-specific installers)
@@ -1597,9 +1582,8 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             let expected_binary = get_tool_binary_path(app, "mp4box");
             if !expected_binary.exists() {
                 if let Some(found) = find_binary_recursive(&tool_dir, "mp4box") {
-                    std::fs::copy(&found, &expected_binary).map_err(|e| {
-                        format!("Failed to copy MP4Box binary: {e}")
-                    })?;
+                    std::fs::copy(&found, &expected_binary)
+                        .map_err(|e| format!("Failed to copy MP4Box binary: {e}"))?;
                 } else {
                     return Err(format!(
                         "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror: binary not found in archive"
@@ -1693,7 +1677,7 @@ async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String
     let version_flag = match tool_id {
         // Both FFmpeg and MP4Box use single-dash "-version" (non-standard)
         "ffmpeg" | "mp4box" => "-version",
-        _ => "--version",         // Standard GNU-style flag
+        _ => "--version", // Standard GNU-style flag
     };
 
     // Run the binary with the version flag and capture output.
@@ -1714,7 +1698,12 @@ async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String
         // Some tools output version info to stderr (e.g., FFmpeg logs to stderr).
         // Fall back to the first line of stderr.
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let first_err_line = stderr.lines().next().unwrap_or("unknown").trim().to_string();
+        let first_err_line = stderr
+            .lines()
+            .next()
+            .unwrap_or("unknown")
+            .trim()
+            .to_string();
         Ok(first_err_line)
     } else {
         Ok(first_line)
@@ -1732,7 +1721,7 @@ async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String
 ///
 /// # Returns
 /// `true` if the tool binary exists at the expected path
-#[must_use] 
+#[must_use]
 pub fn is_tool_installed(app: &AppHandle, tool_id: &str) -> bool {
     get_tool_binary_path(app, tool_id).exists()
 }
@@ -1741,7 +1730,7 @@ pub fn is_tool_installed(app: &AppHandle, tool_id: &str) -> bool {
 ///
 /// Used by the setup wizard and dependency status UI to display
 /// the full list of tools with their installation requirements.
-#[must_use] 
+#[must_use]
 pub const fn get_all_tools() -> &'static [ToolInfo] {
     TOOLS
 }
@@ -1764,7 +1753,11 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
     let tool_dir = get_tool_dir(app, tool_id);
 
     if tool_dir.exists() {
-        log::info!("Removing {} installation at {}", tool_id, tool_dir.display());
+        log::info!(
+            "Removing {} installation at {}",
+            tool_id,
+            tool_dir.display()
+        );
         tokio::fs::remove_dir_all(&tool_dir)
             .await
             .map_err(|e| format!("Failed to remove {tool_id} directory: {e}"))?;

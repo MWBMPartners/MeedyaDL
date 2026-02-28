@@ -60,8 +60,8 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tokio::process::Command;
 
-use crate::services::{apple_music_api, config_service, dependency_manager};
 use crate::services::apple_music_api::AlbumMetadata;
+use crate::services::{apple_music_api, config_service, dependency_manager};
 
 // ============================================================
 // Public Types
@@ -177,11 +177,8 @@ pub async fn process_album_artwork(
     let jwt = apple_music_api::generate_musickit_jwt(&team_id, &key_id, &private_key)?;
 
     // --- Step 4: Query Apple Music API for album metadata (includes artwork URLs) ---
-    let metadata = apple_music_api::fetch_album_metadata(
-        &jwt,
-        &parsed.storefront,
-        &parsed.album_id,
-    ).await?;
+    let metadata =
+        apple_music_api::fetch_album_metadata(&jwt, &parsed.storefront, &parsed.album_id).await?;
 
     let Some(metadata) = metadata else {
         log::debug!(

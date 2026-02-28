@@ -307,7 +307,7 @@ const BROWSER_DEFS: &[BrowserDef] = &[
 ///
 /// # Returns
 /// A vector of `DetectedBrowser` entries for each installed browser.
-#[must_use] 
+#[must_use]
 pub fn detect_browsers() -> Vec<DetectedBrowser> {
     let mut detected = Vec::new();
 
@@ -500,9 +500,7 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
                 } else if expires_i64 > 0 {
                     let days_until = (expires_i64 - now) / 86400;
                     if days_until < 7 {
-                        warnings.push(format!(
-                            "Apple Music cookies expire in {days_until} day(s)"
-                        ));
+                        warnings.push(format!("Apple Music cookies expire in {days_until} day(s)"));
                     }
                 }
             }
@@ -640,7 +638,7 @@ fn cookies_to_netscape(cookies: &[rookie::enums::Cookie]) -> String {
 ///
 /// # Returns
 /// `true` if Full Disk Access is granted (or not required on this platform).
-#[must_use] 
+#[must_use]
 pub fn check_full_disk_access() -> bool {
     #[cfg(target_os = "macos")]
     {

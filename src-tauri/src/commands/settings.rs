@@ -344,8 +344,7 @@ pub struct WrapperTestResult {
 #[tauri::command]
 pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, String> {
     // Basic URL validation before attempting the request
-    let parsed =
-        url::Url::parse(&url).map_err(|e| format!("Invalid URL: {e}"))?;
+    let parsed = url::Url::parse(&url).map_err(|e| format!("Invalid URL: {e}"))?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err("URL must use http:// or https:// scheme".to_string());
@@ -372,9 +371,7 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
             let error_msg = if e.is_timeout() {
                 "Connection timed out (5s)".to_string()
             } else if e.is_connect() {
-                format!(
-                    "Connection refused — is the wrapper running at {url}?"
-                )
+                format!("Connection refused — is the wrapper running at {url}?")
             } else {
                 format!("{e}")
             };

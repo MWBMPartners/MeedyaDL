@@ -171,7 +171,10 @@ pub async fn install_python(app: &AppHandle) -> Result<String, String> {
     // The download_and_extract utility uses reqwest to stream the download
     // and flate2/tar to extract the tar.gz archive.
     // Ref: https://docs.rs/reqwest/latest/reqwest/ (HTTP streaming download)
-    log::info!("Downloading and extracting Python to {}", app_data_dir.display());
+    log::info!(
+        "Downloading and extracting Python to {}",
+        app_data_dir.display()
+    );
     archive::download_and_extract(&url, &app_data_dir, archive::ArchiveFormat::TarGz).await?;
 
     // Step 5: Verify the installation by checking the binary exists
@@ -192,7 +195,11 @@ pub async fn install_python(app: &AppHandle) -> Result<String, String> {
     // Uses tokio::process::Command for async subprocess execution.
     // Ref: https://docs.rs/tokio/latest/tokio/process/struct.Command.html
     let version = get_python_version_from_binary(&python_bin).await?;
-    log::info!("Python {} installed successfully at {}", version, python_dir.display());
+    log::info!(
+        "Python {} installed successfully at {}",
+        version,
+        python_dir.display()
+    );
 
     Ok(version)
 }
@@ -285,7 +292,7 @@ pub async fn check_python_status(app: &AppHandle) -> Result<Option<String>, Stri
 ///
 /// This is the version that will be installed (or should be installed).
 /// Called by the frontend's setup wizard to show "Python X.Y.Z will be installed".
-#[must_use] 
+#[must_use]
 pub const fn expected_python_version() -> &'static str {
     PYTHON_VERSION
 }
@@ -295,7 +302,7 @@ pub const fn expected_python_version() -> &'static str {
 /// Used by `update_checker.rs` to compare the installed version against the
 /// version we expect, enabling the update UI to prompt for a Python update
 /// when a newer python-build-standalone release is configured.
-#[must_use] 
+#[must_use]
 pub const fn get_target_python_version() -> &'static str {
     PYTHON_VERSION
 }
