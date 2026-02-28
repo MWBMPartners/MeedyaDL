@@ -198,10 +198,7 @@ pub async fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<us
                         media_path.display()
                     );
                 } else {
-                    log::debug!(
-                        "Embedded Enhanced LRC in {}",
-                        media_path.display()
-                    );
+                    log::debug!("Embedded Enhanced LRC in {}", media_path.display());
                 }
                 break; // Only embed in the first matching media file
             }
@@ -275,8 +272,7 @@ pub fn ttml_to_enhanced_lrc(ttml_content: &str) -> Result<EnhancedLrcResult, Str
                     }
 
                     // Check for background vocals (ttm:role="x-bg")
-                    let is_bg =
-                        span.attribute((TTML_METADATA_NS, "role")) == Some("x-bg");
+                    let is_bg = span.attribute((TTML_METADATA_NS, "role")) == Some("x-bg");
 
                     if is_bg && !text.starts_with('(') {
                         line.push_str(&format!("<{word_ts}>({text})"));
@@ -335,8 +331,7 @@ fn is_ttml_element(node: &roxmltree::Node, local_name: &str) -> bool {
         return false;
     }
     node.tag_name().name() == local_name
-        && (node.tag_name().namespace().is_none()
-            || node.tag_name().namespace() == Some(TTML_NS))
+        && (node.tag_name().namespace().is_none() || node.tag_name().namespace() == Some(TTML_NS))
 }
 
 /// Detects the timing mode from the `itunes:timing` attribute on `<tt>`.
@@ -358,10 +353,7 @@ fn detect_timing_mode(root: &roxmltree::Node) -> TimingMode {
 }
 
 /// Extracts metadata from the TTML `<head>` section for the LRC header.
-fn extract_ttml_metadata(
-    doc: &roxmltree::Document,
-    root: &roxmltree::Node,
-) -> TtmlMetadata {
+fn extract_ttml_metadata(doc: &roxmltree::Document, root: &roxmltree::Node) -> TtmlMetadata {
     let mut metadata = TtmlMetadata {
         // Language from xml:lang on <tt>
         language: root
@@ -379,9 +371,7 @@ fn extract_ttml_metadata(
         let local = node.tag_name().name();
 
         // <ttm:title> — Song title
-        if local == "title"
-            && node.tag_name().namespace() == Some(TTML_METADATA_NS)
-        {
+        if local == "title" && node.tag_name().namespace() == Some(TTML_METADATA_NS) {
             if let Some(text) = node.text() {
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
@@ -647,7 +637,9 @@ mod tests {
         assert!(result.lrc_content.contains("[la:en-US]"));
         assert!(result.lrc_content.contains("[by:MeedyaDL]"));
         // Check Enhanced LRC line format: [line_ts]<word_ts>word <word_ts>word
-        assert!(result.lrc_content.contains("[00:12.45]<00:12.45>Hello <00:13.20>world <00:14.10>today"));
+        assert!(result
+            .lrc_content
+            .contains("[00:12.45]<00:12.45>Hello <00:13.20>world <00:14.10>today"));
     }
 
     #[test]
@@ -737,7 +729,9 @@ mod tests {
         // Line without spans should be standard LRC
         assert!(result.lrc_content.contains("[00:05.00]Line without spans"));
         // Line with spans should be Enhanced LRC
-        assert!(result.lrc_content.contains("[00:10.00]<00:10.00>Word <00:11.50>level"));
+        assert!(result
+            .lrc_content
+            .contains("[00:10.00]<00:10.00>Word <00:11.50>level"));
     }
 
     #[test]

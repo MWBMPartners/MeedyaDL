@@ -247,9 +247,8 @@ pub async fn download_and_install_app_update(
     // Construct the endpoint URL for the specific release tag.
     // Each GitHub Release contains a `latest.json` manifest that describes
     // the available update binaries and their signatures for each platform.
-    let endpoint_url = format!(
-        "https://github.com/MWBMPartners/MeedyaDL/releases/download/{tag}/latest.json"
-    );
+    let endpoint_url =
+        format!("https://github.com/MWBMPartners/MeedyaDL/releases/download/{tag}/latest.json");
 
     // Parse the endpoint URL and build the updater with the custom endpoint.
     // `endpoints()` returns a Result (validates the URLs), so we unwrap before `.build()`.

@@ -295,7 +295,10 @@ mod tests {
         assert!(deserialized.required);
         assert_eq!(deserialized.status, DependencyInstallStatus::Installed);
         assert_eq!(deserialized.version, Some("3.12.4".to_string()));
-        assert_eq!(deserialized.path, Some("/opt/python/bin/python3".to_string()));
+        assert_eq!(
+            deserialized.path,
+            Some("/opt/python/bin/python3".to_string())
+        );
         assert_eq!(deserialized.latest_version, Some("3.12.5".to_string()));
         assert!(deserialized.update_available);
     }

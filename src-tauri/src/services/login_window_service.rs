@@ -213,11 +213,10 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
                                     // Authentication cookies were found and saved.
                                     // Emit the result to the main window so the
                                     // frontend can update its state.
-                                    if let Some(main_window) =
-                                        app_handle.get_webview_window("main")
+                                    if let Some(main_window) = app_handle.get_webview_window("main")
                                     {
-                                        let _ = main_window
-                                            .emit("login-cookies-extracted", &result);
+                                        let _ =
+                                            main_window.emit("login-cookies-extracted", &result);
                                     }
 
                                     log::info!(
@@ -243,20 +242,16 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
                                     if attempt < AUTH_COOKIE_CHECK_RETRIES {
                                         // Wait before retrying to give JavaScript
                                         // time to set cookies after page load.
-                                        tokio::time::sleep(
-                                            std::time::Duration::from_millis(
-                                                AUTH_COOKIE_RETRY_DELAY_MS,
-                                            ),
-                                        )
+                                        tokio::time::sleep(std::time::Duration::from_millis(
+                                            AUTH_COOKIE_RETRY_DELAY_MS,
+                                        ))
                                         .await;
                                     }
                                 }
                                 Err(e) => {
                                     // Cookie check failed -- log but don't surface to user.
                                     // The manual "I've signed in" button provides a fallback.
-                                    log::warn!(
-                                        "Failed to check auth cookies: {e}"
-                                    );
+                                    log::warn!("Failed to check auth cookies: {e}");
                                     break; // Don't retry on errors
                                 }
                             }
@@ -316,9 +311,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
 // Tauri cookie API should be called from async context on Windows
 // (WebView2 deadlock avoidance), so we keep the async signature.
 #[allow(clippy::unused_async)]
-pub async fn extract_login_cookies(
-    app: &AppHandle,
-) -> Result<CookieImportResult, String> {
+pub async fn extract_login_cookies(app: &AppHandle) -> Result<CookieImportResult, String> {
     // Get the login window -- it must be open for extraction to work.
     let window = app
         .get_webview_window(LOGIN_WINDOW_LABEL)
@@ -326,8 +319,7 @@ pub async fn extract_login_cookies(
 
     // Parse the URL for cookie extraction.
     // cookies_for_url() requires a url::Url instance.
-    let url = Url::parse(APPLE_MUSIC_URL)
-        .map_err(|e| format!("Failed to parse URL: {e}"))?;
+    let url = Url::parse(APPLE_MUSIC_URL).map_err(|e| format!("Failed to parse URL: {e}"))?;
 
     // Extract all cookies from the webview's cookie store for this URL.
     // This returns ALL cookies including HttpOnly and Secure ones.
@@ -393,9 +385,7 @@ fn build_storefront_url() -> String {
         },
         |storefront| {
             let url = format!("{APPLE_MUSIC_URL}/{storefront}/browse");
-            log::info!(
-                "Detected storefront '{storefront}' from system locale, using URL: {url}"
-            );
+            log::info!("Detected storefront '{storefront}' from system locale, using URL: {url}");
             url
         },
     )
@@ -444,9 +434,7 @@ fn detect_storefront() -> Option<String> {
     if country.len() == 2 && country.chars().all(|c| c.is_ascii_alphabetic()) {
         Some(country.to_lowercase())
     } else {
-        log::debug!(
-            "Locale '{locale}' did not yield a valid 2-letter country code"
-        );
+        log::debug!("Locale '{locale}' did not yield a valid 2-letter country code");
         None
     }
 }
@@ -471,17 +459,14 @@ fn detect_storefront() -> Option<String> {
 // Tauri cookie API should be called from async context on Windows
 // (WebView2 deadlock avoidance), so we keep the async signature.
 #[allow(clippy::unused_async)]
-async fn check_for_auth_cookies(
-    app: &AppHandle,
-) -> Result<Option<CookieImportResult>, String> {
+async fn check_for_auth_cookies(app: &AppHandle) -> Result<Option<CookieImportResult>, String> {
     // Get the login window.
     let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) else {
         return Ok(None); // Window was closed; nothing to check
     };
 
     // Parse the URL for cookie extraction.
-    let url = Url::parse(APPLE_MUSIC_URL)
-        .map_err(|e| format!("Failed to parse URL: {e}"))?;
+    let url = Url::parse(APPLE_MUSIC_URL).map_err(|e| format!("Failed to parse URL: {e}"))?;
 
     // Extract cookies from the webview's cookie store.
     let cookies = window
@@ -541,9 +526,7 @@ fn save_cookies_from_webview(
     let apple_music_count = apple_cookies.len();
     let total_count = cookies.len();
 
-    log::info!(
-        "Filtered to {apple_music_count} Apple Music cookies out of {total_count} total"
-    );
+    log::info!("Filtered to {apple_music_count} Apple Music cookies out of {total_count} total");
 
     // Convert filtered cookies to Netscape format.
     let netscape_content = webview_cookies_to_netscape(&apple_cookies);
@@ -566,9 +549,7 @@ fn save_cookies_from_webview(
         .ok_or_else(|| "Failed to convert cookies path to string".to_string())?
         .to_string();
 
-    log::info!(
-        "Saved {apple_music_count} Apple Music cookies to {cookies_path_str}"
-    );
+    log::info!("Saved {apple_music_count} Apple Music cookies to {cookies_path_str}");
 
     // Update application settings to point to the new cookies file.
     if let Ok(mut settings) = config_service::load_settings(app) {
@@ -588,9 +569,7 @@ fn save_cookies_from_webview(
     }
 
     // Check for the auth token specifically.
-    let has_auth_token = apple_cookies
-        .iter()
-        .any(|c| c.name() == AUTH_COOKIE_NAME);
+    let has_auth_token = apple_cookies.iter().any(|c| c.name() == AUTH_COOKIE_NAME);
     if apple_music_count > 0 && !has_auth_token {
         warnings.push(format!(
             "The {AUTH_COOKIE_NAME} cookie was not found. Authentication may not work."
@@ -608,9 +587,7 @@ fn save_cookies_from_webview(
             } else if expires_ts > 0 {
                 let days_until = (expires_ts - now) / 86400;
                 if days_until < 7 {
-                    warnings.push(format!(
-                        "Apple Music cookies expire in {days_until} day(s)"
-                    ));
+                    warnings.push(format!("Apple Music cookies expire in {days_until} day(s)"));
                     break; // Only report the first expiry warning
                 }
             }
@@ -619,8 +596,7 @@ fn save_cookies_from_webview(
 
     if has_expired {
         warnings.push(
-            "Some Apple Music cookies have expired -- you may need to sign in again."
-                .to_string(),
+            "Some Apple Music cookies have expired -- you may need to sign in again.".to_string(),
         );
     }
 
@@ -739,9 +715,7 @@ fn format_netscape_line(cookie: &cookie::Cookie) -> String {
     // Field 7: cookie value
     let value = cookie.value();
 
-    format!(
-        "{domain}\t{subdomain_flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}"
-    )
+    format!("{domain}\t{subdomain_flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}")
 }
 
 // ============================================================

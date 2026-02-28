@@ -195,7 +195,7 @@ pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, Stri
         required: true, // GAMDL is the core downloader — nothing works without it
         installed: version.is_some(),
         version,
-        path: None, // GAMDL is a Python package, not a standalone binary
+        path: None,   // GAMDL is a Python package, not a standalone binary
         source: None, // GAMDL is always managed (pip package)
     })
 }

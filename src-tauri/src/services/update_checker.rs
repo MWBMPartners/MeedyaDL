@@ -296,10 +296,7 @@ fn has_platform_assets(assets: Option<&Vec<serde_json::Value>>) -> bool {
     }
 
     // Collect asset names for matching.
-    let asset_names: Vec<&str> = assets
-        .iter()
-        .filter_map(|a| a["name"].as_str())
-        .collect();
+    let asset_names: Vec<&str> = assets.iter().filter_map(|a| a["name"].as_str()).collect();
 
     // Check 1: The Tauri updater manifest must exist.
     let has_manifest = asset_names.contains(&"latest.json");
@@ -319,9 +316,9 @@ fn has_platform_assets(assets: Option<&Vec<serde_json::Value>>) -> bool {
         return false;
     }
 
-    let has_platform = asset_names.iter().any(|name| {
-        patterns.iter().any(|pattern| name.contains(pattern))
-    });
+    let has_platform = asset_names
+        .iter()
+        .any(|name| patterns.iter().any(|pattern| name.contains(pattern)));
 
     if !has_platform {
         log::info!(
@@ -376,7 +373,9 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
 
     // Aggregate: an update is "available" only if it's both newer AND compatible.
     // This prevents the UI from showing incompatible GAMDL versions as available.
-    let has_updates = components.iter().any(|c| c.update_available && c.is_compatible);
+    let has_updates = components
+        .iter()
+        .any(|c| c.update_available && c.is_compatible);
 
     UpdateCheckResult {
         checked_at: chrono::Utc::now().to_rfc3339(),
@@ -393,16 +392,12 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
 async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // Get the currently installed GAMDL version via `pip show gamdl`.
     // Returns None if GAMDL is not installed (Python not found, or package not installed).
-    let current = gamdl_service::get_gamdl_version(app)
-        .await
-        .unwrap_or(None);
+    let current = gamdl_service::get_gamdl_version(app).await.unwrap_or(None);
 
     // Get the latest version from PyPI JSON API.
     // Queries https://pypi.org/pypi/gamdl/json and extracts info.version.
     // Returns None if the request failed (network error, PyPI down, etc.).
-    let latest = gamdl_service::check_latest_gamdl_version()
-        .await
-        .ok();
+    let latest = gamdl_service::check_latest_gamdl_version().await.ok();
 
     // Determine if an update is available:
     // - If both current and latest are known: compare versions (latest > current)
@@ -417,9 +412,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // Apply the compatibility gate: only offer the update if the latest version
     // falls within [MIN_COMPATIBLE_GAMDL, MAX_COMPATIBLE_GAMDL].
     // This prevents upgrading to a GAMDL version with incompatible CLI changes.
-    let is_compatible = latest
-        .as_ref()
-        .is_some_and(|v| is_gamdl_compatible(v));
+    let is_compatible = latest.as_ref().is_some_and(|v| is_gamdl_compatible(v));
 
     Ok(ComponentUpdate {
         name: "GAMDL".to_string(),
@@ -569,9 +562,13 @@ fn parse_release_from_response(
     let tag = raw_tag.trim_start_matches('v').to_string();
 
     // Extract the release page URL for the "View Release" button in the UI
-    let html_url = release["html_url"].as_str().map(std::string::ToString::to_string);
+    let html_url = release["html_url"]
+        .as_str()
+        .map(std::string::ToString::to_string);
     // Extract the full release notes body for the Updates page (untruncated).
-    let full_body = release["body"].as_str().map(std::string::ToString::to_string);
+    let full_body = release["body"]
+        .as_str()
+        .map(std::string::ToString::to_string);
     // Extract and truncate the release notes for display in the update card.
     // Long release notes are cut to 200 characters to keep the UI compact.
     let body = release["body"].as_str().map(|s| {

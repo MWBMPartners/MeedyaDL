@@ -86,7 +86,7 @@ impl MusicServiceId {
     ///
     /// Used in the React frontend's sidebar, status messages, and error
     /// dialogs to identify which service a download is associated with.
-    #[must_use] 
+    #[must_use]
     pub const fn display_name(&self) -> &'static str {
         match self {
             Self::AppleMusic => "Apple Music",
@@ -102,7 +102,7 @@ impl MusicServiceId {
     /// service has regional subdomains). The detection uses a simple
     /// `String::contains()` check, so these are substring patterns
     /// rather than full-domain matches.
-    #[must_use] 
+    #[must_use]
     pub const fn url_domains(&self) -> &'static [&'static str] {
         match self {
             Self::AppleMusic => &["music.apple.com"],
@@ -116,7 +116,7 @@ impl MusicServiceId {
     /// Used by the dependency management system (`commands/dependency.rs`)
     /// to install and update the CLI tool via `pip install <package>`.
     /// Each service's CLI tool is distributed as a Python package on `PyPI`.
-    #[must_use] 
+    #[must_use]
     pub const fn pip_package(&self) -> &'static str {
         match self {
             Self::AppleMusic => "gamdl",
@@ -145,17 +145,13 @@ impl MusicServiceId {
     /// let id = MusicServiceId::from_url("https://music.apple.com/us/album/test/123");
     /// assert_eq!(id, Some(MusicServiceId::AppleMusic));
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn from_url(url: &str) -> Option<Self> {
         // Lowercase the URL once so domain matching is case-insensitive.
         let url_lower = url.to_lowercase();
         // Iterate over all known services. The order does not matter
         // because each service has unique, non-overlapping domains.
-        for service in [
-            Self::AppleMusic,
-            Self::YouTubeMusic,
-            Self::Spotify,
-        ] {
+        for service in [Self::AppleMusic, Self::YouTubeMusic, Self::Spotify] {
             // Check each domain pattern for this service.
             for domain in service.url_domains() {
                 if url_lower.contains(domain) {
@@ -371,9 +367,7 @@ pub trait MusicService: Send + Sync {
     /// network I/O and subprocess execution.
     fn install(
         &self,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<String, String>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + '_>>;
 
     /// Checks for updates to the service's CLI tool by querying the
     /// upstream package registry (`PyPI`).
@@ -384,9 +378,7 @@ pub trait MusicService: Send + Sync {
     /// whether an update is available.
     fn check_update(
         &self,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<String, String>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + '_>>;
 }
 
 // ============================================================
@@ -419,24 +411,15 @@ mod tests {
             MusicServiceId::from_url("https://open.spotify.com/track/abc"),
             Some(MusicServiceId::Spotify)
         );
-        assert_eq!(
-            MusicServiceId::from_url("https://example.com/music"),
-            None
-        );
+        assert_eq!(MusicServiceId::from_url("https://example.com/music"), None);
     }
 
     /// Verifies that `display_name()` returns the expected user-facing
     /// strings for each service variant.
     #[test]
     fn test_service_display_name() {
-        assert_eq!(
-            MusicServiceId::AppleMusic.display_name(),
-            "Apple Music"
-        );
-        assert_eq!(
-            MusicServiceId::YouTubeMusic.display_name(),
-            "YouTube Music"
-        );
+        assert_eq!(MusicServiceId::AppleMusic.display_name(), "Apple Music");
+        assert_eq!(MusicServiceId::YouTubeMusic.display_name(), "YouTube Music");
         assert_eq!(MusicServiceId::Spotify.display_name(), "Spotify");
     }
 
