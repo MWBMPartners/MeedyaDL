@@ -154,10 +154,13 @@ describe('downloadStore', () => {
       const downloadId = await useDownloadStore.getState().submitDownload();
 
       expect(downloadId).toBe('dl-id-123');
-      expect(commands.startDownload).toHaveBeenCalledWith({
-        urls: ['https://music.apple.com/us/album/midnights/1649434004'],
-        options: undefined,
-      });
+      expect(commands.startDownload).toHaveBeenCalledWith(
+        {
+          urls: ['https://music.apple.com/us/album/midnights/1649434004'],
+          options: undefined,
+        },
+        undefined
+      );
       /* Input should be cleared after successful submission */
       expect(useDownloadStore.getState().urlInput).toBe('');
       expect(useDownloadStore.getState().urlIsValid).toBe(false);
@@ -184,10 +187,13 @@ describe('downloadStore', () => {
 
       await useDownloadStore.getState().submitDownload();
 
-      expect(commands.startDownload).toHaveBeenCalledWith({
-        urls: ['https://music.apple.com/us/album/midnights/1649434004'],
-        options: { song_codec: 'atmos' },
-      });
+      expect(commands.startDownload).toHaveBeenCalledWith(
+        {
+          urls: ['https://music.apple.com/us/album/midnights/1649434004'],
+          options: { song_codec: 'atmos' },
+        },
+        undefined
+      );
     });
 
     it('sets error on backend failure', async () => {

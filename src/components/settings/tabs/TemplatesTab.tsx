@@ -93,7 +93,7 @@ export function TemplatesTab() {
 
       {/* Section: Folder Templates */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary">Folder Templates</h3>
+        <h3 className="text-base font-semibold text-content-primary">Folder Templates</h3>
 
         <Input
           label="Album Folder"
@@ -119,7 +119,7 @@ export function TemplatesTab() {
 
       {/* Section: File Templates */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary">File Templates</h3>
+        <h3 className="text-base font-semibold text-content-primary">File Templates</h3>
 
         <Input
           label="Single Disc File"

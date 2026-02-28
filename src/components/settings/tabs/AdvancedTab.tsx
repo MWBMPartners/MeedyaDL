@@ -148,7 +148,7 @@ export function AdvancedTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Processing */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Processing</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Processing</h3>
 
         {/* Download mode */}
         <Select
@@ -171,7 +171,7 @@ export function AdvancedTab() {
 
       {/* Section: Wrapper */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Wrapper</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Wrapper</h3>
 
         {!supportsWrapper && (
           <p className="text-xs text-content-tertiary bg-surface-secondary rounded-platform p-2">
@@ -225,7 +225,7 @@ export function AdvancedTab() {
 
       {/* Section: Error Reporting */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Error Reporting</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Error Reporting</h3>
 
         <Toggle
           label="Send Anonymous Crash Reports"
@@ -245,7 +245,7 @@ export function AdvancedTab() {
 
       {/* Section: File Options */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">File Options</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">File Options</h3>
 
         {/* Filename truncation -- nullable number field.
             When the input is empty, `truncate` is set to `null` (no limit).
@@ -292,7 +292,7 @@ export function AdvancedTab() {
           Section 5: Setup
           ================================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-2">Setup</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-2">Setup</h3>
         <p className="text-xs text-content-secondary mb-3">
           Re-run the first-time setup wizard to verify and reinstall dependencies. Your existing
           settings will be preserved.

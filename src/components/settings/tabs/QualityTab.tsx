@@ -160,7 +160,7 @@ export function QualityTab() {
     <div className="space-y-6 max-w-xl">
       {/* Section: Audio */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Audio Quality</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Audio Quality</h3>
 
         {/* Default audio codec */}
         <Select
@@ -220,7 +220,7 @@ export function QualityTab() {
 
       {/* Section: Video */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Video Quality</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Video Quality</h3>
 
         {/* Default video resolution */}
         <Select

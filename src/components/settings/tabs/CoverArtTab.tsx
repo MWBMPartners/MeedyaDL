@@ -139,7 +139,7 @@ export function CoverArtTab() {
       {/* Section 1: Static Cover Art (GAMDL) */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Cover Art</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Cover Art</h3>
 
         <div className="space-y-4">
           {/* Save cover art */}
@@ -197,7 +197,7 @@ export function CoverArtTab() {
       {/* Section 2: Animated Artwork (Apple MusicKit API) */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Animated Artwork</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Animated Artwork</h3>
 
         <div className="space-y-4">
           {/* Master toggle for animated artwork downloading */}
