@@ -508,6 +508,13 @@ pub struct AppSettings {
     /// authentication is used. Maps to `GamdlOptions::use_wrapper`.
     pub use_wrapper: bool,
 
+    /// When `true` and a download that used wrapper authentication fails
+    /// terminally (all retries exhausted), automatically re-queue the
+    /// download with wrapper disabled (falls back to cookie-based auth).
+    /// Only relevant when `use_wrapper` is `true`. Default: `false`.
+    #[serde(default)]
+    pub auto_retry_without_wrapper: bool,
+
     /// Wrapper server URL used when `use_wrapper` is `true`. The wrapper
     /// server handles account authentication and key exchange. Default:
     /// `"http://127.0.0.1:30020"` (local server).
@@ -769,6 +776,8 @@ impl Default for AppSettings {
             // auth. The wrapper is an advanced feature for accessing
             // certain DRM-protected streams.
             use_wrapper: false,
+            // Off by default — user must opt in to automatic wrapper fallback.
+            auto_retry_without_wrapper: false,
             // Default wrapper URL assumes a locally-running server.
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
             // No filename truncation by default (OS limits still apply).
