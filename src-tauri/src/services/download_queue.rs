@@ -3225,15 +3225,21 @@ async fn run_download_with_events(
                 Err(format!("GAMDL process exited with code {code}"))
             },
             |last_error| {
-                // If the last collected error is just the "Traceback" header,
-                // try to extract the actual Python exception from raw stderr.
-                // The parser processes lines independently, so the intermediate
-                // traceback frames and the final exception line may not have been
-                // captured as Error events.
-                let lower = last_error.to_lowercase();
-                if lower.contains("traceback") {
-                    extract_python_exception(&raw_lines)
-                        .map_or_else(|| Err(last_error.clone()), Err)
+                // Always try to extract the actual Python exception from raw
+                // stderr. The output parser captures lines independently, so:
+                //   - The "Traceback" header may be the last captured error
+                //   - A traceback FRAME (e.g., `File "...map_httpcore_exceptions"`)
+                //     may be the last error if the "exception" keyword matched
+                //     a function name in the stack frame
+                //   - The actual exception line may not have been captured at
+                //     all (process killed mid-traceback, buffering issue)
+                //
+                // extract_python_exception scans raw stderr for the last
+                // non-indented line after a "Traceback" header, which is the
+                // actual exception (e.g., "httpx.ConnectError: Connection refused").
+                // This gives classify_error() the real error text.
+                if let Some(extracted) = extract_python_exception(&raw_lines) {
+                    Err(extracted)
                 } else {
                     Err(last_error.clone())
                 }
