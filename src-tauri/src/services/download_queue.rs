@@ -1782,17 +1782,33 @@ pub fn process_queue(
                 None => None,
             };
 
-            // Emit warnings to frontend as persistent toast notifications
-            for warning in [internet_warning, cookie_warning, wrapper_warning]
-                .into_iter()
-                .flatten()
-            {
-                log::warn!(
-                    "Pre-flight warning ({:?}): {}",
-                    warning.check,
-                    warning.message
-                );
-                let _ = app.emit("preflight-warning", &warning);
+            // Build the list of checks that were actually run, paired with their result.
+            // Each entry is (check_type, warning_option). We use this to:
+            //   - Emit "preflight-warning" for checks that failed
+            //   - Emit "preflight-cleared" for checks that passed (so the frontend
+            //     can dismiss stale warning toasts from a previous cycle)
+            let checks_run: Vec<(crate::services::health_check_service::PreflightCheck, Option<crate::services::health_check_service::PreflightWarning>)> = {
+                use crate::services::health_check_service::PreflightCheck;
+                let mut v = vec![
+                    (PreflightCheck::Internet, internet_warning),
+                ];
+                if !settings.use_wrapper {
+                    v.push((PreflightCheck::Cookies, cookie_warning));
+                }
+                if settings.use_wrapper {
+                    v.push((PreflightCheck::Wrapper, wrapper_warning));
+                }
+                v
+            };
+
+            for (check, warning) in checks_run {
+                if let Some(w) = warning {
+                    log::warn!("Pre-flight warning ({check:?}): {}", w.message);
+                    let _ = app.emit("preflight-warning", &w);
+                } else {
+                    // Check passed — dismiss any stale toast for this check type
+                    let _ = app.emit("preflight-cleared", &serde_json::json!({ "check": format!("{check:?}") }));
+                }
             }
         }
     }

@@ -579,6 +579,7 @@ function App() {
     let unlistenCancelled: (() => void) | undefined;
     let unlistenQueued: (() => void) | undefined;
     let unlistenPreflight: (() => void) | undefined;
+    let unlistenPreflightCleared: (() => void) | undefined;
 
     const setupListeners = async () => {
       try {
@@ -631,18 +632,36 @@ function App() {
          * Emitted by the Rust backend before queue processing begins when
          * issues are detected (no internet, expired cookies, wrapper down).
          * Displayed as persistent yellow toasts (duration = 0) so the user
-         * sees them and can dismiss after reading. Uses getState() to avoid
-         * adding addToast to the effect dependency array. */
+         * sees them and can dismiss after reading.
+         *
+         * Each toast is keyed by check type (e.g., 'preflight:Wrapper') so that:
+         * - Duplicate warnings for the same check are deduplicated.
+         * - When the condition resolves, the toast can be dismissed by key
+         *   via the 'preflight-cleared' event. */
         unlistenPreflight = await listen<{ check: string; message: string }>(
           'preflight-warning',
           (event) => {
             try {
-              useUiStore.getState().addToast(event.payload.message, 'warning', 0);
+              const key = `preflight:${event.payload.check}`;
+              useUiStore.getState().addToast(event.payload.message, 'warning', 0, key);
             } catch (err) {
               console.error('Error in preflight-warning handler:', err);
             }
           }
         );
+
+        /* 6. Pre-flight check cleared — a previously-failing check now passes.
+         * Emitted by the Rust backend when a health check that previously warned
+         * now succeeds. Removes the corresponding persistent toast so the user
+         * isn't left with stale warnings. */
+        unlistenPreflightCleared = await listen<{ check: string }>('preflight-cleared', (event) => {
+          try {
+            const key = `preflight:${event.payload.check}`;
+            useUiStore.getState().removeToastsByKey(key);
+          } catch (err) {
+            console.error('Error in preflight-cleared handler:', err);
+          }
+        });
       } catch {
         /* Tauri API unavailable (running in browser dev mode) */
       }
@@ -661,6 +680,7 @@ function App() {
       unlistenCancelled?.();
       unlistenQueued?.();
       unlistenPreflight?.();
+      unlistenPreflightCleared?.();
     };
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 
