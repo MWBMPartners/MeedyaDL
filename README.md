@@ -47,8 +47,8 @@
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
 - **Built-in Apple Music login** — sign in directly within the app to extract cookies (no browser extension needed)
 - **Cookie file import** — manual Netscape-format cookie import with domain/expiry validation
-- **Pre-download cookie validation** — cookies are checked before every download; expired or missing cookies block the download with a clear message and link to Settings > Cookies
-- **Wrapper support** — alternative authentication via a locally-running wrapper service for more reliable Dolby Atmos and DRM-protected format access (see [Wrapper Authentication](#wrapper-authentication) section below)
+- **Pre-download validation** — internet connectivity and cookies are checked before every download; offline downloads are queued but deferred until connectivity returns; expired cookies block the download with a link to Settings > Cookies
+- **Wrapper support** — alternative authentication via a locally-running wrapper service for more reliable Dolby Atmos and DRM-protected format access, with optional **auto-retry without wrapper** when wrapper downloads fail (see [Wrapper Authentication](#wrapper-authentication) section below)
 - **Secure credential storage** via OS-native keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 
 ### 🖥️ Platform-Adaptive UI
@@ -63,6 +63,7 @@
 - **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
 - **Built-in help documentation** — 12 topics with search, accessible in-app
 - **System tray support** for background operation
+- **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
 - **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 
@@ -99,12 +100,21 @@ Most users should stick with **cookie-based authentication** (the default). The 
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
 3. **Configure the URL** — update the **Wrapper Account URL** if the wrapper runs on a different host or port
 
+### Auto-Retry without Wrapper
+
+When a wrapper download fails (all retries exhausted), MeedyaDL normally shows a "Retry without Wrapper" button on the failed item. If you'd prefer this to happen automatically:
+
+1. Go to **Settings > Advanced > Wrapper**
+2. Enable **Auto-Retry without Wrapper**
+
+When enabled, failed wrapper downloads are automatically re-queued with cookie-based authentication — no manual intervention needed. This is useful if your wrapper is intermittently unavailable and you want downloads to fall back gracefully.
+
 ### Verifying Connectivity
 
 MeedyaDL checks wrapper connectivity in two ways:
 
 - **Manual test** — click **Test Connection** in Settings > Advanced. Shows "Connected (Xms)" on success, or a specific error (timeout, connection refused) on failure.
-- **Automatic pre-flight check** — every time the download queue starts processing, MeedyaDL pings the wrapper and shows a yellow toast notification if it's unreachable (e.g., `Wrapper service at http://192.168.3.179:30020 timed out — check that it is running`). Downloads still proceed — the check is advisory.
+- **Automatic pre-flight check** — every time the download queue starts processing, MeedyaDL pings the wrapper and shows a yellow toast notification if it's unreachable (e.g., `Wrapper service at http://192.168.3.179:30020 timed out — check that it is running`). The notification auto-dismisses when the wrapper becomes reachable again. Downloads still proceed — the check is advisory.
 
 ### Troubleshooting (Remote / Docker)
 

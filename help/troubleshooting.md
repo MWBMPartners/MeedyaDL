@@ -36,6 +36,16 @@ The cookie file that MeedyaDL is configured to use does not exist at the expecte
 
 ---
 
+### Pre-Download Connectivity Check
+
+MeedyaDL checks your internet connection before every download. If you are offline when you click "Add to Queue", the download is still added to the queue but **will not start processing** until connectivity returns. A yellow warning toast appears: **"Download queued — will start when internet is available."**
+
+Once you are back online, adding another download or clicking "Start Queue" on the Queue page will trigger the queue to process all waiting items. Cookies are not checked when offline since the check would fail anyway.
+
+**Note:** Downloads that ultimately fail due to network issues do **not** generate error reports, since the root cause is connectivity rather than an application bug.
+
+---
+
 ### Network Errors (network)
 
 Network errors include connection timeouts, DNS resolution failures, and server-side errors from Apple Music. MeedyaDL automatically retries network errors up to **3 times** with exponential backoff before reporting a failure, so if you see a network error, it means multiple attempts have already been made.
@@ -95,6 +105,22 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 
 - **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
 - **Solution:** Go to **Settings > Advanced > Re-run Setup** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
+
+---
+
+### Wrapper Errors
+
+#### Wrapper Service Unreachable
+
+If you use wrapper authentication and MeedyaDL reports the wrapper is unreachable (yellow toast notification), check that the wrapper service is running and that the URL in **Settings > Advanced** is correct. See the in-app help topic **Help > Wrapper > Troubleshooting Wrapper Connectivity** for detailed diagnostic steps.
+
+**Notification behaviour:** Wrapper warnings appear as persistent yellow toast notifications that auto-dismiss when the wrapper becomes reachable again on a subsequent download. Identical notifications are never stacked — only one wrapper warning is shown at a time.
+
+#### Auto-Retry without Wrapper
+
+If wrapper downloads fail frequently, you can enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled, failed wrapper downloads are automatically re-queued with wrapper disabled (falls back to cookie-based authentication). This saves you from manually clicking "Retry without Wrapper" on each failed item.
+
+Without this setting enabled, failed wrapper downloads show a **"Retry without Wrapper"** button on the queue item, allowing you to manually retry with cookie-based auth.
 
 ---
 
