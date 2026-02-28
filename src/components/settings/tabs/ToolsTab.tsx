@@ -172,7 +172,7 @@ export function ToolsTab() {
       {/* Section: Core Dependencies                                    */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-1">Core Dependencies</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-1">Core Dependencies</h3>
         <p className="text-xs text-content-secondary mb-4">
           Python and GAMDL are required for the app to function. They are automatically installed
           during first-time setup.
@@ -247,7 +247,7 @@ export function ToolsTab() {
       {/* Section: External Tools                                       */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-1">External Tools</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-1">External Tools</h3>
         <p className="text-xs text-content-secondary mb-4">
           Required tools must be installed for downloads to work. Optional tools provide additional
           features. Click a tool to configure a custom binary path.
@@ -404,7 +404,7 @@ export function ToolsTab() {
       {/* Section: Directories                                          */}
       {/* ============================================================ */}
       <div>
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Directories</h3>
+        <h3 className="text-base font-semibold text-content-primary mb-4">Directories</h3>
         <FilePickerButton
           label="Temp Directory"
           description="Directory for intermediate files during download and processing. Leave empty to use a MeedyaDL subdirectory within the OS default temp directory."

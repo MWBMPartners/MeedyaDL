@@ -231,13 +231,6 @@ export function DownloadForm() {
   const [showOverrides, setShowOverrides] = useState(false);
 
   /**
-   * Internet connectivity error message shown when the device is offline.
-   * Set by `handleSubmit()` before attempting to queue a download.
-   * Cleared on the next successful check or when the URL input changes.
-   */
-  const [internetError, setInternetError] = useState<string | null>(null);
-
-  /**
    * Cookie validation error message shown when cookies are expired or
    * missing. Set by `handleSubmit()` before attempting to queue a download.
    * Cleared on the next successful check or when the URL input changes.
@@ -255,51 +248,58 @@ export function DownloadForm() {
    * Handles the "Add to Queue" action.
    *
    * Before queuing, runs two pre-download checks via the Rust backend:
-   *  1. Internet connectivity — blocks if offline (no point checking cookies
-   *     or queuing downloads without internet).
-   *  2. Cookie validity — blocks if cookies are expired, missing, or invalid.
+   *  1. Internet connectivity — if offline, the download is still queued
+   *     but auto-start is skipped so it waits until connectivity returns.
+   *  2. Cookie validity — blocks if cookies are expired, missing, or invalid
+   *     (only checked when online, since cookies are moot without internet).
    *
    * Calls `submitDownload()` which:
    *  1. Validates the URL (throws if invalid).
    *  2. Calls the Rust `startDownload` command via Tauri IPC.
-   *  3. Clears the input and overrides on success.
+   *  3. Clears the input and resets overrides on success.
    *
-   * Shows a success toast on success, or an error toast on failure.
+   * Shows a success toast on success, a warning toast when offline, or an
+   * error toast on failure.
    */
   const handleSubmit = async () => {
-    // Check internet connectivity before queuing
+    // Check internet connectivity — if offline, we still queue the download
+    // but skip auto-start so it waits until the user retries or connectivity
+    // returns and a future download triggers queue processing.
+    let isOffline = false;
     try {
       const internetCheck = await checkInternetBeforeDownload();
       if (!internetCheck.ready) {
-        setInternetError(
-          internetCheck.message ?? 'No internet connection — check your network and try again.'
-        );
-        return;
+        isOffline = true;
       }
-      setInternetError(null);
     } catch {
-      // If the check itself fails (e.g., IPC error), proceed anyway —
-      // the download will fail later with a more specific error.
-      setInternetError(null);
+      // If the check itself fails (e.g., IPC error), assume online and proceed.
     }
 
-    // Check cookie readiness before queuing (catches mid-session expiry)
-    try {
-      const cookieCheck = await checkCookiesBeforeDownload();
-      if (!cookieCheck.ready) {
-        setCookieError(cookieCheck.message ?? 'Cookies are not valid for downloading.');
-        return;
+    // Check cookie readiness before queuing (catches mid-session expiry).
+    // Skipped when offline — cookies are moot without internet, and the
+    // download won't start until connectivity returns anyway.
+    if (!isOffline) {
+      try {
+        const cookieCheck = await checkCookiesBeforeDownload();
+        if (!cookieCheck.ready) {
+          setCookieError(cookieCheck.message ?? 'Cookies are not valid for downloading.');
+          return;
+        }
+        setCookieError(null);
+      } catch {
+        // If the check itself fails (e.g., IPC error), proceed anyway —
+        // the download will fail later with a more specific error.
+        setCookieError(null);
       }
-      setCookieError(null);
-    } catch {
-      // If the check itself fails (e.g., IPC error), proceed anyway —
-      // the download will fail later with a more specific error.
-      setCookieError(null);
     }
 
     try {
-      await submitDownload();
-      addToast('Download added to queue', 'success');
+      await submitDownload(isOffline);
+      if (isOffline) {
+        addToast('Download queued — will start when internet is available', 'warning');
+      } else {
+        addToast('Download added to queue', 'success');
+      }
     } catch {
       addToast('Failed to add download', 'error');
     }
@@ -419,8 +419,7 @@ export function DownloadForm() {
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
-                  // Clear errors when URL changes (user is retrying)
-                  if (internetError) setInternetError(null);
+                  // Clear cookie error when URL changes (user is retrying)
                   if (cookieError) setCookieError(null);
                 }}
                 onKeyDown={handleKeyDown}
@@ -488,17 +487,6 @@ export function DownloadForm() {
             <p className="text-xs text-content-tertiary">
               Supports songs, albums, playlists, music videos, and artist pages
             </p>
-          )}
-
-          {/* Internet connectivity warning -- shown when the device is offline.
-              Blocks downloads until the connection is restored. */}
-          {internetError && (
-            <div className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
-              <span className="text-status-warning text-sm mt-0.5">&#9888;</span>
-              <div className="flex-1 text-xs text-content-primary">
-                <p>{internetError}</p>
-              </div>
-            </div>
           )}
 
           {/* Cookie validation warning -- shown when cookies are expired,

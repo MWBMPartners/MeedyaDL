@@ -155,10 +155,12 @@ interface DownloadState {
    * Submit the current URL for download to the Rust backend.
    * Validates the URL, calls `commands.startDownload()`, clears the input on
    * success, and returns the new download ID.
+   * @param skipAutoStart - When true, item is queued but queue processing
+   *   is not triggered. Used when the device is offline.
    * @returns The unique download ID assigned by the backend
    * @throws If the URL is invalid or the Rust command fails
    */
-  submitDownload: () => Promise<string>;
+  submitDownload: (skipAutoStart?: boolean) => Promise<string>;
 
   /**
    * Cancel an active or queued download by its ID.
@@ -334,7 +336,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    *   4. On success: clear the URL input and overrides, return the download ID.
    *   5. On failure: store the error and re-throw for the component to handle.
    */
-  submitDownload: async () => {
+  submitDownload: async (skipAutoStart?: boolean) => {
     // Read the latest state at call time via `get()` to avoid stale closures.
     const { urlInput, urlIsValid, overrideOptions } = get();
 
@@ -349,11 +351,14 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     try {
       // IPC call: send the download request to the Rust download_queue service.
       // The backend enqueues the job and immediately returns a unique download ID.
-      const downloadId = await commands.startDownload({
-        urls: [urlInput],
-        // Convert null -> undefined so Tauri serializes as Option::None in Rust.
-        options: overrideOptions ?? undefined,
-      });
+      const downloadId = await commands.startDownload(
+        {
+          urls: [urlInput],
+          // Convert null -> undefined so Tauri serializes as Option::None in Rust.
+          options: overrideOptions ?? undefined,
+        },
+        skipAutoStart
+      );
 
       // Clear the input form after successful submission, readying it for
       // the next URL. All input-related fields are reset atomically.
