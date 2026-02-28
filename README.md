@@ -47,6 +47,8 @@
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
 - **Built-in Apple Music login** — sign in directly within the app to extract cookies (no browser extension needed)
 - **Cookie file import** — manual Netscape-format cookie import with domain/expiry validation
+- **Pre-download cookie validation** — cookies are checked before every download; expired or missing cookies block the download with a clear message and link to Settings > Cookies
+- **Wrapper support** — alternative authentication via a locally-running wrapper service for more reliable Dolby Atmos and DRM-protected format access (see [Wrapper Authentication](#wrapper-authentication) section below)
 - **Secure credential storage** via OS-native keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 
 ### 🖥️ Platform-Adaptive UI
@@ -76,6 +78,48 @@
 | 🐧 **Linux** | x64 | `.deb`, `.AppImage` | Also works on ChromeOS via Crostini |
 | 🐧 **Linux** | ARM64 | `.deb` | Raspberry Pi 4/5, ARM servers |
 | 🐧 **Linux** | ARMv7 | `.deb` | Raspberry Pi 32-bit (experimental) |
+
+---
+
+## Wrapper Authentication
+
+The **wrapper** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running server that handles Apple ID authentication and DRM key exchange directly.
+
+### When to Use It
+
+Most users should stick with **cookie-based authentication** (the default). The wrapper is useful if you:
+
+- Need more reliable access to **Dolby Atmos** or other DRM-protected formats
+- Experience frequent cookie expiration issues
+- Are comfortable running local server software
+
+### Setup
+
+1. **Obtain and run the wrapper service** — the wrapper is a separate application (not bundled with MeedyaDL) that listens on `http://127.0.0.1:30020` by default
+2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
+3. **Configure the URL** — update the **Wrapper Account URL** if the wrapper runs on a different host or port
+
+### Verifying Connectivity
+
+MeedyaDL checks wrapper connectivity in two ways:
+
+- **Manual test** — click **Test Connection** in Settings > Advanced. Shows "Connected (Xms)" on success, or a specific error (timeout, connection refused) on failure.
+- **Automatic pre-flight check** — every time the download queue starts processing, MeedyaDL pings the wrapper and shows a yellow toast notification if it's unreachable (e.g., `Wrapper service at http://192.168.3.179:30020 timed out — check that it is running`). Downloads still proceed — the check is advisory.
+
+### Troubleshooting (Remote / Docker)
+
+If MeedyaDL reports the wrapper is unreachable — especially when the wrapper runs on a separate device (e.g. a Raspberry Pi, VPS, or Docker container) — you can diagnose the issue from a terminal on the machine running MeedyaDL:
+
+1. **Test with curl** — `curl -v http://192.168.x.x:30020` (use your actual wrapper URL). "Connection refused" means nothing is listening; "timed out" means the host is unreachable.
+2. **Check the wrapper is running** on the host — `docker ps | grep wrapper` (Docker) or `ps aux | grep wrapper` (native). Check logs with `docker logs <container> --tail 50`.
+3. **Check the port is accessible** — on the wrapper host, run `ss -tlnp | grep 30020`. If it shows `127.0.0.1:30020`, the wrapper only accepts local connections — configure it to bind to `0.0.0.0`. For Docker, verify port mapping with `docker port <container>`.
+4. **Check firewalls** — `sudo ufw allow 30020/tcp` (Linux), or check your OS firewall settings. Devices on the same LAN usually don't need router port forwarding.
+
+For the full step-by-step troubleshooting guide, see the in-app help (**Help > Wrapper > Troubleshooting Wrapper Connectivity**).
+
+### Platform Support
+
+The Wrapper service only provides native binaries for **Linux x86_64**. On other platforms, you can run the wrapper remotely on a Linux server or in a Docker container and point MeedyaDL to it via a custom URL. See the in-app help (**Help > Wrapper**) for detailed remote setup instructions.
 
 ---
 
