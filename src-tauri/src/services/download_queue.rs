@@ -97,7 +97,10 @@ use crate::models::gamdl_options::{GamdlOptions, LyricsFormat, SongCodec};
 use crate::models::settings::{AppSettings, CompanionMode};
 // config_service: Used to load settings during fallback decisions.
 // gamdl_service: Provides build_gamdl_command_public() and GamdlProgress for subprocess execution.
-use crate::services::{config_service, gamdl_service};
+// crash_report_service: Used to save download error reports for user-reportable diagnostics.
+use crate::services::{config_service, crash_report_service, gamdl_service};
+// CrashReport: Reused for download error reports (source: "download_error").
+use crate::models::crash_report::CrashReport;
 // process: Provides parse_gamdl_output() for parsing GAMDL output lines and
 // classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
@@ -1872,6 +1875,14 @@ pub fn process_queue(
                 log::info!(
                     "Download {download_id} using native codec priority: {priority_str}"
                 );
+                emit_internal_log(
+                    &app,
+                    &download_id,
+                    &format!(
+                        "Using GAMDL native format priority: {}",
+                        priority_str.replace(',', " → ")
+                    ),
+                );
                 options.song_codec_priority = Some(priority_str);
                 true
             } else {
@@ -1990,6 +2001,11 @@ pub fn process_queue(
                                     "Download {dl_id} codec error with native priority \
                                      (all codecs exhausted by GAMDL): {error_msg}"
                                 );
+                                emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    "GAMDL tried all formats in priority chain — none available for this content",
+                                );
                                 // Fall through to terminal error below
                             } else {
                                 // GAMDL < 2.9.1 — use MeedyaDL's own fallback system
@@ -2001,13 +2017,23 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
 
-                                if let Some(_new_options) = q.try_fallback(
+                                if let Some(new_options) = q.try_fallback(
                                     &dl_id, &settings,
                                 ) {
+                                    let fallback_codec = new_options
+                                        .song_codec
+                                        .as_ref()
+                                        .map(|c| c.to_cli_string().to_string())
+                                        .unwrap_or_else(|| "unknown".to_string());
                                     log::info!(
-                                        "Download {dl_id} will retry with fallback codec"
+                                        "Download {dl_id} will retry with fallback codec: {fallback_codec}"
                                     );
                                     drop(q);
+                                    emit_internal_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        &format!("Format not available — retrying with: {fallback_codec}"),
+                                    );
                                     save_queue_to_disk(
                                         &app_clone, &queue_clone,
                                     ).await;
@@ -2017,6 +2043,11 @@ pub fn process_queue(
                                     return;
                                 }
                                 // Fallback chain exhausted — fall through to error below
+                                emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    "All audio formats exhausted — no compatible format found",
+                                );
                             }
                         }
 
@@ -2108,6 +2139,39 @@ pub fn process_queue(
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                &format!("Download failed: {error_msg}"),
+                            );
+
+                            // Save error report for user-reportable diagnostics
+                            let mut err_ctx = std::collections::HashMap::new();
+                            if let Some(ref url) = urls.first() {
+                                err_ctx.insert("url".to_string(), url.to_string());
+                            }
+                            err_ctx.insert(
+                                "error_category".to_string(),
+                                if has_io_error { "io" } else { "codec" }.to_string(),
+                            );
+                            let report = CrashReport {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                app_version: env!("CARGO_PKG_VERSION").to_string(),
+                                os: std::env::consts::OS.to_string(),
+                                arch: std::env::consts::ARCH.to_string(),
+                                source: "download_error".to_string(),
+                                panic_message: Some(error_msg.clone()),
+                                location: None,
+                                backtrace: None,
+                                context: err_ctx,
+                            };
+                            if let Err(e) = crash_report_service::save_error_report(
+                                &app_clone, report,
+                            ) {
+                                log::debug!("Failed to save download error report: {e}");
+                            }
+
                             save_queue_to_disk(&app_clone, &queue_clone).await;
                             let _ = app_clone.emit(
                                 "download-error",
@@ -2579,6 +2643,11 @@ pub fn process_queue(
                                  priority — trying per-codec fallback as \
                                  safety net"
                             );
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "GAMDL native priority failed — trying each format individually",
+                            );
                         }
 
                         let settings = load_settings_for_queue(&app_clone);
@@ -2586,14 +2655,32 @@ pub fn process_queue(
                         q.set_error(&dl_id, &error_msg);
                         q.on_task_finished();
 
-                        q.try_fallback(&dl_id, &settings)
-                            .is_some_and(|_new_options| {
-                                log::info!(
-                                    "Download {dl_id} will retry with \
-                                     fallback codec"
-                                );
-                                true
-                            })
+                        if let Some(new_options) = q.try_fallback(&dl_id, &settings) {
+                            let fallback_codec = new_options
+                                .song_codec
+                                .as_ref()
+                                .map(|c| c.to_cli_string().to_string())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            log::info!(
+                                "Download {dl_id} will retry with \
+                                 fallback codec: {fallback_codec}"
+                            );
+                            drop(q);
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                &format!("Format not available — retrying with: {fallback_codec}"),
+                            );
+                            true
+                        } else {
+                            drop(q);
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "All audio formats exhausted — download failed",
+                            );
+                            false
+                        }
                     }
                     "network" => {
                         // Network error: transient connection issue.
@@ -2605,8 +2692,20 @@ pub fn process_queue(
                         if q.try_network_retry(&dl_id) {
                             // try_network_retry resets the item to Queued with same options
                             log::info!("Download {dl_id} will retry (network error)");
+                            drop(q);
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "Network error — retrying download",
+                            );
                             true
                         } else {
+                            drop(q);
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "Network error — all retries exhausted",
+                            );
                             false
                         }
                     }
@@ -2616,6 +2715,12 @@ pub fn process_queue(
                         let mut q = queue_clone.lock().await;
                         q.set_error(&dl_id, &error_msg);
                         q.on_task_finished();
+                        drop(q);
+                        emit_internal_log(
+                            &app_clone,
+                            &dl_id,
+                            &format!("Download failed ({error_category}): {error_msg}"),
+                        );
                         false
                     }
                 };
@@ -2623,8 +2728,46 @@ pub fn process_queue(
                 // Persist queue state after error handling (whether retrying or terminal)
                 save_queue_to_disk(&app_clone, &queue_clone).await;
 
-                // If no retry will occur, notify the frontend and spawn companions
+                // If no retry will occur, save an error report and notify frontend
                 if !should_retry {
+                    // Save a download error report so the user can optionally
+                    // report it to GitHub Issues via Settings > Advanced.
+                    let mut context = std::collections::HashMap::new();
+                    context.insert(
+                        "error_category".to_string(),
+                        error_category.to_string(),
+                    );
+                    if let Some(ref url) = urls.first() {
+                        context.insert("url".to_string(), url.to_string());
+                    }
+                    if let Some(ref ver) = gamdl_version {
+                        context.insert(
+                            "gamdl_version".to_string(),
+                            ver.to_string(),
+                        );
+                    }
+                    context.insert(
+                        "native_priority".to_string(),
+                        uses_native_priority.to_string(),
+                    );
+                    let report = CrashReport {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        app_version: env!("CARGO_PKG_VERSION").to_string(),
+                        os: std::env::consts::OS.to_string(),
+                        arch: std::env::consts::ARCH.to_string(),
+                        source: "download_error".to_string(),
+                        panic_message: Some(error_msg.clone()),
+                        location: None,
+                        backtrace: None,
+                        context,
+                    };
+                    if let Err(e) = crash_report_service::save_error_report(
+                        &app_clone, report,
+                    ) {
+                        log::debug!("Failed to save download error report: {e}");
+                    }
+
                     let _ = app_clone.emit(
                         "download-error",
                         serde_json::json!({

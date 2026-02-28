@@ -155,7 +155,14 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     let report = get_crash_report(app, id)
         .ok_or_else(|| format!("Crash report not found: {id}"))?;
 
-    // Build the issue title -- cap error message at 80 chars for readability
+    // Build the issue title -- cap error message at 80 chars for readability.
+    // Use different prefix and labels for download errors vs crashes.
+    let is_download_error = report.source == "download_error";
+    let title_prefix = if is_download_error {
+        "Error Report"
+    } else {
+        "Crash Report"
+    };
     let error_summary: String = report
         .panic_message
         .as_deref()
@@ -164,13 +171,13 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
         .take(80)
         .collect();
     let title = format!(
-        "[Crash Report] {} - {} ({})",
+        "[{title_prefix}] {} - {} ({})",
         error_summary, report.os, report.arch
     );
 
     // Build the Markdown body
     let mut body = String::new();
-    body.push_str("## Crash Report\n\n");
+    body.push_str(&format!("## {title_prefix}\n\n"));
     body.push_str(&format!("**App Version:** {}\n", report.app_version));
     body.push_str(&format!("**OS:** {} ({})\n", report.os, report.arch));
     body.push_str(&format!("**Source:** {}\n", report.source));
@@ -239,31 +246,55 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     let mut url = url::Url::parse(&base)
         .map_err(|e| format!("Failed to parse base URL: {e}"))?;
 
+    let labels = if is_download_error {
+        "bug,error-report"
+    } else {
+        "bug,crash-report"
+    };
     url.query_pairs_mut()
         .append_pair("title", &title)
         .append_pair("body", &body)
-        .append_pair("labels", "bug,crash-report");
+        .append_pair("labels", labels);
 
     Ok(url.to_string())
+}
+
+/// Saves an error report (crash, download error, or other) to a JSON file.
+///
+/// This is the generic save function used by all report sources:
+/// - Frontend errors (via `log_frontend_error` IPC command)
+/// - Download errors (via download queue terminal failure)
+/// - Rust panics (via `setup_panic_handler()`)
+///
+/// Reports are stored in `{app_data_dir}/crashes/` as JSON files and can
+/// be listed, viewed, exported, or reported to GitHub Issues via the
+/// Settings > Advanced > Crash Reporting section.
+pub fn save_error_report(app: &AppHandle, report: CrashReport) -> Result<(), String> {
+    let dir = crashes_dir(app);
+    let filename = format!("crash-{}.json", report.timestamp.replace(':', "-"));
+    let path = dir.join(filename);
+
+    let json = serde_json::to_string_pretty(&report)
+        .map_err(|e| format!("Failed to serialize error report: {e}"))?;
+
+    std::fs::write(&path, json)
+        .map_err(|e| format!("Failed to write error report: {e}"))?;
+
+    log::info!(
+        "Error report saved: {} (source: {})",
+        path.display(),
+        report.source
+    );
+    Ok(())
 }
 
 /// Saves a crash report from the frontend to a JSON file on disk.
 ///
 /// Called by the `log_frontend_error` IPC command when the React frontend
 /// catches an error via ErrorBoundary, window.onerror, or unhandledrejection.
+/// Delegates to [`save_error_report`].
 pub fn save_frontend_crash_report(app: &AppHandle, report: CrashReport) -> Result<(), String> {
-    let dir = crashes_dir(app);
-    let filename = format!("crash-{}.json", report.timestamp.replace(':', "-"));
-    let path = dir.join(filename);
-
-    let json = serde_json::to_string_pretty(&report)
-        .map_err(|e| format!("Failed to serialize crash report: {e}"))?;
-
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Failed to write crash report: {e}"))?;
-
-    log::info!("Frontend crash report saved: {}", path.display());
-    Ok(())
+    save_error_report(app, report)
 }
 
 /// Deletes crash reports older than 30 days.

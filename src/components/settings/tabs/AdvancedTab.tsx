@@ -223,9 +223,9 @@ export function AdvancedTab() {
         )}
       </div>
 
-      {/* Section: Crash Reporting */}
+      {/* Section: Error Reporting */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-content-primary mb-4">Crash Reporting</h3>
+        <h3 className="text-sm font-semibold text-content-primary mb-4">Error Reporting</h3>
 
         <Toggle
           label="Send Anonymous Crash Reports"
@@ -235,11 +235,11 @@ export function AdvancedTab() {
         />
 
         <p className="text-xs text-content-tertiary">
-          Crash reports are always saved locally to your app data directory regardless of this
-          setting. You can view and report them below.
+          Error reports (crashes and download failures) are always saved locally to your app data
+          directory regardless of this setting. You can view and report them below.
         </p>
 
-        {/* Recent crash reports list with GitHub reporting */}
+        {/* Recent error reports list with GitHub reporting */}
         <CrashReportSection />
       </div>
 

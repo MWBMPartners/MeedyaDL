@@ -2,15 +2,15 @@
  * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file CrashReportSection.tsx -- Crash report list with GitHub reporting.
+ * @file CrashReportSection.tsx -- Error report list with GitHub reporting.
  *
- * Renders a list of the 5 most recent crash reports within the "Crash
+ * Renders a list of the 5 most recent error reports within the "Error
  * Reporting" section of {@link AdvancedTab}. Each report row displays:
  *   - Formatted timestamp
- *   - Source badge (Rust Panic / Frontend Error / Unhandled Rejection)
+ *   - Source badge (Rust Panic / Frontend Error / Unhandled Rejection / Download Error)
  *   - Truncated error message
  *   - "Report" button → opens {@link CrashReportDialog}
- *   - Delete button → removes the crash report from disk
+ *   - Delete button → removes the error report from disk
  *
  * When no crash reports exist, an empty state message is shown.
  *
@@ -52,6 +52,10 @@ const SOURCE_BADGES: Record<string, { label: string; className: string }> = {
   unhandled_rejection: {
     label: 'Unhandled Rejection',
     className: 'bg-yellow-500/15 text-yellow-500',
+  },
+  download_error: {
+    label: 'Download Error',
+    className: 'bg-blue-500/15 text-blue-500',
   },
 };
 
@@ -122,11 +126,11 @@ export function CrashReportSection() {
 
   return (
     <div className="space-y-2">
-      <h4 className="text-xs font-medium text-content-secondary">Recent Crash Reports</h4>
+      <h4 className="text-xs font-medium text-content-secondary">Recent Error Reports</h4>
 
       {reports.length === 0 ? (
         /* Empty state */
-        <p className="text-xs text-content-tertiary py-2">No crash reports found.</p>
+        <p className="text-xs text-content-tertiary py-2">No error reports found.</p>
       ) : (
         /* Report list */
         <div className="space-y-1.5">

@@ -97,8 +97,11 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
     }
   };
 
+  const isDownloadError = report.source === 'download_error';
+  const dialogTitle = isDownloadError ? 'Report Error to Developer' : 'Report Crash to Developer';
+
   return (
-    <Modal open={open} onClose={onClose} title="Report Crash to Developer" maxWidth="max-w-2xl">
+    <Modal open={open} onClose={onClose} title={dialogTitle} maxWidth="max-w-2xl">
       {/* Privacy notice */}
       <div className="mb-4 p-3 rounded-platform bg-surface-secondary text-xs text-content-secondary leading-relaxed">
         The following crash report data will be shared when you open the GitHub issue. Review the
