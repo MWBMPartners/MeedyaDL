@@ -365,7 +365,7 @@ In **Settings > Advanced**, click the **Test Connection** button next to the Wra
 
 Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at http://192.168.3.179:30020 timed out — check that it is running").
 
-This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. The check runs at most once every 30 seconds to avoid spamming notifications.
+This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. Wrapper notifications are **deduplicated** (only one is shown at a time) and **auto-dismiss** when the wrapper becomes reachable again on a subsequent download.
 
 ### Troubleshooting Wrapper Connectivity
 
@@ -477,11 +477,25 @@ After resolving the issue, go back to **Settings > Advanced** and click **Test C
 | Platform support | All platforms | Linux x86_64 (native) or remote/Docker |
 | Recommended for | Most users | Advanced users needing reliable Atmos access |
 
+## Auto-Retry without Wrapper
+
+When a wrapper download fails (all retries and fallbacks exhausted), MeedyaDL normally shows a **"Retry without Wrapper"** button on the failed queue item. Clicking it re-queues the download with wrapper disabled, falling back to cookie-based authentication.
+
+If you'd prefer this to happen **automatically**, enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled:
+
+1. A wrapper download fails terminally (all retries exhausted)
+2. MeedyaDL automatically re-queues the item with wrapper disabled
+3. The Activity Log shows "Wrapper failed — auto-retrying without wrapper"
+4. The download retries with cookie-based authentication — no manual intervention needed
+
+This is particularly useful if your wrapper service is intermittently unavailable and you want downloads to proceed regardless.
+
 ## Settings Reference
 
 | Setting | Location | Default |
 |---------|----------|---------|
 | Use Wrapper | Settings > Advanced | Off |
+| Auto-Retry without Wrapper | Settings > Advanced | Off |
 | Wrapper Account URL | Settings > Advanced | \`http://127.0.0.1:30020\` |`,
   },
   {
