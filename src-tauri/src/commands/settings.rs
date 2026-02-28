@@ -21,14 +21,15 @@
 //
 // ## Frontend Mapping (src/lib/tauri-commands.ts)
 //
-// | Rust Command              | TypeScript Function            | Line |
-// |---------------------------|--------------------------------|------|
-// | get_settings              | getSettings()                  | ~75  |
-// | save_settings             | saveSettings(settings)         | ~80  |
-// | validate_cookies_file     | validateCookiesFile(path)      | ~85  |
-// | check_cookies_before_download | checkCookiesBeforeDownload() | ~88  |
-// | get_default_output_path   | getDefaultOutputPath()         | ~90  |
-// | test_wrapper_connection   | testWrapperConnection(url)     | ~95  |
+// | Rust Command                  | TypeScript Function              | Line |
+// |-------------------------------|----------------------------------|------|
+// | get_settings                  | getSettings()                    | ~75  |
+// | save_settings                 | saveSettings(settings)           | ~80  |
+// | validate_cookies_file         | validateCookiesFile(path)        | ~85  |
+// | check_cookies_before_download | checkCookiesBeforeDownload()     | ~88  |
+// | check_internet_before_download| checkInternetBeforeDownload()    | ~91  |
+// | get_default_output_path       | getDefaultOutputPath()           | ~95  |
+// | test_wrapper_connection       | testWrapperConnection(url)       | ~100 |
 //
 // ## References
 //
@@ -244,6 +245,32 @@ pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult
         Err(e) => Ok(CookieCheckResult {
             ready: false,
             message: Some(format!("Cannot read cookies file: {e}")),
+        }),
+    }
+}
+
+/// Checks whether the internet is reachable before queuing a download.
+///
+/// **Frontend caller:** `checkInternetBeforeDownload()` in `src/lib/tauri-commands.ts`
+///
+/// Called by the download form before the cookie check. Reuses the existing
+/// `check_internet_connectivity()` health check (HTTP GET to apple.com with
+/// 5s timeout). Returns the same `CookieCheckResult` shape so the frontend
+/// can handle it with the same pattern.
+///
+/// If the check fails, the frontend shows an amber warning and blocks the
+/// download. This prevents queuing downloads that will immediately fail
+/// due to no internet, and avoids generating unhelpful error reports.
+#[tauri::command]
+pub async fn check_internet_before_download() -> Result<CookieCheckResult, String> {
+    match crate::services::health_check_service::check_internet_connectivity().await {
+        None => Ok(CookieCheckResult {
+            ready: true,
+            message: None,
+        }),
+        Some(warning) => Ok(CookieCheckResult {
+            ready: false,
+            message: Some(warning.message),
         }),
     }
 }
