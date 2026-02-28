@@ -1065,6 +1065,13 @@ export interface Toast {
   type: ToastType;
   /** Auto-dismiss duration in milliseconds (optional, has defaults per type) */
   duration?: number;
+  /**
+   * Optional deduplication/category key. When set:
+   * - Only one toast per key can be on screen at a time (new replaces old).
+   * - Toasts can be dismissed by key via `removeToastsByKey()`.
+   * Example: `"preflight:Wrapper"` for wrapper health check warnings.
+   */
+  key?: string;
 }
 
 /**
