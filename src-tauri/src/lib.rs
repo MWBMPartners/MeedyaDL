@@ -606,6 +606,7 @@ pub fn run() {
             // Settings management commands
             commands::settings::get_settings,
             commands::settings::save_settings,
+            commands::settings::has_embedded_acoustid_key,
             commands::settings::validate_cookies_file,
             commands::settings::check_cookies_before_download,
             commands::settings::check_internet_before_download,

@@ -154,6 +154,12 @@ This creates:
 
 These are only used by the macOS build. If missing, the macOS build will fail at the "Validate macOS signing secrets" step.
 
+### AcoustID (Optional)
+
+| Secret | Description |
+|--------|-------------|
+| `ACOUSTID_API_KEY` | Application API key from [acoustid.org/new-application](https://acoustid.org/new-application). Embedded at compile time via `option_env!("ACOUSTID_API_KEY")` so release builds ship with a pre-configured key for audio fingerprinting. If not set, users must provide their own key in Settings > Metadata. |
+
 ### Release Please
 
 | Secret | Description |

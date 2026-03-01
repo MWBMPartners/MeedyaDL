@@ -12,6 +12,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Add Multi-Select Artist Auto-Select — artist auto-select is now a multi-select checkbox group instead of a single dropdown. Users can select multiple content types (e.g., Main Albums + Singles & EPs + Music Videos) simultaneously. MeedyaDL creates one separate queue item per selected mode when downloading from an artist URL, since GAMDL only accepts a single `--artist-auto-select` value per invocation.
 
+- Ship built-in AcoustID API key with release builds — AcoustID fingerprinting now works out of the box without requiring users to register their own application key. The key is embedded at compile time from a GitHub Actions secret (`ACOUSTID_API_KEY`). Users can still override it with their own key in Settings > Metadata. Dev builds without the secret gracefully fall back to requiring a user-provided key.
+
 - Expand Activity Log from download-only to app-wide coverage — now shows update checks, dependency installs, settings saves, cookie imports, queue operations, login window events, pre-flight check results, and app startup/queue recovery messages. System events display with a `[System]` badge; download events retain the `[download_id]` prefix.
 
 - Add output path writability check before downloads

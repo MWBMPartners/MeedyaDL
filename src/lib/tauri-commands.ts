@@ -261,6 +261,20 @@ export function saveSettings(settings: AppSettings): Promise<void> {
 }
 
 /**
+ * Checks whether a built-in AcoustID API key was embedded at compile time.
+ *
+ * Rust handler: `has_embedded_acoustid_key()` in `src-tauri/src/commands/settings.rs`
+ * Returns: `true` if release builds include a pre-configured key, `false` for dev builds.
+ *
+ * Called by: MetadataTab (to adjust UI text for built-in vs user-provided key)
+ *
+ * @returns Promise resolving to boolean
+ */
+export function hasEmbeddedAcoustidKey(): Promise<boolean> {
+  return invoke<boolean>('has_embedded_acoustid_key');
+}
+
+/**
  * Validates a Netscape-format cookies file for Apple Music authentication.
  *
  * Rust handler: `validate_cookies_file()` in `src-tauri/src/commands/settings.rs`

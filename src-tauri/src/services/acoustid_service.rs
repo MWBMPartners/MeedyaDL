@@ -67,12 +67,33 @@ const ACOUSTID_API_URL: &str = "https://api.acoustid.org/v2/lookup";
 /// Delay between `AcoustID` API requests (~3 req/sec rate limit).
 const API_RATE_LIMIT_DELAY: Duration = Duration::from_millis(334);
 
-// The AcoustID API key is provided by the user via Settings > Metadata.
-// Users register a free application key at https://acoustid.org/new-application.
+/// Compile-time embedded `AcoustID` application API key. Set via the
+/// `ACOUSTID_API_KEY` environment variable at build time (e.g., from a
+/// GitHub Actions secret). When not set (local dev builds), this is `None`
+/// and users must provide their own key in Settings > Metadata.
+const EMBEDDED_API_KEY: Option<&str> = option_env!("ACOUSTID_API_KEY");
 
 // ============================================================
 // Public API
 // ============================================================
+
+/// Resolve the effective `AcoustID` API key.
+///
+/// Priority:
+/// 1. User-provided key from Settings > Metadata (if non-empty)
+/// 2. Compile-time embedded application key (if built with `ACOUSTID_API_KEY`)
+/// 3. `None` — `AcoustID` lookups are not possible
+///
+/// This allows release builds to ship with a pre-configured key while
+/// still letting users override it with their own registered key.
+pub fn resolve_api_key(user_key: &str) -> Option<String> {
+    // User override takes priority
+    if !user_key.is_empty() {
+        return Some(user_key.to_string());
+    }
+    // Fall back to compile-time embedded key
+    EMBEDDED_API_KEY.map(String::from)
+}
 
 /// Process all M4A files in the output directory for `AcoustID` fingerprinting.
 ///
@@ -95,7 +116,7 @@ pub async fn process_acoustid_for_directory(
     output_path: &str,
     api_key: &str,
 ) -> Result<usize, String> {
-    if api_key.is_empty() || api_key.contains("PLACEHOLDER") {
+    if api_key.is_empty() {
         return Err("AcoustID API key not configured".to_string());
     }
     // Collect all M4A files
@@ -537,6 +558,33 @@ mod tests {
         let results = json.get("results").and_then(|v| v.as_array()).unwrap();
         assert!(results.is_empty());
     }
+
+    // ----------------------------------------------------------
+    // API key resolution tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn resolve_api_key_prefers_user_provided() {
+        let result = super::resolve_api_key("user-key-123");
+        assert_eq!(result, Some("user-key-123".to_string()));
+    }
+
+    #[test]
+    fn resolve_api_key_empty_falls_back_to_embedded() {
+        let result = super::resolve_api_key("");
+        // Result depends on whether ACOUSTID_API_KEY was set at compile time.
+        // In test builds it's typically not set, so this returns None.
+        // The important thing is it doesn't panic or return an empty string.
+        if super::EMBEDDED_API_KEY.is_some() {
+            assert!(result.is_some());
+        } else {
+            assert!(result.is_none());
+        }
+    }
+
+    // ----------------------------------------------------------
+    // AcoustID response parsing tests (continued)
+    // ----------------------------------------------------------
 
     #[test]
     fn parse_acoustid_error_response() {

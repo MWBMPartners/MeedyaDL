@@ -493,6 +493,10 @@ jobs:
           # Required for the in-app auto-update system to verify downloads.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # AcoustID application API key — embedded at compile time via option_env!().
+          # Allows release builds to ship with a pre-configured key for audio
+          # fingerprinting, so users don't need to register their own.
+          ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: 'MeedyaDL ${{ steps.tag.outputs.name }}'
@@ -550,6 +554,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
         shell: bash
         run: npx tauri build --target armv7-unknown-linux-gnueabihf --bundles deb rpm
 

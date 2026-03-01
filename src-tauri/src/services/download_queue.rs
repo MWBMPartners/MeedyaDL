@@ -2750,15 +2750,13 @@ pub fn process_queue(
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
                             // embedded rusty-chromaprint library and looks up AcoustID
-                            // identifiers from acoustid.org.
+                            // identifiers from acoustid.org. The API key is resolved with
+                            // priority: user override → compile-time embedded key → none.
                             if enrich_settings.acoustid_enabled {
-                                if enrich_settings.acoustid_api_key.is_empty() {
-                                    emit_download_log(
-                                    &enrich_app,
-                                    &enrich_dl_id,
-                                    "AcoustID skipped: no API key configured (register at https://acoustid.org/new-application)",
+                                let resolved_key = super::acoustid_service::resolve_api_key(
+                                    &enrich_settings.acoustid_api_key,
                                 );
-                                } else {
+                                if let Some(ref api_key) = resolved_key {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
@@ -2766,7 +2764,7 @@ pub fn process_queue(
                                     );
                                     match super::acoustid_service::process_acoustid_for_directory(
                                         &album_dir,
-                                        &enrich_settings.acoustid_api_key,
+                                        api_key,
                                     )
                                     .await
                                     {
@@ -2798,6 +2796,12 @@ pub fn process_queue(
                                             );
                                         }
                                     }
+                                } else {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "AcoustID skipped: no API key available",
+                                    );
                                 }
                             }
 
