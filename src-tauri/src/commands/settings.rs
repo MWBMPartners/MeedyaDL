@@ -48,6 +48,7 @@ use crate::models::settings::AppSettings;
 // config_service handles the actual file I/O: reading/writing settings.json
 // and syncing to GAMDL's config.ini file.
 use crate::services::config_service;
+use crate::utils::activity_log::emit_app_log;
 
 /// Result of validating a Netscape-format cookies file.
 ///
@@ -134,7 +135,9 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // save_settings() in config_service performs two writes:
     //   1. settings.json — full AppSettings struct as JSON
     //   2. config.ini — relevant fields translated to GAMDL's INI format
-    config_service::save_settings(&app, &settings)
+    config_service::save_settings(&app, &settings)?;
+    emit_app_log(&app, "Settings saved");
+    Ok(())
 }
 
 /// Validates a Netscape-format cookies file.

@@ -45,7 +45,7 @@
 use std::path::{Path, PathBuf};
 
 use mp4ameta::{Data, FreeformIdent, Tag};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::process::Command;
 
 use crate::models::gamdl_options::SongCodec;
@@ -669,18 +669,11 @@ async fn try_fetch_metadata(
     urls: &[String],
     event_context: Option<(&tauri::AppHandle, &str)>,
 ) -> Option<AlbumMetadata> {
-    // Helper to emit to Activity Log if context is available
+    // Helper to emit to Activity Log if context is available.
+    // Uses the shared emit_download_log helper from utils::activity_log.
     let log_event = |msg: &str| {
         if let Some((app_handle, dl_id)) = event_context {
-            let _ = app_handle.emit(
-                "activity-log",
-                &serde_json::json!({
-                    "download_id": dl_id,
-                    "stream": "internal",
-                    "line": msg,
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                }),
-            );
+            crate::utils::activity_log::emit_download_log(app_handle, dl_id, msg);
         }
     };
 

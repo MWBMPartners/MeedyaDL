@@ -31,6 +31,7 @@ use tauri::AppHandle;
 
 use crate::services::cookie_service;
 use crate::services::cookie_service::{CookieImportResult, DetectedBrowser};
+use crate::utils::activity_log::emit_app_log;
 
 /// Detects which browsers are installed on the user's system.
 ///
@@ -91,7 +92,13 @@ pub async fn import_cookies_from_browser(
     browser_id: String,
 ) -> Result<CookieImportResult, String> {
     log::info!("Importing cookies from browser: {browser_id}");
-    cookie_service::extract_and_save(&app, &browser_id)
+    emit_app_log(&app, &format!("Importing cookies from {browser_id}..."));
+    let result = cookie_service::extract_and_save(&app, &browser_id)?;
+    emit_app_log(
+        &app,
+        &format!("Imported {} cookies from {browser_id}", result.cookie_count),
+    );
+    Ok(result)
 }
 
 /// Checks whether the application has macOS Full Disk Access.
