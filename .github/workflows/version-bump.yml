@@ -79,14 +79,14 @@ jobs:
       # in step 5 triggers the release workflow (release.yml).
       # @see https://github.com/actions/checkout
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
       # Step 2: Set up Node.js to run the version bump script.
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 'lts/*'
 
@@ -95,8 +95,10 @@ jobs:
       # then prints the new version to stdout which we capture as a step output.
       - name: Bump version
         id: bump
+        env:
+          BUMP_TYPE: ${{ inputs.bump }}
         run: |
-          NEW_VERSION=$(node scripts/bump-version.mjs "${{ inputs.bump }}")
+          NEW_VERSION=$(node scripts/bump-version.mjs "$BUMP_TYPE")
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "Bumped version to v$NEW_VERSION"
 

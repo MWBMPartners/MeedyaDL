@@ -139,6 +139,36 @@ fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::Worker
     guard
 }
 
+/// Deletes log files older than 7 days from the logs directory.
+///
+/// `tracing_appender::rolling::daily()` creates new log files daily but
+/// never deletes old ones. Without cleanup, log files accumulate indefinitely.
+/// This function provides the same retention policy as `clear_old_reports()`
+/// does for crash reports.
+fn clear_old_logs(app_data_dir: &std::path::Path) {
+    let log_dir = app_data_dir.join("logs");
+    let Ok(entries) = std::fs::read_dir(&log_dir) else {
+        return;
+    };
+    let cutoff = std::time::SystemTime::now()
+        - std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    let mut removed = 0u32;
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        log::info!("Cleaned up {removed} log file(s) older than 7 days");
+    }
+}
+
 /// Installs a custom panic hook that writes structured JSON crash reports
 /// to `{app_data_dir}/crashes/` before aborting.
 ///
@@ -295,8 +325,13 @@ fn setup_system_tray(
                         let _ = window.emit("tray-check-updates", ());
                     }
                 }
-                // Cleanly exit the application
+                // Cleanly exit the application.
+                // Trigger the shutdown signal first so background tasks
+                // stop starting new work before the process exits.
                 "quit" => {
+                    let shutdown = app.state::<services::download_queue::ShutdownSignal>();
+                    shutdown.trigger();
+                    log::info!("Tray quit — shutdown signal sent to background tasks");
                     app.exit(0);
                 }
                 _ => {}
@@ -482,6 +517,10 @@ pub fn run() {
         // Reference: https://docs.rs/tauri/latest/tauri/struct.Builder.html#method.manage
         // Reference: https://v2.tauri.app/develop/calling-rust/#accessing-managed-state
         .manage(services::download_queue::new_queue_handle())
+        // Register the shutdown signal for graceful background task cleanup.
+        // Fire-and-forget tasks (companions, lyrics, enrichment) poll this
+        // flag between iterations and exit early when the app is closing.
+        .manage(services::download_queue::ShutdownSignal::new())
         // ---------------------------------------------------------------
         // Plugin Registration
         // ---------------------------------------------------------------
@@ -665,6 +704,24 @@ pub fn run() {
             }
         })
         // ---------------------------------------------------------------
+        // Graceful Shutdown -- window event handler
+        // ---------------------------------------------------------------
+        // When the main window is destroyed (user closes it or clicks tray
+        // "Quit"), trigger the shutdown signal so fire-and-forget background
+        // tasks (companion downloads, lyrics companions, enrichment pipeline)
+        // stop starting new work at their next check point. This prevents
+        // orphaned subprocess spawns and unnecessary I/O during app exit.
+        //
+        // Reference: https://docs.rs/tauri/latest/tauri/struct.Builder.html#method.on_window_event
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                use tauri::Manager;
+                let shutdown = window.app_handle().state::<services::download_queue::ShutdownSignal>();
+                shutdown.trigger();
+                log::info!("Window destroyed — shutdown signal sent to background tasks");
+            }
+        })
+        // ---------------------------------------------------------------
         // Application Lifecycle -- `.setup()` hook
         // ---------------------------------------------------------------
         // The `.setup()` closure runs **once** after the Tauri runtime and
@@ -715,6 +772,9 @@ pub fn run() {
 
             // Clean up crash reports older than 30 days
             services::crash_report_service::clear_old_reports(app.handle());
+
+            // Clean up log files older than 7 days
+            clear_old_logs(&app_data_dir);
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);

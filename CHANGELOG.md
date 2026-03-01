@@ -19,6 +19,29 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Enhance internet connectivity check with multi-provider, multi-tier approach
 
+### 🐛 Bug Fixes
+
+- Fix cancellation overwriting Cancelled state with Error and creating spurious error reports
+- Fix App.tsx initialize() floating promise causing silent startup failures
+- Fix processQueue store action missing try/catch error handling
+- Fix unhandled promise rejections from shell.open() and clipboard.writeText() calls
+- Fix queue persistence and crash dir errors logged at debug level (now warn)
+- Fix partial temp files not cleaned up on download_file() error
+- Add 7-day log file cleanup (tracing_appender accumulates indefinitely)
+- Add 10s timeout to pip show gamdl subprocess (prevents queue Mutex blocking)
+- Add 15s timeout to GitHub API client in dependency_manager
+- Add 30s connect timeout to dependency download HTTP client (archive.rs)
+
+### 🔒 Security
+
+- Pin all release-critical GitHub Actions to immutable commit SHAs (prevents supply chain attacks from mutable version tags)
+- Add SHA-256 checksum verification infrastructure for dependency downloads (computed during streaming, zero extra I/O)
+- Add graceful shutdown signal for background tasks (enrichment, companion downloads, lyrics) — stops cleanly on window close or tray quit
+- Harden CI workflow_dispatch inputs against shell injection (use env: variables)
+- Redact wrapper URL query parameters in log files to prevent credential leakage
+- Validate URL scheme (https://) before passing to GAMDL subprocess
+- Cache compiled regex in parse_apple_music_url() with LazyLock (removes per-call .expect() panic risk)
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]

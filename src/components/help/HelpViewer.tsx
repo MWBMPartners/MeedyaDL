@@ -1232,7 +1232,9 @@ export function HelpViewer() {
                       // External link — open in system default browser
                       if (href.startsWith('http://') || href.startsWith('https://')) {
                         e.preventDefault();
-                        import('@tauri-apps/plugin-shell').then(({ open }) => open(href));
+                        import('@tauri-apps/plugin-shell')
+                          .then(({ open }) => open(href))
+                          .catch(() => {});
                       }
                     }}
                   >

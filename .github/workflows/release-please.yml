@@ -80,7 +80,7 @@ jobs:
       # The PAT allows the tag push to trigger release.yml.
       #
       # @see https://github.com/googleapis/release-please-action
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
         id: release
         with:
           token: ${{ secrets.RELEASE_PAT }}
@@ -101,7 +101,7 @@ jobs:
       # (the PR was merged and the tag was pushed).
       - name: Checkout Release PR branch
         if: steps.release.outputs.prs_created == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # release-please branch naming: release-please--branches--{target}--components--{component}
           # Component name comes from package.json "name" field (meedyadl).
@@ -115,7 +115,7 @@ jobs:
       # we're only regenerating the lock file, not compiling.
       - name: Setup Rust
         if: steps.release.outputs.prs_created == 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       # Step 4: Regenerate Cargo.lock from the updated Cargo.toml.
       # `cargo generate-lockfile` reads Cargo.toml and produces a fresh Cargo.lock

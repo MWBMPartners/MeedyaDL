@@ -142,14 +142,37 @@ pub struct TrackMetadata {
 /// * `None` - URL doesn't match any supported Apple Music pattern
 #[must_use]
 pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
+    use std::sync::LazyLock;
+
+    // Static regex instances compiled once at first use. Avoids recompiling
+    // on every call (this function is called on every URL entered and every
+    // queue restore). The .expect() on a LazyLock only runs once — a regex
+    // compilation failure here indicates a code defect, not a runtime error.
+
     // Match album URLs: /storefront/album/slug/album_id with optional ?i=song_id
     // Accepts both music.apple.com and classical.apple.com domains
-    let album_re = Regex::new(
-        r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?",
-    )
-    .expect("Invalid regex");
+    static ALBUM_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?",
+        )
+        .expect("Invalid album regex")
+    });
 
-    if let Some(caps) = album_re.captures(url) {
+    // Match song URLs: /storefront/song/slug/song_id
+    static SONG_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)")
+            .expect("Invalid song regex")
+    });
+
+    // Match music-video URLs: /storefront/music-video/slug/video_id
+    static MV_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)",
+        )
+        .expect("Invalid music-video regex")
+    });
+
+    if let Some(caps) = ALBUM_RE.captures(url) {
         return Some(ParsedAppleMusicUrl {
             storefront: caps[1].to_string(),
             content_type: "album".to_string(),
@@ -158,28 +181,16 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
         });
     }
 
-    // Match song URLs: /storefront/song/slug/song_id
-    // Accepts both music.apple.com and classical.apple.com domains
-    let song_re =
-        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)")
-            .expect("Invalid regex");
-
-    if let Some(caps) = song_re.captures(url) {
+    if let Some(caps) = SONG_RE.captures(url) {
         return Some(ParsedAppleMusicUrl {
             storefront: caps[1].to_string(),
             content_type: "song".to_string(),
-            album_id: String::new(), // Songs don't have an album ID in the URL
+            album_id: String::new(),
             song_id: Some(caps[2].to_string()),
         });
     }
 
-    // Match music-video URLs: /storefront/music-video/slug/video_id
-    // Accepts both music.apple.com and classical.apple.com domains
-    let mv_re =
-        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)")
-            .expect("Invalid regex");
-
-    if let Some(caps) = mv_re.captures(url) {
+    if let Some(caps) = MV_RE.captures(url) {
         return Some(ParsedAppleMusicUrl {
             storefront: caps[1].to_string(),
             content_type: "music-video".to_string(),
