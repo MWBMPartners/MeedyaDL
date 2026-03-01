@@ -31,7 +31,7 @@
 //   +-- animated_artwork_service -- Animated cover art via MusicKit API
 //   +-- apple_music_api.rs       -- Shared MusicKit JWT, URL parsing, API client
 //   +-- metadata_tag_service.rs  -- Post-download metadata enrichment (codec + API tags)
-//   +-- acoustid_service.rs      -- AcousticID fingerprinting via embedded Chromaprint (opt-in)
+//   +-- acoustid_service.rs      -- AcoustID fingerprinting via embedded Chromaprint (opt-in)
 //   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
 //   +-- enhanced_lyrics_service  -- TTML → Enhanced LRC with word-by-word timestamps
 //
@@ -143,10 +143,10 @@ pub mod apple_music_api;
 /// credentials configured in settings.
 pub mod metadata_tag_service;
 
-/// `AcousticID` fingerprinting service.
+/// `AcoustID` fingerprinting service.
 ///
 /// Generates Chromaprint audio fingerprints using the embedded
-/// rusty-chromaprint library (pure Rust) and looks up `AcousticID`
+/// rusty-chromaprint library (pure Rust) and looks up `AcoustID`
 /// identifiers via the acoustid.org web service. Writes `Acoustid Id`
 /// and `Acoustid Fingerprint` freeform atoms to M4A files. Opt-in
 /// feature with no external binary dependencies.

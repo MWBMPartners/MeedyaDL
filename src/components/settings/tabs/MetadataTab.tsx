@@ -12,8 +12,8 @@
  *     whether extra API metadata (normalization, spatial properties) is
  *     fetched. Maps to `settings.fetch_extra_tags`.
  *
- *   - **AcousticID Fingerprinting** (opt-in) -- When enabled, generates
- *     Chromaprint audio fingerprints using the embedded fingerprinting engine and looks up AcousticID
+ *   - **AcoustID Fingerprinting** (opt-in) -- When enabled, generates
+ *     Chromaprint audio fingerprints using the embedded fingerprinting engine and looks up AcoustID
  *     identifiers from acoustid.org. Writes `Acoustid Id` and
  *     `Acoustid Fingerprint` freeform atoms. Maps to
  *     `settings.acoustid_enabled`.
@@ -39,7 +39,7 @@ import { Input, Toggle } from '@/components/common';
 
 /**
  * Opens a URL in the system default browser via the Tauri shell plugin.
- * Used for the AcousticID registration link.
+ * Used for the AcoustID registration link.
  */
 async function openExternal(url: string) {
   const { open } = await import('@tauri-apps/plugin-shell');
@@ -50,7 +50,7 @@ async function openExternal(url: string) {
  * MetadataTab -- Renders the Metadata settings tab.
  *
  * Contains three sections: an informational block about automatic tags,
- * an AcousticID toggle, and a ReplayGain toggle. The automatic tags
+ * an AcoustID toggle, and a ReplayGain toggle. The automatic tags
  * section is read-only (no controls) since those tags are always written
  * when applicable.
  */
@@ -85,24 +85,24 @@ export function MetadataTab() {
       </div>
 
       {/* ================================================================
-          Section 2: AcousticID Fingerprinting (opt-in)
+          Section 2: AcoustID Fingerprinting (opt-in)
           ================================================================ */}
       <div>
         <h3 className="text-base font-semibold text-content-primary mb-4">
-          AcousticID Fingerprinting
+          AcoustID Fingerprinting
         </h3>
 
         <div className="space-y-4">
           <Toggle
-            label="Enable AcousticID Fingerprinting"
-            description="Generate audio fingerprints and look up AcousticID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
+            label="Enable AcoustID Fingerprinting"
+            description="Generate audio fingerprints and look up AcoustID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
             checked={settings.acoustid_enabled}
             onChange={(checked) => updateSettings({ acoustid_enabled: checked })}
           />
 
           {settings.acoustid_enabled && (
             <Input
-              label="AcousticID API Key"
+              label="AcoustID API Key"
               description={
                 <>
                   Register a free application API key at{' '}
@@ -116,11 +116,11 @@ export function MetadataTab() {
                   >
                     acoustid.org/new-application
                   </button>
-                  . Required for AcousticID lookups.
+                  . Required for AcoustID lookups.
                 </>
               }
               value={settings.acoustid_api_key ?? ''}
-              placeholder="Your AcousticID application API key"
+              placeholder="Your AcoustID application API key"
               onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
             />
           )}

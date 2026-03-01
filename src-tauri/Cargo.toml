@@ -378,7 +378,7 @@ regex = "1"
 #
 # @see https://docs.rs/jsonwebtoken/ -- jsonwebtoken API reference
 # @see https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 
 # ---- Browser Cookie Extraction ----
 
@@ -447,9 +447,9 @@ mp4ameta = "0.13"
 # ---- Audio Fingerprinting (Chromaprint) ----
 
 # rusty-chromaprint -- Pure Rust port of the Chromaprint audio fingerprinting
-# library. Replaces the external fpcalc binary for AcousticID fingerprint
+# library. Replaces the external fpcalc binary for AcoustID fingerprint
 # generation. Generates compact audio fingerprints compatible with the
-# AcousticID web service. Includes FingerprintCompressor for encoding in
+# AcoustID web service. Includes FingerprintCompressor for encoding in
 # Chromaprint's compressed format.
 # @see https://docs.rs/rusty-chromaprint/ -- API reference
 # @see https://acoustid.org/chromaprint -- Chromaprint project
@@ -466,7 +466,7 @@ symphonia = { version = "0.5", default-features = false, features = ["isomp4", "
 
 # base64 -- Base64 encoding/decoding library.
 # Used to encode compressed Chromaprint fingerprints in URL-safe base64
-# (RFC 4648) for submission to the AcousticID API.
+# (RFC 4648) for submission to the AcoustID API.
 # @see https://docs.rs/base64/ -- base64 crate documentation
 base64 = "0.22"
 
