@@ -53,6 +53,7 @@ use crate::models::download::{DownloadRequest, QueueItemStatus};
 // download_queue module contains the queue processing logic (process_queue).
 // QueueHandle is an Arc<Mutex<DownloadQueue>> shared across all command invocations.
 use crate::services::download_queue::{self, QueueHandle};
+use crate::utils::activity_log::emit_app_log;
 
 /// Status of all items in the download queue.
 ///
@@ -126,6 +127,9 @@ pub async fn start_download(
     // so the download can still proceed with sensible quality/format choices.
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
+    // Capture URL display string before `request` is consumed by enqueue().
+    let urls_display = request.urls.join(", ");
+
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,
     // avoiding potential deadlocks.
@@ -135,6 +139,7 @@ pub async fn start_download(
     };
 
     log::info!("Download {download_id} queued");
+    emit_app_log(&app, &format!("Queued: {urls_display}"));
 
     // Persist the updated queue to disk for crash recovery.
     // This ensures the new item survives an unexpected app close/crash.
@@ -203,6 +208,9 @@ pub async fn cancel_download(
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
 
+        let short = &download_id[..8.min(download_id.len())];
+        emit_app_log(&app, &format!("Cancelled download [{short}]"));
+
         // Notify the frontend so it can update the item's UI state immediately.
         // We use `let _ =` to ignore emission errors — the cancellation itself
         // already succeeded, so a failed event is non-critical.
@@ -265,6 +273,9 @@ pub async fn retry_download(
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
 
+        let short = &download_id[..8.min(download_id.len())];
+        emit_app_log(&app, &format!("Retrying download [{short}]"));
+
         // Notify frontend and kick off queue processing if auto-start is enabled.
         let _ = app.emit("download-queued", &download_id);
         if settings.auto_start_queue {
@@ -323,6 +334,9 @@ pub async fn retry_download_without_wrapper(
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
 
+        let short = &download_id[..8.min(download_id.len())];
+        emit_app_log(&app, &format!("Retrying [{short}] without wrapper"));
+
         // Notify frontend and kick off queue processing if auto-start is enabled.
         let _ = app.emit("download-queued", &download_id);
         if settings.auto_start_queue {
@@ -364,6 +378,10 @@ pub async fn clear_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resul
     // Persist the updated queue (or clear the file if nothing remains)
     let queue_handle = queue.inner().clone();
     download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+    if removed > 0 {
+        emit_app_log(&app, &format!("Cleared {removed} item(s) from queue"));
+    }
 
     Ok(removed)
 }
@@ -497,9 +515,14 @@ pub async fn export_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
             let resolved = path
                 .as_path()
                 .ok_or_else(|| "Failed to resolve export file path".to_string())?;
-            std::fs::write(resolved, json)
+            std::fs::write(resolved, &json)
                 .map_err(|e| format!("Failed to write export file: {e}"))?;
+            let filename = resolved
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("queue.meedyadl");
             log::info!("Exported {count} queue item(s) to file");
+            emit_app_log(&app, &format!("Exported {count} item(s) to {filename}"));
             Ok(count)
         }
         None => Err("Export cancelled".to_string()),
@@ -581,7 +604,12 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     // Notify the frontend that items were imported
     let _ = app.emit("queue-imported", count);
 
+    let filename = resolved
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("queue file");
     log::info!("Imported {count} queue item(s) from file");
+    emit_app_log(&app, &format!("Imported {count} item(s) from {filename}"));
 
     // Start processing the imported items if auto-start is enabled.
     if settings.auto_start_queue {
@@ -618,6 +646,7 @@ pub async fn process_queue_manual(
     queue: State<'_, QueueHandle>,
 ) -> Result<(), String> {
     log::info!("Manual queue processing triggered");
+    emit_app_log(&app, "Queue processing started (manual)");
     let queue_handle = queue.inner().clone();
     download_queue::process_queue(app, queue_handle).await;
     Ok(())
@@ -686,7 +715,9 @@ pub async fn export_activity_log(
 
     for entry in &entries {
         let time = format_timestamp_short(&entry.timestamp);
-        let id_prefix = if entry.download_id.len() > 8 {
+        let id_prefix = if entry.download_id == "system" {
+            "System"
+        } else if entry.download_id.len() > 8 {
             &entry.download_id[..8]
         } else {
             &entry.download_id

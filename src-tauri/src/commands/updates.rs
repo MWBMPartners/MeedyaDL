@@ -48,6 +48,7 @@ use crate::services::config_service;
 // UpdateCheckResult: aggregated result containing a list of ComponentUpdates
 //   and a top-level `has_updates` flag for quick checking.
 use crate::services::update_checker::{self, ComponentUpdate, UpdateCheckResult};
+use crate::utils::activity_log::emit_app_log;
 
 /// Checks for updates to all application components.
 ///
@@ -82,6 +83,7 @@ use crate::services::update_checker::{self, ComponentUpdate, UpdateCheckResult};
 #[tauri::command]
 pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, String> {
     log::info!("Checking for updates...");
+    emit_app_log(&app, "Checking for updates...");
     // Load settings to check the user's pre-release preference.
     // If settings fail to load, default to stable-only (check_pre_releases: false).
     let settings = config_service::load_settings(&app).unwrap_or_default();
@@ -93,18 +95,18 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 
     // Log the result for debugging — list components with available updates
     if result.has_updates {
-        log::info!(
-            "Updates available for: {}",
-            result
-                .components
-                .iter()
-                .filter(|c| c.update_available) // Only include components with updates
-                .map(|c| c.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ") // e.g., "GAMDL, Python"
-        );
+        let names = result
+            .components
+            .iter()
+            .filter(|c| c.update_available)
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        log::info!("Updates available for: {names}");
+        emit_app_log(&app, &format!("Updates available: {names}"));
     } else {
         log::info!("All components are up to date");
+        emit_app_log(&app, "All components up to date");
     }
 
     Ok(result)
@@ -135,11 +137,13 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 #[tauri::command]
 pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
     log::info!("Upgrading GAMDL...");
+    emit_app_log(&app, "Upgrading GAMDL...");
     // Reuses install_gamdl() which runs `pip install --upgrade gamdl`.
     // The --upgrade flag ensures pip upgrades to the latest version if
     // an older version is already installed.
     let version = crate::services::gamdl_service::install_gamdl(&app).await?;
     log::info!("GAMDL upgraded to {version}");
+    emit_app_log(&app, &format!("GAMDL upgraded to v{version}"));
     Ok(version)
 }
 
@@ -243,6 +247,7 @@ pub async fn download_and_install_app_update(
     use tauri_plugin_updater::UpdaterExt;
 
     log::info!("Downloading app update from tag: {tag}");
+    emit_app_log(&app, &format!("Downloading app update {tag}..."));
 
     // Construct the endpoint URL for the specific release tag.
     // Each GitHub Release contains a `latest.json` manifest that describes
@@ -312,6 +317,7 @@ pub async fn download_and_install_app_update(
         .map_err(|e| format!("Failed to download and install update: {e}"))?;
 
     log::info!("App update installed successfully. Restart required.");
+    emit_app_log(&app, "App update installed — restart required");
 
     // Emit a final "finished" event so the frontend can show a "Restart Now" button
     let _ = app.emit(

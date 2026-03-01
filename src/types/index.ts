@@ -899,15 +899,21 @@ export interface GamdlProgress {
 }
 
 /**
- * Payload for the 'activity-log' Tauri event, emitted for every raw
- * stdout/stderr line from GAMDL subprocesses before parsing. Used by the
- * Activity Log page to show a live terminal-style view of download output.
+ * Payload for the 'activity-log' Tauri event, emitted for both download-specific
+ * and system-level activity. Used by the Activity Log page to show a live
+ * terminal-style view of all application activity.
+ *
+ * Two kinds of entries:
+ * - **Download events**: `download_id` is a UUID — per-download subprocess output
+ *   and internal messages (enrichment, companions, fallback decisions).
+ * - **System events**: `download_id` is `"system"` — app-wide actions like update
+ *   checks, dependency installs, settings saves, queue operations, and startup.
  *
  * @see ActivityLog component for the live log viewer
  * @see activityStore for the Zustand store that accumulates entries
  */
 export interface ActivityLogEntry {
-  /** Unique download ID this line belongs to */
+  /** Unique download ID this line belongs to, or `"system"` for app-wide events */
   download_id: string;
   /** Which output stream the line came from.
    * 'internal' is used for MeedyaDL's own messages (enrichment, companions). */

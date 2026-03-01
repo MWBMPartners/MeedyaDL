@@ -2,10 +2,12 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Activity Log page component.
-// Displays a live, terminal-style view of raw GAMDL subprocess output.
-// Each stdout/stderr line is shown in real-time as it arrives from the
-// backend via the "activity-log" Tauri event. The log auto-scrolls to
-// the bottom unless the user scrolls up or clicks "Pause".
+// Displays a live, terminal-style view of all application activity.
+// Shows both GAMDL subprocess output (download-specific) and system-level
+// events (updates, dependency installs, settings, queue operations).
+// Each line arrives in real-time from the backend via the "activity-log"
+// Tauri event. The log auto-scrolls to the bottom unless the user scrolls
+// up or clicks "Pause".
 //
 // Text is fully selectable and copyable for bug reporting purposes.
 
@@ -41,7 +43,15 @@ function shortId(id: string): string {
 }
 
 /**
- * ActivityLog -- Live terminal-style view of GAMDL subprocess output.
+ * ActivityLog -- Live terminal-style view of all application activity.
+ *
+ * Shows two kinds of events:
+ * - **Download events** — GAMDL subprocess stdout/stderr and per-download
+ *   internal messages (enrichment, companions, fallback decisions).
+ *   Identified by a truncated download ID prefix, e.g. `[abc123de]`.
+ * - **System events** — App-wide actions (update checks, dependency installs,
+ *   settings saves, queue operations, startup). Identified by `download_id`
+ *   === `"system"` and rendered with a `[System]` badge.
  *
  * Features:
  * - Auto-scrolls to bottom as new lines arrive
@@ -172,7 +182,7 @@ export function ActivityLog() {
       >
         {entries.length === 0 ? (
           <p className="text-content-tertiary text-center py-8">
-            No activity yet. Start a download to see live output here.
+            No activity yet. Start a download or perform an action to see live output here.
           </p>
         ) : (
           entries.map((entry, i) => (
@@ -187,9 +197,15 @@ export function ActivityLog() {
               }`}
             >
               <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
-              <span className="text-accent">[{shortId(entry.download_id)}] </span>
-              {entry.stream === 'internal' && (
-                <span className="text-accent-primary font-medium">[MeedyaDL] </span>
+              {entry.download_id === 'system' ? (
+                <span className="text-status-info font-medium">[System] </span>
+              ) : (
+                <>
+                  <span className="text-accent">[{shortId(entry.download_id)}] </span>
+                  {entry.stream === 'internal' && (
+                    <span className="text-accent-primary font-medium">[MeedyaDL] </span>
+                  )}
+                </>
               )}
               {entry.line}
             </div>

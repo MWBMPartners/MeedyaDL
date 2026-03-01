@@ -38,6 +38,7 @@ use tauri::AppHandle;
 
 use crate::services::cookie_service::CookieImportResult;
 use crate::services::login_window_service;
+use crate::utils::activity_log::emit_app_log;
 
 /// Opens an embedded browser window for Apple Music login.
 ///
@@ -61,6 +62,7 @@ use crate::services::login_window_service;
 #[tauri::command]
 pub async fn open_apple_login(app: AppHandle) -> Result<(), String> {
     log::info!("Opening Apple Music login window");
+    emit_app_log(&app, "Opened Apple Music login window");
     login_window_service::open_login_window(&app)
 }
 
@@ -86,7 +88,10 @@ pub async fn open_apple_login(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn extract_login_cookies(app: AppHandle) -> Result<CookieImportResult, String> {
     log::info!("Manually extracting cookies from login window");
-    login_window_service::extract_login_cookies(&app).await
+    emit_app_log(&app, "Extracting cookies from login...");
+    let result = login_window_service::extract_login_cookies(&app).await?;
+    emit_app_log(&app, "Apple Music cookies extracted");
+    Ok(result)
 }
 
 /// Closes the Apple Music login browser window.

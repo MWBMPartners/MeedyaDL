@@ -413,6 +413,10 @@ fn setup_queue_recovery(app: &tauri::App) {
     let queue_for_processing = queue_arc;
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        utils::activity_log::emit_app_log(
+            &app_handle,
+            &format!("Restored {count} item(s) from previous session"),
+        );
         services::download_queue::process_queue(app_handle, queue_for_processing).await;
     });
 }
@@ -778,6 +782,22 @@ pub fn run() {
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
+
+            // Emit a startup activity log event after a short delay so the
+            // frontend event listeners are registered before we send it.
+            let startup_handle = app.handle().clone();
+            let version = app.package_info().version.to_string();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                utils::activity_log::emit_app_log(
+                    &startup_handle,
+                    &format!(
+                        "MeedyaDL v{version} started on {} ({})",
+                        std::env::consts::OS,
+                        std::env::consts::ARCH,
+                    ),
+                );
+            });
 
             Ok(())
         })

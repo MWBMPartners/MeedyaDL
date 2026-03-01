@@ -49,6 +49,7 @@ use tauri::AppHandle;
 // gamdl_service: manages the GAMDL Python package (install, version check, update).
 // python_manager: manages the portable Python runtime (download, install, verify).
 use crate::services::{dependency_manager, gamdl_service, python_manager};
+use crate::utils::activity_log::emit_app_log;
 
 /// Status information for a single dependency (Python, GAMDL, or tool).
 ///
@@ -162,7 +163,12 @@ pub async fn install_python(app: AppHandle) -> Result<String, String> {
     //   2. Downloading the tarball/zip archive
     //   3. Extracting to the app data directory
     //   4. Verifying the installation by running python --version
-    python_manager::install_python(&app).await
+    log::info!("Installing Python...");
+    emit_app_log(&app, "Installing Python...");
+    let version = python_manager::install_python(&app).await?;
+    log::info!("Python {version} installed");
+    emit_app_log(&app, &format!("Python {version} installed"));
+    Ok(version)
 }
 
 /// Checks whether GAMDL is installed in the portable Python environment.
@@ -224,7 +230,12 @@ pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, Stri
 #[tauri::command]
 pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
     // Delegates to gamdl_service which runs pip and parses the output
-    gamdl_service::install_gamdl(&app).await
+    log::info!("Installing GAMDL...");
+    emit_app_log(&app, "Installing GAMDL...");
+    let version = gamdl_service::install_gamdl(&app).await?;
+    log::info!("GAMDL v{version} installed");
+    emit_app_log(&app, &format!("GAMDL v{version} installed"));
+    Ok(version)
 }
 
 /// Checks the installation status of all external tool dependencies.
@@ -324,5 +335,9 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
 pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, String> {
     // Delegates to dependency_manager which handles platform-specific
     // URL resolution, download, archive extraction, and binary verification.
-    dependency_manager::install_tool(&app, &name).await
+    log::info!("Installing dependency: {name}");
+    emit_app_log(&app, &format!("Installing {name}..."));
+    let result = dependency_manager::install_tool(&app, &name).await?;
+    emit_app_log(&app, &format!("{name} installed"));
+    Ok(result)
 }
