@@ -8,6 +8,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Expand Activity Log from download-only to app-wide coverage — now shows update checks, dependency installs, settings saves, cookie imports, queue operations, login window events, pre-flight check results, and app startup/queue recovery messages. System events display with a `[System]` badge; download events retain the `[download_id]` prefix.
+
 - Add output path writability check before downloads
 
 - Implemented `check_output_path_before_download` command to verify that the output directory is writable, catching issues like disconnected cloud mounts, full disks, and permission errors.

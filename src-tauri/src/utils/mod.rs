@@ -48,3 +48,14 @@ pub mod archive;
 ///
 /// Used by: `services::gamdl_service`, `services::download_queue`
 pub mod process;
+
+/// App-wide activity log emission helpers.
+///
+/// Provides `emit_download_log()` and `emit_app_log()` functions for emitting
+/// structured activity log events from any backend module. Centralises the
+/// `ActivityLogEvent` struct that was previously private to `download_queue.rs`.
+///
+/// Used by: `services::download_queue`, `services::metadata_tag_service`,
+///          `commands::gamdl`, `commands::updates`, `commands::dependencies`,
+///          `commands::cookies`, `commands::settings`, `commands::login_window`
+pub mod activity_log;

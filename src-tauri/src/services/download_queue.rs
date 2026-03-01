@@ -105,6 +105,9 @@ use crate::models::crash_report::CrashReport;
 // process: Provides parse_gamdl_output() for parsing GAMDL output lines and
 // classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
+// Activity log helpers: emit_download_log for per-download messages,
+// emit_app_log for system-level messages, ActivityLogEvent for raw stdout/stderr.
+use crate::utils::activity_log::{emit_app_log, emit_download_log, ActivityLogEvent};
 
 // ============================================================
 // Graceful shutdown signal
@@ -145,41 +148,11 @@ impl ShutdownSignal {
 }
 
 // ============================================================
-// Activity log event (raw subprocess output for live log viewer)
+// Activity log event helpers
 // ============================================================
-
-/// Payload for the "activity-log" Tauri event, emitted for every raw
-/// stdout/stderr line from GAMDL subprocesses before parsing, as well as
-/// for internal MeedyaDL actions (enrichment, companions, diagnostics).
-/// The Activity Log page subscribes to these events for a live terminal view.
-///
-/// Stream values:
-///   - `"stdout"` -- GAMDL subprocess stdout
-///   - `"stderr"` -- GAMDL subprocess stderr
-///   - `"internal"` -- MeedyaDL internal actions (enrichment, companion downloads)
-#[derive(Clone, serde::Serialize)]
-struct ActivityLogEvent {
-    download_id: String,
-    stream: &'static str,
-    line: String,
-    timestamp: String,
-}
-
-/// Emits an internal MeedyaDL activity log event (not from GAMDL subprocess).
-/// Used to surface enrichment progress, companion downloads, and diagnostic
-/// information in the Activity Log so users can see what MeedyaDL is doing
-/// behind the scenes.
-fn emit_internal_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    let _ = app.emit(
-        "activity-log",
-        &ActivityLogEvent {
-            download_id: download_id.to_string(),
-            stream: "internal",
-            line: message.to_string(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-        },
-    );
-}
+// ActivityLogEvent, emit_download_log, and emit_app_log are now in
+// crate::utils::activity_log (shared across commands and services).
+// The import is at the top of this file.
 
 /// Strips query parameters from a URL before logging to prevent credential leakage.
 ///
@@ -1528,7 +1501,7 @@ fn spawn_companion_downloads(
         let comp_dl_id = dl_id.to_string();
         let comp_shutdown = shutdown.clone();
 
-        emit_internal_log(
+        emit_download_log(
             app,
             dl_id,
             &format!(
@@ -1539,7 +1512,7 @@ fn spawn_companion_downloads(
         // Log per-tier codec details before spawning the async task
         for (tier_idx, tier) in companion_tiers.iter().enumerate() {
             let codec_names: Vec<&str> = tier.codecs_to_try.iter().map(|c| c.to_cli_string()).collect();
-            emit_internal_log(
+            emit_download_log(
                 app,
                 dl_id,
                 &format!("Companion tier {}: trying {}", tier_idx, codec_names.join(", ")),
@@ -1559,7 +1532,7 @@ fn spawn_companion_downloads(
 
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
-                    emit_internal_log(
+                    emit_download_log(
                         &comp_app,
                         &comp_dl_id,
                         &format!("Companion tier {}: attempting {}...", tier_idx, codec.to_cli_string()),
@@ -1615,7 +1588,7 @@ fn spawn_companion_downloads(
                                         codec.to_cli_string(),
                                         comp_dl_id
                                     );
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &comp_app,
                                         &comp_dl_id,
                                         &format!(
@@ -1669,7 +1642,7 @@ fn spawn_companion_downloads(
                                         comp_dl_id,
                                         last_err
                                     );
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &comp_app,
                                         &comp_dl_id,
                                         &format!(
@@ -1694,7 +1667,7 @@ fn spawn_companion_downloads(
 
                 if !tier_succeeded {
                     log::debug!("Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}");
-                    emit_internal_log(
+                    emit_download_log(
                         &comp_app,
                         &comp_dl_id,
                         &format!("Companion tier {tier_idx}: all codecs exhausted"),
@@ -1907,9 +1880,12 @@ pub fn process_queue(
                     v
                 };
 
+                let mut any_warnings = false;
                 for (check, warning) in checks_run {
                     if let Some(w) = warning {
+                        any_warnings = true;
                         log::warn!("Pre-flight warning ({check:?}): {}", w.message);
+                        emit_app_log(&app, &format!("Pre-flight: {}", w.message));
                         let _ = app.emit("preflight-warning", &w);
                     } else {
                         // Check passed — dismiss any stale toast for this check type
@@ -1918,6 +1894,9 @@ pub fn process_queue(
                             &serde_json::json!({ "check": format!("{check:?}") }),
                         );
                     }
+                }
+                if !any_warnings {
+                    emit_app_log(&app, "Pre-flight checks passed");
                 }
             }
         }
@@ -2000,7 +1979,7 @@ pub fn process_queue(
                     log::info!(
                         "Download {download_id} using native codec priority: {priority_str}"
                     );
-                    emit_internal_log(
+                    emit_download_log(
                         &app,
                         &download_id,
                         &format!(
@@ -2136,7 +2115,7 @@ pub fn process_queue(
                                         "Download {dl_id} codec error with native priority \
                                      (all codecs exhausted by GAMDL): {error_msg}"
                                     );
-                                    emit_internal_log(
+                                    emit_download_log(
                                     &app_clone,
                                     &dl_id,
                                     "GAMDL tried all formats in priority chain — none available for this content",
@@ -2163,7 +2142,7 @@ pub fn process_queue(
                                         "Download {dl_id} will retry with fallback codec: {fallback_codec} ({fb_idx} of {total_fallbacks})"
                                     );
                                         drop(q);
-                                        emit_internal_log(
+                                        emit_download_log(
                                         &app_clone,
                                         &dl_id,
                                         &format!("Format not available — trying {fallback_codec} (fallback {fb_idx} of {total_fallbacks})"),
@@ -2173,7 +2152,7 @@ pub fn process_queue(
                                         return;
                                     }
                                     // Fallback chain exhausted — fall through to error below
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &app_clone,
                                         &dl_id,
                                         "All audio formats exhausted — no compatible format found",
@@ -2275,7 +2254,7 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
                                 drop(q);
-                                emit_internal_log(
+                                emit_download_log(
                                     &app_clone,
                                     &dl_id,
                                     &format!("Download failed: {error_msg}"),
@@ -2290,7 +2269,7 @@ pub fn process_queue(
                                             "Auto-retrying download {dl_id} without \
                                          wrapper (success-path terminal error)"
                                         );
-                                        emit_internal_log(
+                                        emit_download_log(
                                             &app_clone,
                                             &dl_id,
                                             "Wrapper failed — auto-retrying without wrapper",
@@ -2455,7 +2434,7 @@ pub fn process_queue(
                             // Log enrichment settings summary so users can see
                             // which steps will run in the Activity Log.
                             let enrich_settings = load_settings_for_queue(&enrich_app);
-                            emit_internal_log(
+                            emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
                             &format!(
@@ -2483,7 +2462,7 @@ pub fn process_queue(
                                 _ => None,
                             });
 
-                            emit_internal_log(
+                            emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
@@ -2509,7 +2488,7 @@ pub fn process_queue(
                                             log::info!(
                                             "Enriched {count} file(s) with metadata for {enrich_dl_id}"
                                         );
-                                            emit_internal_log(
+                                            emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!("Enriched {count} file(s) with metadata tags{api_note}"),
@@ -2521,7 +2500,7 @@ pub fn process_queue(
                                         log::debug!(
                                             "Metadata enrichment failed for {enrich_dl_id}: {e}"
                                         );
-                                        emit_internal_log(
+                                        emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!("Metadata enrichment failed: {e}"),
@@ -2546,7 +2525,7 @@ pub fn process_queue(
                             // Falls back to standard line-level LRC for songs without
                             // word-level timing in their TTML.
                             if enrich_settings.enhanced_lrc {
-                                emit_internal_log(
+                                emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
                                     "Converting TTML lyrics to Enhanced LRC (word-by-word sync)...",
@@ -2558,14 +2537,14 @@ pub fn process_queue(
                                     log::info!(
                                         "Enhanced LRC generated for {count} file(s) for {enrich_dl_id}"
                                     );
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         &format!("Enhanced LRC generated for {count} file(s)"),
                                     );
                                 }
                                 Ok(_) => {
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         "No TTML lyrics files found for Enhanced LRC conversion",
@@ -2575,7 +2554,7 @@ pub fn process_queue(
                                     log::debug!(
                                         "Enhanced LRC conversion skipped for {enrich_dl_id}: {e}"
                                     );
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         &format!("Enhanced LRC conversion skipped: {e}"),
@@ -2594,7 +2573,7 @@ pub fn process_queue(
                             // duplicate API call. Falls back to a fresh API call
                             // if enrichment didn't produce metadata.
                             if enrich_settings.animated_artwork_enabled {
-                                emit_internal_log(
+                                emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
                                     "Downloading animated artwork...",
@@ -2620,7 +2599,7 @@ pub fn process_queue(
                                             log::info!(
                                                 "Animated artwork downloaded for {enrich_dl_id}"
                                             );
-                                            emit_internal_log(
+                                            emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!(
@@ -2662,7 +2641,7 @@ pub fn process_queue(
                                             let _ = enrich_app
                                                 .emit("artwork-downloaded", &enrich_dl_id);
                                         } else {
-                                            emit_internal_log(
+                                            emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
                                                 "No animated artwork available for this album",
@@ -2673,7 +2652,7 @@ pub fn process_queue(
                                         log::debug!(
                                             "Animated artwork skipped for {enrich_dl_id}: {e}"
                                         );
-                                        emit_internal_log(
+                                        emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!("Animated artwork skipped: {e}"),
@@ -2693,13 +2672,13 @@ pub fn process_queue(
                             // identifiers from acoustid.org.
                             if enrich_settings.acoustid_enabled {
                                 if enrich_settings.acoustid_api_key.is_empty() {
-                                    emit_internal_log(
+                                    emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
                                     "AcousticID skipped: no API key configured (register at https://acoustid.org/new-application)",
                                 );
                                 } else {
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         "Running AcousticID fingerprinting...",
@@ -2714,14 +2693,14 @@ pub fn process_queue(
                                             log::info!(
                                             "AcousticID tagged {count} file(s) for {enrich_dl_id}"
                                         );
-                                            emit_internal_log(
+                                            emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
                                                 &format!("AcousticID tagged {count} file(s)"),
                                             );
                                         }
                                         Ok(_) => {
-                                            emit_internal_log(
+                                            emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
                                                 "AcousticID: no matches found for any files",
@@ -2731,7 +2710,7 @@ pub fn process_queue(
                                             log::debug!(
                                                 "AcousticID skipped for {enrich_dl_id}: {e}"
                                             );
-                                            emit_internal_log(
+                                            emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
                                                 &format!("AcousticID failed: {e}"),
@@ -2750,7 +2729,7 @@ pub fn process_queue(
                             // When enabled, analyses each file's loudness via FFmpeg's
                             // ebur128 filter and writes non-destructive ReplayGain tags.
                             if enrich_settings.replaygain_enabled {
-                                emit_internal_log(
+                                emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
                                     "Analysing loudness (ReplayGain EBU R128)...",
@@ -2765,14 +2744,14 @@ pub fn process_queue(
                                         log::info!(
                                         "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
                                     );
-                                        emit_internal_log(
+                                        emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!("ReplayGain analysed {count} file(s)"),
                                         );
                                     }
                                     Ok(_) => {
-                                        emit_internal_log(
+                                        emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             "ReplayGain: no audio files to analyse",
@@ -2780,7 +2759,7 @@ pub fn process_queue(
                                     }
                                     Err(e) => {
                                         log::debug!("ReplayGain skipped for {enrich_dl_id}: {e}");
-                                        emit_internal_log(
+                                        emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &format!("ReplayGain failed: {e}"),
@@ -2789,7 +2768,7 @@ pub fn process_queue(
                                 }
                             }
 
-                            emit_internal_log(
+                            emit_download_log(
                                 &enrich_app,
                                 &enrich_dl_id,
                                 "Post-download enrichment complete",
@@ -2822,7 +2801,7 @@ pub fn process_queue(
                         drop(q);
                         save_queue_to_disk(&app_clone, &queue_clone).await;
                         log::info!("Download {dl_id} cancelled by user");
-                        emit_internal_log(&app_clone, &dl_id, "Download cancelled by user");
+                        emit_download_log(&app_clone, &dl_id, "Download cancelled by user");
                         return;
                     }
 
@@ -2842,7 +2821,7 @@ pub fn process_queue(
                                 "Wrapper URL was: {safe_url} -- check that the wrapper \
                              service is running and reachable"
                             );
-                            emit_internal_log(
+                            emit_download_log(
                                 &app_clone,
                                 &dl_id,
                                 &format!("Network error occurred while using wrapper at {safe_url}"),
@@ -2871,7 +2850,7 @@ pub fn process_queue(
                                  priority — trying per-codec fallback as \
                                  safety net"
                                     );
-                                    emit_internal_log(
+                                    emit_download_log(
                                 &app_clone,
                                 &dl_id,
                                 "GAMDL native priority failed — trying each format individually",
@@ -2895,7 +2874,7 @@ pub fn process_queue(
                                  fallback codec: {fallback_codec} ({fb_idx} of {total_fallbacks})"
                                     );
                                     drop(q);
-                                    emit_internal_log(
+                                    emit_download_log(
                                 &app_clone,
                                 &dl_id,
                                 &format!("Format not available — trying {fallback_codec} (fallback {fb_idx} of {total_fallbacks})"),
@@ -2903,7 +2882,7 @@ pub fn process_queue(
                                     true
                                 } else {
                                     drop(q);
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &app_clone,
                                         &dl_id,
                                         "All audio formats exhausted — download failed",
@@ -2929,7 +2908,7 @@ pub fn process_queue(
                                     // try_network_retry resets the item to Queued with same options
                                     log::info!("Download {dl_id} will retry (network error, attempt {attempt} of {total})");
                                     drop(q);
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &app_clone,
                                         &dl_id,
                                         &format!("Network error{mode_context} — retrying (attempt {attempt} of {total})"),
@@ -2937,7 +2916,7 @@ pub fn process_queue(
                                     true
                                 } else {
                                     drop(q);
-                                    emit_internal_log(
+                                    emit_download_log(
                                         &app_clone,
                                         &dl_id,
                                         &format!("Network error{mode_context} — all retries exhausted"),
@@ -2953,7 +2932,7 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
                                 drop(q);
-                                emit_internal_log(
+                                emit_download_log(
                                     &app_clone,
                                     &dl_id,
                                     &format!(
@@ -2970,7 +2949,7 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
                                 drop(q);
-                                emit_internal_log(
+                                emit_download_log(
                                     &app_clone,
                                     &dl_id,
                                     &format!("Download failed ({error_category}): {error_msg}"),
@@ -3005,7 +2984,7 @@ pub fn process_queue(
                                     "Auto-retrying download {dl_id} without wrapper \
                                  (auto_retry_without_wrapper enabled)"
                                 );
-                                emit_internal_log(
+                                emit_download_log(
                                     &app_clone,
                                     &dl_id,
                                     "Wrapper failed — auto-retrying without wrapper",
@@ -3098,7 +3077,7 @@ pub fn process_queue(
                                 &shutdown_clone,
                             );
                         } else {
-                            emit_internal_log(
+                            emit_download_log(
                                 &app_clone,
                                 &dl_id,
                                 "Companion downloads skipped — network unavailable",
