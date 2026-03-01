@@ -8,6 +8,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add Custom Companion Downloads mode — new "Custom..." companion mode lets users pick exactly which audio codecs to download as companions alongside the primary format (multi-select checkboxes for all 11 codecs). Existing 5 preset modes are preserved. Each selected companion codec runs as an independent download tier.
+
+- Add Multi-Select Artist Auto-Select — artist auto-select is now a multi-select checkbox group instead of a single dropdown. Users can select multiple content types (e.g., Main Albums + Singles & EPs + Music Videos) simultaneously. MeedyaDL creates one separate queue item per selected mode when downloading from an artist URL, since GAMDL only accepts a single `--artist-auto-select` value per invocation.
+
 - Expand Activity Log from download-only to app-wide coverage — now shows update checks, dependency installs, settings saves, cookie imports, queue operations, login window events, pre-flight check results, and app startup/queue recovery messages. System events display with a `[System]` badge; download events retain the `[download_id]` prefix.
 
 - Add output path writability check before downloads

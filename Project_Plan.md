@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v0.5.8** (2026-02-16) — All 6 phases complete + post-release features <!-- x-release-please-version -->
+**v0.6.0** (2026-03-01) — All 6 phases complete + post-release features <!-- x-release-please-version -->
 
 ---
 
@@ -241,7 +241,8 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
 - ✅ **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
 - ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/PortraitCover.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
-- ✅ **Configurable companion downloads** - 4 modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy) with [Lossless]/[Dolby Atmos] file suffixes
+- ✅ **Configurable companion downloads** - 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, Atmos→All Formats) plus Custom mode with multi-select codec checkboxes, with [Lossless]/[Dolby Atmos] file suffixes
+- ✅ **Multi-select artist auto-select** - Checkbox group for selecting multiple artist content types (Main Albums, Singles & EPs, Music Videos, etc.) simultaneously. MeedyaDL creates N separate queue items for artist URLs (one per selected mode) since GAMDL only accepts a single `--artist-auto-select` value per invocation.
 - ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
 - ✅ **Metadata enrichment** - Comprehensive post-download enrichment: codec tags, source/channel tags, Apple Music API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs). Shared `apple_music_api.rs` module for MusicKit JWT, URL parsing, and catalog API.
 - ✅ **AcousticID fingerprinting** (opt-in) - Chromaprint audio fingerprints via embedded rusty-chromaprint library + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags. No external binary required.

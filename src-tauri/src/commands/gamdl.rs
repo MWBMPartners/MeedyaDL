@@ -127,8 +127,69 @@ pub async fn start_download(
     // so the download can still proceed with sensible quality/format choices.
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
-    // Capture URL display string before `request` is consumed by enqueue().
+    // Multi-select artist auto-select: if the URL is an artist URL and
+    // multiple modes are configured, split into N separate downloads (one
+    // per mode). GAMDL only accepts a single --artist-auto-select value,
+    // so MeedyaDL creates separate queue items for each selected mode.
+    let is_artist_url = request.urls.iter().any(|u| u.contains("/artist/"));
+    let artist_modes = &settings.artist_auto_select_multi;
+
+    if is_artist_url && artist_modes.len() > 1 {
+        // Capture URL display string before splitting
+        let urls_display = request.urls.join(", ");
+        let mut first_id = String::new();
+
+        {
+            let mut q = queue.lock().await;
+            for (i, mode) in artist_modes.iter().enumerate() {
+                // Clone the request and set the per-download artist override
+                let mut split_request = request.clone();
+                let overrides = split_request.options.get_or_insert_with(Default::default);
+                overrides.artist_auto_select = Some(mode.clone());
+
+                let download_id = q.enqueue(split_request, &settings);
+                log::info!("Download {download_id} queued (artist mode: {})", mode.to_cli_string());
+                if i == 0 {
+                    first_id = download_id;
+                }
+            }
+        }
+
+        emit_app_log(
+            &app,
+            &format!(
+                "Queued: {urls_display} ({} artist modes)",
+                artist_modes.len()
+            ),
+        );
+
+        let queue_handle = queue.inner().clone();
+        download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+        app.emit("download-queued", &first_id)
+            .map_err(|e| format!("Failed to emit event: {e}"))?;
+
+        if settings.auto_start_queue && !skip_auto_start.unwrap_or(false) {
+            download_queue::process_queue(app, queue_handle).await;
+        }
+
+        return Ok(first_id);
+    }
+
+    // Single-mode path: standard enqueue (also handles single artist_auto_select_multi)
     let urls_display = request.urls.join(", ");
+
+    // If exactly one multi-mode is set and it's an artist URL, apply it as an override
+    let request = if is_artist_url && artist_modes.len() == 1 {
+        let mut req = request;
+        let overrides = req.options.get_or_insert_with(Default::default);
+        if overrides.artist_auto_select.is_none() {
+            overrides.artist_auto_select = Some(artist_modes[0].clone());
+        }
+        req
+    } else {
+        request
+    };
 
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,

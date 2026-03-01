@@ -40,7 +40,9 @@ URLs containing `/playlist/` download every track in the playlist. Playlists can
 
 ### Artists
 
-URLs containing `/artist/` download the artist's full catalog. This can be a very large operation depending on the artist's discography. Each album is processed as a separate batch within the queue.
+URLs containing `/artist/` download the artist's catalog. This can be a very large operation depending on the artist's discography. Each album is processed as a separate batch within the queue.
+
+By default, GAMDL downloads the artist's full catalog. You can narrow the scope using the **Artist Auto-Select** setting in Settings > Quality, which lets you choose specific content types (Main Albums, Singles & EPs, Music Videos, etc.). When multiple content types are selected, MeedyaDL creates a separate queue item for each type. For example, selecting "Main Albums" and "Singles & EPs" creates two queue entries — one downloading main albums and one downloading singles — so each is processed independently.
 
 **Example URL format:** `https://music.apple.com/us/artist/artist-name/1234567890`
 
@@ -193,7 +195,7 @@ When a fallback occurs, the queue item displays a fallback indicator so you know
 
 ### Companion Downloads
 
-MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Quality controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
+MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Quality controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
 
 ---
 

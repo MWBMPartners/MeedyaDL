@@ -162,7 +162,8 @@ export type CompanionMode =
   | 'atmos_to_lossless'
   | 'atmos_to_lossless_and_lossy'
   | 'specialist_to_lossy'
-  | 'atmos_to_all_formats';
+  | 'atmos_to_all_formats'
+  | 'custom';
 
 /**
  * Log level for GAMDL's `--log-level` CLI flag.
@@ -219,6 +220,7 @@ export const COMPANION_MODE_LABELS: Record<CompanionMode, string> = {
   atmos_to_lossless_and_lossy: 'Atmos → Lossless + Lossy; ALAC → Lossy',
   specialist_to_lossy: 'Specialist → Lossy (AAC)',
   atmos_to_all_formats: 'Atmos → All Formats (AC3 + ALAC + AAC)',
+  custom: 'Custom...',
 };
 
 /**
@@ -451,8 +453,13 @@ export interface AppSettings {
   video_fallback_chain: VideoResolution[];
   /** Companion download mode: controls automatic multi-format downloads */
   companion_mode: CompanionMode;
+  /** User-selected codecs for Custom companion mode. Ignored when companion_mode is not 'custom'. */
+  custom_companion_codecs: SongCodec[];
   /** Default artist auto-selection mode for artist URL downloads (GAMDL >= 2.9.1) */
   artist_auto_select: ArtistAutoSelect | null;
+  /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.
+   * MeedyaDL creates one download per mode for artist URLs. */
+  artist_auto_select_multi: ArtistAutoSelect[];
   /** Whether to both embed lyrics in file metadata AND keep sidecar lyrics files */
   embed_lyrics_and_sidecar: boolean;
   /** Default format for synced lyrics output */

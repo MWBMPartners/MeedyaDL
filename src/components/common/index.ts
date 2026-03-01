@@ -63,6 +63,12 @@ export { Toggle } from './Toggle';
  */
 export { FallbackChainList } from './FallbackChainList';
 
+/**
+ * Multi-select checkbox grid for selecting multiple options from a set.
+ * Used in: QualityTab (custom companion codecs, multi-select artist auto-select).
+ */
+export { CheckboxGroup } from './CheckboxGroup';
+
 /* -------------------------------------------------------------------------- */
 /*  Overlay / dialog components                                                */
 /* -------------------------------------------------------------------------- */

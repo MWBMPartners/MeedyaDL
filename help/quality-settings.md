@@ -118,6 +118,8 @@ MeedyaDL can automatically download additional format versions alongside your pr
 | **Atmos → Lossless (ALAC)** *(default)* | When downloading Dolby Atmos, also download an ALAC (lossless) companion. ALAC downloads get no companion. |
 | **Atmos → Lossless + Lossy** | When downloading Dolby Atmos, also download both ALAC and lossy AAC companions. When downloading ALAC, also download a lossy AAC companion. |
 | **Specialist → Lossy (AAC)** | When downloading Dolby Atmos or ALAC, also download a lossy AAC companion. |
+| **Atmos → All Formats** | When downloading Dolby Atmos, also download companions in every other format (AC3, AAC Binaural, ALAC, AAC). |
+| **Custom...** | Choose exactly which codecs to download as companions using multi-select checkboxes. Each selected codec (excluding your primary format) runs as an independent companion download. The last codec in the list uses a clean filename; others get format suffixes. |
 
 #### File Naming
 
@@ -270,7 +272,23 @@ These defaults will be used for all subsequent downloads unless you override the
 
 ### Companion Downloads
 
-The Quality tab also includes a **Companion Downloads** dropdown. This controls whether MeedyaDL automatically downloads additional format versions alongside your primary download. The default mode (**Atmos → Lossless**) downloads an ALAC companion whenever you download Dolby Atmos content. Other modes offer more or fewer companion tiers. See [Companion Downloads](#companion-downloads) above for a full description of each mode and the file naming conventions.
+The Quality tab also includes a **Companion Downloads** dropdown. This controls whether MeedyaDL automatically downloads additional format versions alongside your primary download. The default mode (**Atmos → Lossless**) downloads an ALAC companion whenever you download Dolby Atmos content. Other preset modes offer more or fewer companion tiers. Selecting **Custom...** reveals multi-select checkboxes for all 11 audio codecs, letting you choose exactly which formats to download as companions. See [Companion Downloads](#companion-downloads) above for a full description of each mode and the file naming conventions.
+
+### Artist Auto-Select
+
+When downloading from an **artist URL**, MeedyaDL can automatically select which content types to download. The **Artist Auto-Select** setting in the Quality tab lets you choose from:
+
+- **Main Albums** — Studio albums and standard releases
+- **Compilation Albums** — Greatest hits, anthologies, and collections
+- **Live Albums** — Concert recordings and live performances
+- **Singles & EPs** — Singles, EPs, and short releases
+- **All Albums** — Every album type combined
+- **Top Songs** — The artist's most popular tracks
+- **Music Videos** — The artist's music video catalog
+
+You can select **multiple content types** simultaneously using the checkbox group. When multiple types are selected, MeedyaDL creates a separate queue item for each selected type (since the underlying GAMDL tool only accepts one content type per invocation). Leave all checkboxes unchecked to use GAMDL's default behavior.
+
+**Requires GAMDL 2.9.1 or later.**
 
 ### Per-Download Quality Selection
 

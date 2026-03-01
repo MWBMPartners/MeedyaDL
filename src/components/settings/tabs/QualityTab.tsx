@@ -54,8 +54,8 @@
 // Zustand store for reading/writing quality settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// Shared form components: Select for dropdowns, Toggle for switches, FallbackChainList for reorderable lists.
-import { Select, Toggle, FallbackChainList } from '@/components/common';
+// Shared form components.
+import { Select, Toggle, FallbackChainList, CheckboxGroup } from '@/components/common';
 
 // Label maps and type definitions for audio codecs, video resolutions, video codecs, and companion modes.
 // These Record<T, string> maps are used to populate the <Select> dropdown options and reorderable lists.
@@ -125,17 +125,8 @@ export function QualityTab() {
     label,
   }));
 
-  /**
-   * Artist auto-select options: a "Not set" placeholder plus all 7 variants.
-   * When "Not set" is selected, the value is empty string → mapped to null.
-   */
-  const artistAutoSelectOptions = [
-    { value: '', label: 'Not set (GAMDL default)' },
-    ...Object.entries(ARTIST_AUTO_SELECT_LABELS).map(([value, label]) => ({
-      value,
-      label,
-    })),
-  ];
+  /** Whether custom companion mode is active (shows codec checkboxes). */
+  const isCustomCompanion = settings.companion_mode === 'custom';
 
   /**
    * Same transformation for video resolution labels.
@@ -196,23 +187,35 @@ export function QualityTab() {
         {/* Companion download mode */}
         <Select
           label="Companion Downloads"
-          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename."
+          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom...' to pick exact codecs."
           options={companionModeOptions}
           value={settings.companion_mode}
           onChange={(e) => updateSettings({ companion_mode: e.target.value as CompanionMode })}
           helpTopic="audio-codecs"
         />
 
-        {/* Artist auto-select mode */}
-        <Select
+        {/* Custom companion codec checkboxes (only visible when Custom mode is selected) */}
+        {isCustomCompanion && (
+          <CheckboxGroup<SongCodec>
+            label="Custom Companion Codecs"
+            description="Select which codecs to download as companions alongside the primary format. Each selected codec runs as a separate download. The last codec in the list gets a clean filename; others get a suffix."
+            options={SONG_CODEC_LABELS}
+            selected={settings.custom_companion_codecs}
+            onChange={(selected) => updateSettings({ custom_companion_codecs: selected })}
+          />
+        )}
+
+        {/* Artist auto-select mode (multi-select) */}
+        <CheckboxGroup<ArtistAutoSelect>
           label="Artist Auto-Select"
-          description="When downloading from an artist URL, automatically select this content type instead of prompting. Leave as 'Not set' to use GAMDL's default behaviour. Requires GAMDL 2.9.1+."
-          options={artistAutoSelectOptions}
-          value={settings.artist_auto_select ?? ''}
-          onChange={(e) => {
-            const val = e.target.value;
+          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour. Requires GAMDL 2.9.1+."
+          options={ARTIST_AUTO_SELECT_LABELS}
+          selected={settings.artist_auto_select_multi}
+          onChange={(selected) => {
             updateSettings({
-              artist_auto_select: val ? (val as ArtistAutoSelect) : null,
+              artist_auto_select_multi: selected,
+              // Keep legacy field in sync for backwards compat
+              artist_auto_select: selected.length > 0 ? selected[0] : null,
             });
           }}
         />
