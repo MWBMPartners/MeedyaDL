@@ -37,6 +37,19 @@ Add Custom Companion mode (6th CompanionMode variant) with multi-select
 
 - Embed AcoustID API key in release builds for seamless fingerprinting
 - Implement TemplateBuilder component for interactive GAMDL template editing
+- Add music video companion downloads with Apple Music API integration
+
+When enabled in Settings > Quality, MeedyaDL queries the Apple Music API
+  for music video relationships after each audio download. Tracks with
+  music videos get a companion GAMDL download spawned using the video URL
+  and the user's video quality settings. Requires MusicKit credentials.
+  Toggle is disabled/greyed out when credentials are not configured.
+
+- Add AtmosToAllFormats companion mode for maximum format coverage
+
+When downloading Dolby Atmos, automatically downloads AC3 (Dolby Digital),
+  ALAC (Lossless), and AAC companions alongside the primary, giving users
+  4 files per track. Complements the existing 4 preset modes and Custom mode.
 
 ### 🐛 Bug Fixes
 

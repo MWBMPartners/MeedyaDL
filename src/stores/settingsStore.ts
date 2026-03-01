@@ -94,6 +94,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ],
   companion_mode: 'atmos_to_lossless', // Atmos → also download ALAC companion (default)
   custom_companion_codecs: [], // Only relevant when companion_mode is 'custom'
+  music_video_companion: false, // Disabled by default — requires MusicKit credentials
   artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
   artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
   embed_lyrics_and_sidecar: true, // Embed lyrics in metadata AND keep sidecar files
