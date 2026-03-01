@@ -37,19 +37,23 @@ Add Custom Companion mode (6th CompanionMode variant) with multi-select
 
 - Embed AcoustID API key in release builds for seamless fingerprinting
 - Implement TemplateBuilder component for interactive GAMDL template editing
-- Add music video companion downloads with Apple Music API integration
+- Add music video companion downloads and visual template builder
 
-When enabled in Settings > Quality, MeedyaDL queries the Apple Music API
-  for music video relationships after each audio download. Tracks with
-  music videos get a companion GAMDL download spawned using the video URL
-  and the user's video quality settings. Requires MusicKit credentials.
-  Toggle is disabled/greyed out when credentials are not configured.
+Add music video companion downloads as enrichment Step 6: when enabled
+  and MusicKit credentials are configured, queries Apple Music API for
+  music video relationships after each audio download. Tracks with music
+  videos get companion GAMDL downloads using video quality settings.
+  Toggle in Settings > Quality > Video Quality, gated behind MusicKit
+  credentials. Deduplicated by video ID.
 
-- Add AtmosToAllFormats companion mode for maximum format coverage
+  Add visual TemplateBuilder component replacing 7 plain text inputs in
+  Settings > Templates with interactive chip/pill UI. Variables selected
+  from dropdown menu; raw-edit toggle for power users; live preview.
 
-When downloading Dolby Atmos, automatically downloads AC3 (Dolby Digital),
-  ALAC (Lossless), and AAC companions alongside the primary, giving users
-  4 files per track. Complements the existing 4 preset modes and Custom mode.
+  Update all documentation (CHANGELOG, Dev_Notes, Project_Plan, README,
+  help files, CLAUDE.md, GitHub Wiki Features page). Close GitHub issue
+  #81. Enhance inline code comments on new Rust functions.
+
 
 ### 🐛 Bug Fixes
 
@@ -66,6 +70,7 @@ Fix incorrect "AcousticID" spelling to "AcoustID" across 86 instances
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.5.8] - 2026-03-01
