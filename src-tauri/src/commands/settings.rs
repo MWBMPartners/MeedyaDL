@@ -25,6 +25,7 @@
 // |-------------------------------|----------------------------------|------|
 // | get_settings                  | getSettings()                    | ~75  |
 // | save_settings                 | saveSettings(settings)           | ~80  |
+// | has_embedded_acoustid_key     | hasEmbeddedAcoustidKey()         | ~83  |
 // | validate_cookies_file         | validateCookiesFile(path)        | ~85  |
 // | check_cookies_before_download | checkCookiesBeforeDownload()     | ~88  |
 // | check_internet_before_download| checkInternetBeforeDownload()    | ~91  |
@@ -138,6 +139,22 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     config_service::save_settings(&app, &settings)?;
     emit_app_log(&app, "Settings saved");
     Ok(())
+}
+
+/// Checks whether a built-in AcoustID API key was embedded at compile time.
+///
+/// **Frontend caller:** `hasEmbeddedAcoustidKey()` in `src/lib/tauri-commands.ts`
+///
+/// Release builds include the key via the `ACOUSTID_API_KEY` environment
+/// variable (set from a GitHub Actions secret). Local dev builds typically
+/// do not have this set, so this returns `false`.
+///
+/// The frontend uses this to adjust the AcoustID settings UI: when a
+/// built-in key exists, the API key input is shown as optional (override)
+/// rather than required.
+#[tauri::command]
+pub fn has_embedded_acoustid_key() -> bool {
+    crate::services::acoustid_service::resolve_api_key("").is_some()
 }
 
 /// Validates a Netscape-format cookies file.

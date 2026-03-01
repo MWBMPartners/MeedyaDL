@@ -258,7 +258,7 @@ These tags are written automatically when MusicKit credentials are configured in
 
 #### AcoustID Tags (Opt-In)
 
-Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints using MeedyaDL's built-in fingerprinting engine and looks up AcoustID identifiers from [acoustid.org](https://acoustid.org). No external tools required.
+Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints using MeedyaDL's built-in fingerprinting engine and looks up AcoustID identifiers from [acoustid.org](https://acoustid.org). No external tools required. Release builds include a built-in API key, so no registration is needed. You can optionally override it with your own key in Settings > Metadata.
 
 | Tag (Namespace:Name) | Value |
 | -------------------- | ----- |

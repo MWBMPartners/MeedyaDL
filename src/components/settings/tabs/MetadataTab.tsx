@@ -16,7 +16,8 @@
  *     Chromaprint audio fingerprints using the embedded fingerprinting engine and looks up AcoustID
  *     identifiers from acoustid.org. Writes `Acoustid Id` and
  *     `Acoustid Fingerprint` freeform atoms. Maps to
- *     `settings.acoustid_enabled`.
+ *     `settings.acoustid_enabled`. Release builds ship with a built-in
+ *     API key; users can optionally override it with their own.
  *
  *   - **ReplayGain Analysis** (opt-in) -- When enabled, analyses audio
  *     loudness using FFmpeg's EBU R128 filter and writes non-destructive
@@ -31,11 +32,16 @@
  * @see {@link @/stores/settingsStore.ts}  -- Zustand store
  */
 
+import { useEffect, useState } from 'react';
+
 // Zustand store for reading/writing metadata enrichment settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form components: Toggle for boolean switches, Input for text fields.
 import { Input, Toggle } from '@/components/common';
+
+// Tauri command to check for embedded AcoustID key.
+import { hasEmbeddedAcoustidKey } from '@/lib/tauri-commands';
 
 /**
  * Opens a URL in the system default browser via the Tauri shell plugin.
@@ -59,6 +65,16 @@ export function MetadataTab() {
   const settings = useSettingsStore((s) => s.settings);
   /** Partial-update function for persisting metadata setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  /** Whether a built-in AcoustID API key is available (embedded at compile time) */
+  const [hasBuiltInKey, setHasBuiltInKey] = useState(false);
+
+  // Check for built-in key on mount
+  useEffect(() => {
+    hasEmbeddedAcoustidKey()
+      .then(setHasBuiltInKey)
+      .catch(() => setHasBuiltInKey(false));
+  }, []);
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -102,25 +118,43 @@ export function MetadataTab() {
 
           {settings.acoustid_enabled && (
             <Input
-              label="AcoustID API Key"
+              label={hasBuiltInKey ? 'AcoustID API Key (Optional Override)' : 'AcoustID API Key'}
               description={
-                <>
-                  Register a free application API key at{' '}
-                  <button
-                    type="button"
-                    className="text-accent hover:text-accent-hover underline transition-colors"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openExternal('https://acoustid.org/new-application');
-                    }}
-                  >
-                    acoustid.org/new-application
-                  </button>
-                  . Required for AcoustID lookups.
-                </>
+                hasBuiltInKey ? (
+                  <>
+                    A built-in API key is included with this release. You can optionally override it
+                    with your own key registered at{' '}
+                    <button
+                      type="button"
+                      className="text-accent hover:text-accent-hover underline transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openExternal('https://acoustid.org/new-application');
+                      }}
+                    >
+                      acoustid.org/new-application
+                    </button>
+                    . Leave blank to use the built-in key.
+                  </>
+                ) : (
+                  <>
+                    Register a free application API key at{' '}
+                    <button
+                      type="button"
+                      className="text-accent hover:text-accent-hover underline transition-colors"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openExternal('https://acoustid.org/new-application');
+                      }}
+                    >
+                      acoustid.org/new-application
+                    </button>
+                    . Required for AcoustID lookups.
+                  </>
+                )
               }
               value={settings.acoustid_api_key ?? ''}
-              placeholder="Your AcoustID application API key"
+              placeholder={hasBuiltInKey ? 'Using built-in key' : 'Your AcoustID application API key'}
               onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
             />
           )}
