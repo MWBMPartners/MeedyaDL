@@ -6,6 +6,25 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add output path writability check before downloads
+
+- Implemented `check_output_path_before_download` command to verify that the output directory is writable, catching issues like disconnected cloud mounts, full disks, and permission errors.
+  - Integrated the new check into the download process in `DownloadForm.tsx`, ensuring downloads are only queued if the output path is accessible.
+  - Updated settings model to include `update_check_interval_hours`, allowing users to specify how often to check for updates while the app is running.
+  - Added UI components in the settings to configure the update check interval, visible only when auto-check for updates is enabled.
+  - Enhanced logging and error handling in the download queue to provide more informative messages regarding fallback attempts and network errors.
+  - Updated tests to cover new functionality and ensure existing features remain intact.
+
+- Enhance internet connectivity check with multi-provider, multi-tier approach
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.5.7] - 2026-02-28
+
 ### 🐛 Bug Fixes
 
 - Improve error handling for Python exceptions and traceback frames
