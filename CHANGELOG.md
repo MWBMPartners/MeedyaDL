@@ -72,6 +72,7 @@ Fix incorrect "AcousticID" spelling to "AcoustID" across 86 instances
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.5.8] - 2026-03-01
 
