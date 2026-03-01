@@ -89,7 +89,7 @@ For a full comparison of formats and quality levels, see [Quality Settings](qual
 
 ### What video formats are supported?
 
-Music videos are downloaded in the MP4 container format. Supported resolutions range from 240p up to 4K (2160p), depending on content availability. Not all music videos are available at every resolution.
+Music videos are downloaded in the MP4 container format. Supported resolutions range from 240p up to 4K UHD (2160p), depending on content availability. Not all music videos are available at every resolution.
 
 For full details on video quality options, see [Quality Settings](quality-settings.md).
 
