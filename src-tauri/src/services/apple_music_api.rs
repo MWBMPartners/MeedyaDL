@@ -508,6 +508,140 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
 }
 
 // ============================================================
+// Music Video Relationship Lookup
+// ============================================================
+
+/// Metadata for a music video related to a song.
+///
+/// Returned by `fetch_music_video_relations()` for songs that have
+/// a corresponding music video on Apple Music.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MusicVideoRelation {
+    /// Apple Music song ID that this music video is related to
+    pub song_id: String,
+    /// Apple Music music video ID
+    pub music_video_id: String,
+    /// Music video title (for logging)
+    pub name: Option<String>,
+}
+
+/// Construct an Apple Music music video URL from a storefront and video ID.
+///
+/// The URL format matches the standard Apple Music music-video URL pattern
+/// that GAMDL accepts for downloading.
+///
+/// # Arguments
+/// * `storefront` - Two-letter country code (e.g., "us", "gb")
+/// * `music_video_id` - Apple Music music video numeric ID
+///
+/// # Returns
+/// A fully-formed Apple Music music video URL
+#[must_use]
+pub fn build_music_video_url(storefront: &str, music_video_id: &str) -> String {
+    format!("https://music.apple.com/{storefront}/music-video/mv/{music_video_id}")
+}
+
+/// Look up music video relationships for a batch of song IDs.
+///
+/// Queries the Apple Music catalog songs endpoint with `relate=music-videos`
+/// to find which songs have corresponding music videos. Songs without music
+/// videos are omitted from the result.
+///
+/// Song IDs are batched into groups of up to 100 per API request to stay
+/// within URL length limits. Each batch is a single HTTP GET.
+///
+/// # Arguments
+/// * `jwt` - MusicKit Developer Token (signed JWT)
+/// * `storefront` - Two-letter country code (e.g., "us")
+/// * `song_ids` - List of Apple Music song IDs to look up
+///
+/// # Returns
+/// A vector of `MusicVideoRelation` structs for songs that have music videos.
+pub async fn fetch_music_video_relations(
+    jwt: &str,
+    storefront: &str,
+    song_ids: &[String],
+) -> Result<Vec<MusicVideoRelation>, String> {
+    if song_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = reqwest::Client::new();
+    let mut relations = Vec::new();
+
+    // Batch song IDs into groups of 100 (Apple Music API limit per request)
+    for chunk in song_ids.chunks(100) {
+        let ids_param = chunk.join(",");
+        let url = format!(
+            "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs?ids={ids_param}&relate=music-videos"
+        );
+
+        log::debug!("Querying Apple Music API for music video relations: {} song(s)", chunk.len());
+
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("User-Agent", "meedyadl")
+            .header("Origin", "https://music.apple.com")
+            .send()
+            .await
+            .map_err(|e| format!("Music video relation lookup failed: {e}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            return Err(format!(
+                "Apple Music API returned HTTP {status} for music video relation lookup"
+            ));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse music video relations response: {e}"))?;
+
+        // Parse each song in the response
+        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+            for song in data {
+                let song_id = match song.get("id").and_then(|v| v.as_str()) {
+                    Some(id) => id.to_string(),
+                    None => continue,
+                };
+
+                // Check for music-videos relationship
+                let mv_data = song
+                    .get("relationships")
+                    .and_then(|r| r.get("music-videos"))
+                    .and_then(|mv| mv.get("data"))
+                    .and_then(|d| d.as_array());
+
+                if let Some(music_videos) = mv_data {
+                    for mv in music_videos {
+                        let music_video_id = match mv.get("id").and_then(|v| v.as_str()) {
+                            Some(id) => id.to_string(),
+                            None => continue,
+                        };
+
+                        let name = mv
+                            .get("attributes")
+                            .and_then(|a| a.get("name"))
+                            .and_then(|v| v.as_str())
+                            .map(std::string::ToString::to_string);
+
+                        relations.push(MusicVideoRelation {
+                            song_id: song_id.clone(),
+                            music_video_id,
+                            name,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(relations)
+}
+
+// ============================================================
 // Unit Tests
 // ============================================================
 
@@ -768,5 +902,51 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
 
         let tracks = parse_tracks_from_response(&sample);
         assert!(tracks.is_empty());
+    }
+
+    // ----------------------------------------------------------
+    // Music video URL construction tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn build_music_video_url_us_storefront() {
+        let url = build_music_video_url("us", "1649434280");
+        assert_eq!(url, "https://music.apple.com/us/music-video/mv/1649434280");
+    }
+
+    #[test]
+    fn build_music_video_url_gb_storefront() {
+        let url = build_music_video_url("gb", "9876543210");
+        assert_eq!(url, "https://music.apple.com/gb/music-video/mv/9876543210");
+    }
+
+    // ----------------------------------------------------------
+    // Music video relation serialization tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn music_video_relation_serializes_correctly() {
+        let relation = MusicVideoRelation {
+            song_id: "1649434005".to_string(),
+            music_video_id: "1649500001".to_string(),
+            name: Some("Lavender Haze".to_string()),
+        };
+
+        let json = serde_json::to_string(&relation).unwrap();
+        assert!(json.contains("\"song_id\":\"1649434005\""));
+        assert!(json.contains("\"music_video_id\":\"1649500001\""));
+        assert!(json.contains("\"name\":\"Lavender Haze\""));
+    }
+
+    #[test]
+    fn music_video_relation_with_none_name() {
+        let relation = MusicVideoRelation {
+            song_id: "12345".to_string(),
+            music_video_id: "67890".to_string(),
+            name: None,
+        };
+
+        let json = serde_json::to_string(&relation).unwrap();
+        assert!(json.contains("\"name\":null"));
     }
 }

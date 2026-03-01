@@ -28,7 +28,7 @@
 ### 🎶 Music Downloads
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
-- **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions
+- **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions. **Music video companions** — optionally download the music video for each track alongside audio (requires MusicKit credentials)
 - **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean

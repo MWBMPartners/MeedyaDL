@@ -263,6 +263,19 @@ export function QualityTab() {
           value={settings.default_video_remux_format}
           onChange={(e) => updateSettings({ default_video_remux_format: e.target.value })}
         />
+
+        {/* Music video companion downloads (requires MusicKit credentials) */}
+        <Toggle
+          label="Music Video Companions"
+          description={
+            settings.musickit_team_id && settings.musickit_key_id
+              ? 'When downloading audio, also download the music video for each track (if available on Apple Music). Uses the video quality settings above.'
+              : 'Requires MusicKit credentials (Settings > Cover Art > Animated Artwork).'
+          }
+          checked={settings.music_video_companion}
+          onChange={(checked) => updateSettings({ music_video_companion: checked })}
+          disabled={!settings.musickit_team_id || !settings.musickit_key_id}
+        />
       </div>
     </div>
   );

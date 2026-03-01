@@ -140,6 +140,32 @@ Here are some recommendations for getting the best video download experience:
 
 ---
 
+## Music Video Companions
+
+MeedyaDL can automatically download music videos as companions when downloading audio tracks. When you download an album or song, the app queries the Apple Music API to check whether a music video exists for each track. If one is found, it is downloaded alongside your audio files using your configured video quality settings (resolution, codec priority, remux format).
+
+### Requirements
+
+- **MusicKit credentials required** -- This feature uses the Apple Music API to look up music video relationships. You must configure your MusicKit Team ID, Key ID, and private key in **Settings > Cover Art > Animated Artwork** before enabling this feature.
+- **Enable the toggle** -- Go to **Settings > Quality > Video Quality** and turn on **Music Video Companions**. The toggle is only available when MusicKit credentials are configured.
+
+### How It Works
+
+1. After your audio download completes, the post-download enrichment pipeline runs (metadata tagging, lyrics, artwork, etc.)
+2. As the final enrichment step, MeedyaDL queries the Apple Music API for each track's music video relationship
+3. For each track that has a music video, a separate GAMDL download is spawned using the music video URL
+4. Music videos are saved to the same output directory as your audio files
+5. Progress and results are logged in the Activity Log
+
+### Notes
+
+- Music video companions are downloaded in the background (fire-and-forget). They do not affect the primary download status.
+- If a track does not have a music video on Apple Music, it is silently skipped.
+- Duplicate music videos (e.g., the same video linked from multiple tracks) are automatically deduplicated.
+- The video quality settings in **Settings > Quality > Video Quality** (resolution, codec priority, remux format) apply to companion music videos.
+
+---
+
 ## Related Topics
 
 - [Downloading Music](downloading-music.md) -- Download audio-only content
