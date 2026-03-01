@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.5.8?style=flat-square" alt="Version"></a> <!-- x-release-please-version -->
+  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.6.0?style=flat-square" alt="Version"></a> <!-- x-release-please-version -->
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
@@ -28,7 +28,7 @@
 ### 🎶 Music Downloads
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
-- **Companion downloads** — configurable multi-format downloads: automatically download ALAC and/or lossy AAC companions alongside Dolby Atmos or ALAC primary downloads (4 modes: Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy)
+- **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions
 - **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
@@ -310,7 +310,7 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v0.5.8) <!-- x-release-please-version -->
+### v1.x — Current (v0.6.0) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
@@ -321,7 +321,8 @@ refactor(backend): simplify dependency management
 - ✅ Auto-update checker with in-app download, install, and rollback
 - ✅ System tray integration
 - ✅ Animated cover art via MusicKit API with OS-level file hiding
-- ✅ Configurable companion downloads (4 modes)
+- ✅ Configurable companion downloads (5 preset modes + Custom multi-select)
+- ✅ Multi-select artist auto-select (download multiple content types from artist URLs)
 - ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcousticID, ReplayGain)
 - ✅ Enhanced LRC with word-by-word synchronized lyrics (TTML → Enhanced LRC conversion)
 - ✅ Lyrics embed + sidecar (LRC, SRT, TTML)

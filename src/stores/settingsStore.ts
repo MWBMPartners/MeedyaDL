@@ -93,7 +93,9 @@ const DEFAULT_SETTINGS: AppSettings = {
     '240p', // Lowest
   ],
   companion_mode: 'atmos_to_lossless', // Atmos → also download ALAC companion (default)
+  custom_companion_codecs: [], // Only relevant when companion_mode is 'custom'
   artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
+  artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
   embed_lyrics_and_sidecar: true, // Embed lyrics in metadata AND keep sidecar files
   enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
   synced_lyrics_format: 'ttml', // Default lyrics format (TTML preserves word-level timing)

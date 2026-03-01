@@ -123,6 +123,16 @@ pub enum CompanionMode {
     /// - ALAC: `01 Song Title [Lossless].m4a`
     /// - AAC: `01 Song Title.m4a` (clean filename)
     AtmosToAllFormats,
+
+    /// User-defined custom companion codecs. The companion codecs are
+    /// specified in `AppSettings::custom_companion_codecs`. Each selected
+    /// codec is downloaded as a separate companion tier. The most
+    /// universally compatible codec (lowest quality) in the selection gets
+    /// a clean filename; higher-quality codecs get a suffix.
+    ///
+    /// This mode is triggered for **any** primary codec, unlike the preset
+    /// modes which only trigger for specific primary codecs (Atmos/ALAC).
+    Custom,
 }
 
 impl Default for CompanionMode {
@@ -282,6 +292,16 @@ pub struct AppSettings {
     /// compatible companion uses a clean filename. All versions are saved
     /// in the same album folder. See `CompanionMode` for available modes.
     pub companion_mode: CompanionMode,
+
+    /// User-selected codecs for `CompanionMode::Custom`. Each codec in this
+    /// list is downloaded as a separate companion tier alongside the primary
+    /// download. Ignored when `companion_mode` is not `Custom`.
+    ///
+    /// Order matters: codecs are tried in the order listed. The last codec
+    /// that has no natural suffix (i.e., a lossy AAC variant) receives a
+    /// clean filename; all others receive a codec suffix.
+    #[serde(default)]
+    pub custom_companion_codecs: Vec<SongCodec>,
 
     // ================================================================
     // Lyrics
@@ -541,6 +561,19 @@ pub struct AppSettings {
     #[serde(default)]
     pub artist_auto_select: Option<ArtistAutoSelect>,
 
+    /// Multiple artist auto-selection modes for artist URL downloads.
+    /// When non-empty, this takes precedence over `artist_auto_select` and
+    /// causes MeedyaDL to create one download queue item per selected mode.
+    /// Each item runs GAMDL with `--artist-auto-select <mode>` separately.
+    ///
+    /// This is a MeedyaDL-internal feature (GAMDL only accepts a single
+    /// `--artist-auto-select` value). MeedyaDL splits the request into N
+    /// independent downloads to achieve multi-mode behavior.
+    ///
+    /// Default: empty (falls back to `artist_auto_select` for single-mode).
+    #[serde(default)]
+    pub artist_auto_select_multi: Vec<ArtistAutoSelect>,
+
     // ================================================================
     // Crash Reporting & Telemetry
     // ================================================================
@@ -698,6 +731,8 @@ impl Default for AppSettings {
             // (lossless) companion so the user has a universally playable
             // stereo version alongside the spatial audio version.
             companion_mode: CompanionMode::AtmosToLossless,
+            // No custom companion codecs — only relevant in Custom mode.
+            custom_companion_codecs: Vec::new(),
 
             // --- Lyrics ---
             // Enabled by default: embed lyrics in audio metadata AND keep
@@ -793,6 +828,8 @@ impl Default for AppSettings {
             // No auto-selection by default: omit the flag so GAMDL uses its
             // own default behavior when the user provides an artist URL.
             artist_auto_select: None,
+            // No multi-mode artist selection by default.
+            artist_auto_select_multi: Vec::new(),
 
             // --- Crash reporting ---
             // Sentry is disabled by default (opt-in). No data is sent until
