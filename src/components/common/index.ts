@@ -69,6 +69,13 @@ export { FallbackChainList } from './FallbackChainList';
  */
 export { CheckboxGroup } from './CheckboxGroup';
 
+/**
+ * Visual chip/pill builder for GAMDL file/folder naming templates.
+ * Replaces plain text inputs with interactive segment-based editing.
+ * Used in: TemplatesTab.
+ */
+export { TemplateBuilder } from './TemplateBuilder';
+
 /* -------------------------------------------------------------------------- */
 /*  Overlay / dialog components                                                */
 /* -------------------------------------------------------------------------- */
