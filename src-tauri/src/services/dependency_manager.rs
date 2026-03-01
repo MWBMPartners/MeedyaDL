@@ -327,7 +327,11 @@ async fn resolve_github_release_asset(
     };
 
     // A User-Agent header is required by the GitHub API (returns 403 without it).
-    let client = reqwest::Client::new();
+    // 15-second timeout prevents indefinite stalls on unresponsive GitHub API.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let response = client
         .get(&api_url)
         .header("User-Agent", "MeedyaDL")

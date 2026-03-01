@@ -501,7 +501,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * IPC call: `commands.processQueue()` -> Rust `process_queue_manual`
    */
   processQueue: async () => {
-    await commands.processQueue();
+    try {
+      await commands.processQueue();
+    } catch (err) {
+      console.error('Failed to process queue:', err);
+    }
   },
 
   // -------------------------------------------------------------------------

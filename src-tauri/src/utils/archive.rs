@@ -35,6 +35,7 @@
 // Reference: https://docs.rs/reqwest/latest/reqwest/
 // Reference: https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html
 
+use sha2::{Digest, Sha256};
 use std::path::Path;
 // `AsyncWriteExt` provides `.write_all()` and `.flush()` on Tokio's
 // async `File` type, enabling non-blocking writes during download streaming.
@@ -88,7 +89,8 @@ pub enum ArchiveFormat {
 /// non-success, or writing to the destination file fails.
 ///
 /// # Returns
-/// * `Ok(total_bytes)` - The total number of bytes written to disk.
+/// * `Ok((total_bytes, sha256_hex))` - The total bytes written and the
+///   lowercase hex-encoded SHA-256 hash of the downloaded content.
 /// * `Err(message)` - A human-readable error message if any step failed
 ///   (DNS resolution, HTTP error, I/O error, etc.).
 ///
@@ -97,7 +99,7 @@ pub enum ArchiveFormat {
 /// - `Response::chunk`: <https://docs.rs/reqwest/latest/reqwest/struct.Response.html#method.chunk>
 /// - `tokio::fs::File`: <https://docs.rs/tokio/latest/tokio/fs/struct.File.html>
 #[allow(clippy::cast_precision_loss)] // Byte-to-MB conversion for display; precision loss is negligible
-pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
+pub async fn download_file(url: &str, dest: &Path) -> Result<(u64, String), String> {
     log::info!("Downloading: {} -> {}", url, dest.display());
 
     // Create parent directories if they don't exist
@@ -106,12 +108,21 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
             .map_err(|e| format!("Failed to create directory {}: {}", parent.display(), e))?;
     }
 
-    // Send an HTTP GET request using the default reqwest client.
-    // `reqwest::get()` creates a one-shot client, follows redirects (up to
-    // 10 by default), and returns the response with the body not yet
-    // consumed. The `mut` is needed because `.chunk()` below advances
-    // through the response body.
-    let mut response = reqwest::get(url)
+    // Build an HTTP client with a connect timeout to prevent indefinite
+    // stalls when the remote server is unreachable (e.g., DNS failure,
+    // firewall). The 30-second connect timeout is generous enough for slow
+    // networks but prevents blocking the dependency installation flow forever.
+    // Note: no overall read timeout is set because large binary downloads
+    // (FFmpeg ~90 MB, Python ~70 MB) legitimately take minutes on slow links;
+    // the per-chunk streaming model below will surface mid-stream failures
+    // promptly via the `.chunk()` error path.
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let mut response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Failed to start download from {url}: {e}"))?;
 
@@ -136,14 +147,20 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
     // it arrives. `downloaded` tracks total bytes for progress calculation.
     // `last_logged_percent` prevents duplicate log lines by tracking the
     // last 10%-aligned milestone that was logged.
+    // The SHA-256 hasher accumulates a digest across all chunks for
+    // integrity verification after the download completes.
     let mut downloaded: u64 = 0;
     let mut last_logged_percent: u64 = 0;
+    let mut hasher = Sha256::new();
 
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|e| format!("Failed to read download chunk: {e}"))?
     {
+        // Feed each chunk into the SHA-256 hasher before writing to disk
+        hasher.update(&chunk);
+
         // Write the received chunk to the output file
         file.write_all(&chunk)
             .await
@@ -171,11 +188,15 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<u64, String> {
         .await
         .map_err(|e| format!("Failed to flush file {}: {}", dest.display(), e))?;
 
+    // Finalize the SHA-256 hash and format as lowercase hex string
+    let sha256_hex = format!("{:x}", hasher.finalize());
+
     log::info!(
-        "Download complete: {:.1} MB",
-        downloaded as f64 / 1_048_576.0
+        "Download complete: {:.1} MB (SHA-256: {})",
+        downloaded as f64 / 1_048_576.0,
+        sha256_hex
     );
-    Ok(downloaded)
+    Ok((downloaded, sha256_hex))
 }
 
 /// Extracts a ZIP archive to the specified destination directory.
@@ -425,11 +446,12 @@ pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), Stri
 ///
 /// # Errors
 ///
-/// Returns `Err(String)` if the download or extraction step fails.
+/// Returns `Err(String)` if the download, checksum verification, or
+/// extraction step fails.
 ///
 /// # Returns
-/// * `Ok(())` if both download and extraction succeeded.
-/// * `Err(message)` if either step failed.
+/// * `Ok(())` if download, verification, and extraction all succeeded.
+/// * `Err(message)` if any step failed.
 ///
 /// # Connection
 /// Called by `services::python_manager::install_python()` and
@@ -438,6 +460,28 @@ pub async fn download_and_extract(
     url: &str,
     dest: &Path,
     format: ArchiveFormat,
+) -> Result<(), String> {
+    download_and_extract_verified(url, dest, format, None).await
+}
+
+/// Downloads a file and extracts it, optionally verifying a SHA-256 checksum.
+///
+/// This is the verified variant of [`download_and_extract`]. When
+/// `expected_sha256` is provided, the computed hash of the downloaded file
+/// is compared against it. A mismatch deletes the temp file and returns
+/// an error before extraction, preventing use of corrupted or tampered archives.
+///
+/// # Arguments
+/// * `url` - The HTTP(S) URL to download the archive from.
+/// * `dest` - The directory to extract the archive contents into.
+/// * `format` - The expected archive format.
+/// * `expected_sha256` - If `Some`, the expected lowercase hex SHA-256 hash.
+///   If `None`, the hash is computed and logged but not verified.
+pub async fn download_and_extract_verified(
+    url: &str,
+    dest: &Path,
+    format: ArchiveFormat,
+    expected_sha256: Option<&str>,
 ) -> Result<(), String> {
     // Derive a temp file name from the last path segment of the URL.
     // For example, "https://github.com/.../python-3.12.tar.gz" yields
@@ -451,8 +495,29 @@ pub async fn download_and_extract(
         .map_err(|e| format!("Failed to create temp directory: {e}"))?;
     let temp_file = temp_dir.join(file_name);
 
-    // Step 1: Download the archive to the temp file
-    download_file(url, &temp_file).await?;
+    // Step 1: Download the archive to the temp file.
+    // On failure, clean up the partial temp file before propagating the error
+    // to avoid leaving large (potentially hundreds of MB) stale files on disk.
+    let (_bytes, sha256) = match download_file(url, &temp_file).await {
+        Ok(result) => result,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&temp_file).await;
+            return Err(e);
+        }
+    };
+
+    // Step 1b: Verify SHA-256 checksum if an expected hash was provided.
+    // This catches corrupted downloads and supply-chain tampering before
+    // the archive is extracted (and potentially executed as tool binaries).
+    if let Some(expected) = expected_sha256 {
+        if sha256 != expected {
+            let _ = tokio::fs::remove_file(&temp_file).await;
+            return Err(format!(
+                "SHA-256 checksum mismatch for {url}\n  Expected: {expected}\n  Actual:   {sha256}"
+            ));
+        }
+        log::info!("SHA-256 checksum verified for {url}");
+    }
 
     // Step 2: Extract the archive to the destination
     let result = match format {

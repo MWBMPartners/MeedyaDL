@@ -182,11 +182,20 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
     //   Version: 2.8.4
     //   Summary: ...
     // If the package is not installed, pip show exits with code 1 and prints a warning.
-    let output = Command::new(&python_bin)
-        .args(["-m", "pip", "show", "gamdl"])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run pip show: {e}"))?;
+    //
+    // A 10-second timeout prevents indefinite blocking when the Python
+    // environment is on an unresponsive network mount (e.g., disconnected
+    // CloudMounter). This call may be made while holding the queue Mutex,
+    // so a stall here would block all queue operations.
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        Command::new(&python_bin)
+            .args(["-m", "pip", "show", "gamdl"])
+            .output(),
+    )
+    .await
+    .map_err(|_| "pip show gamdl timed out (10s) — Python environment may be unresponsive".to_string())?
+    .map_err(|e| format!("Failed to run pip show: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -404,7 +413,15 @@ fn build_gamdl_command(
     // Add the Apple Music URLs as positional arguments.
     // GAMDL accepts one or more URLs (albums, playlists, songs, music videos).
     // Example: python -m gamdl https://music.apple.com/us/album/... https://...
+    //
+    // Validate that each URL starts with "https://" to prevent:
+    // 1. Strings starting with "--" being misinterpreted as CLI flags by GAMDL
+    // 2. Non-HTTP schemes (file://, ftp://) reaching the subprocess
+    // While .arg() is shell-injection-safe, GAMDL itself could misparse inputs.
     for url in urls {
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(format!("Invalid URL (must start with http:// or https://): {url}"));
+        }
         cmd.arg(url);
     }
 

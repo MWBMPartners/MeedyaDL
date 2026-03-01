@@ -174,7 +174,7 @@ export function UpdateBanner() {
    * @param url - Full URL to the GitHub release page
    */
   const handleViewRelease = (url: string) => {
-    import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
+    import('@tauri-apps/plugin-shell').then(({ open }) => open(url)).catch(() => {});
   };
 
   return (

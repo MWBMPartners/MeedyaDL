@@ -205,6 +205,16 @@ flate2 = "1"
 # @see https://docs.rs/tar/ -- tar crate documentation
 tar = "0.4"
 
+# ---- Cryptographic Hashing ----
+
+# sha2 -- SHA-256 hash computation for download integrity verification.
+# Used in archive::download_file() to compute a SHA-256 digest during
+# streaming downloads. The hash is logged for auditing and optionally
+# verified against an expected checksum to detect corrupted or tampered
+# downloads before extraction.
+# @see https://docs.rs/sha2/ -- sha2 crate documentation
+sha2 = "0.10"
+
 # ---- Configuration ----
 
 # configparser -- INI-style configuration file parser.

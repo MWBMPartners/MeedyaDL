@@ -388,7 +388,15 @@ function App() {
       }
     };
 
-    initialize();
+    initialize().catch((err) => {
+      console.error('App initialization failed:', err);
+      useUiStore
+        .getState()
+        .addToast(
+          'App initialization failed — some features may not work correctly. Try restarting.',
+          'error'
+        );
+    });
   }, [isReady, loadSettings, checkAll, setShowSetupWizard]);
 
   /*

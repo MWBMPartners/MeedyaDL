@@ -318,9 +318,12 @@ export function QueueItem({
       label: 'Copy Source Link',
       icon: <Copy size={14} />,
       onClick: () => {
-        navigator.clipboard.writeText(item.urls[0]).then(() => {
-          onCopyUrl(item.urls[0]);
-        });
+        navigator.clipboard
+          .writeText(item.urls[0])
+          .then(() => {
+            onCopyUrl(item.urls[0]);
+          })
+          .catch(() => {});
       },
     },
     // Available when output files exist (complete, or error with output)
