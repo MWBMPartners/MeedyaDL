@@ -244,7 +244,7 @@ The table below summarizes typical file sizes for common resolution and codec co
 | ------------ | ------- | --------------------------- | ---------- |
 | 1080p | H.264 | ~150 MB | Broad compatibility across all devices |
 | 1080p | HEVC | ~100 MB | Smaller files on modern devices |
-| 4K (2160p) | HEVC | ~400 MB | Highest visual quality on large screens |
+| 4K UHD (2160p) | HEVC | ~400 MB | Highest visual quality on large screens |
 
 **Notes:**
 

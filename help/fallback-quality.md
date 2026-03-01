@@ -171,7 +171,7 @@ A user requests ALAC for a 6-track album. Here is what happens during the downlo
 
 ### Example 2: Video Fallback
 
-A user requests 4K (2160p) for a music video. The video is only available up to 1080p. Here is what happens:
+A user requests 4K UHD (2160p) for a music video. The video is only available up to 1080p. Here is what happens:
 
 1. MeedyaDL attempts **2160p** -- resolution unavailable.
 2. Falls back to **1440p** -- resolution unavailable.

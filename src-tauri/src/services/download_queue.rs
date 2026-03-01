@@ -1693,6 +1693,13 @@ fn spawn_companion_downloads(
         let lyrics_formats = lyrics_settings.companion_lyrics_formats.clone();
         let lyrics_shutdown = shutdown.clone();
 
+        let format_names: Vec<&str> = lyrics_formats.iter().map(|f| f.to_cli_string()).collect();
+        emit_download_log(
+            app,
+            dl_id,
+            &format!("Downloading companion lyrics formats: {}", format_names.join(", ")),
+        );
+
         tokio::spawn(async move {
             for format in &lyrics_formats {
                 // Check for app shutdown between lyrics format iterations
@@ -1722,6 +1729,12 @@ fn spawn_companion_downloads(
                 cmd.stdout(std::process::Stdio::piped());
                 cmd.stderr(std::process::Stdio::piped());
 
+                emit_download_log(
+                    &lyrics_app,
+                    &lyrics_dl_id,
+                    &format!("Lyrics companion: downloading {}...", format.to_cli_string()),
+                );
+
                 match cmd.spawn() {
                     Ok(child) => match child.wait_with_output().await {
                         Ok(output) if output.status.success() => {
@@ -1730,6 +1743,14 @@ fn spawn_companion_downloads(
                                      downloaded for {}",
                                 format.to_cli_string(),
                                 lyrics_dl_id
+                            );
+                            emit_download_log(
+                                &lyrics_app,
+                                &lyrics_dl_id,
+                                &format!(
+                                    "Lyrics companion ({}) downloaded",
+                                    format.to_cli_string(),
+                                ),
                             );
                             let _ = lyrics_app.emit(
                                 "lyrics-companion-downloaded",
@@ -1741,12 +1762,22 @@ fn spawn_companion_downloads(
                         }
                         Ok(output) => {
                             let stderr = String::from_utf8_lossy(&output.stderr);
+                            let last_line = stderr.lines().last().unwrap_or("");
                             log::debug!(
                                 "Lyrics companion ({}) \
                                      failed for {}: {}",
                                 format.to_cli_string(),
                                 lyrics_dl_id,
-                                stderr.lines().last().unwrap_or("")
+                                last_line
+                            );
+                            emit_download_log(
+                                &lyrics_app,
+                                &lyrics_dl_id,
+                                &format!(
+                                    "Lyrics companion ({}) failed: {}",
+                                    format.to_cli_string(),
+                                    last_line,
+                                ),
                             );
                         }
                         Err(e) => {
@@ -1754,10 +1785,20 @@ fn spawn_companion_downloads(
                                 "Lyrics companion process \
                                      error: {e}"
                             );
+                            emit_download_log(
+                                &lyrics_app,
+                                &lyrics_dl_id,
+                                &format!("Lyrics companion process error: {e}"),
+                            );
                         }
                     },
                     Err(e) => {
                         log::debug!("Failed to spawn lyrics companion: {e}");
+                        emit_download_log(
+                            &lyrics_app,
+                            &lyrics_dl_id,
+                            &format!("Failed to spawn lyrics companion: {e}"),
+                        );
                     }
                 }
             }

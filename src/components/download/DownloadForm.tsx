@@ -108,7 +108,7 @@ import type { AppleMusicContentType, SongCodec, VideoResolution } from '@/types'
 /**
  * Human-readable label maps used to populate quality-override dropdowns.
  * @see SONG_CODEC_LABELS in @/types/index.ts        -- e.g., { alac: 'Lossless (ALAC)' }
- * @see VIDEO_RESOLUTION_LABELS in @/types/index.ts   -- e.g., { '2160p': '4K (2160p)' }
+ * @see VIDEO_RESOLUTION_LABELS in @/types/index.ts   -- e.g., { '2160p': '4K UHD (2160p)' }
  */
 import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
 
@@ -368,7 +368,7 @@ export function DownloadForm() {
   /**
    * Transform the `VIDEO_RESOLUTION_LABELS` record into an array of
    * `{ value, label }` objects for the video resolution `<Select>`.
-   * (e.g., '2160p' -> '4K (2160p)').
+   * (e.g., '2160p' -> '4K UHD (2160p)').
    */
   const resolutionOptions = Object.entries(VIDEO_RESOLUTION_LABELS).map(([value, label]) => ({
     value,
@@ -589,7 +589,7 @@ export function DownloadForm() {
               {/*
                * Video resolution override dropdown.
                *
-               * Populated from `VIDEO_RESOLUTION_LABELS` (e.g., '2160p' -> '4K (2160p)').
+               * Populated from `VIDEO_RESOLUTION_LABELS` (e.g., '2160p' -> '4K UHD (2160p)').
                * Works identically to the audio codec dropdown above.
                * The resolution value is cast to the `VideoResolution` type
                * via `as VideoResolution`.

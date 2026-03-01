@@ -252,7 +252,7 @@ export const ARTIST_AUTO_SELECT_LABELS: Record<ArtistAutoSelect, string> = {
  * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type}
  */
 export const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
-  '2160p': '4K (2160p)',
+  '2160p': '4K UHD (2160p)',
   '1440p': 'QHD (1440p)',
   '1080p': 'Full HD (1080p)',
   '720p': 'HD (720p)',
