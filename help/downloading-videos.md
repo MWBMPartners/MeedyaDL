@@ -62,7 +62,7 @@ MeedyaDL supports the following video resolutions, listed from highest to lowest
 
 **Recommendation:** 1080p is the best choice for most users, offering excellent visual quality without the storage demands of 4K. If you use HEVC (H.265) as the video codec, 1080p HEVC provides the best quality-to-size ratio.
 
-**File size consideration:** 4K (2160p) music videos can be several hundred megabytes per file. Ensure you have sufficient disk space before downloading at this resolution.
+**File size consideration:** 4K UHD (2160p) music videos can be several hundred megabytes per file. Ensure you have sufficient disk space before downloading at this resolution.
 
 ### Video Codecs
 
