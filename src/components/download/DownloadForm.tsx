@@ -92,7 +92,11 @@ import { useUiStore } from '@/stores/uiStore';
 import { Button, Select } from '@/components/common';
 
 /** Tauri IPC commands for pre-download checks (internet, cookies). */
-import { checkCookiesBeforeDownload, checkInternetBeforeDownload } from '@/lib/tauri-commands';
+import {
+  checkCookiesBeforeDownload,
+  checkInternetBeforeDownload,
+  checkOutputPathBeforeDownload,
+} from '@/lib/tauri-commands';
 
 /**
  * Type imports for Apple Music content types and audio codecs.
@@ -273,6 +277,21 @@ export function DownloadForm() {
       }
     } catch {
       // If the check itself fails (e.g., IPC error), assume online and proceed.
+    }
+
+    // Check output path writability — catches disconnected cloud mounts,
+    // full disks, and permission issues before queuing. This is a blocking
+    // check: there's no point queuing a download that will definitely fail
+    // because the output directory is unreachable.
+    try {
+      const outputCheck = await checkOutputPathBeforeDownload();
+      if (!outputCheck.ready) {
+        addToast(outputCheck.message ?? 'Output directory is not writable', 'error');
+        return;
+      }
+    } catch {
+      // If the check fails (e.g., IPC error), proceed —
+      // the queue pre-flight will catch it later.
     }
 
     // Check cookie readiness before queuing (catches mid-session expiry).

@@ -431,6 +431,8 @@ export interface AppSettings {
   auto_check_updates: boolean;
   /** Whether to include pre-release (beta/RC) versions in update checks */
   check_pre_releases: boolean;
+  /** How often (in hours) to periodically check for updates. 0 = startup only. */
+  update_check_interval_hours: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
   /** Default audio codec for song downloads */
@@ -634,7 +636,7 @@ export interface QueueItemStatus {
  *
  * Mirrors: Rust enum `PreflightCheck` in `src-tauri/src/services/health_check_service.rs`
  */
-export type PreflightCheck = 'internet' | 'cookies' | 'wrapper';
+export type PreflightCheck = 'internet' | 'cookies' | 'wrapper' | 'output_path';
 
 /**
  * Payload of a `"preflight-warning"` Tauri event, emitted by the Rust
