@@ -53,6 +53,8 @@ pub enum PreflightCheck {
     Cookies,
     /// Wrapper service health check (HTTP GET to wrapper URL)
     Wrapper,
+    /// Output directory writability check (filesystem probe)
+    OutputPath,
 }
 
 /// Payload emitted to the frontend via the `"preflight-warning"` Tauri event.
@@ -73,33 +75,72 @@ pub struct PreflightWarning {
 // Internet Connectivity Check
 // ============================================================
 
-/// Checks internet connectivity by making an HTTP GET request to
-/// `https://www.apple.com/` with a 5-second timeout.
+/// Checks internet connectivity by probing Apple Music API infrastructure.
 ///
-/// Apple.com is used as the target because it's the service MeedyaDL
-/// interacts with — if Apple's servers are unreachable, downloads will
-/// fail regardless of general internet connectivity.
+/// Tests two endpoints in sequence:
+/// 1. `https://amp-api.music.apple.com/` — the actual API endpoint GAMDL
+///    connects to for metadata, stream URLs, and content catalogs. Even a
+///    401 Unauthorized response counts as "reachable" (proves TCP/TLS works).
+/// 2. `https://www.apple.com/` — Apple's marketing site, used as a fallback
+///    to disambiguate API-specific vs general connectivity issues.
+///
+/// This two-step approach differentiates three scenarios:
+/// - Both reachable → internet and API are fine (no warning)
+/// - apple.com reachable but API unreachable → API-specific issue
+/// - Neither reachable → no internet connectivity
+///
+/// The fallback only runs when the primary check fails, so the happy path
+/// adds zero additional latency.
 ///
 /// # Returns
-/// - `None` if the request succeeds (any HTTP response = internet works)
-/// - `Some(PreflightWarning)` if the request fails (timeout, DNS, etc.)
+/// - `None` if the API endpoint is reachable
+/// - `Some(PreflightWarning)` with a message differentiating the failure mode
 pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .ok()?;
 
-    match client.get("https://www.apple.com/").send().await {
-        Ok(_) => None,
-        Err(e) => {
-            let message = if e.is_timeout() {
-                "Internet connectivity check timed out — Apple Music servers may be unreachable"
-                    .to_string()
-            } else if e.is_connect() {
-                "Cannot connect to Apple Music servers — check your internet connection".to_string()
-            } else {
-                format!("Internet connectivity check failed: {e}")
+    // Primary check: Apple Music API endpoint (the actual endpoint GAMDL uses).
+    // Any HTTP response (including 401, 403, 5xx) = server is reachable.
+    let api_result = client.get("https://amp-api.music.apple.com/").send().await;
+
+    match api_result {
+        Ok(_) => None, // API reachable — connectivity is good
+        Err(api_err) => {
+            // API unreachable — try apple.com to disambiguate
+            let fallback_result = client.get("https://www.apple.com/").send().await;
+
+            let message = match fallback_result {
+                Ok(_) => {
+                    // apple.com works but API doesn't — API-specific issue
+                    if api_err.is_timeout() {
+                        "Apple Music API timed out (apple.com is reachable) — \
+                         the API may be temporarily unavailable or blocked by your network"
+                            .to_string()
+                    } else {
+                        format!(
+                            "Apple Music API is unreachable (apple.com is reachable) — \
+                             check your network or firewall settings: {api_err}"
+                        )
+                    }
+                }
+                Err(_) => {
+                    // Neither works — general internet outage
+                    if api_err.is_timeout() {
+                        "Internet connectivity check timed out — \
+                         Apple Music servers may be unreachable"
+                            .to_string()
+                    } else if api_err.is_connect() {
+                        "Cannot connect to Apple Music servers — \
+                         check your internet connection"
+                            .to_string()
+                    } else {
+                        format!("Internet connectivity check failed: {api_err}")
+                    }
+                }
             };
+
             Some(PreflightWarning {
                 check: PreflightCheck::Internet,
                 message,
@@ -284,5 +325,193 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
                 message,
             })
         }
+    }
+}
+
+// ============================================================
+// Output Path Writability Check
+// ============================================================
+
+/// Verifies that the resolved output directory exists and is writable.
+///
+/// This catches common issues before the download starts:
+/// - Cloud storage mount disconnected (CloudMounter, rclone, SSHFS)
+/// - Disk full or quota exceeded
+/// - Permissions changed since settings were saved
+/// - Network drive unreachable
+///
+/// Uses `tokio::task::spawn_blocking` + `tokio::time::timeout(5s)` to avoid
+/// blocking the async runtime on unresponsive mounts (e.g., disconnected
+/// CloudMounter volumes where file operations block for minutes before
+/// returning ETIMEDOUT).
+///
+/// # Arguments
+/// * `output_path` - The resolved output directory path
+///
+/// # Returns
+/// - `None` if the directory is writable
+/// - `Some(PreflightWarning)` if any issue is detected
+pub async fn check_output_path(output_path: &str) -> Option<PreflightWarning> {
+    let path_owned = output_path.to_string();
+
+    let probe_result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || probe_output_directory(&path_owned)),
+    )
+    .await;
+
+    match probe_result {
+        Ok(Ok(warning)) => warning, // Probe completed — None = writable, Some = issue
+        Ok(Err(e)) => Some(PreflightWarning {
+            check: PreflightCheck::OutputPath,
+            message: format!("Output path check failed unexpectedly: {e}"),
+        }),
+        Err(_) => {
+            // Timeout — likely an unresponsive network mount
+            Some(PreflightWarning {
+                check: PreflightCheck::OutputPath,
+                message: format!(
+                    "Output directory timed out (5s) — the path may be a \
+                     disconnected cloud mount or unresponsive network drive: {output_path}"
+                ),
+            })
+        }
+    }
+}
+
+/// Synchronous filesystem probe for output directory writability.
+///
+/// Called from `check_output_path()` via `spawn_blocking()` to avoid
+/// blocking the async runtime on potentially slow filesystem operations.
+fn probe_output_directory(path: &str) -> Option<PreflightWarning> {
+    let dir = std::path::Path::new(path);
+
+    // Step 1: Check if the directory exists. If not, check if the parent
+    // exists (the directory may be created on first download by GAMDL).
+    if !dir.exists() {
+        if let Some(parent) = dir.parent() {
+            if !parent.exists() {
+                return Some(PreflightWarning {
+                    check: PreflightCheck::OutputPath,
+                    message: format!(
+                        "Output directory does not exist and its parent is also \
+                         missing: {path}"
+                    ),
+                });
+            }
+            // Parent exists but target dir doesn't — GAMDL will create it.
+            // Probe the parent instead.
+            return probe_write_access(parent, path);
+        }
+        return Some(PreflightWarning {
+            check: PreflightCheck::OutputPath,
+            message: format!("Output directory does not exist: {path}"),
+        });
+    }
+
+    // Step 2: Directory exists — verify it's actually a directory
+    if !dir.is_dir() {
+        return Some(PreflightWarning {
+            check: PreflightCheck::OutputPath,
+            message: format!("Output path exists but is not a directory: {path}"),
+        });
+    }
+
+    // Step 3: Probe write access
+    probe_write_access(dir, path)
+}
+
+/// Attempts to create and immediately delete a temporary probe file
+/// to verify write access to the directory.
+///
+/// OS-specific error detection:
+/// - `PermissionDenied` → explicit "not writable (permission denied)" message
+/// - `ENOSPC` (errno 28) → "full disk"
+/// - `EROFS` (errno 30) → "read-only file system" (macOS)
+/// - `ETIMEDOUT` (errno 60) → "disconnected cloud mount" (macOS CloudMounter)
+/// - `ESTALE` (errno 116) → "stale NFS handle" (Linux)
+fn probe_write_access(dir: &std::path::Path, display_path: &str) -> Option<PreflightWarning> {
+    let probe_file = dir.join(".meedyadl_write_probe");
+    match std::fs::write(&probe_file, b"probe") {
+        Ok(()) => {
+            // Write succeeded — clean up and report success
+            let _ = std::fs::remove_file(&probe_file);
+            None
+        }
+        Err(e) => {
+            let message = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                format!("Output directory is not writable (permission denied): {display_path}")
+            } else if e.raw_os_error() == Some(28) {
+                // ENOSPC on macOS/Linux
+                format!("Output directory is on a full disk: {display_path}")
+            } else if e.raw_os_error() == Some(30) {
+                // EROFS: read-only file system (macOS)
+                format!(
+                    "Output directory is on a read-only file system: {display_path}"
+                )
+            } else if e.raw_os_error() == Some(60) {
+                // ETIMEDOUT on macOS (disconnected CloudMounter mount)
+                format!(
+                    "Output directory timed out — cloud storage mount may be \
+                     disconnected: {display_path}"
+                )
+            } else if e.raw_os_error() == Some(116) {
+                // ESTALE on Linux (NFS stale handle)
+                format!(
+                    "Output directory has a stale file handle — network mount may \
+                     need remounting: {display_path}"
+                )
+            } else {
+                format!("Output directory is not writable: {display_path} ({e})")
+            };
+            Some(PreflightWarning {
+                check: PreflightCheck::OutputPath,
+                message,
+            })
+        }
+    }
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_existing_writable_directory() {
+        let dir = std::env::temp_dir();
+        let result = probe_output_directory(dir.to_str().unwrap());
+        assert!(result.is_none(), "Temp dir should be writable");
+    }
+
+    #[test]
+    fn probe_nonexistent_directory_with_valid_parent() {
+        let path = std::env::temp_dir().join("meedyadl_test_nonexistent_dir_probe");
+        let result = probe_output_directory(path.to_str().unwrap());
+        // Parent (/tmp or equivalent) exists, so the probe should succeed on the parent
+        assert!(result.is_none(), "Should succeed when parent is writable");
+    }
+
+    #[test]
+    fn probe_nonexistent_directory_with_missing_parent() {
+        let result = probe_output_directory("/nonexistent/deeply/nested/path");
+        assert!(result.is_some());
+        let warning = result.unwrap();
+        assert!(matches!(warning.check, PreflightCheck::OutputPath));
+        assert!(warning.message.contains("does not exist"));
+    }
+
+    #[test]
+    fn probe_file_instead_of_directory() {
+        // Create a temp file, then probe it as if it were a directory
+        let file = std::env::temp_dir().join("meedyadl_test_probe_file");
+        std::fs::write(&file, b"test").unwrap();
+        let result = probe_output_directory(file.to_str().unwrap());
+        std::fs::remove_file(&file).unwrap();
+        assert!(result.is_some());
+        assert!(result.unwrap().message.contains("not a directory"));
     }
 }

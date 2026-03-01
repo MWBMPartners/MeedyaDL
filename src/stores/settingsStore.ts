@@ -65,6 +65,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ui_language: '', // Auto-detect UI language from OS locale
   auto_check_updates: true, // Automatically check for updates on startup
   check_pre_releases: false, // Only show stable releases by default
+  update_check_interval_hours: 6, // Check for updates every 6 hours
   auto_start_queue: true, // Start processing immediately when items are enqueued
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless
   default_video_resolution: '2160p', // Preferred video quality: 4K

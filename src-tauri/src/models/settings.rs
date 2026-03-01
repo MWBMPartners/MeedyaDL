@@ -206,6 +206,13 @@ pub struct AppSettings {
     #[serde(default)]
     pub check_pre_releases: bool,
 
+    /// How often (in hours) to periodically check for updates while the app
+    /// is running. Value `0` = check on startup only (no periodic timer).
+    /// Only effective when `auto_check_updates` is `true`. Default: 6 hours,
+    /// providing frequent checks during early development.
+    #[serde(default = "default_update_interval")]
+    pub update_check_interval_hours: u32,
+
     /// Whether to start processing the download queue immediately when items
     /// are enqueued. When `true` (the default), downloads begin as soon as
     /// a concurrency slot is available. When `false`, items are added in
@@ -582,6 +589,13 @@ const fn default_auto_start_queue() -> bool {
     true
 }
 
+/// Default periodic update check interval: every 6 hours.
+/// A relatively frequent default is appropriate during early development
+/// when updates may contain important fixes. Value `0` = startup only.
+const fn default_update_interval() -> u32 {
+    6
+}
+
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
     ///
@@ -633,6 +647,9 @@ impl Default for AppSettings {
             // Only show stable releases by default. Pre-releases may have
             // incomplete features or bugs and are for testers/developers.
             check_pre_releases: false,
+            // Check for updates every 6 hours during early development.
+            // Users can change to 1/12/24 hours or 0 (startup only).
+            update_check_interval_hours: 6,
             // Auto-start queue processing by default so downloads begin
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.

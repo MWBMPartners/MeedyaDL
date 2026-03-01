@@ -436,15 +436,35 @@ function App() {
     if (!isReady) return;
 
     /*
-     * Read auto_check_updates imperatively from the store snapshot.
+     * Read update settings imperatively from the store snapshot.
      * Using getState() avoids adding `settings` to the dependency array,
      * which would cause this effect to re-run whenever any setting changes.
      */
-    const autoCheck = useSettingsStore.getState().settings.auto_check_updates;
+    const { auto_check_updates: autoCheck, update_check_interval_hours: intervalHours } =
+      useSettingsStore.getState().settings;
+
+    /* Startup check (runs once on app launch) */
     if (autoCheck) {
       checkForUpdates().catch(() => {
         /* Non-fatal: silently ignore update check failures on startup */
       });
+    }
+
+    /*
+     * Periodic check timer. When enabled, checks for updates every N hours
+     * while the app is running. The isChecking guard prevents overlapping
+     * checks if the user manually triggers one during the interval.
+     * Changes to interval setting take effect on app restart.
+     */
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    if (autoCheck && intervalHours > 0) {
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+      intervalId = setInterval(() => {
+        const { isChecking } = useUpdateStore.getState();
+        if (!isChecking) {
+          checkForUpdates().catch(() => {});
+        }
+      }, intervalMs);
     }
 
     /*
@@ -464,8 +484,11 @@ function App() {
     };
     setupTrayListener();
 
-    /* Cleanup: unsubscribe from tray events on unmount */
-    return () => unlistenTray?.();
+    /* Cleanup: unsubscribe from tray events and periodic timer on unmount */
+    return () => {
+      unlistenTray?.();
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [isReady, checkForUpdates]);
 
   /*

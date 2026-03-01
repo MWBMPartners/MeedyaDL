@@ -310,6 +310,20 @@ export function checkInternetBeforeDownload(): Promise<CookieCheckResult> {
 }
 
 /**
+ * Checks that the output directory is writable before queuing a download.
+ *
+ * Rust handler: `check_output_path_before_download()` in `src-tauri/src/commands/settings.rs`
+ * Returns: `CookieCheckResult` (reuses same shape) with readiness flag and optional message
+ *
+ * Called by the download form after the internet check and before the cookie
+ * check. Catches disconnected cloud mounts, full disks, and permission issues
+ * before the download is queued.
+ */
+export function checkOutputPathBeforeDownload(): Promise<CookieCheckResult> {
+  return invoke<CookieCheckResult>('check_output_path_before_download');
+}
+
+/**
  * Returns the default output path for downloaded music.
  *
  * Rust handler: `get_default_output_path()` in `src-tauri/src/commands/settings.rs`
