@@ -455,6 +455,9 @@ export interface AppSettings {
   companion_mode: CompanionMode;
   /** User-selected codecs for Custom companion mode. Ignored when companion_mode is not 'custom'. */
   custom_companion_codecs: SongCodec[];
+  /** Whether to download music videos as companions for audio track downloads.
+   * Requires MusicKit credentials. Music videos use the video quality settings. */
+  music_video_companion: boolean;
   /** Default artist auto-selection mode for artist URL downloads (GAMDL >= 2.9.1) */
   artist_auto_select: ArtistAutoSelect | null;
   /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.

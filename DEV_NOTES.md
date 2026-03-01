@@ -608,3 +608,53 @@ MeedyaDL/
 ├── commitlint.config.js        #    Conventional commits config
 └── LICENSE                     #    MIT License
 ```
+
+---
+
+## Music Video Companion Downloads
+
+The `music_video_companion` setting (default: `false`) enables automatic downloading of music videos as companions to audio tracks.
+
+**Process:**
+
+1. After each audio download completes, the enrichment pipeline's **Step 6** queries the Apple Music API
+2. `fetch_music_video_relations()` in `apple_music_api.rs` batch-queries song IDs with `relate=music-videos`
+3. For each song with a music video, a separate GAMDL invocation is spawned with the music video URL
+4. Uses the user's video quality settings (resolution, codec priority, remux format)
+5. Deduplicated by music video ID (same video linked from multiple songs won't download twice)
+6. Fire-and-forget — failures logged but don't affect primary download status
+
+**Prerequisites:** Valid MusicKit credentials (`musickit_team_id`, `musickit_key_id`, private key in OS keychain). The UI toggle in Settings > Quality > Video Quality is disabled when credentials are not configured.
+
+**Key files:**
+
+| File | Role |
+| ---- | ---- |
+| `src-tauri/src/services/apple_music_api.rs` | `MusicVideoRelation` struct, `fetch_music_video_relations()`, `build_music_video_url()` |
+| `src-tauri/src/services/download_queue.rs` | `spawn_music_video_companion_inner()` — enrichment Step 6 |
+| `src-tauri/src/models/settings.rs` | `music_video_companion: bool` setting field |
+| `src/components/settings/tabs/QualityTab.tsx` | Toggle in Video Quality section (gated behind MusicKit credentials) |
+
+---
+
+## Visual Template Builder
+
+The `TemplateBuilder` component provides an interactive chip/pill-based UI for building GAMDL file/folder naming templates, replacing plain text `<Input>` fields.
+
+**Process:**
+
+1. Template string (e.g., `{album_artist}/{album}`) is parsed via `parseTemplate()` into typed segments
+2. Each segment renders as a removable chip (variables in accent color, literals in neutral mono)
+3. `+` button opens a dropdown menu with available variables and common separators
+4. "Edit Raw" toggle switches to a plain text input for power users
+5. Live preview with sample metadata (e.g., "Taylor Swift/1989 (Taylor's Version)")
+6. On change, segments are serialized back via `serializeTemplate()` and passed to `onChange()`
+
+**Key files:**
+
+| File | Role |
+| ---- | ---- |
+| `src/lib/template-parser.ts` | Parser, serializer, `TEMPLATE_VARIABLES`, `COMMON_LITERALS`, `SAMPLE_METADATA` |
+| `src/lib/template-parser.test.ts` | 30 unit tests |
+| `src/components/common/TemplateBuilder.tsx` | Visual chip builder component |
+| `src/components/settings/tabs/TemplatesTab.tsx` | Consumer — 7 TemplateBuilder instances |

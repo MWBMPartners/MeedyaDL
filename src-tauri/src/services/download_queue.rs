@@ -1512,6 +1512,244 @@ fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
 }
 
 // ============================================================
+// Music video companion downloads
+// ============================================================
+
+/// Downloads music videos as companions for audio tracks.
+///
+/// Called inside the enrichment pipeline's async block (after Step 5: ReplayGain).
+/// Queries the Apple Music API to find music videos related to the downloaded
+/// tracks, then spawns a GAMDL invocation for each available music video.
+///
+/// This is a fire-and-forget operation — failures are logged but do not
+/// affect the primary download status or queue progression.
+///
+/// # Requirements
+/// - `settings.music_video_companion` must be `true`
+/// - MusicKit credentials must be configured (Team ID, Key ID, private key)
+/// - `album_metadata` provides song IDs (reused from enrichment Step 1)
+async fn spawn_music_video_companion_inner(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    urls: &[String],
+    album_metadata: Option<&super::apple_music_api::AlbumMetadata>,
+    settings: &crate::models::settings::AppSettings,
+    shutdown: &ShutdownSignal,
+) {
+    // Early exit if the original URL is already a music-video URL
+    // (no self-referencing companion).
+    if let Some(first_url) = urls.first() {
+        if let Some(parsed) = super::apple_music_api::parse_apple_music_url(first_url) {
+            if parsed.content_type == "music-video" {
+                log::debug!("Music video companion skipped for {dl_id}: URL is already a music-video");
+                return;
+            }
+        }
+    }
+
+    // Validate MusicKit credentials. All three are required: Team ID, Key ID,
+    // and private key from OS keychain. Missing any means the Apple Music API
+    // lookup cannot proceed, so we exit early. Fire-and-forget semantics mean
+    // this failure does not block the primary download or queue progression.
+    let team_id = match settings.musickit_team_id.as_deref() {
+        Some(id) if !id.is_empty() => id,
+        _ => {
+            log::debug!("Music video companion skipped for {dl_id}: no MusicKit Team ID");
+            return;
+        }
+    };
+    let key_id = match settings.musickit_key_id.as_deref() {
+        Some(id) if !id.is_empty() => id,
+        _ => {
+            log::debug!("Music video companion skipped for {dl_id}: no MusicKit Key ID");
+            return;
+        }
+    };
+    let private_key = match super::apple_music_api::get_private_key_from_keychain() {
+        Ok(Some(key)) => key,
+        _ => {
+            log::debug!("Music video companion skipped for {dl_id}: no private key in keychain");
+            return;
+        }
+    };
+
+    // Extract storefront from the original URL
+    let storefront = match urls.first().and_then(|u| super::apple_music_api::parse_apple_music_url(u)) {
+        Some(parsed) => parsed.storefront,
+        None => {
+            log::debug!("Music video companion skipped for {dl_id}: could not parse URL storefront");
+            return;
+        }
+    };
+
+    // Extract song IDs from the enrichment Step 1 metadata (already fetched once
+    // and passed here to avoid duplicate API calls). These IDs are used to query
+    // which songs have available music videos on Apple Music.
+    let song_ids: Vec<String> = match album_metadata {
+        Some(meta) => meta.tracks.iter().map(|t| t.song_id.clone()).collect(),
+        None => {
+            log::debug!("Music video companion skipped for {dl_id}: no album metadata available");
+            return;
+        }
+    };
+
+    if song_ids.is_empty() {
+        log::debug!("Music video companion skipped for {dl_id}: no tracks in metadata");
+        return;
+    }
+
+    emit_download_log(
+        app,
+        dl_id,
+        &format!("Looking up music videos for {} track(s)...", song_ids.len()),
+    );
+
+    // Generate JWT for API call
+    let jwt = match super::apple_music_api::generate_musickit_jwt(team_id, key_id, &private_key) {
+        Ok(token) => token,
+        Err(e) => {
+            log::debug!("Music video companion JWT generation failed for {dl_id}: {e}");
+            emit_download_log(app, dl_id, &format!("Music video lookup failed: {e}"));
+            return;
+        }
+    };
+
+    // Fetch music video relationships
+    let relations = match super::apple_music_api::fetch_music_video_relations(
+        &jwt, &storefront, &song_ids,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::debug!("Music video relation lookup failed for {dl_id}: {e}");
+            emit_download_log(app, dl_id, &format!("Music video lookup failed: {e}"));
+            return;
+        }
+    };
+
+    // Deduplicate by music video ID. An album may have the same music video
+    // linked from multiple songs (e.g., a lead single's video referenced by
+    // both the single and album versions). HashSet::insert() returns true if
+    // the ID is new, false if already seen — we only keep the first occurrence.
+    let mut seen_ids = std::collections::HashSet::new();
+    let unique_relations: Vec<_> = relations
+        .into_iter()
+        .filter(|r| seen_ids.insert(r.music_video_id.clone()))
+        .collect();
+
+    if unique_relations.is_empty() {
+        emit_download_log(app, dl_id, "No music videos found for this album");
+        return;
+    }
+
+    emit_download_log(
+        app,
+        dl_id,
+        &format!("Found {} music video(s) — downloading as companions", unique_relations.len()),
+    );
+
+    // Download each music video
+    for relation in &unique_relations {
+        if shutdown.is_triggered() {
+            log::info!("Music video companions stopping early for {dl_id} (app shutting down)");
+            return;
+        }
+
+        let mv_url = super::apple_music_api::build_music_video_url(
+            &storefront,
+            &relation.music_video_id,
+        );
+        let mv_name = relation.name.as_deref().unwrap_or("unknown");
+
+        emit_download_log(
+            app,
+            dl_id,
+            &format!("Downloading music video: {mv_name}"),
+        );
+
+        // Build minimal GamdlOptions focused on video download. We reuse the
+        // user's video quality settings (resolution, codec priority, remux format)
+        // and authentication settings (cookies, wrapper) to ensure consistency.
+        // Audio-specific fields (song_codec, fallback chain) are left at defaults
+        // since GAMDL auto-detects content type from the music video URL.
+        let opts = crate::models::gamdl_options::GamdlOptions {
+            output_path: Some(settings.output_path.clone()),
+            music_video_resolution: Some(settings.default_video_resolution.clone()),
+            music_video_codec_priority: Some(settings.default_video_codec_priority.clone()),
+            music_video_remux_format: Some(settings.default_video_remux_format.clone()),
+            temp_path: Some(settings.temp_path.clone()),
+            cookies_path: settings.cookies_path.clone(),
+            use_wrapper: Some(settings.use_wrapper),
+            wrapper_account_url: if settings.use_wrapper {
+                Some(settings.wrapper_account_url.clone())
+            } else {
+                None
+            },
+            ..Default::default()
+        };
+
+        // Build and spawn the GAMDL command with the music video URL
+        let mv_urls = vec![mv_url];
+        let mut cmd = match super::gamdl_service::build_gamdl_command_public(app, &mv_urls, &opts) {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!("Music video companion command build failed for {dl_id}: {e}");
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!("Music video download failed ({mv_name}): {e}"),
+                );
+                continue;
+            }
+        };
+
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        match cmd.spawn() {
+            Ok(child) => match child.wait_with_output().await {
+                Ok(output) if output.status.success() => {
+                    log::info!("Music video companion downloaded for {dl_id}: {mv_name}");
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!("Music video downloaded: {mv_name}"),
+                    );
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let last_err = stderr.lines().last().unwrap_or("unknown error");
+                    log::debug!(
+                        "Music video companion failed for {dl_id} ({mv_name}): {last_err}"
+                    );
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!("Music video failed ({mv_name}): {last_err}"),
+                    );
+                }
+                Err(e) => {
+                    log::debug!("Music video companion process error for {dl_id}: {e}");
+                }
+            },
+            Err(e) => {
+                log::debug!("Failed to spawn music video companion for {dl_id}: {e}");
+            }
+        }
+    }
+
+    emit_download_log(
+        app,
+        dl_id,
+        &format!(
+            "Music video companion downloads complete ({} video(s))",
+            unique_relations.len()
+        ),
+    );
+}
+
+// ============================================================
 // Queue processing: runs downloads and handles fallback/retry
 /// Spawns companion and lyrics companion downloads as background tasks.
 ///
@@ -2519,11 +2757,12 @@ pub fn process_queue(
                             &enrich_app,
                             &enrich_dl_id,
                             &format!(
-                                "Post-download enrichment starting (enhanced_lrc: {}, artwork: {}, acoustid: {}, replaygain: {})",
+                                "Post-download enrichment starting (enhanced_lrc: {}, artwork: {}, acoustid: {}, replaygain: {}, music_video: {})",
                                 if enrich_settings.enhanced_lrc { "on" } else { "off" },
                                 if enrich_settings.animated_artwork_enabled { "on" } else { "off" },
                                 if enrich_settings.acoustid_enabled { "on" } else { "off" },
                                 if enrich_settings.replaygain_enabled { "on" } else { "off" },
+                                if enrich_settings.music_video_companion { "on" } else { "off" },
                             ),
                         );
 
@@ -2851,6 +3090,26 @@ pub fn process_queue(
                                         );
                                     }
                                 }
+                            }
+
+                            // --- Step 6: Music video companion downloads (opt-in) ---
+                            // When `music_video_companion` is enabled AND MusicKit credentials
+                            // are configured, queries the Apple Music API for music videos
+                            // related to the downloaded tracks. Each found video is downloaded
+                            // as a separate GAMDL subprocess. Reuses album_metadata from Step 1
+                            // (avoids duplicate API calls). Fire-and-forget: API failures or
+                            // video download failures do NOT affect the primary download status
+                            // or queue progression. Skipped if the original URL is already a
+                            // music-video URL (no self-referencing companion).
+                            if enrich_settings.music_video_companion && !enrich_shutdown.is_triggered() {
+                                spawn_music_video_companion_inner(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &enrich_urls,
+                                    album_metadata.as_ref(),
+                                    &enrich_settings,
+                                    &enrich_shutdown,
+                                ).await;
                             }
 
                             emit_download_log(

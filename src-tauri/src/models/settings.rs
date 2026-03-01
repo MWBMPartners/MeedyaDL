@@ -303,6 +303,21 @@ pub struct AppSettings {
     #[serde(default)]
     pub custom_companion_codecs: Vec<SongCodec>,
 
+    /// Whether to automatically download music videos as companions when
+    /// downloading audio tracks. When enabled, after each download completes,
+    /// `MeedyaDL` queries the Apple Music API to find music videos for each
+    /// track in the album, then spawns a separate GAMDL invocation for each
+    /// available music video.
+    ///
+    /// Requires valid `MusicKit` credentials (`musickit_team_id`,
+    /// `musickit_key_id`, and a private key in the OS keychain). The toggle
+    /// is disabled in the UI when credentials are not configured.
+    ///
+    /// Music videos use the video quality settings from Settings > Quality
+    /// (resolution, codec priority, remux format).
+    #[serde(default)]
+    pub music_video_companion: bool,
+
     // ================================================================
     // Lyrics
     // ================================================================
@@ -733,6 +748,8 @@ impl Default for AppSettings {
             companion_mode: CompanionMode::AtmosToLossless,
             // No custom companion codecs — only relevant in Custom mode.
             custom_companion_codecs: Vec::new(),
+            // Music video companions disabled by default — requires MusicKit credentials.
+            music_video_companion: false,
 
             // --- Lyrics ---
             // Enabled by default: embed lyrics in audio metadata AND keep
