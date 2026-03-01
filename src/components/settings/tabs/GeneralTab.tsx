@@ -104,6 +104,18 @@ const UI_LANGUAGE_OPTIONS = [
   { value: 'fr', label: 'Français' },
 ];
 
+/**
+ * Update check interval options. Value is in hours.
+ * Shown only when "Auto-Check for Updates" is enabled.
+ */
+const UPDATE_INTERVAL_OPTIONS = [
+  { value: '0', label: 'Startup only' },
+  { value: '1', label: 'Every hour' },
+  { value: '6', label: 'Every 6 hours' },
+  { value: '12', label: 'Every 12 hours' },
+  { value: '24', label: 'Every 24 hours' },
+];
+
 const LANGUAGE_OPTIONS = [
   { value: 'en-US', label: 'English (US)' },
   { value: 'en-GB', label: 'English (UK)' },
@@ -256,6 +268,19 @@ export function GeneralTab() {
           checked={settings.auto_check_updates}
           onChange={(checked) => updateSettings({ auto_check_updates: checked })}
         />
+
+        {/* Update check interval — only visible when auto-check is enabled */}
+        {settings.auto_check_updates && (
+          <Select
+            label="Check Interval"
+            description="How often to check for updates while the app is running (takes effect on restart)"
+            options={UPDATE_INTERVAL_OPTIONS}
+            value={String(settings.update_check_interval_hours)}
+            onChange={(e) =>
+              updateSettings({ update_check_interval_hours: Number(e.target.value) })
+            }
+          />
+        )}
 
         {/* Pre-release channel toggle */}
         <Toggle

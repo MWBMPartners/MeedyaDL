@@ -620,12 +620,15 @@ impl DownloadQueue {
     /// The item is reset to Queued state so `process_queue()` will pick it up again.
     ///
     /// # Returns
-    /// `Some(new_options)` if fallback should be attempted, `None` if all fallbacks exhausted.
+    /// `Some((new_options, fallback_index, chain_len))` if fallback should be
+    /// attempted. `fallback_index` is 1-indexed (first fallback = 1, since
+    /// index 0 is the initial codec). `chain_len` is the total length of the
+    /// fallback chain. Returns `None` if all fallbacks are exhausted.
     pub fn try_fallback(
         &mut self,
         download_id: &str,
         settings: &AppSettings,
-    ) -> Option<GamdlOptions> {
+    ) -> Option<(GamdlOptions, usize, usize)> {
         let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
 
         // Only attempt fallback if the user has enabled it in settings
@@ -668,13 +671,16 @@ impl DownloadQueue {
             item.status.progress = 0.0;
             item.merged_options = new_options.clone();
 
+            let chain_len = settings.music_fallback_chain.len();
             log::info!(
-                "Download {} falling back to codec: {}",
+                "Download {} falling back to codec: {} (fallback {} of {})",
                 download_id,
-                next_codec.to_cli_string()
+                next_codec.to_cli_string(),
+                item.fallback_index,
+                chain_len.saturating_sub(1),
             );
 
-            Some(new_options)
+            Some((new_options, item.fallback_index, chain_len))
         } else {
             // All codecs in the fallback chain have been tried and failed.
             // The download will remain in the Error state.
@@ -686,26 +692,36 @@ impl DownloadQueue {
     /// Checks if a download should retry due to a network error.
     ///
     /// # Returns
-    /// `true` if retry should be attempted, `false` if retries exhausted.
-    pub fn try_network_retry(&mut self, download_id: &str) -> bool {
+    /// `Some((attempt, total))` — 1-indexed attempt number and total attempts
+    /// (initial + retries). For example, with `max_network_retries = 3`,
+    /// total = 4 and attempts are 2, 3, 4 (attempt 1 was the initial try).
+    /// Returns `None` if retries are exhausted or the item doesn't exist.
+    pub fn try_network_retry(&mut self, download_id: &str) -> Option<(u32, u32)> {
+        let max = self.max_network_retries;
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if item.network_retries_left > 0 {
                 item.network_retries_left -= 1;
                 item.status.state = DownloadState::Queued;
                 item.status.error = None;
                 item.status.progress = 0.0;
+                // Total attempts = initial try + max retries.
+                // Attempt number = total - retries_left (after decrement).
+                let total = max + 1;
+                let attempt = total - item.network_retries_left;
                 log::info!(
-                    "Download {} network retry ({} remaining)",
+                    "Download {} network retry (attempt {} of {}, {} remaining)",
                     download_id,
+                    attempt,
+                    total,
                     item.network_retries_left
                 );
-                true
+                Some((attempt, total))
             } else {
                 log::info!("Download {download_id} exhausted network retries");
-                false
+                None
             }
         } else {
-            false
+            None
         }
     }
 
@@ -1465,11 +1481,19 @@ fn spawn_companion_downloads(
             app,
             dl_id,
             &format!(
-                "Starting companion downloads ({} tier(s), mode: {:?})",
-                companion_tiers.len(),
+                "Starting companion downloads (mode: {:?})",
                 companion_settings.companion_mode,
             ),
         );
+        // Log per-tier codec details before spawning the async task
+        for (tier_idx, tier) in companion_tiers.iter().enumerate() {
+            let codec_names: Vec<&str> = tier.codecs_to_try.iter().map(|c| c.to_cli_string()).collect();
+            emit_internal_log(
+                app,
+                dl_id,
+                &format!("Companion tier {}: trying {}", tier_idx, codec_names.join(", ")),
+            );
+        }
 
         tokio::spawn(async move {
             // Process each companion tier sequentially
@@ -1478,6 +1502,12 @@ fn spawn_companion_downloads(
 
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
+                    emit_internal_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        &format!("Companion tier {}: attempting {}...", tier_idx, codec.to_cli_string()),
+                    );
+
                     let mut opts = comp_base_opts.clone();
                     opts.song_codec = Some(codec.clone());
                     // Companions always target a specific single codec,
@@ -1573,13 +1603,24 @@ fn spawn_companion_downloads(
                                     // Non-zero exit: codec may be
                                     // unavailable for this content
                                     let stderr = String::from_utf8_lossy(&output.stderr);
+                                    let last_err = stderr.lines().last().unwrap_or("unknown error");
                                     log::debug!(
                                         "Companion tier {} ({}) failed \
                                          for {}: {}",
                                         tier_idx,
                                         codec.to_cli_string(),
                                         comp_dl_id,
-                                        stderr.lines().last().unwrap_or("")
+                                        last_err
+                                    );
+                                    emit_internal_log(
+                                        &comp_app,
+                                        &comp_dl_id,
+                                        &format!(
+                                            "Companion tier {}: {} failed — {}",
+                                            tier_idx,
+                                            codec.to_cli_string(),
+                                            last_err
+                                        ),
                                     );
                                     // Continue to next codec in tier
                                 }
@@ -1744,6 +1785,18 @@ pub fn process_queue(
                     None
                 };
 
+                // Output path writability check — verify the resolved output directory
+                // is accessible before starting downloads. Catches disconnected cloud
+                // mounts, full disks, and permission issues.
+                let output_path_for_check = if settings.output_path.is_empty() {
+                    crate::services::config_service::get_default_output_path().ok()
+                } else {
+                    Some(settings.output_path.clone())
+                };
+                let output_path_future = output_path_for_check
+                    .as_ref()
+                    .map(|path| crate::services::health_check_service::check_output_path(path));
+
                 // Cookie check is synchronous (file I/O only) — run when not using wrapper
                 let cookie_warning = if !settings.use_wrapper {
                     if let Some(ref path) = settings.cookies_path {
@@ -1761,6 +1814,10 @@ pub fn process_queue(
                 // Await the async checks
                 let internet_warning = internet_future.await;
                 let wrapper_warning = match wrapper_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
+                let output_path_warning = match output_path_future {
                     Some(fut) => fut.await,
                     None => None,
                 };
@@ -1782,6 +1839,8 @@ pub fn process_queue(
                     if settings.use_wrapper {
                         v.push((PreflightCheck::Wrapper, wrapper_warning));
                     }
+                    // Always check output path (applies to all auth modes)
+                    v.push((PreflightCheck::OutputPath, output_path_warning));
                     v
                 };
 
@@ -2019,20 +2078,21 @@ pub fn process_queue(
                                     q.set_error(&dl_id, &error_msg);
                                     q.on_task_finished();
 
-                                    if let Some(new_options) = q.try_fallback(&dl_id, &settings) {
+                                    if let Some((new_options, fb_idx, chain_len)) = q.try_fallback(&dl_id, &settings) {
                                         let fallback_codec = new_options
                                             .song_codec
                                             .as_ref()
                                             .map(|c| c.to_cli_string().to_string())
                                             .unwrap_or_else(|| "unknown".to_string());
+                                        let total_fallbacks = chain_len.saturating_sub(1);
                                         log::info!(
-                                        "Download {dl_id} will retry with fallback codec: {fallback_codec}"
+                                        "Download {dl_id} will retry with fallback codec: {fallback_codec} ({fb_idx} of {total_fallbacks})"
                                     );
                                         drop(q);
                                         emit_internal_log(
                                         &app_clone,
                                         &dl_id,
-                                        &format!("Format not available — retrying with: {fallback_codec}"),
+                                        &format!("Format not available — trying {fallback_codec} (fallback {fb_idx} of {total_fallbacks})"),
                                     );
                                         save_queue_to_disk(&app_clone, &queue_clone).await;
                                         process_queue(app_clone.clone(), queue_clone.clone()).await;
@@ -2658,12 +2718,19 @@ pub fn process_queue(
                     let error_category = process::classify_error(&error_msg);
                     log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
 
-                    // Add wrapper-specific context for network errors to aid troubleshooting
+                    // Add wrapper-specific context for network errors to aid troubleshooting.
+                    // Surface the wrapper URL in the Activity Log (not just the debug log)
+                    // so users can see which endpoint failed.
                     if error_category == "network" {
                         if let Some(ref url) = wrapper_url_for_logging {
                             log::error!(
                                 "Wrapper URL was: {url} -- check that the wrapper \
                              service is running and reachable"
+                            );
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                &format!("Network error occurred while using wrapper at {url}"),
                             );
                         }
                     }
@@ -2701,21 +2768,22 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
 
-                                if let Some(new_options) = q.try_fallback(&dl_id, &settings) {
+                                if let Some((new_options, fb_idx, chain_len)) = q.try_fallback(&dl_id, &settings) {
                                     let fallback_codec = new_options
                                         .song_codec
                                         .as_ref()
                                         .map(|c| c.to_cli_string().to_string())
                                         .unwrap_or_else(|| "unknown".to_string());
+                                    let total_fallbacks = chain_len.saturating_sub(1);
                                     log::info!(
                                         "Download {dl_id} will retry with \
-                                 fallback codec: {fallback_codec}"
+                                 fallback codec: {fallback_codec} ({fb_idx} of {total_fallbacks})"
                                     );
                                     drop(q);
                                     emit_internal_log(
                                 &app_clone,
                                 &dl_id,
-                                &format!("Format not available — retrying with: {fallback_codec}"),
+                                &format!("Format not available — trying {fallback_codec} (fallback {fb_idx} of {total_fallbacks})"),
                             );
                                     true
                                 } else {
@@ -2735,14 +2803,21 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
 
-                                if q.try_network_retry(&dl_id) {
+                                // Differentiate wrapper vs direct in activity log messages
+                                let mode_context = if wrapper_url_for_logging.is_some() {
+                                    " (via wrapper)"
+                                } else {
+                                    " (direct to Apple Music)"
+                                };
+
+                                if let Some((attempt, total)) = q.try_network_retry(&dl_id) {
                                     // try_network_retry resets the item to Queued with same options
-                                    log::info!("Download {dl_id} will retry (network error)");
+                                    log::info!("Download {dl_id} will retry (network error, attempt {attempt} of {total})");
                                     drop(q);
                                     emit_internal_log(
                                         &app_clone,
                                         &dl_id,
-                                        "Network error — retrying download",
+                                        &format!("Network error{mode_context} — retrying (attempt {attempt} of {total})"),
                                     );
                                     true
                                 } else {
@@ -2750,10 +2825,28 @@ pub fn process_queue(
                                     emit_internal_log(
                                         &app_clone,
                                         &dl_id,
-                                        "Network error — all retries exhausted",
+                                        &format!("Network error{mode_context} — all retries exhausted"),
                                     );
                                     false
                                 }
+                            }
+                            "io" => {
+                                // I/O error: filesystem issue (disconnected cloud mount,
+                                // full disk, stale NFS handle, read-only filesystem).
+                                // Not retriable — user needs to fix the underlying issue.
+                                let mut q = queue_clone.lock().await;
+                                q.set_error(&dl_id, &error_msg);
+                                q.on_task_finished();
+                                drop(q);
+                                emit_internal_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!(
+                                        "Filesystem error — check that the output directory \
+                                         is accessible and writable: {error_msg}"
+                                    ),
+                                );
+                                false
                             }
                             _ => {
                                 // Non-retriable error (e.g., authentication, invalid URL).
@@ -2877,15 +2970,24 @@ pub fn process_queue(
                             }),
                         );
 
-                        // Spawn companion downloads even on failure — the companion
-                        // codec may succeed where the primary format was unavailable.
-                        spawn_companion_downloads(
-                            &app_clone,
-                            &dl_id,
-                            &urls,
-                            &primary_codec_for_companions,
-                            &companion_base_options,
-                        );
+                        // Spawn companion downloads on failure — unless the error
+                        // is network-related (network is down, so companions would
+                        // also fail and just waste time + clutter the Activity Log).
+                        if error_category != "network" {
+                            spawn_companion_downloads(
+                                &app_clone,
+                                &dl_id,
+                                &urls,
+                                &primary_codec_for_companions,
+                                &companion_base_options,
+                            );
+                        } else {
+                            emit_internal_log(
+                                &app_clone,
+                                &dl_id,
+                                "Companion downloads skipped — network unavailable",
+                            );
+                        }
                     }
                 }
             }
@@ -3535,7 +3637,7 @@ mod tests {
 
         // Exhaust all 3 retries
         assert!(
-            queue.try_network_retry(&id),
+            queue.try_network_retry(&id).is_some(),
             "Should succeed on retry 1 of 3"
         );
         // Need to set back to Error/Queued for next retry test, but try_network_retry
@@ -3543,17 +3645,17 @@ mod tests {
         // Actually try_network_retry sets to Queued. Let's set back to error.
         queue.set_error(&id, "network error");
         assert!(
-            queue.try_network_retry(&id),
+            queue.try_network_retry(&id).is_some(),
             "Should succeed on retry 2 of 3"
         );
         queue.set_error(&id, "network error");
         assert!(
-            queue.try_network_retry(&id),
+            queue.try_network_retry(&id).is_some(),
             "Should succeed on retry 3 of 3"
         );
         queue.set_error(&id, "network error");
         assert!(
-            !queue.try_network_retry(&id),
+            queue.try_network_retry(&id).is_none(),
             "Should fail after 3 retries exhausted"
         );
     }
@@ -4268,7 +4370,8 @@ mod tests {
     // ==========================================================
 
     /// Verifies that try_network_retry() resets the item to Queued state when
-    /// retries remain, and decrements the retry counter.
+    /// retries remain, returns attempt number and total, and decrements the
+    /// retry counter.
     #[test]
     fn try_network_retry_resets_to_queued_when_retries_remain() {
         let mut queue = DownloadQueue::new();
@@ -4278,7 +4381,8 @@ mod tests {
         queue.set_error(&id, "Network timeout");
 
         let result = queue.try_network_retry(&id);
-        assert!(result, "Should return true when retries remain");
+        // max_network_retries = 3, so total = 4. First retry = attempt 2.
+        assert_eq!(result, Some((2, 4)), "First retry should be attempt 2 of 4");
 
         let statuses = queue.get_status();
         assert_eq!(
@@ -4293,31 +4397,32 @@ mod tests {
         assert_eq!(statuses[0].progress, 0.0, "Progress should reset to 0");
     }
 
-    /// Verifies that try_network_retry() returns false when all retries have
-    /// been exhausted (default: 3 retries).
+    /// Verifies that try_network_retry() returns None when all retries have
+    /// been exhausted (default: 3 retries), and that attempt numbers increment.
     #[test]
     fn try_network_retry_returns_false_when_exhausted() {
         let mut queue = DownloadQueue::new();
         let id = enqueue_one(&mut queue);
 
-        // Use up all 3 retries
-        for _ in 0..3 {
-            queue.set_error(&id, "network error");
-            let ok = queue.try_network_retry(&id);
-            assert!(ok, "Should succeed while retries remain");
-        }
+        // Use up all 3 retries and verify attempt numbers
+        queue.set_error(&id, "network error");
+        assert_eq!(queue.try_network_retry(&id), Some((2, 4)));
+        queue.set_error(&id, "network error");
+        assert_eq!(queue.try_network_retry(&id), Some((3, 4)));
+        queue.set_error(&id, "network error");
+        assert_eq!(queue.try_network_retry(&id), Some((4, 4)));
 
         // 4th attempt should fail
         queue.set_error(&id, "network error");
         let result = queue.try_network_retry(&id);
-        assert!(!result, "Should return false after all retries exhausted");
+        assert!(result.is_none(), "Should return None after all retries exhausted");
     }
 
-    /// Verifies that try_network_retry() returns false for a non-existent ID.
+    /// Verifies that try_network_retry() returns None for a non-existent ID.
     #[test]
     fn try_network_retry_nonexistent_id() {
         let mut queue = DownloadQueue::new();
-        assert!(!queue.try_network_retry("nonexistent"));
+        assert!(queue.try_network_retry("nonexistent").is_none());
     }
 
     // ==========================================================
@@ -4339,7 +4444,9 @@ mod tests {
         let result = queue.try_fallback(&id, &settings);
         assert!(result.is_some(), "First fallback should succeed");
 
-        let new_opts = result.unwrap();
+        let (new_opts, fb_idx, chain_len) = result.unwrap();
+        assert_eq!(fb_idx, 1, "First fallback should be index 1");
+        assert_eq!(chain_len, 6, "Default chain has 6 codecs");
         assert_eq!(
             new_opts.song_codec,
             Some(SongCodec::Atmos),
@@ -4386,6 +4493,9 @@ mod tests {
         queue.set_error(&id, "codec error");
         let result1 = queue.try_fallback(&id, &settings);
         assert!(result1.is_some(), "First fallback to Aac should succeed");
+        let (_, idx, len) = result1.unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(len, 2);
 
         // Second fallback: chain exhausted (index 2 >= chain.len() of 2)
         queue.set_error(&id, "codec error again");
@@ -4428,22 +4538,25 @@ mod tests {
         settings.music_fallback_chain = vec![SongCodec::Alac, SongCodec::Atmos, SongCodec::Aac];
         let id = queue.enqueue(test_request(), &settings);
 
-        // Fallback 1: Alac -> Atmos
+        // Fallback 1: Alac -> Atmos (index 1 of 3-element chain)
         queue.set_error(&id, "codec error");
         let r1 = queue.try_fallback(&id, &settings);
-        let r1_opts = r1.unwrap();
+        let (r1_opts, r1_idx, r1_len) = r1.unwrap();
         assert_eq!(r1_opts.song_codec, Some(SongCodec::Atmos));
+        assert_eq!(r1_idx, 1, "First fallback is index 1");
+        assert_eq!(r1_len, 3, "Chain length is 3");
         assert_eq!(
             r1_opts.song_codec_priority,
             Some("atmos".to_string()),
             "Priority should be single codec on fallback"
         );
 
-        // Fallback 2: Atmos -> Aac
+        // Fallback 2: Atmos -> Aac (index 2 of 3-element chain)
         queue.set_error(&id, "codec error");
         let r2 = queue.try_fallback(&id, &settings);
-        let r2_opts = r2.unwrap();
+        let (r2_opts, r2_idx, _) = r2.unwrap();
         assert_eq!(r2_opts.song_codec, Some(SongCodec::Aac));
+        assert_eq!(r2_idx, 2, "Second fallback is index 2");
         assert_eq!(
             r2_opts.song_codec_priority,
             Some("aac".to_string()),
@@ -4586,7 +4699,7 @@ mod tests {
             queue.try_network_retry(&id);
         }
         queue.set_error(&id, "network");
-        assert!(!queue.try_network_retry(&id), "Retries should be exhausted");
+        assert!(queue.try_network_retry(&id).is_none(), "Retries should be exhausted");
 
         // Now use retry() to do a full reset
         queue.set_error(&id, "network");
@@ -4595,7 +4708,7 @@ mod tests {
         // Network retries should be available again
         queue.set_error(&id, "network");
         assert!(
-            queue.try_network_retry(&id),
+            queue.try_network_retry(&id).is_some(),
             "After retry(), network retries should be reset to max"
         );
     }
@@ -4730,10 +4843,13 @@ mod tests {
         queue.set_error(&id, "Codec not available for ALAC");
         queue.on_task_finished();
 
-        // Fallback to AAC
+        // Fallback to AAC (index 1 of 3-element chain)
         let fallback = queue.try_fallback(&id, &settings);
         assert!(fallback.is_some());
-        assert_eq!(fallback.unwrap().song_codec, Some(SongCodec::Aac));
+        let (fb_opts, fb_idx, fb_len) = fallback.unwrap();
+        assert_eq!(fb_opts.song_codec, Some(SongCodec::Aac));
+        assert_eq!(fb_idx, 1);
+        assert_eq!(fb_len, 3);
 
         // Item should be re-queued
         assert_eq!(queue.get_status()[0].state, DownloadState::Queued);
@@ -4752,9 +4868,9 @@ mod tests {
         queue.set_error(&id, "Network timeout");
         queue.on_task_finished();
 
-        // Network retry should succeed
+        // Network retry should succeed (attempt 2 of 4)
         let retried = queue.try_network_retry(&id);
-        assert!(retried);
+        assert!(retried.is_some());
 
         // Item should be re-queued
         let s = &queue.get_status()[0];

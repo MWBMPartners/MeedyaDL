@@ -275,6 +275,41 @@ pub async fn check_internet_before_download() -> Result<CookieCheckResult, Strin
     }
 }
 
+/// Checks that the output directory is writable before queuing a download.
+///
+/// **Frontend caller:** `checkOutputPathBeforeDownload()` in `src/lib/tauri-commands.ts`
+///
+/// Resolves the output path from current settings (using the default if empty)
+/// and probes writability. Catches disconnected cloud mounts, full disks, and
+/// permission issues before the download is queued.
+///
+/// Unlike the queue pre-flight check (which is non-blocking), this is called
+/// from `DownloadForm.tsx` and is **blocking** — the download won't be queued
+/// if the output path is inaccessible.
+///
+/// Reuses the `CookieCheckResult` shape for frontend consistency.
+#[tauri::command]
+pub async fn check_output_path_before_download(
+    app: tauri::AppHandle,
+) -> Result<CookieCheckResult, String> {
+    let settings = crate::services::config_service::load_settings(&app)?;
+    let resolved_path = if settings.output_path.is_empty() {
+        crate::services::config_service::get_default_output_path()?
+    } else {
+        settings.output_path.clone()
+    };
+    match crate::services::health_check_service::check_output_path(&resolved_path).await {
+        None => Ok(CookieCheckResult {
+            ready: true,
+            message: None,
+        }),
+        Some(warning) => Ok(CookieCheckResult {
+            ready: false,
+            message: Some(warning.message),
+        }),
+    }
+}
+
 /// Returns the default output path for downloaded music.
 ///
 /// **Frontend caller:** `getDefaultOutputPath()` in `src/lib/tauri-commands.ts`
