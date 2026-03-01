@@ -212,7 +212,7 @@ The enrichment stages run in order:
 1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on)
 2. **Enhanced LRC conversion** (opt-in, default on) — converts TTML to Enhanced LRC, saves `.lrc` sidecar, embeds in `©lyr` atom
 3. **Animated artwork download** (requires MusicKit credentials)
-4. **AcousticID fingerprinting** (opt-in)
+4. **AcoustID fingerprinting** (opt-in)
 5. **ReplayGain analysis** (opt-in)
 
 #### Codec Tags (Always-On)
@@ -256,9 +256,9 @@ These tags are written automatically when MusicKit credentials are configured in
 | `com.apple.iTunes:MotionArtPortraitURL` | HLS M3U8 URL | Animated artwork (portrait) |
 | `MeedyaMeta:MotionArtPortraitURL` | HLS M3U8 URL | Animated artwork (portrait) |
 
-#### AcousticID Tags (Opt-In)
+#### AcoustID Tags (Opt-In)
 
-Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints using MeedyaDL's built-in fingerprinting engine and looks up AcousticID identifiers from [acoustid.org](https://acoustid.org). No external tools required.
+Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints using MeedyaDL's built-in fingerprinting engine and looks up AcoustID identifiers from [acoustid.org](https://acoustid.org). No external tools required.
 
 | Tag (Namespace:Name) | Value |
 | -------------------- | ----- |

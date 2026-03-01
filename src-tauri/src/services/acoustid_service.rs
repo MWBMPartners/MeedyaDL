@@ -1,14 +1,14 @@
 // Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// acoustid_service.rs -- AcousticID fingerprinting and lookup service
+// acoustid_service.rs -- AcoustID fingerprinting and lookup service
 // ===================================================================
 //
 // Generates Chromaprint audio fingerprints using the embedded
-// rusty-chromaprint library (pure Rust) and looks up AcousticID
+// rusty-chromaprint library (pure Rust) and looks up AcoustID
 // identifiers via the acoustid.org API. This enables music
 // identification compatible with MusicBrainz Picard and other tools
-// that use the AcousticID ecosystem.
+// that use the AcoustID ecosystem.
 //
 // ## How it works
 //
@@ -16,27 +16,27 @@
 //    (pure Rust audio decoder), then generates a Chromaprint fingerprint
 //    using rusty-chromaprint's Fingerprinter.
 // 2. Compresses the fingerprint using FingerprintCompressor and encodes
-//    it in URL-safe base64 format for the AcousticID API.
-// 3. Sends the fingerprint + duration to the AcousticID lookup API
-//    (`https://api.acoustid.org/v2/lookup`) to find a matching AcousticID.
+//    it in URL-safe base64 format for the AcoustID API.
+// 3. Sends the fingerprint + duration to the AcoustID lookup API
+//    (`https://api.acoustid.org/v2/lookup`) to find a matching AcoustID.
 // 4. Writes two freeform atoms to the M4A file:
-//    - `----:com.apple.iTunes:Acoustid Id` — the AcousticID UUID
+//    - `----:com.apple.iTunes:Acoustid Id` — the AcoustID UUID
 //    - `----:com.apple.iTunes:Acoustid Fingerprint` — encoded fingerprint
 //
 // ## No External Dependencies
 //
 // All fingerprinting is done in pure Rust via rusty-chromaprint and
 // Symphonia. No external fpcalc binary is required, which also enables
-// AcousticID support on ARM Linux (where no fpcalc binaries exist).
+// AcoustID support on ARM Linux (where no fpcalc binaries exist).
 //
 // ## Rate limiting
 //
-// The AcousticID API allows ~3 requests/second for free API keys.
+// The AcoustID API allows ~3 requests/second for free API keys.
 // A 334ms delay is enforced between lookup requests to stay within limits.
 //
 // ## Opt-in
 //
-// AcousticID processing is opt-in (`acoustid_enabled` in settings) because
+// AcoustID processing is opt-in (`acoustid_enabled` in settings) because
 // it's CPU-intensive (decoding + fingerprinting each file) and requires
 // network requests per track.
 //
@@ -61,28 +61,28 @@ use tokio::time::sleep;
 /// Apple iTunes freeform atom namespace (matches `MusicBrainz` Picard's convention).
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
-/// `AcousticID` API endpoint for fingerprint lookups.
+/// `AcoustID` API endpoint for fingerprint lookups.
 const ACOUSTID_API_URL: &str = "https://api.acoustid.org/v2/lookup";
 
-/// Delay between `AcousticID` API requests (~3 req/sec rate limit).
+/// Delay between `AcoustID` API requests (~3 req/sec rate limit).
 const API_RATE_LIMIT_DELAY: Duration = Duration::from_millis(334);
 
-// The AcousticID API key is provided by the user via Settings > Metadata.
+// The AcoustID API key is provided by the user via Settings > Metadata.
 // Users register a free application key at https://acoustid.org/new-application.
 
 // ============================================================
 // Public API
 // ============================================================
 
-/// Process all M4A files in the output directory for `AcousticID` fingerprinting.
+/// Process all M4A files in the output directory for `AcoustID` fingerprinting.
 ///
 /// For each file: generates a Chromaprint fingerprint using the embedded
-/// rusty-chromaprint library, looks up the `AcousticID` via the web service,
-/// and writes both the fingerprint and `AcousticID` UUID as metadata tags.
+/// rusty-chromaprint library, looks up the `AcoustID` via the web service,
+/// and writes both the fingerprint and `AcoustID` UUID as metadata tags.
 ///
 /// # Arguments
 /// * `output_path` - Download output path (file or album directory)
-/// * `api_key` - AcousticID application API key (registered at acoustid.org)
+/// * `api_key` - AcoustID application API key (registered at acoustid.org)
 ///
 /// # Errors
 ///
@@ -96,7 +96,7 @@ pub async fn process_acoustid_for_directory(
     api_key: &str,
 ) -> Result<usize, String> {
     if api_key.is_empty() || api_key.contains("PLACEHOLDER") {
-        return Err("AcousticID API key not configured".to_string());
+        return Err("AcoustID API key not configured".to_string());
     }
     // Collect all M4A files
     let m4a_files = collect_m4a_files(output_path);
@@ -115,17 +115,17 @@ pub async fn process_acoustid_for_directory(
         match process_single_file(file_path, api_key).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
-                log::debug!("No AcousticID match for {}", file_path.display());
+                log::debug!("No AcoustID match for {}", file_path.display());
             }
             Err(e) => {
-                log::debug!("AcousticID failed for {}: {}", file_path.display(), e);
+                log::debug!("AcoustID failed for {}: {}", file_path.display(), e);
             }
         }
     }
 
     if tagged_count > 0 {
         log::info!(
-            "Tagged {} of {} file(s) with AcousticID metadata",
+            "Tagged {} of {} file(s) with AcoustID metadata",
             tagged_count,
             m4a_files.len()
         );
@@ -138,7 +138,7 @@ pub async fn process_acoustid_for_directory(
 // Internal: Per-File Processing
 // ============================================================
 
-/// Generate fingerprint, look up `AcousticID`, and write tags for a single file.
+/// Generate fingerprint, look up `AcoustID`, and write tags for a single file.
 ///
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
 async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, String> {
@@ -151,7 +151,7 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
             .await
             .map_err(|e| format!("Fingerprint task panicked: {e}"))??;
 
-    // Step 2: Look up AcousticID
+    // Step 2: Look up AcoustID
     let Some(acoustid) = lookup_acoustid(&fingerprint, duration, api_key).await? else {
         return Ok(false); // No match found
     };
@@ -174,7 +174,7 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
     tag.write_to_path(file_path)
         .map_err(|e| format!("Failed to write M4A: {e}"))?;
 
-    log::debug!("AcousticID tagged: {}", file_path.display());
+    log::debug!("AcoustID tagged: {}", file_path.display());
     Ok(true)
 }
 
@@ -187,7 +187,7 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
 /// Uses Symphonia to decode the M4A file to raw interleaved i16 PCM
 /// samples, then feeds them to rusty-chromaprint's Fingerprinter.
 /// The resulting fingerprint is compressed and encoded in URL-safe base64
-/// format compatible with the `AcousticID` API.
+/// format compatible with the `AcoustID` API.
 ///
 /// # Returns
 /// * `Ok((fingerprint, duration))` - Encoded fingerprint and duration in seconds
@@ -320,17 +320,17 @@ fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
 }
 
 // ============================================================
-// Internal: AcousticID API Lookup
+// Internal: AcoustID API Lookup
 // ============================================================
 
-/// Look up an `AcousticID` by fingerprint and duration.
+/// Look up an `AcoustID` by fingerprint and duration.
 ///
-/// Sends a POST request to the `AcousticID` web service with the Chromaprint
-/// fingerprint. Returns the `AcousticID` UUID if a match is found with
+/// Sends a POST request to the `AcoustID` web service with the Chromaprint
+/// fingerprint. Returns the `AcoustID` UUID if a match is found with
 /// sufficient confidence (score >= 0.5).
 ///
 /// # Returns
-/// * `Ok(Some(uuid))` - `AcousticID` found
+/// * `Ok(Some(uuid))` - `AcoustID` found
 /// * `Ok(None)` - No match with sufficient confidence
 /// * `Err(message)` - API request or parsing failed
 async fn lookup_acoustid(
@@ -350,17 +350,17 @@ async fn lookup_acoustid(
         ])
         .send()
         .await
-        .map_err(|e| format!("AcousticID API request failed: {e}"))?;
+        .map_err(|e| format!("AcoustID API request failed: {e}"))?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        return Err(format!("AcousticID API returned HTTP {status}"));
+        return Err(format!("AcoustID API returned HTTP {status}"));
     }
 
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse AcousticID response: {e}"))?;
+        .map_err(|e| format!("Failed to parse AcoustID response: {e}"))?;
 
     // Check API status
     let status = json
@@ -374,7 +374,7 @@ async fn lookup_acoustid(
             .and_then(|e| e.get("message"))
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown API error");
-        return Err(format!("AcousticID API error: {error_msg}"));
+        return Err(format!("AcoustID API error: {error_msg}"));
     }
 
     // Find the best matching result with score >= 0.5
@@ -473,7 +473,7 @@ mod tests {
     }
 
     // ----------------------------------------------------------
-    // AcousticID response parsing tests
+    // AcoustID response parsing tests
     // ----------------------------------------------------------
 
     #[test]

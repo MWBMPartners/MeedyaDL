@@ -571,7 +571,7 @@ Apple's notarization service inspects all Mach-O binaries inside the
 
 ### ✨ Features
 
-- Integrate embedded Chromaprint for AcousticID fingerprinting
+- Integrate embedded Chromaprint for AcoustID fingerprinting
 
 - Replace external fpcalc dependency with the embedded rusty-chromaprint library for generating Chromaprint audio fingerprints.
   - Update documentation and comments to reflect the removal of external dependencies.
@@ -607,14 +607,14 @@ Apple's notarization service inspects all Mach-O binaries inside the
 
 ### ✨ Features
 
-- Add ReplayGain analysis and AcousticID fingerprinting services
+- Add ReplayGain analysis and AcoustID fingerprinting services
 
 - Introduced `replaygain_service` for analyzing audio loudness using FFmpeg's EBU R128 filter, writing non-destructive ReplayGain metadata tags.
-  - Added `acoustid_service` for generating Chromaprint audio fingerprints and looking up AcousticID identifiers.
+  - Added `acoustid_service` for generating Chromaprint audio fingerprints and looking up AcoustID identifiers.
   - Updated `metadata_tag_service` to include new metadata enrichment features.
   - Enhanced `apple_music_api` for improved metadata retrieval from MusicKit.
-  - Added new settings tab for metadata enrichment options, including toggles for AcousticID and ReplayGain.
-  - Updated Zustand store to manage new settings for AcousticID and ReplayGain.
+  - Added new settings tab for metadata enrichment options, including toggles for AcoustID and ReplayGain.
+  - Updated Zustand store to manage new settings for AcoustID and ReplayGain.
   - Added unit tests for new features and ensured existing tests cover new functionality.
 
 

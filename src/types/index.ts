@@ -486,9 +486,9 @@ export interface AppSettings {
   musickit_team_id: string | null;
   /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */
   musickit_key_id: string | null;
-  /** Enable AcousticID fingerprinting for downloaded tracks (opt-in) */
+  /** Enable AcoustID fingerprinting for downloaded tracks (opt-in) */
   acoustid_enabled: boolean;
-  /** Application API key for AcousticID lookups (register at acoustid.org/new-application) */
+  /** Application API key for AcoustID lookups (register at acoustid.org/new-application) */
   acoustid_api_key: string;
   /** Enable ReplayGain loudness analysis for downloaded tracks (opt-in) */
   replaygain_enabled: boolean;

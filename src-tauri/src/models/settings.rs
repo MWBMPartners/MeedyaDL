@@ -420,18 +420,18 @@ pub struct AppSettings {
     // ================================================================
     // Metadata Enrichment (Opt-In)
     // ================================================================
-    /// Enable `AcousticID` fingerprinting for downloaded tracks. When enabled,
+    /// Enable `AcoustID` fingerprinting for downloaded tracks. When enabled,
     /// `MeedyaDL` generates Chromaprint audio fingerprints using the embedded
-    /// rusty-chromaprint library and looks up `AcousticID` identifiers from
+    /// rusty-chromaprint library and looks up `AcoustID` identifiers from
     /// acoustid.org after each download. No external tools required.
     /// CPU-intensive: each audio file must be fully decoded to generate the
     /// fingerprint, and each lookup requires a network request.
     #[serde(default)]
     pub acoustid_enabled: bool,
 
-    /// Application API key for `AcousticID` fingerprint lookups. Register a free
+    /// Application API key for `AcoustID` fingerprint lookups. Register a free
     /// application key at <https://acoustid.org/new-application>. When empty,
-    /// `AcousticID` lookups are skipped (fingerprints are not generated).
+    /// `AcoustID` lookups are skipped (fingerprints are not generated).
     /// This is a public application identifier (not a secret).
     #[serde(default)]
     pub acoustid_api_key: String,

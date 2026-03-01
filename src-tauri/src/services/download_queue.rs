@@ -2483,7 +2483,7 @@ pub fn process_queue(
                     //      detection + API metadata)
                     //   2. Enhanced LRC conversion (TTML → word-by-word LRC, opt-in)
                     //   3. Animated artwork download (reuses API data from step 1)
-                    //   4. AcousticID fingerprinting (opt-in, requires fpcalc)
+                    //   4. AcoustID fingerprinting (opt-in, embedded Chromaprint)
                     //   5. ReplayGain loudness analysis (opt-in, uses FFmpeg)
                     //
                     // The enrichment fetches Apple Music API data once and shares it
@@ -2747,22 +2747,22 @@ pub fn process_queue(
                                 return;
                             }
 
-                            // --- Step 4: AcousticID fingerprinting (opt-in) ---
+                            // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
-                            // embedded rusty-chromaprint library and looks up AcousticID
+                            // embedded rusty-chromaprint library and looks up AcoustID
                             // identifiers from acoustid.org.
                             if enrich_settings.acoustid_enabled {
                                 if enrich_settings.acoustid_api_key.is_empty() {
                                     emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
-                                    "AcousticID skipped: no API key configured (register at https://acoustid.org/new-application)",
+                                    "AcoustID skipped: no API key configured (register at https://acoustid.org/new-application)",
                                 );
                                 } else {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
-                                        "Running AcousticID fingerprinting...",
+                                        "Running AcoustID fingerprinting...",
                                     );
                                     match super::acoustid_service::process_acoustid_for_directory(
                                         &album_dir,
@@ -2772,29 +2772,29 @@ pub fn process_queue(
                                     {
                                         Ok(count) if count > 0 => {
                                             log::info!(
-                                            "AcousticID tagged {count} file(s) for {enrich_dl_id}"
+                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
                                         );
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
-                                                &format!("AcousticID tagged {count} file(s)"),
+                                                &format!("AcoustID tagged {count} file(s)"),
                                             );
                                         }
                                         Ok(_) => {
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
-                                                "AcousticID: no matches found for any files",
+                                                "AcoustID: no matches found for any files",
                                             );
                                         }
                                         Err(e) => {
                                             log::debug!(
-                                                "AcousticID skipped for {enrich_dl_id}: {e}"
+                                                "AcoustID skipped for {enrich_dl_id}: {e}"
                                             );
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
-                                                &format!("AcousticID failed: {e}"),
+                                                &format!("AcoustID failed: {e}"),
                                             );
                                         }
                                     }
