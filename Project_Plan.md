@@ -143,7 +143,7 @@ Build the React frontend with platform-adaptive styling, navigation, download fo
 5. ✅ **Cookies** - Cookie file import, validation, expiry warnings
 6. ✅ **Lyrics** - Synced lyrics format (LRC/SRT/TTML)
 7. ✅ **Cover Art** - Format (JPG/PNG/Raw), size, animated artwork
-8. ✅ **Metadata** - AcousticID fingerprinting, ReplayGain analysis
+8. ✅ **Metadata** - AcoustID fingerprinting, ReplayGain analysis
 9. ✅ **Templates** - Folder and file naming templates
 10. ✅ **Advanced** - Wrapper, WVD, download/remux modes
 
@@ -245,7 +245,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Multi-select artist auto-select** - Checkbox group for selecting multiple artist content types (Main Albums, Singles & EPs, Music Videos, etc.) simultaneously. MeedyaDL creates N separate queue items for artist URLs (one per selected mode) since GAMDL only accepts a single `--artist-auto-select` value per invocation.
 - ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
 - ✅ **Metadata enrichment** - Comprehensive post-download enrichment: codec tags, source/channel tags, Apple Music API metadata (ISRC, UPC, genre, advisory, artist IDs, artwork URLs). Shared `apple_music_api.rs` module for MusicKit JWT, URL parsing, and catalog API.
-- ✅ **AcousticID fingerprinting** (opt-in) - Chromaprint audio fingerprints via embedded rusty-chromaprint library + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags. No external binary required.
+- ✅ **AcoustID fingerprinting** (opt-in) - Chromaprint audio fingerprints via embedded rusty-chromaprint library + acoustid.org API lookup. Writes `Acoustid Id` and `Acoustid Fingerprint` tags. No external binary required.
 - ✅ **ReplayGain loudness analysis** (opt-in) - FFmpeg EBU R128 filter for non-destructive volume normalisation tags (`replaygain_track_gain`, `replaygain_track_peak`)
 - ✅ **Enhanced LRC with word-by-word sync** - Automatically converts Apple Music TTML lyrics to Enhanced LRC with word-level synchronized timestamps (`<mm:ss.xx>` inline word timing). Parses TTML XML via `roxmltree`, extracts `<span>` word timing from `itunes:timing="Word"` documents, generates backward-compatible Enhanced LRC. Saves `.lrc` sidecar and embeds in M4A/M4V metadata via `©lyr` atom. Falls back to standard line-level LRC for songs without word-level data. New `enhanced_lyrics_service.rs` module.
 - ✅ **Queue persistence and crash recovery** - Auto-save to `queue.json` after every mutation; auto-resume on startup. Failed downloads persist across restarts with error messages for manual retry

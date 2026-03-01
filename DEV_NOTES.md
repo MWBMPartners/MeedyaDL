@@ -570,7 +570,7 @@ MeedyaDL/
 │       │   ├── animated_artwork_service.rs # MusicKit animated cover art
 │       │   ├── apple_music_api.rs   # Shared MusicKit JWT, URL parsing, API
 │       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
-│       │   ├── acoustid_service.rs  # AcousticID fingerprinting (opt-in)
+│       │   ├── acoustid_service.rs  # AcoustID fingerprinting (opt-in)
 │       │   ├── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
 │       │   ├── enhanced_lyrics_service.rs # TTML → Enhanced LRC conversion
 │       │   └── crash_report_service.rs # Crash report CRUD + export

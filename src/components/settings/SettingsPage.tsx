@@ -25,7 +25,7 @@
  * | Cookies      | CookiesTab       | Cookie file import and validation             |
  * | Lyrics       | LyricsTab        | Synced lyrics format preferences              |
  * | Cover Art    | CoverArtTab      | Cover art saving, format, and size            |
- * | Metadata     | MetadataTab      | AcousticID, ReplayGain, enrichment settings   |
+ * | Metadata     | MetadataTab      | AcoustID, ReplayGain, enrichment settings   |
  * | Templates    | TemplatesTab     | File/folder naming templates                  |
  * | Advanced     | AdvancedTab      | Download mode, remux mode, wrapper config     |
  *

@@ -40,7 +40,7 @@
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
 - **Metadata enrichment** — codec tags, source tags, channel detection, ISRC, UPC, genre, advisory ratings, artist IDs, and animated artwork URLs via Apple Music API
-- **AcousticID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification
+- **AcoustID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification
 - **ReplayGain analysis** (opt-in) — non-destructive loudness metadata for volume normalisation in compatible players
 
 ### 🔐 Authentication & Security
@@ -323,7 +323,7 @@ refactor(backend): simplify dependency management
 - ✅ Animated cover art via MusicKit API with OS-level file hiding
 - ✅ Configurable companion downloads (5 preset modes + Custom multi-select)
 - ✅ Multi-select artist auto-select (download multiple content types from artist URLs)
-- ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcousticID, ReplayGain)
+- ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcoustID, ReplayGain)
 - ✅ Enhanced LRC with word-by-word synchronized lyrics (TTML → Enhanced LRC conversion)
 - ✅ Lyrics embed + sidecar (LRC, SRT, TTML)
 - ✅ Queue persistence, crash recovery, and export/import
