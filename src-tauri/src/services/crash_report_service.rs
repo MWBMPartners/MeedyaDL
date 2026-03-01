@@ -21,7 +21,9 @@ use crate::utils::platform;
 /// Creates the directory if it does not exist.
 fn crashes_dir(app: &AppHandle) -> PathBuf {
     let dir = platform::get_app_data_dir(app).join("crashes");
-    let _ = std::fs::create_dir_all(&dir);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("Failed to create crash reports directory {}: {e}", dir.display());
+    }
     dir
 }
 

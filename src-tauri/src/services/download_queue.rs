@@ -73,6 +73,7 @@ use std::collections::{HashSet, VecDeque};
 // Ref: https://doc.rust-lang.org/std/pin/index.html
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 // Tokio's Mutex is used instead of std::sync::Mutex because the lock is held
 // across .await points. std::sync::Mutex would block the entire thread;
@@ -104,6 +105,44 @@ use crate::models::crash_report::CrashReport;
 // process: Provides parse_gamdl_output() for parsing GAMDL output lines and
 // classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
+
+// ============================================================
+// Graceful shutdown signal
+// ============================================================
+
+/// Application-wide shutdown signal for fire-and-forget background tasks.
+///
+/// When the user closes the app window or clicks "Quit" in the tray menu,
+/// this flag is set to `true`. Fire-and-forget tasks (companion downloads,
+/// lyrics companions, and the enrichment pipeline) check this flag between
+/// iterations and exit early instead of starting new work.
+///
+/// Uses `AtomicBool` with `Ordering::Relaxed` for minimal overhead — the
+/// shutdown signal only needs to propagate eventually (within one loop
+/// iteration), not with strict memory ordering guarantees.
+///
+/// # Cloning
+/// The `Clone` derive produces a cheap `Arc` reference count increment,
+/// making it safe to pass to multiple `tokio::spawn` tasks.
+#[derive(Clone, Default)]
+pub struct ShutdownSignal(Arc<AtomicBool>);
+
+impl ShutdownSignal {
+    /// Creates a new shutdown signal in the non-triggered state.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Signals all background tasks to stop at their next check point.
+    pub fn trigger(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Returns `true` if shutdown has been requested.
+    pub fn is_triggered(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
 
 // ============================================================
 // Activity log event (raw subprocess output for live log viewer)
@@ -140,6 +179,16 @@ fn emit_internal_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
             timestamp: chrono::Utc::now().to_rfc3339(),
         },
     );
+}
+
+/// Strips query parameters from a URL before logging to prevent credential leakage.
+///
+/// Wrapper URLs may contain authentication tokens as query parameters
+/// (e.g., `http://host:port/?token=abc`). Logging these would persist tokens
+/// in plaintext log files. This function returns the URL up to (but not
+/// including) the `?` character, preserving only the scheme, host, port, and path.
+fn redact_url_query(url: &str) -> &str {
+    url.split('?').next().unwrap_or(url)
 }
 
 /// Checks if the given path contains any .m4a or .m4v audio/video files.
@@ -1467,6 +1516,7 @@ fn spawn_companion_downloads(
     urls: &[String],
     primary_codec_str: &str,
     companion_base_options: &GamdlOptions,
+    shutdown: &ShutdownSignal,
 ) {
     let companion_settings = load_settings_for_queue(app);
     let companion_tiers = plan_companions(&companion_settings.companion_mode, primary_codec_str);
@@ -1476,6 +1526,7 @@ fn spawn_companion_downloads(
         let comp_urls = urls.to_vec();
         let comp_base_opts = companion_base_options.clone();
         let comp_dl_id = dl_id.to_string();
+        let comp_shutdown = shutdown.clone();
 
         emit_internal_log(
             app,
@@ -1498,6 +1549,12 @@ fn spawn_companion_downloads(
         tokio::spawn(async move {
             // Process each companion tier sequentially
             for (tier_idx, tier) in companion_tiers.iter().enumerate() {
+                // Check for app shutdown between tiers
+                if comp_shutdown.is_triggered() {
+                    log::info!("Companion downloads stopping early (app shutting down)");
+                    return;
+                }
+
                 let mut tier_succeeded = false;
 
                 // Try each codec in the tier until one succeeds
@@ -1661,9 +1718,15 @@ fn spawn_companion_downloads(
         let lyrics_base_opts = companion_base_options.clone();
         let lyrics_dl_id = dl_id.to_string();
         let lyrics_formats = lyrics_settings.companion_lyrics_formats.clone();
+        let lyrics_shutdown = shutdown.clone();
 
         tokio::spawn(async move {
             for format in &lyrics_formats {
+                // Check for app shutdown between lyrics format iterations
+                if lyrics_shutdown.is_triggered() {
+                    log::info!("Lyrics companion downloads stopping early (app shutting down)");
+                    return;
+                }
                 let mut opts = lyrics_base_opts.clone();
                 opts.synced_lyrics_format = Some(format.clone());
                 opts.synced_lyrics_only = Some(true);
@@ -1997,16 +2060,27 @@ pub fn process_queue(
             None
         };
 
-        // Log wrapper URL at download start for troubleshooting connectivity
+        // Log wrapper URL at download start for troubleshooting connectivity.
+        // Redact query parameters to avoid leaking authentication tokens
+        // (e.g., ?token=abc) into log files which have no automatic cleanup.
         if let Some(ref url) = wrapper_url_for_logging {
-            log::info!("Download {download_id} using wrapper at {url}");
+            log::info!("Download {download_id} using wrapper at {}", redact_url_query(url));
         }
+
+        // Retrieve the shutdown signal from Tauri managed state.
+        // This is checked by fire-and-forget background tasks (companion
+        // downloads, lyrics, enrichment) to exit early on app close.
+        let shutdown_signal = {
+            use tauri::Manager;
+            app.state::<ShutdownSignal>().inner().clone()
+        };
 
         // Spawn the download in a separate tokio task so it runs independently.
         // This allows process_queue() to return immediately while the download runs.
         let app_clone = app.clone();
         let queue_clone = queue.clone();
         let dl_id = download_id;
+        let shutdown_clone = shutdown_signal;
 
         tokio::spawn(async move {
             // Run the GAMDL download with real-time event forwarding.
@@ -2279,6 +2353,7 @@ pub fn process_queue(
                                     &urls,
                                     &primary_codec_for_companions,
                                     &companion_base_options,
+                                    &shutdown_clone,
                                 );
 
                                 // Continue processing remaining queued items
@@ -2362,6 +2437,7 @@ pub fn process_queue(
                         let enrich_urls = urls.clone();
                         let enrich_dl_id = dl_id.clone();
                         let enrich_codec_str = completed_codec.clone();
+                        let enrich_shutdown = shutdown_clone.clone();
                         tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
@@ -2457,6 +2533,12 @@ pub fn process_queue(
                                 None
                             };
 
+                            // Check for app shutdown between enrichment steps
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
@@ -2500,6 +2582,11 @@ pub fn process_queue(
                                     );
                                 }
                             }
+                            }
+
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
                             }
 
                             // --- Step 3: Animated artwork download ---
@@ -2595,6 +2682,11 @@ pub fn process_queue(
                                 }
                             }
 
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
                             // --- Step 4: AcousticID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
                             // embedded rusty-chromaprint library and looks up AcousticID
@@ -2647,6 +2739,11 @@ pub fn process_queue(
                                         }
                                     }
                                 }
+                            }
+
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
                             }
 
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
@@ -2709,9 +2806,26 @@ pub fn process_queue(
                         &urls,
                         &primary_codec_for_companions,
                         &companion_base_options,
+                        &shutdown_clone,
                     );
                 }
                 Err(error_msg) => {
+                    // === Cancellation short-circuit ===
+                    // When the user cancels an active download, the cancellation loop
+                    // in run_download_with_events() kills the process and returns
+                    // Err("Download cancelled by user"). The queue item's state is
+                    // already set to Cancelled by cancel(). We must NOT overwrite it
+                    // with Error state or create a spurious error report.
+                    if error_msg == "Download cancelled by user" {
+                        let mut q = queue_clone.lock().await;
+                        q.on_task_finished();
+                        drop(q);
+                        save_queue_to_disk(&app_clone, &queue_clone).await;
+                        log::info!("Download {dl_id} cancelled by user");
+                        emit_internal_log(&app_clone, &dl_id, "Download cancelled by user");
+                        return;
+                    }
+
                     // === Error path ===
                     // Classify the error to determine the appropriate retry strategy.
                     // process::classify_error() returns "codec", "network", or "unknown".
@@ -2723,14 +2837,15 @@ pub fn process_queue(
                     // so users can see which endpoint failed.
                     if error_category == "network" {
                         if let Some(ref url) = wrapper_url_for_logging {
+                            let safe_url = redact_url_query(url);
                             log::error!(
-                                "Wrapper URL was: {url} -- check that the wrapper \
+                                "Wrapper URL was: {safe_url} -- check that the wrapper \
                              service is running and reachable"
                             );
                             emit_internal_log(
                                 &app_clone,
                                 &dl_id,
-                                &format!("Network error occurred while using wrapper at {url}"),
+                                &format!("Network error occurred while using wrapper at {safe_url}"),
                             );
                         }
                     }
@@ -2980,6 +3095,7 @@ pub fn process_queue(
                                 &urls,
                                 &primary_codec_for_companions,
                                 &companion_base_options,
+                                &shutdown_clone,
                             );
                         } else {
                             emit_internal_log(
@@ -3396,11 +3512,11 @@ pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
     match serde_json::to_string_pretty(&items) {
         Ok(json) => {
             if let Err(e) = std::fs::write(&queue_path, json) {
-                log::debug!("Failed to save queue to disk: {e}");
+                log::warn!("Failed to save queue to disk: {e}");
             }
         }
         Err(e) => {
-            log::debug!("Failed to serialize queue: {e}");
+            log::warn!("Failed to serialize queue: {e}");
         }
     }
 }
@@ -3436,7 +3552,14 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
 /// stale items on next startup.
 pub fn clear_queue_file(app: &AppHandle) {
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
-    let _ = std::fs::remove_file(queue_path);
+    if let Err(e) = std::fs::remove_file(&queue_path) {
+        // ENOENT (file not found) is expected when no queue has been persisted yet.
+        // Any other error (permission denied, I/O error) means the stale file
+        // will survive and be restored on next startup — worth logging.
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::warn!("Failed to remove queue.json: {e}");
+        }
+    }
 }
 
 // ============================================================

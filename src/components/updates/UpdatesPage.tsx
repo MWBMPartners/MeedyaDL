@@ -102,7 +102,7 @@ export function UpdatesPage() {
   };
 
   const handleViewRelease = (url: string) => {
-    import('@tauri-apps/plugin-shell').then(({ open }) => open(url));
+    import('@tauri-apps/plugin-shell').then(({ open }) => open(url)).catch(() => {});
   };
 
   return (
@@ -274,7 +274,9 @@ export function UpdatesPage() {
                                 if (!href) return;
                                 if (href.startsWith('http://') || href.startsWith('https://')) {
                                   e.preventDefault();
-                                  import('@tauri-apps/plugin-shell').then(({ open }) => open(href));
+                                  import('@tauri-apps/plugin-shell')
+                                    .then(({ open }) => open(href))
+                                    .catch(() => {});
                                 }
                               }}
                             >
