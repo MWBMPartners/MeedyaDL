@@ -40,7 +40,7 @@
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
 - **Metadata enrichment** — codec tags, source tags, channel detection, ISRC, UPC, genre, advisory ratings, artist IDs, and animated artwork URLs via Apple Music API
-- **AcoustID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification
+- **AcoustID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification. Built-in API key included in release builds; no registration required
 - **ReplayGain analysis** (opt-in) — non-destructive loudness metadata for volume normalisation in compatible players
 
 ### 🔐 Authentication & Security
