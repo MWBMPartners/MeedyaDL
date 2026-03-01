@@ -8,13 +8,56 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- Add Custom Companion Downloads mode — new "Custom..." companion mode lets users pick exactly which audio codecs to download as companions alongside the primary format (multi-select checkboxes for all 11 codecs). Existing 5 preset modes are preserved. Each selected companion codec runs as an independent download tier.
+- Enhance application stability and security
 
-- Add Multi-Select Artist Auto-Select — artist auto-select is now a multi-select checkbox group instead of a single dropdown. Users can select multiple content types (e.g., Main Albums + Singles & EPs + Music Videos) simultaneously. MeedyaDL creates one separate queue item per selected mode when downloading from an artist URL, since GAMDL only accepts a single `--artist-auto-select` value per invocation.
+- Pin all release-critical GitHub Actions to immutable commit SHAs to prevent supply chain attacks.
+  - Implement SHA-256 checksum verification for dependency downloads to ensure integrity.
+  - Add graceful shutdown signal for background tasks to prevent orphaned processes on app exit.
+  - Improve error handling in various components, including better logging and user notifications for failures.
+  - Optimize regex usage in Apple Music URL parsing by using static instances to avoid recompilation.
+  - Introduce log file cleanup for entries older than 7 days to manage disk space.
+  - Enhance pre-download validation with multi-provider internet connectivity checks and cookie validation.
+  - Update documentation and project plans to reflect new features and improvements.
 
-- Ship built-in AcoustID API key with release builds — AcoustID fingerprinting now works out of the box without requiring users to register their own application key. The key is embedded at compile time from a GitHub Actions secret (`ACOUSTID_API_KEY`). Users can still override it with their own key in Settings > Metadata. Dev builds without the secret gracefully fall back to requiring a user-provided key.
+- Expand activity log coverage and enhance logging throughout the app
 
-- Expand Activity Log from download-only to app-wide coverage — now shows update checks, dependency installs, settings saves, cookie imports, queue operations, login window events, pre-flight check results, and app startup/queue recovery messages. System events display with a `[System]` badge; download events retain the `[download_id]` prefix.
+- Expanded Activity Log to include app-wide events such as update checks, dependency installs, settings saves, cookie imports, queue operations, login window events, pre-flight check results, and app startup messages.
+  - Implemented logging for cookie imports, Python and GAMDL installations, dependency installations, and queue operations.
+  - Added system-level logging for app startup and pre-flight checks.
+  - Introduced utility functions for emitting activity log events, centralizing logging logic.
+  - Updated Activity Log component to display both download-specific and system-level events, improving user visibility into application activity.
+
+- Add custom companion downloads and multi-select artist auto-select
+
+Add Custom Companion mode (6th CompanionMode variant) with multi-select
+  codec checkboxes, letting users pick exactly which audio formats to
+  download as companions. Add multi-select artist auto-select that creates
+  N separate queue items for artist URLs when multiple content types are
+  selected. New CheckboxGroup<T> reusable component. Bump version to 0.6.0.
+
+- Embed AcoustID API key in release builds for seamless fingerprinting
+- Implement TemplateBuilder component for interactive GAMDL template editing
+
+### 🐛 Bug Fixes
+
+- Update documentation and code references to use '4K UHD' terminology
+- Correct AcousticID → AcoustID spelling and upgrade vulnerable dependencies
+
+Fix incorrect "AcousticID" spelling to "AcoustID" across 86 instances
+  in 15 files (comments, UI text, docs, error messages). Upgrade
+  jsonwebtoken from v9 to v10.3.0 (fixes CVE type confusion auth bypass,
+  uses aws_lc_rs crypto backend). Update rollup to 4.59.0 (fixes path
+  traversal CVE). Dismiss glib 0.18 alert (transitive via Tauri GTK
+  stack, not directly used).
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.5.8] - 2026-03-01
+
+### ✨ Features
 
 - Add output path writability check before downloads
 
@@ -26,29 +69,6 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Updated tests to cover new functionality and ensure existing features remain intact.
 
 - Enhance internet connectivity check with multi-provider, multi-tier approach
-
-### 🐛 Bug Fixes
-
-- Fix cancellation overwriting Cancelled state with Error and creating spurious error reports
-- Fix App.tsx initialize() floating promise causing silent startup failures
-- Fix processQueue store action missing try/catch error handling
-- Fix unhandled promise rejections from shell.open() and clipboard.writeText() calls
-- Fix queue persistence and crash dir errors logged at debug level (now warn)
-- Fix partial temp files not cleaned up on download_file() error
-- Add 7-day log file cleanup (tracing_appender accumulates indefinitely)
-- Add 10s timeout to pip show gamdl subprocess (prevents queue Mutex blocking)
-- Add 15s timeout to GitHub API client in dependency_manager
-- Add 30s connect timeout to dependency download HTTP client (archive.rs)
-
-### 🔒 Security
-
-- Pin all release-critical GitHub Actions to immutable commit SHAs (prevents supply chain attacks from mutable version tags)
-- Add SHA-256 checksum verification infrastructure for dependency downloads (computed during streaming, zero extra I/O)
-- Add graceful shutdown signal for background tasks (enrichment, companion downloads, lyrics) — stops cleanly on window close or tray quit
-- Harden CI workflow_dispatch inputs against shell injection (use env: variables)
-- Redact wrapper URL query parameters in log files to prevent credential leakage
-- Validate URL scheme (https://) before passing to GAMDL subprocess
-- Cache compiled regex in parse_apple_music_url() with LazyLock (removes per-call .expect() panic risk)
 
 ### 📚 Documentation
 
@@ -573,7 +593,7 @@ Apple's notarization service inspects all Mach-O binaries inside the
 
 ### ✨ Features
 
-- Integrate embedded Chromaprint for AcoustID fingerprinting
+- Integrate embedded Chromaprint for AcousticID fingerprinting
 
 - Replace external fpcalc dependency with the embedded rusty-chromaprint library for generating Chromaprint audio fingerprints.
   - Update documentation and comments to reflect the removal of external dependencies.
@@ -609,14 +629,14 @@ Apple's notarization service inspects all Mach-O binaries inside the
 
 ### ✨ Features
 
-- Add ReplayGain analysis and AcoustID fingerprinting services
+- Add ReplayGain analysis and AcousticID fingerprinting services
 
 - Introduced `replaygain_service` for analyzing audio loudness using FFmpeg's EBU R128 filter, writing non-destructive ReplayGain metadata tags.
-  - Added `acoustid_service` for generating Chromaprint audio fingerprints and looking up AcoustID identifiers.
+  - Added `acoustid_service` for generating Chromaprint audio fingerprints and looking up AcousticID identifiers.
   - Updated `metadata_tag_service` to include new metadata enrichment features.
   - Enhanced `apple_music_api` for improved metadata retrieval from MusicKit.
-  - Added new settings tab for metadata enrichment options, including toggles for AcoustID and ReplayGain.
-  - Updated Zustand store to manage new settings for AcoustID and ReplayGain.
+  - Added new settings tab for metadata enrichment options, including toggles for AcousticID and ReplayGain.
+  - Updated Zustand store to manage new settings for AcousticID and ReplayGain.
   - Added unit tests for new features and ensured existing tests cover new functionality.
 
 
