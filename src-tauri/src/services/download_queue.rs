@@ -680,7 +680,7 @@ impl DownloadQueue {
             // If the companion mode would produce companions for this fallback
             // codec, apply the codec suffix to file templates so the specialist
             // format files don't collide with the companion files.
-            if needs_primary_suffix(next_codec, &settings.companion_mode) {
+            if needs_primary_suffix(next_codec, &settings.companion_mode, &settings.custom_companion_codecs) {
                 apply_codec_suffix(&mut new_options);
             }
 
@@ -1282,7 +1282,7 @@ const fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
 /// | `AtmosToLosslessAndLossy`  | Yes                | Yes               | No      |
 /// | `SpecialistToLossy`        | Yes                | Yes               | No      |
 /// | `AtmosToAllFormats`        | Yes                | No                | No      |
-const fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
+fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode, custom_codecs: &[SongCodec]) -> bool {
     match mode {
         // No companions → no suffix needed (only one version exists)
         CompanionMode::Disabled => false,
@@ -1296,6 +1296,19 @@ const fn needs_primary_suffix(codec: &SongCodec, mode: &CompanionMode) -> bool {
         // Same for SpecialistToLossy: any specialist codec gets a lossy companion.
         CompanionMode::AtmosToLosslessAndLossy | CompanionMode::SpecialistToLossy => {
             matches!(codec, SongCodec::Atmos | SongCodec::Alac)
+        }
+        // Custom mode: primary needs suffix if at least one companion will
+        // have a clean filename (to prevent collisions). This is the case
+        // when the custom codec list is non-empty and the primary codec is
+        // not already in the custom list (the primary always gets a suffix
+        // when custom companions exist).
+        CompanionMode::Custom => {
+            if custom_codecs.is_empty() {
+                return false;
+            }
+            // Primary always gets a suffix when custom companions are active,
+            // because at least one companion will use a clean filename.
+            true
         }
     }
 }
@@ -1329,7 +1342,7 @@ struct CompanionTier {
 /// `AtmosToLosslessAndLossy` with primary `"atmos"`:
 /// → `[CompanionTier { codecs: [ALAC], suffix: true },
 ///     CompanionTier { codecs: [AAC, AacLegacy], suffix: false }]`
-fn plan_companions(mode: &CompanionMode, primary_codec: &str) -> Vec<CompanionTier> {
+fn plan_companions(mode: &CompanionMode, primary_codec: &str, custom_codecs: &[SongCodec]) -> Vec<CompanionTier> {
     match mode {
         // No companions in any scenario
         CompanionMode::Disabled => vec![],
@@ -1404,6 +1417,33 @@ fn plan_companions(mode: &CompanionMode, primary_codec: &str) -> Vec<CompanionTi
             } else {
                 vec![]
             }
+        }
+
+        // Custom: each user-selected codec becomes its own tier.
+        // The last tier gets the clean filename; earlier tiers get suffixes.
+        // Codecs matching the primary codec are skipped (no point downloading
+        // the same codec as a companion).
+        CompanionMode::Custom => {
+            // Filter out the primary codec from the custom list
+            let filtered: Vec<&SongCodec> = custom_codecs
+                .iter()
+                .filter(|c| c.to_cli_string() != primary_codec)
+                .collect();
+
+            if filtered.is_empty() {
+                return vec![];
+            }
+
+            let last_idx = filtered.len() - 1;
+            filtered
+                .into_iter()
+                .enumerate()
+                .map(|(i, codec)| CompanionTier {
+                    codecs_to_try: vec![codec.clone()],
+                    // Last companion gets clean filename; others get suffix
+                    apply_suffix: i != last_idx,
+                })
+                .collect()
         }
     }
 }
@@ -1492,7 +1532,7 @@ fn spawn_companion_downloads(
     shutdown: &ShutdownSignal,
 ) {
     let companion_settings = load_settings_for_queue(app);
-    let companion_tiers = plan_companions(&companion_settings.companion_mode, primary_codec_str);
+    let companion_tiers = plan_companions(&companion_settings.companion_mode, primary_codec_str, &companion_settings.custom_companion_codecs);
 
     if !companion_tiers.is_empty() {
         let comp_app = app.clone();
@@ -2050,7 +2090,7 @@ pub fn process_queue(
         let mut download_options = options;
         let settings_for_companion = load_settings_for_queue(&app);
         if let Some(ref codec) = download_options.song_codec {
-            if needs_primary_suffix(codec, &settings_for_companion.companion_mode) {
+            if needs_primary_suffix(codec, &settings_for_companion.companion_mode, &settings_for_companion.custom_companion_codecs) {
                 apply_codec_suffix(&mut download_options);
                 log::info!(
                     "Download {} using codec with file suffix (companion mode: {:?})",
