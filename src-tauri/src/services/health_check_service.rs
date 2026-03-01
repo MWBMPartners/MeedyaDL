@@ -75,25 +75,47 @@ pub struct PreflightWarning {
 // Internet Connectivity Check
 // ============================================================
 
-/// Checks internet connectivity by probing Apple Music API infrastructure.
+/// Checks internet connectivity using a multi-provider, multi-tier approach.
 ///
-/// Tests two endpoints in sequence:
-/// 1. `https://amp-api.music.apple.com/` — the actual API endpoint GAMDL
-///    connects to for metadata, stream URLs, and content catalogs. Even a
-///    401 Unauthorized response counts as "reachable" (proves TCP/TLS works).
-/// 2. `https://www.apple.com/` — Apple's marketing site, used as a fallback
-///    to disambiguate API-specific vs general connectivity issues.
+/// ## Strategy
 ///
-/// This two-step approach differentiates three scenarios:
-/// - Both reachable → internet and API are fine (no warning)
-/// - apple.com reachable but API unreachable → API-specific issue
-/// - Neither reachable → no internet connectivity
+/// The check runs in two tiers to differentiate three scenarios:
 ///
-/// The fallback only runs when the primary check fails, so the happy path
-/// adds zero additional latency.
+/// **Tier 1 — General internet connectivity** (provider-neutral):
+/// Tests Cloudflare (`1.1.1.1`) and Google (`google.com`) in sequence.
+/// These are among the most reliable endpoints on the internet and are
+/// independent of Apple's infrastructure. If either responds, the internet
+/// is working. This avoids false "no internet" warnings when Apple alone
+/// is experiencing an outage (which has happened with global CDN failures).
+///
+/// **Tier 2 — Apple Music API reachability** (service-specific):
+/// Only runs if Tier 1 passes. Tests `amp-api.music.apple.com`, the actual
+/// API endpoint GAMDL connects to. Even a 401 Unauthorized response counts
+/// as "reachable" (proves TCP/TLS works to Apple's servers).
+///
+/// ## Outcomes
+///
+/// | Tier 1 | Tier 2 | Result |
+/// |--------|--------|--------|
+/// | Pass   | Pass   | No warning |
+/// | Pass   | Fail   | "Apple Music API unreachable (internet is working)" |
+/// | Fail   | —      | "No internet connectivity" (Tier 2 skipped) |
+///
+/// ## Performance
+///
+/// Happy path (everything works): two sequential HTTP GETs (~10ms each).
+/// Cloudflare is tested first because it's the fastest global anycast network.
+/// Each request has a 5-second timeout. Worst case (all fail): ~15 seconds
+/// (3 endpoints × 5s timeout), but this only happens when offline.
+///
+/// ## Future-proofing
+///
+/// Tier 1 uses provider-neutral endpoints so it works for any service
+/// (Apple Music, Spotify, YouTube, BBC iPlayer — see planned milestones).
+/// Tier 2 can be extended per-service when additional services are added.
 ///
 /// # Returns
-/// - `None` if the API endpoint is reachable
+/// - `None` if the Apple Music API is reachable
 /// - `Some(PreflightWarning)` with a message differentiating the failure mode
 pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
     let client = reqwest::Client::builder()
@@ -101,52 +123,43 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
         .build()
         .ok()?;
 
-    // Primary check: Apple Music API endpoint (the actual endpoint GAMDL uses).
-    // Any HTTP response (including 401, 403, 5xx) = server is reachable.
-    let api_result = client.get("https://amp-api.music.apple.com/").send().await;
+    // === Tier 1: General internet connectivity ===
+    // Test provider-neutral endpoints. If any responds, internet is working.
+    // Order: Cloudflare (fastest anycast) → Google (most reliable fallback).
+    let has_internet = try_reach(&client, "https://1.1.1.1/").await
+        || try_reach(&client, "https://www.google.com/").await;
 
-    match api_result {
-        Ok(_) => None, // API reachable — connectivity is good
-        Err(api_err) => {
-            // API unreachable — try apple.com to disambiguate
-            let fallback_result = client.get("https://www.apple.com/").send().await;
-
-            let message = match fallback_result {
-                Ok(_) => {
-                    // apple.com works but API doesn't — API-specific issue
-                    if api_err.is_timeout() {
-                        "Apple Music API timed out (apple.com is reachable) — \
-                         the API may be temporarily unavailable or blocked by your network"
-                            .to_string()
-                    } else {
-                        format!(
-                            "Apple Music API is unreachable (apple.com is reachable) — \
-                             check your network or firewall settings: {api_err}"
-                        )
-                    }
-                }
-                Err(_) => {
-                    // Neither works — general internet outage
-                    if api_err.is_timeout() {
-                        "Internet connectivity check timed out — \
-                         Apple Music servers may be unreachable"
-                            .to_string()
-                    } else if api_err.is_connect() {
-                        "Cannot connect to Apple Music servers — \
-                         check your internet connection"
-                            .to_string()
-                    } else {
-                        format!("Internet connectivity check failed: {api_err}")
-                    }
-                }
-            };
-
-            Some(PreflightWarning {
-                check: PreflightCheck::Internet,
-                message,
-            })
-        }
+    if !has_internet {
+        return Some(PreflightWarning {
+            check: PreflightCheck::Internet,
+            message: "No internet connectivity — could not reach Cloudflare or Google. \
+                      Check your network connection."
+                .to_string(),
+        });
     }
+
+    // === Tier 2: Apple Music API reachability ===
+    // Internet works, but can we reach the specific API endpoint GAMDL uses?
+    // Any HTTP response (including 401, 403) = reachable.
+    if try_reach(&client, "https://amp-api.music.apple.com/").await {
+        return None; // Everything is reachable
+    }
+
+    // Internet works but Apple Music API doesn't — service-specific issue
+    Some(PreflightWarning {
+        check: PreflightCheck::Internet,
+        message: "Apple Music API is unreachable (internet is working) — \
+                  Apple's servers may be temporarily unavailable or blocked by your network"
+            .to_string(),
+    })
+}
+
+/// Attempts a single HTTP GET and returns `true` if any response was received.
+///
+/// Any HTTP status (200, 401, 403, 5xx) counts as "reachable" — we only care
+/// about network-level connectivity (DNS, TCP, TLS), not HTTP-level success.
+async fn try_reach(client: &reqwest::Client, url: &str) -> bool {
+    client.get(url).send().await.is_ok()
 }
 
 // ============================================================
