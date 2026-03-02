@@ -126,10 +126,22 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
     // === Tier 1: General internet connectivity ===
     // Test provider-neutral endpoints. If any responds, internet is working.
     // Order: Cloudflare (fastest anycast) → Google (most reliable fallback).
-    let has_internet = try_reach(&client, "https://1.1.1.1/").await
-        || try_reach(&client, "https://www.google.com/").await;
+    // Each endpoint's result is logged individually for diagnostics.
+    log::info!("Pre-flight internet check: starting Tier 1 (general connectivity)");
+
+    let cloudflare_result = try_reach(&client, "Cloudflare", "https://1.1.1.1/").await;
+    let has_internet = if cloudflare_result {
+        // Cloudflare passed — skip Google (short-circuit)
+        log::info!("Pre-flight internet check: Google (google.com) → skipped (Cloudflare passed)");
+        true
+    } else {
+        // Cloudflare failed — try Google as fallback
+        try_reach(&client, "Google", "https://www.google.com/").await
+    };
 
     if !has_internet {
+        log::warn!("Pre-flight internet check: Tier 1 FAILED — no general internet connectivity");
+        log::info!("Pre-flight internet check: Tier 2 (Apple Music API) → skipped (no internet)");
         return Some(PreflightWarning {
             check: PreflightCheck::Internet,
             message: "No internet connectivity — could not reach Cloudflare or Google. \
@@ -138,14 +150,19 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
         });
     }
 
+    log::info!("Pre-flight internet check: Tier 1 PASSED — general internet is working");
+
     // === Tier 2: Apple Music API reachability ===
     // Internet works, but can we reach the specific API endpoint GAMDL uses?
     // Any HTTP response (including 401, 403) = reachable.
-    if try_reach(&client, "https://amp-api.music.apple.com/").await {
+    log::info!("Pre-flight internet check: starting Tier 2 (Apple Music API)");
+    if try_reach(&client, "Apple Music API", "https://amp-api.music.apple.com/").await {
+        log::info!("Pre-flight internet check: all tiers PASSED");
         return None; // Everything is reachable
     }
 
     // Internet works but Apple Music API doesn't — service-specific issue
+    log::warn!("Pre-flight internet check: Tier 2 FAILED — Apple Music API unreachable (internet is working)");
     Some(PreflightWarning {
         check: PreflightCheck::Internet,
         message: "Apple Music API is unreachable (internet is working) — \
@@ -158,8 +175,41 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
 ///
 /// Any HTTP status (200, 401, 403, 5xx) counts as "reachable" — we only care
 /// about network-level connectivity (DNS, TCP, TLS), not HTTP-level success.
-async fn try_reach(client: &reqwest::Client, url: &str) -> bool {
-    client.get(url).send().await.is_ok()
+/// Logs the result with the endpoint name, HTTP status, and response time.
+async fn try_reach(client: &reqwest::Client, name: &str, url: &str) -> bool {
+    let start = std::time::Instant::now();
+    match client.get(url).send().await {
+        Ok(response) => {
+            let elapsed = start.elapsed();
+            log::info!(
+                "Pre-flight internet check: {} ({}) → reachable ({}, {:.0?})",
+                name,
+                url,
+                response.status(),
+                elapsed,
+            );
+            true
+        }
+        Err(e) => {
+            let elapsed = start.elapsed();
+            // Categorise the failure for clearer diagnostics
+            let reason = if e.is_timeout() {
+                "timeout".to_string()
+            } else if e.is_connect() {
+                "connection refused".to_string()
+            } else {
+                format!("{e}")
+            };
+            log::info!(
+                "Pre-flight internet check: {} ({}) → unreachable ({}, {:.0?})",
+                name,
+                url,
+                reason,
+                elapsed,
+            );
+            false
+        }
+    }
 }
 
 // ============================================================
