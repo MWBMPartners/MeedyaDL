@@ -665,7 +665,9 @@ impl DownloadQueue {
             // Get the next codec to try from the fallback chain
             let next_codec = &settings.music_fallback_chain[item.fallback_index];
             let mut new_options = item.merged_options.clone();
-            new_options.song_codec = Some(next_codec.clone());
+            // Clear song_codec — GAMDL >= 2.9.1 removed the --song-codec flag.
+            // We use --song-codec-priority with a single codec instead.
+            new_options.song_codec = None;
 
             // Override song_codec_priority with just this single codec.
             // This serves two purposes:
@@ -2052,10 +2054,11 @@ fn spawn_companion_downloads(
                     );
 
                     let mut opts = comp_base_opts.clone();
-                    opts.song_codec = Some(codec.clone());
-                    // Companions always target a specific single codec,
-                    // so clear any native priority to force --song-codec.
-                    opts.song_codec_priority = None;
+                    // Use --song-codec-priority with a single codec value.
+                    // GAMDL >= 2.9.1 removed the --song-codec flag entirely;
+                    // passing a single-element priority achieves the same effect.
+                    opts.song_codec = None;
+                    opts.song_codec_priority = Some(codec.to_cli_string().to_string());
 
                     // If this tier needs a suffix (e.g., ALAC
                     // companion in AtmosToLosslessAndLossy mode
@@ -5183,10 +5186,12 @@ mod tests {
         let (new_opts, fb_idx, chain_len) = result.unwrap();
         assert_eq!(fb_idx, 1, "First fallback should be index 1");
         assert_eq!(chain_len, 6, "Default chain has 6 codecs");
+        // song_codec should be None — GAMDL >= 2.9.1 removed --song-codec.
+        // We use --song-codec-priority with a single codec instead.
         assert_eq!(
             new_opts.song_codec,
-            Some(SongCodec::Atmos),
-            "First fallback should be Atmos (index 1 in chain)"
+            None,
+            "song_codec should be None (--song-codec removed in GAMDL 2.9.1)"
         );
         // song_codec_priority should be set to just the single fallback codec
         // to prevent process_download_item() from rebuilding the full chain
@@ -5278,7 +5283,7 @@ mod tests {
         queue.set_error(&id, "codec error");
         let r1 = queue.try_fallback(&id, &settings);
         let (r1_opts, r1_idx, r1_len) = r1.unwrap();
-        assert_eq!(r1_opts.song_codec, Some(SongCodec::Atmos));
+        assert_eq!(r1_opts.song_codec, None, "song_codec cleared (--song-codec removed in GAMDL 2.9.1)");
         assert_eq!(r1_idx, 1, "First fallback is index 1");
         assert_eq!(r1_len, 3, "Chain length is 3");
         assert_eq!(
@@ -5291,7 +5296,7 @@ mod tests {
         queue.set_error(&id, "codec error");
         let r2 = queue.try_fallback(&id, &settings);
         let (r2_opts, r2_idx, _) = r2.unwrap();
-        assert_eq!(r2_opts.song_codec, Some(SongCodec::Aac));
+        assert_eq!(r2_opts.song_codec, None, "song_codec cleared (--song-codec removed in GAMDL 2.9.1)");
         assert_eq!(r2_idx, 2, "Second fallback is index 2");
         assert_eq!(
             r2_opts.song_codec_priority,
@@ -5583,7 +5588,8 @@ mod tests {
         let fallback = queue.try_fallback(&id, &settings);
         assert!(fallback.is_some());
         let (fb_opts, fb_idx, fb_len) = fallback.unwrap();
-        assert_eq!(fb_opts.song_codec, Some(SongCodec::Aac));
+        assert_eq!(fb_opts.song_codec, None, "song_codec cleared (--song-codec removed in GAMDL 2.9.1)");
+        assert_eq!(fb_opts.song_codec_priority, Some("aac".to_string()));
         assert_eq!(fb_idx, 1);
         assert_eq!(fb_len, 3);
 
