@@ -11,10 +11,21 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Add lyrics format fallback chain for incomplete lyrics coverage
 
 When the primary lyrics format (TTML) doesn't produce lyrics for all
-  tracks, automatically retries with fallback formats. Audio: TTML → LRC
-  → SRT. Video: TTML → SRT → LRC. Each fallback uses
-  `--synced-lyrics-only` to download just lyrics without re-downloading
-  media. Enabled by default; configurable in Settings > Lyrics.
+  tracks, automatically retries with fallback formats. Content-type-aware
+  ordering: Audio (TTML → LRC → SRT), Video (TTML → SRT → LRC). Each
+  fallback uses --synced-lyrics-only to avoid re-downloading media. Chain
+  stops when lyrics coverage matches media file count.
+
+  New setting: lyrics_fallback_enabled (default: true). Toggle in
+  Settings > Lyrics. Integrated as enrichment Step 2b between Enhanced
+  LRC conversion and Animated Artwork download.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.6.2] - 2026-03-02
 
 ### 🐛 Bug Fixes
 
