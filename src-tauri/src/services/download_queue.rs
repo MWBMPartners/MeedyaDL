@@ -1750,6 +1750,229 @@ async fn spawn_music_video_companion_inner(
 }
 
 // ============================================================
+// Lyrics format fallback
+// ============================================================
+
+/// Count lyrics sidecar files in a directory.
+///
+/// Returns the number of files matching any supported lyrics extension
+/// (`.ttml`, `.lrc`, `.srt`). Each unique stem is counted only once
+/// (e.g., `01 Song.ttml` and `01 Song.lrc` count as 1 stem with lyrics).
+fn count_lyrics_files(dir: &std::path::Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut stems_with_lyrics = std::collections::HashSet::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if ext == "ttml" || ext == "lrc" || ext == "srt" {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                stems_with_lyrics.insert(stem.to_string());
+            }
+        }
+    }
+    stems_with_lyrics.len()
+}
+
+/// Count media files (audio or video) in a directory.
+///
+/// Returns `(audio_count, video_count)` for `.m4a` and `.m4v`/`.mp4` files.
+fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    let mut audio = 0;
+    let mut video = 0;
+    for entry in entries.flatten() {
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        match ext.as_str() {
+            "m4a" => audio += 1,
+            "m4v" | "mp4" => video += 1,
+            _ => {}
+        }
+    }
+    (audio, video)
+}
+
+/// Run lyrics format fallback when the primary format didn't produce
+/// lyrics for all tracks.
+///
+/// After the primary download (typically with `--synced-lyrics-format ttml`),
+/// checks if every media file has a corresponding lyrics sidecar. If not,
+/// retries with fallback formats in content-type-specific order:
+/// - **Audio** (`.m4a`): TTML → LRC → SRT
+/// - **Video** (`.m4v`/`.mp4`): TTML → SRT → LRC
+///
+/// Each fallback attempt spawns GAMDL with `--synced-lyrics-format <fmt>
+/// --synced-lyrics-only`. The chain stops as soon as lyrics coverage
+/// matches the number of media files (or all formats are exhausted).
+async fn run_lyrics_fallback(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    album_dir: &str,
+    urls: &[String],
+    settings: &crate::models::settings::AppSettings,
+) {
+    let dir = std::path::Path::new(album_dir);
+    let (audio_count, video_count) = count_media_files(dir);
+    let total_media = audio_count + video_count;
+
+    if total_media == 0 {
+        return; // No media files to match lyrics against
+    }
+
+    let lyrics_count = count_lyrics_files(dir);
+    if lyrics_count >= total_media {
+        log::debug!("Lyrics fallback not needed for {dl_id}: {lyrics_count}/{total_media} tracks have lyrics");
+        return; // All tracks already have lyrics
+    }
+
+    // Determine fallback chain based on content type.
+    // If there are more video files than audio, treat it as video content.
+    let is_video = video_count > audio_count;
+    let fallback_chain: Vec<LyricsFormat> = if is_video {
+        // Video: TTML (already tried) → SRT → LRC
+        vec![LyricsFormat::Srt, LyricsFormat::Lrc]
+    } else {
+        // Audio: TTML (already tried) → LRC → SRT
+        vec![LyricsFormat::Lrc, LyricsFormat::Srt]
+    };
+
+    emit_download_log(
+        app,
+        dl_id,
+        &format!(
+            "Lyrics fallback: {lyrics_count}/{total_media} tracks have lyrics — trying alternative formats"
+        ),
+    );
+
+    for format in &fallback_chain {
+        emit_download_log(
+            app,
+            dl_id,
+            &format!(
+                "Lyrics fallback: trying {} format...",
+                format.to_cli_string()
+            ),
+        );
+
+        // Build minimal options for lyrics-only download using struct init
+        // syntax (clippy: field_reassign_with_default). Carries over auth
+        // and template settings so lyrics land in the correct folder.
+        let opts = GamdlOptions {
+            synced_lyrics_format: Some(format.clone()),
+            synced_lyrics_only: Some(true),
+            output_path: Some(settings.output_path.clone()),
+            temp_path: Some(settings.temp_path.clone()),
+            cookies_path: settings.cookies_path.clone(),
+            use_wrapper: Some(settings.use_wrapper),
+            wrapper_account_url: if settings.use_wrapper {
+                Some(settings.wrapper_account_url.clone())
+            } else {
+                None
+            },
+            single_disc_file_template: Some(settings.single_disc_file_template.clone()),
+            multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
+            no_album_file_template: Some(settings.no_album_file_template.clone()),
+            playlist_file_template: Some(settings.playlist_file_template.clone()),
+            album_folder_template: Some(settings.album_folder_template.clone()),
+            compilation_folder_template: Some(settings.compilation_folder_template.clone()),
+            no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+            overwrite: Some(settings.overwrite),
+            ..Default::default()
+        };
+
+        // Build and run GAMDL command
+        let mut cmd = match super::gamdl_service::build_gamdl_command_public(app, urls, &opts) {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!("Lyrics fallback command build failed for {dl_id}: {e}");
+                continue;
+            }
+        };
+
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        match cmd.spawn() {
+            Ok(child) => match child.wait_with_output().await {
+                Ok(output) if output.status.success() => {
+                    log::info!(
+                        "Lyrics fallback ({}) succeeded for {dl_id}",
+                        format.to_cli_string()
+                    );
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Lyrics fallback: {} format downloaded successfully",
+                            format.to_cli_string()
+                        ),
+                    );
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let last_err = stderr.lines().last().unwrap_or("unknown error");
+                    log::debug!(
+                        "Lyrics fallback ({}) failed for {dl_id}: {last_err}",
+                        format.to_cli_string()
+                    );
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Lyrics fallback: {} format failed — {}",
+                            format.to_cli_string(),
+                            last_err
+                        ),
+                    );
+                    continue; // Try next format in chain
+                }
+                Err(e) => {
+                    log::debug!("Lyrics fallback process error for {dl_id}: {e}");
+                    continue;
+                }
+            },
+            Err(e) => {
+                log::debug!("Failed to spawn lyrics fallback for {dl_id}: {e}");
+                continue;
+            }
+        }
+
+        // Re-check lyrics coverage after this fallback attempt
+        let new_lyrics_count = count_lyrics_files(dir);
+        if new_lyrics_count >= total_media {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Lyrics fallback complete: {new_lyrics_count}/{total_media} tracks now have lyrics"),
+            );
+            return; // Coverage complete, stop the fallback chain
+        }
+    }
+
+    // All fallback formats exhausted
+    let final_count = count_lyrics_files(dir);
+    emit_download_log(
+        app,
+        dl_id,
+        &format!(
+            "Lyrics fallback exhausted: {final_count}/{total_media} tracks have lyrics (some tracks may not have lyrics on Apple Music)"
+        ),
+    );
+}
+
+// ============================================================
 // Queue processing: runs downloads and handles fallback/retry
 /// Spawns companion and lyrics companion downloads as background tasks.
 ///
@@ -2924,6 +3147,28 @@ pub fn process_queue(
                             }
                             }
 
+                            // --- Step 2b: Lyrics format fallback ---
+                            // If the primary lyrics format (TTML when Enhanced LRC is
+                            // active) didn't produce lyrics for all tracks, retry with
+                            // fallback formats. Audio: TTML → LRC → SRT.
+                            // Video: TTML → SRT → LRC. The chain stops as soon as
+                            // lyrics coverage matches the number of media files.
+                            tokio::task::yield_now().await;
+                            if enrich_settings.lyrics_fallback_enabled
+                                && !enrich_settings.no_synced_lyrics
+                                && !enrich_shutdown.is_triggered()
+                            {
+                                run_lyrics_fallback(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &album_dir,
+                                    &enrich_urls,
+                                    &enrich_settings,
+                                )
+                                .await;
+                            }
+
+                            tokio::task::yield_now().await;
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
                                 return;

@@ -117,6 +117,14 @@ export function LyricsTab() {
             onChange={(checked) => updateSettings({ enhanced_lrc: checked })}
           />
 
+          {/* Lyrics format fallback */}
+          <Toggle
+            label="Lyrics Format Fallback"
+            description="When the primary lyrics format isn't available for some tracks, automatically try alternative formats. Audio: TTML → LRC → SRT. Video: TTML → SRT → LRC."
+            checked={settings.lyrics_fallback_enabled}
+            onChange={(checked) => updateSettings({ lyrics_fallback_enabled: checked })}
+          />
+
           {/* Embed lyrics + keep sidecar */}
           <Toggle
             label="Embed Lyrics and Keep Sidecar"

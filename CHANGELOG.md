@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add lyrics format fallback chain for incomplete lyrics coverage
+
+When the primary lyrics format (TTML) doesn't produce lyrics for all
+  tracks, automatically retries with fallback formats. Audio: TTML → LRC
+  → SRT. Video: TTML → SRT → LRC. Each fallback uses
+  `--synced-lyrics-only` to download just lyrics without re-downloading
+  media. Enabled by default; configurable in Settings > Lyrics.
+
 ### 🐛 Bug Fixes
 
 - Prevent UI stall on FUSE mounts and fix wrong codec suffix with native priority
