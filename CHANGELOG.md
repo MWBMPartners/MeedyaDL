@@ -27,9 +27,18 @@ When Enhanced Lyrics (Word-by-Word Sync) was on, the Synced Lyrics
   route other selected formats to companion_lyrics_formats when
   enhanced_lrc is active.
 
+- File picker Browse button now starts at the currently configured path
+
+The native file/directory picker dialog was not setting defaultPath,
+  so it opened at the OS-remembered last-used directory (which could be
+  wrong after exporting an activity log to a different folder). Now passes
+  the current value as defaultPath so Browse always starts at the
+  configured path (e.g., the output directory in Settings > General).
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
