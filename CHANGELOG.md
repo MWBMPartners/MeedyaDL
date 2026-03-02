@@ -6,6 +6,33 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Prevent UI stall on FUSE mounts and fix wrong codec suffix with native priority
+
+Bug 1 — UI stall: The enrichment pipeline (Steps 1-5) called blocking
+  mp4ameta Tag I/O directly on tokio async worker threads. On slow FUSE
+  mounts (CloudMounter, NFS), this starved the runtime, freezing the UI
+  for minutes. Fix: wrap Tag::read/write in spawn_blocking() in 4
+  services (metadata, lyrics, AcoustID, ReplayGain). Change enhanced
+  lyrics from async fn to fn (had zero .await calls). Add yield_now()
+  between all 6 enrichment steps.
+
+  Bug 2 — Wrong codec suffix: apply_codec_suffix() used the REQUESTED
+  codec, not the ACTUAL one GAMDL selected via native priority chain.
+  Files named [Dolby Atmos] could contain AAC. Fix: skip suffix when
+  native priority is active (actual codec unknown until GAMDL finishes).
+  Force all companion tiers to use suffixes via new force_all_suffixes
+  parameter, preventing filename collisions with the primary's clean
+  filenames.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.6.1] - 2026-03-01
+
 ### ✨ Features
 
 - Enhance application stability and security
@@ -54,23 +81,6 @@ Add music video companion downloads as enrichment Step 6: when enabled
   help files, CLAUDE.md, GitHub Wiki Features page). Close GitHub issue
   #81. Enhance inline code comments on new Rust functions.
 
-
-- Fix UI stall during post-download enrichment on slow filesystems
-
-Wrap blocking `mp4ameta` Tag I/O in `tokio::task::spawn_blocking()` across
-  4 enrichment services (metadata, lyrics, AcoustID, ReplayGain). Add yield
-  points between enrichment steps. Prevents the tokio async runtime from
-  starving on slow FUSE mounts (CloudMounter, NFS), which caused the UI to
-  freeze for minutes (couldn't switch tabs or see activity log updates).
-
-- Fix wrong codec suffix when native `--song-codec-priority` falls back
-
-When GAMDL's native priority chain falls through to a lesser codec (e.g.,
-  AAC when Atmos isn't available), files were incorrectly named with the
-  requested codec's suffix (e.g., `[Dolby Atmos]` on AAC files). Now: primary
-  downloads use clean filenames when native priority is active (since the
-  actual codec is unknown until GAMDL finishes), and all companion tiers
-  get forced suffixes to prevent filename collisions.
 
 ### 🐛 Bug Fixes
 
