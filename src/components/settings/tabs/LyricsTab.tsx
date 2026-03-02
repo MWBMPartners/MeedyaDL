@@ -94,6 +94,20 @@ export function LyricsTab() {
       current.delete(format);
     }
 
+    // When Enhanced LRC is on, TTML is always the primary (forced by
+    // merge_options Layer 4 in Rust). Ensure TTML stays in the set and
+    // is always first. Other selected formats become companions.
+    if (settings.enhanced_lrc) {
+      current.add('ttml'); // Ensure TTML is always present
+      const companions = LYRICS_FORMAT_OPTIONS.map((f) => f.value)
+        .filter((f) => f !== 'ttml' && current.has(f));
+      updateSettings({
+        synced_lyrics_format: 'ttml',
+        companion_lyrics_formats: companions,
+      });
+      return;
+    }
+
     /* Recompute primary and companions based on canonical order */
     const ordered = LYRICS_FORMAT_OPTIONS.map((f) => f.value).filter((f) => current.has(f));
 
@@ -134,28 +148,33 @@ export function LyricsTab() {
           />
 
           {/* Synced lyrics format checkboxes */}
-          <div className={formatsDisabled || settings.enhanced_lrc ? 'opacity-50' : ''}>
+          <div className={formatsDisabled ? 'opacity-50' : ''}>
             <span className="text-sm font-medium text-content-primary">Synced Lyrics Formats</span>
             <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
               {settings.enhanced_lrc
-                ? 'TTML is automatically used as the primary format when Enhanced Lyrics is enabled.'
+                ? 'TTML is the primary format (required for Enhanced Lyrics). Select additional formats to download as companions alongside TTML.'
                 : 'Select one or more formats. The first format is used with the primary download; additional formats are downloaded as lightweight companion passes.'}
             </span>
             <div className="space-y-2">
               {LYRICS_FORMAT_OPTIONS.map(({ value, label }) => {
                 const isChecked = checkedFormats.has(value);
-                const isPrimary =
-                  value === settings.synced_lyrics_format && checkedFormats.size > 1;
+                // When Enhanced LRC is on, TTML is always primary (forced by merge_options Layer 4).
+                // Show "(Primary)" for TTML when enhanced_lrc is on, otherwise use the normal logic.
+                const isPrimary = settings.enhanced_lrc
+                  ? value === 'ttml'
+                  : value === settings.synced_lyrics_format && checkedFormats.size > 1;
+                // TTML cannot be unchecked when Enhanced LRC is on (it's the required primary).
+                const isLocked = settings.enhanced_lrc && value === 'ttml';
 
                 return (
                   <label
                     key={value}
-                    className={`flex items-center gap-2.5 ${formatsDisabled || settings.enhanced_lrc ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                    className={`flex items-center gap-2.5 ${formatsDisabled || isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <input
                       type="checkbox"
-                      checked={isChecked}
-                      disabled={formatsDisabled || settings.enhanced_lrc}
+                      checked={settings.enhanced_lrc ? (value === 'ttml' || checkedFormats.has(value)) : isChecked}
+                      disabled={formatsDisabled || isLocked}
                       onChange={(e) => handleFormatToggle(value, e.target.checked)}
                       className="h-4 w-4 rounded border-border accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
                     />
