@@ -4,7 +4,7 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.6.3] - 2026-03-02
 
 ### ✨ Features
 
@@ -37,6 +37,7 @@ Each endpoint tested during the multi-tier internet check now logs its
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
