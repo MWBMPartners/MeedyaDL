@@ -30,6 +30,7 @@ Bug 1 — UI stall: The enrichment pipeline (Steps 1-5) called blocking
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.6.1] - 2026-03-01
 
