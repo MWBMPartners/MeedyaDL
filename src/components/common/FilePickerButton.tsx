@@ -141,12 +141,17 @@ export function FilePickerButton({
       /* Dynamically import the Tauri dialog plugin */
       const { open } = await import('@tauri-apps/plugin-dialog');
 
-      /* Open the native dialog with the configured options */
+      /* Open the native dialog with the configured options.
+       * defaultPath ensures the dialog starts at the currently selected
+       * path (if one exists) rather than the OS-remembered last-used
+       * directory, which may differ (e.g., after exporting a log file
+       * to a different folder). */
       const selected = await open({
         directory, // true = directory picker, false = file picker
         multiple: false, // single selection only
         filters: filters,
         title: directory ? 'Select Directory' : 'Select File',
+        defaultPath: value || undefined, // Start at current path if set
       });
 
       /*
