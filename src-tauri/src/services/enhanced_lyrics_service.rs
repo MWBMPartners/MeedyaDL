@@ -124,7 +124,12 @@ struct TtmlMetadata {
 /// 4. Embeds the Enhanced LRC in the corresponding `.m4a` or `.m4v` file
 ///
 /// Returns the number of files successfully processed.
-pub async fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<usize, String> {
+///
+/// **Note:** This function is intentionally `fn` (not `async fn`) because it
+/// performs only synchronous file I/O (std::fs, mp4ameta). Callers in the
+/// enrichment pipeline wrap it in `tokio::task::spawn_blocking()` to prevent
+/// blocking the async runtime on slow filesystems (FUSE mounts, NFS, etc.).
+pub fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<usize, String> {
     let dir = Path::new(album_dir);
     if !dir.is_dir() {
         return Err(format!("Not a directory: {album_dir}"));
