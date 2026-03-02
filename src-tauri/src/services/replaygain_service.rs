@@ -134,27 +134,44 @@ pub async fn process_replaygain_for_directory(
 // ============================================================
 
 /// Analyse a single file's loudness and write `ReplayGain` tags.
+///
+/// The FFmpeg analysis is properly async (subprocess with `.await`). The
+/// subsequent `Tag::read/write` is blocking file I/O, so it is offloaded
+/// to `spawn_blocking` to prevent starving the tokio runtime on slow
+/// filesystems (FUSE mounts, NFS, cloud storage).
 async fn analyse_and_tag(ffmpeg_path: &Path, file_path: &Path) -> Result<ReplayGainResult, String> {
-    // Analyse loudness
+    // Analyse loudness (async — FFmpeg subprocess with .await)
     let result = analyse_track_loudness(ffmpeg_path, file_path).await?;
 
-    // Write tags
-    let mut tag = Tag::read_from_path(file_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
+    // Write ReplayGain tags on a blocking thread to avoid starving the
+    // async runtime. Tag::read_from_path / Tag::write_to_path are sync
+    // I/O that can block for seconds on slow FUSE mounts.
+    let tag_path = file_path.to_path_buf();
+    let gain_db = result.gain_db;
+    let true_peak = result.true_peak;
+    tokio::task::spawn_blocking(move || {
+        let mut tag = Tag::read_from_path(&tag_path)
+            .map_err(|e| format!("Failed to read M4A: {e}"))?;
 
-    // replaygain_track_gain — e.g., "-4.20 dB"
-    tag.set_data(
-        FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_gain"),
-        Data::Utf8(format!("{:.2} dB", result.gain_db)),
-    );
+        // replaygain_track_gain — e.g., "-4.20 dB"
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_gain"),
+            Data::Utf8(format!("{gain_db:.2} dB")),
+        );
 
-    // replaygain_track_peak — e.g., "0.933254" (linear scale)
-    tag.set_data(
-        FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_peak"),
-        Data::Utf8(format!("{:.6}", result.true_peak)),
-    );
+        // replaygain_track_peak — e.g., "0.933254" (linear scale)
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_peak"),
+            Data::Utf8(format!("{true_peak:.6}")),
+        );
 
-    tag.write_to_path(file_path)
-        .map_err(|e| format!("Failed to write M4A: {e}"))?;
+        tag.write_to_path(&tag_path)
+            .map_err(|e| format!("Failed to write M4A: {e}"))?;
+
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("ReplayGain tag task panicked: {e}"))??;
 
     Ok(result)
 }

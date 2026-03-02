@@ -177,26 +177,34 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
         return Ok(false); // No match found
     };
 
-    // Step 3: Write tags
-    let mut tag = Tag::read_from_path(file_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
+    // Step 3: Write tags on a blocking thread to avoid starving the async
+    // runtime. Tag::read_from_path / Tag::write_to_path are sync I/O that
+    // can block for seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
+    let tag_path = file_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let mut tag = Tag::read_from_path(&tag_path)
+            .map_err(|e| format!("Failed to read M4A: {e}"))?;
 
-    // Acoustid Id — the UUID from acoustid.org
-    tag.set_data(
-        FreeformIdent::new_static(ITUNES_NAMESPACE, "Acoustid Id"),
-        Data::Utf8(acoustid),
-    );
+        // Acoustid Id — the UUID from acoustid.org
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "Acoustid Id"),
+            Data::Utf8(acoustid),
+        );
 
-    // Acoustid Fingerprint — encoded Chromaprint fingerprint string
-    tag.set_data(
-        FreeformIdent::new_static(ITUNES_NAMESPACE, "Acoustid Fingerprint"),
-        Data::Utf8(fingerprint),
-    );
+        // Acoustid Fingerprint — encoded Chromaprint fingerprint string
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "Acoustid Fingerprint"),
+            Data::Utf8(fingerprint),
+        );
 
-    tag.write_to_path(file_path)
-        .map_err(|e| format!("Failed to write M4A: {e}"))?;
+        tag.write_to_path(&tag_path)
+            .map_err(|e| format!("Failed to write M4A: {e}"))?;
 
-    log::debug!("AcoustID tagged: {}", file_path.display());
-    Ok(true)
+        log::debug!("AcoustID tagged: {}", tag_path.display());
+        Ok::<bool, String>(true)
+    })
+    .await
+    .map_err(|e| format!("AcoustID tag task panicked: {e}"))?
 }
 
 // ============================================================
