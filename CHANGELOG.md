@@ -14,9 +14,23 @@ GAMDL 2.9.1 removed the --song-codec flag entirely, causing ALL
   companion tier downloads and fallback retries to fail with:
   "Error: No such option: --song-codec Did you mean --song-codec-priority?"
 
+- Allow companion lyrics formats when Enhanced LRC is enabled
+
+When Enhanced Lyrics (Word-by-Word Sync) was on, the Synced Lyrics
+  Formats checkboxes were completely disabled, preventing selection of
+  LRC and SRT as companion formats. Now TTML remains locked as the
+  primary format (required for word-level timing data) but LRC and SRT
+  checkboxes are enabled for companion downloads. The description text
+  adapts to explain the behavior.
+
+  Also updates handleFormatToggle() to always keep TTML as primary and
+  route other selected formats to companion_lyrics_formats when
+  enhanced_lrc is active.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.3] - 2026-03-02
@@ -49,23 +63,6 @@ Each endpoint tested during the multi-tier internet check now logs its
   Helps diagnose connectivity issues from log files without needing to
   reproduce the problem.
 
-### 🐛 Bug Fixes
-
-- Fix Enhanced LRC blocking companion lyrics format selection
-
-When Enhanced Lyrics (Word-by-Word Sync) was enabled, the Synced Lyrics
-  Formats checkboxes were completely disabled, preventing users from
-  selecting LRC and SRT as companion formats. Now: TTML remains locked as
-  the primary format (required for word-level timing), but LRC and SRT
-  checkboxes are enabled for companion downloads. Users get Enhanced LRC
-  AND their preferred companion formats.
-
-- Fix companion downloads using removed `--song-codec` flag on GAMDL >= 2.9.1
-
-GAMDL 2.9.1 removed the `--song-codec` CLI flag. All companion tier
-  downloads and fallback retries were failing with "No such option:
-  --song-codec". Now uses `--song-codec-priority` with a single codec
-  value, which has identical behavior.
 
 ### 📚 Documentation
 
