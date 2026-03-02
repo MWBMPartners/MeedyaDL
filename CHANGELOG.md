@@ -4,6 +4,21 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- Use --song-codec-priority instead of removed --song-codec flag
+
+GAMDL 2.9.1 removed the --song-codec flag entirely, causing ALL
+  companion tier downloads and fallback retries to fail with:
+  "Error: No such option: --song-codec Did you mean --song-codec-priority?"
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.6.3] - 2026-03-02
 
 ### ✨ Features
