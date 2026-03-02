@@ -20,9 +20,24 @@ When the primary lyrics format (TTML) doesn't produce lyrics for all
   Settings > Lyrics. Integrated as enrichment Step 2b between Enhanced
   LRC conversion and Animated Artwork download.
 
+- Add per-endpoint logging to pre-flight internet connectivity check
+
+Each endpoint tested during the multi-tier internet check now logs its
+  result with the endpoint name, URL, HTTP status (or failure reason), and
+  response time. Tier progression is logged too (Tier 1 pass/fail, Tier 2
+  skipped/tested). Example output:
+
+    Pre-flight internet check: Cloudflare (https://1.1.1.1/) → reachable (200 OK, 12ms)
+    Pre-flight internet check: Google (google.com) → skipped (Cloudflare passed)
+    Pre-flight internet check: Apple Music API → reachable (401 Unauthorized, 45ms)
+
+  Helps diagnose connectivity issues from log files without needing to
+  reproduce the problem.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.2] - 2026-03-02
