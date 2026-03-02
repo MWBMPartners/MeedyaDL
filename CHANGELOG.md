@@ -49,6 +49,23 @@ Each endpoint tested during the multi-tier internet check now logs its
   Helps diagnose connectivity issues from log files without needing to
   reproduce the problem.
 
+### 🐛 Bug Fixes
+
+- Fix Enhanced LRC blocking companion lyrics format selection
+
+When Enhanced Lyrics (Word-by-Word Sync) was enabled, the Synced Lyrics
+  Formats checkboxes were completely disabled, preventing users from
+  selecting LRC and SRT as companion formats. Now: TTML remains locked as
+  the primary format (required for word-level timing), but LRC and SRT
+  checkboxes are enabled for companion downloads. Users get Enhanced LRC
+  AND their preferred companion formats.
+
+- Fix companion downloads using removed `--song-codec` flag on GAMDL >= 2.9.1
+
+GAMDL 2.9.1 removed the `--song-codec` CLI flag. All companion tier
+  downloads and fallback retries were failing with "No such option:
+  --song-codec". Now uses `--song-codec-priority` with a single codec
+  value, which has identical behavior.
 
 ### 📚 Documentation
 
