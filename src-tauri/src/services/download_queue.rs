@@ -1768,9 +1768,21 @@ fn spawn_companion_downloads(
     primary_codec_str: &str,
     companion_base_options: &GamdlOptions,
     shutdown: &ShutdownSignal,
+    force_all_suffixes: bool,
 ) {
     let companion_settings = load_settings_for_queue(app);
-    let companion_tiers = plan_companions(&companion_settings.companion_mode, primary_codec_str, &companion_settings.custom_companion_codecs);
+    let mut companion_tiers = plan_companions(&companion_settings.companion_mode, primary_codec_str, &companion_settings.custom_companion_codecs);
+
+    // When native priority was used, the primary download has clean filenames
+    // (because we don't know the actual codec until GAMDL finishes). Force ALL
+    // companion tiers to use suffixed filenames to prevent collisions between
+    // the primary's clean filenames and the "most compatible" companion tier
+    // that would normally also get clean filenames.
+    if force_all_suffixes {
+        for tier in &mut companion_tiers {
+            tier.apply_suffix = true;
+        }
+    }
 
     if !companion_tiers.is_empty() {
         let comp_app = app.clone();
@@ -2323,17 +2335,39 @@ pub fn process_queue(
         // add a suffix to file naming templates so specialist format files
         // get tagged filenames (e.g., "01 Song Title [Lossless].m4a") while
         // the companion download uses clean filenames ("01 Song Title.m4a").
+        //
+        // IMPORTANT: When native `--song-codec-priority` is used, we don't know
+        // which codec GAMDL will actually select from the priority chain until
+        // after the download completes. Applying a suffix based on the REQUESTED
+        // codec would be speculative and potentially wrong (e.g., suffixing
+        // `[Dolby Atmos]` when GAMDL falls back to AAC). In that case, the
+        // primary gets clean filenames and all companions get suffixed filenames
+        // (via `force_all_suffixes` in `spawn_companion_downloads`).
+        //
         // Keep the original (unsuffixed) options for companion downloads later.
         let companion_base_options = options.clone();
         let mut download_options = options;
         let settings_for_companion = load_settings_for_queue(&app);
-        if let Some(ref codec) = download_options.song_codec {
+        if !uses_native_priority {
+            // Single-codec mode: we know exactly which codec will be used,
+            // so the suffix accurately reflects the file content.
+            if let Some(ref codec) = download_options.song_codec {
+                if needs_primary_suffix(codec, &settings_for_companion.companion_mode, &settings_for_companion.custom_companion_codecs) {
+                    apply_codec_suffix(&mut download_options);
+                    log::info!(
+                        "Download {} using codec with file suffix (companion mode: {:?})",
+                        download_id,
+                        settings_for_companion.companion_mode
+                    );
+                }
+            }
+        } else if let Some(ref codec) = download_options.song_codec {
+            // Native priority mode: log that we're using clean filenames because
+            // the actual codec is TBD (GAMDL picks from the priority chain).
             if needs_primary_suffix(codec, &settings_for_companion.companion_mode, &settings_for_companion.custom_companion_codecs) {
-                apply_codec_suffix(&mut download_options);
                 log::info!(
-                    "Download {} using codec with file suffix (companion mode: {:?})",
-                    download_id,
-                    settings_for_companion.companion_mode
+                    "Download {} skipping suffix (native priority active, actual codec unknown until download completes)",
+                    download_id
                 );
             }
         }
@@ -2652,6 +2686,7 @@ pub fn process_queue(
                                     &primary_codec_for_companions,
                                     &companion_base_options,
                                     &shutdown_clone,
+                                    uses_native_priority,
                                 );
 
                                 // Continue processing remaining queued items
@@ -2832,7 +2867,9 @@ pub fn process_queue(
                                 None
                             };
 
-                            // Check for app shutdown between enrichment steps
+                            // Yield to the async runtime between enrichment steps so UI
+                            // events (sidebar clicks, activity log updates) can be processed.
+                            tokio::task::yield_now().await;
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
                                 return;
@@ -2850,9 +2887,13 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     "Converting TTML lyrics to Enhanced LRC (word-by-word sync)...",
                                 );
-                                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
-                                &album_dir,
-                            ).await {
+                                // Offload Enhanced LRC processing to a blocking thread.
+                                // The function is pure sync I/O (std::fs + mp4ameta Tag)
+                                // that would starve tokio on slow FUSE mounts.
+                                let lrc_dir = album_dir.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&lrc_dir)
+                                }).await.unwrap_or_else(|e| Err(format!("LRC task panicked: {e}"))) {
                                 Ok(count) if count > 0 => {
                                     log::info!(
                                         "Enhanced LRC generated for {count} file(s) for {enrich_dl_id}"
@@ -3123,6 +3164,8 @@ pub fn process_queue(
                     // Spawn companion downloads (codec + lyrics) as background tasks.
                     // Uses the primary codec from pre-match extraction since
                     // completed_codec may differ (e.g., after fallback).
+                    // When native priority was used, force all companions to
+                    // use suffixed filenames (primary has clean filenames).
                     spawn_companion_downloads(
                         &app_clone,
                         &dl_id,
@@ -3130,6 +3173,7 @@ pub fn process_queue(
                         &primary_codec_for_companions,
                         &companion_base_options,
                         &shutdown_clone,
+                        uses_native_priority,
                     );
                 }
                 Err(error_msg) => {
@@ -3419,6 +3463,7 @@ pub fn process_queue(
                                 &primary_codec_for_companions,
                                 &companion_base_options,
                                 &shutdown_clone,
+                                uses_native_priority,
                             );
                         } else {
                             emit_download_log(

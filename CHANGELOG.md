@@ -55,6 +55,23 @@ Add music video companion downloads as enrichment Step 6: when enabled
   #81. Enhance inline code comments on new Rust functions.
 
 
+- Fix UI stall during post-download enrichment on slow filesystems
+
+Wrap blocking `mp4ameta` Tag I/O in `tokio::task::spawn_blocking()` across
+  4 enrichment services (metadata, lyrics, AcoustID, ReplayGain). Add yield
+  points between enrichment steps. Prevents the tokio async runtime from
+  starving on slow FUSE mounts (CloudMounter, NFS), which caused the UI to
+  freeze for minutes (couldn't switch tabs or see activity log updates).
+
+- Fix wrong codec suffix when native `--song-codec-priority` falls back
+
+When GAMDL's native priority chain falls through to a lesser codec (e.g.,
+  AAC when Atmos isn't available), files were incorrectly named with the
+  requested codec's suffix (e.g., `[Dolby Atmos]` on AAC files). Now: primary
+  downloads use clean filenames when native priority is active (since the
+  actual codec is unknown until GAMDL finishes), and all companion tiers
+  get forced suffixes to prevent filename collisions.
+
 ### 🐛 Bug Fixes
 
 - Update documentation and code references to use '4K UHD' terminology

@@ -289,71 +289,86 @@ pub async fn apply_enriched_metadata_tags(
 
 /// Apply all enrichment layers to a single M4A file.
 ///
-/// Runs ffprobe (async) for channel detection, then opens the file with
-/// mp4ameta and writes all applicable tags in a single pass.
+/// Runs ffprobe (async) for channel detection, then offloads all `mp4ameta`
+/// Tag read/write operations to `spawn_blocking` to prevent starving the
+/// tokio async runtime on slow filesystems (FUSE mounts, NFS, cloud storage).
 async fn enrich_single_file(
     file_path: &Path,
     codec: &SongCodec,
     ffprobe_path: Option<&PathBuf>,
     album_metadata: Option<&AlbumMetadata>,
 ) -> Result<(), String> {
-    // Run ffprobe first (async I/O) before opening the tag for sync writes
+    // Run ffprobe first (async I/O — subprocess with .await)
     let channel_config = match ffprobe_path {
         Some(ffprobe) => detect_channel_config(ffprobe, file_path).await,
         None => None,
     };
 
-    // Open the M4A file for reading/writing
-    let mut tag = Tag::read_from_path(file_path).map_err(|e| {
-        format!(
-            "Failed to read M4A metadata from {}: {}",
-            file_path.display(),
-            e
-        )
-    })?;
+    // Clone data needed for the blocking closure (all are Send + 'static)
+    let tag_path = file_path.to_path_buf();
+    let codec_owned = codec.clone();
+    let metadata_owned = album_metadata.cloned();
 
-    // --- Layer 1: Codec-specific tags (ALAC/Atmos) ---
-    match codec {
-        SongCodec::Alac => write_lossless_tags(&mut tag),
-        SongCodec::Atmos => write_atmos_tags(&mut tag),
-        _ => {} // No codec tags for lossy formats
-    }
+    // Offload all Tag I/O to a blocking thread. Tag::read_from_path and
+    // Tag::write_to_path are synchronous file I/O that can block for
+    // seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
+    tokio::task::spawn_blocking(move || {
+        // Open the M4A file for reading/writing
+        let mut tag = Tag::read_from_path(&tag_path).map_err(|e| {
+            format!(
+                "Failed to read M4A metadata from {}: {}",
+                tag_path.display(),
+                e
+            )
+        })?;
 
-    // --- Layer 2: Source & format tags (always-on, no API needed) ---
-    write_local_tags(&mut tag);
-
-    // --- Layer 3: Channel configuration (via ffprobe) ---
-    if let Some(ref config) = channel_config {
-        let ident = FreeformIdent::new_static(ITUNES_NAMESPACE, "ChannelConfig");
-        tag.set_data(ident, Data::Utf8(config.clone()));
-    }
-
-    // --- Layer 4: Apple Music API metadata (if available) ---
-    if let Some(metadata) = album_metadata {
-        // Per-album tags (same on all files in the album)
-        write_api_album_tags(&mut tag, metadata);
-
-        // Animated artwork URL tags (same on all files)
-        write_artwork_url_tags(&mut tag, metadata);
-
-        // Per-track tags: match this file to a track by track/disc number
-        let track_num = tag.track_number();
-        let disc_num = tag.disc_number().unwrap_or(1);
-        if let Some(track) = match_track_to_metadata(track_num, disc_num, &metadata.tracks) {
-            write_api_track_tags(&mut tag, track);
+        // --- Layer 1: Codec-specific tags (ALAC/Atmos) ---
+        match codec_owned {
+            SongCodec::Alac => write_lossless_tags(&mut tag),
+            SongCodec::Atmos => write_atmos_tags(&mut tag),
+            _ => {} // No codec tags for lossy formats
         }
-    }
 
-    // Write all changes back to the file in a single operation
-    tag.write_to_path(file_path).map_err(|e| {
-        format!(
-            "Failed to write M4A metadata to {}: {}",
-            file_path.display(),
-            e
-        )
-    })?;
+        // --- Layer 2: Source & format tags (always-on, no API needed) ---
+        write_local_tags(&mut tag);
 
-    log::debug!("Enriched: {}", file_path.display());
+        // --- Layer 3: Channel configuration (via ffprobe) ---
+        if let Some(ref config) = channel_config {
+            let ident = FreeformIdent::new_static(ITUNES_NAMESPACE, "ChannelConfig");
+            tag.set_data(ident, Data::Utf8(config.clone()));
+        }
+
+        // --- Layer 4: Apple Music API metadata (if available) ---
+        if let Some(ref metadata) = metadata_owned {
+            // Per-album tags (same on all files in the album)
+            write_api_album_tags(&mut tag, metadata);
+
+            // Animated artwork URL tags (same on all files)
+            write_artwork_url_tags(&mut tag, metadata);
+
+            // Per-track tags: match this file to a track by track/disc number
+            let track_num = tag.track_number();
+            let disc_num = tag.disc_number().unwrap_or(1);
+            if let Some(track) = match_track_to_metadata(track_num, disc_num, &metadata.tracks) {
+                write_api_track_tags(&mut tag, track);
+            }
+        }
+
+        // Write all changes back to the file in a single operation
+        tag.write_to_path(&tag_path).map_err(|e| {
+            format!(
+                "Failed to write M4A metadata to {}: {}",
+                tag_path.display(),
+                e
+            )
+        })?;
+
+        log::debug!("Enriched: {}", tag_path.display());
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("Metadata enrichment task panicked: {e}"))??;
+
     Ok(())
 }
 
