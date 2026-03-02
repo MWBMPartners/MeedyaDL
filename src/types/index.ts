@@ -475,6 +475,9 @@ export interface AppSettings {
   companion_lyrics_formats: LyricsFormat[];
   /** When true, TTML lyrics are converted to Enhanced LRC with word-by-word sync */
   enhanced_lrc: boolean;
+  /** When true and the primary lyrics format fails, automatically try fallback formats.
+   * Audio: TTML → LRC → SRT. Video: TTML → SRT → LRC. */
+  lyrics_fallback_enabled: boolean;
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */

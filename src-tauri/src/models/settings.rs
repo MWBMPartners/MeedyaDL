@@ -370,6 +370,20 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub enhanced_lrc: bool,
 
+    /// When enabled and the primary lyrics format (typically TTML when
+    /// Enhanced LRC is active) fails to produce sidecar files for some
+    /// tracks, automatically retry with fallback formats.
+    ///
+    /// Fallback chains differ by content type:
+    /// - **Audio** (`.m4a`): TTML → LRC → SRT
+    /// - **Video** (`.m4v`/`.mp4`): TTML → SRT → LRC
+    ///
+    /// Each fallback attempt runs GAMDL with `--synced-lyrics-only` to
+    /// download just the lyrics without re-downloading media. The chain
+    /// stops as soon as lyrics coverage matches the number of media files.
+    #[serde(default = "default_true")]
+    pub lyrics_fallback_enabled: bool,
+
     // ================================================================
     // Cover Art
     // ================================================================
@@ -768,6 +782,9 @@ impl Default for AppSettings {
             // word-by-word synchronised timestamps. Falls back to
             // line-level LRC for songs without word-level timing.
             enhanced_lrc: true,
+            // Lyrics fallback enabled by default — if TTML isn't available,
+            // try LRC (audio) or SRT (video) automatically.
+            lyrics_fallback_enabled: true,
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.

@@ -99,6 +99,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
   embed_lyrics_and_sidecar: true, // Embed lyrics in metadata AND keep sidecar files
   enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
+  lyrics_fallback_enabled: true, // If TTML unavailable, try LRC (audio) or SRT (video)
   synced_lyrics_format: 'ttml', // Default lyrics format (TTML preserves word-level timing)
   no_synced_lyrics: false, // Do download synced lyrics
   synced_lyrics_only: false, // Also download plain-text lyrics
