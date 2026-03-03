@@ -40,11 +40,16 @@
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
-- **Metadata enrichment** — codec tags, source tags, channel detection, ISRC, UPC, genre, advisory ratings, artist IDs, and animated artwork URLs via Apple Music API
+- **Comprehensive metadata enrichment** — 30+ freeform atoms per file including: codec/source/channel tags, ISRC, UPC, genre, advisory ratings, artist IDs, record label, copyright, release dates, Apple Digital Master flag, composer, editorial notes, and animated artwork URLs. All sourced from the Apple Music API and written in dual namespaces (`com.apple.iTunes` for player compatibility + `MeedyaMeta` for MeedyaDL attribution) with industry-standard alternative names (`LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`)
+- **Config-driven tag system** — tag definitions live in `tags.toml`; adding new metadata tags requires only editing the TOML file — zero code changes
 - **AcoustID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification. Built-in API key included in release builds; no registration required
 - **ReplayGain analysis** (opt-in) — non-destructive loudness metadata for volume normalisation in compatible players
-- **WebVTT subtitles** (opt-in) — generates `.vtt` subtitle files from lyrics sidecars (TTML, SRT, or LRC) for use in video players and media servers
-- **MusicBrainz video discovery** (opt-in) — discovers music videos via MusicBrainz database using a 3-tier lookup (Apple Music URL → ISRC → AcoustID recording ID) when Apple Music API returns no results. No credentials required. Also discovers cross-platform URLs (YouTube, Spotify, etc.) for future multi-service support
+- **Rich SRT subtitles** (opt-in, default: on) — converts TTML to SRT with styling tags (`<b>`, `<i>`, `<u>`, `<font color>`)
+- **ASS subtitles** (opt-in) — converts TTML/WebVTT to Advanced SubStation Alpha with colours, positioning, and background vocal styling
+- **WebVTT subtitles** (opt-in) — generates `.vtt` subtitle files from lyrics sidecars (TTML, SRT, or LRC)
+- **Subtitle embedding** (opt-in) — embeds SRT and WebVTT content directly in MP4 containers as freeform atoms
+- **MusicBrainz video discovery** (opt-in) — discovers music videos via MusicBrainz database using a 3-tier lookup (Apple Music URL → ISRC → AcoustID recording ID). No credentials required. Also discovers cross-platform URLs (YouTube, Spotify, etc.)
+- **API field audit tool** — developer diagnostic in Settings > Metadata that compares real API responses against known tag definitions, surfacing new fields for review
 
 ### 🔐 Authentication & Security
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically

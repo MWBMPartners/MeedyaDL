@@ -83,6 +83,56 @@ This changelog is automatically generated from [conventional commits](https://ww
   rather than requiring separate sidecar files. New `embed_subtitles`
   setting (default: false). Toggle in Settings > Lyrics.
 
+- Generate ASS (Advanced SubStation Alpha) subtitles from TTML and WebVTT
+
+  Converts Apple Music TTML or WebVTT to ASS subtitle format with rich
+  styling (BGR colours, bold/italic/underline override tags, positioning,
+  dedicated background vocals style). Source priority: TTML (richest
+  data) then WebVTT. New `generate_ass` setting (default: false). Toggle
+  in Settings > Lyrics.
+
+- Add verbose activity log toggle for detailed diagnostic output
+
+  New `verbose_activity_log` setting controls whether detailed debug
+  messages (URLs with query params, cookie paths, API responses) are
+  shown in the activity log. Verbose messages are prefixed with
+  `[VERBOSE]`. Toggle in Settings > Advanced.
+
+- Extract comprehensive Apple Music API metadata (20 track + 11 album fields)
+
+  All available metadata from the Apple Music catalog API is now
+  extracted and embedded as freeform atoms. Track-level: Apple Digital
+  Master, release date, composer, duration, has lyrics, play params ID,
+  canonical URL, preview URL, genres. Album-level: record label,
+  copyright, release date, compilation/single/complete flags, Mastered
+  for iTunes, track count, editorial notes, UPC, content rating.
+
+- Dual-namespace metadata tagging with industry standard names
+
+  All API-sourced metadata is written to both `com.apple.iTunes`
+  (player-compatible) and `MeedyaMeta` (MeedyaDL-branded) namespaces.
+  Album-scope tags use `Album*` prefix; track-scope uses no prefix.
+  Industry standard alternative names are used where they exist: `LABEL`
+  (Picard/Mp3tag), `COPYRIGHT`, `COMPILATION` (Picard/beets),
+  `TOTALTRACKS` (Picard/foobar2000).
+
+- Config-driven metadata tag system (tags.toml)
+
+  Tag definitions moved from hardcoded Rust to declarative TOML config.
+  28 tag entries (16 album + 14 track) define: JSON path into API
+  response, value type conversion rules, and atom targets per namespace.
+  Adding new tags requires only editing `tags.toml` — zero Rust code
+  changes. Registry module with JSON path walker supports dotted paths,
+  `[N]` array indexing, and nested objects.
+
+- Add API field audit tool for discovering new Apple Music API metadata
+
+  Developer diagnostic tool (Settings > Metadata) that fetches a real
+  album from the Apple Music API and diffs the raw JSON response against
+  known tag definitions in `tags.toml`. Reports known/mapped fields,
+  unknown/new fields, and missing fields. Helps identify new API
+  additions for human review without auto-embedding.
+
 - Support non-geographic Apple Music URLs with storefront auto-detection
 
   URLs without a storefront code (e.g., `music.apple.com/album/...`)
@@ -93,6 +143,12 @@ This changelog is automatically generated from [conventional commits](https://ww
   when the primary storefront returns 404 — handles region mismatches
   from shared links. Normalization occurs at enqueue time and queue
   import time.
+
+- Add Dependabot configuration for automated dependency freshness
+
+  Weekly semver-compatible dependency checks for both npm and Cargo
+  ecosystems. Minor/patch updates grouped into single PRs per ecosystem.
+  Major version jumps deferred for manual migration.
 
 ### 🔒 Security
 
