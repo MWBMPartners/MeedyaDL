@@ -226,76 +226,8 @@ pub async fn lookup_recording_by_isrc(
         .await
         .map_err(|e| format!("Failed to parse MusicBrainz detail response: {e}"))?;
 
-    // Extract URL relationships (streaming links, video links)
-    let mut external_urls = HashMap::new();
-    let mut video_urls = Vec::new();
-
-    // Parse URL relationships (type: "url")
-    if let Some(relations) = detail_json.get("relations").and_then(|r| r.as_array()) {
-        for rel in relations {
-            let rel_type = rel
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            let target_type = rel
-                .get("target-type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            // URL relationships — streaming/download links to external platforms
-            if target_type == "url" {
-                if let Some(url_resource) = rel.get("url") {
-                    let resource_url = url_resource
-                        .get("resource")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
-                    // Classify the URL by platform
-                    if let Some((platform, clean_url)) = classify_url(resource_url) {
-                        external_urls.insert(platform.to_string(), clean_url.to_string());
-
-                        // Check if this is a music video URL
-                        if resource_url.contains("music-video")
-                            || resource_url.contains("/video/")
-                        {
-                            video_urls.push(MusicVideoUrl {
-                                platform: platform.to_string(),
-                                url: clean_url.to_string(),
-                                title: Some(title.clone()),
-                            });
-                        }
-                    }
-                }
-            }
-
-            // Recording-recording relationships — linked performances (e.g., video versions)
-            if target_type == "recording" && rel_type == "performance" {
-                // This is a linked video recording
-                if let Some(target_rec) = rel.get("recording") {
-                    let video_title = target_rec
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .map(String::from);
-
-                    let video_id = target_rec
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
-                    if !video_id.is_empty() {
-                        log::debug!(
-                            "MusicBrainz: found linked video recording {} — {:?}",
-                            video_id,
-                            video_title
-                        );
-                        // We'd need another API call to get this recording's URLs
-                        // For now, store the recording ID for potential future lookup
-                    }
-                }
-            }
-        }
-    }
+    // Parse relationships using the shared helper function
+    let (external_urls, video_urls) = parse_recording_relations(&detail_json);
 
     log::debug!(
         "MusicBrainz: recording {} has {} external URL(s), {} video URL(s)",
@@ -396,6 +328,196 @@ pub async fn lookup_external_urls_for_tracks(
     }
 
     Ok(results)
+}
+
+/// Look up a MusicBrainz recording directly by its recording ID.
+///
+/// Used when the recording ID is already known (e.g., from AcoustID
+/// fingerprint results). Skips the ISRC search step entirely.
+///
+/// # Arguments
+/// * `recording_id` - MusicBrainz recording UUID
+///
+/// # Returns
+/// Recording with relationships and external URLs.
+pub async fn lookup_recording_by_id(
+    recording_id: &str,
+) -> Result<Option<MusicBrainzRecording>, String> {
+    if recording_id.is_empty() {
+        return Ok(None);
+    }
+
+    log::debug!("MusicBrainz: looking up recording by ID {recording_id}");
+
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    // Fetch recording with URL and recording relationships
+    let url = format!(
+        "{MB_API_BASE}/recording/{recording_id}?inc=url-rels+recording-rels+artist-credits&fmt=json"
+    );
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("MusicBrainz API request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        return Err(format!("MusicBrainz API returned HTTP {status} for recording {recording_id}"));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
+
+    let title = json
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let artist = json
+        .get("artist-credit")
+        .and_then(|ac| ac.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|a| a.get("name"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Parse relationships (same logic as in lookup_recording_by_isrc)
+    let (external_urls, video_urls) = parse_recording_relations(&json);
+
+    Ok(Some(MusicBrainzRecording {
+        recording_id: recording_id.to_string(),
+        title,
+        artist,
+        external_urls,
+        video_urls,
+    }))
+}
+
+/// Rewrite an Apple Music URL's storefront code.
+///
+/// If the URL contains a different storefront than the user's preferred
+/// one, returns a new URL with the storefront replaced. Useful when
+/// MusicBrainz returns an Apple Music URL for a different region.
+///
+/// # Examples
+/// ```ignore
+/// rewrite_apple_music_storefront(
+///     "https://music.apple.com/de/album/550152190",
+///     "gb"
+/// ) // → "https://music.apple.com/gb/album/550152190"
+/// ```
+#[must_use]
+pub fn rewrite_apple_music_storefront(url: &str, target_storefront: &str) -> String {
+    // Apple Music URL pattern: https://music.apple.com/{storefront}/{type}/{name}/{id}
+    // The storefront is a 2-letter country code after the domain.
+    if let Some(domain_end) = url.find("music.apple.com/") {
+        let after_domain = &url[domain_end + "music.apple.com/".len()..];
+        // Check if the next segment is a 2-3 letter storefront code
+        if let Some(slash_pos) = after_domain.find('/') {
+            let current_sf = &after_domain[..slash_pos];
+            // Only rewrite if it looks like a storefront (2-3 lowercase letters)
+            if current_sf.len() >= 2
+                && current_sf.len() <= 3
+                && current_sf.chars().all(|c| c.is_ascii_lowercase())
+                && current_sf != target_storefront
+            {
+                let prefix = &url[..domain_end + "music.apple.com/".len()];
+                let rest = &after_domain[slash_pos..]; // includes the leading /
+                return format!("{prefix}{target_storefront}{rest}");
+            }
+        }
+    }
+    // Return original if no rewrite needed or URL doesn't match pattern
+    url.to_string()
+}
+
+// ============================================================
+// Internal: Relationship Parsing
+// ============================================================
+
+/// Parse URL and recording relationships from a MusicBrainz recording JSON.
+///
+/// Extracts external platform URLs and music video URLs from the
+/// `relations` array. Shared between ISRC lookup and direct ID lookup.
+fn parse_recording_relations(
+    json: &serde_json::Value,
+) -> (HashMap<String, String>, Vec<MusicVideoUrl>) {
+    let mut external_urls = HashMap::new();
+    let mut video_urls = Vec::new();
+
+    let title = json
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if let Some(relations) = json.get("relations").and_then(|r| r.as_array()) {
+        for rel in relations {
+            let rel_type = rel
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let target_type = rel
+                .get("target-type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            // URL relationships — streaming/download links
+            if target_type == "url" {
+                if let Some(url_resource) = rel.get("url") {
+                    let resource_url = url_resource
+                        .get("resource")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if let Some((platform, clean_url)) = classify_url(resource_url) {
+                        external_urls.insert(platform.to_string(), clean_url.to_string());
+
+                        if resource_url.contains("music-video")
+                            || resource_url.contains("/video/")
+                        {
+                            video_urls.push(MusicVideoUrl {
+                                platform: platform.to_string(),
+                                url: clean_url.to_string(),
+                                title: Some(title.clone()),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Recording-recording relationships — linked performances
+            if target_type == "recording" && rel_type == "performance" {
+                if let Some(target_rec) = rel.get("recording") {
+                    let video_title = target_rec
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let _video_id = target_rec
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if let Some(ref vt) = video_title {
+                        log::debug!("MusicBrainz: found linked video recording — {vt}");
+                    }
+                }
+            }
+        }
+    }
+
+    (external_urls, video_urls)
 }
 
 // ============================================================
@@ -531,5 +653,115 @@ mod tests {
         assert!(rec.external_urls.contains_key("apple_music"));
         assert!(rec.external_urls.contains_key("youtube"));
         assert!(rec.external_urls.contains_key("spotify"));
+    }
+
+    // ----------------------------------------------------------
+    // Storefront rewriting
+    // ----------------------------------------------------------
+
+    #[test]
+    fn rewrite_storefront_de_to_gb() {
+        let result = rewrite_apple_music_storefront(
+            "https://music.apple.com/de/album/test/550152190",
+            "gb",
+        );
+        assert_eq!(result, "https://music.apple.com/gb/album/test/550152190");
+    }
+
+    #[test]
+    fn rewrite_storefront_us_to_gb() {
+        let result = rewrite_apple_music_storefront(
+            "https://music.apple.com/us/music-video/test/291812351",
+            "gb",
+        );
+        assert_eq!(result, "https://music.apple.com/gb/music-video/test/291812351");
+    }
+
+    #[test]
+    fn rewrite_storefront_same_no_change() {
+        let url = "https://music.apple.com/gb/album/test/12345";
+        let result = rewrite_apple_music_storefront(url, "gb");
+        assert_eq!(result, url);
+    }
+
+    #[test]
+    fn rewrite_storefront_non_apple_url_unchanged() {
+        let url = "https://youtube.com/watch?v=abc";
+        let result = rewrite_apple_music_storefront(url, "gb");
+        assert_eq!(result, url);
+    }
+
+    #[test]
+    fn rewrite_storefront_no_storefront_segment() {
+        // URL without storefront (geo-non-specific)
+        let url = "https://music.apple.com/album/test/12345";
+        let result = rewrite_apple_music_storefront(url, "gb");
+        // "album" is not a 2-3 char lowercase code, so no rewrite
+        assert_eq!(result, url);
+    }
+
+    // ----------------------------------------------------------
+    // Relationship parsing
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parse_relations_with_url_relationships() {
+        let json = serde_json::json!({
+            "title": "Test Song",
+            "relations": [
+                {
+                    "type": "streaming",
+                    "target-type": "url",
+                    "url": {
+                        "resource": "https://music.apple.com/gb/album/test/12345"
+                    }
+                },
+                {
+                    "type": "streaming",
+                    "target-type": "url",
+                    "url": {
+                        "resource": "https://www.youtube.com/watch?v=abc123"
+                    }
+                }
+            ]
+        });
+
+        let (urls, videos) = parse_recording_relations(&json);
+        assert_eq!(urls.len(), 2);
+        assert!(urls.contains_key("apple_music"));
+        assert!(urls.contains_key("youtube"));
+        assert!(videos.is_empty()); // No music-video URLs in this test
+    }
+
+    #[test]
+    fn parse_relations_with_video_url() {
+        let json = serde_json::json!({
+            "title": "Test Video",
+            "relations": [
+                {
+                    "type": "streaming",
+                    "target-type": "url",
+                    "url": {
+                        "resource": "https://music.apple.com/gb/music-video/test/12345"
+                    }
+                }
+            ]
+        });
+
+        let (urls, videos) = parse_recording_relations(&json);
+        assert_eq!(urls.len(), 1);
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].platform, "apple_music");
+    }
+
+    #[test]
+    fn parse_relations_empty() {
+        let json = serde_json::json!({
+            "title": "No Relations"
+        });
+
+        let (urls, videos) = parse_recording_relations(&json);
+        assert!(urls.is_empty());
+        assert!(videos.is_empty());
     }
 }
