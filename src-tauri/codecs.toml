@@ -1,0 +1,285 @@
+# MeedyaDL Universal Codec Registry
+# =================================
+#
+# Defines canonical codec IDs and their per-service CLI flag mappings.
+# This file is compiled into the binary via `include_str!("../../codecs.toml")`
+# in `models/codec_registry.rs` and parsed at runtime.
+#
+# ## Structure
+#
+# Each codec has:
+#   - `name`     : Human-readable display name for the UI
+#   - `category` : Grouping for UI organisation ("spatial", "lossless", "lossy")
+#   - `lossless` : Whether this codec preserves original audio quality
+#   - `services` : Per-service CLI flag mappings (service_id = "flag_value")
+#                  Omitted services mean the codec is not available there.
+#
+# Meta codecs have `resolves_to` instead of `services` — they map to a
+# concrete codec ID per service (e.g., "lossless" → "alac" for Apple Music).
+#
+# ## Adding a New Service
+#
+# 1. Add a new key under each codec's `[*.services]` table
+# 2. The key is the service engine ID (e.g., "gamdl", "votify", "ytdlp")
+# 3. The value is the exact CLI flag string that engine expects
+#
+# ## Adding a New Codec
+#
+# 1. Add a new `[audio.<id>]` or `[video.<id>]` section
+# 2. Choose an ID that is descriptive and kebab-case (e.g., "aac-hq")
+# 3. Add `[audio.<id>.services]` with mappings for supported services
+# 4. If the codec isn't supported by any service yet, omit the services table
+
+# ============================================================
+# Audio Codecs — Spatial / Immersive
+# ============================================================
+
+[audio.eac3-atmos]
+name = "Dolby Atmos (E-AC-3)"
+category = "spatial"
+lossless = false
+mimetype = "audio/eac3"
+[audio.eac3-atmos.services]
+gamdl = "atmos"
+
+[audio.ac3]
+name = "Dolby Digital (AC-3)"
+category = "spatial"
+lossless = false
+mimetype = "audio/ac3"
+[audio.ac3.services]
+gamdl = "ac3"
+
+[audio.ac4-atmos]
+name = "Dolby Atmos (AC-4)"
+category = "spatial"
+lossless = false
+mimetype = "audio/ac4"
+# No service mappings yet — AC-4 Atmos is used in streaming but not
+# currently downloadable via any supported service engine.
+
+[audio.thd-atmos]
+name = "Dolby Atmos (TrueHD)"
+category = "spatial"
+lossless = true
+mimetype = "audio/truehd"
+# No service mappings yet — TrueHD Atmos is disc-only (Blu-ray),
+# not available from any streaming service.
+
+# ============================================================
+# Audio Codecs — Lossless
+# ============================================================
+
+[audio.alac]
+name = "ALAC Lossless"
+category = "lossless"
+lossless = true
+mimetype = "audio/alac"
+[audio.alac.services]
+gamdl = "alac"
+
+[audio.flac]
+name = "FLAC Lossless"
+category = "lossless"
+lossless = true
+mimetype = "audio/flac"
+[audio.flac.services]
+votify = "flac"
+
+# ============================================================
+# Audio Codecs — Lossy (Standard)
+# ============================================================
+
+[audio.aac-hq]
+name = "AAC High Quality"
+category = "lossy"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-hq.services]
+gamdl = "aac"
+votify = "aac-high"
+
+[audio.aac-mq]
+name = "AAC Medium Quality"
+category = "lossy"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-mq.services]
+gamdl = "aac-legacy"
+votify = "aac-medium"
+
+[audio.aac-he-hq]
+name = "HE-AAC High Quality"
+category = "lossy"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-he-hq.services]
+gamdl = "aac-he"
+
+[audio.aac-he-mq]
+name = "HE-AAC Medium Quality"
+category = "lossy"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-he-mq.services]
+gamdl = "aac-he-legacy"
+
+# ============================================================
+# Audio Codecs — Spatial Stereo (Binaural / Downmix)
+# ============================================================
+
+[audio.aac-binaural]
+name = "AAC Binaural"
+category = "spatial"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-binaural.services]
+gamdl = "aac-binaural"
+
+[audio.aac-he-binaural]
+name = "HE-AAC Binaural"
+category = "spatial"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-he-binaural.services]
+gamdl = "aac-he-binaural"
+
+[audio.aac-downmix]
+name = "AAC Downmix"
+category = "lossy"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-downmix.services]
+gamdl = "aac-downmix"
+
+[audio.aac-he-downmix]
+name = "HE-AAC Downmix"
+category = "lossy"
+lossless = false
+mimetype = "audio/aac"
+[audio.aac-he-downmix.services]
+gamdl = "aac-he-downmix"
+
+# ============================================================
+# Audio Codecs — Other Formats (Future Services)
+# ============================================================
+
+[audio.ogg-vorbis]
+name = "Ogg Vorbis"
+category = "lossy"
+lossless = false
+mimetype = "audio/ogg"
+[audio.ogg-vorbis.services]
+votify = "ogg-vorbis"
+
+[audio.opus]
+name = "Opus"
+category = "lossy"
+lossless = false
+mimetype = "audio/opus"
+# YouTube/yt-dlp mapping TBD in M9
+
+# ============================================================
+# Meta Codecs — Resolve Per-Service
+# ============================================================
+# Meta codecs are abstract quality tiers that resolve to the best
+# available concrete codec for each service. Users select intent
+# (e.g., "lossless") without needing to know service internals.
+
+[meta.lossless]
+name = "Lossless (Best Available)"
+category = "lossless"
+resolves_to = { gamdl = "alac", votify = "flac" }
+
+[meta.atmos]
+name = "Dolby Atmos (Best Available)"
+category = "spatial"
+resolves_to = { gamdl = "eac3-atmos" }
+
+[meta.best-lossy]
+name = "Best Lossy"
+category = "lossy"
+resolves_to = { gamdl = "aac-hq", votify = "ogg-vorbis" }
+
+# ============================================================
+# Video Codecs
+# ============================================================
+
+[video.h265]
+name = "H.265 (HEVC)"
+category = "modern"
+mimetype = "video/hevc"
+[video.h265.services]
+gamdl = "h265"
+
+[video.h264]
+name = "H.264 (AVC)"
+category = "compatible"
+mimetype = "video/avc"
+[video.h264.services]
+gamdl = "h264"
+votify = "mp4"
+
+[video.vp9]
+name = "VP9"
+category = "modern"
+mimetype = "video/webm"
+# YouTube/yt-dlp mapping TBD in M9
+
+[video.av1]
+name = "AV1"
+category = "modern"
+mimetype = "video/av1"
+# Future codec — increasingly used by streaming services
+
+# ============================================================
+# Lyrics / Subtitle / Caption Formats
+# ============================================================
+# These define the text-based sidecar and embedded lyrics formats
+# supported across services. Each format has a file extension,
+# MIME type, and per-service support flags.
+
+[lyrics.ttml]
+name = "TTML (Timed Text Markup Language)"
+category = "xml"
+extension = "ttml"
+mimetype = "application/ttml+xml"
+word_timing = true
+[lyrics.ttml.services]
+gamdl = "ttml"
+
+[lyrics.lrc]
+name = "LRC (Synced Lyrics)"
+category = "text"
+extension = "lrc"
+mimetype = "text/x-lrc"
+word_timing = false
+[lyrics.lrc.services]
+gamdl = "lrc"
+
+[lyrics.enhanced-lrc]
+name = "Enhanced LRC (Word-by-Word Sync)"
+category = "text"
+extension = "lrc"
+mimetype = "text/x-lrc"
+word_timing = true
+# Enhanced LRC is generated by MeedyaDL from TTML — not a native
+# GAMDL output format. It uses the same .lrc extension but includes
+# inline <mm:ss.xx> word timestamps.
+
+[lyrics.srt]
+name = "SRT (SubRip Subtitle)"
+category = "text"
+extension = "srt"
+mimetype = "application/x-subrip"
+word_timing = false
+[lyrics.srt.services]
+gamdl = "srt"
+
+[lyrics.vtt]
+name = "WebVTT"
+category = "text"
+extension = "vtt"
+mimetype = "text/vtt"
+word_timing = false
+# YouTube/yt-dlp mapping TBD in M9

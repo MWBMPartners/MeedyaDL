@@ -71,3 +71,10 @@ pub mod music_service;
 /// report. Used by the Rust panic handler, the frontend error logging
 /// command, and the crash report service for CRUD operations.
 pub mod crash_report;
+
+/// Universal codec registry for multi-service support (v2 groundwork).
+///
+/// Defines canonical MeedyaDL codec IDs and per-service CLI flag mappings.
+/// Loaded from `codecs.toml` (compiled into binary via `include_str!`).
+/// Bridge functions connect the existing `SongCodec` enum to registry IDs.
+pub mod codec_registry;
