@@ -34,6 +34,8 @@
 //   +-- acoustid_service.rs      -- AcoustID fingerprinting via embedded Chromaprint (opt-in)
 //   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
 //   +-- enhanced_lyrics_service  -- TTML → Enhanced LRC with word-by-word timestamps
+//   +-- webvtt_service.rs        -- WebVTT subtitle generation from TTML/SRT/LRC (opt-in)
+//   +-- musicbrainz_service.rs   -- MusicBrainz 3-tier recording lookup (opt-in)
 //
 // Thread safety:
 //   Services that access shared state (like the download queue) use
@@ -216,9 +218,11 @@ pub mod webvtt_service;
 /// MusicBrainz recording lookup service.
 ///
 /// Queries the MusicBrainz database to discover recording metadata,
-/// cross-platform URLs, and music video links using ISRC codes.
-/// Serves as a fallback for music video discovery (no MusicKit credentials
-/// needed) and groundwork for cross-platform song discovery.
+/// cross-platform URLs, and music video links. Uses a 3-tier priority
+/// chain: (1) Apple Music URL search in MB external links, (2) ISRC code
+/// search, (3) AcoustID recording ID direct lookup. Serves as a fallback
+/// for music video discovery (no MusicKit credentials needed) and
+/// groundwork for cross-platform song discovery.
 ///
 /// Used by: `download_queue` (post-download enrichment Step 6b, when `musicbrainz_lookup` enabled)
 pub mod musicbrainz_service;
