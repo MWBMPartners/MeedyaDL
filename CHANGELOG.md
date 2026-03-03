@@ -8,182 +8,447 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- Add WebVTT subtitle generation from TTML, SRT, and LRC lyrics
-
-  New enrichment step (2c) generates WebVTT (`.vtt`) subtitle files from
-  existing lyrics sidecars after download. Source priority: TTML (richest
-  timing data with word-level `<span>` support), SRT (has start+end
-  times), LRC (start times only, 3s estimated duration). New
-  `generate_webvtt` setting (default: false). Toggle in Settings > Lyrics.
-
-- Add MusicBrainz lookup service for music video discovery and cross-platform groundwork
-
-  Queries the MusicBrainz database to discover music videos and
-  cross-platform URLs using ISRC codes. Serves as a fallback for music
-  video companion downloads when the Apple Music API returns no results
-  (no MusicKit credentials needed). Returns all discovered platform URLs
-  (Apple Music, YouTube, Spotify, Deezer, Tidal, SoundCloud, Bandcamp)
-  via `external_urls` HashMap for future cross-platform song discovery.
-  New `musicbrainz_lookup` setting (default: false). Toggle in Settings >
-  Quality > Video Quality.
-
-- Enhance MusicBrainz with storefront awareness, song-level lookup, and AcoustID bridge
-
-  MusicBrainz lookups now rewrite Apple Music URLs to match the user's
-  configured storefront code (e.g., `us` → `gb`). Added direct
-  MusicBrainz recording ID lookup for songs that already have a recording
-  ID from AcoustID fingerprinting (Step 4). AcoustID service now extracts
-  MusicBrainz recording IDs from the AcoustID API response.
-
-- 3-tier MusicBrainz discovery: URL → ISRC → AcoustID recording ID
-
-  MusicBrainz video/URL discovery now uses a 3-tier priority chain for
-  maximum coverage: (1) Apple Music URL search in MB external links
-  (highest fidelity — finds the exact recording), (2) ISRC code search
-  (standard identifier — broader matching), (3) AcoustID recording ID
-  direct lookup (from fingerprinting — works even without ISRC). Each
-  tier is tried in order; first success wins. The discovery pattern is
-  reusable for both music video lookup and future cross-platform song
-  discovery when additional media services are added.
-
 - Add internal codec and format registry infrastructure
 
-  TOML-based codec registry (`codecs.toml`) with 16 audio codecs, 3 meta
-  codecs, 4 video codecs, 5 lyrics formats. Per-service CLI flag
-  mappings, MIME types, and bridge functions to existing SongCodec enum.
-  Background preparation for multi-service architecture.
+Adds an internal registry for managing audio/video codecs and
+  lyrics/subtitle formats via a TOML configuration file. Includes
+  MIME types, format categories, and extensible mapping structure.
+  Background preparation work for future planned features.
 
 - Add terser-based JS obfuscation for production builds
 
-  Release builds use Terser for aggressive minification with name
-  mangling, console stripping, and dead code elimination. Zero runtime
-  performance impact (build-time only). Debug builds unaffected.
+Switches production minification from esbuild to terser with aggressive
+  name mangling and code compression. Makes the compiled JavaScript in
+  release builds significantly harder to reverse-engineer.
+
+  Terser options:
+  - Mangle top-level names and _-prefixed properties
+  - Drop console.log/debugger statements in production
+  - Two-pass compression for maximum size reduction
+  - Strip all comments
+
+  Zero runtime performance impact — all processing happens at build time.
+  Debug builds are unaffected (minification disabled entirely).
+
+- Add WebVTT subtitle generation from TTML, SRT, and LRC lyrics
+
+Opt-in feature (Settings > Lyrics > Generate WebVTT Subtitles) that
+  creates .vtt sidecar files from existing lyrics. Source priority:
+  TTML (richest timing data), SRT (has start+end times), LRC (start
+  times only, end times estimated from next cue).
+
+  New webvtt_service.rs with ttml_to_webvtt(), srt_to_webvtt(), and
+  lrc_to_webvtt() conversion functions. Integrated as enrichment Step
+  2c (after lyrics fallback, before animated artwork). Skips tracks
+  that already have .vtt files. 18 new unit tests.
 
 - Mark all releases as pre-release until v1.0
+
+All 50 existing GitHub releases marked as pre-release. Future releases
+  from release.yml also default to prerelease: true. Users on the default
+  setting (check_pre_releases: false) won't receive update notifications
+  until a full release is published. Users who enable "Include Pre-Release
+  Versions" in Settings > General will continue receiving updates.
+
+  Added detailed pre-release vs full release workflow guide to Dev_Notes
+  covering: standard pre-release pipeline, three methods to publish a
+  full release (GitHub UI, workflow edit, CLI), and how the app update
+  checker chooses between stable and pre-release channels.
+
 - Add direct download links to release download table
+
+Updated release.yml to generate download table with clickable links
+  to each platform's asset file instead of plain text references. Added
+  version extraction step (strips 'v' prefix from tag) for asset URLs.
+
+  Also updated all 48 existing releases with download links via
+  gh release edit. Links point directly to the release assets:
+  https://github.com/REPO/releases/download/TAG/FILENAME
+
 - Add platform emojis to release download table
-- Add Raspberry Pi GDebi installation note to release pages
-- Reorder update check interval options in ascending frequency order
 
-- Generate rich SRT subtitles with formatting and colours from TTML
+Added platform identification emojis to the download table:
+  - 🍎 Mac
+  - 🪟 Windows
+  - 🐧 Linux
+  - 💻 Chromebook
 
-  Converts Apple Music TTML to format-rich SRT with HTML-like styling
-  tags (`<b>`, `<i>`, `<u>`, `<font color="...">`). Extracts `tts:fontWeight`,
-  `tts:fontStyle`, `tts:textDecoration`, `tts:color` attributes. Rich
-  SRT replaces plain SRT when TTML is available (richer data). Named
-  style definitions in `<head><styling>` and style inheritance from
-  `<p>` to `<span>` children are supported. New `generate_rich_srt`
-  setting (default: true). Toggle in Settings > Lyrics.
+  Updated release.yml template and all existing releases.
 
-- Embed subtitle content in MP4/M4A/M4V media containers
+- Add MusicBrainz lookup service for video discovery and cross-platform groundwork
 
-  Embeds SRT and WebVTT sidecar content as freeform atoms in the MP4
-  container (`com.apple.iTunes:subtitles-srt` and
-  `com.apple.iTunes:subtitles-vtt`). Subtitles travel with the file
-  rather than requiring separate sidecar files. New `embed_subtitles`
-  setting (default: false). Toggle in Settings > Lyrics.
+New musicbrainz_service.rs queries MusicBrainz database via ISRC codes
+  to discover music videos and cross-platform URLs (Apple Music, YouTube,
+  Spotify, Deezer, Tidal). No credentials required (free public API).
 
-- Generate ASS (Advanced SubStation Alpha) subtitles from TTML and WebVTT
+  Integrated as enrichment Step 6b — runs as fallback when MusicKit-based
+  video lookup finds no results. Cross-platform URLs are logged for future
+  use when additional service engines are added.
 
-  Converts Apple Music TTML or WebVTT to ASS subtitle format with rich
-  styling (BGR colours, bold/italic/underline override tags, positioning,
-  dedicated background vocals style). Source priority: TTML (richest
-  data) then WebVTT. New `generate_ass` setting (default: false). Toggle
-  in Settings > Lyrics.
+  Service is intentionally generic: returns all discovered platform URLs
+  via HashMap, not just Apple Music. Groundwork for future "if unavailable
+  on one platform, try another" cross-platform routing.
 
-- Add verbose activity log toggle for detailed diagnostic output
+  New setting: musicbrainz_lookup (default: false). Toggle in Settings >
+  Quality > Video Quality. Rate-limited to 1 req/sec per MusicBrainz ToS.
+  10 new unit tests for URL classification and struct serialization.
 
-  New `verbose_activity_log` setting controls whether detailed debug
-  messages (URLs with query params, cookie paths, API responses) are
-  shown in the activity log. Verbose messages are prefixed with
-  `[VERBOSE]`. Toggle in Settings > Advanced.
+- Enhance MusicBrainz with storefront awareness, ID lookup, AcoustID bridge
 
-- Extract comprehensive Apple Music API metadata (20 track + 11 album fields)
+Three enhancements to the MusicBrainz discovery service:
 
-  All available metadata from the Apple Music catalog API is now
-  extracted and embedded as freeform atoms. Track-level: Apple Digital
-  Master, release date, composer, duration, has lyrics, play params ID,
-  canonical URL, preview URL, genres. Album-level: record label,
-  copyright, release date, compilation/single/complete flags, Mastered
-  for iTunes, track count, editorial notes, UPC, content rating.
+  1. Storefront-aware Apple Music URLs: rewrite_apple_music_storefront()
+     detects and replaces storefront codes (e.g., /de/ → /gb/) when
+     MusicBrainz returns URLs for a different region.
 
-- Dual-namespace metadata tagging with industry standard names
+  2. Direct recording-by-ID lookup: lookup_recording_by_id() enables
+     MusicBrainz lookups when the recording ID is already known (e.g.,
+     from AcoustID), skipping the ISRC search step entirely.
 
-  All API-sourced metadata is written to both `com.apple.iTunes`
-  (player-compatible) and `MeedyaMeta` (MeedyaDL-branded) namespaces.
-  Album-scope tags use `Album*` prefix; track-scope uses no prefix.
-  Industry standard alternative names are used where they exist: `LABEL`
-  (Picard/Mp3tag), `COPYRIGHT`, `COMPILATION` (Picard/beets),
-  `TOTALTRACKS` (Picard/foobar2000).
+  3. AcoustID → MusicBrainz bridge: the AcoustID lookup now extracts
+     MusicBrainz recording IDs from the API response (they were already
+     present but not parsed).
 
-- Config-driven metadata tag system (tags.toml)
+  Also refactored relationship parsing into shared parse_recording_relations()
+  function used by both ISRC and direct ID lookup paths. 8 new unit tests.
 
-  Tag definitions moved from hardcoded Rust to declarative TOML config.
-  28 tag entries (16 album + 14 track) define: JSON path into API
-  response, value type conversion rules, and atom targets per namespace.
-  Adding new tags requires only editing `tags.toml` — zero Rust code
-  changes. Registry module with JSON path walker supports dotted paths,
-  `[N]` array indexing, and nested objects.
+- 3-tier MusicBrainz discovery: URL → ISRC → AcoustID recording ID
 
-- Add API field audit tool for discovering new Apple Music API metadata
+Enhanced lookup_videos_for_tracks with a 3-tier priority chain:
+  1. Apple Music URL search (most direct — searches MB external links)
+  2. ISRC code search (reliable standard identifier)
+  3. MusicBrainz recording ID direct lookup (from AcoustID fingerprinting)
 
-  Developer diagnostic tool (Settings > Metadata) that fetches a real
-  album from the Apple Music API and diffs the raw JSON response against
-  known tag definitions in `tags.toml`. Reports known/mapped fields,
-  unknown/new fields, and missing fields. Helps identify new API
-  additions for human review without auto-embedding.
+  New functions:
+  - lookup_recording_by_url() — searches MB for recordings with a specific
+    external URL link (e.g., Apple Music song URL)
+  - lookup_videos_for_tracks_enhanced() — uses TrackLookupInfo struct
+    carrying all three discovery identifiers
+  - TrackLookupInfo struct — carries song URL, ISRC, and MB recording ID
+
+  The legacy lookup_videos_for_tracks() still works (converts to
+  TrackLookupInfo internally). Each tier only fires if the previous
+  tier found no results. Rate limiting enforced between all requests.
 
 - Support non-geographic Apple Music URLs with storefront auto-detection
 
-  URLs without a storefront code (e.g., `music.apple.com/album/...`)
-  are now automatically normalized by injecting a storefront based on
-  the OS locale (or "us" fallback). GAMDL requires a storefront in the
-  URL path for its regex to match. Enrichment API calls (metadata,
-  artwork) now retry with alternative storefronts (OS locale, "us")
-  when the primary storefront returns 404 — handles region mismatches
-  from shared links. Normalization occurs at enqueue time and queue
-  import time.
+URLs without a storefront code (e.g., music.apple.com/album/...) are now
+  automatically normalized by injecting a storefront based on OS locale
+  (or "us" fallback). GAMDL requires a storefront in the URL path for its
+  regex to match, but ignores it for API calls (uses cookies/wrapper auth).
 
-- Add Dependabot configuration for automated dependency freshness
+  Two-layer approach:
+  1. URL normalization at enqueue — normalize_apple_music_url() injects
+     storefront before the URL enters the queue or reaches GAMDL
+  2. Storefront fallback for enrichment — fetch_album_metadata_with_fallback()
+     retries with alternative storefronts (OS locale, "us") when the primary
+     returns HTTP 404, handling cross-region shared links
 
-  Weekly semver-compatible dependency checks for both npm and Cargo
-  ecosystems. Minor/patch updates grouped into single PRs per ecosystem.
-  Major version jumps deferred for manual migration.
+  Also normalizes URLs in queue imports (.meedyadl files) and logs
+  normalization events to the activity log.
 
-- Add isBinaural and isDownmix codec identification tags
+- Add rich SRT generation from TTML and subtitle embedding
 
-  Binaural (AAC Binaural, AAC-HE Binaural) and Downmix (AAC Downmix,
-  AAC-HE Downmix) codec variants now get identification tags written to
-  both `com.apple.iTunes` and `MeedyaMeta` namespaces. These codecs
-  produce standard 2-channel AAC indistinguishable from regular stereo
-  by audio analysis — the codec identity at download time is the only
-  way to classify them.
+Two new enrichment steps:
 
-### ♿ Accessibility
+  Step 2d - Rich SRT generation (generate_rich_srt, default: true):
+  Converts Apple Music TTML to format-rich SRT with HTML-like styling
+  tags (<b>, <i>, <u>, <font color="...">). Extracts tts:fontWeight,
+  tts:fontStyle, tts:textDecoration, tts:color attributes from both
+  inline styles and named style definitions in <head><styling>. Style
+  inheritance from <p> to <span> children supported. Background vocals
+  (ttm:role="x-bg") wrapped in parentheses. Rich SRT overwrites any
+  existing plain SRT since TTML has richer data.
 
-- Use explicit string values for ARIA boolean attributes
+  Step 2e - Subtitle embedding (embed_subtitles, default: false):
+  Embeds SRT and WebVTT sidecar content into MP4/M4A/M4V containers
+  as freeform atoms (com.apple.iTunes:subtitles-srt/subtitles-vtt).
+  Uses existing mp4ameta pattern. Groundwork for multi-service support.
 
-  `aria-checked` in Toggle.tsx and `aria-expanded` in CookiesTab.tsx
-  now use explicit `"true"/"false"` strings instead of JavaScript
-  boolean expressions, fixing Edge DevTools accessibility warnings.
+  New service: rich_srt_service.rs with 34 unit tests covering styling,
+  colour normalization, timestamps, background vocals, style inheritance,
+  named styles, and edge cases.
 
-### 🔒 Security
+- Support WebVTT as rich SRT source alongside TTML
 
-- Fix incomplete URL substring sanitization in cookie domain styling
+Rich SRT generation now uses a dual-source priority chain:
+  1. TTML (richest — Apple Music, has tts:* styling attributes)
+  2. WebVTT (also supports <b>, <i>, <u>, CSS class tags)
 
-  `domain.includes('apple.com')` could match unrelated domains like
-  `notapple.com`. Now uses `endsWith('.apple.com') || === 'apple.com'`
-  for exact domain matching. Resolves GitHub Code Scanning alert #11.
+  This enables future services (YouTube/yt-dlp, BBC iPlayer) that provide
+  WebVTT with styling to produce rich SRT output. The directory function
+  now scans media files and finds matching source sidecars (like WebVTT
+  service pattern) instead of scanning for .ttml files directly.
 
-- Add Secure attribute to cookie test fixtures
+  New functions:
+  - webvtt_to_rich_srt() — parses WebVTT cues, preserves SRT-compatible
+    tags, strips VTT-only constructs (<c>, <v>, timestamps)
+  - clean_vtt_tags() — filters tags by SRT compatibility
+  - try_rich_srt_from_ttml/webvtt() — per-source helpers
 
-  Test cookies that don't specifically verify insecure behavior now set
-  `.secure(true)`. Resolves Code Scanning alerts #4-10.
+  15 new unit tests (WebVTT conversion, tag cleaning, edge cases).
 
-- Add explicit permissions block to CI workflow
+- Generate ASS subtitles from TTML and WebVTT with rich styling
 
-  CI workflow now declares `permissions: { contents: read }` following
-  the principle of least privilege. Resolves Code Scanning alerts #1-2.
+New enrichment Step 2f generates ASS (Advanced SubStation Alpha) subtitle
+  files from TTML or WebVTT sources with full styling support:
+
+  - Colours: RGB #RRGGBB → ASS BGR &HBBGGRR& conversion
+  - Text styling: bold ({\b1}), italic ({\i1}), underline ({\u1})
+  - Dynamic positioning: tts:origin → {\pos(x,y)} override tags
+  - Background vocals: ttm:role="x-bg" → dedicated "BgVocals" style
+    (semi-transparent, italic, slightly smaller font)
+  - Named style resolution from <head><styling> definitions
+  - Style inheritance from <p> to <span> children
+
+  Source priority: TTML first (richest, with tts:* attributes and
+  positioning), then WebVTT (supports <b>, <i>, <u> inline tags).
+
+  WebVTT tags are converted to ASS override equivalents:
+    <b>text</b> → {\b1}text{\b0}
+    <i>text</i> → {\i1}text{\i0}
+  VTT-only tags (<c>, <v>, timestamps) are stripped.
+
+  Reuses TTML style resolution from rich_srt_service via pub(crate)
+  shared types and functions (TtmlStyle, resolve_named_styles, etc.).
+
+  New service: ass_subtitle_service.rs with 37 unit tests.
+  New setting: generate_ass: bool (default: false, opt-in).
+  Toggle in Settings > Lyrics.
+
+- Add verbose activity log toggle for detailed debugging
+
+New `verbose_activity_log` setting (default: false) enables detailed
+  [VERBOSE] messages in the Activity Log for issue tracking. When enabled,
+  emits sensitive debugging information including full URLs, CLI arguments,
+  error classification details, wrapper URLs (unredacted), cookie paths,
+  and download settings.
+
+- Parse and embed audioTraits from Apple Music API (#121 Phase 1)
+
+Extract the audioTraits field from Apple Music API track responses
+  and write it as metadata tags. This field is returned by default
+  (no extend parameter needed) and indicates which audio formats are
+  available for each track: lossy-stereo, lossless, hi-res-lossless,
+  dolby-atmos, spatial.
+
+- Comprehensive Apple Music metadata extraction, dual-namespace tags, config-driven tag system (tags.toml), and API field audit tool
+
+- Extract all available Apple Music API metadata fields (20 track-level + 11 album-level)
+  - Dual-namespace tagging: com.apple.iTunes (player-compatible) + MeedyaMeta (MeedyaDL-branded)
+  - Industry standard alternative names: LABEL, COPYRIGHT, COMPILATION, TOTALTRACKS
+  - Album scope uses Album* prefix; track scope uses no prefix (default context)
+  - Config-driven tag definitions via tags.toml (28 entries) — zero Rust code changes for new tags
+  - Tag registry module (tag_registry.rs) with JSON path extraction and value conversion
+  - API field audit tool: fetch album, flatten JSON, diff against tags.toml, report unknown fields
+  - Audit UI in Settings > Metadata tab (collapsible, requires MusicKit credentials)
+  - 35 new tests (25 tag registry + 10 audit service), 551 total Rust tests passing
+
+- Add isBinaural and isDownmix codec identification tags (#119)
+
+Binaural (AAC Binaural, AAC-HE Binaural) and Downmix (AAC Downmix,
+  AAC-HE Downmix) codec variants now get identification tags written
+  to both com.apple.iTunes and MeedyaMeta namespaces:
+
+  - isBinaural = Y (binaural spatial audio for headphones)
+  - isDownmix = Y (stereo downmix of spatial/surround master)
+
+  These codecs produce standard 2-channel AAC indistinguishable from
+  regular stereo by audio analysis — codec identity at download time
+  is the only way to classify them.
+
+  Tags written in both apply_codec_metadata_tags() (companion downloads)
+  and enrich_single_file() (enrichment pipeline Layer 1).
+
+
+### 🐛 Bug Fixes
+
+- Reorder update check interval options in ascending frequency order
+
+Move "Startup only" from first to last position in the Settings >
+  General > Check Interval dropdown. Options now listed from most
+  frequent to least frequent: Every hour → Every 6/12/24 hours →
+  Startup only.
+
+- Use version tag only as GitHub release title (no app name prefix)
+
+Renamed all 50 existing releases from "MeedyaDL vX.X.X" to just "vX.X.X".
+  Updated release.yml releaseName and ARMv7 fallback gh release create
+  to use the tag directly. Keeps release page clean and consistent.
+
+- Address GitHub Code Scanning security alerts
+
+Three categories of fixes:
+
+  1. Incomplete URL substring sanitization (Alert #11):
+     CookiesTab.tsx used `domain.includes('apple.com')` which could match
+     unrelated domains. Now uses exact domain matching:
+     `domain === 'apple.com' || domain.endsWith('.apple.com')`
+
+  2. Insecure cookie test fixtures (Alerts #4-10):
+     Test cookies that don't specifically verify insecure behavior now set
+     `.secure(true)`. The one test that intentionally tests insecure cookies
+     (`insecure_cookie_has_false_flag`) is annotated with a comment.
+
+  3. Missing workflow permissions (Alerts #1-2):
+     CI workflow now declares `permissions: { contents: read }` following
+     the principle of least privilege for the GITHUB_TOKEN.
+
+- Use explicit ARIA string values and update CHANGELOG
+
+- Toggle.tsx: aria-checked now uses "true"/"false" strings instead of
+    boolean expression (fixes Edge DevTools axe/aria warning)
+  - CookiesTab.tsx: aria-expanded now uses "true"/"false" strings at both
+    outer collapsible and per-browser accordion levels
+  - CHANGELOG.md: add isBinaural/isDownmix tags and ARIA fix entries
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Add codecs.toml editing guide to Dev_Notes.md
+
+Comprehensive guide for developers on how to add/modify entries in
+  codecs.toml: audio codecs, video codecs, lyrics formats, and meta
+  codecs. Includes how to find service mapping values from each engine's
+  CLI help, practical examples (MP3, unmapped codecs), and when code
+  changes are vs aren't required.
+
+- Standing tasks sweep — update Project_Plan and CLAUDE.md
+
+Add codec registry infrastructure and JS obfuscation to Project_Plan
+  completed features list. Update CLAUDE.md Key Directories to include
+  codec_registry module, template-parser lib, and codec-registry types.
+
+- Add Raspberry Pi GDebi installation note to release pages
+
+Raspberry Pi users may need GDebi to install .deb packages with
+  dependencies resolved. Added note to release.yml template and all
+  existing releases: sudo apt install gdebi-core && sudo gdebi ...
+
+- Update documentation for WebVTT, MusicBrainz, and v0.6.3+ features
+
+Update all documentation to reflect recent features:
+  - CLAUDE.md: 9-stage enrichment pipeline, WebVTT/MusicBrainz services
+  - CHANGELOG.md: Full [Unreleased] entries for WebVTT, MusicBrainz 3-tier
+    discovery, codec registry, terser, pre-release flag, download links
+  - Project_Plan.md: 5 new completed features
+  - README.md: WebVTT and MusicBrainz feature bullets + checklist items
+  - help/lyrics-and-metadata.md: WebVTT and MusicBrainz help sections,
+    updated enrichment stage list (2c, 6b)
+  - services/mod.rs: Updated module map and MusicBrainz doc comment
+
+- Link roadmap features to GitHub Issues and organize project tracking
+
+- Created 5 new GitHub Issues for planned/future features:
+    #107 (multi-service architecture), #108 (enhanced MusicKit),
+    #109 (native SwiftUI), #110 (smart download), #111 (full i18n)
+  - Closed #105 (Apple Music support — already fully implemented)
+  - Added all open issues (#44, #100-104, #106-111) to GitHub Project
+  - Updated README.md roadmap tables with Issue column and links
+  - Updated Project_Plan.md roadmap overview with Issue column,
+    added issue links to Milestone 8/9/10 headers, added rows for
+    Enhanced MusicKit, i18n, remote disable, SwiftUI, crash relay
+
+- Add GitHub Issue tracking as formal standing task
+
+Standing task #4 now requires creating/closing/linking GitHub Issues
+  for every task (features, bugs, enhancements, security) and adding
+  them to the "MeedyaDL Development" project. Parent/child dependencies
+  must be cross-referenced. Follow-up work must get its own issue.
+
+  Updated in both CLAUDE.md (project instructions) and memory/MEMORY.md
+  (session persistence).
+
+- Comprehensive documentation update for metadata, subtitles, and tags.toml
+
+- CHANGELOG.md: Add ASS subtitles, verbose logging, comprehensive API metadata,
+    dual-namespace tagging, tags.toml, API audit tool, Dependabot entries
+  - DEV_NOTES.md: Add tags.toml editing guide (schema, JSON path syntax, value
+    types, namespace conventions, step-by-step "Adding a New Tag" section), subtitle
+    and lyrics generation section (6-step pipeline, format comparison, embedding atoms)
+  - Project_Plan.md: Add 11 recently delivered features to post-release list
+  - README.md: Expand Metadata & Extras section with Rich SRT, ASS, subtitle
+    embedding, config-driven tags, API audit tool, comprehensive enrichment details
+  - help/lyrics-and-metadata.md: Update enrichment pipeline to 12 stages, expand
+    API tag table with all 30+ atoms, add tags.toml cross-reference
+  - Fix pre-existing pedantic clippy suggestions: needless raw string hashes
+    (replaygain_service), map_unwrap_or (gamdl), redundant closures (download_queue)
+  - MeedyaManager#11: Mirror issue for subtitle/lyrics format support
+
+
+### 🧪 Testing
+
+- Add complex integration tests for TTML and WebVTT rich SRT conversion
+
+Two new end-to-end tests exercising real-world scenarios:
+
+  - ttml_to_rich_srt_complex_mixed_styling: plain text, italic verse,
+    named style (bold+colour), mixed spans with bold+background vocals,
+    underline+named colour — verifies all 5 cue types in one test
+
+  - webvtt_to_rich_srt_complex_mixed_tags: plain text, preserved <b>/<i>,
+    stripped <c> class tags, stripped inline timestamps, stripped <v> voice
+    tags — verifies SRT-compatible tag preservation and VTT-only stripping
+
+
+### 🔄 CI/CD
+
+- Add npm audit security scanning to CI pipeline
+
+Adds `npm audit --audit-level=high` step to the frontend CI job,
+  running after npm ci install. Fails the build only on high/critical
+  severity vulnerabilities in npm dependencies.
+
+  Also created GitHub Issues for project recommendations:
+  - #112: cargo deny licence scanning for Rust dependencies
+  - #113: end-to-end integration tests for enrichment pipeline
+  - #114: React component rendering tests for settings tabs
+  - #115: dependency freshness checks (npm outdated, cargo outdated)
+  - #116: Wiki sync with in-app help documentation
+
+  All issues added to MeedyaDL Development project.
+
+- Add Dependabot version updates for automated dependency freshness
+
+Configures Dependabot to create weekly PRs for semver-compatible
+  (minor + patch) updates to both npm and Cargo dependencies. Major
+  version jumps are excluded (tracked separately in #117).
+
+
+### 🧹 Maintenance
+
+- Update dependencies (npm + cargo semver-compatible)
+
+npm updates (8 packages, all semver-compatible):
+  - @eslint/js 9.39.2→9.39.3, eslint 9.39.2→9.39.3
+  - @sentry/browser 10.40.0→10.42.0
+  - @types/react 19.2.13→19.2.14
+  - @typescript-eslint/eslint-plugin 8.54.0→8.56.1
+  - @typescript-eslint/parser 8.54.0→8.56.1
+  - autoprefixer 10.4.24→10.4.27
+  - i18next 25.8.10→25.8.13, postcss 8.5.6→8.5.8
+
+  Cargo updates (7 packages):
+  - tokio 1.49.0→1.50.0
+  - aws-lc-rs 1.16.0→1.16.1, aws-lc-sys 0.37.1→0.38.0
+  - getrandom 0.4.1→0.4.2, ipnet 2.11.0→2.12.0
+  - minisign-verify 0.2.4→0.2.5
+
+  Major version jumps deferred (tailwindcss 4, vite 7, eslint 10,
+  commitlint 20, etc.) — require migration effort.
+
+  All 516 Rust + 231 frontend tests pass. 0 vulnerabilities.
+
+- Add markdownlint ignore for auto-generated and internal files
+
+Exclude CHANGELOG.md (auto-generated by git-cliff) and .claude/
+  (internal development context) from markdownlint checks. Also added
+  .vscode/settings.json (gitignored) with workspace-level markdownlint
+  ignore config and documentation of Edge DevTools false positives.
+
+
+## [0.6.4] - 2026-03-03
 
 ### 🐛 Bug Fixes
 
