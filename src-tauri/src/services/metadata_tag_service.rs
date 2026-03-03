@@ -501,6 +501,18 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
         FreeformIdent::new_static(ITUNES_NAMESPACE, "StoreID/AppleMusic"),
         Data::Utf8(track.song_id.clone()),
     );
+
+    // Write Apple Music audio traits — the available audio formats for this track.
+    // Values: "lossy-stereo", "lossless", "hi-res-lossless", "dolby-atmos", "spatial"
+    // Stored under MeedyaMeta namespace only (Apple-specific data, MeedyaDL-branded tag).
+    // Tag name "AppleAudioTraits" makes it clear this is Apple Music-sourced metadata.
+    if !track.audio_traits.is_empty() {
+        let traits_str = track.audio_traits.join(", ");
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleAudioTraits"),
+            Data::Utf8(traits_str),
+        );
+    }
 }
 
 /// Write animated artwork HLS M3U8 URLs as metadata tags.
@@ -835,6 +847,7 @@ mod tests {
                 name: "Track One".to_string(),
                 track_number: 1,
                 disc_number: 1,
+                audio_traits: vec!["lossy-stereo".to_string(), "lossless".to_string()],
             },
             apple_music_api::TrackMetadata {
                 song_id: "200".to_string(),
@@ -845,6 +858,7 @@ mod tests {
                 name: "Track Two".to_string(),
                 track_number: 2,
                 disc_number: 1,
+                audio_traits: vec!["lossy-stereo".to_string(), "dolby-atmos".to_string()],
             },
             apple_music_api::TrackMetadata {
                 song_id: "300".to_string(),
@@ -855,6 +869,7 @@ mod tests {
                 name: "Disc Two Track One".to_string(),
                 track_number: 1,
                 disc_number: 2,
+                audio_traits: vec![],
             },
         ]
     }

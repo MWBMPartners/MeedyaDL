@@ -112,6 +112,10 @@ pub struct TrackMetadata {
     pub track_number: u32,
     /// Disc number (1-based)
     pub disc_number: u32,
+    /// Available audio formats for this track (from `audioTraits` API field).
+    /// Values: "lossy-stereo", "lossless", "hi-res-lossless", "dolby-atmos", "spatial".
+    /// Empty if the API didn't return audioTraits for this track.
+    pub audio_traits: Vec<String>,
 }
 
 // ============================================================
@@ -493,6 +497,18 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 .and_then(|v| u32::try_from(v).ok())
                 .unwrap_or(1);
 
+            // Extract audioTraits array (e.g., ["lossy-stereo", "lossless", "dolby-atmos"])
+            // This is returned by default in the catalog API response — no extend needed.
+            let audio_traits = attrs
+                .get("audioTraits")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+
             Some(TrackMetadata {
                 song_id,
                 isrc,
@@ -502,6 +518,7 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 name,
                 track_number,
                 disc_number,
+                audio_traits,
             })
         })
         .collect()
@@ -972,6 +989,11 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
                 name: "Anti-Hero".to_string(),
                 track_number: 3,
                 disc_number: 1,
+                audio_traits: vec![
+                    "lossy-stereo".to_string(),
+                    "lossless".to_string(),
+                    "dolby-atmos".to_string(),
+                ],
             }],
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
