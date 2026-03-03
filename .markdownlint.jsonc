@@ -1,0 +1,5 @@
+{
+  // MeedyaDL markdownlint configuration
+  // Allow inline HTML — required for GitHub README headers (centered logos, badge rows)
+  "MD033": false
+}
