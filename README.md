@@ -338,28 +338,27 @@ refactor(backend): simplify dependency management
 
 ### v2.x — Multi-Service Expansion
 
-| Milestone | Version | Service | Engine | Status |
-| --- | --- | --- | --- | --- |
-| M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
-| M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
-| M10 | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
+| Milestone | Version | Service | Engine | Issue | Status |
+| --- | --- | --- | --- | --- | --- |
+| — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | 🔲 Prerequisite |
+| M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
+| M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
+| M10 | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
 
 Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. See [Project Plan](Project_Plan.md) for full milestone details.
 
 ### v3.x — Advanced Features
 
-- 🔮 **Smart Download** — cross-platform quality optimisation (search all services for the same content, download the best quality)
-- 🔮 **YouTube Music** via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features beyond yt-dlp
-- 🔮 **Full i18n** — complete translations for German, French, and additional languages
-- 🔮 **Download history** and statistics dashboard
+- 🔮 **Smart Download** ([#110](https://github.com/MWBMPartners/MeedyaDL/issues/110)) — cross-platform quality optimisation (search all services for the same content, download the best quality)
+- 🔮 **YouTube Music** ([#103](https://github.com/MWBMPartners/MeedyaDL/issues/103)) via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features beyond yt-dlp
+- 🔮 **Full i18n** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — complete translations for German, French, and additional languages
+- 🔮 **Enhanced MusicKit Integration** ([#108](https://github.com/MWBMPartners/MeedyaDL/issues/108)) — server-side token generation to remove Apple Developer credential requirement
 
 ### Future
 
-- 🔮 **Remote Service Status** — developer-controlled kill switch for individual media services
-- 🔮 **Integration API** for third-party scripts and automation
-- 🔮 **Custom themes** and accent colour picker
-- 🔮 **Multi-track muxing** — combine companion downloads into a single MP4 with multiple audio streams
-- 🔮 **Native SwiftUI UI for macOS** — fully native frontend on Apple Silicon
+- 🔮 **Remote Service Status** ([#106](https://github.com/MWBMPartners/MeedyaDL/issues/106)) — developer-controlled kill switch for individual media services
+- 🔮 **Anonymous Crash Reporting** ([#44](https://github.com/MWBMPartners/MeedyaDL/issues/44)) — PHP relay for crash submission without GitHub account
+- 🔮 **Native SwiftUI UI for macOS** ([#109](https://github.com/MWBMPartners/MeedyaDL/issues/109)) — fully native frontend on Apple Silicon
 
 ---
 
