@@ -107,7 +107,9 @@ use crate::models::crash_report::CrashReport;
 use crate::utils::process;
 // Activity log helpers: emit_download_log for per-download messages,
 // emit_app_log for system-level messages, ActivityLogEvent for raw stdout/stderr.
-use crate::utils::activity_log::{emit_app_log, emit_download_log, ActivityLogEvent};
+use crate::utils::activity_log::{
+    emit_app_log, emit_download_log, emit_verbose_download_log, ActivityLogEvent,
+};
 
 // ============================================================
 // Graceful shutdown signal
@@ -2623,7 +2625,21 @@ pub fn process_queue(
         // (e.g., ?token=abc) into log files which have no automatic cleanup.
         if let Some(ref url) = wrapper_url_for_logging {
             log::info!("Download {download_id} using wrapper at {}", redact_url_query(url));
+            // Verbose: show full wrapper URL (not redacted) for troubleshooting
+            emit_verbose_download_log(&app, &download_id, &format!("Wrapper URL (full): {url}"));
         }
+
+        // Verbose: log the full download options
+        emit_verbose_download_log(
+            &app,
+            &download_id,
+            &format!(
+                "URLs: {:?} | Codec: {} | Native priority: {}",
+                &urls,
+                primary_codec_for_companions,
+                download_options.song_codec_priority.is_some()
+            ),
+        );
 
         // Retrieve the shutdown signal from Tauri managed state.
         // This is checked by fire-and-forget background tasks (companion
@@ -3693,6 +3709,13 @@ pub fn process_queue(
                     let error_category = process::classify_error(&error_msg);
                     log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
 
+                    // Verbose: full error message + classification details
+                    emit_verbose_download_log(
+                        &app_clone,
+                        &dl_id,
+                        &format!("Error classification: category={error_category}, message={error_msg}"),
+                    );
+
                     // Add wrapper-specific context for network errors to aid troubleshooting.
                     // Surface the wrapper URL in the Activity Log (not just the debug log)
                     // so users can see which endpoint failed.
@@ -4057,6 +4080,16 @@ async fn run_download_with_events(
 
     // Build the command with all arguments
     let mut cmd = gamdl_service::build_gamdl_command_public(app, urls, options)?;
+
+    // Verbose: log CLI args for debugging
+    emit_verbose_download_log(
+        app,
+        download_id,
+        &format!(
+            "GAMDL CLI args: {:?}",
+            options.to_cli_args()
+        ),
+    );
 
     // Configure piped stdout/stderr for real-time parsing
     cmd.stdout(std::process::Stdio::piped());

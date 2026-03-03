@@ -551,6 +551,8 @@ export interface AppSettings {
   exclude_tags: string[];
   /** Whether to send anonymous crash reports to Sentry (opt-in, default: false) */
   sentry_enabled: boolean;
+  /** When true, emits detailed [VERBOSE] messages to Activity Log (may expose sensitive data). */
+  verbose_activity_log: boolean;
   /** Whether the setup wizard has been completed at least once */
   setup_completed: boolean;
   /** Whether the sidebar is in collapsed (icon-only) mode */

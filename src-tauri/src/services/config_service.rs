@@ -122,6 +122,9 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         log::warn!("Failed to sync config.ini on load: {e}");
     }
 
+    // Sync the verbose activity log flag to the global atomic.
+    crate::utils::activity_log::set_verbose_logging(settings.verbose_activity_log);
+
     Ok(settings)
 }
 
@@ -190,6 +193,10 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
         log::warn!("Failed to sync settings to GAMDL config: {e}");
         // Don't fail the save operation — the JSON settings are the source of truth
     }
+
+    // Sync the verbose activity log flag immediately so it takes effect
+    // without requiring an app restart.
+    crate::utils::activity_log::set_verbose_logging(settings.verbose_activity_log);
 
     Ok(())
 }
