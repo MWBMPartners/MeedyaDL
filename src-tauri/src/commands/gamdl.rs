@@ -127,6 +127,31 @@ pub async fn start_download(
     // so the download can still proceed with sensible quality/format choices.
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
+    // Normalize non-geographic Apple Music URLs by injecting a storefront
+    // code. GAMDL requires a 2-letter storefront in the URL path (e.g., /us/).
+    // MeedyaDL detects URLs missing a storefront and injects one based on the
+    // OS locale (or "us" as fallback). The storefront is cosmetic for GAMDL
+    // (it uses the user's cookies/wrapper auth to determine the real storefront)
+    // but structurally required for GAMDL's URL regex to match.
+    let mut request = request;
+    let original_urls = request.urls.clone();
+    request.urls = request
+        .urls
+        .into_iter()
+        .map(|url| crate::services::apple_music_api::normalize_apple_music_url(&url))
+        .collect();
+
+    // Log when normalization occurs so the user sees what happened.
+    for (original, normalized) in original_urls.iter().zip(request.urls.iter()) {
+        if original != normalized {
+            log::info!("Normalized non-geographic URL: {original} → {normalized}");
+            emit_app_log(
+                &app,
+                &format!("URL normalized — storefront auto-detected: {normalized}"),
+            );
+        }
+    }
+
     // Multi-select artist auto-select: if the URL is an artist URL and
     // multiple modes are configured, split into N separate downloads (one
     // per mode). GAMDL only accepts a single --artist-auto-select value,
@@ -649,13 +674,27 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     // Load current settings for option merging on the importing device
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
+    // Normalize non-geographic URLs in imported items (same as start_download).
+    let items: Vec<_> = export_file
+        .items
+        .into_iter()
+        .map(|mut item| {
+            item.urls = item
+                .urls
+                .into_iter()
+                .map(|url| crate::services::apple_music_api::normalize_apple_music_url(&url))
+                .collect();
+            item
+        })
+        .collect();
+
     // Import items into the queue. The lock is acquired inline and
     // released immediately after import_items() returns, avoiding
     // unnecessary resource contention (clippy::significant_drop_tightening).
     let count = queue
         .lock()
         .await
-        .import_items(export_file.items, &settings)
+        .import_items(items, &settings)
         .len();
 
     // Persist the updated queue

@@ -65,6 +65,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Add Raspberry Pi GDebi installation note to release pages
 - Reorder update check interval options in ascending frequency order
 
+- Support non-geographic Apple Music URLs with storefront auto-detection
+
+  URLs without a storefront code (e.g., `music.apple.com/album/...`)
+  are now automatically normalized by injecting a storefront based on
+  the OS locale (or "us" fallback). GAMDL requires a storefront in the
+  URL path for its regex to match. Enrichment API calls (metadata,
+  artwork) now retry with alternative storefronts (OS locale, "us")
+  when the primary storefront returns 404 — handles region mismatches
+  from shared links. Normalization occurs at enqueue time and queue
+  import time.
+
 ### 🐛 Bug Fixes
 
 - Use --song-codec-priority instead of removed --song-codec flag

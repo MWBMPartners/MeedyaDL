@@ -411,7 +411,7 @@ fn build_storefront_url() -> String {
 /// # Returns
 /// * `Some(String)` - Lowercase 2-letter country code (e.g., "gb", "de").
 /// * `None` - If locale detection fails or the locale has no country component.
-fn detect_storefront() -> Option<String> {
+pub fn detect_storefront() -> Option<String> {
     // sys-locale::get_locale() returns the primary system locale as a string.
     // The format varies by OS but typically follows BCP 47 (e.g., "en-US")
     // or POSIX (e.g., "en_US.UTF-8").
