@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.6.5] - 2026-03-03
+
 ### ✨ Features
 
 - Add internal codec and format registry infrastructure
