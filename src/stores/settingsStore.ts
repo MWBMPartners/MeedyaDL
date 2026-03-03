@@ -144,6 +144,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
+  verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)
   setup_completed: false, // Whether the setup wizard has been completed at least once
   sidebar_collapsed: false, // UI preference: sidebar expanded by default
   theme_override: null, // null = follow OS theme; 'light' or 'dark' to override

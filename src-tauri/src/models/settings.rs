@@ -656,6 +656,19 @@ pub struct AppSettings {
     #[serde(default)]
     pub sentry_enabled: bool,
 
+    /// When enabled, emits detailed diagnostic messages to the Activity Log
+    /// including URLs, file paths, API responses, error details, and
+    /// enrichment step internals. Prefixed with `[VERBOSE]` in the log.
+    ///
+    /// **WARNING**: Verbose output may contain sensitive information such as
+    /// cookie file paths, wrapper URLs with authentication tokens, Apple Music
+    /// API responses, and MusicKit credentials. Only enable when collecting
+    /// detailed logs for issue tracking; disable before sharing logs.
+    ///
+    /// Controlled in Settings > Advanced > Diagnostics.
+    #[serde(default)]
+    pub verbose_activity_log: bool,
+
     // ================================================================
     // Application State
     // ================================================================
@@ -920,6 +933,8 @@ impl Default for AppSettings {
             // Sentry is disabled by default (opt-in). No data is sent until
             // the user explicitly enables it in Settings > Advanced.
             sentry_enabled: false,
+            // Verbose activity log disabled by default — may expose sensitive data.
+            verbose_activity_log: false,
 
             // --- Application state ---
             // Setup wizard has not been completed yet on a fresh install.

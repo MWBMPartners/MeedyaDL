@@ -250,6 +250,32 @@ export function AdvancedTab() {
         <CrashReportSection />
       </div>
 
+      {/* Section: Diagnostics */}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-content-primary mb-4">Diagnostics</h3>
+
+        <Toggle
+          label="Verbose Activity Log"
+          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging."
+          checked={settings.verbose_activity_log}
+          onChange={(checked) => updateSettings({ verbose_activity_log: checked })}
+        />
+
+        {settings.verbose_activity_log && (
+          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+            <p className="text-xs font-semibold text-status-warning mb-1">
+              Sensitive Data Warning
+            </p>
+            <p className="text-xs text-status-warning">
+              Verbose logging includes detailed information that may contain sensitive data such as
+              cookie file paths, wrapper URLs with authentication tokens, Apple Music API responses,
+              MusicKit credentials, and full download URLs. Disable this setting before sharing
+              activity logs with others.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Section: File Options */}
       <div className="space-y-4">
         <h3 className="text-base font-semibold text-content-primary mb-4">File Options</h3>
