@@ -694,3 +694,127 @@ The post-download enrichment pipeline runs inside `tokio::spawn(async move {...}
 2. `tokio::task::yield_now().await` added between all enrichment steps
 
 `enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). Its call site in `download_queue.rs` wraps it in `spawn_blocking()`.
+
+---
+
+## Codec Registry (`codecs.toml`)
+
+**File location:** `src-tauri/codecs.toml`
+
+The codec registry defines all audio/video codecs and lyrics/subtitle formats that MeedyaDL supports or plans to support. It is compiled into the binary at build time via `include_str!` — no runtime file I/O.
+
+### File Structure
+
+The TOML file has four top-level sections:
+
+| Section | Purpose | Example ID |
+| ------- | ------- | ---------- |
+| `[audio.<id>]` | Audio codecs (AAC, ALAC, Atmos, etc.) | `eac3-atmos`, `alac`, `aac-hq` |
+| `[meta.<id>]` | Abstract quality tiers that resolve per-service | `lossless`, `atmos`, `best-lossy` |
+| `[video.<id>]` | Video codecs (H.265, H.264, VP9, etc.) | `h265`, `h264`, `vp9` |
+| `[lyrics.<id>]` | Lyrics/subtitle/caption formats | `ttml`, `lrc`, `srt`, `vtt` |
+
+### Adding a New Audio Codec
+
+```toml
+[audio.my-new-codec]
+name = "My New Codec"           # Display name shown in the UI
+category = "lossy"              # "spatial", "lossless", or "lossy"
+lossless = false                # true if codec preserves original quality
+mimetype = "audio/mp4"          # MIME type for the audio format
+[audio.my-new-codec.services]
+gamdl = "my-flag"               # Exact CLI flag string for GAMDL
+votify = "other-flag"           # Exact CLI flag string for Votify
+```
+
+### Adding a New Video Codec
+
+```toml
+[video.my-video-codec]
+name = "My Video Codec"
+category = "modern"             # "modern" or "compatible"
+mimetype = "video/mp4"
+[video.my-video-codec.services]
+gamdl = "my-flag"
+```
+
+### Adding a New Lyrics Format
+
+```toml
+[lyrics.my-format]
+name = "My Format"
+category = "text"               # "xml" or "text"
+extension = "myf"               # File extension without dot
+mimetype = "text/x-myformat"
+word_timing = false             # true if supports word-level timestamps
+[lyrics.my-format.services]
+gamdl = "myf"
+```
+
+### Adding a Meta Codec
+
+Meta codecs are abstract quality tiers that resolve to concrete codecs per service:
+
+```toml
+[meta.best-quality]
+name = "Best Quality"
+category = "lossless"
+resolves_to = { gamdl = "alac", votify = "flac" }
+```
+
+### How to Find Service Mapping Values
+
+Each service mapping value is the **exact string** the download engine's CLI expects as a flag argument. To find the correct value:
+
+| Service Engine | CLI Tool | How to Find Codec Values |
+| -------------- | -------- | ------------------------ |
+| `gamdl` | GAMDL (Apple Music) | Run `python -m gamdl --help` or check `gamdl/cli_config.py` in the GAMDL source. Values listed under `--song-codec-priority`. |
+| `votify` | Votify (Spotify) | Run `python -m votify --help` or check Votify's documentation. Values like `flac`, `aac-high`, `aac-medium`, `ogg-vorbis`. |
+| `ytdlp` | yt-dlp (YouTube) | Run `yt-dlp --help` (format selection section) or check the yt-dlp docs. Values like `opus`, `aac`, `vorbis` (audio) and `vp9`, `av1` (video). |
+
+The service engine IDs (`gamdl`, `votify`, `ytdlp`) are defined by MeedyaDL — they're the keys used in the download routing code.
+
+### If No Service Supports a Codec Yet
+
+Omit the `[*.services]` table entirely. The codec exists in the registry for future use, and `resolve_audio()` returns `None` for all services:
+
+```toml
+[audio.ac4-atmos]
+name = "Dolby Atmos (AC-4)"
+category = "spatial"
+lossless = false
+mimetype = "audio/ac4"
+# No [audio.ac4-atmos.services] table — not downloadable yet
+```
+
+### Practical Example: Adding MP3 Support
+
+If a future service engine (say `example-dl`) supported MP3 downloads with a CLI flag `--audio-format mp3-320`:
+
+```toml
+[audio.mp3-320]
+name = "MP3 320kbps"
+category = "lossy"
+lossless = false
+mimetype = "audio/mpeg"
+[audio.mp3-320.services]
+# gamdl doesn't support MP3, so no gamdl mapping
+example-dl = "mp3-320"         # Exact CLI flag for example-dl
+```
+
+### No Code Changes Required
+
+Adding new entries to `codecs.toml` requires **zero Rust or TypeScript code changes**. The registry uses `HashMap<String, ...>` for dynamic parsing, so new entries are automatically available via the query functions (`resolve_audio()`, `codecs_for_service()`, etc.).
+
+The only exceptions that need code changes:
+
+1. **New top-level section type** (e.g., `[container.mp4]`) — needs a new struct in `codec_registry.rs`
+2. **New SongCodec bridge mapping** — if the codec maps to the existing `SongCodec` Rust enum, update `song_codec_to_registry_id()` / `registry_id_to_song_codec()` in `codec_registry.rs`
+
+### Related Files
+
+| File | Role |
+| ---- | ---- |
+| `src-tauri/codecs.toml` | Codec definitions (edit this file to add/modify codecs) |
+| `src-tauri/src/models/codec_registry.rs` | Rust registry module (parses TOML, provides query functions) |
+| `src/types/codec-registry.ts` | TypeScript type mirrors for frontend use |
