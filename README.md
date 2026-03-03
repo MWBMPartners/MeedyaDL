@@ -1,17 +1,18 @@
 <p align="center">
-  <h1 align="center">🎵 MeedyaDL</h1>
-  <p align="center">
-    <strong>A multiplatform media downloader</strong>
-  </p>
-  <p align="center">
-    Download songs, albums, playlists, music videos, and more from your favourite media services with ease.
-  </p>
+  <img src="src-tauri/icons/128x128.png" alt="MeedyaDL Logo" width="100" height="100">
+</p>
+<h1 align="center">MeedyaDL</h1>
+<p align="center">
+  <strong>A multiplatform media downloader</strong>
+</p>
+<p align="center">
+  Download songs, albums, playlists, music videos, and more from your favourite media services with ease.
 </p>
 
 <p align="center">
-  <a href="https://github.com/MeedyaDL/MeedyaDL/releases"><img src="https://img.shields.io/badge/Version-0.6.5?style=flat-square" alt="Version"></a> <!-- x-release-please-version -->
+  <a href="https://github.com/MWBMPartners/MeedyaDL/releases"><img src="https://img.shields.io/github/v/release/MWBMPartners/MeedyaDL?include_prereleases&style=flat-square&label=Version" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
-  <a href="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MeedyaDL/MeedyaDL/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
+  <a href="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
 </p>
 
