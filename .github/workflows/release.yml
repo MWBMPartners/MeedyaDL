@@ -499,7 +499,7 @@ jobs:
           ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
-          releaseName: 'MeedyaDL ${{ steps.tag.outputs.name }}'
+          releaseName: '${{ steps.tag.outputs.name }}'
           releaseBody: |
             ## MeedyaDL ${{ steps.tag.outputs.name }}
 
@@ -578,7 +578,7 @@ jobs:
 
           # Ensure the draft release exists (another build may not have created it yet)
           if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft --prerelease --title "MeedyaDL $TAG" --notes "Release in progress..."
+            gh release create "$TAG" --draft --prerelease --title "$TAG" --notes "Release in progress..."
           fi
 
           # Upload .deb: rename armhf → armv7 for clarity
