@@ -818,3 +818,69 @@ The only exceptions that need code changes:
 | `src-tauri/codecs.toml` | Codec definitions (edit this file to add/modify codecs) |
 | `src-tauri/src/models/codec_registry.rs` | Rust registry module (parses TOML, provides query functions) |
 | `src/types/codec-registry.ts` | TypeScript type mirrors for frontend use |
+
+---
+
+## Pre-Release vs Full Release Workflow
+
+All versions before v1.0 are published as **pre-releases** on GitHub. This means:
+
+- Users with `check_pre_releases: false` (default) will NOT receive update notifications
+- Users who enable "Include Pre-Release Versions" in Settings > General will receive updates
+- The `release.yml` workflow sets `prerelease: true` on all builds
+
+### Publishing a Pre-Release (Current Default)
+
+No special action needed. The standard release pipeline produces pre-releases automatically:
+
+```bash
+# 1. Push conventional commits to main
+git push origin main
+
+# 2. Release Please creates a Release PR (automatic)
+# 3. Merge the Release PR on GitHub
+# 4. Release Please creates a tag (e.g., v0.7.0)
+# 5. release.yml builds all platforms → draft pre-release on GitHub
+# 6. Manually review and publish the draft release on GitHub
+```
+
+The published release will have the "Pre-release" badge on GitHub and will only be picked up by users who have opted into pre-release updates.
+
+### Publishing a Full (Stable) Release
+
+When ready for v1.0 or a stable milestone:
+
+**Option A: Edit release on GitHub (one-time)**
+
+1. Follow the normal release pipeline (push, merge Release PR, wait for builds)
+2. Go to the draft release on GitHub
+3. Uncheck the "Set as a pre-release" checkbox
+4. Click "Publish release"
+
+**Option B: Change the workflow (permanent)**
+
+1. Edit `.github/workflows/release.yml`
+2. Change `prerelease: true` to `prerelease: false` (line ~545)
+3. Also remove `--prerelease` from the ARMv7 `gh release create` command (line ~581)
+4. Commit and push
+
+**Option C: Via CLI after publishing**
+
+```bash
+# Mark a specific release as stable (removes pre-release flag)
+gh release edit v1.0.0 --prerelease=false
+
+# Mark a release back to pre-release
+gh release edit v1.0.0 --prerelease
+```
+
+### How the App Update Checker Works
+
+The update checker in `update_checker.rs` uses two different GitHub API endpoints:
+
+| Setting | API Endpoint | Behaviour |
+| ------- | ------------ | --------- |
+| `check_pre_releases: false` (default) | `releases/latest` | GitHub auto-filters to the newest non-pre-release |
+| `check_pre_releases: true` | `releases?per_page=5` | Returns newest releases including pre-releases |
+
+Since all current releases are pre-releases, users on the default setting will see "no updates available" until a full release is published.
