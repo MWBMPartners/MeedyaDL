@@ -227,6 +227,16 @@ pub mod webvtt_service;
 /// Used by: `download_queue` (post-download enrichment Steps 2d and 2e)
 pub mod rich_srt_service;
 
+/// ASS (Advanced SubStation Alpha) subtitle generation service.
+///
+/// Generates ASS subtitle files from TTML or WebVTT sources with full
+/// styling support: colours (BGR format), bold, italic, underline,
+/// dynamic positioning (`\pos`), and background vocal styles. Reuses
+/// TTML style resolution from `rich_srt_service`.
+///
+/// Used by: `download_queue` (post-download enrichment Step 2f, when `generate_ass` enabled)
+pub mod ass_subtitle_service;
+
 /// MusicBrainz recording lookup service.
 ///
 /// Queries the MusicBrainz database to discover recording metadata,
