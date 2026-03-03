@@ -487,6 +487,8 @@ export interface AppSettings {
   generate_rich_srt: boolean;
   /** When true, embeds SRT/WebVTT subtitle content in MP4/M4A/M4V as freeform atoms. */
   embed_subtitles: boolean;
+  /** When true, generates ASS (Advanced SubStation Alpha) subtitles from TTML/WebVTT. */
+  generate_ass: boolean;
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */

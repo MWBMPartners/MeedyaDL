@@ -163,6 +163,14 @@ export function LyricsTab() {
             onChange={(checked) => updateSettings({ embed_subtitles: checked })}
           />
 
+          {/* ASS subtitle generation */}
+          <Toggle
+            label="Generate ASS Subtitles"
+            description="Create Advanced SubStation Alpha (.ass) subtitle files from TTML or WebVTT with rich styling: colours, bold, italic, positioning, and background vocal styles. Supported by VLC, mpv, and MPC-HC."
+            checked={settings.generate_ass}
+            onChange={(checked) => updateSettings({ generate_ass: checked })}
+          />
+
           {/* Embed lyrics + keep sidecar */}
           <Toggle
             label="Embed Lyrics and Keep Sidecar"

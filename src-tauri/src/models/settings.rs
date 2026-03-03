@@ -417,6 +417,13 @@ pub struct AppSettings {
     #[serde(default)]
     pub embed_subtitles: bool,
 
+    /// When enabled, generates ASS (Advanced SubStation Alpha) subtitle
+    /// files from TTML or WebVTT sources. ASS supports rich styling
+    /// (colours, bold, italic, positioning, background vocal styles)
+    /// and is preferred by advanced media players (VLC, mpv, MPC-HC).
+    #[serde(default)]
+    pub generate_ass: bool,
+
     // ================================================================
     // Cover Art
     // ================================================================
@@ -827,6 +834,8 @@ impl Default for AppSettings {
             // Subtitle embedding off by default — opt-in for users who want
             // subtitles embedded in media containers.
             embed_subtitles: false,
+            // ASS subtitle generation off by default — niche format.
+            generate_ass: false,
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.

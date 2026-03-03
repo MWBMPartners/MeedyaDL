@@ -34,7 +34,8 @@ use std::path::Path;
 // ============================================================
 
 /// TTML Styling namespace (W3C standard) for tts:* attributes.
-const TTS_NS: &str = "http://www.w3.org/ns/ttml#styling";
+/// Shared with `ass_subtitle_service` via `pub(crate)`.
+pub(crate) const TTS_NS: &str = "http://www.w3.org/ns/ttml#styling";
 
 /// Apple iTunes freeform atom namespace for subtitle embedding.
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
@@ -48,17 +49,17 @@ const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 /// Tracks which style attributes are active so `wrap_with_style()`
 /// can wrap text in the appropriate SRT HTML-like tags.
 #[derive(Debug, Clone, Default)]
-struct TtmlStyle {
-    bold: bool,
-    italic: bool,
-    underline: bool,
+pub(crate) struct TtmlStyle {
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
+    pub(crate) underline: bool,
     /// Colour as "#RRGGBB" hex string, or None for default colour.
-    color: Option<String>,
+    pub(crate) color: Option<String>,
 }
 
 impl TtmlStyle {
     /// Returns true if any styling is active.
-    fn has_styling(&self) -> bool {
+    pub(crate) fn has_styling(&self) -> bool {
         self.bold || self.italic || self.underline || self.color.is_some()
     }
 }
@@ -530,7 +531,7 @@ pub fn embed_subtitles_in_file(
 /// Returns a map from style ID (the `xml:id` attribute) to resolved
 /// `TtmlStyle`. These are referenced by `style="..."` attributes on
 /// `<p>` and `<span>` elements.
-fn resolve_named_styles(doc: &roxmltree::Document) -> HashMap<String, TtmlStyle> {
+pub(crate) fn resolve_named_styles(doc: &roxmltree::Document) -> HashMap<String, TtmlStyle> {
     let mut styles = HashMap::new();
 
     for node in doc.descendants() {
@@ -557,7 +558,7 @@ fn resolve_named_styles(doc: &roxmltree::Document) -> HashMap<String, TtmlStyle>
 /// Merges the named style (from `style="..."` reference) with any
 /// inline `tts:*` attributes directly on the element. Inline attributes
 /// override the named style.
-fn resolve_element_style(
+pub(crate) fn resolve_element_style(
     node: &roxmltree::Node,
     named_styles: &HashMap<String, TtmlStyle>,
 ) -> TtmlStyle {
@@ -590,7 +591,7 @@ fn resolve_element_style(
 ///
 /// Checks both namespaced (`(TTS_NS, "fontWeight")`) and unnamespaced
 /// (`"fontWeight"`) lookups since Apple Music TTML may vary.
-fn extract_tts_style(node: &roxmltree::Node) -> TtmlStyle {
+pub(crate) fn extract_tts_style(node: &roxmltree::Node) -> TtmlStyle {
     let mut style = TtmlStyle::default();
 
     // Bold: tts:fontWeight="bold"
@@ -632,7 +633,7 @@ fn extract_tts_style(node: &roxmltree::Node) -> TtmlStyle {
 ///
 /// Handles both hex codes (with or without `#` prefix) and named colours.
 /// Returns `None` for unrecognized values.
-fn normalize_color(value: &str) -> Option<String> {
+pub(crate) fn normalize_color(value: &str) -> Option<String> {
     let trimmed = value.trim();
 
     // Already a hex code
@@ -733,7 +734,7 @@ fn collect_styled_text(
 ///
 /// Starts with the parent `<p>` style and overrides with the span's
 /// own inline and named style attributes.
-fn resolve_span_style(
+pub(crate) fn resolve_span_style(
     node: &roxmltree::Node,
     parent_style: &TtmlStyle,
     named_styles: &HashMap<String, TtmlStyle>,
@@ -779,7 +780,7 @@ fn resolve_span_style(
 }
 
 /// Collect raw text from a `<span>` element and its children.
-fn collect_span_text(node: &roxmltree::Node) -> String {
+pub(crate) fn collect_span_text(node: &roxmltree::Node) -> String {
     node.children()
         .filter_map(|c| c.text())
         .collect::<Vec<_>>()
@@ -828,7 +829,7 @@ fn wrap_with_style(text: &str, style: &TtmlStyle) -> String {
 /// Parse a TTML timestamp string to seconds.
 ///
 /// Supports: `HH:MM:SS.fff`, `MM:SS.fff`, `SS.fff`, `NNs` (with 's' suffix).
-fn parse_ttml_time(time_str: &str) -> f64 {
+pub(crate) fn parse_ttml_time(time_str: &str) -> f64 {
     if let Some(stripped) = time_str.strip_suffix('s') {
         return stripped.parse::<f64>().unwrap_or(0.0);
     }

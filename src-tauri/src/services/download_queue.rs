@@ -3305,6 +3305,49 @@ pub fn process_queue(
                                 }
                             }
 
+                            // --- Step 2f: ASS subtitle generation (opt-in) ---
+                            // When enabled, generates ASS (Advanced SubStation Alpha)
+                            // subtitle files from TTML or WebVTT with rich styling
+                            // (colours, bold, italic, positioning, background vocals).
+                            tokio::task::yield_now().await;
+                            if enrich_settings.generate_ass && !enrich_shutdown.is_triggered() {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Generating ASS subtitles...",
+                                );
+                                let ass_dir = album_dir.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    super::ass_subtitle_service::generate_ass_for_directory(&ass_dir)
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("ASS task panicked: {e}")))
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Generated {count} ASS file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Generated {count} ASS subtitle(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "No source files found for ASS generation",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "ASS generation skipped for {enrich_dl_id}: {e}"
+                                        );
+                                    }
+                                }
+                            }
+
                             tokio::task::yield_now().await;
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");

@@ -104,6 +104,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   generate_webvtt: false, // Opt-in: generate .vtt from TTML/SRT/LRC
   generate_rich_srt: true, // On by default: strictly improves SRT quality from TTML
   embed_subtitles: false, // Opt-in: embed SRT/VTT in media containers
+  generate_ass: false, // Opt-in: generate ASS subtitles from TTML/WebVTT
   synced_lyrics_format: 'ttml', // Default lyrics format (TTML preserves word-level timing)
   no_synced_lyrics: false, // Do download synced lyrics
   synced_lyrics_only: false, // Also download plain-text lyrics
