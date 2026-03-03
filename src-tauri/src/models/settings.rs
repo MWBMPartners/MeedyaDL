@@ -318,6 +318,15 @@ pub struct AppSettings {
     #[serde(default)]
     pub music_video_companion: bool,
 
+    /// When enabled, uses the MusicBrainz database to discover music
+    /// videos and cross-platform links for downloaded tracks via ISRC
+    /// codes. No credentials required (free public API). Runs as a
+    /// fallback when the MusicKit-based video lookup finds no results.
+    /// Also stores discovered platform URLs (Spotify, YouTube, etc.)
+    /// as metadata for future cross-platform features.
+    #[serde(default)]
+    pub musicbrainz_lookup: bool,
+
     // ================================================================
     // Lyrics
     // ================================================================
@@ -774,6 +783,8 @@ impl Default for AppSettings {
             custom_companion_codecs: Vec::new(),
             // Music video companions disabled by default — requires MusicKit credentials.
             music_video_companion: false,
+            // MusicBrainz lookup disabled by default — opt-in for video discovery fallback.
+            musicbrainz_lookup: false,
 
             // --- Lyrics ---
             // Enabled by default: embed lyrics in audio metadata AND keep

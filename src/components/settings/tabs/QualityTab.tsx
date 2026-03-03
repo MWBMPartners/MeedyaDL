@@ -276,6 +276,14 @@ export function QualityTab() {
           onChange={(checked) => updateSettings({ music_video_companion: checked })}
           disabled={!settings.musickit_team_id || !settings.musickit_key_id}
         />
+
+        {/* MusicBrainz video lookup (no credentials needed) */}
+        <Toggle
+          label="MusicBrainz Video Lookup"
+          description="Use MusicBrainz database to discover music videos via ISRC codes. No credentials required. Runs as a fallback when the Apple Music API video lookup finds no results."
+          checked={settings.musicbrainz_lookup}
+          onChange={(checked) => updateSettings({ musicbrainz_lookup: checked })}
+        />
       </div>
     </div>
   );
