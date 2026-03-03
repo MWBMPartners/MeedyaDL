@@ -282,6 +282,8 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Fix --song-codec flag removal** (v0.6.3) - GAMDL 2.9.1 removed `--song-codec`; companion downloads and fallback retries now use `--song-codec-priority` with single codec values.
 - ✅ **Fix Enhanced LRC blocking companion lyrics** (v0.6.3) - When Enhanced LRC was enabled, lyrics format checkboxes were disabled. Now TTML stays locked as primary but LRC/SRT can be selected as companions.
 - ✅ **Fix file picker Browse defaultPath** (v0.6.3) - Browse buttons now open at the currently configured path instead of the OS-remembered last-used directory.
+- ✅ **Internal codec and format registry** (v0.6.3) - TOML-based codec registry (`codecs.toml`) with 16 audio codecs, 3 meta codecs, 4 video codecs, 5 lyrics formats. Per-service CLI flag mappings, MIME types, and bridge functions to existing SongCodec enum. Background preparation for future planned features.
+- ✅ **JS obfuscation for release builds** (v0.6.3) - Terser-based minification with aggressive name mangling, console stripping, and dead code elimination. Zero runtime performance impact (build-time only). Debug builds unaffected.
 - ✅ **Rosetta 2 detection on Apple Silicon** - Checks if Rosetta 2 is installed before downloading x86_64 binaries (FFmpeg, MP4Box .pkg); refuses with Homebrew guidance if unavailable
 - ✅ **Fallback mirror for tool downloads** - When primary upstream sources fail, falls back to `MWBMPartners/meedyadl-tools` GitHub Releases with standardized asset naming (`{tool_id}-{os}-{arch}.{ext}`)
 - ✅ **Generic GitHub API resolver** - Reusable `resolve_github_release_asset()` for upstream release queries and mirror fallback (refactored from N_m3u8DL-RE inline code)
