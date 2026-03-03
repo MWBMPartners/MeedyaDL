@@ -38,15 +38,15 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 ```
 src-tauri/src/          # Rust backend
   commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials, updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url])
-  models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report)
+  models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report, codec_registry)
   services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required tools], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service)
   utils/                # Platform, archive, process, activity_log utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings [includes CrashReportSection, CrashReportDialog], setup, help, updates)
   hooks/                # React hooks (usePlatform, useTheme)
   stores/               # Zustand state stores (ui, settings, download, dependency, setup, update)
-  lib/                  # Utilities (tauri-commands, url-parser, quality-chains, i18n)
-  types/                # TypeScript type definitions mirroring Rust models
+  lib/                  # Utilities (tauri-commands, url-parser, quality-chains, i18n, template-parser)
+  types/                # TypeScript type definitions mirroring Rust models (includes codec-registry.ts)
   styles/themes/        # Platform CSS (base, macos, windows, linux)
 public/locales/         # i18n translation files ({lang}/translation.json)
 help/                   # Markdown help documentation (12 topics)
