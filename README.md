@@ -1,7 +1,10 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128.png" alt="MeedyaDL Logo" width="100" height="100">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/meedyadl-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo/meedyadl-logo-light.svg">
+    <img src="assets/logo/meedyadl-logo.svg" alt="MeedyaDL Logo" height="80">
+  </picture>
 </p>
-<h1 align="center">MeedyaDL</h1>
 <p align="center">
   <strong>A multiplatform media downloader</strong>
 </p>
