@@ -212,3 +212,13 @@ pub mod crash_report_service;
 ///
 /// Used by: `download_queue` (post-download enrichment Step 2c, when `generate_webvtt` enabled)
 pub mod webvtt_service;
+
+/// MusicBrainz recording lookup service.
+///
+/// Queries the MusicBrainz database to discover recording metadata,
+/// cross-platform URLs, and music video links using ISRC codes.
+/// Serves as a fallback for music video discovery (no MusicKit credentials
+/// needed) and groundwork for cross-platform song discovery.
+///
+/// Used by: `download_queue` (post-download enrichment Step 6b, when `musicbrainz_lookup` enabled)
+pub mod musicbrainz_service;
