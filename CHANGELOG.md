@@ -150,6 +150,23 @@ This changelog is automatically generated from [conventional commits](https://ww
   ecosystems. Minor/patch updates grouped into single PRs per ecosystem.
   Major version jumps deferred for manual migration.
 
+- Add isBinaural and isDownmix codec identification tags
+
+  Binaural (AAC Binaural, AAC-HE Binaural) and Downmix (AAC Downmix,
+  AAC-HE Downmix) codec variants now get identification tags written to
+  both `com.apple.iTunes` and `MeedyaMeta` namespaces. These codecs
+  produce standard 2-channel AAC indistinguishable from regular stereo
+  by audio analysis — the codec identity at download time is the only
+  way to classify them.
+
+### ♿ Accessibility
+
+- Use explicit string values for ARIA boolean attributes
+
+  `aria-checked` in Toggle.tsx and `aria-expanded` in CookiesTab.tsx
+  now use explicit `"true"/"false"` strings instead of JavaScript
+  boolean expressions, fixing Edge DevTools accessibility warnings.
+
 ### 🔒 Security
 
 - Fix incomplete URL substring sanitization in cookie domain styling

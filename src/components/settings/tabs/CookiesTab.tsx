@@ -352,7 +352,7 @@ function BrowserInstructions() {
           hover:bg-surface-secondary transition-colors
           cursor-pointer
         "
-        aria-expanded={isOpen}
+        aria-expanded={isOpen ? "true" : "false"}
       >
         {/* Chevron rotates to indicate open/closed state */}
         {isOpen ? (
@@ -389,7 +389,7 @@ function BrowserInstructions() {
                   hover:bg-surface-secondary transition-colors
                   cursor-pointer
                 "
-                aria-expanded={expandedBrowser === browser}
+                aria-expanded={expandedBrowser === browser ? "true" : "false"}
               >
                 {expandedBrowser === browser ? (
                   <ChevronDown size={14} className="text-content-tertiary flex-shrink-0" />
