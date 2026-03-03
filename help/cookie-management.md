@@ -98,7 +98,9 @@ If you prefer to export cookies manually (or if the built-in login and browser a
 MeedyaDL accepts cookies in the **Netscape/Mozilla cookie file format**. This is a plain text, tab-separated format and is the standard format exported by browser cookie extensions. A valid cookie file typically starts with the following header line:
 
 ```text
+
 # Netscape HTTP Cookie File
+
 ```
 
 Each subsequent line contains a single cookie with tab-separated fields (domain, flag, path, secure, expiry, name, value). You do not need to edit this file manually -- the browser extensions listed below produce files in the correct format automatically.
