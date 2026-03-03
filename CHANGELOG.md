@@ -65,6 +65,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Add Raspberry Pi GDebi installation note to release pages
 - Reorder update check interval options in ascending frequency order
 
+- Generate rich SRT subtitles with formatting and colours from TTML
+
+  Converts Apple Music TTML to format-rich SRT with HTML-like styling
+  tags (`<b>`, `<i>`, `<u>`, `<font color="...">`). Extracts `tts:fontWeight`,
+  `tts:fontStyle`, `tts:textDecoration`, `tts:color` attributes. Rich
+  SRT replaces plain SRT when TTML is available (richer data). Named
+  style definitions in `<head><styling>` and style inheritance from
+  `<p>` to `<span>` children are supported. New `generate_rich_srt`
+  setting (default: true). Toggle in Settings > Lyrics.
+
+- Embed subtitle content in MP4/M4A/M4V media containers
+
+  Embeds SRT and WebVTT sidecar content as freeform atoms in the MP4
+  container (`com.apple.iTunes:subtitles-srt` and
+  `com.apple.iTunes:subtitles-vtt`). Subtitles travel with the file
+  rather than requiring separate sidecar files. New `embed_subtitles`
+  setting (default: false). Toggle in Settings > Lyrics.
+
 - Support non-geographic Apple Music URLs with storefront auto-detection
 
   URLs without a storefront code (e.g., `music.apple.com/album/...`)

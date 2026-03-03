@@ -403,6 +403,20 @@ pub struct AppSettings {
     #[serde(default)]
     pub generate_webvtt: bool,
 
+    /// When enabled, generates format-rich SRT subtitle files from TTML
+    /// that preserve styling (bold, italic, underline, colours) using
+    /// HTML-like tags. If a plain SRT already exists (from GAMDL or
+    /// lyrics fallback), the rich SRT replaces it since TTML has richer
+    /// data. If no TTML exists, any downloaded plain SRT is kept.
+    #[serde(default = "default_true")]
+    pub generate_rich_srt: bool,
+
+    /// When enabled, embeds SRT and WebVTT subtitle content into
+    /// MP4/M4A/M4V containers as freeform atoms. Subtitles travel with
+    /// the file rather than requiring separate sidecar files.
+    #[serde(default)]
+    pub embed_subtitles: bool,
+
     // ================================================================
     // Cover Art
     // ================================================================
@@ -808,6 +822,11 @@ impl Default for AppSettings {
             lyrics_fallback_enabled: true,
             // WebVTT generation off by default — opt-in for users who need it.
             generate_webvtt: false,
+            // Rich SRT on by default — strictly improves SRT quality from TTML.
+            generate_rich_srt: true,
+            // Subtitle embedding off by default — opt-in for users who want
+            // subtitles embedded in media containers.
+            embed_subtitles: false,
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.

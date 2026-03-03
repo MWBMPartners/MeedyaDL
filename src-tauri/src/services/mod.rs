@@ -35,6 +35,7 @@
 //   +-- replaygain_service.rs    -- ReplayGain loudness analysis via FFmpeg (opt-in)
 //   +-- enhanced_lyrics_service  -- TTML → Enhanced LRC with word-by-word timestamps
 //   +-- webvtt_service.rs        -- WebVTT subtitle generation from TTML/SRT/LRC (opt-in)
+//   +-- rich_srt_service.rs      -- Rich SRT from TTML with styling + subtitle embedding
 //   +-- musicbrainz_service.rs   -- MusicBrainz 3-tier recording lookup (opt-in)
 //
 // Thread safety:
@@ -214,6 +215,16 @@ pub mod crash_report_service;
 ///
 /// Used by: `download_queue` (post-download enrichment Step 2c, when `generate_webvtt` enabled)
 pub mod webvtt_service;
+
+/// Rich SRT subtitle generation and embedding service.
+///
+/// Generates format-rich SRT files from Apple Music TTML that preserve
+/// styling (bold, italic, underline, colours) using HTML-like tags.
+/// Also provides subtitle embedding into MP4/M4A/M4V containers as
+/// freeform atoms for future multi-service support.
+///
+/// Used by: `download_queue` (post-download enrichment Steps 2d and 2e)
+pub mod rich_srt_service;
 
 /// MusicBrainz recording lookup service.
 ///

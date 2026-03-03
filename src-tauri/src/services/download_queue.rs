@@ -3220,6 +3220,91 @@ pub fn process_queue(
                                 }
                             }
 
+                            // --- Step 2d: Rich SRT generation (opt-in, default on) ---
+                            // When enabled, converts TTML files to format-rich SRT with
+                            // styling tags (bold, italic, underline, colour). If a plain
+                            // SRT already exists (from GAMDL or lyrics fallback), the
+                            // rich SRT replaces it since TTML has richer data.
+                            tokio::task::yield_now().await;
+                            if enrich_settings.generate_rich_srt && !enrich_shutdown.is_triggered() {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Generating rich SRT subtitles from TTML...",
+                                );
+                                let srt_dir = album_dir.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    super::rich_srt_service::generate_rich_srt_for_directory(&srt_dir)
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("Rich SRT task panicked: {e}")))
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Generated {count} rich SRT file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Generated {count} rich SRT subtitle(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "No TTML files found for rich SRT generation",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Rich SRT generation skipped for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Rich SRT generation skipped: {e}"),
+                                        );
+                                    }
+                                }
+                            }
+
+                            // --- Step 2e: Subtitle embedding (opt-in) ---
+                            // When enabled, embeds SRT and WebVTT sidecar content into
+                            // MP4/M4A/M4V containers as freeform atoms.
+                            tokio::task::yield_now().await;
+                            if enrich_settings.embed_subtitles && !enrich_shutdown.is_triggered() {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Embedding subtitles in media files...",
+                                );
+                                let embed_dir = album_dir.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    super::rich_srt_service::embed_subtitles_for_directory(&embed_dir)
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("Subtitle embed task panicked: {e}")))
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Embedded subtitles in {count} file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Embedded subtitles in {count} file(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Subtitle embedding skipped for {enrich_dl_id}: {e}"
+                                        );
+                                    }
+                                }
+                            }
+
                             tokio::task::yield_now().await;
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
