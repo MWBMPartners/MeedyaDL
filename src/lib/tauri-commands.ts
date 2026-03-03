@@ -939,3 +939,28 @@ export function exportCrashReport(id: string): Promise<string> {
 export function getGitHubIssueUrl(id: string): Promise<string> {
   return invoke<string>('get_github_issue_url', { id });
 }
+
+// ============================================================
+// API Field Audit Commands
+// ============================================================
+//
+// Diagnostic tool that fetches an Apple Music album and compares
+// the raw API response fields against the known tag definitions
+// in tags.toml. Reports known/unknown/missing fields.
+//
+// See: src-tauri/src/commands/api_audit.rs
+
+/**
+ * Audit an Apple Music album's API fields against the tag registry.
+ *
+ * Rust handler: `audit_api_fields()` in `src-tauri/src/commands/api_audit.rs`
+ * Returns: `ApiAuditResult` with known/unknown/missing field breakdowns
+ *
+ * Requires MusicKit credentials to be configured.
+ *
+ * @param albumUrl - Apple Music album URL to audit
+ * @returns Promise resolving to the audit result
+ */
+export function auditApiFields(albumUrl: string): Promise<import('@/types').ApiAuditResult> {
+  return invoke<import('@/types').ApiAuditResult>('audit_api_fields', { albumUrl });
+}

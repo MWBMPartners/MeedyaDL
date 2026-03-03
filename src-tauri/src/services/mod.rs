@@ -248,3 +248,10 @@ pub mod ass_subtitle_service;
 ///
 /// Used by: `download_queue` (post-download enrichment Step 6b, when `musicbrainz_lookup` enabled)
 pub mod musicbrainz_service;
+
+/// API field audit service — diagnostic tool for discovering new API fields.
+///
+/// Fetches a real album from the Apple Music API and diffs the raw JSON
+/// response against known tag definitions in `tags.toml`. Reports new/
+/// unknown fields for human review. Does NOT auto-embed unknown fields.
+pub mod api_audit_service;

@@ -1261,3 +1261,41 @@ export interface ArtworkResult {
   /** Whether the portrait (3:4) animated cover was downloaded as PortraitCover.mp4 */
   portrait_downloaded: boolean;
 }
+
+// ============================================================
+// API Field Audit Types
+// ============================================================
+
+/** Result of auditing an Apple Music API response against the tag registry (tags.toml). */
+export interface ApiAuditResult {
+  /** Apple Music album ID that was audited */
+  album_id: string;
+  /** Album name (for display) */
+  album_name: string | null;
+  /** Total unique JSON attribute paths found in the album-level response */
+  total_album_fields: number;
+  /** Total unique JSON attribute paths found in the first track's response */
+  total_track_fields: number;
+  /** Fields that are mapped to tags in tags.toml */
+  known_fields: AuditField[];
+  /** Fields in the API response but NOT in tags.toml */
+  unknown_fields: AuditField[];
+  /** Tag IDs defined in tags.toml but not found in this API response */
+  missing_fields: string[];
+  /** Number of tracks in the album */
+  track_count: number;
+}
+
+/** A single field discovered in the API response during an audit. */
+export interface AuditField {
+  /** Scope: "album" or "track" */
+  scope: string;
+  /** Dotted JSON path (e.g., "attributes.playParams.id") */
+  json_path: string;
+  /** JSON value type ("string", "number", "boolean", "array", "object", "null") */
+  value_type: string;
+  /** Sample value (truncated to 200 chars) */
+  sample_value: string | null;
+  /** Which tag ID in tags.toml maps to this field (null for unknown fields) */
+  mapped_tag_id: string | null;
+}

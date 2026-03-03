@@ -20,11 +20,26 @@
 //      - `ChannelConfig = 2.0 / 5.1 / 7.1 / etc.` (via ffprobe)
 //
 //   3. **Apple Music API metadata** (always-on when MusicKit credentials configured):
-//      - Per-track: ISRC, iTunesAdvisory, iTunesArtistID, iTunesCatalogID,
-//        StoreID/AppleMusic
-//      - Per-album: AlbumAdvisory, AlbumArtistID, AlbumArtistSort,
-//        AlbumGenre, UPC, Barcode
-//      - Artwork URLs: MotionArtURL, MotionArtPortraitURL (both namespaces)
+//      Tags are written in dual namespaces for maximum compatibility:
+//      - `com.apple.iTunes` — player-compatible names (Album* prefix for album scope,
+//        no prefix for track scope). Industry-standard alternatives where they exist
+//        (LABEL, COPYRIGHT, COMPILATION, TOTALTRACKS).
+//      - `MeedyaMeta` — MeedyaDL-branded Apple-sourced tags (Apple* prefix).
+//
+//      Per-track (iTunes): ISRC, iTunesAdvisory, iTunesArtistID, iTunesCatalogID,
+//        StoreID/AppleMusic, AppleDigitalMaster, ReleaseDate, Composer, DurationMs,
+//        HasLyrics, PlayParamsId, TrackUrl, PreviewUrl, Genre
+//      Per-track (MeedyaMeta): AppleAudioTraits, AppleDigitalMaster, AppleReleaseDate,
+//        AppleComposerName, AppleDurationMs, AppleHasLyrics, ApplePlayParamsId,
+//        AppleTrackUrl, ApplePreviewUrl, AppleGenres
+//      Per-album (iTunes): AlbumAdvisory, AlbumArtistID, AlbumArtistSort, AlbumGenre,
+//        UPC, Barcode, LABEL, COPYRIGHT, AlbumReleaseDate, COMPILATION, AlbumIsSingle,
+//        AlbumIsComplete, AlbumMasteredForItunes, AlbumTrackCount, TOTALTRACKS,
+//        AlbumEditorialNote
+//      Per-album (MeedyaMeta): AppleAlbumContentRating, AppleUPC, AppleRecordLabel,
+//        AppleCopyright, AppleAlbumReleaseDate, AppleIsCompilation, AppleIsSingle,
+//        AppleIsComplete, AppleMasteredForItunes, AppleTrackCount, AppleEditorialNote
+//      Artwork URLs: MotionArtURL, MotionArtPortraitURL (both namespaces)
 //
 // All tags are stored as MP4 "freeform" atoms (the `----` box type), which
 // is the standard mechanism for custom metadata in the iTunes/M4A ecosystem.
@@ -49,6 +64,7 @@ use tauri::AppHandle;
 use tokio::process::Command;
 
 use crate::models::gamdl_options::SongCodec;
+use crate::models::tag_registry::{self, TagRegistry, TAG_REGISTRY};
 use crate::services::apple_music_api::AlbumMetadata;
 use crate::services::{apple_music_api, config_service, dependency_manager};
 
@@ -339,19 +355,22 @@ async fn enrich_single_file(
         }
 
         // --- Layer 4: Apple Music API metadata (if available) ---
+        // Uses config-driven tag definitions from tags.toml via the tag registry.
+        // The registry defines JSON paths, value types, and atom names — adding
+        // new tags requires only editing tags.toml, zero Rust code changes.
         if let Some(ref metadata) = metadata_owned {
-            // Per-album tags (same on all files in the album)
-            write_api_album_tags(&mut tag, metadata);
-
-            // Animated artwork URL tags (same on all files)
-            write_artwork_url_tags(&mut tag, metadata);
-
-            // Per-track tags: match this file to a track by track/disc number
+            // Match this file to a track by track/disc number
             let track_num = tag.track_number();
             let disc_num = tag.disc_number().unwrap_or(1);
-            if let Some(track) = match_track_to_metadata(track_num, disc_num, &metadata.tracks) {
-                write_api_track_tags(&mut tag, track);
-            }
+            let matched_track =
+                match_track_to_metadata(track_num, disc_num, &metadata.tracks);
+
+            write_tags_from_registry(
+                &mut tag,
+                &TAG_REGISTRY,
+                &metadata.raw_json,
+                matched_track.map(|t| &t.raw_json),
+            );
         }
 
         // Write all changes back to the file in a single operation
@@ -422,16 +441,28 @@ fn write_local_tags(tag: &mut Tag) {
 
 /// Write per-album tags from the Apple Music API response.
 ///
-/// These tags have the same value for every file in the album:
-///   - `AlbumAdvisory`, `AlbumArtistID`, `AlbumArtistSort`, `AlbumGenre`, UPC, Barcode
+/// Tags are written in up to three layers per field:
+///   1. `com.apple.iTunes` — player-compatible names (Album* prefix for disambiguation)
+///   2. `com.apple.iTunes` — industry-standard alternative names (LABEL, COPYRIGHT, etc.)
+///   3. `MeedyaMeta` — MeedyaDL-branded Apple-sourced tags (Apple* prefix)
+///
+/// Industry-standard names recognised by MusicBrainz Picard, Mp3tag, foobar2000, beets:
+///   LABEL, COPYRIGHT, COMPILATION, TOTALTRACKS
+#[allow(dead_code)]
 fn write_api_album_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
+    // --- Album content rating ---
     if let Some(ref rating) = metadata.content_rating {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumAdvisory"),
             Data::Utf8(rating.clone()),
         );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleAlbumContentRating"),
+            Data::Utf8(rating.clone()),
+        );
     }
 
+    // --- Album artist ID ---
     if let Some(ref artist_id) = metadata.artist_id {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumArtistID"),
@@ -439,6 +470,7 @@ fn write_api_album_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
         );
     }
 
+    // --- Album artist name ---
     if let Some(ref artist_name) = metadata.artist_name {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumArtistSort"),
@@ -446,6 +478,7 @@ fn write_api_album_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
         );
     }
 
+    // --- Album genre ---
     if let Some(genre) = metadata.genre_names.first() {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumGenre"),
@@ -453,8 +486,8 @@ fn write_api_album_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
         );
     }
 
+    // --- UPC / Barcode ---
     if let Some(ref upc) = metadata.upc {
-        // UPC and Barcode contain the same GTIN value
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "UPC"),
             Data::Utf8(upc.clone()),
@@ -463,14 +496,145 @@ fn write_api_album_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
             FreeformIdent::new_static(ITUNES_NAMESPACE, "Barcode"),
             Data::Utf8(upc.clone()),
         );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleUPC"),
+            Data::Utf8(upc.clone()),
+        );
+    }
+
+    // --- Record label ---
+    // Industry standard: "LABEL" (recognised by Picard, Mp3tag, foobar2000, beets)
+    if let Some(ref label) = metadata.record_label {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "LABEL"),
+            Data::Utf8(label.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleRecordLabel"),
+            Data::Utf8(label.clone()),
+        );
+    }
+
+    // --- Copyright ---
+    // Industry standard: "COPYRIGHT" (recognised by Mp3tag, foobar2000)
+    if let Some(ref copyright) = metadata.copyright {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "COPYRIGHT"),
+            Data::Utf8(copyright.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleCopyright"),
+            Data::Utf8(copyright.clone()),
+        );
+    }
+
+    // --- Album release date ---
+    if let Some(ref date) = metadata.release_date {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumReleaseDate"),
+            Data::Utf8(date.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleAlbumReleaseDate"),
+            Data::Utf8(date.clone()),
+        );
+    }
+
+    // --- Compilation flag ---
+    // Industry standard: "COMPILATION" (recognised by Picard, Mp3tag, beets)
+    // Note: native `cpil` atom may already exist from GAMDL — this is supplementary.
+    if let Some(val) = metadata.is_compilation {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "COMPILATION"),
+            Data::Utf8(val.to_string()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleIsCompilation"),
+            Data::Utf8(val.to_string()),
+        );
+    }
+
+    // --- Single flag ---
+    if let Some(val) = metadata.is_single {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumIsSingle"),
+            Data::Utf8(val.to_string()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleIsSingle"),
+            Data::Utf8(val.to_string()),
+        );
+    }
+
+    // --- Complete flag (all tracks available at download time) ---
+    if let Some(val) = metadata.is_complete {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumIsComplete"),
+            Data::Utf8(val.to_string()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleIsComplete"),
+            Data::Utf8(val.to_string()),
+        );
+    }
+
+    // --- Mastered for iTunes / Apple Digital Master (album-level) ---
+    if let Some(val) = metadata.is_mastered_for_itunes {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumMasteredForItunes"),
+            Data::Utf8(val.to_string()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleMasteredForItunes"),
+            Data::Utf8(val.to_string()),
+        );
+    }
+
+    // --- Track count ---
+    // Industry standard: "TOTALTRACKS" (recognised by Picard, foobar2000)
+    // Note: native `trkn` atom pair may already contain total — this is supplementary.
+    if let Some(count) = metadata.track_count {
+        let count_str = count.to_string();
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumTrackCount"),
+            Data::Utf8(count_str.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "TOTALTRACKS"),
+            Data::Utf8(count_str.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleTrackCount"),
+            Data::Utf8(count_str),
+        );
+    }
+
+    // --- Editorial notes ---
+    if let Some(ref notes) = metadata.editorial_notes {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AlbumEditorialNote"),
+            Data::Utf8(notes.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleEditorialNote"),
+            Data::Utf8(notes.clone()),
+        );
     }
 }
 
 /// Write per-track tags from the matched Apple Music API track metadata.
 ///
-/// Tags written:
-///   - ISRC, iTunesAdvisory, iTunesArtistID, iTunesCatalogID, StoreID/AppleMusic
+/// Tags are written in up to three layers per field:
+///   1. `com.apple.iTunes` — player-compatible names (no prefix = track scope)
+///   2. `com.apple.iTunes` — industry-standard alternative names where they exist
+///   3. `MeedyaMeta` — MeedyaDL-branded Apple-sourced tags (Apple* prefix)
+///
+/// Track-level tags use no scope prefix (track is the default/assumed scope
+/// since each M4A file IS a track). Album-level uses `Album*` prefix for
+/// disambiguation.
+#[allow(dead_code)]
 fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
+    // --- ISRC ---
     if let Some(ref isrc) = track.isrc {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "ISRC"),
@@ -478,6 +642,7 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
         );
     }
 
+    // --- Track content rating ---
     if let Some(ref rating) = track.content_rating {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "iTunesAdvisory"),
@@ -485,6 +650,7 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
         );
     }
 
+    // --- Track artist ID ---
     if let Some(ref artist_id) = track.artist_id {
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "iTunesArtistID"),
@@ -492,7 +658,7 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
         );
     }
 
-    // iTunesCatalogID and StoreID/AppleMusic both store the Apple Music song ID
+    // --- Song / catalog IDs ---
     tag.set_data(
         FreeformIdent::new_static(ITUNES_NAMESPACE, "iTunesCatalogID"),
         Data::Utf8(track.song_id.clone()),
@@ -502,15 +668,129 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
         Data::Utf8(track.song_id.clone()),
     );
 
-    // Write Apple Music audio traits — the available audio formats for this track.
-    // Values: "lossy-stereo", "lossless", "hi-res-lossless", "dolby-atmos", "spatial"
-    // Stored under MeedyaMeta namespace only (Apple-specific data, MeedyaDL-branded tag).
-    // Tag name "AppleAudioTraits" makes it clear this is Apple Music-sourced metadata.
+    // --- Audio traits (Apple-specific, MeedyaMeta only) ---
     if !track.audio_traits.is_empty() {
         let traits_str = track.audio_traits.join(", ");
         tag.set_data(
             FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleAudioTraits"),
             Data::Utf8(traits_str),
+        );
+    }
+
+    // --- Apple Digital Master certification (track-level) ---
+    if let Some(val) = track.is_apple_digital_master {
+        let val_str = val.to_string();
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "AppleDigitalMaster"),
+            Data::Utf8(val_str.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleDigitalMaster"),
+            Data::Utf8(val_str),
+        );
+    }
+
+    // --- Track release date ---
+    // Note: native `©day` atom may already exist from GAMDL — this is supplementary.
+    if let Some(ref date) = track.release_date {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "ReleaseDate"),
+            Data::Utf8(date.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleReleaseDate"),
+            Data::Utf8(date.clone()),
+        );
+    }
+
+    // --- Composer ---
+    // Note: native `©wrt` atom may already exist from GAMDL — this is supplementary
+    // with the exact catalog value.
+    if let Some(ref composer) = track.composer_name {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "Composer"),
+            Data::Utf8(composer.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleComposerName"),
+            Data::Utf8(composer.clone()),
+        );
+    }
+
+    // --- Duration in milliseconds ---
+    if let Some(duration) = track.duration_in_millis {
+        let dur_str = duration.to_string();
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "DurationMs"),
+            Data::Utf8(dur_str.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleDurationMs"),
+            Data::Utf8(dur_str),
+        );
+    }
+
+    // --- Has lyrics flag ---
+    if let Some(val) = track.has_lyrics {
+        let val_str = val.to_string();
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "HasLyrics"),
+            Data::Utf8(val_str.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleHasLyrics"),
+            Data::Utf8(val_str),
+        );
+    }
+
+    // --- Play params ID (Apple-specific catalog identifier) ---
+    if let Some(ref id) = track.play_params_id {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "PlayParamsId"),
+            Data::Utf8(id.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "ApplePlayParamsId"),
+            Data::Utf8(id.clone()),
+        );
+    }
+
+    // --- Canonical Apple Music URL ---
+    if let Some(ref url) = track.url {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "TrackUrl"),
+            Data::Utf8(url.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleTrackUrl"),
+            Data::Utf8(url.clone()),
+        );
+    }
+
+    // --- Preview URL ---
+    if let Some(ref url) = track.preview_url {
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "PreviewUrl"),
+            Data::Utf8(url.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "ApplePreviewUrl"),
+            Data::Utf8(url.clone()),
+        );
+    }
+
+    // --- Track genres (comma-separated) ---
+    // Note: native `©gen` atom may already exist from GAMDL — this is supplementary
+    // with the full genre array from the catalog API.
+    if !track.genre_names.is_empty() {
+        let genres_str = track.genre_names.join(", ");
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "Genre"),
+            Data::Utf8(genres_str.clone()),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleGenres"),
+            Data::Utf8(genres_str),
         );
     }
 }
@@ -519,6 +799,7 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
 ///
 /// These allow downstream tools to discover and download the animated
 /// cover art without re-querying the Apple Music API.
+#[allow(dead_code)]
 fn write_artwork_url_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
     if let Some(ref url) = metadata.artwork_square_url {
         tag.set_data(
@@ -540,6 +821,67 @@ fn write_artwork_url_tags(tag: &mut Tag, metadata: &AlbumMetadata) {
             FreeformIdent::new_static(MEEDYADL_NAMESPACE, "MotionArtPortraitURL"),
             Data::Utf8(url.clone()),
         );
+    }
+}
+
+// ============================================================
+// Internal: Config-Driven Tag Writing (tags.toml)
+// ============================================================
+
+/// Write API-sourced metadata tags using definitions from the tag registry.
+///
+/// Iterates all tag definitions in `tags.toml`, extracts values from the raw
+/// API JSON using dotted paths, converts them to strings, and writes freeform
+/// atoms to the M4A file. This replaces the old hardcoded `write_api_album_tags`,
+/// `write_api_track_tags`, and `write_artwork_url_tags` functions.
+///
+/// Album-scope tags are written from `album_json` (same value on every track).
+/// Track-scope tags are written from `track_json` (matched by track/disc number).
+fn write_tags_from_registry(
+    tag: &mut Tag,
+    registry: &TagRegistry,
+    album_json: &serde_json::Value,
+    track_json: Option<&serde_json::Value>,
+) {
+    // Skip if raw JSON is null (e.g., pre-fetched metadata from older queue format)
+    if album_json.is_null() {
+        return;
+    }
+
+    // Write album-scope tags (same value written to every track in the album)
+    for def in &registry.album_tags {
+        if let Some(raw_value) = tag_registry::extract_json_value(album_json, &def.json_path) {
+            if let Some(string_value) = tag_registry::value_to_string(&raw_value, &def.value_type) {
+                for atom in &def.atoms {
+                    tag.set_data(
+                        FreeformIdent::new_borrowed(atom.namespace, &atom.name),
+                        Data::Utf8(string_value.clone()),
+                    );
+                }
+            }
+        }
+    }
+
+    // Write track-scope tags (value specific to the matched track)
+    if let Some(track_json) = track_json {
+        if !track_json.is_null() {
+            for def in &registry.track_tags {
+                if let Some(raw_value) =
+                    tag_registry::extract_json_value(track_json, &def.json_path)
+                {
+                    if let Some(string_value) =
+                        tag_registry::value_to_string(&raw_value, &def.value_type)
+                    {
+                        for atom in &def.atoms {
+                            tag.set_data(
+                                FreeformIdent::new_borrowed(atom.namespace, &atom.name),
+                                Data::Utf8(string_value.clone()),
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -848,6 +1190,16 @@ mod tests {
                 track_number: 1,
                 disc_number: 1,
                 audio_traits: vec!["lossy-stereo".to_string(), "lossless".to_string()],
+                is_apple_digital_master: Some(true),
+                release_date: Some("2023-01-01".to_string()),
+                composer_name: Some("Composer One".to_string()),
+                duration_in_millis: Some(240_000),
+                has_lyrics: Some(true),
+                play_params_id: Some("100".to_string()),
+                url: Some("https://music.apple.com/us/album/track-one/1?i=100".to_string()),
+                preview_url: Some("https://audio-ssl.itunes.apple.com/100.m4a".to_string()),
+                genre_names: vec!["Pop".to_string(), "Music".to_string()],
+                raw_json: serde_json::Value::Null,
             },
             apple_music_api::TrackMetadata {
                 song_id: "200".to_string(),
@@ -859,6 +1211,16 @@ mod tests {
                 track_number: 2,
                 disc_number: 1,
                 audio_traits: vec!["lossy-stereo".to_string(), "dolby-atmos".to_string()],
+                is_apple_digital_master: None,
+                release_date: None,
+                composer_name: None,
+                duration_in_millis: Some(180_000),
+                has_lyrics: Some(false),
+                play_params_id: Some("200".to_string()),
+                url: None,
+                preview_url: None,
+                genre_names: vec![],
+                raw_json: serde_json::Value::Null,
             },
             apple_music_api::TrackMetadata {
                 song_id: "300".to_string(),
@@ -870,6 +1232,16 @@ mod tests {
                 track_number: 1,
                 disc_number: 2,
                 audio_traits: vec![],
+                is_apple_digital_master: None,
+                release_date: None,
+                composer_name: None,
+                duration_in_millis: None,
+                has_lyrics: None,
+                play_params_id: None,
+                url: None,
+                preview_url: None,
+                genre_names: vec![],
+                raw_json: serde_json::Value::Null,
             },
         ]
     }

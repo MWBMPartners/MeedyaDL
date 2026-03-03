@@ -78,3 +78,10 @@ pub mod crash_report;
 /// Loaded from `codecs.toml` (compiled into binary via `include_str!`).
 /// Bridge functions connect the existing `SongCodec` enum to registry IDs.
 pub mod codec_registry;
+
+/// Metadata tag registry — config-driven tag definitions from tags.toml.
+///
+/// Defines which Apple Music API JSON fields map to which MP4 freeform atoms.
+/// Loaded from `tags.toml` (compiled into binary via `include_str!`).
+/// Adding new tags requires only editing the TOML file — zero Rust code changes.
+pub mod tag_registry;
