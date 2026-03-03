@@ -245,55 +245,244 @@ pub async fn lookup_recording_by_isrc(
     }))
 }
 
-/// Look up music video URLs for a batch of tracks via ISRC codes.
+/// Information for looking up a track on MusicBrainz.
 ///
-/// Processes each track's ISRC through the MusicBrainz API with
-/// rate limiting (1 req/sec). Returns all discovered music video URLs
-/// across all tracks.
+/// Carries all available identifiers for a track, used by the 3-tier
+/// discovery priority chain: URL → ISRC → AcoustID recording ID.
+#[derive(Debug, Clone)]
+pub struct TrackLookupInfo {
+    /// Internal song/download ID (for logging)
+    pub song_id: String,
+    /// Apple Music song URL (primary discovery path — search MB external links)
+    pub apple_music_url: Option<String>,
+    /// ISRC code from Apple Music API metadata (secondary path)
+    pub isrc: Option<String>,
+    /// MusicBrainz recording ID from AcoustID fingerprinting (tertiary path)
+    pub musicbrainz_recording_id: Option<String>,
+}
+
+/// Look up music video URLs for a batch of tracks.
 ///
-/// # Arguments
-/// * `tracks` - List of (song_id, optional ISRC) pairs
+/// Uses a 3-tier discovery priority for each track:
+/// 1. **Apple Music URL** — search MusicBrainz for recordings linked to
+///    this URL via external links (most direct match)
+/// 2. **ISRC code** — search by International Standard Recording Code
+///    (reliable, standard identifier)
+/// 3. **MusicBrainz recording ID** — direct lookup by ID if available
+///    from AcoustID fingerprinting (skips search entirely)
+///
+/// Rate-limited to 1 request/second per MusicBrainz ToS.
 ///
 /// # Returns
 /// All discovered music video URLs, deduplicated by URL.
 pub async fn lookup_videos_for_tracks(
     tracks: &[(String, Option<String>)],
 ) -> Result<Vec<MusicVideoUrl>, String> {
+    // Convert legacy (song_id, isrc) pairs to TrackLookupInfo
+    let infos: Vec<TrackLookupInfo> = tracks
+        .iter()
+        .map(|(song_id, isrc)| TrackLookupInfo {
+            song_id: song_id.clone(),
+            apple_music_url: None,
+            isrc: isrc.clone(),
+            musicbrainz_recording_id: None,
+        })
+        .collect();
+
+    lookup_videos_for_tracks_enhanced(&infos).await
+}
+
+/// Enhanced track video lookup with 3-tier discovery priority.
+///
+/// Priority chain per track:
+/// 1. Apple Music URL → MusicBrainz external link search
+/// 2. ISRC → MusicBrainz recording search
+/// 3. MusicBrainz recording ID → direct lookup (from AcoustID)
+pub async fn lookup_videos_for_tracks_enhanced(
+    tracks: &[TrackLookupInfo],
+) -> Result<Vec<MusicVideoUrl>, String> {
     let mut all_videos = Vec::new();
     let mut seen_urls = std::collections::HashSet::new();
+    let mut request_count = 0;
 
-    for (song_id, isrc) in tracks {
-        // Skip tracks without ISRC codes
-        let Some(isrc) = isrc else {
-            log::debug!("MusicBrainz: skipping song {song_id} (no ISRC)");
-            continue;
-        };
+    for track in tracks {
+        let mut found = false;
 
-        // Rate limit between requests
-        if !all_videos.is_empty() {
-            tokio::time::sleep(RATE_LIMIT_DELAY).await;
+        // Tier 1: Try Apple Music URL lookup on MusicBrainz
+        // (search for recordings that have this URL as an external link)
+        if let Some(ref am_url) = track.apple_music_url {
+            if request_count > 0 {
+                tokio::time::sleep(RATE_LIMIT_DELAY).await;
+            }
+            request_count += 1;
+
+            log::debug!(
+                "MusicBrainz: Tier 1 — looking up song {} via Apple Music URL",
+                track.song_id
+            );
+
+            // Search MusicBrainz for recordings linked to this Apple Music URL
+            match lookup_recording_by_url(am_url).await {
+                Ok(Some(recording)) => {
+                    for video in &recording.video_urls {
+                        if seen_urls.insert(video.url.clone()) {
+                            all_videos.push(video.clone());
+                        }
+                    }
+                    found = true;
+                }
+                Ok(None) => {
+                    log::debug!("MusicBrainz: Tier 1 — no match for URL {am_url}");
+                }
+                Err(e) => {
+                    log::debug!("MusicBrainz: Tier 1 — URL lookup failed: {e}");
+                }
+            }
         }
 
-        // Look up the recording by ISRC
-        match lookup_recording_by_isrc(isrc).await {
-            Ok(Some(recording)) => {
-                // Collect video URLs, deduplicating by URL
-                for video in &recording.video_urls {
-                    if seen_urls.insert(video.url.clone()) {
-                        all_videos.push(video.clone());
+        // Tier 2: Try ISRC lookup (if Tier 1 didn't find anything)
+        if !found {
+            if let Some(ref isrc) = track.isrc {
+                if request_count > 0 {
+                    tokio::time::sleep(RATE_LIMIT_DELAY).await;
+                }
+                request_count += 1;
+
+                log::debug!(
+                    "MusicBrainz: Tier 2 — looking up song {} via ISRC {isrc}",
+                    track.song_id
+                );
+
+                match lookup_recording_by_isrc(isrc).await {
+                    Ok(Some(recording)) => {
+                        for video in &recording.video_urls {
+                            if seen_urls.insert(video.url.clone()) {
+                                all_videos.push(video.clone());
+                            }
+                        }
+                        found = true;
+                    }
+                    Ok(None) => {
+                        log::debug!(
+                            "MusicBrainz: Tier 2 — no match for ISRC {isrc}"
+                        );
+                    }
+                    Err(e) => {
+                        log::debug!("MusicBrainz: Tier 2 — ISRC lookup failed: {e}");
                     }
                 }
             }
-            Ok(None) => {
-                log::debug!("MusicBrainz: no recording found for song {song_id} (ISRC: {isrc})");
-            }
-            Err(e) => {
-                log::debug!("MusicBrainz: lookup failed for song {song_id}: {e}");
+        }
+
+        // Tier 3: Try direct MusicBrainz recording ID lookup (from AcoustID)
+        if !found {
+            if let Some(ref mb_id) = track.musicbrainz_recording_id {
+                if request_count > 0 {
+                    tokio::time::sleep(RATE_LIMIT_DELAY).await;
+                }
+                request_count += 1;
+
+                log::debug!(
+                    "MusicBrainz: Tier 3 — looking up song {} via recording ID {mb_id}",
+                    track.song_id
+                );
+
+                match lookup_recording_by_id(mb_id).await {
+                    Ok(Some(recording)) => {
+                        for video in &recording.video_urls {
+                            if seen_urls.insert(video.url.clone()) {
+                                all_videos.push(video.clone());
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        log::debug!(
+                            "MusicBrainz: Tier 3 — no match for recording ID {mb_id}"
+                        );
+                    }
+                    Err(e) => {
+                        log::debug!("MusicBrainz: Tier 3 — ID lookup failed: {e}");
+                    }
+                }
             }
         }
     }
 
     Ok(all_videos)
+}
+
+/// Look up a MusicBrainz recording by searching for an external URL.
+///
+/// Searches MusicBrainz for recordings that have the given URL as an
+/// external link (e.g., an Apple Music song URL). This is the most
+/// direct discovery path — if a MusicBrainz record has this exact URL
+/// as an external link, the match is highly reliable.
+///
+/// # Arguments
+/// * `external_url` - The URL to search for (e.g., Apple Music song URL)
+///
+/// # Returns
+/// The matching recording with relationships, or `None` if not found.
+pub async fn lookup_recording_by_url(
+    external_url: &str,
+) -> Result<Option<MusicBrainzRecording>, String> {
+    if external_url.is_empty() {
+        return Ok(None);
+    }
+
+    // URL-encode the search URL for the MusicBrainz query
+    let encoded_url = external_url.replace(':', "%3A").replace('/', "%2F");
+    let url = format!(
+        "{MB_API_BASE}/recording?query=url:%22{encoded_url}%22&fmt=json&limit=1"
+    );
+
+    log::debug!("MusicBrainz: searching for recording by URL");
+
+    let client = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("MusicBrainz URL search failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("MusicBrainz API returned HTTP {}", response.status().as_u16()));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
+
+    // Get the first matching recording
+    let recording = json
+        .get("recordings")
+        .and_then(|r| r.as_array())
+        .and_then(|arr| arr.first());
+
+    let Some(rec) = recording else {
+        return Ok(None);
+    };
+
+    let recording_id = rec
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if recording_id.is_empty() {
+        return Ok(None);
+    }
+
+    // Fetch full recording with relationships
+    tokio::time::sleep(RATE_LIMIT_DELAY).await;
+    lookup_recording_by_id(&recording_id).await
 }
 
 /// Get all discovered external URLs for a batch of tracks.
