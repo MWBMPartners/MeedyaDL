@@ -377,6 +377,7 @@ Standing task #4 now requires creating/closing/linking GitHub Issues
   - MeedyaManager#11: Mirror issue for subtitle/lyrics format support
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
