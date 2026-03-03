@@ -645,6 +645,165 @@ pub async fn fetch_music_video_relations(
 // Unit Tests
 // ============================================================
 
+// ============================================================
+// Non-Geographic URL Normalization
+// ============================================================
+
+/// Normalize an Apple Music URL by injecting a storefront code if missing.
+///
+/// GAMDL requires a 2-letter storefront code in the URL path (e.g., `/us/`).
+/// This function detects non-geographic URLs (e.g., `music.apple.com/album/...`)
+/// and injects a storefront code to produce `music.apple.com/{sf}/album/...`.
+///
+/// Storefront resolution priority:
+/// 1. URL-embedded — if already present, returns the URL unchanged
+/// 2. OS locale — fast, no network, uses `detect_storefront()` from login_window_service
+/// 3. Fallback — defaults to "us" (Apple's own redirect default)
+///
+/// Also supports `classical.apple.com` and `itunes.apple.com` domains.
+///
+/// # Arguments
+/// * `url` - The Apple Music URL to normalize
+///
+/// # Returns
+/// The URL with a storefront code guaranteed to be present. Non-Apple-Music
+/// URLs are returned unchanged.
+#[must_use]
+pub fn normalize_apple_music_url(url: &str) -> String {
+    // If the URL already has a storefront (existing regex matches), return as-is.
+    if parse_apple_music_url(url).is_some() {
+        return url.to_string();
+    }
+
+    // Check if it's a non-geographic Apple Music URL (content type keyword
+    // immediately after the domain, with no storefront segment).
+    if let Some((base, rest)) = detect_non_geographic_url(url) {
+        let storefront = resolve_storefront_sync();
+        log::info!(
+            "Non-geographic Apple Music URL detected — injecting storefront '{storefront}'"
+        );
+        return format!("{base}/{storefront}{rest}");
+    }
+
+    // Not an Apple Music URL or doesn't match non-geographic pattern — return unchanged.
+    url.to_string()
+}
+
+/// Detect whether an Apple Music URL is missing a storefront code.
+///
+/// Returns `Some((base, rest))` where `base` is the domain prefix
+/// (e.g., `https://music.apple.com`) and `rest` is the remaining path
+/// (e.g., `/album/midnights/1649434004`).
+///
+/// Returns `None` if the URL already has a storefront or is not Apple Music.
+///
+/// Safe because all content type keywords (`album`, `song`, `playlist`,
+/// `music-video`, `artist`) are longer than 3 characters, so they can never
+/// be confused with a 2-letter storefront code.
+fn detect_non_geographic_url(url: &str) -> Option<(&str, &str)> {
+    use std::sync::LazyLock;
+
+    // Matches Apple Music URLs where the first path segment after the domain
+    // is a content type keyword rather than a 2-letter storefront code.
+    // Group 1: domain prefix (e.g., "https://music.apple.com")
+    // The rest of the URL after group 1 starts with /{content_type}/...
+    static NON_GEO_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"^(https?://(?:classical|music|itunes)\.apple\.com)/(album|song|playlist|music-video|artist)(/.*)?$",
+        )
+        .expect("Invalid non-geographic URL regex")
+    });
+
+    let caps = NON_GEO_RE.captures(url)?;
+    let base_end = caps.get(1)?.end();
+    Some((&url[..base_end], &url[base_end..]))
+}
+
+/// Resolve the best available storefront code without network I/O.
+///
+/// Priority:
+/// 1. OS locale via `detect_storefront()` from login_window_service
+/// 2. Fallback: `"us"` (Apple's own default redirect target)
+fn resolve_storefront_sync() -> String {
+    super::login_window_service::detect_storefront().unwrap_or_else(|| "us".to_string())
+}
+
+// ============================================================
+// Storefront Fallback for Enrichment API
+// ============================================================
+
+/// Fetch album metadata with automatic storefront fallback.
+///
+/// Tries the primary storefront first. If the Apple Music API returns
+/// HTTP 404 or no data, retries with alternative storefronts. This handles
+/// cases where a user shares a URL with a storefront that doesn't match
+/// the album's catalog region.
+///
+/// Fallback chain:
+/// 1. Primary storefront (from the URL)
+/// 2. OS locale-derived storefront (if different from primary)
+/// 3. `"us"` (Apple's largest catalog, if different from both)
+///
+/// Non-404 errors (auth failure, network timeout) are NOT retried — they
+/// indicate infrastructure issues, not region mismatches.
+///
+/// # Returns
+/// * `Ok(Some(AlbumMetadata))` - Album found (possibly via a fallback storefront)
+/// * `Ok(None)` - Album not found in any storefront
+/// * `Err(String)` - Non-recoverable API error
+pub async fn fetch_album_metadata_with_fallback(
+    jwt: &str,
+    primary_storefront: &str,
+    album_id: &str,
+) -> Result<Option<AlbumMetadata>, String> {
+    // Try primary storefront first.
+    match fetch_album_metadata(jwt, primary_storefront, album_id).await {
+        Ok(Some(metadata)) => return Ok(Some(metadata)),
+        Ok(None) => {
+            log::debug!(
+                "Album {album_id} returned empty data in storefront '{primary_storefront}', trying fallbacks"
+            );
+        }
+        Err(ref e) if e.contains("HTTP 404") || e.contains("HTTP 400") => {
+            log::debug!(
+                "Album {album_id} returned error in storefront '{primary_storefront}': {e}, trying fallbacks"
+            );
+        }
+        Err(e) => return Err(e), // Non-region errors (auth, network) — propagate immediately
+    }
+
+    // Build deduplicated fallback list (excluding primary).
+    let mut fallbacks: Vec<String> = Vec::new();
+    if let Some(locale_sf) = super::login_window_service::detect_storefront() {
+        if locale_sf != primary_storefront && !fallbacks.contains(&locale_sf) {
+            fallbacks.push(locale_sf);
+        }
+    }
+    if primary_storefront != "us" && !fallbacks.iter().any(|s| s == "us") {
+        fallbacks.push("us".to_string());
+    }
+
+    for sf in &fallbacks {
+        log::debug!("Trying fallback storefront '{sf}' for album {album_id}");
+        match fetch_album_metadata(jwt, sf, album_id).await {
+            Ok(Some(metadata)) => {
+                log::info!(
+                    "Album {album_id} found via fallback storefront '{sf}' (primary was '{primary_storefront}')"
+                );
+                return Ok(Some(metadata));
+            }
+            Ok(None) | Err(_) => continue,
+        }
+    }
+
+    // All storefronts exhausted.
+    log::debug!(
+        "Album {album_id} not found in any storefront (tried: '{primary_storefront}', {:?})",
+        fallbacks
+    );
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -948,5 +1107,181 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
 
         let json = serde_json::to_string(&relation).unwrap();
         assert!(json.contains("\"name\":null"));
+    }
+
+    // ----------------------------------------------------------
+    // Non-geographic URL normalization tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn normalize_url_with_storefront_unchanged() {
+        let url = "https://music.apple.com/us/album/midnights/1649434004";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn normalize_url_with_non_us_storefront_unchanged() {
+        let url = "https://music.apple.com/gb/album/anti-hero/1649434004?i=1649434280";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn normalize_album_url_without_storefront() {
+        let url = "https://music.apple.com/album/midnights/1649434004";
+        let result = normalize_apple_music_url(url);
+        // Should have a 2-letter storefront injected between domain and /album/
+        assert!(result.contains("/album/midnights/1649434004"));
+        assert_ne!(result, url); // Should have changed
+        // Verify structural correctness: domain/{2-letter-code}/album/...
+        let after_domain = result
+            .strip_prefix("https://music.apple.com/")
+            .expect("should start with domain");
+        let first_segment: &str = after_domain.split('/').next().unwrap();
+        assert_eq!(first_segment.len(), 2, "storefront should be 2 chars");
+        assert!(
+            first_segment.chars().all(|c| c.is_ascii_lowercase()),
+            "storefront should be lowercase ascii"
+        );
+    }
+
+    #[test]
+    fn normalize_song_url_without_storefront() {
+        let url = "https://music.apple.com/song/anti-hero/1649434280";
+        let result = normalize_apple_music_url(url);
+        assert!(result.contains("/song/anti-hero/1649434280"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_album_with_track_without_storefront() {
+        let url = "https://music.apple.com/album/midnights/1649434004?i=1649434280";
+        let result = normalize_apple_music_url(url);
+        assert!(result.contains("/album/midnights/1649434004?i=1649434280"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_playlist_url_without_storefront() {
+        let url =
+            "https://music.apple.com/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
+        let result = normalize_apple_music_url(url);
+        assert!(result.contains("/playlist/todays-hits/"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_music_video_url_without_storefront() {
+        let url = "https://music.apple.com/music-video/some-video/1234567890";
+        let result = normalize_apple_music_url(url);
+        assert!(result.contains("/music-video/some-video/1234567890"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_artist_url_without_storefront() {
+        let url = "https://music.apple.com/artist/taylor-swift/159260351";
+        let result = normalize_apple_music_url(url);
+        assert!(result.contains("/artist/taylor-swift/159260351"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_classical_url_without_storefront() {
+        let url = "https://classical.apple.com/album/beethoven-symphony/1234567890";
+        let result = normalize_apple_music_url(url);
+        assert!(result.starts_with("https://classical.apple.com/"));
+        assert!(result.contains("/album/beethoven-symphony/1234567890"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_itunes_url_without_storefront() {
+        let url = "https://itunes.apple.com/album/some-album/1234567890";
+        let result = normalize_apple_music_url(url);
+        assert!(result.starts_with("https://itunes.apple.com/"));
+        assert!(result.contains("/album/some-album/1234567890"));
+        assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_non_apple_music_url_unchanged() {
+        let url = "https://www.example.com/some/path";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn normalize_empty_string_unchanged() {
+        assert_eq!(normalize_apple_music_url(""), "");
+    }
+
+    #[test]
+    fn normalize_youtube_url_unchanged() {
+        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn normalized_album_url_is_parseable() {
+        // After normalization, the URL should be parseable by parse_apple_music_url
+        let url = "https://music.apple.com/album/midnights/1649434004";
+        let normalized = normalize_apple_music_url(url);
+        let parsed = parse_apple_music_url(&normalized);
+        assert!(parsed.is_some(), "Normalized URL should be parseable");
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.content_type, "album");
+        assert_eq!(parsed.album_id, "1649434004");
+        assert_eq!(parsed.storefront.len(), 2);
+    }
+
+    #[test]
+    fn normalized_song_url_is_parseable() {
+        let url = "https://music.apple.com/song/anti-hero/1649434280";
+        let normalized = normalize_apple_music_url(url);
+        let parsed = parse_apple_music_url(&normalized);
+        assert!(parsed.is_some(), "Normalized song URL should be parseable");
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.content_type, "song");
+        assert_eq!(parsed.song_id.as_deref(), Some("1649434280"));
+    }
+
+    #[test]
+    fn normalized_music_video_url_is_parseable() {
+        let url = "https://music.apple.com/music-video/some-video/1234567890";
+        let normalized = normalize_apple_music_url(url);
+        let parsed = parse_apple_music_url(&normalized);
+        assert!(
+            parsed.is_some(),
+            "Normalized music-video URL should be parseable"
+        );
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.content_type, "music-video");
+        assert_eq!(parsed.album_id, "1234567890");
+    }
+
+    #[test]
+    fn detect_non_geographic_returns_none_for_geographic_url() {
+        let url = "https://music.apple.com/us/album/midnights/1649434004";
+        // This URL has a storefront, but since "us" is only 2 chars and the
+        // regex looks for content-type keywords, it won't match as non-geographic.
+        // The normalize function handles this by checking parse_apple_music_url first.
+        // detect_non_geographic_url sees "us" as a 2-letter segment, not a keyword.
+        assert!(detect_non_geographic_url(url).is_none());
+    }
+
+    #[test]
+    fn detect_non_geographic_returns_some_for_album_url() {
+        let url = "https://music.apple.com/album/midnights/1649434004";
+        let result = detect_non_geographic_url(url);
+        assert!(result.is_some());
+        let (base, rest) = result.unwrap();
+        assert_eq!(base, "https://music.apple.com");
+        assert_eq!(rest, "/album/midnights/1649434004");
+    }
+
+    #[test]
+    fn resolve_storefront_sync_returns_valid_code() {
+        let sf = resolve_storefront_sync();
+        assert_eq!(sf.len(), 2);
+        assert!(sf.chars().all(|c| c.is_ascii_lowercase()));
     }
 }

@@ -148,6 +148,69 @@ describe('parseAppleMusicUrl', () => {
 });
 
 /**
+ * Test suite for non-geographic URLs (no storefront code in the path).
+ *
+ * Apple Music URLs can sometimes lack a storefront code, for example when
+ * shared via messaging apps that strip the region segment, or from APIs
+ * that return geo-non-specific URLs. The frontend parser should still
+ * detect the content type correctly from the path keywords alone.
+ *
+ * Note: The backend handles injecting a storefront code before passing
+ * to GAMDL; the frontend only needs to classify the content type.
+ */
+describe('non-geographic URLs (no storefront code)', () => {
+  it('detects album without storefront', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/album/midnights/1649434004');
+    expect(result.contentType).toBe('album');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects song without storefront (album URL with ?i= param)', () => {
+    const result = parseAppleMusicUrl(
+      'https://music.apple.com/album/midnights/1649434004?i=1649434280'
+    );
+    expect(result.contentType).toBe('song');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects playlist without storefront', () => {
+    const result = parseAppleMusicUrl(
+      'https://music.apple.com/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb'
+    );
+    expect(result.contentType).toBe('playlist');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects music video without storefront', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/music-video/some-video/1234567890');
+    expect(result.contentType).toBe('music-video');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects artist without storefront', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/artist/taylor-swift/159260351');
+    expect(result.contentType).toBe('artist');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects classical album without storefront', () => {
+    const result = parseAppleMusicUrl(
+      'https://classical.apple.com/album/beethoven-symphony-no-9/1234567890'
+    );
+    expect(result.contentType).toBe('album');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects song URL path without storefront', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/song/anti-hero/1649434280');
+    // /song/ path is not currently a recognized content type in the frontend
+    // (songs use /album/ with ?i= param), so this should be 'unknown'
+    expect(result.contentType).toBe('unknown');
+    expect(result.isValid).toBe(false);
+  });
+});
+
+/**
  * Test suite for `getContentTypeLabel()` - content type to display label mapping.
  *
  * Ensures every possible `AppleMusicContentType` value maps to the correct

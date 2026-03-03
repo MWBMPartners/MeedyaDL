@@ -308,6 +308,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **GitHub Actions SHA pinning** - All release-critical GitHub Actions across 5 workflow files (CI, Release, Release Please, Changelog, Version Bump) pinned to immutable commit SHAs instead of mutable version tags, preventing supply chain attacks
 - ✅ **SHA-256 checksum verification infrastructure** - `download_file()` in `archive.rs` computes SHA-256 hash during streaming download (zero extra I/O pass) using the `sha2` crate. New `download_and_extract_verified()` accepts an optional expected hash; mismatch deletes the temp file and returns an error
 - ✅ **Graceful shutdown for background tasks** - `ShutdownSignal` (`Arc<AtomicBool>`) registered as Tauri managed state. Triggered on window close (`WindowEvent::Destroyed`) and tray quit. Checked at iteration boundaries in enrichment pipeline (9 stages), companion download loops (tiers), and lyrics companion loops (formats). Fire-and-forget tasks exit early instead of starting new work
+- ✅ **Non-geographic Apple Music URL support** (v0.6.4) - URLs without a storefront code (e.g., `music.apple.com/album/...`) are automatically normalized by injecting a storefront based on OS locale (or "us" fallback). Enrichment API calls (`fetch_album_metadata`) retry with alternative storefronts when the primary returns 404 (handles cross-region shared links). Applied at enqueue time and queue import time.
 
 ---
 

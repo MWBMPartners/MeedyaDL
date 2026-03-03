@@ -754,7 +754,7 @@ async fn try_fetch_metadata(
         }
     };
 
-    match apple_music_api::fetch_album_metadata(&jwt, &parsed.storefront, &parsed.album_id).await {
+    match apple_music_api::fetch_album_metadata_with_fallback(&jwt, &parsed.storefront, &parsed.album_id).await {
         Ok(Some(metadata)) => {
             log_event(&format!(
                 "Apple Music API: fetched metadata ({} track(s), artist: {}, UPC: {})",
