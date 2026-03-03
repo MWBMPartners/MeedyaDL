@@ -1381,4 +1381,87 @@ mod tests {
     fn clean_vtt_no_tags() {
         assert_eq!(clean_vtt_tags("plain text"), "plain text");
     }
+
+    // ----------------------------------------------------------
+    // Integration tests — full conversion with assertions
+    // ----------------------------------------------------------
+
+    #[test]
+    fn ttml_to_rich_srt_complex_mixed_styling() {
+        let ttml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling" xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+  <head>
+    <styling>
+      <style xml:id="chorus" tts:fontWeight="bold" tts:color="#FFD700"/>
+    </styling>
+  </head>
+  <body>
+    <div>
+      <p begin="00:00:05.200" end="00:00:08.100">Just a regular line</p>
+      <p begin="00:00:08.100" end="00:00:12.500" tts:fontStyle="italic">An italic verse</p>
+      <p begin="00:00:12.500" end="00:00:16.000" style="chorus">Golden bold chorus!</p>
+      <p begin="00:00:16.000" end="00:00:19.800">Normal with <span tts:fontWeight="bold">bold word</span> and <span ttm:role="x-bg">ooh</span></p>
+      <p begin="00:00:19.800" end="00:00:23.000" tts:textDecoration="underline" tts:color="red">Red underlined</p>
+    </div>
+  </body>
+</tt>"##;
+
+        let srt = ttml_to_rich_srt(ttml).unwrap();
+
+        // Cue 1: plain text, no styling tags
+        assert!(srt.contains("1\n00:00:05,200 --> 00:00:08,100\nJust a regular line\n"));
+        // Cue 2: italic wrapping
+        assert!(srt.contains("2\n00:00:08,100 --> 00:00:12,500\n<i>An italic verse</i>\n"));
+        // Cue 3: named style (bold + colour)
+        assert!(srt.contains("3\n00:00:12,500 --> 00:00:16,000\n<font color=\"#FFD700\"><b>Golden bold chorus!</b></font>\n"));
+        // Cue 4: mixed — plain text + bold span + background vocals in parens
+        assert!(srt.contains("Normal with <b>bold word</b> and (ooh)"));
+        // Cue 5: underline + colour
+        assert!(srt.contains("<font color=\"#FF0000\"><u>Red underlined</u></font>"));
+        // 5 cues total
+        assert!(srt.contains("5\n"));
+        assert!(!srt.contains("6\n"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_complex_mixed_tags() {
+        let vtt = "\
+WEBVTT
+
+00:00:05.200 --> 00:00:08.100
+Just a regular line
+
+00:00:08.100 --> 00:00:12.500
+<b>Bold</b> and <i>italic</i> in one line
+
+00:00:12.500 --> 00:00:16.000
+<c.highlight>Class-styled text</c> with plain
+
+00:00:16.000 --> 00:00:19.800
+Word <00:00:17.500>with timestamp stripped
+
+00:00:19.800 --> 00:00:23.000
+<v Speaker>Voice tag removed</v>
+";
+
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+
+        // Cue 1: plain
+        assert!(srt.contains("1\n00:00:05,200 --> 00:00:08,100\nJust a regular line\n"));
+        // Cue 2: bold + italic preserved
+        assert!(srt.contains("<b>Bold</b> and <i>italic</i> in one line"));
+        // Cue 3: <c> class tag stripped, text preserved
+        assert!(srt.contains("Class-styled text with plain"));
+        assert!(!srt.contains("<c"));
+        // Cue 4: timestamp tag stripped
+        assert!(srt.contains("Word with timestamp stripped"));
+        assert!(!srt.contains("<00:00"));
+        // Cue 5: <v> voice tag stripped
+        assert!(srt.contains("Voice tag removed"));
+        assert!(!srt.contains("<v "));
+        // Timestamps use comma
+        assert!(srt.contains(",200 --> 00:00:08,100"));
+        // 5 cues
+        assert!(srt.contains("5\n"));
+    }
 }
