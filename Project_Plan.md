@@ -275,6 +275,13 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Dependency source tracking** - `DependencyStatus.source` field ("system" or "managed") with "System" badge in setup wizard
 - ✅ **Fix ARMv7 artifact naming** - Split build/upload for ARMv7; rename `armhf`/`armhfp` → `armv7` before uploading to release
 - ✅ **Improved release page download guidance** - User-friendly download table with plain-language platform descriptions
+- ✅ **UI stall prevention on FUSE mounts** (v0.6.2) - Wrapped blocking mp4ameta Tag I/O in `spawn_blocking()` across 4 enrichment services. Added yield points between enrichment steps. Prevents tokio runtime starvation on slow CloudMounter/NFS mounts.
+- ✅ **Codec suffix fix for native priority** (v0.6.2) - Primary download uses clean filenames when native `--song-codec-priority` is active (actual codec unknown until GAMDL finishes). All companion tiers get forced suffixes via `force_all_suffixes` parameter.
+- ✅ **Lyrics format fallback chain** (v0.6.3) - When primary lyrics format (TTML) fails, automatically retries with LRC (audio) or SRT (video). Content-type-aware ordering. New `lyrics_fallback_enabled` setting (default: true).
+- ✅ **Per-endpoint pre-flight logging** (v0.6.3) - Internet connectivity check now logs each endpoint's result (name, URL, HTTP status, response time) for diagnostics.
+- ✅ **Fix --song-codec flag removal** (v0.6.3) - GAMDL 2.9.1 removed `--song-codec`; companion downloads and fallback retries now use `--song-codec-priority` with single codec values.
+- ✅ **Fix Enhanced LRC blocking companion lyrics** (v0.6.3) - When Enhanced LRC was enabled, lyrics format checkboxes were disabled. Now TTML stays locked as primary but LRC/SRT can be selected as companions.
+- ✅ **Fix file picker Browse defaultPath** (v0.6.3) - Browse buttons now open at the currently configured path instead of the OS-remembered last-used directory.
 - ✅ **Rosetta 2 detection on Apple Silicon** - Checks if Rosetta 2 is installed before downloading x86_64 binaries (FFmpeg, MP4Box .pkg); refuses with Homebrew guidance if unavailable
 - ✅ **Fallback mirror for tool downloads** - When primary upstream sources fail, falls back to `MWBMPartners/meedyadl-tools` GitHub Releases with standardized asset naming (`{tool_id}-{os}-{arch}.{ext}`)
 - ✅ **Generic GitHub API resolver** - Reusable `resolve_github_release_asset()` for upstream release queries and mirror fallback (refactored from N_m3u8DL-RE inline code)

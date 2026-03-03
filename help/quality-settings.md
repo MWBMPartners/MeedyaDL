@@ -143,6 +143,8 @@ Artist/Album/
 
 After a primary download completes successfully, MeedyaDL automatically spawns additional GAMDL invocations for each companion tier defined by the selected mode. Companion downloads run in the background and do not block the download queue. If a companion codec is unavailable for a particular track, MeedyaDL silently skips it without affecting the primary download status.
 
+**Note on native codec priority (GAMDL 2.9.1+):** When MeedyaDL uses GAMDL's native `--song-codec-priority` flag (which tries multiple codecs in a single process), the primary download uses clean filenames because the actual codec is unknown until GAMDL finishes. All companion tiers then receive suffixed filenames to prevent collisions with the primary's clean files. This ensures filenames always accurately reflect the actual content.
+
 - **Custom metadata:** MeedyaDL also writes custom metadata tags into specialist format files so downstream tools can programmatically identify the codec tier. ALAC files receive `isLossless = Y`; Dolby Atmos files receive `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#custom-codec-metadata-tags) for full details.
 
 ### AC3 (Dolby Digital)

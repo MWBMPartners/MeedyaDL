@@ -66,7 +66,7 @@ Enhanced LRC extends the standard LRC format with inline word-level timestamps, 
 
 **Enabling Enhanced LRC:**
 
-Enhanced LRC is enabled by default. The toggle is in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**. When enabled, TTML is automatically set as the primary lyrics download format (this cannot be changed while Enhanced LRC is active, since the raw TTML is needed for conversion).
+Enhanced LRC is enabled by default. The toggle is in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**. When enabled, TTML is automatically set as the primary lyrics download format (since the raw TTML is needed for conversion). You can still select LRC and SRT as **companion formats** — they will be downloaded alongside the primary TTML. This gives you Enhanced LRC (from TTML conversion) plus standard lyrics files in other formats for maximum compatibility.
 
 ### SRT (SubRip Subtitle)
 
@@ -144,6 +144,17 @@ For example, if you check both LRC and SRT:
 
 All lyrics files land in the same directory alongside the audio, with the same base filename but different extensions.
 
+### Lyrics Format Fallback
+
+When the **Lyrics Format Fallback** toggle is enabled (default: on), MeedyaDL automatically retries with alternative formats if the primary lyrics format doesn't produce sidecar files for all tracks:
+
+- **Audio** (`.m4a`): TTML → LRC → SRT
+- **Video** (`.m4v`/`.mp4`): TTML → SRT → LRC
+
+Each fallback attempt uses GAMDL's `--synced-lyrics-only` mode to download just the lyrics without re-downloading media. The chain stops as soon as all tracks have lyrics coverage.
+
+This is particularly useful when Enhanced LRC is enabled — TTML is the primary format, but if TTML isn't available for some tracks, the fallback ensures those tracks still get lyrics in LRC or SRT format.
+
 ### Embed Lyrics and Keep Sidecar
 
 The Lyrics tab also provides an **Embed Lyrics and Keep Sidecar** toggle. When enabled (which is the default), MeedyaDL ensures that lyrics are both embedded in the audio file's metadata tags AND saved as a separate sidecar file. This provides maximum compatibility: players that read embedded lyrics will find them in the file's metadata, while players that look for external lyrics files will find the sidecar file alongside the audio.
@@ -205,15 +216,17 @@ MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files.
 
 ### MeedyaDL Metadata Enrichment
 
-In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 5-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 7-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
 
 The enrichment stages run in order:
 
 1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on)
 2. **Enhanced LRC conversion** (opt-in, default on) — converts TTML to Enhanced LRC, saves `.lrc` sidecar, embeds in `©lyr` atom
-3. **Animated artwork download** (requires MusicKit credentials)
-4. **AcoustID fingerprinting** (opt-in)
-5. **ReplayGain analysis** (opt-in)
+3. **Lyrics format fallback** (opt-in, default on) — if TTML didn't produce lyrics for all tracks, retries with LRC (audio) or SRT (video)
+4. **Animated artwork download** (requires MusicKit credentials)
+5. **AcoustID fingerprinting** (opt-in)
+6. **ReplayGain analysis** (opt-in)
+7. **Music video companion downloads** (opt-in, requires MusicKit credentials)
 
 #### Codec Tags (Always-On)
 
