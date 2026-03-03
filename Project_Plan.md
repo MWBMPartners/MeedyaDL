@@ -316,19 +316,25 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 ### Overview
 
-| Milestone | Version | Service | Backend Tool | Status |
-| --- | --- | --- | --- | --- |
-| Milestone 8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | 🔲 Planned |
-| Milestone 9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 🔲 Planned |
-| Milestone 10 | v2.2.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | 🔲 Planned |
-| v3.x | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | 🔮 Future |
-| v3.x | TBD | Smart Download | Cross-platform | 🔮 Future |
+| Milestone | Version | Service | Backend Tool | Issue | Status |
+| --- | --- | --- | --- | --- | --- |
+| — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | 🔲 Prerequisite |
+| M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
+| M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
+| M10 | v2.2.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
+| v3.x | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | [#103](https://github.com/MWBMPartners/MeedyaDL/issues/103) | 🔮 Future |
+| v3.x | TBD | Smart Download | Cross-platform | [#110](https://github.com/MWBMPartners/MeedyaDL/issues/110) | 🔮 Future |
+| v3.x | TBD | Enhanced MusicKit | Server-side JWT | [#108](https://github.com/MWBMPartners/MeedyaDL/issues/108) | 🔮 Future |
+| — | TBD | Full i18n | — | [#111](https://github.com/MWBMPartners/MeedyaDL/issues/111) | 🔮 Ongoing |
+| — | TBD | Remote feature disable | — | [#106](https://github.com/MWBMPartners/MeedyaDL/issues/106) | 🔮 Future |
+| — | TBD | Native SwiftUI (macOS) | — | [#109](https://github.com/MWBMPartners/MeedyaDL/issues/109) | 🔮 Future |
+| — | TBD | Anonymous crash relay | PHP | [#44](https://github.com/MWBMPartners/MeedyaDL/issues/44) | 🔮 Future |
 
 The architecture is designed with a `MusicService` trait pattern (`src-tauri/src/models/music_service.rs`) to support adding new platforms without restructuring the codebase. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime.
 
 ---
 
-### Milestone 8 — Spotify Support (v2.0.0)
+### Milestone 8 — Spotify Support (v2.0.0) — [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101)
 
 **Status:** 🔲 Planned
 
@@ -375,7 +381,7 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 ---
 
-### Milestone 9 — YouTube Support (v2.1.0)
+### Milestone 9 — YouTube Support (v2.1.0) — [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104)
 
 **Status:** 🔲 Planned
 
@@ -424,7 +430,7 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 ---
 
-### Milestone 10 — BBC iPlayer Support (v2.2.0)
+### Milestone 10 — BBC iPlayer Support (v2.2.0) — [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102)
 
 **Status:** 🔲 Planned
 
