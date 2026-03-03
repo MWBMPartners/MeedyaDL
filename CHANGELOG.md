@@ -24,9 +24,20 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Expand markdownlint config: disable MD013 (line length), MD041 (first
     line heading), MD060 (compact table style) — all standard for GitHub READMEs
 
+- Resolve markdownlint warnings across all documentation files
+
+- README.md: add blank lines around all 34 headings (MD022), add language
+    to 3 fenced code blocks (MD040)
+  - DEV_NOTES.md: add blank lines around headings and after list blocks
+  - help/cookie-management.md: add blank line before heading
+  - .markdownlint.jsonc: only suppress truly unfixable rules (MD033 inline
+    HTML for logos/badges, MD041 first-line heading, MD013 line length for
+    URLs) — removed MD060 suppression since tables are now clean
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
