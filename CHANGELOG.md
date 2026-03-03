@@ -59,6 +59,7 @@ Update all documentation to reflect recent changes:
 
   Also saves standing tasks to .claude/ memory for session persistence.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.6.3] - 2026-03-02
 
