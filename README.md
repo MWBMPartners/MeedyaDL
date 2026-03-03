@@ -151,7 +151,7 @@ The Wrapper service only provides native binaries for **Linux x86_64**. On other
 
 MeedyaDL is built with a modern, performance-first tech stack:
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │           React 19 + TypeScript         │  ← Frontend UI
 │         Tailwind CSS + Zustand          │
@@ -224,17 +224,22 @@ sudo apt-get install -y \
 ### Build Steps
 
 ```bash
+
 # Clone the repository
+
 git clone https://github.com/MeedyaDL/MeedyaDL.git
 cd MeedyaDL
 
 # Install frontend dependencies
+
 npm install
 
 # Build the application (debug)
+
 npm run tauri build -- --debug
 
 # Build the application (release)
+
 npm run tauri build
 ```
 
@@ -251,7 +256,9 @@ For the full project structure, see [DEV_NOTES.md](DEV_NOTES.md#-project-structu
 ### Running in Dev Mode
 
 ```bash
+
 # Start the frontend dev server + Tauri window with hot reload
+
 npm run tauri dev
 ```
 
@@ -278,13 +285,17 @@ This launches:
 ### Rust Backend
 
 ```bash
+
 # Check compilation
+
 cd src-tauri && cargo check
 
 # Run clippy linter
+
 cargo clippy -- -D warnings
 
 # Run Rust unit tests
+
 cargo test
 ```
 
@@ -298,10 +309,11 @@ Contributions are welcome! Please follow these guidelines:
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) enforced by [commitlint](https://commitlint.js.org/):
 
-```
+```text
 type(scope): description
 
 # Examples:
+
 feat(download): add fallback quality chain support
 fix(settings): resolve cookie validation edge case
 docs(readme): update installation instructions
@@ -373,7 +385,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 
 ## 📄 License
 
-```
+```text
 MIT License
 
 Copyright (c) 2024-2026 MeedyaDL

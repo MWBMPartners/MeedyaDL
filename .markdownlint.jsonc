@@ -1,17 +1,16 @@
 {
   // MeedyaDL markdownlint configuration
+  //
+  // Only suppress rules that CANNOT be fixed without degrading content:
 
-  // Allow inline HTML — required for GitHub README headers (centered logos, badge rows),
-  // tables with links, and other standard GitHub markdown patterns
+  // Allow inline HTML — required for GitHub README centered logos, badge rows,
+  // <picture> theme switching, and <strong> in descriptions
   "MD033": false,
 
-  // Disable line length limit — README feature descriptions, URLs, badge rows,
-  // and table cells naturally exceed 80 chars. Wrapping breaks readability.
-  "MD013": false,
-
-  // Allow first line to be non-heading (README starts with centered logo HTML)
+  // Allow first line to be non-heading — README starts with centered <p> logo
   "MD041": false,
 
-  // Disable compact table style enforcement — compact tables render fine on GitHub
-  "MD060": false
+  // Disable line length — URLs, badge rows, feature descriptions, and table
+  // cells naturally exceed 80 chars. Wrapping them breaks readability on GitHub.
+  "MD013": false
 }
