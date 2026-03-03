@@ -142,7 +142,7 @@ export function Toggle({
       <button
         type="button"
         role="switch"
-        aria-checked={checked}
+        aria-checked={checked ? "true" : "false"}
         disabled={disabled}
         onClick={() => !disabled && onChange(!checked)}
         className={`
