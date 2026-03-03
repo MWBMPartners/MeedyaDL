@@ -108,12 +108,14 @@ const UI_LANGUAGE_OPTIONS = [
  * Update check interval options. Value is in hours.
  * Shown only when "Auto-Check for Updates" is enabled.
  */
+// Listed in ascending frequency order (most frequent → least frequent).
+// "Startup only" is last because 0 = no periodic checks (least frequent).
 const UPDATE_INTERVAL_OPTIONS = [
-  { value: '0', label: 'Startup only' },
   { value: '1', label: 'Every hour' },
   { value: '6', label: 'Every 6 hours' },
   { value: '12', label: 'Every 12 hours' },
   { value: '24', label: 'Every 24 hours' },
+  { value: '0', label: 'Startup only' },
 ];
 
 const LANGUAGE_OPTIONS = [
