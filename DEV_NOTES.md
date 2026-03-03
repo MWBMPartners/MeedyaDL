@@ -227,30 +227,37 @@ Pre-release updates show an amber badge and disclaimer in the Update Banner. The
 ## Common Build Issues
 
 ### "plugins > updater doesn't exist"
+
 **Cause**: `createUpdaterArtifacts: true` is set but `plugins.updater` section is missing from `tauri.conf.json`.
 **Fix**: Ensure `plugins.updater` exists with a valid `pubkey` and `endpoints` array.
 
 ### "No artifacts were found" (ARMv7)
+
 **Cause**: `tauri-action` skips the build entirely when both `includeRelease: false` and `includeUpdaterJson: false`. This was the original approach for ARMv7 (because tauri-action can't match Debian's `armhf` filenames), but it prevented the build from running at all.
 **Fix**: ARMv7 now bypasses tauri-action completely. The build runs directly via `npx tauri build --target armv7-unknown-linux-gnueabihf --bundles deb rpm`, and a separate step renames and uploads the artifacts manually. See the `Build ARMv7` and `Upload ARMv7 artifacts` steps in `release.yml`.
 
 ### Windows ARM64 "http status: 504"
+
 **Cause**: Transient GitHub CDN timeout when downloading NSIS utilities (`nsis_tauri_utils.dll`). The Rust compilation succeeds but the bundling step fails.
 **Fix**: Re-run the failed job. This is a network issue, not a code problem.
 
 ### Empty `TAURI_SIGNING_PRIVATE_KEY` in CI logs
+
 **Cause**: The `TAURI_SIGNING_PRIVATE_KEY` GitHub secret hasn't been configured.
 **Fix**: Add the private key contents as a repository secret. See [Required GitHub Secrets](#required-github-secrets).
 
 ### macOS "The signature does not include a secure timestamp"
+
 **Cause**: Tauri's `tauri-macos-sign` crate omits `--timestamp` from the `codesign` command. Without it, macOS uses a non-deterministic default that may or may not produce timestamps. Apple's notarization service requires secure timestamps on all code signatures, so builds can randomly fail.
 **Fix**: Both `release.yml` and `pre-release.yml` include a `codesign` wrapper step (Step 8.9) that injects `--timestamp` into every codesign invocation. The wrapper is installed to `$HOME/bin` and prepended to `$GITHUB_PATH` so it intercepts all calls before delegating to `/usr/bin/codesign`. This is a workaround for [tauri-apps/tauri#11992](https://github.com/tauri-apps/tauri/issues/11992) and can be removed once Tauri adds `--timestamp` natively. See also: [Apple: Resolving Common Notarization Issues](https://developer.apple.com/documentation/security/resolving-common-notarization-issues).
 
 ### macOS "Validate macOS signing secrets" failure
+
 **Cause**: One or more Apple signing secrets are missing.
 **Fix**: Configure all 6 Apple secrets in the repository settings.
 
 ### `cargo clean` needed after config changes
+
 If you change `tauri.conf.json` and the build fails with cached errors, run:
 ```bash
 cd src-tauri && cargo clean
@@ -285,16 +292,21 @@ node scripts/bump-version.mjs 0.3.8
 All workflows support manual triggers via `workflow_dispatch`:
 
 ```bash
+
 # Run CI checks
+
 gh workflow run "CI" --ref main
 
 # Create/update Release PR
+
 gh workflow run "Release Please" --ref main
 
 # Regenerate changelog
+
 gh workflow run "Changelog" --ref main
 
 # Build release (requires tag)
+
 gh workflow run "Release" -f tag=v0.3.8
 ```
 
@@ -386,13 +398,17 @@ The `main` branch is protected via a GitHub Repository Ruleset (preferred over l
 **Managing the ruleset:**
 
 ```bash
+
 # View current rulesets
+
 gh api repos/MWBMPartners/MeedyaDL/rulesets
 
 # View specific ruleset details
+
 gh api repos/MWBMPartners/MeedyaDL/rulesets/{ruleset_id}
 
 # Or manage via GitHub UI: Settings > Rules > Rulesets
+
 ```
 
 ---
@@ -508,105 +524,203 @@ The 3500-character truncation threshold for the backtrace ensures the total URL 
 ```text
 MeedyaDL/
 ├── src/                        # React Frontend
+
 │   ├── App.tsx                 #    Root component with routing & event listeners
+
 │   ├── main.tsx                #    Entry point
+
 │   ├── components/             #    UI components
+
 │   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
+
 │   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
+
 │   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog
+
 │   │   ├── settings/           #    SettingsPage + 10 tab components + CrashReportSection, CrashReportDialog
+
 │   │   ├── updates/            #    UpdatesPage (changelog + update actions)
+
 │   │   ├── setup/              #    SetupWizard + 6 step components
+
 │   │   └── help/               #    HelpViewer with inline topic rendering
+
 │   ├── stores/                 #    Zustand state stores
+
 │   │   ├── uiStore.ts          #    Navigation, toasts, sidebar state
+
 │   │   ├── settingsStore.ts    #    App settings load/save
+
 │   │   ├── downloadStore.ts    #    Queue, progress, cancel/retry/clear
+
 │   │   ├── dependencyStore.ts  #    Tool installation status
+
 │   │   ├── setupStore.ts       #    Setup wizard step tracking
+
 │   │   ├── updateStore.ts      #    Update checking and notification
+
 │   │   └── activityStore.ts    #    Subprocess output log buffer
+
 │   ├── lib/                    #    Utility modules
+
 │   │   ├── tauri-commands.ts   #    Type-safe IPC wrappers
+
 │   │   ├── url-parser.ts       #    Apple Music URL detection
+
 │   │   ├── quality-chains.ts   #    Fallback codec/resolution chains
+
 │   │   └── i18n.ts             #    i18next initialization & locale loading
+
 │   ├── types/                  #    TypeScript types (mirrors Rust models)
+
 │   ├── hooks/                  #    Custom React hooks
+
 │   │   ├── usePlatform.ts      #    Platform detection
+
 │   │   └── useTheme.ts         #    Dark/light/auto theme override
+
 │   └── styles/themes/          #    Platform-adaptive CSS
+
 │       ├── base.css            #    Shared design tokens + status variables
+
 │       ├── macos.css           #    macOS Liquid Glass
+
 │       ├── windows.css         #    Windows Fluent
+
 │       └── linux.css           #    Linux Adwaita
+
 ├── src-tauri/                  # Rust Backend
+
 │   ├── Cargo.toml              #    Rust dependencies
+
 │   ├── tauri.conf.json         #    Tauri configuration
+
 │   └── src/
 │       ├── main.rs             #    Application entry point
+
 │       ├── lib.rs              #    Plugin, state & command registration
+
 │       ├── commands/           #    IPC command handlers
+
 │       │   ├── system.rs       #    Platform info
+
 │       │   ├── dependencies.rs #    Python/GAMDL/tool management
+
 │       │   ├── settings.rs     #    App settings
+
 │       │   ├── gamdl.rs        #    Download queue orchestration
+
 │       │   ├── credentials.rs  #    Secure keychain storage
+
 │       │   ├── updates.rs      #    Update checking commands
+
 │       │   ├── cookies.rs      #    Browser cookie extraction
+
 │       │   ├── login_window.rs #    Embedded Apple Music login
+
 │       │   ├── artwork.rs      #    Animated artwork download
+
 │       │   └── crash_reports.rs#    Crash report management + frontend error logging
+
 │       ├── models/             #    Data structures
+
 │       │   ├── download.rs     #    Download request, state, queue status
+
 │       │   ├── gamdl_options.rs#    All GAMDL CLI options as typed enums
+
 │       │   ├── settings.rs     #    App configuration with defaults
+
 │       │   ├── dependency.rs   #    Dependency status tracking
+
 │       │   ├── music_service.rs#    Service trait (extensibility)
+
 │       │   └── crash_report.rs #    Crash report data model
+
 │       ├── services/           #    Business logic
+
 │       │   ├── python_manager.rs    # Portable Python download/install
+
 │       │   ├── gamdl_service.rs     # GAMDL CLI wrapper & subprocess
+
 │       │   ├── dependency_manager.rs# Tool download/install per platform
+
 │       │   ├── config_service.rs    # JSON settings + INI sync
+
 │       │   ├── download_queue.rs    # Queue manager with fallback/retry
+
 │       │   ├── update_checker.rs    # Version update checker
+
 │       │   ├── cookie_service.rs    # Browser cookie extraction
+
 │       │   ├── login_window_service.rs # Embedded Apple Music login
+
 │       │   ├── animated_artwork_service.rs # MusicKit animated cover art
+
 │       │   ├── apple_music_api.rs   # Shared MusicKit JWT, URL parsing, API
+
 │       │   ├── metadata_tag_service.rs    # Post-download metadata enrichment
+
 │       │   ├── acoustid_service.rs  # AcoustID fingerprinting (opt-in)
+
 │       │   ├── replaygain_service.rs# ReplayGain loudness analysis (opt-in)
+
 │       │   ├── enhanced_lyrics_service.rs # TTML → Enhanced LRC conversion
+
 │       │   └── crash_report_service.rs # Crash report CRUD + export
+
 │       └── utils/              #    Utility modules
+
 │           ├── platform.rs     #    OS detection & paths
+
 │           ├── archive.rs      #    ZIP/tar extraction
+
 │           └── process.rs      #    GAMDL output parser & error classifier
+
 ├── public/locales/             # i18n translation files
+
 │   ├── en/translation.json     #    English (default/fallback)
+
 │   ├── de/translation.json     #    German (stub)
+
 │   └── fr/translation.json     #    French (stub)
+
 ├── help/                       # Markdown help documentation (12 topics)
+
 ├── assets/screenshots/         # App screenshots for README
+
 ├── .github/
 │   ├── ISSUE_TEMPLATE/         # GitHub issue templates
+
 │   │   └── crash-report.yml    #    Crash report issue form
+
 │   └── workflows/              # CI/CD
+
 │       ├── ci.yml              #    Test & lint on push/PR
+
 │       ├── release.yml         #    Build & publish releases
+
 │       ├── release-please.yml  #    Automated version bumps & release PRs
+
 │       └── changelog.yml       #    Auto-generate changelogs
+
 ├── scripts/                    # Utility scripts
+
 ├── index.html                  #    Vite entry HTML
+
 ├── package.json                #    Node.js config
+
 ├── tailwind.config.js          #    Tailwind CSS config
+
 ├── vite.config.ts              #    Vite bundler config
+
 ├── tsconfig.json               #    TypeScript config
+
 ├── cliff.toml                  #    Changelog generation config
+
 ├── commitlint.config.js        #    Conventional commits config
+
 └── LICENSE                     #    MIT License
+
 ```
 
 ---
@@ -719,12 +833,18 @@ The TOML file has four top-level sections:
 ```toml
 [audio.my-new-codec]
 name = "My New Codec"           # Display name shown in the UI
+
 category = "lossy"              # "spatial", "lossless", or "lossy"
+
 lossless = false                # true if codec preserves original quality
+
 mimetype = "audio/mp4"          # MIME type for the audio format
+
 [audio.my-new-codec.services]
 gamdl = "my-flag"               # Exact CLI flag string for GAMDL
+
 votify = "other-flag"           # Exact CLI flag string for Votify
+
 ```
 
 ### Adding a New Video Codec
@@ -733,6 +853,7 @@ votify = "other-flag"           # Exact CLI flag string for Votify
 [video.my-video-codec]
 name = "My Video Codec"
 category = "modern"             # "modern" or "compatible"
+
 mimetype = "video/mp4"
 [video.my-video-codec.services]
 gamdl = "my-flag"
@@ -744,9 +865,12 @@ gamdl = "my-flag"
 [lyrics.my-format]
 name = "My Format"
 category = "text"               # "xml" or "text"
+
 extension = "myf"               # File extension without dot
+
 mimetype = "text/x-myformat"
 word_timing = false             # true if supports word-level timestamps
+
 [lyrics.my-format.services]
 gamdl = "myf"
 ```
@@ -784,7 +908,9 @@ name = "Dolby Atmos (AC-4)"
 category = "spatial"
 lossless = false
 mimetype = "audio/ac4"
+
 # No [audio.ac4-atmos.services] table — not downloadable yet
+
 ```
 
 ### Practical Example: Adding MP3 Support
@@ -798,8 +924,11 @@ category = "lossy"
 lossless = false
 mimetype = "audio/mpeg"
 [audio.mp3-320.services]
+
 # gamdl doesn't support MP3, so no gamdl mapping
+
 example-dl = "mp3-320"         # Exact CLI flag for example-dl
+
 ```
 
 ### No Code Changes Required
@@ -843,7 +972,9 @@ Each tag entry defines three things:
 ```toml
 [album.record_label]
 json_path = "attributes.recordLabel"     # Dot-separated path into raw API JSON
+
 value_type = "string"                     # How to convert the value
+
 atoms = [                                 # Which freeform atoms to write
     { namespace = "itunes", name = "LABEL" },
     { namespace = "meedya", name = "AppleRecordLabel" },
@@ -986,14 +1117,21 @@ All versions before v1.0 are published as **pre-releases** on GitHub. This means
 No special action needed. The standard release pipeline produces pre-releases automatically:
 
 ```bash
+
 # 1. Push conventional commits to main
+
 git push origin main
 
 # 2. Release Please creates a Release PR (automatic)
+
 # 3. Merge the Release PR on GitHub
+
 # 4. Release Please creates a tag (e.g., v0.7.0)
+
 # 5. release.yml builds all platforms → draft pre-release on GitHub
+
 # 6. Manually review and publish the draft release on GitHub
+
 ```
 
 The published release will have the "Pre-release" badge on GitHub and will only be picked up by users who have opted into pre-release updates.
@@ -1019,10 +1157,13 @@ When ready for v1.0 or a stable milestone:
 **Option C: Via CLI after publishing**
 
 ```bash
+
 # Mark a specific release as stable (removes pre-release flag)
+
 gh release edit v1.0.0 --prerelease=false
 
 # Mark a release back to pre-release
+
 gh release edit v1.0.0 --prerelease
 ```
 
