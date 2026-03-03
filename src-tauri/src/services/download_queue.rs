@@ -3171,6 +3171,55 @@ pub fn process_queue(
                                 .await;
                             }
 
+                            // --- Step 2c: WebVTT subtitle generation (opt-in) ---
+                            // When enabled, converts existing lyrics sidecars (TTML, SRT,
+                            // or LRC) to WebVTT (.vtt) format for web video player
+                            // compatibility. Source priority: TTML → SRT → LRC.
+                            // Runs after lyrics fallback so all available sources are present.
+                            tokio::task::yield_now().await;
+                            if enrich_settings.generate_webvtt && !enrich_shutdown.is_triggered() {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Generating WebVTT subtitles...",
+                                );
+                                let vtt_dir = album_dir.clone();
+                                match tokio::task::spawn_blocking(move || {
+                                    super::webvtt_service::generate_webvtt_for_directory(&vtt_dir)
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("VTT task panicked: {e}")))
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Generated {count} WebVTT file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Generated {count} WebVTT subtitle(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "No lyrics files found for WebVTT conversion",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "WebVTT generation skipped for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("WebVTT generation skipped: {e}"),
+                                        );
+                                    }
+                                }
+                            }
+
                             tokio::task::yield_now().await;
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");

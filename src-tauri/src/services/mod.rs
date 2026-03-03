@@ -202,3 +202,13 @@ pub mod health_check_service;
 ///
 /// Used by: `commands/crash_reports` (IPC handlers), `lib.rs` (startup cleanup)
 pub mod crash_report_service;
+
+/// WebVTT subtitle generation service.
+///
+/// Generates WebVTT (`.vtt`) subtitle files from existing lyrics sidecars
+/// (TTML, SRT, or LRC). Source priority: TTML (richest timing data),
+/// SRT (has start+end times), LRC (start times only). Opt-in feature
+/// controlled by the `generate_webvtt` setting.
+///
+/// Used by: `download_queue` (post-download enrichment Step 2c, when `generate_webvtt` enabled)
+pub mod webvtt_service;

@@ -139,6 +139,14 @@ export function LyricsTab() {
             onChange={(checked) => updateSettings({ lyrics_fallback_enabled: checked })}
           />
 
+          {/* WebVTT subtitle generation */}
+          <Toggle
+            label="Generate WebVTT Subtitles"
+            description="Create .vtt subtitle files from downloaded lyrics (TTML, SRT, or LRC). WebVTT is the standard format for web-based video players."
+            checked={settings.generate_webvtt}
+            onChange={(checked) => updateSettings({ generate_webvtt: checked })}
+          />
+
           {/* Embed lyrics + keep sidecar */}
           <Toggle
             label="Embed Lyrics and Keep Sidecar"

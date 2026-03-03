@@ -384,6 +384,16 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub lyrics_fallback_enabled: bool,
 
+    /// When enabled, generates WebVTT (`.vtt`) subtitle files from
+    /// downloaded lyrics sidecars (TTML, SRT, or LRC). WebVTT is the
+    /// standard format for web-based video players.
+    ///
+    /// Source priority: TTML first (richest timing data), then SRT
+    /// (has start+end times), then LRC (start times only; end times
+    /// estimated from the next cue). Skips if `.vtt` already exists.
+    #[serde(default)]
+    pub generate_webvtt: bool,
+
     // ================================================================
     // Cover Art
     // ================================================================
@@ -785,6 +795,8 @@ impl Default for AppSettings {
             // Lyrics fallback enabled by default — if TTML isn't available,
             // try LRC (audio) or SRT (video) automatically.
             lyrics_fallback_enabled: true,
+            // WebVTT generation off by default — opt-in for users who need it.
+            generate_webvtt: false,
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.
