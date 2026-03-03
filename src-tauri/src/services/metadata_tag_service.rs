@@ -11,6 +11,8 @@
 //   1. **Codec identification** (always-on):
 //      - ALAC: `isLossless = Y`
 //      - Dolby Atmos: `SpatialType = Dolby Atmos` (both namespaces)
+//      - Binaural (AAC/AAC-HE): `isBinaural = Y` (both namespaces)
+//      - Downmix (AAC/AAC-HE): `isDownmix = Y` (both namespaces)
 //
 //   2. **Source & format tags** (always-on, no API needed):
 //      - `SourceStore = Apple Music` (both iTunes and MeedyaMeta namespaces)
@@ -94,6 +96,8 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   tags are written:
 ///   - `SongCodec::Alac` → `isLossless = Y`
 ///   - `SongCodec::Atmos` → `SpatialType = Dolby Atmos` (both namespaces)
+///   - `SongCodec::AacBinaural` / `AacHeBinaural` → `isBinaural = Y` (both namespaces)
+///   - `SongCodec::AacDownmix` / `AacHeDownmix` → `isDownmix = Y` (both namespaces)
 ///   - All other codecs → no tags written (returns Ok immediately)
 ///
 /// # Errors
@@ -107,11 +111,13 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   Individual file failures are logged at debug level but do not stop
 ///   processing of remaining files.
 pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result<usize, String> {
-    // Only ALAC and Atmos get custom tags; all other codecs return early.
+    // Codec-specific tags: ALAC, Atmos, Binaural, Downmix.
     let tag_writer: Box<dyn Fn(&mut Tag)> = match codec {
         SongCodec::Alac => Box::new(write_lossless_tags),
         SongCodec::Atmos => Box::new(write_atmos_tags),
-        _ => return Ok(0), // No custom tags for lossy codecs
+        SongCodec::AacBinaural | SongCodec::AacHeBinaural => Box::new(write_binaural_tags),
+        SongCodec::AacDownmix | SongCodec::AacHeDownmix => Box::new(write_downmix_tags),
+        _ => return Ok(0), // No custom tags for standard lossy codecs
     };
 
     let path = Path::new(output_path);
@@ -213,6 +219,47 @@ fn write_atmos_tags(tag: &mut Tag) {
     // SpatialType under the MeedyaMeta namespace (MeedyaDL-branded)
     let meedya_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialType");
     tag.set_data(meedya_ident, Data::Utf8("Dolby Atmos".to_owned()));
+}
+
+/// Writes binaural audio identification tags to an M4A file's metadata.
+///
+/// Binaural codecs (AAC Binaural, AAC-HE Binaural) are stereo renderings of
+/// spatial audio designed for headphone listening. They cannot be distinguished
+/// from standard stereo AAC by analysing the audio stream — the codec identity
+/// at download time is the only way to know.
+///
+/// Tags written:
+///   - `----:com.apple.iTunes:isBinaural` → "Y"
+///   - `----:MeedyaMeta:isBinaural`       → "Y"
+fn write_binaural_tags(tag: &mut Tag) {
+    tag.set_data(
+        FreeformIdent::new_static(ITUNES_NAMESPACE, "isBinaural"),
+        Data::Utf8("Y".to_owned()),
+    );
+    tag.set_data(
+        FreeformIdent::new_static(MEEDYADL_NAMESPACE, "isBinaural"),
+        Data::Utf8("Y".to_owned()),
+    );
+}
+
+/// Writes downmix audio identification tags to an M4A file's metadata.
+///
+/// Downmix codecs (AAC Downmix, AAC-HE Downmix) are stereo downmixes of
+/// spatial/surround masters. Like binaural, they cannot be distinguished from
+/// standard stereo AAC by audio analysis alone.
+///
+/// Tags written:
+///   - `----:com.apple.iTunes:isDownmix` → "Y"
+///   - `----:MeedyaMeta:isDownmix`       → "Y"
+fn write_downmix_tags(tag: &mut Tag) {
+    tag.set_data(
+        FreeformIdent::new_static(ITUNES_NAMESPACE, "isDownmix"),
+        Data::Utf8("Y".to_owned()),
+    );
+    tag.set_data(
+        FreeformIdent::new_static(MEEDYADL_NAMESPACE, "isDownmix"),
+        Data::Utf8("Y".to_owned()),
+    );
 }
 
 /// Checks whether a file path has an `.m4a` extension (case-insensitive).
@@ -338,11 +385,17 @@ async fn enrich_single_file(
             )
         })?;
 
-        // --- Layer 1: Codec-specific tags (ALAC/Atmos) ---
+        // --- Layer 1: Codec-specific tags (ALAC/Atmos/Binaural/Downmix) ---
         match codec_owned {
             SongCodec::Alac => write_lossless_tags(&mut tag),
             SongCodec::Atmos => write_atmos_tags(&mut tag),
-            _ => {} // No codec tags for lossy formats
+            SongCodec::AacBinaural | SongCodec::AacHeBinaural => {
+                write_binaural_tags(&mut tag);
+            }
+            SongCodec::AacDownmix | SongCodec::AacHeDownmix => {
+                write_downmix_tags(&mut tag);
+            }
+            _ => {} // No codec tags for standard lossy formats
         }
 
         // --- Layer 2: Source & format tags (always-on, no API needed) ---
