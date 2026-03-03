@@ -16,9 +16,18 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Replace emoji header with app logo (src-tauri/icons/128x128.png)
   - Add .markdownlint.jsonc: allow inline HTML (standard for GitHub READMEs)
 
+- Use MeedyaDL logo in README header with dark/light theme support
+
+- Replace app icon with proper MeedyaDL logo (assets/logo/meedyadl-logo.svg)
+  - Use <picture> element with prefers-color-scheme for dark/light variants
+  - Remove h1 heading (logo serves as the header)
+  - Expand markdownlint config: disable MD013 (line length), MD041 (first
+    line heading), MD060 (compact table style) — all standard for GitHub READMEs
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
