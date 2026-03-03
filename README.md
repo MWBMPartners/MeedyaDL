@@ -43,6 +43,8 @@
 - **Metadata enrichment** — codec tags, source tags, channel detection, ISRC, UPC, genre, advisory ratings, artist IDs, and animated artwork URLs via Apple Music API
 - **AcoustID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification. Built-in API key included in release builds; no registration required
 - **ReplayGain analysis** (opt-in) — non-destructive loudness metadata for volume normalisation in compatible players
+- **WebVTT subtitles** (opt-in) — generates `.vtt` subtitle files from lyrics sidecars (TTML, SRT, or LRC) for use in video players and media servers
+- **MusicBrainz video discovery** (opt-in) — discovers music videos via MusicBrainz database using a 3-tier lookup (Apple Music URL → ISRC → AcoustID recording ID) when Apple Music API returns no results. No credentials required. Also discovers cross-platform URLs (YouTube, Spotify, etc.) for future multi-service support
 
 ### 🔐 Authentication & Security
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
@@ -327,6 +329,8 @@ refactor(backend): simplify dependency management
 - ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcoustID, ReplayGain)
 - ✅ Enhanced LRC with word-by-word synchronized lyrics (TTML → Enhanced LRC conversion)
 - ✅ Lyrics embed + sidecar (LRC, SRT, TTML)
+- ✅ WebVTT subtitle generation from lyrics sidecars (TTML, SRT, LRC)
+- ✅ MusicBrainz video discovery with 3-tier lookup (URL → ISRC → AcoustID recording ID)
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
 - ✅ In-app help viewer with 12 topics and search

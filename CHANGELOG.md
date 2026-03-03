@@ -6,6 +6,65 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add WebVTT subtitle generation from TTML, SRT, and LRC lyrics
+
+  New enrichment step (2c) generates WebVTT (`.vtt`) subtitle files from
+  existing lyrics sidecars after download. Source priority: TTML (richest
+  timing data with word-level `<span>` support), SRT (has start+end
+  times), LRC (start times only, 3s estimated duration). New
+  `generate_webvtt` setting (default: false). Toggle in Settings > Lyrics.
+
+- Add MusicBrainz lookup service for music video discovery and cross-platform groundwork
+
+  Queries the MusicBrainz database to discover music videos and
+  cross-platform URLs using ISRC codes. Serves as a fallback for music
+  video companion downloads when the Apple Music API returns no results
+  (no MusicKit credentials needed). Returns all discovered platform URLs
+  (Apple Music, YouTube, Spotify, Deezer, Tidal, SoundCloud, Bandcamp)
+  via `external_urls` HashMap for future cross-platform song discovery.
+  New `musicbrainz_lookup` setting (default: false). Toggle in Settings >
+  Quality > Video Quality.
+
+- Enhance MusicBrainz with storefront awareness, song-level lookup, and AcoustID bridge
+
+  MusicBrainz lookups now rewrite Apple Music URLs to match the user's
+  configured storefront code (e.g., `us` → `gb`). Added direct
+  MusicBrainz recording ID lookup for songs that already have a recording
+  ID from AcoustID fingerprinting (Step 4). AcoustID service now extracts
+  MusicBrainz recording IDs from the AcoustID API response.
+
+- 3-tier MusicBrainz discovery: URL → ISRC → AcoustID recording ID
+
+  MusicBrainz video/URL discovery now uses a 3-tier priority chain for
+  maximum coverage: (1) Apple Music URL search in MB external links
+  (highest fidelity — finds the exact recording), (2) ISRC code search
+  (standard identifier — broader matching), (3) AcoustID recording ID
+  direct lookup (from fingerprinting — works even without ISRC). Each
+  tier is tried in order; first success wins. The discovery pattern is
+  reusable for both music video lookup and future cross-platform song
+  discovery when additional media services are added.
+
+- Add internal codec and format registry infrastructure
+
+  TOML-based codec registry (`codecs.toml`) with 16 audio codecs, 3 meta
+  codecs, 4 video codecs, 5 lyrics formats. Per-service CLI flag
+  mappings, MIME types, and bridge functions to existing SongCodec enum.
+  Background preparation for multi-service architecture.
+
+- Add terser-based JS obfuscation for production builds
+
+  Release builds use Terser for aggressive minification with name
+  mangling, console stripping, and dead code elimination. Zero runtime
+  performance impact (build-time only). Debug builds unaffected.
+
+- Mark all releases as pre-release until v1.0
+- Add direct download links to release download table
+- Add platform emojis to release download table
+- Add Raspberry Pi GDebi installation note to release pages
+- Reorder update check interval options in ascending frequency order
+
 ### 🐛 Bug Fixes
 
 - Use --song-codec-priority instead of removed --song-codec flag
