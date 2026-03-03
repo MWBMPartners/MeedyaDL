@@ -222,11 +222,13 @@ The enrichment stages run in order:
 
 1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on)
 2. **Enhanced LRC conversion** (opt-in, default on) — converts TTML to Enhanced LRC, saves `.lrc` sidecar, embeds in `©lyr` atom
-3. **Lyrics format fallback** (opt-in, default on) — if TTML didn't produce lyrics for all tracks, retries with LRC (audio) or SRT (video)
-4. **Animated artwork download** (requires MusicKit credentials)
-5. **AcoustID fingerprinting** (opt-in)
-6. **ReplayGain analysis** (opt-in)
-7. **Music video companion downloads** (opt-in, requires MusicKit credentials)
+2b. **Lyrics format fallback** (opt-in, default on) — if TTML didn't produce lyrics for all tracks, retries with LRC (audio) or SRT (video)
+2c. **WebVTT subtitle generation** (opt-in) — converts TTML, SRT, or LRC sidecars to `.vtt` subtitle files
+3. **Animated artwork download** (requires MusicKit credentials)
+4. **AcoustID fingerprinting** (opt-in) — also extracts MusicBrainz recording IDs from AcoustID responses
+5. **ReplayGain analysis** (opt-in)
+6. **Music video companion downloads** (opt-in, requires MusicKit credentials)
+6b. **MusicBrainz video discovery** (opt-in) — fallback music video discovery when Step 6 finds no results
 
 #### Codec Tags (Always-On)
 
@@ -294,6 +296,32 @@ Enable in **Settings > Metadata**. Uses FFmpeg (already installed) to analyse au
 - The `MeedyaMeta` namespace is a MeedyaDL-branded namespace, ensuring these tags are clearly identifiable and don't collide with any future Apple-defined atoms.
 - Only the M4A container metadata is modified — the audio stream data (ALAC, EC-3, AAC) is never touched.
 - Enrichment runs as a background task and never blocks the download queue.
+
+#### WebVTT Subtitle Generation (Opt-In)
+
+Enable in **Settings > Lyrics**. Generates WebVTT (`.vtt`) subtitle files from existing lyrics sidecars after download. WebVTT is the standard subtitle format for HTML5 video players, media servers (Plex, Jellyfin), and web-based playback.
+
+Source files are used in priority order:
+
+1. **TTML** (best) — preserves word-level timing from Apple Music when available
+2. **SRT** (good) — has start and end timestamps for each line
+3. **LRC** (fallback) — has start times only; end times are estimated at 3 seconds per line
+
+The generated `.vtt` file is saved alongside the downloaded media. Only one source is used per track (the highest-priority format found).
+
+#### MusicBrainz Video Discovery (Opt-In)
+
+Enable in **Settings > Quality > Video Quality**. When the Apple Music API doesn't find music videos for your downloaded tracks (Step 6), MusicBrainz provides a fallback discovery mechanism. No Apple Developer credentials or MusicKit configuration required — the MusicBrainz API is free and public.
+
+MusicBrainz discovery uses a 3-tier priority chain for maximum coverage:
+
+1. **Apple Music URL search** — searches MusicBrainz external links for the exact Apple Music track URL (highest fidelity)
+2. **ISRC code search** — uses the ISRC identifier from Apple Music metadata (standard recording identifier)
+3. **AcoustID recording ID lookup** — uses the MusicBrainz recording ID extracted during AcoustID fingerprinting (Step 4, if enabled)
+
+Each tier is tried in order; the first successful match is used. Discovered music video URLs (Apple Music, YouTube) trigger companion downloads. The service also stores cross-platform URLs (Spotify, Deezer, Tidal, SoundCloud, Bandcamp) as groundwork for future multi-service song discovery.
+
+**Rate limiting:** MusicBrainz enforces 1 request per second. MeedyaDL respects this with a 1.1-second delay between requests.
 
 ---
 
