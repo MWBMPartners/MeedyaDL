@@ -35,7 +35,8 @@
 
 ### 📝 Metadata & Extras
 
-- **Enhanced LRC with word-by-word sync** — automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-level synchronized timestamps for karaoke-style highlighting in compatible players (foobar2000, Poweramp, AIMP). Falls back to standard line-level LRC for songs without word-level data.
+- **Enhanced LRC with word-by-word sync** — automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-level synchronized timestamps for karaoke-style highlighting in compatible players (foobar2000, Poweramp, AIMP). Falls back to standard line-level LRC for songs without word-level data. Companion lyrics formats (LRC, SRT) remain selectable alongside Enhanced LRC.
+- **Lyrics format fallback** — if the primary lyrics format isn't available for some tracks, automatically tries alternatives (Audio: TTML → LRC → SRT; Video: TTML → SRT → LRC)
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution
 - **Rich metadata tagging** powered by GAMDL
