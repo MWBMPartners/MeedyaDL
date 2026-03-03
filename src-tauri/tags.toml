@@ -1,0 +1,330 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# MeedyaDL Metadata Tag Registry
+# ================================
+#
+# Defines which Apple Music API fields to extract from the raw JSON response
+# and how to write them as MP4 freeform atoms. Adding a new tag requires only
+# editing this file — zero Rust code changes needed.
+#
+# ## How It Works
+#
+# After downloading, MeedyaDL fetches album metadata from the Apple Music
+# catalog API. The raw JSON response is stored alongside typed struct fields.
+# During enrichment, the tag registry iterates each definition below, extracts
+# the value from the raw JSON using `json_path`, converts it to a string using
+# `value_type` rules, and writes it as freeform atoms to the M4A/MP4 file.
+#
+# ## Structure
+#
+#   [album.<tag_id>]   — Per-album tags (same value written to every track)
+#   [track.<tag_id>]   — Per-track tags (matched to file via track/disc number)
+#
+# ## Fields
+#
+#   json_path   — Dot-separated path into the raw API JSON object.
+#                 Supports array indexing: "previews[0].url"
+#                 Supports nested objects: "editorialNotes.short"
+#                 Supports relationships: "relationships.artists.data[0].id"
+#
+#                 Album tags: path is relative to `data[0]` (the album object)
+#                 Track tags: path is relative to each track in
+#                             `data[0].relationships.tracks.data[*]`
+#
+#   value_type  — How to convert the JSON value to a UTF-8 string:
+#                 "string"         — Direct string (or .to_string() for non-string JSON)
+#                 "bool"           — JSON bool → "true" or "false"
+#                 "u32" / "u64"    — JSON number → decimal string
+#                 "array"          — JSON string array → comma-separated (e.g., "Pop, Music")
+#                 "first_of_array" — First element of a JSON string array
+#
+#   atoms       — Array of atom targets. Each atom is written independently:
+#                 { namespace = "itunes", name = "AtomName" }
+#                 { namespace = "meedya", name = "AtomName" }
+#
+#                 Namespace shortcuts:
+#                   "itunes" → "com.apple.iTunes"  (player-compatible)
+#                   "meedya" → "MeedyaMeta"        (MeedyaDL-branded)
+#
+# ## Naming Conventions
+#
+#   Album scope:  "Album*" prefix in iTunes namespace (e.g., AlbumReleaseDate)
+#   Track scope:  No prefix — track is the assumed default scope
+#   Industry std: Established names where they exist (LABEL, COPYRIGHT, etc.)
+#   MeedyaMeta:   "Apple*" prefix (e.g., AppleRecordLabel, AppleReleaseDate)
+#
+# ## What This File Does NOT Cover
+#
+# The following tags are written by hardcoded Rust functions because they have
+# conditional logic that doesn't fit a declarative TOML model:
+#
+#   - Codec-specific: isLossless (ALAC only), SpatialType (Atmos only)
+#   - Always-on local: SourceStore, EncodeSource, iTunesMediaType, isMedley
+#   - Channel detection: ChannelConfig (via ffprobe, not API)
+#
+# @see models/tag_registry.rs — Rust module that loads and queries this file
+# @see services/metadata_tag_service.rs — Calls write_tags_from_registry()
+
+# ============================================================
+# Album-Scope Tags
+# ============================================================
+#
+# These are written to every M4A file in the album with the same value.
+# JSON paths are relative to the album object (data[0]).
+
+[album.content_rating]
+json_path = "attributes.contentRating"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AlbumAdvisory" },
+    { namespace = "meedya", name = "AppleAlbumContentRating" },
+]
+
+[album.artist_id]
+json_path = "relationships.artists.data[0].id"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AlbumArtistID" },
+]
+
+[album.artist_name]
+json_path = "attributes.artistName"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AlbumArtistSort" },
+]
+
+[album.genre]
+json_path = "attributes.genreNames"
+value_type = "first_of_array"
+atoms = [
+    { namespace = "itunes", name = "AlbumGenre" },
+]
+
+[album.upc]
+json_path = "attributes.upc"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "UPC" },
+    { namespace = "itunes", name = "Barcode" },
+    { namespace = "meedya", name = "AppleUPC" },
+]
+
+# Industry standard: "LABEL" (recognised by MusicBrainz Picard, Mp3tag, foobar2000, beets)
+[album.record_label]
+json_path = "attributes.recordLabel"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "LABEL" },
+    { namespace = "meedya", name = "AppleRecordLabel" },
+]
+
+# Industry standard: "COPYRIGHT" (recognised by Mp3tag, foobar2000)
+[album.copyright]
+json_path = "attributes.copyright"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "COPYRIGHT" },
+    { namespace = "meedya", name = "AppleCopyright" },
+]
+
+[album.release_date]
+json_path = "attributes.releaseDate"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AlbumReleaseDate" },
+    { namespace = "meedya", name = "AppleAlbumReleaseDate" },
+]
+
+# Industry standard: "COMPILATION" (recognised by MusicBrainz Picard, Mp3tag, beets)
+# Note: native `cpil` atom may already exist from GAMDL — this is supplementary.
+[album.is_compilation]
+json_path = "attributes.isCompilation"
+value_type = "bool"
+atoms = [
+    { namespace = "itunes", name = "COMPILATION" },
+    { namespace = "meedya", name = "AppleIsCompilation" },
+]
+
+[album.is_single]
+json_path = "attributes.isSingle"
+value_type = "bool"
+atoms = [
+    { namespace = "itunes", name = "AlbumIsSingle" },
+    { namespace = "meedya", name = "AppleIsSingle" },
+]
+
+# Whether all tracks in the album were available at download time.
+# Historical snapshot — may be false for pre-release albums.
+[album.is_complete]
+json_path = "attributes.isComplete"
+value_type = "bool"
+atoms = [
+    { namespace = "itunes", name = "AlbumIsComplete" },
+    { namespace = "meedya", name = "AppleIsComplete" },
+]
+
+[album.is_mastered_for_itunes]
+json_path = "attributes.isMasteredForItunes"
+value_type = "bool"
+atoms = [
+    { namespace = "itunes", name = "AlbumMasteredForItunes" },
+    { namespace = "meedya", name = "AppleMasteredForItunes" },
+]
+
+# Industry standard: "TOTALTRACKS" (recognised by MusicBrainz Picard, foobar2000)
+# Note: native `trkn` atom pair may already contain total — this is supplementary.
+[album.track_count]
+json_path = "attributes.trackCount"
+value_type = "u32"
+atoms = [
+    { namespace = "itunes", name = "AlbumTrackCount" },
+    { namespace = "itunes", name = "TOTALTRACKS" },
+    { namespace = "meedya", name = "AppleTrackCount" },
+]
+
+[album.editorial_notes]
+json_path = "attributes.editorialNotes.short"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AlbumEditorialNote" },
+    { namespace = "meedya", name = "AppleEditorialNote" },
+]
+
+# Animated artwork HLS M3U8 URLs (album-scope, same on all tracks)
+[album.artwork_square_url]
+json_path = "attributes.editorialVideo.motionDetailSquare.video"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "MotionArtURL" },
+    { namespace = "meedya", name = "MotionArtURL" },
+]
+
+[album.artwork_tall_url]
+json_path = "attributes.editorialVideo.motionDetailTall.video"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "MotionArtPortraitURL" },
+    { namespace = "meedya", name = "MotionArtPortraitURL" },
+]
+
+# ============================================================
+# Track-Scope Tags
+# ============================================================
+#
+# These are written per-track, matched to each M4A file by track/disc number.
+# JSON paths are relative to each track object in
+# data[0].relationships.tracks.data[*].
+
+[track.isrc]
+json_path = "attributes.isrc"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "ISRC" },
+]
+
+[track.content_rating]
+json_path = "attributes.contentRating"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "iTunesAdvisory" },
+]
+
+[track.artist_id]
+json_path = "relationships.artists.data[0].id"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "iTunesArtistID" },
+]
+
+# Song ID is written to two different atom names for compatibility
+[track.song_id]
+json_path = "id"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "iTunesCatalogID" },
+    { namespace = "itunes", name = "StoreID/AppleMusic" },
+]
+
+[track.audio_traits]
+json_path = "attributes.audioTraits"
+value_type = "array"
+atoms = [
+    { namespace = "meedya", name = "AppleAudioTraits" },
+]
+
+[track.is_apple_digital_master]
+json_path = "attributes.isAppleDigitalMaster"
+value_type = "bool"
+atoms = [
+    { namespace = "itunes", name = "AppleDigitalMaster" },
+    { namespace = "meedya", name = "AppleDigitalMaster" },
+]
+
+# Note: native `©day` atom may already exist from GAMDL — this is supplementary.
+[track.release_date]
+json_path = "attributes.releaseDate"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "ReleaseDate" },
+    { namespace = "meedya", name = "AppleReleaseDate" },
+]
+
+# Note: native `©wrt` atom may already exist from GAMDL — this is supplementary.
+[track.composer_name]
+json_path = "attributes.composerName"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "Composer" },
+    { namespace = "meedya", name = "AppleComposerName" },
+]
+
+[track.duration_in_millis]
+json_path = "attributes.durationInMillis"
+value_type = "u64"
+atoms = [
+    { namespace = "itunes", name = "DurationMs" },
+    { namespace = "meedya", name = "AppleDurationMs" },
+]
+
+[track.has_lyrics]
+json_path = "attributes.hasLyrics"
+value_type = "bool"
+atoms = [
+    { namespace = "itunes", name = "HasLyrics" },
+    { namespace = "meedya", name = "AppleHasLyrics" },
+]
+
+[track.play_params_id]
+json_path = "attributes.playParams.id"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "PlayParamsId" },
+    { namespace = "meedya", name = "ApplePlayParamsId" },
+]
+
+[track.url]
+json_path = "attributes.url"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "TrackUrl" },
+    { namespace = "meedya", name = "AppleTrackUrl" },
+]
+
+[track.preview_url]
+json_path = "attributes.previews[0].url"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "PreviewUrl" },
+    { namespace = "meedya", name = "ApplePreviewUrl" },
+]
+
+# Note: native `©gen` atom may already exist from GAMDL — this is supplementary.
+[track.genres]
+json_path = "attributes.genreNames"
+value_type = "array"
+atoms = [
+    { namespace = "itunes", name = "Genre" },
+    { namespace = "meedya", name = "AppleGenres" },
+]

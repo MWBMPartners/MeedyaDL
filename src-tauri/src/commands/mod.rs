@@ -100,3 +100,10 @@ pub mod artwork;
 /// persist frontend errors to the same crash report system used by the
 /// Rust panic handler. Delegates to `services::crash_report_service`.
 pub mod crash_reports;
+
+/// API field audit command — diagnostic tool for discovering new API fields.
+///
+/// Provides `audit_api_fields` which fetches an Apple Music album and diffs
+/// its JSON attributes against the known tag definitions in `tags.toml`.
+/// Delegates to `services::api_audit_service`.
+pub mod api_audit;
