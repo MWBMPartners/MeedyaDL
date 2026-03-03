@@ -482,4 +482,4 @@ base64 = "0.22"
 # namespace-aware attribute lookups on a tree structure, which roxmltree
 # handles natively.
 # @see https://docs.rs/roxmltree/ -- roxmltree API reference
-roxmltree = "0.20"
+roxmltree = "0.21"
