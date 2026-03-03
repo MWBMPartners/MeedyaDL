@@ -205,6 +205,15 @@ jobs:
             echo "name=$REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
+      # Step 0b: Extract the numeric version (strip 'v' prefix) for asset filenames.
+      # Asset files use the version without 'v': MeedyaDL_0.6.4_aarch64.dmg
+      - name: Extract version number
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          echo "number=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       # Step 1: Check out the repository code at the tagged commit.
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -511,13 +520,13 @@ jobs:
 
             | If you're using... | Download this | Notes |
             |--------------------|--------------|-------|
-            | **Mac** (M1, M2, M3, M4) | `_aarch64.dmg` | Most Macs since late 2020 |
-            | **Windows** (most PCs) | `_x64-setup.exe` | Works on all modern Windows PCs |
-            | **Windows** (Snapdragon / ARM) | `_arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
-            | **Linux** (most PCs) | `_amd64.deb` or `_amd64.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
-            | **Linux** (RPM-based) | `_x86_64.rpm` | Fedora, RHEL, CentOS, openSUSE |
-            | **Linux** (Raspberry Pi 4/5) | `_arm64.deb` or `_aarch64.rpm` | Requires 64-bit OS |
-            | **Chromebook** | `_amd64.deb` | Install via Linux (Crostini) |
+            | **Mac** (M1, M2, M3, M4) | [MeedyaDL_${{ steps.version.outputs.number }}_aarch64.dmg](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_aarch64.dmg) | Most Macs since late 2020 |
+            | **Windows** (most PCs) | [MeedyaDL_${{ steps.version.outputs.number }}_x64-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_x64-setup.exe) | Works on all modern Windows PCs |
+            | **Windows** (Snapdragon / ARM) | [MeedyaDL_${{ steps.version.outputs.number }}_arm64-setup.exe](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_arm64-setup.exe) | Surface Pro X, Snapdragon laptops |
+            | **Linux** (most PCs) | [MeedyaDL_${{ steps.version.outputs.number }}_amd64.deb](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_amd64.deb) or [.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_amd64.AppImage) | Ubuntu, Debian, Mint, Pop!_OS |
+            | **Linux** (RPM-based) | [MeedyaDL-${{ steps.version.outputs.number }}-1.x86_64.rpm](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL-${{ steps.version.outputs.number }}-1.x86_64.rpm) | Fedora, RHEL, CentOS, openSUSE |
+            | **Linux** (Raspberry Pi 4/5) | [MeedyaDL_${{ steps.version.outputs.number }}_arm64.deb](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_arm64.deb) or [.aarch64.rpm](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL-${{ steps.version.outputs.number }}-1.aarch64.rpm) | Requires 64-bit OS |
+            | **Chromebook** | [MeedyaDL_${{ steps.version.outputs.number }}_amd64.deb](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/MeedyaDL_${{ steps.version.outputs.number }}_amd64.deb) | Install via Linux (Crostini) |
 
             > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `_x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
 
