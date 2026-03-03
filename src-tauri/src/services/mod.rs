@@ -218,8 +218,9 @@ pub mod webvtt_service;
 
 /// Rich SRT subtitle generation and embedding service.
 ///
-/// Generates format-rich SRT files from Apple Music TTML that preserve
-/// styling (bold, italic, underline, colours) using HTML-like tags.
+/// Generates format-rich SRT files from TTML or WebVTT sources that
+/// preserve styling (bold, italic, underline, colours) using HTML-like
+/// tags. Source priority: TTML (richest), WebVTT (also supports styling).
 /// Also provides subtitle embedding into MP4/M4A/M4V containers as
 /// freeform atoms for future multi-service support.
 ///

@@ -4,9 +4,9 @@
 // Rich SRT subtitle generation and embedding service.
 // =====================================================
 //
-// Generates format-rich SRT subtitle files from Apple Music TTML that
-// preserve styling information (bold, italic, underline, colours) using
-// HTML-like tags supported by most modern video players.
+// Generates format-rich SRT subtitle files from TTML or WebVTT sources
+// that preserve styling information (bold, italic, underline, colours)
+// using HTML-like tags supported by most modern video players.
 //
 // Also provides subtitle embedding: reads .srt and .vtt sidecar files
 // and embeds their content into MP4/M4A/M4V containers as freeform atoms
@@ -67,14 +67,20 @@ impl TtmlStyle {
 // Rich SRT Generation (Public API)
 // ============================================================
 
-/// Generate format-rich SRT files from TTML for all tracks in a directory.
+/// Generate format-rich SRT files from TTML or WebVTT sources for all
+/// tracks in a directory.
 ///
-/// Scans `album_dir` for `.ttml` files. For each TTML found, converts
-/// to rich SRT with styling tags and writes/overwrites the corresponding
-/// `.srt` file. TTML-derived SRT is strictly richer than plain SRT
-/// downloaded by GAMDL, so overwriting is intentional.
+/// Scans `album_dir` for media files (`.m4a`, `.m4v`, `.mp4`). For each
+/// media file, looks for a rich source in priority order:
+///   1. `.ttml` — richest source (Apple Music, has `tts:*` styling attributes)
+///   2. `.vtt`  — also supports styling (`<b>`, `<i>`, `<u>`, CSS classes)
 ///
-/// If no TTML exists for a track, any existing plain `.srt` is kept.
+/// If a rich source is found, converts it to SRT with styling tags and
+/// writes/overwrites the corresponding `.srt` file. Source-derived SRT is
+/// strictly richer than plain downloaded SRT, so overwriting is intentional.
+///
+/// If neither TTML nor WebVTT exists for a track, any existing plain
+/// `.srt` is kept unchanged.
 ///
 /// # Returns
 /// * `Ok(count)` — Number of rich SRT files generated.
@@ -93,14 +99,14 @@ pub fn generate_rich_srt_for_directory(album_dir: &str) -> Result<usize, String>
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // Only process .ttml files
+        // Only process media files (.m4a, .m4v, .mp4)
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
 
-        if ext != "ttml" {
+        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
             continue;
         }
 
@@ -110,22 +116,14 @@ pub fn generate_rich_srt_for_directory(album_dir: &str) -> Result<usize, String>
             None => continue,
         };
 
-        // Read the TTML content
-        let ttml_content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => {
-                log::debug!("Failed to read TTML for {stem}: {e}");
-                continue;
-            }
-        };
-
-        // Convert TTML to rich SRT
-        let srt_content = match ttml_to_rich_srt(&ttml_content) {
-            Ok(srt) => srt,
-            Err(e) => {
-                log::debug!("Failed to convert TTML to rich SRT for {stem}: {e}");
-                continue;
-            }
+        // Try rich sources in priority order: TTML → WebVTT
+        let srt_content = if let Some(srt) = try_rich_srt_from_ttml(dir, &stem) {
+            srt
+        } else if let Some(srt) = try_rich_srt_from_webvtt(dir, &stem) {
+            srt
+        } else {
+            // No rich source found — keep any existing plain SRT
+            continue;
         };
 
         // Write the .srt file (overwriting any existing plain SRT)
@@ -140,6 +138,40 @@ pub fn generate_rich_srt_for_directory(album_dir: &str) -> Result<usize, String>
     }
 
     Ok(generated)
+}
+
+/// Try to generate a rich SRT from a TTML source file.
+fn try_rich_srt_from_ttml(dir: &Path, stem: &str) -> Option<String> {
+    let ttml_path = dir.join(format!("{stem}.ttml"));
+    if !ttml_path.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&ttml_path).ok()?;
+    match ttml_to_rich_srt(&content) {
+        Ok(srt) => Some(srt),
+        Err(e) => {
+            log::debug!("Failed to convert TTML to rich SRT for {stem}: {e}");
+            None
+        }
+    }
+}
+
+/// Try to generate a rich SRT from a WebVTT source file.
+fn try_rich_srt_from_webvtt(dir: &Path, stem: &str) -> Option<String> {
+    let vtt_path = dir.join(format!("{stem}.vtt"));
+    if !vtt_path.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&vtt_path).ok()?;
+    match webvtt_to_rich_srt(&content) {
+        Ok(srt) => Some(srt),
+        Err(e) => {
+            log::debug!("Failed to convert WebVTT to rich SRT for {stem}: {e}");
+            None
+        }
+    }
 }
 
 /// Convert TTML XML content to format-rich SRT.
@@ -212,6 +244,169 @@ pub fn ttml_to_rich_srt(ttml_content: &str) -> Result<String, String> {
     }
 
     Ok(srt)
+}
+
+// ============================================================
+// WebVTT → Rich SRT Conversion
+// ============================================================
+
+/// Convert WebVTT content to format-rich SRT.
+///
+/// Parses WebVTT cues and preserves any HTML-like styling tags already
+/// present in the WebVTT content (`<b>`, `<i>`, `<u>`, `<c.classname>`).
+/// WebVTT `<c>` class tags are stripped since SRT doesn't support CSS
+/// classes, but the text content is preserved.
+///
+/// This enables future services (YouTube/yt-dlp, BBC iPlayer) that
+/// provide WebVTT with styling to produce rich SRT output.
+///
+/// WebVTT cue format:
+/// ```text
+/// 00:01:23.456 --> 00:01:25.789
+/// <b>Bold text</b> and <i>italic</i>
+/// ```
+pub fn webvtt_to_rich_srt(vtt_content: &str) -> Result<String, String> {
+    let mut cues: Vec<(String, String, String)> = Vec::new(); // (start, end, text)
+    let mut lines = vtt_content.lines().peekable();
+
+    // Skip the WEBVTT header and any metadata/style blocks
+    let mut past_header = false;
+    while let Some(line) = lines.peek() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() && past_header {
+            lines.next();
+            break;
+        }
+        if trimmed.starts_with("WEBVTT") {
+            past_header = true;
+        }
+        lines.next();
+    }
+
+    // Parse cues
+    while lines.peek().is_some() {
+        // Skip blank lines and optional cue identifiers (numeric or named)
+        while let Some(line) = lines.peek() {
+            let trimmed = line.trim();
+            if trimmed.contains("-->") {
+                break;
+            }
+            lines.next();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // This is a cue identifier line — skip it
+        }
+
+        // Parse timestamp line
+        let Some(timestamp_line) = lines.next() else {
+            break;
+        };
+        let trimmed_ts = timestamp_line.trim();
+        if !trimmed_ts.contains("-->") {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed_ts.splitn(2, "-->").collect();
+        if parts.len() != 2 {
+            continue;
+        }
+
+        // Convert WebVTT timestamps (dot) to SRT timestamps (comma)
+        let start = parts[0].trim().replace('.', ",");
+        let end = parts[1]
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .replace('.', ",");
+
+        // Collect cue text lines until blank line or EOF
+        let mut cue_text = String::new();
+        while let Some(line) = lines.peek() {
+            if line.trim().is_empty() {
+                lines.next();
+                break;
+            }
+            if !cue_text.is_empty() {
+                cue_text.push('\n');
+            }
+            // Clean WebVTT-specific tags that SRT doesn't support
+            cue_text.push_str(&clean_vtt_tags(line));
+            lines.next();
+        }
+
+        if !cue_text.trim().is_empty() {
+            cues.push((start, end, cue_text.trim().to_string()));
+        }
+    }
+
+    if cues.is_empty() {
+        return Err("No cues found in WebVTT".to_string());
+    }
+
+    // Build SRT output
+    let mut srt = String::new();
+    for (i, (start, end, text)) in cues.iter().enumerate() {
+        if i > 0 {
+            srt.push('\n');
+        }
+        srt.push_str(&format!("{}\n{} --> {}\n{}\n", i + 1, start, end, text));
+    }
+
+    Ok(srt)
+}
+
+/// Clean WebVTT-specific tags that SRT doesn't support.
+///
+/// Preserves SRT-compatible tags (`<b>`, `<i>`, `<u>` and their closing tags).
+/// Strips WebVTT-only constructs:
+/// - `<c.classname>` / `</c>` — CSS class voice tags
+/// - `<v Name>` / `</v>` — voice/speaker tags
+/// - `<lang en>` / `</lang>` — language tags
+/// - `<ruby>` / `<rt>` — ruby annotation tags
+/// - Timestamp tags `<00:01:23.456>` — inline timestamps (Enhanced WebVTT)
+fn clean_vtt_tags(line: &str) -> String {
+    let mut result = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '<' {
+            // Collect the full tag content
+            let mut tag = String::from('<');
+            for c in chars.by_ref() {
+                tag.push(c);
+                if c == '>' {
+                    break;
+                }
+            }
+
+            // Check if it's an SRT-compatible tag
+            let tag_inner = tag
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .trim();
+            let tag_lower = tag_inner.to_lowercase();
+
+            if tag_lower == "b"
+                || tag_lower == "/b"
+                || tag_lower == "i"
+                || tag_lower == "/i"
+                || tag_lower == "u"
+                || tag_lower == "/u"
+                || tag_lower.starts_with("font ")
+                || tag_lower == "/font"
+            {
+                // Keep SRT-compatible tags
+                result.push_str(&tag);
+            }
+            // Strip everything else (VTT-only tags, timestamps)
+            // but preserve the text content inside them
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
 }
 
 // ============================================================
@@ -1072,5 +1267,117 @@ mod tests {
 
         let srt = ttml_to_rich_srt(ttml).unwrap();
         assert!(srt.contains("00:00:10,000 --> 00:00:15,000"));
+    }
+
+    // ----------------------------------------------------------
+    // WebVTT → Rich SRT conversion tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn webvtt_to_rich_srt_basic() {
+        let vtt = "WEBVTT\n\n00:00:12.450 --> 00:00:15.200\nHello world\n\n00:00:15.200 --> 00:00:18.500\nSecond line\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("1\n00:00:12,450 --> 00:00:15,200\nHello world\n"));
+        assert!(srt.contains("2\n00:00:15,200 --> 00:00:18,500\nSecond line\n"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_preserves_bold_italic() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<b>Bold</b> and <i>italic</i>\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("<b>Bold</b> and <i>italic</i>"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_preserves_underline() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<u>Underlined</u>\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("<u>Underlined</u>"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_strips_vtt_class_tags() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<c.highlight>styled text</c>\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("styled text"));
+        assert!(!srt.contains("<c"));
+        assert!(!srt.contains("</c>"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_strips_voice_tags() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Speaker>Hello there</v>\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("Hello there"));
+        assert!(!srt.contains("<v"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_strips_timestamp_tags() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello <00:00:02.000>world\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("Hello world"));
+        assert!(!srt.contains("<00:00"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_with_cue_identifiers() {
+        let vtt = "WEBVTT\n\ncue1\n00:00:01.000 --> 00:00:03.000\nFirst\n\ncue2\n00:00:04.000 --> 00:00:06.000\nSecond\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("1\n00:00:01,000 --> 00:00:03,000\nFirst\n"));
+        assert!(srt.contains("2\n00:00:04,000 --> 00:00:06,000\nSecond\n"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_timestamp_comma_conversion() {
+        let vtt = "WEBVTT\n\n00:01:23.456 --> 00:01:25.789\nTest\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("00:01:23,456 --> 00:01:25,789"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_empty_content() {
+        let vtt = "WEBVTT\n\n";
+        let result = webvtt_to_rich_srt(vtt);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No cues found"));
+    }
+
+    #[test]
+    fn webvtt_to_rich_srt_multiline_cue() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nLine one\nLine two\n";
+        let srt = webvtt_to_rich_srt(vtt).unwrap();
+        assert!(srt.contains("Line one\nLine two"));
+    }
+
+    // ----------------------------------------------------------
+    // clean_vtt_tags tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn clean_vtt_keeps_srt_tags() {
+        assert_eq!(clean_vtt_tags("<b>Bold</b>"), "<b>Bold</b>");
+        assert_eq!(clean_vtt_tags("<i>Italic</i>"), "<i>Italic</i>");
+        assert_eq!(clean_vtt_tags("<u>Under</u>"), "<u>Under</u>");
+    }
+
+    #[test]
+    fn clean_vtt_strips_class_tags() {
+        assert_eq!(clean_vtt_tags("<c.red>text</c>"), "text");
+    }
+
+    #[test]
+    fn clean_vtt_strips_voice_tags() {
+        assert_eq!(clean_vtt_tags("<v Speaker>text</v>"), "text");
+    }
+
+    #[test]
+    fn clean_vtt_strips_timestamp_tags() {
+        assert_eq!(clean_vtt_tags("Hello <00:00:02.000>world"), "Hello world");
+    }
+
+    #[test]
+    fn clean_vtt_no_tags() {
+        assert_eq!(clean_vtt_tags("plain text"), "plain text");
     }
 }
