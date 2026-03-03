@@ -53,7 +53,7 @@ use crate::models::download::{DownloadRequest, QueueItemStatus};
 // download_queue module contains the queue processing logic (process_queue).
 // QueueHandle is an Arc<Mutex<DownloadQueue>> shared across all command invocations.
 use crate::services::download_queue::{self, QueueHandle};
-use crate::utils::activity_log::emit_app_log;
+use crate::utils::activity_log::{emit_app_log, emit_verbose_app_log};
 
 /// Status of all items in the download queue.
 ///
@@ -126,6 +126,18 @@ pub async fn start_download(
     // If settings can't be loaded (corrupted file, etc.), fall back to defaults
     // so the download can still proceed with sensible quality/format choices.
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+
+    // Verbose: log key settings for debugging
+    emit_verbose_app_log(
+        &app,
+        &format!(
+            "Download settings: codec={:?}, wrapper={}, cookies={}, output={}",
+            settings.default_song_codec,
+            settings.use_wrapper,
+            settings.cookies_path.as_deref().unwrap_or("(none)"),
+            settings.output_path,
+        ),
+    );
 
     // Normalize non-geographic Apple Music URLs by injecting a storefront
     // code. GAMDL requires a 2-letter storefront in the URL path (e.g., /us/).
