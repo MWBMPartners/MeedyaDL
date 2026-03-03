@@ -76,6 +76,24 @@ This changelog is automatically generated from [conventional commits](https://ww
   from shared links. Normalization occurs at enqueue time and queue
   import time.
 
+### 🔒 Security
+
+- Fix incomplete URL substring sanitization in cookie domain styling
+
+  `domain.includes('apple.com')` could match unrelated domains like
+  `notapple.com`. Now uses `endsWith('.apple.com') || === 'apple.com'`
+  for exact domain matching. Resolves GitHub Code Scanning alert #11.
+
+- Add Secure attribute to cookie test fixtures
+
+  Test cookies that don't specifically verify insecure behavior now set
+  `.secure(true)`. Resolves Code Scanning alerts #4-10.
+
+- Add explicit permissions block to CI workflow
+
+  CI workflow now declares `permissions: { contents: read }` following
+  the principle of least privilege. Resolves Code Scanning alerts #1-2.
+
 ### 🐛 Bug Fixes
 
 - Use --song-codec-priority instead of removed --song-codec flag
