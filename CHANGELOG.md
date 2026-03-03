@@ -380,6 +380,7 @@ Standing task #4 now requires creating/closing/linking GitHub Issues
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -462,6 +463,21 @@ Bumps [vite](https://github.com/vitejs/vite/tree/HEAD/packages/vite) from 6.4.1 
   updated-dependencies:
   - dependency-name: vite
     dependency-version: 7.3.1
+    dependency-type: direct:development
+    update-type: version-update:semver-major
+  ...
+
+- **(deps-dev)** Bump @commitlint/config-conventional
+
+Bumps [@commitlint/config-conventional](https://github.com/conventional-changelog/commitlint/tree/HEAD/@commitlint/config-conventional) from 19.8.1 to 20.4.3.
+  - [Release notes](https://github.com/conventional-changelog/commitlint/releases)
+  - [Changelog](https://github.com/conventional-changelog/commitlint/blob/master/@commitlint/config-conventional/CHANGELOG.md)
+  - [Commits](https://github.com/conventional-changelog/commitlint/commits/v20.4.3/@commitlint/config-conventional)
+
+  ---
+  updated-dependencies:
+  - dependency-name: "@commitlint/config-conventional"
+    dependency-version: 20.4.3
     dependency-type: direct:development
     update-type: version-update:semver-major
   ...
