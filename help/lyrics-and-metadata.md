@@ -240,8 +240,9 @@ The enrichment stages run in order:
 | Codec | Tag (Namespace:Name) | Value |
 | ----- | -------------------- | ----- |
 | **ALAC (Lossless)** | `com.apple.iTunes:isLossless` | `Y` |
-| **Dolby Atmos** | `com.apple.iTunes:SpatialType` | `Dolby Atmos` |
-| **Dolby Atmos** | `MeedyaMeta:SpatialType` | `Dolby Atmos` |
+| **Dolby Atmos** | `com.apple.iTunes:SpatialType` / `MeedyaMeta:SpatialType` | `Dolby Atmos` |
+| **Binaural** (AAC/AAC-HE) | `com.apple.iTunes:isBinaural` / `MeedyaMeta:isBinaural` | `Y` |
+| **Downmix** (AAC/AAC-HE) | `com.apple.iTunes:isDownmix` / `MeedyaMeta:isDownmix` | `Y` |
 
 #### Source and Channel Tags (Always-On)
 
