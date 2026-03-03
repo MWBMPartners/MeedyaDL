@@ -231,7 +231,7 @@ configparser = "3"
 # MP4Box). The TOML file is compiled into the binary via include_str!() and
 # parsed at runtime by the dependency manager for version comparison.
 # @see https://docs.rs/toml/ -- toml crate documentation
-toml = "0.8"
+toml = "0.9"
 
 # ---- Secure Credential Storage ----
 
