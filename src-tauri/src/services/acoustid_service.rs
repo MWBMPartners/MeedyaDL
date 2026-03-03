@@ -423,6 +423,18 @@ async fn lookup_acoustid(
             .get("id")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string);
+
+        // Also extract MusicBrainz recording ID from the recordings array.
+        // The AcoustID response includes MB recording IDs when meta=recordings
+        // is specified (which we do). This bridges AcoustID → MusicBrainz.
+        if let Some(recordings) = result.get("recordings").and_then(|r| r.as_array()) {
+            if let Some(first_recording) = recordings.first() {
+                if let Some(mb_id) = first_recording.get("id").and_then(|v| v.as_str()) {
+                    log::debug!("AcoustID: MusicBrainz recording ID: {mb_id}");
+                }
+            }
+        }
+
         Ok(acoustid)
     })
 }
