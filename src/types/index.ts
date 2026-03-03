@@ -483,6 +483,10 @@ export interface AppSettings {
   lyrics_fallback_enabled: boolean;
   /** When true, generates .vtt subtitle files from downloaded lyrics (TTML, SRT, or LRC). */
   generate_webvtt: boolean;
+  /** When true, generates format-rich SRT from TTML with styling tags (bold, italic, colour). */
+  generate_rich_srt: boolean;
+  /** When true, embeds SRT/WebVTT subtitle content in MP4/M4A/M4V as freeform atoms. */
+  embed_subtitles: boolean;
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */

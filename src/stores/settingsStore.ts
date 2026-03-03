@@ -102,6 +102,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
   lyrics_fallback_enabled: true, // If TTML unavailable, try LRC (audio) or SRT (video)
   generate_webvtt: false, // Opt-in: generate .vtt from TTML/SRT/LRC
+  generate_rich_srt: true, // On by default: strictly improves SRT quality from TTML
+  embed_subtitles: false, // Opt-in: embed SRT/VTT in media containers
   synced_lyrics_format: 'ttml', // Default lyrics format (TTML preserves word-level timing)
   no_synced_lyrics: false, // Do download synced lyrics
   synced_lyrics_only: false, // Also download plain-text lyrics
