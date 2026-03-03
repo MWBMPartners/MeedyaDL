@@ -381,6 +381,7 @@ Standing task #4 now requires creating/closing/linking GitHub Issues
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -478,6 +479,21 @@ Bumps [@commitlint/config-conventional](https://github.com/conventional-changelo
   updated-dependencies:
   - dependency-name: "@commitlint/config-conventional"
     dependency-version: 20.4.3
+    dependency-type: direct:development
+    update-type: version-update:semver-major
+  ...
+
+- **(deps-dev)** Bump eslint-plugin-react-hooks from 5.2.0 to 7.0.1
+
+Bumps [eslint-plugin-react-hooks](https://github.com/facebook/react/tree/HEAD/packages/eslint-plugin-react-hooks) from 5.2.0 to 7.0.1.
+  - [Release notes](https://github.com/facebook/react/releases)
+  - [Changelog](https://github.com/facebook/react/blob/main/packages/eslint-plugin-react-hooks/CHANGELOG.md)
+  - [Commits](https://github.com/facebook/react/commits/HEAD/packages/eslint-plugin-react-hooks)
+
+  ---
+  updated-dependencies:
+  - dependency-name: eslint-plugin-react-hooks
+    dependency-version: 7.0.1
     dependency-type: direct:development
     update-type: version-update:semver-major
   ...
