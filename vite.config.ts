@@ -134,13 +134,55 @@ export default defineConfig({
       process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
 
     /**
-     * minify -- Minification strategy.
+     * minify -- Minification and obfuscation strategy.
      *
-     * In release builds (TAURI_ENV_DEBUG is unset or empty), use esbuild for
-     * fast minification. In debug builds, disable minification to preserve
-     * readable source for WebView DevTools debugging.
+     * Release builds use 'terser' for aggressive minification + name mangling
+     * that makes the compiled JS harder to reverse-engineer. Terser runs at
+     * build time only — zero runtime performance impact (the output is just
+     * standard JavaScript with mangled variable/function names).
+     *
+     * Debug builds disable minification entirely for readable DevTools output.
+     *
+     * @see https://terser.org/docs/options/ -- Terser options reference
      */
-    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+    minify: !process.env.TAURI_ENV_DEBUG ? 'terser' : false,
+
+    /**
+     * terserOptions -- Terser minification and obfuscation settings.
+     *
+     * These options provide source code protection for release builds:
+     * - **mangle**: Renames local variables, function parameters, and class
+     *   names to short identifiers (a, b, c...). `toplevel: true` also mangles
+     *   top-level declarations. `properties.regex` mangles internal properties
+     *   starting with underscore (convention for private members).
+     * - **compress**: Removes dead code, inlines constants, collapses
+     *   variable declarations, and drops `console.log` calls (debug noise).
+     *   `passes: 2` runs compression twice for better optimisation.
+     * - **format**: Removes all comments and whitespace from output.
+     *
+     * Performance: zero runtime overhead — all processing happens at build time.
+     * The output is valid, functional JavaScript; just much harder to read.
+     */
+    terserOptions: !process.env.TAURI_ENV_DEBUG
+      ? {
+          mangle: {
+            toplevel: true, // Mangle top-level names (module scope)
+            properties: {
+              regex: /^_/, // Mangle properties starting with _ (private convention)
+            },
+          },
+          compress: {
+            drop_console: true, // Remove console.log/warn/error in production
+            drop_debugger: true, // Remove debugger statements
+            passes: 2, // Run compression twice for better results
+            pure_getters: true, // Assume getters have no side effects
+            unsafe_arrows: true, // Convert functions to arrows where possible
+          },
+          format: {
+            comments: false, // Strip all comments
+          },
+        }
+      : undefined,
 
     /**
      * sourcemap -- Generate source maps only for debug builds.
