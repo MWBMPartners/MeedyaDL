@@ -532,6 +532,8 @@ jobs:
 
             > **Windows ARM64 users**: The `_x64-setup.exe` also works on ARM64 via Windows' built-in emulation layer.
 
+            > **Raspberry Pi users**: You may need to install [GDebi](https://packages.debian.org/gdebi) to install `.deb` packages with dependencies: `sudo apt install gdebi-core && sudo gdebi MeedyaDL_*_arm64.deb`
+
             ### What are the `.sig` files?
 
             Files ending in `.sig` are **cryptographic signatures** used by MeedyaDL's built-in auto-updater. They verify that downloaded updates haven't been tampered with. **You do not need to download `.sig` files** — they are used automatically by the app when checking for updates. The `latest.json` file is also part of the auto-update system and can be ignored.
