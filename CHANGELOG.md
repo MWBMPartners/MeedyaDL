@@ -376,6 +376,7 @@ Standing task #4 now requires creating/closing/linking GitHub Issues
     (replaygain_service), map_unwrap_or (gamdl), redundant closures (download_queue)
   - MeedyaManager#11: Mirror issue for subtitle/lyrics format support
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
