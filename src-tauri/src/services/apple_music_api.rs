@@ -72,6 +72,8 @@ pub struct ParsedAppleMusicUrl {
 pub struct AlbumMetadata {
     /// Apple Music album ID
     pub album_id: String,
+    /// Album title
+    pub album_name: Option<String>,
     /// UPC/EAN barcode (GTIN), if available
     pub upc: Option<String>,
     /// Album-level content rating ("explicit", "clean", or None)
@@ -82,12 +84,39 @@ pub struct AlbumMetadata {
     pub artist_id: Option<String>,
     /// Album artist display name
     pub artist_name: Option<String>,
+    /// Record label name
+    pub record_label: Option<String>,
+    /// Full copyright notice
+    pub copyright: Option<String>,
+    /// Album release date (YYYY-MM-DD)
+    pub release_date: Option<String>,
+    /// Whether this is a compilation album
+    pub is_compilation: Option<bool>,
+    /// Whether this is a single release
+    pub is_single: Option<bool>,
+    /// Whether all tracks in the album are available
+    pub is_complete: Option<bool>,
+    /// Whether the album is Mastered for iTunes / Apple Digital Master
+    pub is_mastered_for_itunes: Option<bool>,
+    /// Total number of tracks in the album
+    pub track_count: Option<u32>,
+    /// Apple's editorial summary (short description)
+    pub editorial_notes: Option<String>,
     /// Per-track metadata for all tracks in the album
     pub tracks: Vec<TrackMetadata>,
     /// HLS M3U8 URL for square (1:1) animated artwork, if available
     pub artwork_square_url: Option<String>,
     /// HLS M3U8 URL for portrait (3:4) animated artwork, if available
     pub artwork_tall_url: Option<String>,
+    /// Raw API JSON object (data[0]) for config-driven tag extraction via tags.toml.
+    /// Contains all album attributes and relationships as returned by the API.
+    #[serde(default = "default_json_null")]
+    pub raw_json: serde_json::Value,
+}
+
+/// Default for raw_json field — null when not populated (backwards compat).
+fn default_json_null() -> serde_json::Value {
+    serde_json::Value::Null
 }
 
 /// Metadata for a single track within an album.
@@ -116,6 +145,27 @@ pub struct TrackMetadata {
     /// Values: "lossy-stereo", "lossless", "hi-res-lossless", "dolby-atmos", "spatial".
     /// Empty if the API didn't return audioTraits for this track.
     pub audio_traits: Vec<String>,
+    /// Whether this track has Apple Digital Master certification
+    pub is_apple_digital_master: Option<bool>,
+    /// Track-level release date (YYYY-MM-DD), may differ from album release date
+    pub release_date: Option<String>,
+    /// Songwriter / composer credits
+    pub composer_name: Option<String>,
+    /// Track duration in milliseconds (from catalog, precise)
+    pub duration_in_millis: Option<u64>,
+    /// Whether Apple Music has lyrics for this track
+    pub has_lyrics: Option<bool>,
+    /// Apple Music catalog play params ID
+    pub play_params_id: Option<String>,
+    /// Canonical Apple Music URL for this track
+    pub url: Option<String>,
+    /// 30-second preview URL
+    pub preview_url: Option<String>,
+    /// Genre names for this track (first entry is primary genre)
+    pub genre_names: Vec<String>,
+    /// Raw API JSON object for this track, for config-driven tag extraction via tags.toml.
+    #[serde(default = "default_json_null")]
+    pub raw_json: serde_json::Value,
 }
 
 // ============================================================
@@ -367,6 +417,11 @@ pub async fn fetch_album_metadata(
     };
 
     // Extract album-level fields
+    let album_name = attributes
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
     let upc = attributes
         .get("upc")
         .and_then(|v| v.as_str())
@@ -402,6 +457,42 @@ pub async fn fetch_album_metadata(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
+    let record_label = attributes
+        .get("recordLabel")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    let copyright = attributes
+        .get("copyright")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    let album_release_date = attributes
+        .get("releaseDate")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    let is_compilation = attributes.get("isCompilation").and_then(|v| v.as_bool());
+
+    let is_single = attributes.get("isSingle").and_then(|v| v.as_bool());
+
+    let is_complete = attributes.get("isComplete").and_then(|v| v.as_bool());
+
+    let is_mastered_for_itunes = attributes
+        .get("isMasteredForItunes")
+        .and_then(|v| v.as_bool());
+
+    let track_count = attributes
+        .get("trackCount")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok());
+
+    let editorial_notes = attributes
+        .get("editorialNotes")
+        .and_then(|en| en.get("short"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
     // Extract animated artwork HLS URLs from editorialVideo
     let editorial_video = attributes.get("editorialVideo");
 
@@ -422,14 +513,25 @@ pub async fn fetch_album_metadata(
 
     Ok(Some(AlbumMetadata {
         album_id: album_id.to_string(),
+        album_name,
         upc,
         content_rating,
         genre_names,
         artist_id: album_artist_id,
         artist_name: album_artist_name,
+        record_label,
+        copyright,
+        release_date: album_release_date,
+        is_compilation,
+        is_single,
+        is_complete,
+        is_mastered_for_itunes,
+        track_count,
+        editorial_notes,
         tracks,
         artwork_square_url,
         artwork_tall_url,
+        raw_json: album_data.clone(),
     }))
 }
 
@@ -509,6 +611,64 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 })
                 .unwrap_or_default();
 
+            // Apple Digital Master / Mastered for iTunes certification (track-level)
+            let is_apple_digital_master = attrs
+                .get("isAppleDigitalMaster")
+                .and_then(|v| v.as_bool());
+
+            // Track-level release date (may differ from album release date)
+            let release_date = attrs
+                .get("releaseDate")
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            // Songwriter / composer credits
+            let composer_name = attrs
+                .get("composerName")
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            // Precise duration from catalog (milliseconds)
+            let duration_in_millis = attrs
+                .get("durationInMillis")
+                .and_then(serde_json::Value::as_u64);
+
+            // Whether Apple Music has lyrics for this track
+            let has_lyrics = attrs.get("hasLyrics").and_then(|v| v.as_bool());
+
+            // Unique play identifier (catalog ID) from playParams
+            let play_params_id = attrs
+                .get("playParams")
+                .and_then(|pp| pp.get("id"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            // Canonical Apple Music URL for the track
+            let url = attrs
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            // 30-second preview URL (first preview entry)
+            let preview_url = attrs
+                .get("previews")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|p| p.get("url"))
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+
+            // Per-track genre names
+            let genre_names = attrs
+                .get("genreNames")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+
             Some(TrackMetadata {
                 song_id,
                 isrc,
@@ -519,6 +679,16 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 track_number,
                 disc_number,
                 audio_traits,
+                is_apple_digital_master,
+                release_date,
+                composer_name,
+                duration_in_millis,
+                has_lyrics,
+                play_params_id,
+                url,
+                preview_url,
+                genre_names,
+                raw_json: track.clone(),
             })
         })
         .collect()
@@ -975,11 +1145,21 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
     fn album_metadata_serializes_correctly() {
         let metadata = AlbumMetadata {
             album_id: "12345".to_string(),
+            album_name: Some("Midnights".to_string()),
             upc: Some("00602445790258".to_string()),
             content_rating: Some("explicit".to_string()),
             genre_names: vec!["Pop".to_string(), "Music".to_string()],
             artist_id: Some("159260351".to_string()),
             artist_name: Some("Taylor Swift".to_string()),
+            record_label: Some("Republic Records".to_string()),
+            copyright: Some("℗ 2022 Republic Records".to_string()),
+            release_date: Some("2022-10-21".to_string()),
+            is_compilation: Some(false),
+            is_single: Some(false),
+            is_complete: Some(true),
+            is_mastered_for_itunes: Some(true),
+            track_count: Some(13),
+            editorial_notes: Some("Taylor Swift's tenth studio album.".to_string()),
             tracks: vec![TrackMetadata {
                 song_id: "1649434280".to_string(),
                 isrc: Some("USUG12345678".to_string()),
@@ -994,9 +1174,20 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
                     "lossless".to_string(),
                     "dolby-atmos".to_string(),
                 ],
+                is_apple_digital_master: Some(true),
+                release_date: Some("2022-10-21".to_string()),
+                composer_name: Some("Taylor Swift & Jack Antonoff".to_string()),
+                duration_in_millis: Some(200_690),
+                has_lyrics: Some(true),
+                play_params_id: Some("1649434280".to_string()),
+                url: Some("https://music.apple.com/us/album/anti-hero/1649434004?i=1649434280".to_string()),
+                preview_url: Some("https://audio-ssl.itunes.apple.com/preview.m4a".to_string()),
+                genre_names: vec!["Pop".to_string(), "Music".to_string()],
+                raw_json: serde_json::Value::Null,
             }],
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
+            raw_json: serde_json::Value::Null,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();
@@ -1033,7 +1224,16 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
                                 "contentRating": "explicit",
                                 "artistName": "Taylor Swift",
                                 "trackNumber": 1,
-                                "discNumber": 1
+                                "discNumber": 1,
+                                "isAppleDigitalMaster": true,
+                                "releaseDate": "2022-10-21",
+                                "composerName": "Taylor Swift & Jack Antonoff",
+                                "durationInMillis": 202395,
+                                "hasLyrics": true,
+                                "playParams": { "id": "1649434005" },
+                                "url": "https://music.apple.com/us/album/lavender-haze/1649434004?i=1649434005",
+                                "previews": [{ "url": "https://audio-ssl.itunes.apple.com/lavender.m4a" }],
+                                "genreNames": ["Pop", "Music"]
                             }
                         },
                         {
@@ -1062,14 +1262,39 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
 
         let tracks = parse_tracks_from_response(&sample);
         assert_eq!(tracks.len(), 2);
+
+        // Track 1: has all fields populated
         assert_eq!(tracks[0].song_id, "1649434005");
         assert_eq!(tracks[0].name, "Lavender Haze");
         assert_eq!(tracks[0].isrc.as_deref(), Some("USUG12300001"));
         assert_eq!(tracks[0].track_number, 1);
         assert_eq!(tracks[0].disc_number, 1);
+        assert_eq!(tracks[0].is_apple_digital_master, Some(true));
+        assert_eq!(tracks[0].release_date.as_deref(), Some("2022-10-21"));
+        assert_eq!(
+            tracks[0].composer_name.as_deref(),
+            Some("Taylor Swift & Jack Antonoff")
+        );
+        assert_eq!(tracks[0].duration_in_millis, Some(202_395));
+        assert_eq!(tracks[0].has_lyrics, Some(true));
+        assert_eq!(tracks[0].play_params_id.as_deref(), Some("1649434005"));
+        assert!(tracks[0].url.is_some());
+        assert!(tracks[0].preview_url.is_some());
+        assert_eq!(tracks[0].genre_names, vec!["Pop", "Music"]);
+
+        // Track 2: minimal fields (no new fields present in API response)
         assert_eq!(tracks[1].song_id, "1649434006");
         assert_eq!(tracks[1].track_number, 2);
-        assert!(tracks[1].content_rating.is_none()); // Maroon has no contentRating
+        assert!(tracks[1].content_rating.is_none());
+        assert!(tracks[1].is_apple_digital_master.is_none());
+        assert!(tracks[1].release_date.is_none());
+        assert!(tracks[1].composer_name.is_none());
+        assert!(tracks[1].duration_in_millis.is_none());
+        assert!(tracks[1].has_lyrics.is_none());
+        assert!(tracks[1].play_params_id.is_none());
+        assert!(tracks[1].url.is_none());
+        assert!(tracks[1].preview_url.is_none());
+        assert!(tracks[1].genre_names.is_empty());
     }
 
     #[test]

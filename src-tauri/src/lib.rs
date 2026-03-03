@@ -654,6 +654,8 @@ pub fn run() {
             commands::crash_reports::export_crash_report,
             commands::crash_reports::log_frontend_error,
             commands::crash_reports::get_github_issue_url,
+            // API field audit command (diagnostic tool)
+            commands::api_audit::audit_api_fields,
         ])
         // ---------------------------------------------------------------
         // macOS Application Menu
