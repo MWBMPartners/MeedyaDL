@@ -478,6 +478,8 @@ export interface AppSettings {
   /** When true and the primary lyrics format fails, automatically try fallback formats.
    * Audio: TTML → LRC → SRT. Video: TTML → SRT → LRC. */
   lyrics_fallback_enabled: boolean;
+  /** When true, generates .vtt subtitle files from downloaded lyrics (TTML, SRT, or LRC). */
+  generate_webvtt: boolean;
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */
