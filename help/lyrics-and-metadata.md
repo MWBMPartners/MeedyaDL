@@ -216,14 +216,19 @@ MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files.
 
 ### MeedyaDL Metadata Enrichment
 
-In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 7-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 12-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, subtitle files, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+
+Tag definitions are driven by `tags.toml` — a config file that maps Apple Music API JSON fields to MP4 freeform atoms. All tags are written in dual namespaces: `com.apple.iTunes` (player-compatible) and `MeedyaMeta` (MeedyaDL-branded). Industry-standard alternative names are used where recognised by tools like MusicBrainz Picard, Mp3tag, and foobar2000 (`LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`).
 
 The enrichment stages run in order:
 
-1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on)
+1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on) — 30+ freeform atoms per file
 2. **Enhanced LRC conversion** (opt-in, default on) — converts TTML to Enhanced LRC, saves `.lrc` sidecar, embeds in `©lyr` atom
 2b. **Lyrics format fallback** (opt-in, default on) — if TTML didn't produce lyrics for all tracks, retries with LRC (audio) or SRT (video)
 2c. **WebVTT subtitle generation** (opt-in) — converts TTML, SRT, or LRC sidecars to `.vtt` subtitle files
+2d. **Rich SRT generation** (opt-in, default on) — converts TTML/WebVTT to SRT with styling tags (`<b>`, `<i>`, `<u>`, `<font color>`)
+2e. **Subtitle embedding** (opt-in) — embeds SRT and WebVTT content as freeform atoms in MP4 containers
+2f. **ASS subtitle generation** (opt-in) — converts TTML/WebVTT to Advanced SubStation Alpha with colours, positioning, and background vocal styles
 3. **Animated artwork download** (requires MusicKit credentials)
 4. **AcoustID fingerprinting** (opt-in) — also extracts MusicBrainz recording IDs from AcoustID responses
 5. **ReplayGain analysis** (opt-in)
@@ -266,10 +271,32 @@ These tags are written automatically when MusicKit credentials are configured in
 | `com.apple.iTunes:iTunesArtistID` | Numeric string | Track artist `id` |
 | `com.apple.iTunes:iTunesCatalogID` | Numeric string | Track `id` |
 | `com.apple.iTunes:StoreID/AppleMusic` | Same as CatalogID | Track `id` |
+| `MeedyaMeta:AppleAudioTraits` | `lossy-stereo, lossless, dolby-atmos` | Track `audioTraits` |
+| `com.apple.iTunes:AppleDigitalMaster` | `true` / `false` | Track `isAppleDigitalMaster` |
+| `com.apple.iTunes:ReleaseDate` | `2022-10-21` | Track `releaseDate` |
+| `com.apple.iTunes:Composer` | Songwriter name | Track `composerName` |
+| `com.apple.iTunes:DurationMs` | `202395` | Track `durationInMillis` |
+| `com.apple.iTunes:HasLyrics` | `true` / `false` | Track `hasLyrics` |
+| `com.apple.iTunes:PlayParamsId` | Catalog ID | Track `playParams.id` |
+| `com.apple.iTunes:TrackUrl` | Canonical URL | Track `url` |
+| `com.apple.iTunes:PreviewUrl` | 30s preview URL | Track `previews[0].url` |
+| `com.apple.iTunes:Genre` | `Pop, Music` | Track `genreNames` |
+| `com.apple.iTunes:LABEL` | Record label name | Album `recordLabel` |
+| `com.apple.iTunes:COPYRIGHT` | Copyright notice | Album `copyright` |
+| `com.apple.iTunes:AlbumReleaseDate` | `2022-10-21` | Album `releaseDate` |
+| `com.apple.iTunes:COMPILATION` | `true` / `false` | Album `isCompilation` |
+| `com.apple.iTunes:AlbumIsSingle` | `true` / `false` | Album `isSingle` |
+| `com.apple.iTunes:AlbumIsComplete` | `true` / `false` | Album `isComplete` |
+| `com.apple.iTunes:AlbumMasteredForItunes` | `true` / `false` | Album `isMasteredForItunes` |
+| `com.apple.iTunes:AlbumTrackCount` | `13` | Album `trackCount` |
+| `com.apple.iTunes:TOTALTRACKS` | Same as TrackCount | Album `trackCount` |
+| `com.apple.iTunes:AlbumEditorialNote` | Editorial summary | Album `editorialNotes.short` |
 | `com.apple.iTunes:MotionArtURL` | HLS M3U8 URL | Animated artwork (square) |
 | `MeedyaMeta:MotionArtURL` | HLS M3U8 URL | Animated artwork (square) |
 | `com.apple.iTunes:MotionArtPortraitURL` | HLS M3U8 URL | Animated artwork (portrait) |
 | `MeedyaMeta:MotionArtPortraitURL` | HLS M3U8 URL | Animated artwork (portrait) |
+
+All tags above are also written under the `MeedyaMeta` namespace with `Apple*` prefix (e.g., `MeedyaMeta:AppleRecordLabel`, `MeedyaMeta:AppleReleaseDate`). Tag definitions are driven by `tags.toml` — to add new metadata fields, edit the TOML file (see [DEV_NOTES.md](https://github.com/MWBMPartners/MeedyaDL/blob/main/DEV_NOTES.md#metadata-tag-registry-tagstoml) for the editing guide).
 
 #### AcoustID Tags (Opt-In)
 

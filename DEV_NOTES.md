@@ -821,6 +821,158 @@ The only exceptions that need code changes:
 
 ---
 
+## Metadata Tag Registry (`tags.toml`)
+
+**File location:** `src-tauri/tags.toml`
+
+The tag registry defines which Apple Music API JSON fields are extracted and embedded as MP4 freeform atoms in downloaded files. It is compiled into the binary at build time via `include_str!` — no runtime file I/O. **Adding new tags requires only editing `tags.toml` — zero Rust code changes.**
+
+### File Structure
+
+The TOML file has two top-level scopes:
+
+| Section | Description | Count |
+|---------|-------------|-------|
+| `[album.<tag_id>]` | Per-album tags (same value on every track in the album) | 16 |
+| `[track.<tag_id>]` | Per-track tags (matched to each file by track/disc number) | 14 |
+
+### Tag Entry Format
+
+Each tag entry defines three things:
+
+```toml
+[album.record_label]
+json_path = "attributes.recordLabel"     # Dot-separated path into raw API JSON
+value_type = "string"                     # How to convert the value
+atoms = [                                 # Which freeform atoms to write
+    { namespace = "itunes", name = "LABEL" },
+    { namespace = "meedya", name = "AppleRecordLabel" },
+]
+```
+
+### JSON Path Syntax
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| Simple | `attributes.name` | `json["attributes"]["name"]` |
+| Nested | `attributes.editorialNotes.short` | Deep object traversal |
+| Array index | `attributes.previews[0].url` | First element of array |
+| Relationship | `relationships.artists.data[0].id` | Across relationships |
+| Top-level | `id` | Direct field on the JSON root |
+
+Album tags use paths relative to `data[0]` (the album object).
+Track tags use paths relative to each track in `data[0].relationships.tracks.data[*]`.
+
+### Value Types
+
+| Type | JSON Input | String Output | Example |
+|------|-----------|---------------|---------|
+| `string` | `"Republic Records"` | `"Republic Records"` | Record label |
+| `bool` | `true` | `"true"` | Digital Master flag |
+| `u32` | `13` | `"13"` | Track count |
+| `u64` | `202395` | `"202395"` | Duration in ms |
+| `array` | `["Pop", "Music"]` | `"Pop, Music"` | Genre names |
+| `first_of_array` | `["Pop", "Music"]` | `"Pop"` | Primary genre |
+
+### Namespace Shortcuts
+
+| TOML Value | Full Namespace | Use Case |
+|------------|---------------|----------|
+| `"itunes"` | `com.apple.iTunes` | Player-compatible, industry standard |
+| `"meedya"` | `MeedyaMeta` | MeedyaDL-branded, Apple-sourced |
+
+### Naming Conventions
+
+- **Album scope:** `Album*` prefix in iTunes namespace (e.g., `AlbumReleaseDate`, `AlbumMasteredForItunes`)
+- **Track scope:** No prefix — track is the assumed default (e.g., `ReleaseDate`, `Composer`)
+- **Industry standard:** Established names where recognised (e.g., `LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`)
+- **MeedyaMeta:** `Apple*` prefix (e.g., `AppleRecordLabel`, `AppleReleaseDate`)
+
+### Adding a New Tag
+
+1. Edit `src-tauri/tags.toml`
+2. Add a new `[album.<id>]` or `[track.<id>]` section
+3. Set `json_path` to the API JSON path
+4. Set `value_type` to the appropriate conversion
+5. Add `atoms` with namespace and name for each atom to write
+6. Rebuild the app — no Rust code changes needed
+
+Example — adding a hypothetical `audioLocale` field:
+
+```toml
+[track.audio_locale]
+json_path = "attributes.audioLocale"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AudioLocale" },
+    { namespace = "meedya", name = "AppleAudioLocale" },
+]
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src-tauri/tags.toml` | Tag definitions (edit this to add new tags) |
+| `src-tauri/src/models/tag_registry.rs` | TOML parsing, JSON path extraction, value conversion |
+| `src-tauri/src/services/metadata_tag_service.rs` | `write_tags_from_registry()` — the generic tag-writing loop |
+| `src-tauri/src/services/apple_music_api.rs` | `raw_json` fields on `AlbumMetadata`/`TrackMetadata` |
+
+### API Field Audit Tool
+
+A developer diagnostic tool is available in **Settings > Metadata > API Field Audit**. It fetches a real album from the Apple Music API and compares all JSON attribute paths against the known tag definitions in `tags.toml`. Reports:
+
+- **Known** (green): Fields mapped in tags.toml
+- **Unknown** (amber): Fields in the API but not in tags.toml — candidates for new tag entries
+- **Missing** (grey): Fields defined in tags.toml but absent from this particular album
+
+Requires MusicKit credentials (Team ID, Key ID, private key in keychain).
+
+---
+
+## Subtitle and Lyrics Generation
+
+MeedyaDL's enrichment pipeline includes 6 subtitle/lyrics processing steps (Steps 2-2f):
+
+### Processing Pipeline
+
+| Step | Feature | Setting | Default | Service |
+|------|---------|---------|---------|---------|
+| 2 | Enhanced LRC (word-by-word sync) | `enhanced_lrc` | ON | `enhanced_lyrics_service.rs` |
+| 2b | Lyrics format fallback | `lyrics_fallback_enabled` | ON | `download_queue.rs` |
+| 2c | WebVTT generation | `generate_webvtt` | OFF | `webvtt_service.rs` |
+| 2d | Rich SRT generation | `generate_rich_srt` | ON | `rich_srt_service.rs` |
+| 2e | Subtitle embedding | `embed_subtitles` | OFF | `rich_srt_service.rs` |
+| 2f | ASS generation | `generate_ass` | OFF | `ass_subtitle_service.rs` |
+
+### Subtitle Formats
+
+| Format | Extension | Styling | Source Priority |
+|--------|-----------|---------|-----------------|
+| Enhanced LRC | `.lrc` | Inline `<mm:ss.xx>` word timestamps | TTML only |
+| WebVTT | `.vtt` | Plain text (no styling) | TTML → SRT → LRC |
+| Rich SRT | `.srt` | `<b>`, `<i>`, `<u>`, `<font color>` | TTML → WebVTT |
+| ASS | `.ass` | BGR colours, override tags, positioning, BgVocals style | TTML → WebVTT |
+
+### Subtitle Embedding Atoms
+
+When `embed_subtitles` is enabled, SRT and WebVTT content is embedded as freeform atoms:
+
+- `com.apple.iTunes:subtitles-srt` — Rich SRT content
+- `com.apple.iTunes:subtitles-vtt` — WebVTT content
+
+Enhanced LRC is always embedded via the native `©lyr` atom when `enhanced_lrc` is enabled.
+
+### Shared TTML Style Resolution
+
+`rich_srt_service.rs` exports `pub(crate)` style resolution functions shared with `ass_subtitle_service.rs`:
+
+- `resolve_named_styles(doc)` — Parse `<head><styling><style>` definitions
+- `resolve_element_style(node, named_styles)` — Merge named + inline styles
+- `TtmlStyle { bold, italic, underline, color }` — Shared style struct
+
+---
+
 ## Pre-Release vs Full Release Workflow
 
 All versions before v1.0 are published as **pre-releases** on GitHub. This means:

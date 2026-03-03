@@ -784,8 +784,7 @@ pub struct ActivityLogExportEntry {
 /// Formats an ISO 8601 timestamp to a short HH:MM:SS string for the export file.
 fn format_timestamp_short(iso: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(iso)
-        .map(|dt| dt.format("%H:%M:%S").to_string())
-        .unwrap_or_else(|_| iso.to_string())
+        .map_or_else(|_| iso.to_string(), |dt| dt.format("%H:%M:%S").to_string())
 }
 
 /// Exports activity log entries to a `.txt` file via a native save dialog.

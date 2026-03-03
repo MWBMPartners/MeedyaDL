@@ -2028,7 +2028,7 @@ fn spawn_companion_downloads(
         );
         // Log per-tier codec details before spawning the async task
         for (tier_idx, tier) in companion_tiers.iter().enumerate() {
-            let codec_names: Vec<&str> = tier.codecs_to_try.iter().map(|c| c.to_cli_string()).collect();
+            let codec_names: Vec<&str> = tier.codecs_to_try.iter().map(SongCodec::to_cli_string).collect();
             emit_download_log(
                 app,
                 dl_id,
@@ -2211,7 +2211,7 @@ fn spawn_companion_downloads(
         let lyrics_formats = lyrics_settings.companion_lyrics_formats.clone();
         let lyrics_shutdown = shutdown.clone();
 
-        let format_names: Vec<&str> = lyrics_formats.iter().map(|f| f.to_cli_string()).collect();
+        let format_names: Vec<&str> = lyrics_formats.iter().map(LyricsFormat::to_cli_string).collect();
         emit_download_log(
             app,
             dl_id,
