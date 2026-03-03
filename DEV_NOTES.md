@@ -658,3 +658,39 @@ The `TemplateBuilder` component provides an interactive chip/pill-based UI for b
 | `src/lib/template-parser.test.ts` | 30 unit tests |
 | `src/components/common/TemplateBuilder.tsx` | Visual chip builder component |
 | `src/components/settings/tabs/TemplatesTab.tsx` | Consumer — 7 TemplateBuilder instances |
+
+---
+
+## GAMDL 2.9.1 CLI Flag Changes
+
+GAMDL 2.9.1 **removed** the `--song-codec` CLI flag. Only `--song-codec-priority` exists now (accepts a comma-separated codec list).
+
+**Impact on MeedyaDL:**
+
+- Companion tier downloads: changed from `--song-codec ac3` to `--song-codec-priority ac3` (single-element priority)
+- Fallback retries (`try_fallback()`): same change — `song_codec = None`, `song_codec_priority = Some(single_codec)`
+- Primary downloads: already used `--song-codec-priority` for native priority chains
+- The `song_codec` field in `GamdlOptions` is kept for internal codec tracking (suffix determination, enrichment tags) but is no longer emitted as a CLI flag when `song_codec_priority` is also set
+
+**CLI arg generation** (`gamdl_options.rs` `audio_cli_args()`):
+
+```rust
+if let Some(ref priority) = self.song_codec_priority {
+    args.push("--song-codec-priority");  // Takes precedence
+} else if let Some(ref codec) = self.song_codec {
+    args.push("--song-codec");  // Legacy fallback (GAMDL < 2.9.1 only)
+}
+```
+
+---
+
+## Enrichment Pipeline — Blocking I/O Fix (v0.6.2)
+
+The post-download enrichment pipeline runs inside `tokio::spawn(async move {...})`. Four services (`metadata_tag_service`, `enhanced_lyrics_service`, `acoustid_service`, `replaygain_service`) called `mp4ameta` Tag::read_from_path / Tag::write_to_path — blocking synchronous file I/O that starved the tokio async runtime on slow FUSE mounts (CloudMounter, NFS), freezing the UI.
+
+**Fix (two layers):**
+
+1. Tag I/O wrapped in `tokio::task::spawn_blocking()` in all 4 services
+2. `tokio::task::yield_now().await` added between all enrichment steps
+
+`enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). Its call site in `download_queue.rs` wraps it in `spawn_blocking()`.

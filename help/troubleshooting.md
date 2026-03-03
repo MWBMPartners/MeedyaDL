@@ -189,6 +189,16 @@ Downloads fail with a permission error related to the temp or working directory.
 - **Cause:** On macOS, apps launched from `/Applications` have a working directory of `/`, which is not writable. GAMDL's default temp path of `.` (current directory) fails in this scenario.
 - **Solution:** MeedyaDL automatically resolves the temp path to `{OS temp}/MeedyaDL` to avoid this issue. If you still see write errors, verify the temp directory in **Settings > Paths** points to a writable location, or clear it to use the default.
 
+#### FUSE Mount / Cloud Mount Issues
+
+If the app freezes during downloads or shows "Output directory timed out" errors when using cloud storage mounts:
+
+- **Cause:** The output directory points to an unresponsive cloud mount (CloudMounter on macOS, rclone/SSHFS on Linux). File operations on disconnected or slow FUSE mounts can block for minutes. Prior to v0.6.2, this could freeze the entire UI.
+- **Solution (v0.6.2+):** MeedyaDL now uses `spawn_blocking` with timeouts for all file I/O operations during the enrichment pipeline, preventing UI freezes. The output path writability check has a 5-second timeout. If your cloud mount is unresponsive:
+  1. Check that the cloud mount is connected and responsive
+  2. Consider using a local output directory and moving files to cloud storage after download
+  3. If the mount is permanently disconnected, change the output directory in **Settings > General > Output**
+
 #### GAMDL Backend Not Found
 
 The embedded Python environment or the GAMDL package itself is corrupted, incomplete, or missing from the expected location.
