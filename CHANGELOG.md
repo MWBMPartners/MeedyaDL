@@ -41,6 +41,24 @@ The native file/directory picker dialog was not setting defaultPath,
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Comprehensive documentation update for v0.6.2-v0.6.3 features
+
+Update all documentation to reflect recent changes:
+
+  - help/lyrics-and-metadata.md: 7-stage enrichment pipeline, lyrics
+    format fallback chain, Enhanced LRC companion format selection
+  - help/troubleshooting.md: FUSE mount/cloud mount hang documentation
+  - help/quality-settings.md: native priority codec suffix behavior,
+    --song-codec-priority technical note
+  - Project_Plan.md: v0.6.2 and v0.6.3 completed features (7 items)
+  - Dev_Notes.md: GAMDL 2.9.1 CLI flag changes, enrichment blocking
+    I/O fix documentation
+  - README.md: lyrics format fallback feature bullet
+  - CLAUDE.md: 7-stage enrichment pipeline with lyrics fallback (Step 2b)
+
+  Also saves standing tasks to .claude/ memory for session persistence.
+
 
 ## [0.6.3] - 2026-03-02
 
