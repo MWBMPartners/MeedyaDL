@@ -458,6 +458,9 @@ export interface AppSettings {
   /** Whether to download music videos as companions for audio track downloads.
    * Requires MusicKit credentials. Music videos use the video quality settings. */
   music_video_companion: boolean;
+  /** When true, uses MusicBrainz to discover music videos and cross-platform links via ISRC.
+   * No credentials required. Fallback for when MusicKit video lookup finds nothing. */
+  musicbrainz_lookup: boolean;
   /** Default artist auto-selection mode for artist URL downloads (GAMDL >= 2.9.1) */
   artist_auto_select: ArtistAutoSelect | null;
   /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.

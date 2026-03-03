@@ -3450,6 +3450,75 @@ pub fn process_queue(
                                 ).await;
                             }
 
+                            // --- Step 6b: MusicBrainz video discovery (opt-in fallback) ---
+                            // When enabled, uses MusicBrainz ISRC lookups to discover music
+                            // videos that the MusicKit API may have missed. No credentials
+                            // required. Also stores cross-platform URLs (YouTube, Spotify,
+                            // etc.) as metadata for future use.
+                            tokio::task::yield_now().await;
+                            if enrich_settings.musicbrainz_lookup && !enrich_shutdown.is_triggered() {
+                                // Only run MusicBrainz lookup if we have ISRC codes from Step 1
+                                if let Some(ref metadata) = album_metadata {
+                                    let isrc_tracks: Vec<(String, Option<String>)> = metadata
+                                        .tracks
+                                        .iter()
+                                        .map(|t| (t.song_id.clone(), t.isrc.clone()))
+                                        .collect();
+
+                                    if !isrc_tracks.is_empty() {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("MusicBrainz: looking up {} track(s) via ISRC...", isrc_tracks.len()),
+                                        );
+
+                                        match super::musicbrainz_service::lookup_videos_for_tracks(&isrc_tracks).await {
+                                            Ok(videos) if !videos.is_empty() => {
+                                                // Filter for Apple Music video URLs (downloadable now)
+                                                let am_videos: Vec<_> = videos.iter()
+                                                    .filter(|v| v.platform == "apple_music")
+                                                    .collect();
+
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!(
+                                                        "MusicBrainz: found {} video(s) ({} on Apple Music)",
+                                                        videos.len(),
+                                                        am_videos.len(),
+                                                    ),
+                                                );
+
+                                                // Log all discovered platform URLs for future reference
+                                                for video in &videos {
+                                                    log::info!(
+                                                        "MusicBrainz video for {}: {} → {}",
+                                                        enrich_dl_id,
+                                                        video.platform,
+                                                        video.url,
+                                                    );
+                                                }
+                                            }
+                                            Ok(_) => {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    "MusicBrainz: no music videos found",
+                                                );
+                                            }
+                                            Err(e) => {
+                                                log::debug!("MusicBrainz lookup failed for {enrich_dl_id}: {e}");
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("MusicBrainz lookup failed: {e}"),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             emit_download_log(
                                 &enrich_app,
                                 &enrich_dl_id,
