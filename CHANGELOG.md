@@ -382,6 +382,7 @@ Standing task #4 now requires creating/closing/linking GitHub Issues
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -494,6 +495,21 @@ Bumps [eslint-plugin-react-hooks](https://github.com/facebook/react/tree/HEAD/pa
   updated-dependencies:
   - dependency-name: eslint-plugin-react-hooks
     dependency-version: 7.0.1
+    dependency-type: direct:development
+    update-type: version-update:semver-major
+  ...
+
+- **(deps-dev)** Bump jsdom from 25.0.1 to 28.1.0
+
+Bumps [jsdom](https://github.com/jsdom/jsdom) from 25.0.1 to 28.1.0.
+  - [Release notes](https://github.com/jsdom/jsdom/releases)
+  - [Changelog](https://github.com/jsdom/jsdom/blob/main/Changelog.md)
+  - [Commits](https://github.com/jsdom/jsdom/compare/25.0.1...28.1.0)
+
+  ---
+  updated-dependencies:
+  - dependency-name: jsdom
+    dependency-version: 28.1.0
     dependency-type: direct:development
     update-type: version-update:semver-major
   ...
