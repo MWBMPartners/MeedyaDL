@@ -342,7 +342,7 @@ mod tests {
     // ebur128 output parsing tests
     // ----------------------------------------------------------
 
-    const SAMPLE_EBUR128_OUTPUT: &str = r#"
+    const SAMPLE_EBUR128_OUTPUT: &str = r"
 [Parsed_ebur128_0 @ 0x7f8b8c000000] Summary:
 
   Integrated loudness:
@@ -357,7 +357,7 @@ mod tests {
 
   True peak:
     Peak:        -0.6 dBFS
-"#;
+";
 
     #[test]
     fn parse_integrated_loudness() {
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn parse_quiet_track() {
-        let output = r#"
+        let output = r"
 [Parsed_ebur128_0 @ 0x0] Summary:
 
   Integrated loudness:
@@ -391,7 +391,7 @@ mod tests {
 
   True peak:
     Peak:        -6.0 dBFS
-"#;
+";
         let result = parse_ebur128_output(output).unwrap();
         assert!((result.integrated_loudness - (-24.5)).abs() < 0.01);
         // Gain = -18.0 - (-24.5) = 6.5 dB (positive = turn up)
