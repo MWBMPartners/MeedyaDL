@@ -6,8 +6,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- README badge URLs and header logo
+
+- Fix badge URLs: MeedyaDL/MeedyaDL → MWBMPartners/MeedyaDL (404 fix)
+  - Version badge: use dynamic GitHub release API instead of hardcoded
+  - CI badge: add ?branch=main for accurate status
+  - Replace emoji header with app logo (src-tauri/icons/128x128.png)
+  - Add .markdownlint.jsonc: allow inline HTML (standard for GitHub READMEs)
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
