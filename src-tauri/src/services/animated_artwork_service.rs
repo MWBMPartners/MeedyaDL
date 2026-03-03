@@ -178,7 +178,7 @@ pub async fn process_album_artwork(
 
     // --- Step 4: Query Apple Music API for album metadata (includes artwork URLs) ---
     let metadata =
-        apple_music_api::fetch_album_metadata(&jwt, &parsed.storefront, &parsed.album_id).await?;
+        apple_music_api::fetch_album_metadata_with_fallback(&jwt, &parsed.storefront, &parsed.album_id).await?;
 
     let Some(metadata) = metadata else {
         log::debug!(
