@@ -323,7 +323,7 @@ sentry = { version = "0.46", features = ["tracing"] }
 # optional layer in the tracing subscriber stack, only active when Sentry
 # is initialized (i.e., when the user has opted in).
 # @see https://docs.rs/sentry-tracing/ -- sentry-tracing documentation
-sentry-tracing = "0.35"
+sentry-tracing = "0.46"
 
 # ---- Error Handling ----
 
