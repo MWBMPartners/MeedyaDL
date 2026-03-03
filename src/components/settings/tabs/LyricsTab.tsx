@@ -147,6 +147,22 @@ export function LyricsTab() {
             onChange={(checked) => updateSettings({ generate_webvtt: checked })}
           />
 
+          {/* Rich SRT generation */}
+          <Toggle
+            label="Generate Rich SRT from TTML"
+            description="Creates SRT subtitle files with formatting (bold, italic, underline, colours) from Apple Music TTML. Replaces plain SRT files with styled versions when TTML is available."
+            checked={settings.generate_rich_srt}
+            onChange={(checked) => updateSettings({ generate_rich_srt: checked })}
+          />
+
+          {/* Subtitle embedding */}
+          <Toggle
+            label="Embed Subtitles in Media Files"
+            description="Embed SRT and WebVTT subtitle content directly into MP4/M4A/M4V containers as metadata. Useful for players that read embedded subtitles."
+            checked={settings.embed_subtitles}
+            onChange={(checked) => updateSettings({ embed_subtitles: checked })}
+          />
+
           {/* Embed lyrics + keep sidecar */}
           <Toggle
             label="Embed Lyrics and Keep Sidecar"
