@@ -129,6 +129,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Step 3.5: Check for known vulnerabilities in npm dependencies.
+      # 'npm audit' checks installed packages against the npm advisory database.
+      # --audit-level=high only fails the build on high/critical severity issues.
+      # This runs on all platforms but is fast (no network call, uses cached data).
+      - name: Security audit
+        run: npm audit --audit-level=high
+
       # Step 4: Run ESLint linting.
       # Checks all TypeScript/TSX files against rules defined in eslint.config.js.
       # Catches: unused variables, incorrect hook usage, type safety issues, etc.
