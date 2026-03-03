@@ -449,7 +449,7 @@ function DetectedDomains({ domains }: { domains: string[] }) {
               inline-flex items-center px-2 py-0.5
               text-xs rounded-full border
               ${
-                domain.includes('apple.com')
+                domain === 'apple.com' || domain.endsWith('.apple.com')
                   ? 'bg-status-success-bg border-status-success text-status-success'
                   : 'bg-surface-secondary border-border-light text-content-tertiary'
               }
