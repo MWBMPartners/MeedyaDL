@@ -538,7 +538,12 @@ jobs:
 
             On first launch, MeedyaDL will guide you through a setup wizard that downloads Python, GAMDL, and required tools automatically. You will also need to provide your Apple Music cookies exported from your browser — see the in-app help for instructions.
           releaseDraft: true
-          prerelease: false
+          # All releases are pre-release until v1.0. Users with the
+          # "Include Pre-Release Versions" toggle enabled (Settings >
+          # General) will receive these updates. To publish a full
+          # (stable) release, change this to false or manually edit
+          # the release on GitHub after publishing.
+          prerelease: true
           args: ${{ matrix.settings.args }}
 
       # Step 10b: Build ARMv7 manually.
@@ -573,7 +578,7 @@ jobs:
 
           # Ensure the draft release exists (another build may not have created it yet)
           if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft --title "MeedyaDL $TAG" --notes "Release in progress..."
+            gh release create "$TAG" --draft --prerelease --title "MeedyaDL $TAG" --notes "Release in progress..."
           fi
 
           # Upload .deb: rename armhf → armv7 for clarity
