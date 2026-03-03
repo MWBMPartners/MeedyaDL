@@ -1,0 +1,63 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Dependabot Version Updates Configuration
+# ==========================================
+#
+# Automatically creates PRs for outdated dependencies on a weekly schedule.
+# Only proposes semver-compatible updates (patch + minor) — major version
+# jumps are NOT included (those require manual migration, tracked in #117).
+#
+# Two ecosystems monitored:
+#   1. npm (package.json / package-lock.json) — frontend + build tools
+#   2. cargo (Cargo.toml / Cargo.lock) — Rust backend
+#
+# Minor/patch updates are grouped into a single PR per ecosystem to reduce
+# noise. Security updates are always created immediately (not batched).
+#
+# @see https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # npm dependencies (frontend + build tools)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Group minor/patch updates into a single PR to reduce noise
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    # Limit open PRs to avoid overwhelming the maintainer
+    open-pull-requests-limit: 5
+    # Target branch for PRs
+    target-branch: "main"
+    # Labels for easy filtering
+    labels:
+      - "dependencies"
+    # Commit message format matching conventional commits
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Cargo dependencies (Rust backend)
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+    target-branch: "main"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
