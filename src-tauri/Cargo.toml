@@ -178,7 +178,7 @@ tokio = { version = "1", features = ["full"] }
 #     into serde structs (used for GitHub API responses, Apple Music API).
 #
 # @see https://docs.rs/reqwest/ -- reqwest API reference
-reqwest = { version = "0.12", features = ["stream", "json"] }
+reqwest = { version = "0.13", features = ["stream", "json"] }
 
 # ---- Archive Extraction ----
 # These three crates work together to extract downloaded tool archives.
