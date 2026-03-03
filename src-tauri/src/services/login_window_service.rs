@@ -805,6 +805,7 @@ mod tests {
         let cookie = cookie::Cookie::build(("n", "v"))
             .domain("apple.com")
             .path("/")
+            .secure(true)
             .build();
 
         let line = format_netscape_line(&cookie);
@@ -817,6 +818,7 @@ mod tests {
         let cookie = cookie::Cookie::build(("n", "v"))
             .domain(".apple.com")
             .path("/")
+            .secure(true)
             .build();
 
         let line = format_netscape_line(&cookie);
@@ -826,6 +828,8 @@ mod tests {
     }
 
     /// Verifies that insecure cookies have FALSE for the secure flag.
+    /// Note: `.secure(false)` is intentional — this test validates that the
+    /// Netscape format output correctly reports "FALSE" for non-secure cookies.
     #[test]
     fn insecure_cookie_has_false_flag() {
         let cookie = cookie::Cookie::build(("n", "v"))
@@ -846,6 +850,7 @@ mod tests {
         let cookie = cookie::Cookie::build(("session", "val"))
             .domain(".apple.com")
             .path("/")
+            .secure(true)
             .build();
 
         let line = format_netscape_line(&cookie);
@@ -859,6 +864,7 @@ mod tests {
     fn default_path_is_slash() {
         let cookie = cookie::Cookie::build(("n", "v"))
             .domain(".apple.com")
+            .secure(true)
             .build();
 
         let line = format_netscape_line(&cookie);
@@ -893,10 +899,12 @@ mod tests {
         let c1 = cookie::Cookie::build(("name1", "val1"))
             .domain(".apple.com")
             .path("/")
+            .secure(true)
             .build();
         let c2 = cookie::Cookie::build(("name2", "val2"))
             .domain(".mzstatic.com")
             .path("/")
+            .secure(true)
             .build();
 
         let cookies: Vec<&cookie::Cookie> = vec![&c1, &c2];
