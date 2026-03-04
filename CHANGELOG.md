@@ -17,6 +17,14 @@ When GAMDL's --song-codec-priority skips tracks because experimental codecs
   entirely. The gap-fill preserves successfully downloaded Atmos/AC3 files
   while recovering missing tracks in lossless/lossy formats.
 
+- Companion downloads now correctly apply filename suffixes
+
+Companion downloads set song_codec=None (using song_codec_priority instead
+  for GAMDL >= 2.9.1), but apply_codec_suffix() only checked song_codec.
+  This meant companion files never got suffixes like [Lossless] or
+  [Dolby Atmos], causing filename collisions where each tier's files
+  silently overwrote the previous tier's.
+
 - Detect actual codec via ffprobe for correct metadata tags with native priority
 
 When using GAMDL >= 2.9.1's --song-codec-priority, codec_used was set to
