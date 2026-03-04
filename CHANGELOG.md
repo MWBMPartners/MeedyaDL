@@ -19,6 +19,14 @@ After metadata enrichment, album folders and track files are renamed with
 
 ### 🐛 Bug Fixes
 
+- Error report deletion now persists across app restarts (#147)
+
+`delete_crash_report()` returned `Ok(())` even when the report file wasn't
+  found during the directory scan, causing the frontend to optimistically
+  remove the report from state while the file remained on disk. Now returns
+  `Err` when not found, preventing phantom deletions. Added step-by-step
+  debug logging for diagnosing future deletion issues.
+
 - Gap-fill retry for partial downloads with native priority
 
 When GAMDL's --song-codec-priority skips tracks because experimental
