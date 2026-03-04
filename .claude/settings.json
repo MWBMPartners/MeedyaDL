@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(/Users/lance.manasse/.cargo/bin/cargo test:*)"
+      "Bash(/Users/lance.manasse/.cargo/bin/cargo test:*)",
+      "Bash(gh issue close 147 --reason completed --comment \"Fixed: delete_crash_report\\(\\) now returns Err when report not found, preventing phantom deletions.\")",
+      "Bash(gh project item-add 6 --owner MWBMPartners --url https://github.com/MWBMPartners/MeedyaDL/issues/147)"
     ]
   }
 }
