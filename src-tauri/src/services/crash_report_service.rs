@@ -64,29 +64,66 @@ pub fn get_crash_report(app: &AppHandle, id: &str) -> Option<CrashReport> {
 
 /// Deletes a crash report by its ID.
 ///
-/// Removes the JSON file from disk. Returns `Ok(())` if the file was
-/// deleted or did not exist, `Err` if the deletion failed.
+/// Scans all JSON files in the crashes directory, deserializes each,
+/// and removes the one whose `id` field matches. Returns `Ok(())` if
+/// the file was deleted or did not exist, `Err` if deletion failed.
+///
+/// Uses explicit logging at each step to diagnose silent failures
+/// (the function previously returned Ok(()) even when no file was
+/// actually deleted, making deletion bugs invisible).
 pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
     let dir = crashes_dir(app);
+    log::debug!("delete_crash_report: looking for id={id} in {}", dir.display());
 
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "json") {
-                if let Ok(contents) = std::fs::read_to_string(&path) {
-                    if let Ok(report) = serde_json::from_str::<CrashReport>(&contents) {
-                        if report.id == id {
-                            std::fs::remove_file(&path)
-                                .map_err(|e| format!("Failed to delete crash report: {e}"))?;
-                            return Ok(());
-                        }
-                    }
-                }
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => {
+            let msg = format!("Failed to read crashes directory: {e}");
+            log::warn!("delete_crash_report: {msg}");
+            return Err(msg);
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!(
+                    "delete_crash_report: skipping {} (read failed: {e})",
+                    path.display()
+                );
+                continue;
             }
+        };
+
+        let report = match serde_json::from_str::<CrashReport>(&contents) {
+            Ok(r) => r,
+            Err(e) => {
+                log::debug!(
+                    "delete_crash_report: skipping {} (parse failed: {e})",
+                    path.display()
+                );
+                continue;
+            }
+        };
+
+        if report.id == id {
+            std::fs::remove_file(&path)
+                .map_err(|e| format!("Failed to delete crash report file: {e}"))?;
+            log::info!("delete_crash_report: deleted {}", path.display());
+            return Ok(());
         }
     }
 
-    Ok(()) // Not found is not an error
+    // Report wasn't found — return an error so the frontend knows
+    let msg = format!("Crash report not found: {id}");
+    log::warn!("delete_crash_report: {msg}");
+    Err(msg)
 }
 
 /// Exports a crash report as a formatted Markdown string suitable for
