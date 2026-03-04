@@ -621,6 +621,19 @@ export function deleteCredential(key: string): Promise<void> {
   return invoke<void>('delete_credential', { key });
 }
 
+/**
+ * Validates MusicKit credentials by generating a JWT and testing it
+ * against the Apple Music API.
+ *
+ * Rust handler: `validate_musickit_credentials()` in `src-tauri/src/commands/credentials.rs`
+ *
+ * @returns Promise resolving to a success message, or rejecting with a
+ *          descriptive error explaining what to check.
+ */
+export function validateMusicKitCredentials(): Promise<string> {
+  return invoke<string>('validate_musickit_credentials');
+}
+
 // ============================================================
 // Update Commands
 // ============================================================

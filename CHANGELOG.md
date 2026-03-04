@@ -8,6 +8,45 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Fix incorrect codec-specific metadata tags when using native priority
+
+  When GAMDL >= 2.9.1's `--song-codec-priority` flag was used, `codec_used`
+  was set to the *requested* codec (e.g., "atmos") at enqueue time rather
+  than the actual codec GAMDL selected. This caused enrichment to write
+  incorrect tags (`SpatialType = Dolby Atmos`, `isBinaural = Y`, etc.) on
+  ALL files regardless of their actual codec.
+
+  Fix: Hybrid ffprobe + request-based codec detection. After download,
+  `detect_audio_info()` runs ffprobe to extract `codec_name` and `profile`
+  from each file. `resolve_codec_from_ffprobe()` maps unambiguous codecs
+  definitively (ALAC, E-AC3 → Atmos, AC3) and trusts the requested codec
+  only for AAC variants (binaural/downmix are indistinguishable from
+  standard AAC via ffprobe). Falls back to requested codec when ffprobe
+  is unavailable.
+
+- Enhance MusicKit API error messages with actionable guidance
+
+  HTTP 401 now suggests checking credentials (expired/revoked key).
+  HTTP 403 suggests enabling MusicKit permissions on the key.
+  HTTP 429 indicates rate limiting.
+
+### ✨ Features
+
+- Add "Test Credentials" button for MusicKit validation
+
+  New button in Settings > Cover Art that validates MusicKit credentials
+  by generating a JWT and making a test API call to Apple Music. Returns
+  clear success/failure with HTTP status-specific guidance (401 = bad creds,
+  403 = permissions, 429 = rate limited).
+
+- Add comprehensive verbose activity logging
+
+  Expanded verbose logging from 5 locations to 15+. New diagnostic output
+  covers: ffprobe codec detection results, enrichment start parameters,
+  suffix decision rationale (native priority explanation), JWT claims
+  (iss/kid/exp), API parse results (album name, track count, artwork
+  availability), and enrichment per-file tag summaries.
+
 - README badge URLs and header logo
 
 - Fix badge URLs: MeedyaDL/MeedyaDL → MWBMPartners/MeedyaDL (404 fix)
