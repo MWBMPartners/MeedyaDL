@@ -222,7 +222,7 @@ Tag definitions are driven by `tags.toml` — a config file that maps Apple Musi
 
 The enrichment stages run in order:
 
-1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on) — 30+ freeform atoms per file
+1. **Codec/Source/Channel tags + Apple Music API metadata** (always-on) — 30+ freeform atoms per file. Uses ffprobe-based codec detection for accurate tagging when native priority mode is active (GAMDL >= 2.9.1)
 2. **Enhanced LRC conversion** (opt-in, default on) — converts TTML to Enhanced LRC, saves `.lrc` sidecar, embeds in `©lyr` atom
 2b. **Lyrics format fallback** (opt-in, default on) — if TTML didn't produce lyrics for all tracks, retries with LRC (audio) or SRT (video)
 2c. **WebVTT subtitle generation** (opt-in) — converts TTML, SRT, or LRC sidecars to `.vtt` subtitle files

@@ -303,6 +303,7 @@ pub async fn apply_enriched_metadata_tags(
     urls: &[String],
     pre_fetched_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
+    uses_native_priority: bool,
 ) -> Result<(usize, Option<AlbumMetadata>), String> {
     // Collect all M4A files from the output path
     let m4a_files = collect_m4a_files(output_path);
@@ -310,7 +311,8 @@ pub async fn apply_enriched_metadata_tags(
         return Ok((0, pre_fetched_metadata.cloned()));
     }
 
-    // Get ffprobe path (optional — channel detection is best-effort)
+    // Get ffprobe path (optional — channel detection and codec detection
+    // are best-effort; enrichment proceeds without ffprobe)
     let ffprobe_path = get_ffprobe_path(app).ok();
 
     // Resolve album metadata: reuse pre-fetched or try API fetch
@@ -325,8 +327,10 @@ pub async fn apply_enriched_metadata_tags(
         match enrich_single_file(
             file_path,
             codec,
+            uses_native_priority,
             ffprobe_path.as_ref(),
             album_metadata.as_ref(),
+            event_context,
         )
         .await
         {
@@ -352,24 +356,76 @@ pub async fn apply_enriched_metadata_tags(
 
 /// Apply all enrichment layers to a single M4A file.
 ///
-/// Runs ffprobe (async) for channel detection, then offloads all `mp4ameta`
-/// Tag read/write operations to `spawn_blocking` to prevent starving the
-/// tokio async runtime on slow filesystems (FUSE mounts, NFS, cloud storage).
+/// Runs ffprobe (async) for channel and codec detection, then offloads all
+/// `mp4ameta` Tag read/write operations to `spawn_blocking` to prevent
+/// starving the tokio async runtime on slow filesystems (FUSE mounts, NFS,
+/// cloud storage).
+///
+/// When `uses_native_priority` is `true`, the actual audio codec is detected
+/// from the file via ffprobe (since GAMDL doesn't report which codec it
+/// selected from the priority chain). This prevents incorrect codec-specific
+/// tags (e.g., tagging AAC files as Dolby Atmos).
 async fn enrich_single_file(
     file_path: &Path,
-    codec: &SongCodec,
+    requested_codec: &SongCodec,
+    uses_native_priority: bool,
     ffprobe_path: Option<&PathBuf>,
     album_metadata: Option<&AlbumMetadata>,
+    event_context: Option<(&tauri::AppHandle, &str)>,
 ) -> Result<(), String> {
-    // Run ffprobe first (async I/O — subprocess with .await)
-    let channel_config = match ffprobe_path {
-        Some(ffprobe) => detect_channel_config(ffprobe, file_path).await,
+    // Run ffprobe first (async I/O — subprocess with .await).
+    // Returns codec name, profile, and channel config in a single call.
+    let audio_info = match ffprobe_path {
+        Some(ffprobe) => detect_audio_info(ffprobe, file_path).await,
         None => None,
     };
 
+    // Determine the effective codec for tag writing.
+    // When native priority was used, ffprobe detects the actual codec from
+    // the file. When single-codec mode was used, the requested codec is
+    // always correct. Falls back to requested codec if ffprobe is unavailable.
+    let effective_codec = if uses_native_priority {
+        if let Some(ref info) = audio_info {
+            let resolved = resolve_codec_from_ffprobe(info, requested_codec);
+            // Log codec detection result in verbose mode
+            if let Some((app_handle, dl_id)) = event_context {
+                let filename = file_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("?");
+                crate::utils::activity_log::emit_verbose_download_log(
+                    app_handle,
+                    dl_id,
+                    &format!(
+                        "Codec detection: ffprobe={}{}, requested={}, resolved={} [{}]",
+                        info.codec_name,
+                        info.profile.as_deref().map_or(String::new(), |p| format!("/{p}")),
+                        requested_codec.to_cli_string(),
+                        resolved.to_cli_string(),
+                        filename,
+                    ),
+                );
+            }
+            resolved
+        } else {
+            // ffprobe unavailable — fall back to requested codec
+            log::debug!(
+                "ffprobe unavailable for {}, using requested codec {:?}",
+                file_path.display(),
+                requested_codec
+            );
+            requested_codec.clone()
+        }
+    } else {
+        // Single-codec mode: the requested codec is exactly what GAMDL used
+        requested_codec.clone()
+    };
+
+    // Extract channel config from audio info (separate from codec detection)
+    let channel_config = audio_info.as_ref().map(|info| info.channel_config.clone());
+
     // Clone data needed for the blocking closure (all are Send + 'static)
     let tag_path = file_path.to_path_buf();
-    let codec_owned = codec.clone();
     let metadata_owned = album_metadata.cloned();
 
     // Offload all Tag I/O to a blocking thread. Tag::read_from_path and
@@ -386,7 +442,9 @@ async fn enrich_single_file(
         })?;
 
         // --- Layer 1: Codec-specific tags (ALAC/Atmos/Binaural/Downmix) ---
-        match codec_owned {
+        // Uses the effective codec (ffprobe-detected when native priority,
+        // or requested codec when single-codec mode).
+        match effective_codec {
             SongCodec::Alac => write_lossless_tags(&mut tag),
             SongCodec::Atmos => write_atmos_tags(&mut tag),
             SongCodec::AacBinaural | SongCodec::AacHeBinaural => {
@@ -1004,13 +1062,31 @@ fn get_ffprobe_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(ffprobe_bin)
 }
 
-/// Detect the audio channel configuration of an M4A file using ffprobe.
+/// Audio stream information detected by ffprobe.
 ///
-/// Runs ffprobe to inspect the first audio stream and maps the channel
-/// count to a standard configuration string (e.g., "2.0", "5.1", "7.1").
+/// Contains the channel configuration, codec name, and profile extracted
+/// from the first audio stream of an M4A file. Used for both channel
+/// tagging and codec detection (to determine actual codec when GAMDL
+/// uses native priority and doesn't report which codec was selected).
+struct FfprobeAudioInfo {
+    /// Channel configuration string (e.g., "2.0", "5.1", "7.1").
+    channel_config: String,
+    /// FFmpeg codec name (e.g., "alac", "aac", "eac3", "ac3").
+    codec_name: String,
+    /// FFmpeg profile string (e.g., "LC", "HE-AAC", "HE-AACv2").
+    /// Not all codecs report a profile — ALAC and AC3 typically don't.
+    profile: Option<String>,
+}
+
+/// Detect audio stream information from an M4A file using ffprobe.
+///
+/// Runs ffprobe to inspect the first audio stream and extracts:
+/// - Channel count → mapped to configuration string ("2.0", "5.1", etc.)
+/// - Codec name (e.g., "alac", "aac", "eac3") for actual codec detection
+/// - Codec profile (e.g., "LC", "HE-AAC") for AAC variant identification
 ///
 /// Returns `None` if ffprobe fails or the file has no audio stream.
-async fn detect_channel_config(ffprobe_path: &Path, file_path: &Path) -> Option<String> {
+async fn detect_audio_info(ffprobe_path: &Path, file_path: &Path) -> Option<FfprobeAudioInfo> {
     let output = Command::new(ffprobe_path)
         .args([
             "-v",
@@ -1031,14 +1107,66 @@ async fn detect_channel_config(ffprobe_path: &Path, file_path: &Path) -> Option<
     }
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    let channels = json
-        .get("streams")?
-        .as_array()?
-        .first()?
-        .get("channels")?
-        .as_u64()?;
+    let stream = json.get("streams")?.as_array()?.first()?;
 
-    Some(channels_to_config(channels))
+    let channels = stream.get("channels")?.as_u64()?;
+    let codec_name = stream
+        .get("codec_name")?
+        .as_str()?
+        .to_string();
+    let profile = stream
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
+    Some(FfprobeAudioInfo {
+        channel_config: channels_to_config(channels),
+        codec_name,
+        profile,
+    })
+}
+
+/// Determine the actual `SongCodec` from ffprobe analysis of a downloaded file.
+///
+/// For unambiguous codecs (ALAC, E-AC3/Atmos, AC3), ffprobe is definitive.
+/// For AAC variants, ffprobe cannot distinguish binaural/downmix from standard
+/// AAC — these are semantically different delivery modes of the same codec.
+/// In those cases, the requested codec is trusted IF the ffprobe codec family
+/// matches (i.e., ffprobe says "aac" and the requested codec is an AAC variant).
+///
+/// # Arguments
+/// * `info` - Audio stream information from ffprobe
+/// * `requested_codec` - The codec the user requested at download time
+///
+/// # Returns
+/// The most accurate `SongCodec` determination, combining ffprobe analysis
+/// with the requested codec as a hint for ambiguous cases.
+fn resolve_codec_from_ffprobe(info: &FfprobeAudioInfo, requested_codec: &SongCodec) -> SongCodec {
+    match info.codec_name.as_str() {
+        // Unambiguous: ALAC is always lossless
+        "alac" => SongCodec::Alac,
+        // Unambiguous: E-AC3 (Enhanced AC-3) with JOC = Dolby Atmos
+        "eac3" => SongCodec::Atmos,
+        // Unambiguous: AC-3 = Dolby Digital
+        "ac3" => SongCodec::Ac3,
+        // Ambiguous: AAC family — binaural/downmix are indistinguishable
+        // from standard AAC by audio analysis alone. Trust the requested
+        // codec if it's an AAC variant; otherwise default to standard AAC.
+        "aac" => match requested_codec {
+            SongCodec::AacBinaural
+            | SongCodec::AacHeBinaural
+            | SongCodec::AacDownmix
+            | SongCodec::AacHeDownmix
+            | SongCodec::Aac
+            | SongCodec::AacLegacy
+            | SongCodec::AacHe
+            | SongCodec::AacHeLegacy => requested_codec.clone(),
+            // Requested non-AAC (e.g., Atmos) but got AAC — GAMDL fell back
+            _ => SongCodec::Aac,
+        },
+        // Unknown codec — trust the request as a fallback
+        _ => requested_codec.clone(),
+    }
 }
 
 /// Map an audio channel count to a standard configuration string.
@@ -1152,6 +1280,14 @@ async fn try_fetch_metadata(
     let jwt = match apple_music_api::generate_musickit_jwt(team_id, key_id, &private_key) {
         Ok(jwt) => {
             log_event("Apple Music API: JWT generated, fetching album metadata...");
+            // Verbose: show JWT claim details for debugging authentication issues
+            if let Some((app_handle, dl_id)) = event_context {
+                crate::utils::activity_log::emit_verbose_download_log(
+                    app_handle,
+                    dl_id,
+                    &format!("JWT claims: iss={team_id}, kid={key_id}, exp=3600s"),
+                );
+            }
             jwt
         }
         Err(e) => {
@@ -1370,5 +1506,133 @@ mod tests {
     #[test]
     fn is_m4a_rejects_no_extension() {
         assert!(!is_m4a(Path::new("/tmp/song")));
+    }
+
+    // ----------------------------------------------------------
+    // Codec detection from ffprobe tests
+    // ----------------------------------------------------------
+
+    fn make_audio_info(codec_name: &str, profile: Option<&str>) -> FfprobeAudioInfo {
+        FfprobeAudioInfo {
+            channel_config: "2.0".to_string(),
+            codec_name: codec_name.to_string(),
+            profile: profile.map(std::string::ToString::to_string),
+        }
+    }
+
+    #[test]
+    fn resolve_alac_is_definitive() {
+        // ffprobe says ALAC — always ALAC regardless of requested codec
+        let info = make_audio_info("alac", None);
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Atmos),
+            SongCodec::Alac
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Aac),
+            SongCodec::Alac
+        ));
+    }
+
+    #[test]
+    fn resolve_eac3_is_atmos() {
+        // ffprobe says E-AC3 (Enhanced AC-3 with JOC = Dolby Atmos)
+        let info = make_audio_info("eac3", None);
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Atmos),
+            SongCodec::Atmos
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Aac),
+            SongCodec::Atmos
+        ));
+    }
+
+    #[test]
+    fn resolve_ac3_is_dolby_digital() {
+        // ffprobe says AC-3 = Dolby Digital
+        let info = make_audio_info("ac3", None);
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Atmos),
+            SongCodec::Ac3
+        ));
+    }
+
+    #[test]
+    fn resolve_aac_trusts_binaural_request() {
+        // ffprobe says AAC, requested binaural — trust the request
+        let info = make_audio_info("aac", Some("LC"));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::AacBinaural),
+            SongCodec::AacBinaural
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::AacHeBinaural),
+            SongCodec::AacHeBinaural
+        ));
+    }
+
+    #[test]
+    fn resolve_aac_trusts_downmix_request() {
+        // ffprobe says AAC, requested downmix — trust the request
+        let info = make_audio_info("aac", Some("LC"));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::AacDownmix),
+            SongCodec::AacDownmix
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::AacHeDownmix),
+            SongCodec::AacHeDownmix
+        ));
+    }
+
+    #[test]
+    fn resolve_aac_trusts_standard_aac_variants() {
+        // ffprobe says AAC, requested standard AAC — trust the request
+        let info = make_audio_info("aac", Some("LC"));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Aac),
+            SongCodec::Aac
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::AacLegacy),
+            SongCodec::AacLegacy
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::AacHe),
+            SongCodec::AacHe
+        ));
+    }
+
+    #[test]
+    fn resolve_aac_overrides_non_aac_request() {
+        // ffprobe says AAC but user requested Atmos — GAMDL fell back to AAC
+        let info = make_audio_info("aac", Some("LC"));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Atmos),
+            SongCodec::Aac
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Alac),
+            SongCodec::Aac
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Ac3),
+            SongCodec::Aac
+        ));
+    }
+
+    #[test]
+    fn resolve_unknown_codec_trusts_request() {
+        // Unknown codec from ffprobe — fall back to requested
+        let info = make_audio_info("opus", None);
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Atmos),
+            SongCodec::Atmos
+        ));
+        assert!(matches!(
+            resolve_codec_from_ffprobe(&info, &SongCodec::Alac),
+            SongCodec::Alac
+        ));
     }
 }

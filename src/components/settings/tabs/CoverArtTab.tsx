@@ -65,8 +65,8 @@ import { useUiStore } from '@/stores/uiStore';
 // Input for the size number field.
 import { Select, Toggle, Input, HelpButton } from '@/components/common';
 
-// IPC wrappers for keychain credential storage (private key).
-import { storeCredential, getCredential } from '@/lib/tauri-commands';
+// IPC wrappers for keychain credential storage (private key) and MusicKit validation.
+import { storeCredential, getCredential, validateMusicKitCredentials } from '@/lib/tauri-commands';
 
 // TypeScript union type for cover format values.
 import type { CoverFormat } from '@/types';
@@ -103,6 +103,13 @@ export function CoverArtTab() {
   const [keyInput, setKeyInput] = useState('');
   /** Status message for the private key save operation */
   const [keyStatus, setKeyStatus] = useState('');
+  /** Whether credential validation is in progress */
+  const [validating, setValidating] = useState(false);
+  /** Result message from credential validation (success or error) */
+  const [validationResult, setValidationResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
 
   // Check if a private key is already stored on mount and when the tab becomes visible.
   useEffect(() => {
@@ -132,6 +139,23 @@ export function CoverArtTab() {
       setKeyStatus(`Failed to save key: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [keyInput]);
+
+  // Validate MusicKit credentials by testing them against the Apple Music API.
+  const handleTestCredentials = useCallback(async () => {
+    setValidating(true);
+    setValidationResult(null);
+    try {
+      const message = await validateMusicKitCredentials();
+      setValidationResult({ success: true, message });
+    } catch (e) {
+      setValidationResult({
+        success: false,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setValidating(false);
+    }
+  }, []);
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -340,6 +364,40 @@ export function CoverArtTab() {
                     Save to Keychain
                   </button>
                   {keyStatus && <span className="text-xs text-content-secondary">{keyStatus}</span>}
+                </div>
+              </div>
+
+              {/* Test Credentials button — validates JWT against Apple Music API */}
+              <div className="pt-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 text-xs font-medium rounded-md
+                      bg-surface-secondary text-content-primary
+                      hover:bg-surface-tertiary
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      transition-colors"
+                    onClick={handleTestCredentials}
+                    disabled={
+                      validating ||
+                      !settings.musickit_team_id?.trim() ||
+                      !settings.musickit_key_id?.trim() ||
+                      !keyStored
+                    }
+                  >
+                    {validating ? 'Testing...' : 'Test Credentials'}
+                  </button>
+                  {validationResult && (
+                    <span
+                      className={`text-xs ${
+                        validationResult.success
+                          ? 'text-status-success'
+                          : 'text-status-error'
+                      }`}
+                    >
+                      {validationResult.message}
+                    </span>
+                  )}
                 </div>
               </div>
             </>

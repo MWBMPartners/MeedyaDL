@@ -2597,6 +2597,11 @@ pub fn process_queue(
                     "Download {} skipping suffix (native priority active, actual codec unknown until download completes)",
                     download_id
                 );
+                emit_verbose_download_log(
+                    &app,
+                    &download_id,
+                    "Primary uses clean filenames (native priority — actual codec determined by GAMDL from priority chain). Companion downloads will use codec suffixes.",
+                );
             }
         }
 
@@ -3013,6 +3018,7 @@ pub fn process_queue(
                         let enrich_dl_id = dl_id.clone();
                         let enrich_codec_str = completed_codec.clone();
                         let enrich_shutdown = shutdown_clone.clone();
+                        let enrich_native_priority = uses_native_priority;
                         tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
@@ -3059,6 +3065,16 @@ pub fn process_queue(
                                 _ => None,
                             });
 
+                            emit_verbose_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "Starting enrichment: requested_codec={}, native_priority={}, output_dir={}",
+                                    enrich_codec_str.as_deref().unwrap_or("unknown"),
+                                    enrich_native_priority,
+                                    album_dir,
+                                ),
+                            );
                             emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
@@ -3072,6 +3088,7 @@ pub fn process_queue(
                                     &enrich_urls,
                                     None, // No pre-fetched metadata; will fetch from API if possible
                                     Some((&enrich_app, &enrich_dl_id)),
+                                    enrich_native_priority,
                                 )
                                 .await
                                 {

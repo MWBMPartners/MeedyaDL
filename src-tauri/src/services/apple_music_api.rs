@@ -397,8 +397,15 @@ pub async fn fetch_album_metadata(
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
+        // Provide actionable guidance for common authentication errors
+        let detail = match status {
+            401 => " — check MusicKit credentials (Team ID, Key ID, or private key may be expired/revoked on developer.apple.com)",
+            403 => " — MusicKit key may lack required permissions (MusicKit service must be enabled for the key)",
+            429 => " — rate limited by Apple Music API, try again later",
+            _ => "",
+        };
         return Err(format!(
-            "Apple Music API returned HTTP {status} for album {album_id}"
+            "Apple Music API returned HTTP {status} for album {album_id}{detail}"
         ));
     }
 
@@ -510,6 +517,15 @@ pub async fn fetch_album_metadata(
 
     // Extract track metadata from relationships.tracks
     let tracks = parse_tracks_from_response(album_data);
+
+    log::debug!(
+        "API parsed: album={}, tracks={}, has_artwork_square={}, has_artwork_tall={}, upc={}",
+        album_name.as_deref().unwrap_or("?"),
+        tracks.len(),
+        artwork_square_url.is_some(),
+        artwork_tall_url.is_some(),
+        upc.as_deref().unwrap_or("N/A"),
+    );
 
     Ok(Some(AlbumMetadata {
         album_id: album_id.to_string(),
