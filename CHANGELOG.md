@@ -8,6 +8,15 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Gap-fill retry for partial downloads with native priority
+
+When GAMDL's --song-codec-priority skips tracks because experimental codecs
+  (Atmos, AC3) are unavailable without wrapper auth, MeedyaDL now automatically
+  re-runs GAMDL with non-experimental codecs (ALAC, AAC variants) and
+  overwrite=false to fill the gaps. Previously, skipped tracks were lost
+  entirely. The gap-fill preserves successfully downloaded Atmos/AC3 files
+  while recovering missing tracks in lossless/lossy formats.
+
 - Detect actual codec via ffprobe for correct metadata tags with native priority
 
 When using GAMDL >= 2.9.1's --song-codec-priority, codec_used was set to
