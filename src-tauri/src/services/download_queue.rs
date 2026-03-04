@@ -1541,13 +1541,28 @@ fn plan_companions(mode: &CompanionMode, primary_codec: &str, custom_codecs: &[S
 ///
 /// Returns `true` if a suffix was applied, `false` if the codec has no suffix.
 fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
-    // Determine the suffix for the current codec, if any
-    let suffix = match &options.song_codec {
-        Some(codec) => match codec_suffix(codec) {
+    // Determine the suffix for the current codec, if any.
+    // Check song_codec first, then fall back to song_codec_priority
+    // (companion downloads set song_codec=None and use
+    // song_codec_priority with a single codec string instead).
+    let suffix = if let Some(codec) = &options.song_codec {
+        match codec_suffix(codec) {
             Some(s) => s,
             None => return false, // Lossy codecs get no suffix
-        },
-        None => return false, // No codec specified
+        }
+    } else if let Some(ref priority) = options.song_codec_priority {
+        // Parse the first (or only) codec from the priority string
+        let first_codec_str = priority.split(',').next().unwrap_or("");
+        if let Some(codec) = SongCodec::from_cli_string(first_codec_str) {
+            match codec_suffix(&codec) {
+                Some(s) => s,
+                None => return false,
+            }
+        } else {
+            return false;
+        }
+    } else {
+        return false; // No codec specified
     };
 
     // For each file template, append the suffix to the existing value.
