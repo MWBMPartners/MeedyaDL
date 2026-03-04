@@ -313,7 +313,27 @@ pub async fn apply_enriched_metadata_tags(
 
     // Get ffprobe path (optional — channel detection and codec detection
     // are best-effort; enrichment proceeds without ffprobe)
-    let ffprobe_path = get_ffprobe_path(app).ok();
+    let ffprobe_path = match get_ffprobe_path(app) {
+        Ok(path) => Some(path),
+        Err(e) => {
+            // Warn in the activity log (non-verbose) when native priority
+            // is active, since codec detection accuracy is degraded
+            if uses_native_priority {
+                if let Some((app_handle, dl_id)) = event_context {
+                    crate::utils::activity_log::emit_download_log(
+                        app_handle,
+                        dl_id,
+                        &format!(
+                            "ffprobe unavailable ({e}) — codec tags may be inaccurate with native priority. \
+                             Falling back to requested codec."
+                        ),
+                    );
+                }
+            }
+            log::warn!("ffprobe unavailable: {e}");
+            None
+        }
+    };
 
     // Resolve album metadata: reuse pre-fetched or try API fetch
     let album_metadata: Option<AlbumMetadata> = match pre_fetched_metadata {
@@ -408,12 +428,29 @@ async fn enrich_single_file(
             }
             resolved
         } else {
-            // ffprobe unavailable — fall back to requested codec
-            log::debug!(
+            // ffprobe unavailable or failed for this file — fall back to requested codec.
+            // Log at warn level (non-verbose) since this affects tagging accuracy.
+            let filename = file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?");
+            log::warn!(
                 "ffprobe unavailable for {}, using requested codec {:?}",
-                file_path.display(),
+                filename,
                 requested_codec
             );
+            if let Some((app_handle, dl_id)) = event_context {
+                if ffprobe_path.is_some() {
+                    // ffprobe exists but failed on this specific file
+                    crate::utils::activity_log::emit_download_log(
+                        app_handle,
+                        dl_id,
+                        &format!(
+                            "ffprobe failed for {filename} — codec tags may be inaccurate. Using requested codec."
+                        ),
+                    );
+                }
+            }
             requested_codec.clone()
         }
     } else {
