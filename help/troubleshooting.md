@@ -259,6 +259,18 @@ Log entries are prefixed with a timestamp, log level, and module name. The log l
 
 When diagnosing a problem, search the log file for **ERROR** entries first. The timestamp on the error entry will help you correlate it with the specific download attempt that failed. Look at the lines immediately before the error for additional context about what the application was doing when the failure occurred.
 
+### Verbose Activity Log
+
+MeedyaDL includes a **Verbose Activity Log** setting in **Settings > Advanced** that shows detailed diagnostic information directly in the Activity Log panel. When enabled, you will see:
+
+- **Codec detection results**: ffprobe-detected codec vs. requested codec, and the resolved effective codec used for tagging
+- **Enrichment parameters**: requested codec, native priority mode, output directory
+- **Suffix decisions**: Why files get or don't get codec suffixes (e.g., native priority uses clean filenames)
+- **JWT claims**: Team ID, Key ID, and token expiry used for Apple Music API authentication
+- **API parse results**: Album name, track count, artwork availability, UPC
+
+This is the recommended first step for troubleshooting metadata, codec tagging, or API issues.
+
 ### Enabling Verbose Logging
 
 By default, MeedyaDL logs at the **INFO** level. To capture more detailed diagnostic information, set the `RUST_LOG` environment variable to `debug` before launching the application:

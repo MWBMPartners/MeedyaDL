@@ -112,7 +112,8 @@ The `.p8` file you downloaded in Step 3 is a plain-text file containing your pri
 5. Paste the private key content you copied in Step 5 into the **"MusicKit Private Key"** textarea
 6. Click **"Save to Keychain"** -- the key is stored securely in your OS's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Once saved, the raw key text is discarded from memory and settings
 7. The status message should change to **"Private key is stored in OS keychain"**
-8. Click **Save** to apply your settings
+8. Click **"Test Credentials"** to verify everything works -- the button generates a JWT and makes a test API call to Apple Music, showing success or a specific error message
+9. Click **Save** to apply your settings
 
 > **If you lost your `.p8` file:** You will need to revoke the old key and create a new one. In the Apple Developer portal, go to Keys, click on the key you created, click **Revoke**, then repeat from Step 2.
 
@@ -205,6 +206,7 @@ Files downloaded after this change will remain visible. Previously hidden files 
 
 - Your MusicKit key may have been revoked in the Apple Developer portal -- check the Keys page to verify the key is still active
 - The Team ID or Key ID may be incorrect -- double-check them in the Developer portal (see [Step 3](#step-3-download-your-private-key) and [Step 4](#step-4-find-your-team-id))
+- Use the **"Test Credentials"** button in **Settings > Cover Art** to validate your credentials. It generates a JWT and makes a test API call, showing exactly what went wrong (expired key, wrong permissions, etc.)
 
 ### "FFmpeg not installed"
 

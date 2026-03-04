@@ -632,6 +632,7 @@ pub fn run() {
             commands::credentials::store_credential,
             commands::credentials::get_credential,
             commands::credentials::delete_credential,
+            commands::credentials::validate_musickit_credentials,
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,
