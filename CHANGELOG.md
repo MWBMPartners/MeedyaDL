@@ -19,14 +19,6 @@ After metadata enrichment, album folders and track files are renamed with
 
 ### 🐛 Bug Fixes
 
-- Error report deletion now persists across app restarts (#147)
-
-`delete_crash_report()` returned `Ok(())` even when the report file wasn't
-  found during the directory scan, causing the frontend to optimistically
-  remove the report from state while the file remained on disk. Now returns
-  `Err` when not found, preventing phantom deletions. Added step-by-step
-  debug logging for diagnosing future deletion issues.
-
 - Gap-fill retry for partial downloads with native priority
 
 When GAMDL's --song-codec-priority skips tracks because experimental
@@ -50,9 +42,19 @@ apply_codec_suffix() only checked options.song_codec, but companion
   Fixed by falling back to parsing song_codec_priority via
   SongCodec::from_cli_string() when song_codec is None.
 
+- Error report deletion now persists across app restarts
+
+delete_crash_report() returned Ok(()) even when the report wasn't found
+  during directory scan, so the frontend optimistically removed it from
+  state while the file stayed on disk. On restart, reports reappeared.
+
+  Now returns Err when not found, added debug logging at each scan step.
+
+- Add missing permissions for issue closure and project item addition
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.7] - 2026-03-04
