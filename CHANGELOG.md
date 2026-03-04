@@ -26,6 +26,7 @@ Non-verbose activity log now alerts users when ffprobe is unavailable
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.6.6] - 2026-03-03
 
