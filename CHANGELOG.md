@@ -8,20 +8,27 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- Add content advisory suffixes ([Explicit]/[Clean]) to filenames and folder names
+- Add content advisory suffixes ([Explicit]/[Clean]) to filenames and folder names (#145)
 
-After metadata enrichment, album folders and track files are renamed with
+  After metadata enrichment, album folders and track files are renamed with
   [Explicit] or [Clean] suffixes based on Apple Music content ratings. Per-track
   granularity (individual tracks can differ from album rating). Advisory suffix
   inserted before codec suffix (e.g., "01 Title [Explicit] [Lossless].m4a").
   Idempotent on re-download. Toggle in Settings > Metadata (default: enabled).
 
-
 ### 🐛 Bug Fixes
 
-- Gap-fill retry for partial downloads with native priority
+- Error report deletion now persists across app restarts (#147)
 
-When GAMDL's --song-codec-priority skips tracks because experimental
+  `delete_crash_report()` returned `Ok(())` even when the report file wasn't
+  found during the directory scan, causing the frontend to optimistically
+  remove the report from state while the file remained on disk. Now returns
+  `Err` when not found, preventing phantom deletions. Added step-by-step
+  debug logging for diagnosing future deletion issues.
+
+- Gap-fill retry for partial downloads with native priority (#142)
+
+  When GAMDL's --song-codec-priority skips tracks because experimental
   codecs (Atmos, AC3) are unavailable without wrapper auth, MeedyaDL now
   automatically re-runs GAMDL with non-experimental codecs and
   overwrite=false to fill the gaps. This recovers skipped tracks in
@@ -31,9 +38,9 @@ When GAMDL's --song-codec-priority skips tracks because experimental
   Helpers: count_codec_skip_warnings, build_gapfill_priority_chain,
   count_audio_files_in_directory. 11 new unit tests.
 
-- Companion downloads never apply filename suffixes
+- Companion downloads never apply filename suffixes (#143)
 
-apply_codec_suffix() only checked options.song_codec, but companion
+  apply_codec_suffix() only checked options.song_codec, but companion
   downloads set song_codec=None and use song_codec_priority instead
   (for GAMDL >= 2.9.1). This meant no companion ever got a suffix like
   [Lossless] or [Dolby Atmos], causing each companion tier to overwrite
@@ -42,39 +49,27 @@ apply_codec_suffix() only checked options.song_codec, but companion
   Fixed by falling back to parsing song_codec_priority via
   SongCodec::from_cli_string() when song_codec is None.
 
-- Error report deletion now persists across app restarts
-
-delete_crash_report() returned Ok(()) even when the report wasn't found
-  during directory scan, so the frontend optimistically removed it from
-  state while the file stayed on disk. On restart, reports reappeared.
-
-  Now returns Err when not found, added debug logging at each scan step.
-
-- Add missing permissions for issue closure and project item addition
-
 ### 📚 Documentation
 
-- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.7] - 2026-03-04
 
 ### 🐛 Bug Fixes
 
-- Detect actual codec via ffprobe for correct metadata tags with native priority
+- Detect actual codec via ffprobe for correct metadata tags with native priority (#144)
 
-When using GAMDL >= 2.9.1's --song-codec-priority, codec_used was set to
+  When using GAMDL >= 2.9.1's --song-codec-priority, codec_used was set to
   the requested codec at enqueue time, not the actual codec GAMDL selected.
   This caused enrichment to write incorrect tags (SpatialType, isBinaural,
   isDownmix) on ALL files regardless of their actual codec.
 
 - Warn in activity log when ffprobe unavailable with native priority
 
-Non-verbose activity log now alerts users when ffprobe is unavailable
+  Non-verbose activity log now alerts users when ffprobe is unavailable
   or fails for a file while native priority is active, since codec tags
   may be inaccurate without it. Previously this was only logged at debug
   level via RUST_LOG=debug.
-
 
 ### 📚 Documentation
 
@@ -111,14 +106,8 @@ Non-verbose activity log now alerts users when ffprobe is unavailable
     HTML for logos/badges, MD041 first-line heading, MD013 line length for
     URLs) — removed MD060 suppression since tables are now clean
 
-
 ### 📚 Documentation
 
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
-- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.5] - 2026-03-03
