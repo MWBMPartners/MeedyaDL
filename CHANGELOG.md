@@ -6,6 +6,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add content advisory suffixes ([Explicit]/[Clean]) to filenames and folder names (#145)
+
+After metadata enrichment, album folders and track files are automatically
+  renamed with [Explicit] or [Clean] suffixes based on Apple Music content
+  ratings. Advisory suffix is inserted before codec suffixes (e.g.,
+  `01 Title [Explicit] [Lossless].m4a`). Per-track granularity: individual
+  tracks can have different ratings than the album. Idempotent on re-download.
+  Toggle in Settings > Metadata. Default: enabled.
+
 ### 🐛 Bug Fixes
 
 - Gap-fill retry for partial downloads with native priority

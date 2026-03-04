@@ -424,6 +424,16 @@ pub struct AppSettings {
     #[serde(default)]
     pub generate_ass: bool,
 
+    /// When enabled, appends `[Explicit]` or `[Clean]` to album folder
+    /// names and individual track filenames based on Apple Music content
+    /// ratings. This helps distinguish Explicit and Clean versions of
+    /// the same album on disk. Applied during metadata enrichment after
+    /// download completes (requires MusicKit credentials for API access).
+    /// Only affects file/folder naming — embedded metadata tags are
+    /// written separately via tags.toml (`AlbumAdvisory`, `iTunesAdvisory`).
+    #[serde(default = "default_true")]
+    pub content_advisory_in_filenames: bool,
+
     // ================================================================
     // Cover Art
     // ================================================================
@@ -849,6 +859,9 @@ impl Default for AppSettings {
             embed_subtitles: false,
             // ASS subtitle generation off by default — niche format.
             generate_ass: false,
+            // Content advisory suffixes on by default — helps distinguish
+            // Explicit vs Clean versions of the same album on disk.
+            content_advisory_in_filenames: true,
 
             // --- Cover art ---
             // Save cover art by default -- most users want artwork files.

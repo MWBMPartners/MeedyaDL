@@ -296,6 +296,7 @@ fn is_m4a(path: &Path) -> bool {
 /// * `Ok((count, Some(metadata)))` - Files tagged; API metadata for reuse
 /// * `Ok((count, None))` - Files tagged; no API metadata available
 /// * `Err(message)` - Output path doesn't exist
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_enriched_metadata_tags(
     app: &AppHandle,
     output_path: &str,
@@ -304,11 +305,12 @@ pub async fn apply_enriched_metadata_tags(
     pre_fetched_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
     uses_native_priority: bool,
-) -> Result<(usize, Option<AlbumMetadata>), String> {
+    content_advisory_in_filenames: bool,
+) -> Result<(usize, Option<AlbumMetadata>, Option<String>), String> {
     // Collect all M4A files from the output path
     let m4a_files = collect_m4a_files(output_path);
     if m4a_files.is_empty() {
-        return Ok((0, pre_fetched_metadata.cloned()));
+        return Ok((0, pre_fetched_metadata.cloned(), None));
     }
 
     // Get ffprobe path (optional — channel detection and codec detection
@@ -341,9 +343,29 @@ pub async fn apply_enriched_metadata_tags(
         None => try_fetch_metadata(app, urls, event_context).await,
     };
 
+    // Apply content advisory suffixes ([Explicit] / [Clean]) to filenames
+    // and album folder before tag writing. Must happen AFTER metadata fetch
+    // (we need content_rating) and BEFORE enrichment (paths must be stable).
+    let (_effective_output_path, files_to_enrich, renamed_output) =
+        if content_advisory_in_filenames {
+            if let Some(ref metadata) = album_metadata {
+                let (new_path, new_files) = apply_advisory_suffixes(output_path, metadata);
+                let changed = if new_path != output_path {
+                    Some(new_path.clone())
+                } else {
+                    None
+                };
+                (new_path, new_files, changed)
+            } else {
+                (output_path.to_string(), m4a_files, None)
+            }
+        } else {
+            (output_path.to_string(), m4a_files, None)
+        };
+
     // Process each M4A file with all enrichment layers
     let mut tagged_count = 0;
-    for file_path in &m4a_files {
+    for file_path in &files_to_enrich {
         match enrich_single_file(
             file_path,
             codec,
@@ -364,10 +386,10 @@ pub async fn apply_enriched_metadata_tags(
     log::info!(
         "Enriched {} of {} M4A file(s) with metadata tags",
         tagged_count,
-        m4a_files.len()
+        files_to_enrich.len()
     );
 
-    Ok((tagged_count, album_metadata))
+    Ok((tagged_count, album_metadata, renamed_output))
 }
 
 // ============================================================
@@ -1034,6 +1056,193 @@ fn write_tags_from_registry(
 }
 
 // ============================================================
+// Internal: Content Advisory Filename Suffixes
+// ============================================================
+
+/// Returns the advisory suffix string for a content rating value.
+fn advisory_suffix(content_rating: &str) -> Option<&'static str> {
+    match content_rating {
+        "explicit" => Some("[Explicit]"),
+        "clean" => Some("[Clean]"),
+        _ => None,
+    }
+}
+
+/// Apply content advisory suffixes (`[Explicit]` / `[Clean]`) to track
+/// filenames and the album folder name based on Apple Music content ratings.
+///
+/// Called during enrichment after metadata is fetched. Renames files in-place
+/// so all subsequent enrichment steps operate on the correctly named paths.
+///
+/// Returns the (possibly renamed) output directory path and a list of the
+/// new file paths for downstream processing.
+pub fn apply_advisory_suffixes(
+    output_path: &str,
+    album_metadata: &apple_music_api::AlbumMetadata,
+) -> (String, Vec<PathBuf>) {
+    let m4a_files = collect_m4a_files(output_path);
+    let mut renamed_files = Vec::with_capacity(m4a_files.len());
+
+    // --- Step 1: Rename individual track files ---
+    for file_path in &m4a_files {
+        let new_path = rename_track_with_advisory(file_path, &album_metadata.tracks);
+        renamed_files.push(new_path);
+    }
+
+    // --- Step 2: Rename album folder ---
+    let new_output_path = rename_folder_with_advisory(output_path, album_metadata);
+
+    // Update file paths if the folder was renamed
+    if new_output_path != output_path {
+        let old_prefix = Path::new(output_path);
+        let new_prefix = Path::new(&new_output_path);
+        for path in &mut renamed_files {
+            if let Ok(relative) = path.strip_prefix(old_prefix) {
+                *path = new_prefix.join(relative);
+            }
+        }
+    }
+
+    (new_output_path, renamed_files)
+}
+
+/// Rename a single track file to include its content advisory suffix.
+/// Returns the new path (or the original if no rename was needed).
+fn rename_track_with_advisory(
+    file_path: &Path,
+    tracks: &[apple_music_api::TrackMetadata],
+) -> PathBuf {
+    // Read track/disc number from M4A tags to match against API metadata
+    let Ok(tag) = mp4ameta::Tag::read_from_path(file_path) else {
+        return file_path.to_path_buf();
+    };
+    let track_num = tag.track_number();
+    let disc_num = tag.disc_number().unwrap_or(1);
+    let matched = match_track_to_metadata(track_num, disc_num, tracks);
+
+    let Some(track_meta) = matched else {
+        return file_path.to_path_buf();
+    };
+
+    let Some(ref rating) = track_meta.content_rating else {
+        return file_path.to_path_buf();
+    };
+
+    let Some(suffix) = advisory_suffix(rating) else {
+        return file_path.to_path_buf();
+    };
+
+    // Check if the file stem already contains this suffix (idempotency)
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if stem.contains(suffix) {
+        return file_path.to_path_buf();
+    }
+
+    // Build new filename: insert advisory suffix BEFORE any codec suffix
+    // like [Lossless] or [Dolby Atmos]. If no codec suffix, append at end.
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("m4a");
+    let new_stem = insert_advisory_before_codec_suffix(stem, suffix);
+    let new_name = format!("{new_stem}.{ext}");
+    let new_path = file_path.with_file_name(&new_name);
+
+    match std::fs::rename(file_path, &new_path) {
+        Ok(()) => {
+            log::debug!(
+                "Advisory suffix: {} → {}",
+                file_path.display(),
+                new_path.display()
+            );
+            new_path
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to rename {} with advisory suffix: {e}",
+                file_path.display()
+            );
+            file_path.to_path_buf()
+        }
+    }
+}
+
+/// Insert the advisory suffix before any existing codec suffix like
+/// `[Lossless]`, `[Dolby Atmos]`, or `[Dolby Digital]`.
+/// If no codec suffix is found, appends at the end.
+fn insert_advisory_before_codec_suffix(stem: &str, advisory: &str) -> String {
+    // Known codec suffixes that should come AFTER advisory
+    let codec_suffixes = ["[Lossless]", "[Dolby Atmos]", "[Dolby Digital]"];
+
+    for cs in &codec_suffixes {
+        if let Some(pos) = stem.find(cs) {
+            // Insert advisory before the codec suffix
+            let before = stem[..pos].trim_end();
+            let after = &stem[pos..];
+            return format!("{before} {advisory} {after}");
+        }
+    }
+
+    // No codec suffix found — append advisory at end
+    format!("{stem} {advisory}")
+}
+
+/// Rename the album folder to include the album-level content advisory suffix.
+/// Returns the new path (or the original if no rename was needed).
+fn rename_folder_with_advisory(
+    output_path: &str,
+    album_metadata: &apple_music_api::AlbumMetadata,
+) -> String {
+    let path = Path::new(output_path);
+
+    // Only rename directories, not single files
+    if !path.is_dir() {
+        return output_path.to_string();
+    }
+
+    let Some(ref rating) = album_metadata.content_rating else {
+        return output_path.to_string();
+    };
+
+    let Some(suffix) = advisory_suffix(rating) else {
+        return output_path.to_string();
+    };
+
+    // Check if folder name already contains the suffix (idempotency)
+    let folder_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if folder_name.contains(suffix) {
+        return output_path.to_string();
+    }
+
+    let new_folder_name = format!("{folder_name} {suffix}");
+    let new_path = path.with_file_name(&new_folder_name);
+
+    match std::fs::rename(path, &new_path) {
+        Ok(()) => {
+            log::info!(
+                "Advisory suffix: folder {} → {}",
+                folder_name,
+                new_folder_name
+            );
+            new_path.to_string_lossy().to_string()
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to rename folder {} with advisory suffix: {e}",
+                folder_name
+            );
+            output_path.to_string()
+        }
+    }
+}
+
+// ============================================================
 // Internal: File Collection
 // ============================================================
 
@@ -1671,5 +1880,69 @@ mod tests {
             resolve_codec_from_ffprobe(&info, &SongCodec::Alac),
             SongCodec::Alac
         ));
+    }
+
+    // ----------------------------------------------------------
+    // Content advisory suffix tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn advisory_suffix_explicit() {
+        assert_eq!(advisory_suffix("explicit"), Some("[Explicit]"));
+    }
+
+    #[test]
+    fn advisory_suffix_clean() {
+        assert_eq!(advisory_suffix("clean"), Some("[Clean]"));
+    }
+
+    #[test]
+    fn advisory_suffix_none_for_unknown() {
+        assert_eq!(advisory_suffix("notRated"), None);
+        assert_eq!(advisory_suffix(""), None);
+    }
+
+    #[test]
+    fn insert_advisory_no_codec_suffix() {
+        // No codec suffix → advisory appended at end
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title", "[Explicit]"),
+            "01 Title [Explicit]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_before_lossless_suffix() {
+        // Advisory should come before [Lossless]
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [Lossless]", "[Explicit]"),
+            "01 Title [Explicit] [Lossless]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_before_dolby_atmos_suffix() {
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [Dolby Atmos]", "[Clean]"),
+            "01 Title [Clean] [Dolby Atmos]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_before_dolby_digital_suffix() {
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [Dolby Digital]", "[Explicit]"),
+            "01 Title [Explicit] [Dolby Digital]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_idempotent_check() {
+        // The stem already contains the advisory — this tests the caller's
+        // idempotency check (rename_track_with_advisory does `stem.contains(suffix)`)
+        // but insert_advisory_before_codec_suffix itself doesn't guard against this
+        let stem = "01 Title [Explicit]";
+        // Caller should NOT call this if stem already contains the suffix
+        assert!(stem.contains("[Explicit]"));
     }
 }

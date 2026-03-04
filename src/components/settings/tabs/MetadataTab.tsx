@@ -128,6 +128,13 @@ export function MetadataTab() {
           checked={settings.fetch_extra_tags}
           onChange={(checked) => updateSettings({ fetch_extra_tags: checked })}
         />
+
+        <Toggle
+          label="Content Advisory in Filenames"
+          description="Append [Explicit] or [Clean] to album folder names and track filenames based on Apple Music content ratings. Useful for distinguishing explicit and clean versions of the same album."
+          checked={settings.content_advisory_in_filenames}
+          onChange={(checked) => updateSettings({ content_advisory_in_filenames: checked })}
+        />
       </div>
 
       {/* ================================================================

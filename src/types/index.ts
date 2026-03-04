@@ -489,6 +489,8 @@ export interface AppSettings {
   embed_subtitles: boolean;
   /** When true, generates ASS (Advanced SubStation Alpha) subtitles from TTML/WebVTT. */
   generate_ass: boolean;
+  /** When true, appends [Explicit] or [Clean] to album folder and track filenames. */
+  content_advisory_in_filenames: boolean;
   /** Whether to save album cover art as separate files */
   save_cover: boolean;
   /** Default image format for saved cover art */

@@ -3202,12 +3202,13 @@ pub fn process_queue(
                         let enrich_codec_str = completed_codec.clone();
                         let enrich_shutdown = shutdown_clone.clone();
                         let enrich_native_priority = uses_native_priority;
+                        let enrich_queue = queue_clone.clone();
                         tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
                             // For albums, output_path is already the directory.
                             let dir = std::path::Path::new(&output_dir);
-                            let album_dir = if dir.is_dir() {
+                            let mut album_dir = if dir.is_dir() {
                                 output_dir.clone()
                             } else {
                                 dir.parent().map_or_else(
@@ -3272,10 +3273,11 @@ pub fn process_queue(
                                     None, // No pre-fetched metadata; will fetch from API if possible
                                     Some((&enrich_app, &enrich_dl_id)),
                                     enrich_native_priority,
+                                    enrich_settings.content_advisory_in_filenames,
                                 )
                                 .await
                                 {
-                                    Ok((count, metadata)) => {
+                                    Ok((count, metadata, renamed_path)) => {
                                         if count > 0 {
                                             let api_note = if metadata.is_some() {
                                                 " (including Apple Music API metadata: ISRC, UPC, genre)"
@@ -3290,6 +3292,16 @@ pub fn process_queue(
                                             &enrich_dl_id,
                                             &format!("Enriched {count} file(s) with metadata tags{api_note}"),
                                         );
+                                        }
+                                        // Update album_dir if advisory suffix renamed the folder
+                                        if let Some(ref new_path) = renamed_path {
+                                            album_dir = new_path.clone();
+                                            // Update queue item's output_path so "Open Folder" works
+                                            if let Ok(mut q) = enrich_queue.try_lock() {
+                                                if let Some(item) = q.items.iter_mut().find(|i| i.status.id == enrich_dl_id) {
+                                                    item.status.output_path = Some(new_path.clone());
+                                                }
+                                            }
                                         }
                                         metadata
                                     }
