@@ -138,6 +138,41 @@ impl SongCodec {
         }
     }
 
+    /// Parse a CLI string (e.g., `"atmos"`, `"aac-binaural"`) back into a
+    /// `SongCodec` variant. Returns `None` for unrecognized strings.
+    /// Inverse of `to_cli_string()`.
+    #[must_use]
+    pub fn from_cli_string(s: &str) -> Option<Self> {
+        match s {
+            "alac" => Some(Self::Alac),
+            "atmos" => Some(Self::Atmos),
+            "ac3" => Some(Self::Ac3),
+            "aac-binaural" => Some(Self::AacBinaural),
+            "aac" => Some(Self::Aac),
+            "aac-legacy" => Some(Self::AacLegacy),
+            "aac-he-legacy" => Some(Self::AacHeLegacy),
+            "aac-he" => Some(Self::AacHe),
+            "aac-downmix" => Some(Self::AacDownmix),
+            "aac-he-binaural" => Some(Self::AacHeBinaural),
+            "aac-he-downmix" => Some(Self::AacHeDownmix),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this codec requires wrapper authentication for
+    /// reliable per-track availability queries. Atmos (E-AC-3 JOC) and
+    /// Dolby Digital (AC-3) use spatial audio API endpoints that don't
+    /// properly fall back per-track without wrapper auth. When these codecs
+    /// lead a native priority chain (`--song-codec-priority`) and wrapper
+    /// is not enabled, GAMDL may skip tracks instead of trying later codecs.
+    ///
+    /// Used by the gap-fill mechanism in `download_queue.rs` to build a
+    /// fallback chain that excludes these codecs for skipped tracks.
+    #[must_use]
+    pub const fn is_wrapper_dependent(&self) -> bool {
+        matches!(self, Self::Atmos | Self::Ac3)
+    }
+
     /// Human-readable display name for the UI dropdown/selector.
     ///
     /// These labels are shown in the React frontend's codec selection
@@ -1349,5 +1384,62 @@ mod tests {
         let args = options.to_cli_args();
         assert!(args.contains(&"--artist-auto-select".to_string()));
         assert!(args.contains(&"all-albums".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // SongCodec::from_cli_string
+    // ----------------------------------------------------------
+
+    #[test]
+    fn from_cli_string_roundtrip() {
+        // Every codec should round-trip through to_cli_string → from_cli_string
+        let codecs = [
+            SongCodec::Alac,
+            SongCodec::Atmos,
+            SongCodec::Ac3,
+            SongCodec::AacBinaural,
+            SongCodec::Aac,
+            SongCodec::AacLegacy,
+            SongCodec::AacHeLegacy,
+            SongCodec::AacHe,
+            SongCodec::AacDownmix,
+            SongCodec::AacHeBinaural,
+            SongCodec::AacHeDownmix,
+        ];
+        for codec in codecs {
+            let cli = codec.to_cli_string().to_string();
+            let parsed = SongCodec::from_cli_string(&cli);
+            assert_eq!(parsed, Some(codec), "round-trip failed for {cli}");
+        }
+    }
+
+    #[test]
+    fn from_cli_string_unknown_returns_none() {
+        assert_eq!(SongCodec::from_cli_string("flac"), None);
+        assert_eq!(SongCodec::from_cli_string(""), None);
+        assert_eq!(SongCodec::from_cli_string("mp3"), None);
+    }
+
+    // ----------------------------------------------------------
+    // SongCodec::is_wrapper_dependent
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_wrapper_dependent_atmos_ac3() {
+        assert!(SongCodec::Atmos.is_wrapper_dependent());
+        assert!(SongCodec::Ac3.is_wrapper_dependent());
+    }
+
+    #[test]
+    fn is_wrapper_dependent_non_experimental() {
+        assert!(!SongCodec::Alac.is_wrapper_dependent());
+        assert!(!SongCodec::Aac.is_wrapper_dependent());
+        assert!(!SongCodec::AacLegacy.is_wrapper_dependent());
+        assert!(!SongCodec::AacBinaural.is_wrapper_dependent());
+        assert!(!SongCodec::AacDownmix.is_wrapper_dependent());
+        assert!(!SongCodec::AacHe.is_wrapper_dependent());
+        assert!(!SongCodec::AacHeLegacy.is_wrapper_dependent());
+        assert!(!SongCodec::AacHeBinaural.is_wrapper_dependent());
+        assert!(!SongCodec::AacHeDownmix.is_wrapper_dependent());
     }
 }

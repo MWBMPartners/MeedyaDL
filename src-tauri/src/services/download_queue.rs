@@ -220,6 +220,73 @@ fn find_album_directory(base_dir: &std::path::Path) -> Option<String> {
     best.map(|(_, p)| p.to_string_lossy().to_string())
 }
 
+/// Count GAMDL warnings indicating tracks were skipped because the
+/// requested codec format was unavailable. These appear as stderr lines
+/// like "Requested format is not available for song ..." when GAMDL
+/// skips tracks in the priority chain without wrapper auth.
+fn count_codec_skip_warnings(warnings: &[String]) -> usize {
+    warnings
+        .iter()
+        .filter(|w| {
+            let lower = w.to_lowercase();
+            lower.contains("format is not available")
+                || lower.contains("format not available")
+                || lower.contains("requested format")
+        })
+        .count()
+}
+
+/// Build a gap-fill priority chain by removing wrapper-dependent codecs
+/// (Atmos, AC3) from the original chain. These codecs don't reliably
+/// work without wrapper authentication for per-track availability.
+///
+/// Returns `None` if no non-experimental codecs remain after filtering.
+fn build_gapfill_priority_chain(original_chain: &str) -> Option<String> {
+    let filtered: Vec<&str> = original_chain
+        .split(',')
+        .filter(|codec_str| {
+            // Parse each codec string and check if it's wrapper-dependent
+            if let Some(codec) = SongCodec::from_cli_string(codec_str.trim()) {
+                !codec.is_wrapper_dependent()
+            } else {
+                // Unknown codec strings are kept (conservative)
+                true
+            }
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        None
+    } else {
+        Some(filtered.join(","))
+    }
+}
+
+/// Count audio files (.m4a, .m4v, .mp4) in the output directory to
+/// detect partial download success. Searches recursively through
+/// Artist/Album subdirectory structure.
+fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
+    let mut count = 0;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("m4a")
+                        || ext.eq_ignore_ascii_case("m4v")
+                        || ext.eq_ignore_ascii_case("mp4")
+                    {
+                        count += 1;
+                    }
+                }
+            } else if path.is_dir() {
+                count += count_audio_files_in_directory(&path);
+            }
+        }
+    }
+    count
+}
+
 // ============================================================
 // Queue item (internal representation with extra tracking fields)
 // ============================================================
@@ -2707,20 +2774,121 @@ pub fn process_queue(
                                 });
 
                                 if uses_native_priority {
-                                    // GAMDL >= 2.9.1 already tried all codecs natively
-                                    // via --song-codec-priority. No point falling back
-                                    // to our own try_fallback system — all codecs were
-                                    // already attempted in the single GAMDL process.
-                                    log::info!(
-                                        "Download {dl_id} codec error with native priority \
-                                     (all codecs exhausted by GAMDL): {error_msg}"
-                                    );
-                                    emit_download_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    "GAMDL tried all formats in priority chain — none available for this content",
-                                );
-                                    // Fall through to terminal error below
+                                    // GAMDL >= 2.9.1 used native --song-codec-priority.
+                                    // Check for partial success: some tracks downloaded
+                                    // but others skipped because experimental codecs
+                                    // (Atmos, AC3) don't reliably fall back per-track
+                                    // without wrapper auth.
+                                    let skip_count = count_codec_skip_warnings(&warnings);
+                                    let output_base = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .and_then(|i| i.merged_options.output_path.clone());
+                                    let existing_audio = output_base
+                                        .as_ref()
+                                        .map(|p| {
+                                            count_audio_files_in_directory(std::path::Path::new(p))
+                                        })
+                                        .unwrap_or(0);
+                                    let priority_chain = download_options
+                                        .song_codec_priority
+                                        .as_deref()
+                                        .unwrap_or("");
+                                    let gapfill_chain =
+                                        build_gapfill_priority_chain(priority_chain);
+                                    let wrapper_active =
+                                        download_options.use_wrapper.unwrap_or(false);
+
+                                    if let Some(chain) = gapfill_chain.filter(|_| {
+                                        existing_audio > 0
+                                            && skip_count > 0
+                                            && !wrapper_active
+                                    }) {
+                                        log::info!(
+                                            "Download {dl_id} partial: {existing_audio} file(s) \
+                                             on disk, {skip_count} skip warning(s). \
+                                             Gap-fill with: {chain}"
+                                        );
+                                        emit_download_log(
+                                            &app_clone,
+                                            &dl_id,
+                                            &format!(
+                                                "Partial download: {existing_audio} track(s) \
+                                                 downloaded, {skip_count} skipped \
+                                                 (experimental codec without wrapper). \
+                                                 Re-downloading skipped tracks with \
+                                                 lossless fallback..."
+                                            ),
+                                        );
+
+                                        // Build gap-fill options: same as original but
+                                        // with overwrite=false and the filtered chain.
+                                        let mut gapfill_options = download_options.clone();
+                                        gapfill_options.overwrite = Some(false);
+                                        gapfill_options.song_codec_priority = Some(chain);
+
+                                        // Release lock before async GAMDL call
+                                        drop(q);
+
+                                        match run_download_with_events(
+                                            &app_clone,
+                                            &dl_id,
+                                            &urls,
+                                            &gapfill_options,
+                                            &queue_clone,
+                                        )
+                                        .await
+                                        {
+                                            Ok(_) => {
+                                                emit_download_log(
+                                                    &app_clone,
+                                                    &dl_id,
+                                                    "Gap-fill complete — skipped tracks \
+                                                     recovered in lossless format",
+                                                );
+                                                log::info!(
+                                                    "Download {dl_id} gap-fill succeeded"
+                                                );
+                                            }
+                                            Err(e) if e.contains("cancelled") => {
+                                                log::info!(
+                                                    "Download {dl_id} gap-fill cancelled"
+                                                );
+                                                return;
+                                            }
+                                            Err(e) => {
+                                                log::warn!(
+                                                    "Download {dl_id} gap-fill failed: {e}"
+                                                );
+                                                emit_download_log(
+                                                    &app_clone,
+                                                    &dl_id,
+                                                    &format!(
+                                                        "Gap-fill pass failed ({e}) — \
+                                                         continuing with partial download"
+                                                    ),
+                                                );
+                                            }
+                                        }
+
+                                        // Re-acquire lock for downstream logic
+                                        q = queue_clone.lock().await;
+                                    } else {
+                                        // No partial success or no viable gap-fill chain
+                                        log::info!(
+                                            "Download {dl_id} codec error with native priority \
+                                             (existing={existing_audio}, skipped={skip_count}, \
+                                             wrapper={wrapper_active}): {error_msg}"
+                                        );
+                                        emit_download_log(
+                                            &app_clone,
+                                            &dl_id,
+                                            "GAMDL tried all formats in priority chain \
+                                             — none available for this content",
+                                        );
+                                    }
+                                    // Fall through to partial-success recovery below
                                 } else {
                                     // GAMDL < 2.9.1 — use MeedyaDL's own fallback system
                                     log::info!(
@@ -6013,5 +6181,63 @@ mod tests {
         ];
         // All lines after Traceback are indented, so no exception found
         assert_eq!(extract_python_exception(&lines), None);
+    }
+
+    // ----------------------------------------------------------
+    // Gap-fill helper tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn build_gapfill_filters_experimental_codecs() {
+        let chain = "atmos,ac3,alac,aac-binaural,aac,aac-legacy";
+        let result = build_gapfill_priority_chain(chain);
+        assert_eq!(result, Some("alac,aac-binaural,aac,aac-legacy".to_string()));
+    }
+
+    #[test]
+    fn build_gapfill_preserves_non_experimental() {
+        let chain = "alac,aac,aac-legacy";
+        let result = build_gapfill_priority_chain(chain);
+        assert_eq!(result, Some("alac,aac,aac-legacy".to_string()));
+    }
+
+    #[test]
+    fn build_gapfill_returns_none_when_all_experimental() {
+        let chain = "atmos,ac3";
+        let result = build_gapfill_priority_chain(chain);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn build_gapfill_single_non_experimental() {
+        let chain = "atmos,alac";
+        let result = build_gapfill_priority_chain(chain);
+        assert_eq!(result, Some("alac".to_string()));
+    }
+
+    #[test]
+    fn count_codec_skip_warnings_counts_correctly() {
+        let warnings = vec![
+            "Requested format is not available for song 01".to_string(),
+            "Requested format is not available for song 02".to_string(),
+            "Some other warning".to_string(),
+            "Requested format is not available for song 03".to_string(),
+        ];
+        assert_eq!(count_codec_skip_warnings(&warnings), 3);
+    }
+
+    #[test]
+    fn count_codec_skip_warnings_zero_when_no_skips() {
+        let warnings = vec![
+            "Network timeout occurred".to_string(),
+            "Some other warning".to_string(),
+        ];
+        assert_eq!(count_codec_skip_warnings(&warnings), 0);
+    }
+
+    #[test]
+    fn count_codec_skip_warnings_empty() {
+        let warnings: Vec<String> = vec![];
+        assert_eq!(count_codec_skip_warnings(&warnings), 0);
     }
 }

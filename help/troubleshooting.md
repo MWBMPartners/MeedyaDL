@@ -232,6 +232,14 @@ After downloading, the file does not play in your media player.
 - **Cause:** Your media player does not support the codec or container format of the downloaded file. This is especially common with lossless (ALAC) or high-resolution formats.
 - **Solution:** Use [VLC](https://www.videolan.org/vlc/), which supports virtually all audio and video codecs. If you need files that are compatible with the widest range of players and devices, re-download the content in **AAC** format, which is the most universally supported audio format.
 
+#### Some Tracks Skipped / Partial Album Download
+
+Only some tracks in an album were downloaded, with the rest showing "Requested format is not available" in the Activity Log.
+
+- **Cause:** When downloading with Dolby Atmos or AC-3 as the preferred codec *without* a wrapper, these experimental formats may not be available for every track on the album. GAMDL skips tracks where the format is unavailable instead of falling back per-track.
+- **What MeedyaDL does:** MeedyaDL automatically detects partial downloads and re-runs the download with non-experimental codecs (e.g., ALAC, AAC) and `overwrite` disabled. This fills in the missing tracks without overwriting the successfully downloaded Atmos/AC-3 files. You'll see "Gap-fill complete" in the Activity Log when this succeeds.
+- **If gap-fill also fails:** Enable a wrapper in **Settings > Advanced** to allow experimental codecs to fall back correctly for all tracks, or switch to a non-experimental preferred codec like **ALAC** or **AAC**.
+
 ---
 
 ## Log Files
