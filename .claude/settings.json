@@ -3,7 +3,8 @@
     "allow": [
       "Bash(/Users/salem874/.cargo/bin/cargo test:*)",
       "Bash(gh issue close 147 --reason completed --comment \"Fixed: delete_crash_report\\(\\) now returns Err when report not found, preventing phantom deletions.\")",
-      "Bash(gh project item-add 6 --owner MWBMPartners --url https://github.com/MWBMPartners/MeedyaDL/issues/147)"
+      "Bash(gh project item-add 6 --owner MWBMPartners --url https://github.com/MWBMPartners/MeedyaDL/issues/147)",
+      "Read(//Users/salem874/Projects/Coding and Development/MWBM Partners Ltd/GitHub/MeedyaDL/**)"
     ]
   }
 }
