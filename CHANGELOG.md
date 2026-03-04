@@ -8,33 +8,48 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- Add content advisory suffixes ([Explicit]/[Clean]) to filenames and folder names (#145)
+- Add content advisory suffixes ([Explicit]/[Clean]) to filenames and folder names
 
-After metadata enrichment, album folders and track files are automatically
-  renamed with [Explicit] or [Clean] suffixes based on Apple Music content
-  ratings. Advisory suffix is inserted before codec suffixes (e.g.,
-  `01 Title [Explicit] [Lossless].m4a`). Per-track granularity: individual
-  tracks can have different ratings than the album. Idempotent on re-download.
-  Toggle in Settings > Metadata. Default: enabled.
+After metadata enrichment, album folders and track files are renamed with
+  [Explicit] or [Clean] suffixes based on Apple Music content ratings. Per-track
+  granularity (individual tracks can differ from album rating). Advisory suffix
+  inserted before codec suffix (e.g., "01 Title [Explicit] [Lossless].m4a").
+  Idempotent on re-download. Toggle in Settings > Metadata (default: enabled).
+
 
 ### 🐛 Bug Fixes
 
 - Gap-fill retry for partial downloads with native priority
 
-When GAMDL's --song-codec-priority skips tracks because experimental codecs
-  (Atmos, AC3) are unavailable without wrapper auth, MeedyaDL now automatically
-  re-runs GAMDL with non-experimental codecs (ALAC, AAC variants) and
-  overwrite=false to fill the gaps. Previously, skipped tracks were lost
-  entirely. The gap-fill preserves successfully downloaded Atmos/AC3 files
-  while recovering missing tracks in lossless/lossy formats.
+When GAMDL's --song-codec-priority skips tracks because experimental
+  codecs (Atmos, AC3) are unavailable without wrapper auth, MeedyaDL now
+  automatically re-runs GAMDL with non-experimental codecs and
+  overwrite=false to fill the gaps. This recovers skipped tracks in
+  lossless/lossy formats without overwriting successful Atmos/AC3 files.
 
-- Companion downloads now correctly apply filename suffixes
+  Added SongCodec::from_cli_string() and is_wrapper_dependent() methods.
+  Helpers: count_codec_skip_warnings, build_gapfill_priority_chain,
+  count_audio_files_in_directory. 11 new unit tests.
 
-Companion downloads set song_codec=None (using song_codec_priority instead
-  for GAMDL >= 2.9.1), but apply_codec_suffix() only checked song_codec.
-  This meant companion files never got suffixes like [Lossless] or
-  [Dolby Atmos], causing filename collisions where each tier's files
-  silently overwrote the previous tier's.
+- Companion downloads never apply filename suffixes
+
+apply_codec_suffix() only checked options.song_codec, but companion
+  downloads set song_codec=None and use song_codec_priority instead
+  (for GAMDL >= 2.9.1). This meant no companion ever got a suffix like
+  [Lossless] or [Dolby Atmos], causing each companion tier to overwrite
+  the previous tier's files (identical filenames).
+
+  Fixed by falling back to parsing song_codec_priority via
+  SongCodec::from_cli_string() when song_codec is None.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.6.7] - 2026-03-04
+
+### 🐛 Bug Fixes
 
 - Detect actual codec via ffprobe for correct metadata tags with native priority
 
