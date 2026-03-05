@@ -107,13 +107,14 @@ The `.p8` file you downloaded in Step 3 is a plain-text file containing your pri
 
 1. Open MeedyaDL and go to **Settings** > **Cover Art** tab
 2. Enable **"Download Animated Cover Art"**
-3. Enter your **Team ID** (from Step 4) in the "MusicKit Team ID" field
-4. Enter your **Key ID** (from Step 3) in the "MusicKit Key ID" field
-5. Paste the private key content you copied in Step 5 into the **"MusicKit Private Key"** textarea
-6. Click **"Save to Keychain"** -- the key is stored securely in your OS's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Once saved, the raw key text is discarded from memory and settings
-7. The status message should change to **"Private key is stored in OS keychain"**
-8. Click **"Test Credentials"** to verify everything works -- the button generates a JWT and makes a test API call to Apple Music, showing success or a specific error message
-9. Click **Save** to apply your settings
+3. Go to **Settings** > **Advanced** > **API Credentials** section
+4. Enter your **Team ID** (from Step 4) in the "MusicKit Team ID" field
+5. Enter your **Key ID** (from Step 3) in the "MusicKit Key ID" field
+6. Paste the private key content you copied in Step 5 into the **"MusicKit Private Key"** textarea
+7. Click **"Save to Keychain"** -- the key is stored securely in your OS's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Once saved, the raw key text is discarded from memory and settings
+8. The status message should change to **"Private key is stored in OS keychain"**
+9. Click **"Test Credentials"** to verify everything works -- the button generates a JWT and makes a test API call to Apple Music, showing success or a specific error message
+10. Click **Save** to apply your settings
 
 > **If you lost your `.p8` file:** You will need to revoke the old key and create a new one. In the Apple Developer portal, go to Keys, click on the key you created, click **Revoke**, then repeat from Step 2.
 
@@ -190,7 +191,7 @@ Files downloaded after this change will remain visible. Previously hidden files 
 
 ### "Animated artwork skipped" / No files appear
 
-- **Check credentials**: Ensure Team ID, Key ID, and private key are all configured correctly in Settings > Cover Art
+- **Check credentials**: Ensure Team ID, Key ID, and private key are all configured correctly in Settings > Advanced > API Credentials
 - **Verify the key is saved**: The status should show "Private key is stored in OS keychain"
 - **Not all albums have it**: Try a popular recent album (e.g., a top-charting album) to verify your setup works
 
@@ -206,7 +207,7 @@ Files downloaded after this change will remain visible. Previously hidden files 
 
 - Your MusicKit key may have been revoked in the Apple Developer portal -- check the Keys page to verify the key is still active
 - The Team ID or Key ID may be incorrect -- double-check them in the Developer portal (see [Step 3](#step-3-download-your-private-key) and [Step 4](#step-4-find-your-team-id))
-- Use the **"Test Credentials"** button in **Settings > Cover Art** to validate your credentials. It generates a JWT and makes a test API call, showing exactly what went wrong (expired key, wrong permissions, etc.)
+- Use the **"Test Credentials"** button in **Settings > Advanced > API Credentials** to validate your credentials. It generates a JWT and makes a test API call, showing exactly what went wrong (expired key, wrong permissions, etc.)
 
 ### "FFmpeg not installed"
 

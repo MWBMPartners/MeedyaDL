@@ -38,7 +38,16 @@
  *     with "Report" (opens GitHub Issue) and "Delete" actions.
  *     Rendered by {@link CrashReportSection}.
  *
- * ## Section 4: File Options
+ * ## Section 4: API Credentials
+ *
+ *   - **MusicKit (Apple Developer)** -- Team ID, Key ID, and private key
+ *     for Apple Music API access. Used by animated artwork, metadata
+ *     enrichment, and music video companion downloads. Private key stored
+ *     in the OS keychain via `storeCredential` / `getCredential` IPC.
+ *   - **AcoustID** -- Optional API key override. Release builds ship with
+ *     a built-in key; users can provide their own if desired.
+ *
+ * ## Section 5: File Options
  *
  *   - **Truncate Filenames** -- Maximum filename length in characters.
  *     When set, filenames exceeding this length are truncated. Maps to
@@ -47,7 +56,7 @@
  *     from downloaded files (e.g., "lyrics, comment"). Maps to
  *     `settings.exclude_tags: string[]`.
  *
- * ## Section 5: Setup
+ * ## Section 6: Setup
  *
  *   - **Re-run Setup Wizard** -- Button that resets `setup_completed` to
  *     `false`, saves settings, and reloads the app. The setup wizard then
@@ -62,14 +71,14 @@
  * @see {@link @/types/index.ts}           -- DownloadMode, RemuxMode types
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // Zustand store for reading/writing advanced settings.
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
 // Input for text/number fields, Button for actions.
-import { Select, Toggle, Input, Button } from '@/components/common';
+import { Select, Toggle, Input, Button, HelpButton } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
 import type { DownloadMode, RemuxMode, WrapperTestResult } from '@/types';
@@ -77,8 +86,14 @@ import type { DownloadMode, RemuxMode, WrapperTestResult } from '@/types';
 // Platform detection hook for Wrapper feature gating.
 import { usePlatform } from '@/hooks/usePlatform';
 
-// IPC command for wrapper connection testing.
-import { testWrapperConnection } from '@/lib/tauri-commands';
+// IPC commands for wrapper testing, credentials, and AcoustID key check.
+import {
+  testWrapperConnection,
+  storeCredential,
+  getCredential,
+  validateMusicKitCredentials,
+  hasEmbeddedAcoustidKey,
+} from '@/lib/tauri-commands';
 
 // Crash report list sub-component with GitHub reporting functionality.
 import { CrashReportSection } from './CrashReportSection';
@@ -124,11 +139,41 @@ export function AdvancedTab() {
   const [testState, setTestState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testResult, setTestResult] = useState<WrapperTestResult | null>(null);
 
+  // ── MusicKit credential state ──
+  /** Whether a private key is stored in the OS keychain */
+  const [keyStored, setKeyStored] = useState(false);
+  /** Current private key textarea input */
+  const [keyInput, setKeyInput] = useState('');
+  /** Status message after saving key to keychain */
+  const [keyStatus, setKeyStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  /** Whether a credential validation test is in progress */
+  const [validating, setValidating] = useState(false);
+  /** Result message from the credential validation test */
+  const [validationResult, setValidationResult] = useState<string | null>(null);
+
+  // ── AcoustID state ──
+  /** Whether a built-in AcoustID API key is available (embedded at compile time) */
+  const [hasBuiltInKey, setHasBuiltInKey] = useState(false);
+
   // Reset test result when the wrapper URL changes
   useEffect(() => {
     setTestState('idle');
     setTestResult(null);
   }, [settings?.wrapper_account_url]);
+
+  // Check for stored MusicKit private key on mount
+  useEffect(() => {
+    getCredential('musickit_private_key')
+      .then((val) => setKeyStored(!!val))
+      .catch(() => setKeyStored(false));
+  }, []);
+
+  // Check for built-in AcoustID key on mount
+  useEffect(() => {
+    hasEmbeddedAcoustidKey()
+      .then(setHasBuiltInKey)
+      .catch(() => setHasBuiltInKey(false));
+  }, []);
 
   /** Handles the "Test Connection" button click */
   const handleTestConnection = async () => {
@@ -143,6 +188,43 @@ export function AdvancedTab() {
       setTestState('error');
     }
   };
+
+  /** Saves the MusicKit private key to the OS keychain. */
+  const handleSaveKey = useCallback(async () => {
+    if (!keyInput.trim()) return;
+    setKeyStatus('saving');
+    try {
+      await storeCredential('musickit_private_key', keyInput.trim());
+      setKeyStatus('saved');
+      setKeyStored(true);
+      setKeyInput('');
+    } catch {
+      setKeyStatus('error');
+    }
+  }, [keyInput]);
+
+  /** Tests MusicKit credentials by generating a JWT and hitting the Apple Music API. */
+  const handleTestCredentials = useCallback(async () => {
+    setValidating(true);
+    setValidationResult(null);
+    try {
+      const result = await validateMusicKitCredentials();
+      setValidationResult(result);
+    } catch (err) {
+      setValidationResult(`Error: ${err}`);
+    } finally {
+      setValidating(false);
+    }
+  }, []);
+
+  /**
+   * Opens a URL in the system default browser via the Tauri shell plugin.
+   * Used for the AcoustID registration link.
+   */
+  const openExternal = useCallback(async (url: string) => {
+    const { open } = await import('@tauri-apps/plugin-shell');
+    await open(url);
+  }, []);
 
   return (
     <div className="space-y-6 max-w-xl">
@@ -274,6 +356,165 @@ export function AdvancedTab() {
             </p>
           </div>
         )}
+      </div>
+
+      {/* ================================================================
+          Section: API Credentials
+          ================================================================ */}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-content-primary mb-4">API Credentials</h3>
+
+        {/* ── MusicKit Credentials ── */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h4>
+            <HelpButton topic="animated-artwork" />
+          </div>
+          <p className="text-xs text-content-tertiary">
+            Required for animated artwork, API metadata enrichment, and music video companion
+            downloads. Get your credentials from an{' '}
+            <button
+              type="button"
+              className="text-accent hover:text-accent-hover underline transition-colors"
+              onClick={() => openExternal('https://developer.apple.com/account/resources/authkeys/list')}
+            >
+              Apple Developer account
+            </button>
+            .
+          </p>
+
+          {/* Team ID */}
+          <Input
+            label="MusicKit Team ID"
+            description="Your Apple Developer Team ID (10-character alphanumeric)"
+            value={settings.musickit_team_id ?? ''}
+            placeholder="XXXXXXXXXX"
+            onChange={(e) => updateSettings({ musickit_team_id: e.target.value || null })}
+          />
+
+          {/* Key ID */}
+          <Input
+            label="MusicKit Key ID"
+            description="The Key ID for your MusicKit private key (10-character alphanumeric)"
+            value={settings.musickit_key_id ?? ''}
+            placeholder="XXXXXXXXXX"
+            onChange={(e) => updateSettings({ musickit_key_id: e.target.value || null })}
+          />
+
+          {/* Private Key (stored in OS keychain) */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-content-primary">
+              MusicKit Private Key (.p8)
+            </label>
+            <p className="text-xs text-content-secondary">
+              {keyStored
+                ? 'A private key is stored in your OS keychain. Paste a new key below to replace it.'
+                : 'Paste the contents of your .p8 private key file. Stored securely in the OS keychain, not in settings files.'}
+            </p>
+            <textarea
+              value={keyInput}
+              onChange={(e) => {
+                setKeyInput(e.target.value);
+                setKeyStatus('idle');
+              }}
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+              rows={4}
+              className="w-full rounded-platform border border-border bg-surface-secondary px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent resize-none"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleSaveKey}
+                disabled={!keyInput.trim() || keyStatus === 'saving'}
+              >
+                {keyStatus === 'saving' ? 'Saving...' : 'Save to Keychain'}
+              </Button>
+              {keyStatus === 'saved' && (
+                <span className="text-xs text-status-success">Saved to keychain</span>
+              )}
+              {keyStatus === 'error' && (
+                <span className="text-xs text-status-error">Failed to save</span>
+              )}
+              {keyStored && keyStatus === 'idle' && (
+                <span className="text-xs text-status-success">Key stored in keychain</span>
+              )}
+            </div>
+          </div>
+
+          {/* Test Credentials button */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleTestCredentials}
+              disabled={
+                validating ||
+                !settings.musickit_team_id?.trim() ||
+                !settings.musickit_key_id?.trim() ||
+                !keyStored
+              }
+            >
+              {validating ? 'Testing...' : 'Test Credentials'}
+            </Button>
+            {validationResult && (
+              <span
+                className={`text-xs ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error' : 'text-status-success'}`}
+              >
+                {validationResult}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Divider between MusicKit and AcoustID */}
+        <div className="border-t border-border" />
+
+        {/* ── AcoustID API Key ── */}
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-content-secondary">AcoustID</h4>
+
+          <Input
+            label={hasBuiltInKey ? 'AcoustID API Key (Optional Override)' : 'AcoustID API Key'}
+            description={
+              hasBuiltInKey ? (
+                <>
+                  A built-in API key is included with this release. You can optionally override it
+                  with your own key registered at{' '}
+                  <button
+                    type="button"
+                    className="text-accent hover:text-accent-hover underline transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openExternal('https://acoustid.org/new-application');
+                    }}
+                  >
+                    acoustid.org/new-application
+                  </button>
+                  . Leave blank to use the built-in key.
+                </>
+              ) : (
+                <>
+                  Register a free application API key at{' '}
+                  <button
+                    type="button"
+                    className="text-accent hover:text-accent-hover underline transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openExternal('https://acoustid.org/new-application');
+                    }}
+                  >
+                    acoustid.org/new-application
+                  </button>
+                  . Required for AcoustID lookups.
+                </>
+              )
+            }
+            value={settings.acoustid_api_key ?? ''}
+            placeholder={hasBuiltInKey ? 'Using built-in key' : 'Your AcoustID application API key'}
+            onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
+          />
+        </div>
       </div>
 
       {/* Section: File Options */}
