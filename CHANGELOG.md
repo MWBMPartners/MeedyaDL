@@ -48,6 +48,7 @@ Move run() doc comment directly above pub fn run() to fix
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.6.9] - 2026-03-05
 
