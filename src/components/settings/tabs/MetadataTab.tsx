@@ -32,7 +32,7 @@
  * @see {@link @/stores/settingsStore.ts}  -- Zustand store
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 // Zustand store for reading/writing metadata enrichment settings.
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -41,19 +41,10 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { Input, Toggle } from '@/components/common';
 
 // Tauri commands for metadata features.
-import { hasEmbeddedAcoustidKey, auditApiFields } from '@/lib/tauri-commands';
+import { auditApiFields } from '@/lib/tauri-commands';
 
 // Types for API audit results.
 import type { ApiAuditResult } from '@/types';
-
-/**
- * Opens a URL in the system default browser via the Tauri shell plugin.
- * Used for the AcoustID registration link.
- */
-async function openExternal(url: string) {
-  const { open } = await import('@tauri-apps/plugin-shell');
-  await open(url);
-}
 
 /**
  * MetadataTab -- Renders the Metadata settings tab.
@@ -69,9 +60,6 @@ export function MetadataTab() {
   /** Partial-update function for persisting metadata setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
-  /** Whether a built-in AcoustID API key is available (embedded at compile time) */
-  const [hasBuiltInKey, setHasBuiltInKey] = useState(false);
-
   /** API audit state */
   const [auditUrl, setAuditUrl] = useState('');
   const [auditLoading, setAuditLoading] = useState(false);
@@ -82,13 +70,6 @@ export function MetadataTab() {
   /** Whether MusicKit credentials are configured (required for audit) */
   const hasMusicKitCredentials =
     !!settings.musickit_team_id?.trim() && !!settings.musickit_key_id?.trim();
-
-  // Check for built-in key on mount
-  useEffect(() => {
-    hasEmbeddedAcoustidKey()
-      .then(setHasBuiltInKey)
-      .catch(() => setHasBuiltInKey(false));
-  }, []);
 
   /** Run the API field audit */
   const handleAudit = async () => {
@@ -119,7 +100,7 @@ export function MetadataTab() {
         </p>
         <p className="text-sm text-content-tertiary leading-relaxed mb-4">
           API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs) require MusicKit
-          credentials. Configure them in Settings &gt; Cover Art.
+          credentials. Configure them in Settings &gt; Advanced &gt; API Credentials.
         </p>
 
         <Toggle
@@ -154,46 +135,10 @@ export function MetadataTab() {
           />
 
           {settings.acoustid_enabled && (
-            <Input
-              label={hasBuiltInKey ? 'AcoustID API Key (Optional Override)' : 'AcoustID API Key'}
-              description={
-                hasBuiltInKey ? (
-                  <>
-                    A built-in API key is included with this release. You can optionally override it
-                    with your own key registered at{' '}
-                    <button
-                      type="button"
-                      className="text-accent hover:text-accent-hover underline transition-colors"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openExternal('https://acoustid.org/new-application');
-                      }}
-                    >
-                      acoustid.org/new-application
-                    </button>
-                    . Leave blank to use the built-in key.
-                  </>
-                ) : (
-                  <>
-                    Register a free application API key at{' '}
-                    <button
-                      type="button"
-                      className="text-accent hover:text-accent-hover underline transition-colors"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openExternal('https://acoustid.org/new-application');
-                      }}
-                    >
-                      acoustid.org/new-application
-                    </button>
-                    . Required for AcoustID lookups.
-                  </>
-                )
-              }
-              value={settings.acoustid_api_key ?? ''}
-              placeholder={hasBuiltInKey ? 'Using built-in key' : 'Your AcoustID application API key'}
-              onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
-            />
+            <p className="text-xs text-content-tertiary">
+              Release builds include a built-in API key. To use your own key, configure it in
+              Settings &gt; Advanced &gt; API Credentials.
+            </p>
           )}
         </div>
       </div>

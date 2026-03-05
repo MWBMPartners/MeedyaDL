@@ -421,6 +421,40 @@ fn setup_queue_recovery(app: &tauri::App) {
     });
 }
 
+/// Emit a verbose summary of key settings at startup.
+///
+/// Dumps the most diagnostically useful settings to the activity log
+/// in verbose mode, so users can share their configuration when
+/// reporting bugs. Sensitive fields (credentials, paths) are redacted.
+fn emit_verbose_settings_summary(app: &tauri::AppHandle, s: &models::settings::AppSettings) {
+    use utils::activity_log::emit_verbose_app_log;
+
+    let chain: Vec<&str> = s.music_fallback_chain.iter().map(|c| c.to_cli_string()).collect();
+
+    emit_verbose_app_log(app, &format!("Output path: {}", s.output_path));
+    emit_verbose_app_log(app, &format!("Language: {}, UI language: {}", s.language, s.ui_language));
+    emit_verbose_app_log(app, &format!("Song codec: {}, Video: {}", s.default_song_codec.to_cli_string(), s.default_video_resolution.to_cli_string()));
+    let companion_str = serde_json::to_value(&s.companion_mode)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.companion_mode));
+    emit_verbose_app_log(app, &format!("Fallback enabled: {}, Companion mode: {companion_str}", s.fallback_enabled));
+    emit_verbose_app_log(app, &format!("Music fallback chain: [{}]", chain.join(", ")));
+    emit_verbose_app_log(app, &format!("Use wrapper: {}, Auto-retry without wrapper: {}", s.use_wrapper, s.auto_retry_without_wrapper));
+    emit_verbose_app_log(app, &format!("Enhanced LRC: {}, Lyrics fallback: {}, Rich SRT: {}", s.enhanced_lrc, s.lyrics_fallback_enabled, s.generate_rich_srt));
+    emit_verbose_app_log(app, &format!("WebVTT: {}, ASS: {}, Embed subtitles: {}", s.generate_webvtt, s.generate_ass, s.embed_subtitles));
+    emit_verbose_app_log(app, &format!("AcoustID: {}, ReplayGain: {}, MusicBrainz: {}", s.acoustid_enabled, s.replaygain_enabled, s.musicbrainz_lookup));
+    emit_verbose_app_log(app, &format!("Animated artwork: {}, Music video companion: {}", s.animated_artwork_enabled, s.music_video_companion));
+    emit_verbose_app_log(app, &format!("Content advisory in filenames: {}, Fetch extra tags: {}", s.content_advisory_in_filenames, s.fetch_extra_tags));
+    emit_verbose_app_log(app, &format!("Auto-start queue: {}, Overwrite: {}", s.auto_start_queue, s.overwrite));
+    emit_verbose_app_log(app, &format!("Sentry: {}, Verbose log: {}", s.sentry_enabled, s.verbose_activity_log));
+    emit_verbose_app_log(app, &format!(
+        "Cookies: {}, MusicKit configured: {}",
+        if s.cookies_path.is_some() { "configured" } else { "not set" },
+        s.musickit_team_id.is_some() && s.musickit_key_id.is_some(),
+    ));
+}
+
 /// Configures and launches the Tauri application.
 ///
 /// This function is the single entry point called from `main.rs`. It uses the
@@ -801,6 +835,13 @@ pub fn run() {
                         std::env::consts::ARCH,
                     ),
                 );
+
+                // In verbose mode, dump key settings at startup for diagnostics
+                if utils::activity_log::is_verbose_logging() {
+                    if let Ok(s) = services::config_service::load_settings(&startup_handle) {
+                        emit_verbose_settings_summary(&startup_handle, &s);
+                    }
+                }
             });
 
             Ok(())
