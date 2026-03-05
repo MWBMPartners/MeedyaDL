@@ -28,9 +28,15 @@ GAMDL 2.9.2 fixes artist download pagination. Bump MIN_COMPATIBLE_GAMDL
   - Update .deb dependency to accept libayatana-appindicator3-1 as
     alternative to deprecated libappindicator3-1
 
+- Update test_is_gamdl_compatible for new minimum version 2.9.2
+
+The test was asserting 2.8.4 and 2.0.0 as compatible, which no longer
+  holds after bumping MIN_COMPATIBLE_GAMDL to 2.9.2.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
