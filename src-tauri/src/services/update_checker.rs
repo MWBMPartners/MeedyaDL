@@ -129,8 +129,7 @@ pub struct UpdateCheckResult {
 /// Versions below this may have different CLI argument formats or missing features.
 /// When GAMDL makes a breaking CLI change, update this to exclude old versions.
 /// - 2.9.1: introduced `--song-codec-priority` (replaced `--song-codec`)
-/// - 2.9.2: fixed artist download pagination bug
-const MIN_COMPATIBLE_GAMDL: &str = "2.9.2";
+const MIN_COMPATIBLE_GAMDL: &str = "2.9.1";
 
 /// Maximum GAMDL version known to be compatible (inclusive).
 /// Set to a deliberately high value (99.99.99) to allow all future patch and
@@ -703,13 +702,14 @@ mod tests {
     #[test]
     fn test_is_gamdl_compatible() {
         // Within range: compatible
+        assert!(is_gamdl_compatible("2.9.1"));
         assert!(is_gamdl_compatible("2.9.2"));
         assert!(is_gamdl_compatible("2.10.0"));
         assert!(is_gamdl_compatible("3.0.0"));
         // At minimum boundary: compatible (inclusive)
-        assert!(is_gamdl_compatible("2.9.2"));
-        // Below minimum: incompatible (missing pagination fix, old CLI)
-        assert!(!is_gamdl_compatible("2.9.1"));
+        assert!(is_gamdl_compatible("2.9.1"));
+        // Below minimum: incompatible (old CLI format)
+        assert!(!is_gamdl_compatible("2.9.0"));
         assert!(!is_gamdl_compatible("2.8.4"));
         assert!(!is_gamdl_compatible("1.9.9"));
         // Unparseable string: incompatible (safe default)
