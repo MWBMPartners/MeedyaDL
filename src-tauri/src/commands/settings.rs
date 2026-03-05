@@ -49,7 +49,7 @@ use crate::models::settings::AppSettings;
 // config_service handles the actual file I/O: reading/writing settings.json
 // and syncing to GAMDL's config.ini file.
 use crate::services::config_service;
-use crate::utils::activity_log::emit_app_log;
+use crate::utils::activity_log::{emit_app_log, emit_verbose_app_log};
 
 /// Result of validating a Netscape-format cookies file.
 ///
@@ -133,12 +133,95 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 /// * `Err(String)` - File write or serialization error.
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    // Load previous settings for diff logging (best-effort — if this fails,
+    // we still save the new settings, just without the verbose diff).
+    let previous = config_service::load_settings(&app).ok();
+
     // save_settings() in config_service performs two writes:
     //   1. settings.json — full AppSettings struct as JSON
     //   2. config.ini — relevant fields translated to GAMDL's INI format
     config_service::save_settings(&app, &settings)?;
+
+    // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
+
+    // In verbose mode, emit a diff of what changed
+    if let Some(ref prev) = previous {
+        let changes = diff_settings(prev, &settings);
+        if changes.is_empty() {
+            emit_verbose_app_log(&app, "Settings saved (no changes detected)");
+        } else {
+            for change in &changes {
+                emit_verbose_app_log(&app, &format!("Setting changed: {change}"));
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Compare two `AppSettings` structs and return a list of human-readable change descriptions.
+///
+/// Serializes both to `serde_json::Value` maps and compares each top-level key.
+/// Sensitive fields (cookies_path, wrapper_account_url, musickit_*) are redacted.
+fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
+    let Ok(old_val) = serde_json::to_value(old) else {
+        return vec![];
+    };
+    let Ok(new_val) = serde_json::to_value(new) else {
+        return vec![];
+    };
+
+    let (Some(old_map), Some(new_map)) = (old_val.as_object(), new_val.as_object()) else {
+        return vec![];
+    };
+
+    // Fields whose values should be redacted in logs (contain sensitive data)
+    const REDACTED_FIELDS: &[&str] = &[
+        "cookies_path",
+        "wrapper_account_url",
+        "musickit_team_id",
+        "musickit_key_id",
+        "acoustid_api_key",
+    ];
+
+    let mut changes = Vec::new();
+    for (key, new_v) in new_map {
+        let old_v = old_map.get(key);
+        if old_v == Some(new_v) {
+            continue;
+        }
+        if REDACTED_FIELDS.contains(&key.as_str()) {
+            // Show that it changed but not the actual value
+            let status = if new_v.is_null() || (new_v.is_string() && new_v.as_str() == Some("")) {
+                "cleared"
+            } else {
+                "updated"
+            };
+            changes.push(format!("{key} → [{status}]"));
+        } else {
+            // Format the value compactly
+            let fmt = |v: &serde_json::Value| -> String {
+                match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Null => "null".to_string(),
+                    serde_json::Value::Array(a) => {
+                        let items: Vec<String> = a.iter().map(|i| {
+                            i.as_str().map_or_else(|| i.to_string(), str::to_string)
+                        }).collect();
+                        format!("[{}]", items.join(", "))
+                    }
+                    other => other.to_string(),
+                }
+            };
+            let old_str = old_v.map_or("(none)".to_string(), fmt);
+            let new_str = fmt(new_v);
+            changes.push(format!("{key}: {old_str} → {new_str}"));
+        }
+    }
+    changes
 }
 
 /// Checks whether a built-in AcoustID API key was embedded at compile time.

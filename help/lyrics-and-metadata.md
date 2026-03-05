@@ -257,7 +257,7 @@ The enrichment stages run in order:
 
 #### Apple Music API Tags (Always-On When MusicKit Configured)
 
-These tags are written automatically when MusicKit credentials are configured in **Settings > Cover Art**. No separate toggle is needed.
+These tags are written automatically when MusicKit credentials are configured in **Settings > Advanced > API Credentials**. No separate toggle is needed.
 
 | Tag (Namespace:Name) | Value | API Field |
 | -------------------- | ----- | --------- |
