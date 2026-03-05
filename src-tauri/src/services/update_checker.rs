@@ -703,10 +703,14 @@ mod tests {
     #[test]
     fn test_is_gamdl_compatible() {
         // Within range: compatible
-        assert!(is_gamdl_compatible("2.8.4"));
+        assert!(is_gamdl_compatible("2.9.2"));
+        assert!(is_gamdl_compatible("2.10.0"));
+        assert!(is_gamdl_compatible("3.0.0"));
         // At minimum boundary: compatible (inclusive)
-        assert!(is_gamdl_compatible("2.0.0"));
-        // Below minimum: incompatible (old CLI format)
+        assert!(is_gamdl_compatible("2.9.2"));
+        // Below minimum: incompatible (missing pagination fix, old CLI)
+        assert!(!is_gamdl_compatible("2.9.1"));
+        assert!(!is_gamdl_compatible("2.8.4"));
         assert!(!is_gamdl_compatible("1.9.9"));
         // Unparseable string: incompatible (safe default)
         assert!(!is_gamdl_compatible("invalid"));
