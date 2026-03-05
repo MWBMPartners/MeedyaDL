@@ -6,6 +6,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- WebKitGTK rendering corruption on Raspberry Pi and tray deprecation warning
+
+- Add setup_linux_rendering_env() that detects Raspberry Pi via
+    /proc/device-tree/model and sets WEBKIT_DISABLE_DMABUF_RENDERER=1 and
+    WEBKIT_DISABLE_COMPOSITING_MODE=1 before the WebView is created, forcing
+    software rendering to fix garbled UI over remote desktop (RPi Connect)
+  - Only applies on Raspberry Pi — desktop Linux retains GPU acceleration
+  - Respects user-set env vars (won't override if already defined)
+  - Update .deb dependency to accept libayatana-appindicator3-1 as
+    alternative to deprecated libappindicator3-1
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.6.9] - 2026-03-05
+
 ### ✨ Features
 
 - Verbose settings logging and move API credentials to Advanced tab
