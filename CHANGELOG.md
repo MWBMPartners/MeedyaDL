@@ -33,9 +33,11 @@ GAMDL 2.9.2 fixes artist download pagination. Bump MIN_COMPATIBLE_GAMDL
 The test was asserting 2.8.4 and 2.0.0 as compatible, which no longer
   holds after bumping MIN_COMPATIBLE_GAMDL to 2.9.2.
 
+- Set MIN_COMPATIBLE_GAMDL back to 2.9.1
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
