@@ -4,6 +4,26 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### ✨ Features
+
+- Verbose settings logging and move API credentials to Advanced tab
+
+- Verbose activity log now tracks which settings changed (key: old → new)
+    with sensitive fields redacted (cookies, wrapper URL, MusicKit, AcoustID)
+  - Verbose mode dumps key settings summary at startup for diagnostics
+  - Move MusicKit credentials (Team ID, Key ID, Private Key, Test button)
+    from Settings > Cover Art to Settings > Advanced > API Credentials
+  - Move AcoustID API Key from Settings > Metadata to Settings > Advanced
+    > API Credentials, with note linking from Metadata tab
+  - Update all help file references to point to new credential locations
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.6.8] - 2026-03-05
 
 ### ✨ Features
