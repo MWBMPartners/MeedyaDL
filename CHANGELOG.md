@@ -4,7 +4,7 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.6.8] - 2026-03-05
 
 ### ✨ Features
 
@@ -65,6 +65,7 @@ Fix double blank lines (MD012) and inconsistent indentation (MD007)
   repeated "Update CHANGELOG.md" entries in [0.6.6]. Add issue numbers
   to changelog entries.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.6.7] - 2026-03-04
 
