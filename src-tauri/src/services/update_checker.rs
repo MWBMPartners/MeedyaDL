@@ -128,8 +128,9 @@ pub struct UpdateCheckResult {
 /// Minimum GAMDL version known to be compatible with this app version.
 /// Versions below this may have different CLI argument formats or missing features.
 /// When GAMDL makes a breaking CLI change, update this to exclude old versions.
-/// For example, GAMDL 2.0.0 introduced the current CLI argument format.
-const MIN_COMPATIBLE_GAMDL: &str = "2.0.0";
+/// - 2.9.1: introduced `--song-codec-priority` (replaced `--song-codec`)
+/// - 2.9.2: fixed artist download pagination bug
+const MIN_COMPATIBLE_GAMDL: &str = "2.9.2";
 
 /// Maximum GAMDL version known to be compatible (inclusive).
 /// Set to a deliberately high value (99.99.99) to allow all future patch and
