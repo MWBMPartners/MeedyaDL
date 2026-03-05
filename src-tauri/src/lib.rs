@@ -485,6 +485,66 @@ fn emit_verbose_settings_summary(app: &tauri::AppHandle, s: &models::settings::A
 /// - `generate_context!`: <https://docs.rs/tauri/latest/tauri/macro.generate_context.html>
 /// - Plugin system: <https://v2.tauri.app/develop/plugins/>
 /// - Calling Rust from JS: <https://v2.tauri.app/develop/calling-rust/>
+
+// ---------------------------------------------------------------------------
+// Linux WebKitGTK rendering environment
+// ---------------------------------------------------------------------------
+
+/// Configures WebKitGTK environment variables on Linux to prevent rendering
+/// corruption on Raspberry Pi and remote desktop environments (VNC, Raspberry
+/// Pi Connect, etc.).
+///
+/// On Raspberry Pi specifically, GPU-accelerated compositing in WebKitGTK can
+/// produce garbled/corrupted output — especially when viewed over a remote
+/// desktop connection. Disabling the DMA-BUF renderer and GPU compositing
+/// forces software rendering, which resolves the visual artifacts.
+///
+/// The detection is conservative: env vars are only set when running on a
+/// Raspberry Pi (detected via `/proc/device-tree/model`). Users on capable
+/// desktop Linux systems retain GPU-accelerated rendering. Users can also
+/// override by setting the env vars themselves before launching the app (we
+/// only set them if they are not already defined).
+///
+/// See: <https://github.com/MWBMPartners/MeedyaDL/issues/150>
+#[cfg(target_os = "linux")]
+fn setup_linux_rendering_env() {
+    // Detect Raspberry Pi by reading the device-tree model string.
+    // This file exists on all Raspberry Pi boards running Linux and contains
+    // a human-readable model identifier (e.g., "Raspberry Pi 5 Model B").
+    let is_raspberry_pi = std::fs::read_to_string("/proc/device-tree/model")
+        .map(|model| model.to_lowercase().contains("raspberry"))
+        .unwrap_or(false);
+
+    if !is_raspberry_pi {
+        return;
+    }
+
+    log::info!("Raspberry Pi detected — configuring WebKitGTK for software rendering");
+
+    // WEBKIT_DISABLE_DMABUF_RENDERER: Disables the DMA-BUF renderer, which
+    // can cause visual corruption over remote desktop connections and on
+    // some ARM GPUs. Falls back to shared-memory rendering. Available in
+    // WebKitGTK 2.42+.
+    if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+        // SAFETY: Called before any threads are spawned (before tauri::Builder).
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1"); }
+        log::debug!("Set WEBKIT_DISABLE_DMABUF_RENDERER=1");
+    }
+
+    // WEBKIT_DISABLE_COMPOSITING_MODE: Disables GPU compositing entirely,
+    // forcing CPU-based rendering. Increases CPU usage but eliminates all
+    // GPU-related rendering artifacts on Raspberry Pi.
+    if std::env::var("WEBKIT_DISABLE_COMPOSITING_MODE").is_err() {
+        // SAFETY: Called before any threads are spawned (before tauri::Builder).
+        unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1"); }
+        log::debug!("Set WEBKIT_DISABLE_COMPOSITING_MODE=1");
+    }
+}
+
+/// No-op on non-Linux platforms.
+#[cfg(not(target_os = "linux"))]
+fn setup_linux_rendering_env() {}
+
 // Allow large_stack_frames: `tauri::generate_context!()` allocates ~740KB on the
 // stack at compile time. This is idiomatic Tauri code and cannot be avoided without
 // boxing the entire context, which Tauri's API does not support.
@@ -534,6 +594,11 @@ pub fn run() {
     // verbose output from all modules, or `RUST_LOG=meedyadl=debug` to
     // restrict output to this crate only.
     let _tracing_guard = setup_tracing(sentry_enabled);
+
+    // On Linux, configure WebKitGTK environment variables before the WebView
+    // is created. Fixes rendering corruption on Raspberry Pi and remote
+    // desktop environments (VNC, Raspberry Pi Connect). See #150.
+    setup_linux_rendering_env();
 
     // Build and run the Tauri application using the Builder pattern.
     // `Builder::default()` creates a new builder with sensible defaults.
