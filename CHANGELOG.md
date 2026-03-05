@@ -6,6 +6,15 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Bump minimum compatible GAMDL version to 2.9.2
+
+GAMDL 2.9.2 fixes artist download pagination. Bump MIN_COMPATIBLE_GAMDL
+  from 2.0.0 to 2.9.2 so the update checker prompts users on older versions
+  to upgrade.
+
+
 ### 🐛 Bug Fixes
 
 - WebKitGTK rendering corruption on Raspberry Pi and tray deprecation warning
@@ -22,6 +31,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.9] - 2026-03-05
