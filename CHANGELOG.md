@@ -34,9 +34,16 @@ The test was asserting 2.8.4 and 2.0.0 as compatible, which no longer
   holds after bumping MIN_COMPATIBLE_GAMDL to 2.9.2.
 
 - Set MIN_COMPATIBLE_GAMDL back to 2.9.1
+- Resolve clippy doc comment lints on Ubuntu CI
+
+Move run() doc comment directly above pub fn run() to fix
+  empty_line_after_doc_comments, and rewrap setup_linux_rendering_env
+  doc comment to fix doc_lazy_continuation.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
