@@ -455,44 +455,13 @@ fn emit_verbose_settings_summary(app: &tauri::AppHandle, s: &models::settings::A
     ));
 }
 
-/// Configures and launches the Tauri application.
-///
-/// This function is the single entry point called from `main.rs`. It uses the
-/// Tauri **Builder pattern** to declaratively compose the application from
-/// plugins, commands, state, and lifecycle hooks. The builder is consumed by
-/// `.run()` at the end, which starts the native event loop and never returns
-/// under normal operation.
-///
-/// # Execution flow
-/// 1. Install the panic handler and initialise `tracing` with dual-output
-///    logging (stderr + rotating file in `{app_data_dir}/logs/`). If Sentry
-///    is enabled in settings, the Sentry SDK is also initialised.
-/// 2. Create a `tauri::Builder` and chain configuration calls:
-///    - `.manage()` -- inject shared state accessible from any command handler.
-///    - `.plugin()` -- register Tauri plugins that bridge native OS APIs.
-///    - `.invoke_handler()` -- register `#[tauri::command]` functions for IPC.
-///    - `.setup()` -- run one-time initialisation after the webview is ready.
-/// 3. `.run(tauri::generate_context!())` starts the event loop. The macro
-///    reads `tauri.conf.json` at **compile time** to embed window config,
-///    bundle identifiers, and other metadata into the binary.
-///
-/// # Panics
-/// Panics with a descriptive message if the Tauri event loop fails to start
-/// (e.g., missing webview runtime, invalid configuration).
-///
-/// # Reference
-/// - Builder pattern: <https://docs.rs/tauri/latest/tauri/struct.Builder.html>
-/// - `generate_context!`: <https://docs.rs/tauri/latest/tauri/macro.generate_context.html>
-/// - Plugin system: <https://v2.tauri.app/develop/plugins/>
-/// - Calling Rust from JS: <https://v2.tauri.app/develop/calling-rust/>
-
 // ---------------------------------------------------------------------------
 // Linux WebKitGTK rendering environment
 // ---------------------------------------------------------------------------
 
 /// Configures WebKitGTK environment variables on Linux to prevent rendering
-/// corruption on Raspberry Pi and remote desktop environments (VNC, Raspberry
-/// Pi Connect, etc.).
+/// corruption on Raspberry Pi and remote desktop environments (VNC,
+/// Raspberry Pi Connect, etc.).
 ///
 /// On Raspberry Pi specifically, GPU-accelerated compositing in WebKitGTK can
 /// produce garbled/corrupted output — especially when viewed over a remote
@@ -545,6 +514,36 @@ fn setup_linux_rendering_env() {
 #[cfg(not(target_os = "linux"))]
 fn setup_linux_rendering_env() {}
 
+/// Configures and launches the Tauri application.
+///
+/// This function is the single entry point called from `main.rs`. It uses the
+/// Tauri **Builder pattern** to declaratively compose the application from
+/// plugins, commands, state, and lifecycle hooks. The builder is consumed by
+/// `.run()` at the end, which starts the native event loop and never returns
+/// under normal operation.
+///
+/// # Execution flow
+/// 1. Install the panic handler and initialise `tracing` with dual-output
+///    logging (stderr + rotating file in `{app_data_dir}/logs/`). If Sentry
+///    is enabled in settings, the Sentry SDK is also initialised.
+/// 2. Create a `tauri::Builder` and chain configuration calls:
+///    - `.manage()` -- inject shared state accessible from any command handler.
+///    - `.plugin()` -- register Tauri plugins that bridge native OS APIs.
+///    - `.invoke_handler()` -- register `#[tauri::command]` functions for IPC.
+///    - `.setup()` -- run one-time initialisation after the webview is ready.
+/// 3. `.run(tauri::generate_context!())` starts the event loop. The macro
+///    reads `tauri.conf.json` at **compile time** to embed window config,
+///    bundle identifiers, and other metadata into the binary.
+///
+/// # Panics
+/// Panics with a descriptive message if the Tauri event loop fails to start
+/// (e.g., missing webview runtime, invalid configuration).
+///
+/// # Reference
+/// - Builder pattern: <https://docs.rs/tauri/latest/tauri/struct.Builder.html>
+/// - `generate_context!`: <https://docs.rs/tauri/latest/tauri/macro.generate_context.html>
+/// - Plugin system: <https://v2.tauri.app/develop/plugins/>
+/// - Calling Rust from JS: <https://v2.tauri.app/develop/calling-rust/>
 // Allow large_stack_frames: `tauri::generate_context!()` allocates ~740KB on the
 // stack at compile time. This is idiomatic Tauri code and cannot be avoided without
 // boxing the entire context, which Tauri's API does not support.
