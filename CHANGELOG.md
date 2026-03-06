@@ -8,46 +8,30 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Change default remux mode to MP4Box for better subtitle handling and update app behavior on first launch
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update mirror repo reference to MeedyaDL/MeedyaDL-Tools
+
+Renamed mirror repository from MWBMPartners/meedyadl-tools to
+  MeedyaDL/MeedyaDL-Tools across code, config, and documentation.
+  Also fixed example asset extension (.zip → .tar.gz) in tool-versions.toml.
+
+
+## [0.6.10] - 2026-03-05
+
+### ✨ Features
+
 - Bump minimum compatible GAMDL version to 2.9.2
 
 GAMDL 2.9.2 fixes artist download pagination. Bump MIN_COMPATIBLE_GAMDL
   from 2.0.0 to 2.9.2 so the update checker prompts users on older versions
   to upgrade.
 
-- Change default video remux mode from FFmpeg to MP4Box
-
-  FFmpeg can fail with "Invalid data found when processing input" when
-  remuxing music videos with embedded subtitle/CC tracks. MP4Box handles
-  these containers correctly. Existing users keep their saved preference;
-  only new installs default to MP4Box. Setting remains configurable in
-  Settings > Advanced > Processing.
-
-- Check for app updates before showing setup wizard on first launch
-
-  On first launch, the app now checks for updates before deciding whether
-  to show the setup wizard. If an app update is available, the wizard is
-  skipped so the user sees the update banner and can update first. After
-  updating and restarting, the setup wizard runs on the new version. The
-  check is unconditional (ignores the auto_check_updates setting) since
-  first-launch users haven't configured anything yet.
-
-- Create meedyadl-tools mirror repository for tool binary fallbacks
-
-  Created MeedyaDL/MeedyaDL-Tools GitHub repo with a `latest` release
-  tag for hosting pre-built tool binaries. Initial asset: ARM64 Linux
-  MP4Box binary. This enables the mirror fallback path in the dependency
-  manager when primary upstream sources fail.
-
 
 ### 🐛 Bug Fixes
-
-- MP4Box installation fails on ARM Linux (Raspberry Pi)
-
-  GPAC only publishes x86_64 .deb packages on their nightly build server.
-  On ARM architectures (aarch64, armv7), the installer now uses
-  `sudo apt-get install gpac` via the system package manager instead,
-  since GPAC is available in Debian/Raspberry Pi OS/Ubuntu ARM repos.
-  The mirror fallback remains as a secondary path.
 
 - WebKitGTK rendering corruption on Raspberry Pi and tray deprecation warning
 
