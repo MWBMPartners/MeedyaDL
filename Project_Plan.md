@@ -289,7 +289,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Pre-release flag for all releases** (v0.6.4) - All GitHub Releases marked as pre-release until v1.0. Release download table includes direct download links, platform emojis, and Raspberry Pi GDebi installation note.
 - ✅ **Release title format** (v0.6.4) - GitHub Release titles use just the version tag (e.g., `v0.6.4`) without app name prefix for cleaner release listing
 - ✅ **Rosetta 2 detection on Apple Silicon** - Checks if Rosetta 2 is installed before downloading x86_64 binaries (FFmpeg, MP4Box .pkg); refuses with Homebrew guidance if unavailable
-- ✅ **Fallback mirror for tool downloads** - When primary upstream sources fail, falls back to `MWBMPartners/meedyadl-tools` GitHub Releases with standardized asset naming (`{tool_id}-{os}-{arch}.{ext}`)
+- ✅ **Fallback mirror for tool downloads** - When primary upstream sources fail, falls back to `MeedyaDL/MeedyaDL-Tools` GitHub Releases with standardized asset naming (`{tool_id}-{os}-{arch}.{ext}`)
 - ✅ **Generic GitHub API resolver** - Reusable `resolve_github_release_asset()` for upstream release queries and mirror fallback (refactored from N_m3u8DL-RE inline code)
 - ✅ **Three-tier download fallback** - System PATH → Primary upstream → Mirror repository → Error with guidance
 - ✅ **Auto-start queue setting** - `auto_start_queue` toggle in Settings > General (default: on). When disabled, items queue up and the user clicks "Start Queue" in the Queue page to begin processing. New `process_queue_manual` Tauri command for manual triggering.
