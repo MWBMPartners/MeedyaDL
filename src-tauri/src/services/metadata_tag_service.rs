@@ -346,22 +346,22 @@ pub async fn apply_enriched_metadata_tags(
     // Apply content advisory suffixes ([Explicit] / [Clean]) to filenames
     // and album folder before tag writing. Must happen AFTER metadata fetch
     // (we need content_rating) and BEFORE enrichment (paths must be stable).
-    let (_effective_output_path, files_to_enrich, renamed_output) =
-        if content_advisory_in_filenames {
-            if let Some(ref metadata) = album_metadata {
-                let (new_path, new_files) = apply_advisory_suffixes(output_path, metadata);
-                let changed = if new_path != output_path {
-                    Some(new_path.clone())
-                } else {
-                    None
-                };
-                (new_path, new_files, changed)
+    let (_effective_output_path, files_to_enrich, renamed_output) = if content_advisory_in_filenames
+    {
+        if let Some(ref metadata) = album_metadata {
+            let (new_path, new_files) = apply_advisory_suffixes(output_path, metadata);
+            let changed = if new_path != output_path {
+                Some(new_path.clone())
             } else {
-                (output_path.to_string(), m4a_files, None)
-            }
+                None
+            };
+            (new_path, new_files, changed)
         } else {
             (output_path.to_string(), m4a_files, None)
-        };
+        }
+    } else {
+        (output_path.to_string(), m4a_files, None)
+    };
 
     // Process each M4A file with all enrichment layers
     let mut tagged_count = 0;
@@ -441,7 +441,9 @@ async fn enrich_single_file(
                     &format!(
                         "Codec detection: ffprobe={}{}, requested={}, resolved={} [{}]",
                         info.codec_name,
-                        info.profile.as_deref().map_or(String::new(), |p| format!("/{p}")),
+                        info.profile
+                            .as_deref()
+                            .map_or(String::new(), |p| format!("/{p}")),
                         requested_codec.to_cli_string(),
                         resolved.to_cli_string(),
                         filename,
@@ -532,8 +534,7 @@ async fn enrich_single_file(
             // Match this file to a track by track/disc number
             let track_num = tag.track_number();
             let disc_num = tag.disc_number().unwrap_or(1);
-            let matched_track =
-                match_track_to_metadata(track_num, disc_num, &metadata.tracks);
+            let matched_track = match_track_to_metadata(track_num, disc_num, &metadata.tracks);
 
             write_tags_from_registry(
                 &mut tag,
@@ -1133,10 +1134,7 @@ fn rename_track_with_advisory(
     };
 
     // Check if the file stem already contains this suffix (idempotency)
-    let stem = file_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     if stem.contains(suffix) {
         return file_path.to_path_buf();
     }
@@ -1212,10 +1210,7 @@ fn rename_folder_with_advisory(
     };
 
     // Check if folder name already contains the suffix (idempotency)
-    let folder_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let folder_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     if folder_name.contains(suffix) {
         return output_path.to_string();
     }
@@ -1356,10 +1351,7 @@ async fn detect_audio_info(ffprobe_path: &Path, file_path: &Path) -> Option<Ffpr
     let stream = json.get("streams")?.as_array()?.first()?;
 
     let channels = stream.get("channels")?.as_u64()?;
-    let codec_name = stream
-        .get("codec_name")?
-        .as_str()?
-        .to_string();
+    let codec_name = stream.get("codec_name")?.as_str()?.to_string();
     let profile = stream
         .get("profile")
         .and_then(|v| v.as_str())
@@ -1476,39 +1468,22 @@ async fn try_fetch_metadata(
     // Load settings for MusicKit credentials
     let settings = config_service::load_settings(app).unwrap_or_default();
 
-    let team_id = match settings.musickit_team_id.as_ref().filter(|s| !s.is_empty()) {
-        Some(id) => id,
-        None => {
-            log_event("Apple Music API: MusicKit Team ID not configured, skipping API metadata");
-            return None;
-        }
-    };
-    let key_id = match settings.musickit_key_id.as_ref().filter(|s| !s.is_empty()) {
-        Some(id) => id,
-        None => {
-            log_event("Apple Music API: MusicKit Key ID not configured, skipping API metadata");
-            return None;
-        }
-    };
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
 
-    // Private key is stored in the OS keychain (sensitive credential)
+    // Private key is stored in the OS keychain (sensitive credential).
+    // Missing keychain credentials may still be okay when a build-time
+    // embedded token is available.
     let private_key = match apple_music_api::get_private_key_from_keychain() {
-        Ok(Some(key)) => key,
-        Ok(None) => {
-            log::debug!("MusicKit private key not in keychain, skipping API enrichment");
-            log_event("Apple Music API: MusicKit private key not found in OS keychain");
-            return None;
-        }
+        Ok(Some(key)) => Some(key),
+        Ok(None) => None,
         Err(e) => {
             log::warn!("Failed to read MusicKit private key: {e}");
-            log_event(&format!(
-                "Apple Music API: failed to read private key from keychain: {e}"
-            ));
-            return None;
+            None
         }
     };
 
-    log_event("Apple Music API: MusicKit credentials found, generating JWT token...");
+    log_event("Apple Music API: resolving MusicKit developer token...");
 
     // Parse URL to find an album URL (API enrichment only works for albums)
     let parsed = match urls
@@ -1523,15 +1498,32 @@ async fn try_fetch_metadata(
         }
     };
 
-    let jwt = match apple_music_api::generate_musickit_jwt(team_id, key_id, &private_key) {
+    let jwt = match apple_music_api::resolve_musickit_developer_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    ) {
         Ok(jwt) => {
-            log_event("Apple Music API: JWT generated, fetching album metadata...");
-            // Verbose: show JWT claim details for debugging authentication issues
+            let Some(jwt) = jwt else {
+                log_event(
+                    "Apple Music API: no MusicKit credentials or embedded token configured, skipping API metadata",
+                );
+                return None;
+            };
+            log_event("Apple Music API: token ready, fetching album metadata...");
+            // Verbose: show token source details for debugging auth issues.
             if let Some((app_handle, dl_id)) = event_context {
                 crate::utils::activity_log::emit_verbose_download_log(
                     app_handle,
                     dl_id,
-                    &format!("JWT claims: iss={team_id}, kid={key_id}, exp=3600s"),
+                    &format!(
+                        "MusicKit token source: {}",
+                        if team_id.is_some() && key_id.is_some() && private_key.is_some() {
+                            "user credentials"
+                        } else {
+                            "embedded build token"
+                        }
+                    ),
                 );
             }
             jwt
@@ -1543,7 +1535,13 @@ async fn try_fetch_metadata(
         }
     };
 
-    match apple_music_api::fetch_album_metadata_with_fallback(&jwt, &parsed.storefront, &parsed.album_id).await {
+    match apple_music_api::fetch_album_metadata_with_fallback(
+        &jwt,
+        &parsed.storefront,
+        &parsed.album_id,
+    )
+    .await
+    {
         Ok(Some(metadata)) => {
             log_event(&format!(
                 "Apple Music API: fetched metadata ({} track(s), artist: {}, UPC: {})",

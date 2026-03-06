@@ -360,7 +360,10 @@ pub fn from_service_codec(
 /// Returns only codecs that have a mapping for the specified service engine.
 /// Useful for building service-specific UI dropdowns and fallback chains.
 #[must_use]
-pub fn codecs_for_service<'a>(registry: &'a CodecRegistry, service: &str) -> Vec<&'a AudioCodecEntry> {
+pub fn codecs_for_service<'a>(
+    registry: &'a CodecRegistry,
+    service: &str,
+) -> Vec<&'a AudioCodecEntry> {
     registry
         .audio
         .iter()
@@ -465,7 +468,11 @@ mod tests {
     #[test]
     fn audio_codec_has_expected_fields() {
         let registry = load_registry();
-        let atmos = registry.audio.iter().find(|c| c.id == "eac3-atmos").unwrap();
+        let atmos = registry
+            .audio
+            .iter()
+            .find(|c| c.id == "eac3-atmos")
+            .unwrap();
         assert_eq!(atmos.name, "Dolby Atmos (E-AC-3)");
         assert_eq!(atmos.category, "spatial");
         assert!(!atmos.lossless);

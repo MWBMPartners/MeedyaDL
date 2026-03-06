@@ -160,8 +160,7 @@ fn clear_old_logs(app_data_dir: &std::path::Path) {
     let Ok(entries) = std::fs::read_dir(&log_dir) else {
         return;
     };
-    let cutoff = std::time::SystemTime::now()
-        - std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(7 * 24 * 60 * 60);
     let mut removed = 0u32;
     for entry in entries.flatten() {
         let Ok(metadata) = entry.metadata() else {
@@ -439,30 +438,108 @@ fn setup_queue_recovery(app: &tauri::App) {
 fn emit_verbose_settings_summary(app: &tauri::AppHandle, s: &models::settings::AppSettings) {
     use utils::activity_log::emit_verbose_app_log;
 
-    let chain: Vec<&str> = s.music_fallback_chain.iter().map(|c| c.to_cli_string()).collect();
+    let chain: Vec<&str> = s
+        .music_fallback_chain
+        .iter()
+        .map(|c| c.to_cli_string())
+        .collect();
 
     emit_verbose_app_log(app, &format!("Output path: {}", s.output_path));
-    emit_verbose_app_log(app, &format!("Language: {}, UI language: {}", s.language, s.ui_language));
-    emit_verbose_app_log(app, &format!("Song codec: {}, Video: {}", s.default_song_codec.to_cli_string(), s.default_video_resolution.to_cli_string()));
+    emit_verbose_app_log(
+        app,
+        &format!("Language: {}, UI language: {}", s.language, s.ui_language),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Song codec: {}, Video: {}",
+            s.default_song_codec.to_cli_string(),
+            s.default_video_resolution.to_cli_string()
+        ),
+    );
     let companion_str = serde_json::to_value(&s.companion_mode)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_else(|| format!("{:?}", s.companion_mode));
-    emit_verbose_app_log(app, &format!("Fallback enabled: {}, Companion mode: {companion_str}", s.fallback_enabled));
-    emit_verbose_app_log(app, &format!("Music fallback chain: [{}]", chain.join(", ")));
-    emit_verbose_app_log(app, &format!("Use wrapper: {}, Auto-retry without wrapper: {}", s.use_wrapper, s.auto_retry_without_wrapper));
-    emit_verbose_app_log(app, &format!("Enhanced LRC: {}, Lyrics fallback: {}, Rich SRT: {}", s.enhanced_lrc, s.lyrics_fallback_enabled, s.generate_rich_srt));
-    emit_verbose_app_log(app, &format!("WebVTT: {}, ASS: {}, Embed subtitles: {}", s.generate_webvtt, s.generate_ass, s.embed_subtitles));
-    emit_verbose_app_log(app, &format!("AcoustID: {}, ReplayGain: {}, MusicBrainz: {}", s.acoustid_enabled, s.replaygain_enabled, s.musicbrainz_lookup));
-    emit_verbose_app_log(app, &format!("Animated artwork: {}, Music video companion: {}", s.animated_artwork_enabled, s.music_video_companion));
-    emit_verbose_app_log(app, &format!("Content advisory in filenames: {}, Fetch extra tags: {}", s.content_advisory_in_filenames, s.fetch_extra_tags));
-    emit_verbose_app_log(app, &format!("Auto-start queue: {}, Overwrite: {}", s.auto_start_queue, s.overwrite));
-    emit_verbose_app_log(app, &format!("Sentry: {}, Verbose log: {}", s.sentry_enabled, s.verbose_activity_log));
-    emit_verbose_app_log(app, &format!(
-        "Cookies: {}, MusicKit configured: {}",
-        if s.cookies_path.is_some() { "configured" } else { "not set" },
-        s.musickit_team_id.is_some() && s.musickit_key_id.is_some(),
-    ));
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Fallback enabled: {}, Companion mode: {companion_str}",
+            s.fallback_enabled
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!("Music fallback chain: [{}]", chain.join(", ")),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Use wrapper: {}, Auto-retry without wrapper: {}",
+            s.use_wrapper, s.auto_retry_without_wrapper
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Enhanced LRC: {}, Lyrics fallback: {}, Rich SRT: {}",
+            s.enhanced_lrc, s.lyrics_fallback_enabled, s.generate_rich_srt
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "WebVTT: {}, ASS: {}, Embed subtitles: {}",
+            s.generate_webvtt, s.generate_ass, s.embed_subtitles
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "AcoustID: {}, ReplayGain: {}, MusicBrainz: {}",
+            s.acoustid_enabled, s.replaygain_enabled, s.musicbrainz_lookup
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Animated artwork: {}, Music video companion: {}",
+            s.animated_artwork_enabled, s.music_video_companion
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Content advisory in filenames: {}, Fetch extra tags: {}",
+            s.content_advisory_in_filenames, s.fetch_extra_tags
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Auto-start queue: {}, Overwrite: {}",
+            s.auto_start_queue, s.overwrite
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Sentry: {}, Verbose log: {}",
+            s.sentry_enabled, s.verbose_activity_log
+        ),
+    );
+    emit_verbose_app_log(
+        app,
+        &format!(
+            "Cookies: {}, MusicKit configured: {}",
+            if s.cookies_path.is_some() {
+                "configured"
+            } else {
+                "not set"
+            },
+            s.musickit_team_id.is_some() && s.musickit_key_id.is_some(),
+        ),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -506,7 +583,9 @@ fn setup_linux_rendering_env() {
     // WebKitGTK 2.42+.
     if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
         // SAFETY: Called before any threads are spawned (before tauri::Builder).
-        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1"); }
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
         log::debug!("Set WEBKIT_DISABLE_DMABUF_RENDERER=1");
     }
 
@@ -515,7 +594,9 @@ fn setup_linux_rendering_env() {
     // GPU-related rendering artifacts on Raspberry Pi.
     if std::env::var("WEBKIT_DISABLE_COMPOSITING_MODE").is_err() {
         // SAFETY: Called before any threads are spawned (before tauri::Builder).
-        unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1"); }
+        unsafe {
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        }
         log::debug!("Set WEBKIT_DISABLE_COMPOSITING_MODE=1");
     }
 }
@@ -741,6 +822,7 @@ pub fn run() {
             commands::credentials::get_credential,
             commands::credentials::delete_credential,
             commands::credentials::validate_musickit_credentials,
+            commands::credentials::has_embedded_musickit_token,
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,
@@ -767,72 +849,67 @@ pub fn run() {
             commands::api_audit::audit_api_fields,
         ]);
 
-        // ---------------------------------------------------------------
-        // macOS Application Menu
-        // ---------------------------------------------------------------
-        // On macOS, override the default app menu so the "About MeedyaDL"
-        // item navigates to the in-app Help > About page instead of
-        // showing the generic macOS About dialog. Other standard menu
-        // items (Edit, Window, etc.) are preserved.
-        //
-        // On Linux and Windows, no application menu is added — the app
-        // uses a custom titlebar/sidebar and the in-window menu bar is
-        // unwanted.
-        //
-        // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
-        #[cfg(target_os = "macos")]
-        let builder = builder
-            .menu(|app| {
-                use tauri::menu::{
-                    MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
-                };
+    // ---------------------------------------------------------------
+    // macOS Application Menu
+    // ---------------------------------------------------------------
+    // On macOS, override the default app menu so the "About MeedyaDL"
+    // item navigates to the in-app Help > About page instead of
+    // showing the generic macOS About dialog. Other standard menu
+    // items (Edit, Window, etc.) are preserved.
+    //
+    // On Linux and Windows, no application menu is added — the app
+    // uses a custom titlebar/sidebar and the in-window menu bar is
+    // unwanted.
+    //
+    // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(|app| {
+            use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 
-                let app_submenu = SubmenuBuilder::new(app, "MeedyaDL")
-                    .item(
-                        &MenuItemBuilder::with_id("about_meedyadl", "About MeedyaDL")
-                            .build(app)?,
-                    )
-                    .separator()
-                    .item(&PredefinedMenuItem::services(app, None)?)
-                    .separator()
-                    .hide()
-                    .hide_others()
-                    .show_all()
-                    .separator()
-                    .quit()
-                    .build()?;
+            let app_submenu = SubmenuBuilder::new(app, "MeedyaDL")
+                .item(&MenuItemBuilder::with_id("about_meedyadl", "About MeedyaDL").build(app)?)
+                .separator()
+                .item(&PredefinedMenuItem::services(app, None)?)
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
 
-                let edit_submenu = SubmenuBuilder::new(app, "Edit")
-                    .undo()
-                    .redo()
-                    .separator()
-                    .cut()
-                    .copy()
-                    .paste()
-                    .select_all()
-                    .build()?;
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
 
-                let window_submenu = SubmenuBuilder::new(app, "Window")
-                    .minimize()
-                    .item(&PredefinedMenuItem::maximize(app, None)?)
-                    .separator()
-                    .close_window()
-                    .build()?;
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .item(&PredefinedMenuItem::maximize(app, None)?)
+                .separator()
+                .close_window()
+                .build()?;
 
-                MenuBuilder::new(app)
-                    .item(&app_submenu)
-                    .item(&edit_submenu)
-                    .item(&window_submenu)
-                    .build()
-            })
-            .on_menu_event(|app, event| {
-                if event.id().as_ref() == "about_meedyadl" {
-                    use tauri::Emitter;
-                    let _ = app.emit("navigate-help-about", ());
-                }
-            });
+            MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&window_submenu)
+                .build()
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "about_meedyadl" {
+                use tauri::Emitter;
+                let _ = app.emit("navigate-help-about", ());
+            }
+        });
 
-        builder
+    builder
         // ---------------------------------------------------------------
         // Graceful Shutdown -- window event handler
         // ---------------------------------------------------------------
@@ -846,7 +923,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
-                let shutdown = window.app_handle().state::<services::download_queue::ShutdownSignal>();
+                let shutdown = window
+                    .app_handle()
+                    .state::<services::download_queue::ShutdownSignal>();
                 shutdown.trigger();
                 log::info!("Window destroyed — shutdown signal sent to background tasks");
             }

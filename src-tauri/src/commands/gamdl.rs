@@ -185,7 +185,10 @@ pub async fn start_download(
                 overrides.artist_auto_select = Some(mode.clone());
 
                 let download_id = q.enqueue(split_request, &settings);
-                log::info!("Download {download_id} queued (artist mode: {})", mode.to_cli_string());
+                log::info!(
+                    "Download {download_id} queued (artist mode: {})",
+                    mode.to_cli_string()
+                );
                 if i == 0 {
                     first_id = download_id;
                 }
@@ -703,11 +706,7 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     // Import items into the queue. The lock is acquired inline and
     // released immediately after import_items() returns, avoiding
     // unnecessary resource contention (clippy::significant_drop_tightening).
-    let count = queue
-        .lock()
-        .await
-        .import_items(items, &settings)
-        .len();
+    let count = queue.lock().await.import_items(items, &settings).len();
 
     // Persist the updated queue
     let queue_handle = queue.inner().clone();

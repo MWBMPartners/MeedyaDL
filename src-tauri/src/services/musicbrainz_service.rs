@@ -113,9 +113,7 @@ pub struct MusicVideoUrl {
 /// # Returns
 /// The first matching recording with its relationships, or `None` if
 /// no recording matches the ISRC.
-pub async fn lookup_recording_by_isrc(
-    isrc: &str,
-) -> Result<Option<MusicBrainzRecording>, String> {
+pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRecording>, String> {
     if isrc.is_empty() {
         return Ok(None);
     }
@@ -123,9 +121,7 @@ pub async fn lookup_recording_by_isrc(
     // Build the MusicBrainz API query URL.
     // The `isrc` query searches for recordings with a specific ISRC code.
     // `inc=url-rels` includes URL relationships (streaming links, video links).
-    let url = format!(
-        "{MB_API_BASE}/recording?query=isrc:{isrc}&fmt=json&limit=1"
-    );
+    let url = format!("{MB_API_BASE}/recording?query=isrc:{isrc}&fmt=json&limit=1");
 
     log::debug!("MusicBrainz: looking up ISRC {isrc}");
 
@@ -146,7 +142,9 @@ pub async fn lookup_recording_by_isrc(
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        return Err(format!("MusicBrainz API returned HTTP {status} for ISRC {isrc}"));
+        return Err(format!(
+            "MusicBrainz API returned HTTP {status} for ISRC {isrc}"
+        ));
     }
 
     let json: serde_json::Value = response
@@ -196,9 +194,8 @@ pub async fn lookup_recording_by_isrc(
     // Now fetch the full recording with URL relationships
     // The search endpoint doesn't include relationships, so we need a
     // separate lookup by recording ID with inc=url-rels
-    let detail_url = format!(
-        "{MB_API_BASE}/recording/{recording_id}?inc=url-rels+recording-rels&fmt=json"
-    );
+    let detail_url =
+        format!("{MB_API_BASE}/recording/{recording_id}?inc=url-rels+recording-rels&fmt=json");
 
     // Rate limit: wait before the detail request
     tokio::time::sleep(RATE_LIMIT_DELAY).await;
@@ -363,9 +360,7 @@ pub async fn lookup_videos_for_tracks_enhanced(
                         found = true;
                     }
                     Ok(None) => {
-                        log::debug!(
-                            "MusicBrainz: Tier 2 — no match for ISRC {isrc}"
-                        );
+                        log::debug!("MusicBrainz: Tier 2 — no match for ISRC {isrc}");
                     }
                     Err(e) => {
                         log::debug!("MusicBrainz: Tier 2 — ISRC lookup failed: {e}");
@@ -396,9 +391,7 @@ pub async fn lookup_videos_for_tracks_enhanced(
                         }
                     }
                     Ok(None) => {
-                        log::debug!(
-                            "MusicBrainz: Tier 3 — no match for recording ID {mb_id}"
-                        );
+                        log::debug!("MusicBrainz: Tier 3 — no match for recording ID {mb_id}");
                     }
                     Err(e) => {
                         log::debug!("MusicBrainz: Tier 3 — ID lookup failed: {e}");
@@ -432,9 +425,7 @@ pub async fn lookup_recording_by_url(
 
     // URL-encode the search URL for the MusicBrainz query
     let encoded_url = external_url.replace(':', "%3A").replace('/', "%2F");
-    let url = format!(
-        "{MB_API_BASE}/recording?query=url:%22{encoded_url}%22&fmt=json&limit=1"
-    );
+    let url = format!("{MB_API_BASE}/recording?query=url:%22{encoded_url}%22&fmt=json&limit=1");
 
     log::debug!("MusicBrainz: searching for recording by URL");
 
@@ -452,7 +443,10 @@ pub async fn lookup_recording_by_url(
         .map_err(|e| format!("MusicBrainz URL search failed: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("MusicBrainz API returned HTTP {}", response.status().as_u16()));
+        return Err(format!(
+            "MusicBrainz API returned HTTP {}",
+            response.status().as_u16()
+        ));
     }
 
     let json: serde_json::Value = response
@@ -558,7 +552,9 @@ pub async fn lookup_recording_by_id(
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
-        return Err(format!("MusicBrainz API returned HTTP {status} for recording {recording_id}"));
+        return Err(format!(
+            "MusicBrainz API returned HTTP {status} for recording {recording_id}"
+        ));
     }
 
     let json: serde_json::Value = response
@@ -652,10 +648,7 @@ fn parse_recording_relations(
 
     if let Some(relations) = json.get("relations").and_then(|r| r.as_array()) {
         for rel in relations {
-            let rel_type = rel
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let rel_type = rel.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
             let target_type = rel
                 .get("target-type")
@@ -673,8 +666,7 @@ fn parse_recording_relations(
                     if let Some((platform, clean_url)) = classify_url(resource_url) {
                         external_urls.insert(platform.to_string(), clean_url.to_string());
 
-                        if resource_url.contains("music-video")
-                            || resource_url.contains("/video/")
+                        if resource_url.contains("music-video") || resource_url.contains("/video/")
                         {
                             video_urls.push(MusicVideoUrl {
                                 platform: platform.to_string(),
@@ -693,10 +685,7 @@ fn parse_recording_relations(
                         .get("title")
                         .and_then(|v| v.as_str())
                         .map(String::from);
-                    let _video_id = target_rec
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let _video_id = target_rec.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
                     if let Some(ref vt) = video_title {
                         log::debug!("MusicBrainz: found linked video recording — {vt}");
@@ -752,13 +741,22 @@ mod tests {
     #[test]
     fn classify_apple_music_url() {
         let result = classify_url("https://music.apple.com/gb/music-video/291812351");
-        assert_eq!(result, Some(("apple_music", "https://music.apple.com/gb/music-video/291812351")));
+        assert_eq!(
+            result,
+            Some((
+                "apple_music",
+                "https://music.apple.com/gb/music-video/291812351"
+            ))
+        );
     }
 
     #[test]
     fn classify_youtube_url() {
         let result = classify_url("https://www.youtube.com/watch?v=Eo-KmOd3i7s");
-        assert_eq!(result, Some(("youtube", "https://www.youtube.com/watch?v=Eo-KmOd3i7s")));
+        assert_eq!(
+            result,
+            Some(("youtube", "https://www.youtube.com/watch?v=Eo-KmOd3i7s"))
+        );
     }
 
     #[test]
@@ -770,19 +768,28 @@ mod tests {
     #[test]
     fn classify_spotify_url() {
         let result = classify_url("https://open.spotify.com/track/abc123");
-        assert_eq!(result, Some(("spotify", "https://open.spotify.com/track/abc123")));
+        assert_eq!(
+            result,
+            Some(("spotify", "https://open.spotify.com/track/abc123"))
+        );
     }
 
     #[test]
     fn classify_deezer_url() {
         let result = classify_url("https://www.deezer.com/track/12345");
-        assert_eq!(result, Some(("deezer", "https://www.deezer.com/track/12345")));
+        assert_eq!(
+            result,
+            Some(("deezer", "https://www.deezer.com/track/12345"))
+        );
     }
 
     #[test]
     fn classify_tidal_url() {
         let result = classify_url("https://tidal.com/browse/track/12345");
-        assert_eq!(result, Some(("tidal", "https://tidal.com/browse/track/12345")));
+        assert_eq!(
+            result,
+            Some(("tidal", "https://tidal.com/browse/track/12345"))
+        );
     }
 
     #[test]
@@ -827,9 +834,15 @@ mod tests {
     #[test]
     fn recording_with_multiple_platforms() {
         let mut urls = HashMap::new();
-        urls.insert("apple_music".to_string(), "https://music.apple.com/...".to_string());
+        urls.insert(
+            "apple_music".to_string(),
+            "https://music.apple.com/...".to_string(),
+        );
         urls.insert("youtube".to_string(), "https://youtube.com/...".to_string());
-        urls.insert("spotify".to_string(), "https://open.spotify.com/...".to_string());
+        urls.insert(
+            "spotify".to_string(),
+            "https://open.spotify.com/...".to_string(),
+        );
 
         let rec = MusicBrainzRecording {
             recording_id: "test-id".to_string(),
@@ -850,10 +863,8 @@ mod tests {
 
     #[test]
     fn rewrite_storefront_de_to_gb() {
-        let result = rewrite_apple_music_storefront(
-            "https://music.apple.com/de/album/test/550152190",
-            "gb",
-        );
+        let result =
+            rewrite_apple_music_storefront("https://music.apple.com/de/album/test/550152190", "gb");
         assert_eq!(result, "https://music.apple.com/gb/album/test/550152190");
     }
 
@@ -863,7 +874,10 @@ mod tests {
             "https://music.apple.com/us/music-video/test/291812351",
             "gb",
         );
-        assert_eq!(result, "https://music.apple.com/gb/music-video/test/291812351");
+        assert_eq!(
+            result,
+            "https://music.apple.com/gb/music-video/test/291812351"
+        );
     }
 
     #[test]

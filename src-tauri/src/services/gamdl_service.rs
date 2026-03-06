@@ -194,7 +194,9 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
             .output(),
     )
     .await
-    .map_err(|_| "pip show gamdl timed out (10s) — Python environment may be unresponsive".to_string())?
+    .map_err(|_| {
+        "pip show gamdl timed out (10s) — Python environment may be unresponsive".to_string()
+    })?
     .map_err(|e| format!("Failed to run pip show: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -420,7 +422,9 @@ fn build_gamdl_command(
     // While .arg() is shell-injection-safe, GAMDL itself could misparse inputs.
     for url in urls {
         if !url.starts_with("https://") && !url.starts_with("http://") {
-            return Err(format!("Invalid URL (must start with http:// or https://): {url}"));
+            return Err(format!(
+                "Invalid URL (must start with http:// or https://): {url}"
+            ));
         }
         cmd.arg(url);
     }

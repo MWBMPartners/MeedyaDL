@@ -160,6 +160,12 @@ These are only used by the macOS build. If missing, the macOS build will fail at
 |--------|-------------|
 | `ACOUSTID_API_KEY` | Application API key from [acoustid.org/new-application](https://acoustid.org/new-application). Embedded at compile time via `option_env!("ACOUSTID_API_KEY")` so release builds ship with a pre-configured key for audio fingerprinting. If not set, users must provide their own key in Settings > Metadata. |
 
+### MusicKit (Optional, End-User Enablement)
+
+| Secret | Description |
+|--------|-------------|
+| `MUSICKIT_DEVELOPER_TOKEN` | Apple Music developer token embedded at compile time via `option_env!("MUSICKIT_DEVELOPER_TOKEN")`. Enables MusicKit-powered metadata/artwork features for end users who do not have Apple Developer credentials. Prefer embedding a pre-generated developer token, not Team ID/Key ID/private key. Rotate before expiry and treat as sensitive (extractable from binaries). |
+
 ### Release Please
 
 | Secret | Description |
@@ -169,6 +175,30 @@ These are only used by the macOS build. If missing, the macOS build will fail at
 ---
 
 ## Signing Keys & Auto-Updates
+
+---
+
+## MusicKit Credential Validation (Issue #161)
+
+### Problem
+
+Users reported repeated `HTTP 401` failures when testing MusicKit credentials in **Settings > Advanced > API Credentials**, even after regenerating private keys. This created the perception that MusicKit integration was broken end-to-end.
+
+### Why It Was a Problem
+
+1. The **Test Credentials** action could validate stale persisted IDs instead of the exact values currently typed into the form.
+2. Team ID / Key ID normalization was weak (whitespace/casing could pass UI entry but fail auth semantics).
+3. Runtime MusicKit features depended on user credentials only, which is a poor default for non-developer end users.
+
+### What Changed
+
+1. Credential testing now validates the current UI Team ID/Key ID values passed directly to the backend command.
+2. Team ID and Key ID are normalized (trim + uppercase) and validated as strict 10-character alphanumeric IDs.
+3. Validation now probes both `amp-api.music.apple.com` and `api.music.apple.com` for clearer auth diagnostics.
+4. Runtime MusicKit API callers now resolve tokens via:
+   - user Team ID + Key ID + private key, or
+   - embedded `MUSICKIT_DEVELOPER_TOKEN` fallback.
+5. Settings UI now surfaces when a build-time MusicKit token is embedded so Apple Developer credentials are optional for most end users.
 
 ### How the Auto-Update System Works
 

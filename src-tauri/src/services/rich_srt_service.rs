@@ -92,8 +92,8 @@ pub fn generate_rich_srt_for_directory(album_dir: &str) -> Result<usize, String>
         return Err(format!("Not a directory: {album_dir}"));
     }
 
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
 
     let mut generated = 0;
 
@@ -382,10 +382,7 @@ fn clean_vtt_tags(line: &str) -> String {
             }
 
             // Check if it's an SRT-compatible tag
-            let tag_inner = tag
-                .trim_start_matches('<')
-                .trim_end_matches('>')
-                .trim();
+            let tag_inner = tag.trim_start_matches('<').trim_end_matches('>').trim();
             let tag_lower = tag_inner.to_lowercase();
 
             if tag_lower == "b"
@@ -430,8 +427,8 @@ pub fn embed_subtitles_for_directory(album_dir: &str) -> Result<usize, String> {
         return Err(format!("Not a directory: {album_dir}"));
     }
 
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
 
     let mut embedded = 0;
 
@@ -466,11 +463,7 @@ pub fn embed_subtitles_for_directory(album_dir: &str) -> Result<usize, String> {
             continue;
         }
 
-        match embed_subtitles_in_file(
-            &path,
-            srt_content.as_deref(),
-            vtt_content.as_deref(),
-        ) {
+        match embed_subtitles_in_file(&path, srt_content.as_deref(), vtt_content.as_deref()) {
             Ok(()) => {
                 log::debug!("Embedded subtitles in: {stem}.{ext}");
                 embedded += 1;
@@ -743,10 +736,7 @@ pub(crate) fn resolve_span_style(
     let mut style = parent_style.clone();
 
     // Override with named style reference
-    if let Some(ref_style) = node
-        .attribute("style")
-        .and_then(|id| named_styles.get(id))
-    {
+    if let Some(ref_style) = node.attribute("style").and_then(|id| named_styles.get(id)) {
         if ref_style.bold {
             style.bold = true;
         }

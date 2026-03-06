@@ -54,6 +54,14 @@ Music Video Companions no longer requires MusicKit credentials.
   - Extract download_music_video_by_url() shared helper
   - Update settings model docs and enrichment pipeline comments
 
+- Add build-time MusicKit developer token fallback for end users (#161)
+
+MusicKit runtime API calls (metadata enrichment, animated artwork, music
+  video relation lookup) now support an optional compile-time
+  `MUSICKIT_DEVELOPER_TOKEN` fallback when user credentials are not configured.
+  This enables release builds to provide MusicKit features for users without
+  Apple Developer accounts.
+
 
 ### 🐛 Bug Fixes
 
@@ -63,11 +71,19 @@ The validation message next to the Test Credentials button was being
   squeezed onto one line. Use items-start alignment, shrink-0 on the
   button, and leading-relaxed on the result text for cleaner wrapping.
 
+- Fix false 401s and stale-value testing in MusicKit credential validation (#161)
+
+`Test Credentials` now validates the current Team ID/Key ID values entered in
+  the UI instead of relying only on persisted settings, normalizes IDs
+  (trim + uppercase), enforces strict 10-character format validation, and
+  probes both Apple Music API hostnames for more reliable diagnostics.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Document MusicKit token secret and validation architecture in DEV_NOTES (#161)
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Fix clickable URL in wrapper help and expand MusicKit setup guide

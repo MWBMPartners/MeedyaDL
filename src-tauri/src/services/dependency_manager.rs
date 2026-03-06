@@ -1489,11 +1489,9 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Failed to check for apt-get: {e}"))?;
 
     if !which_apt.status.success() {
-        return Err(
-            "apt-get not found. Cannot install GPAC on this system. \
+        return Err("apt-get not found. Cannot install GPAC on this system. \
              Install manually: sudo apt install gpac"
-                .to_string(),
-        );
+            .to_string());
     }
 
     // Run sudo apt-get install -y gpac
@@ -1522,7 +1520,9 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Failed to locate MP4Box after apt install: {e}"))?;
 
     let mp4box_path = if which_output.status.success() {
-        String::from_utf8_lossy(&which_output.stdout).trim().to_string()
+        String::from_utf8_lossy(&which_output.stdout)
+            .trim()
+            .to_string()
     } else {
         // Also check lowercase variant
         let which_lower = tokio::process::Command::new("which")
@@ -1536,19 +1536,21 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
                 .trim()
                 .to_string()
         } else {
-            return Err(
-                "MP4Box binary not found after apt install. \
+            return Err("MP4Box binary not found after apt install. \
                  Try: sudo apt install gpac && which MP4Box"
-                    .to_string(),
-            );
+                .to_string());
         }
     };
 
     log::info!("Found system MP4Box at {mp4box_path}");
 
     // Copy to MeedyaDL's managed tool directory
-    copy_and_verify_mp4box(app, std::path::Path::new(&mp4box_path), "apt (system package manager)")
-        .await
+    copy_and_verify_mp4box(
+        app,
+        std::path::Path::new(&mp4box_path),
+        "apt (system package manager)",
+    )
+    .await
 }
 
 /// Inner implementation for Linux GPAC .deb extraction.
