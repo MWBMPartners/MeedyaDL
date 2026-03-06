@@ -9,15 +9,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### ✨ Features
 
 - Make verbose logging a session-only setting that resets on restart (#157)
-
-Verbose logging can expose sensitive data (auth tokens, cookies, API
-  responses, MusicKit credentials). As a safety measure, it now always
-  resets to off on app startup — users must re-enable it each session.
-
-  - Reset verbose_activity_log to false in load_settings() on startup
-  - Add session-only note to toggle description and warning box in UI
-  - Update settings.rs doc comment documenting session-only behavior
-  - Update help/troubleshooting.md with session-only callout
+- Add custom `.desktop` file for Linux app menu integration
+- Suppress stderr tracing output in release builds to keep terminal clean
 
 
 ### 🐛 Bug Fixes
