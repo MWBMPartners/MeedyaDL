@@ -10,6 +10,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Change default remux mode to MP4Box for better subtitle handling and update app behavior on first launch
 
+### 🔒 Security
+
+- Make verbose logging a session-only setting that resets to off on every app restart (#157)
+
+  Prevents sensitive data (auth tokens, cookie paths, API responses, MusicKit credentials) from being
+  logged permanently if the user forgets to disable verbose logging after a debugging session.
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]

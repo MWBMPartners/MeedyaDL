@@ -92,7 +92,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // On Linux: ~/.config/io.github.meedyadl/settings.json
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
-    let settings = if settings_path.exists() {
+    let mut settings = if settings_path.exists() {
         // Read the entire file into a string. This is synchronous (blocking I/O)
         // since settings are loaded during Tauri command handlers which run on
         // the Tokio thread pool and can tolerate brief blocking.
@@ -113,6 +113,15 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         log::info!("No settings file found, using defaults");
         AppSettings::default()
     };
+
+    // Safety measure: always reset verbose logging to disabled on startup.
+    // Verbose logging can expose sensitive data (cookies, auth tokens, API
+    // responses, MusicKit credentials) so it must not persist across sessions.
+    // Users can re-enable it per-session in Settings > Advanced > Diagnostics.
+    if settings.verbose_activity_log {
+        log::info!("Resetting verbose_activity_log to false (session-only setting)");
+        settings.verbose_activity_log = false;
+    }
 
     // Always regenerate GAMDL's config.ini on load to ensure the on-disk INI
     // matches the current code's key format (underscores, `key = true` booleans).

@@ -677,6 +677,10 @@ pub struct AppSettings {
     /// API responses, and MusicKit credentials. Only enable when collecting
     /// detailed logs for issue tracking; disable before sharing logs.
     ///
+    /// **Session-only**: This setting is always reset to `false` on app startup
+    /// in `load_settings()` as a safety measure to prevent sensitive data from
+    /// being logged permanently by accident. Users must re-enable it each session.
+    ///
     /// Controlled in Settings > Advanced > Diagnostics.
     #[serde(default)]
     pub verbose_activity_log: bool,
