@@ -24,10 +24,11 @@
  * 1. Platform detection via usePlatform() hook (async, detects OS)
  * 2. Platform-specific CSS theme loaded dynamically
  * 3. Settings loaded from Rust backend via IPC
- * 4. Dependency checks run in parallel (Python, GAMDL, tools)
- * 5. Setup wizard shown if dependencies are missing; main UI if ready
- * 6. Auto-update check fires if enabled in settings
- * 7. Event listeners registered for progress, download lifecycle, and tray
+ * 4. Update check (unconditional, before setup wizard decision)
+ * 5. Dependency checks run in parallel (Python, GAMDL, tools)
+ * 6. Setup wizard shown if dependencies are missing AND no app update pending
+ * 7. Periodic update timer and tray listener registered
+ * 8. Event listeners registered for progress, download lifecycle, and tray
  *
  * @see {@link https://react.dev/reference/react/useEffect} - useEffect lifecycle
  * @see {@link https://react.dev/reference/react/useState} - useState hook
@@ -358,16 +359,37 @@ function App() {
         i18next.changeLanguage(uiLang).catch(() => {});
       }
 
-      /* Step 2: Check all dependency statuses in parallel via IPC */
+      /* Step 2: Check for app updates BEFORE dependency checks.
+       * On first launch the installed version may already be outdated, so we
+       * check for updates early. If an app update is available we skip the
+       * setup wizard and let the user update first — the wizard will run on
+       * the new version after restart. The check is unconditional (ignores
+       * the auto_check_updates setting) because first-launch users haven't
+       * configured anything yet. Failures are non-fatal. */
+      let appUpdateAvailable = false;
+      try {
+        const updateResult = await checkForUpdates();
+        appUpdateAvailable = updateResult.components.some(
+          (c) => c.name === 'app' && c.update_available && c.is_compatible
+        );
+      } catch {
+        /* Non-fatal: network may be unavailable on first launch */
+      }
+
+      /* Step 3: Check all dependency statuses in parallel via IPC */
       await checkAll();
 
       /*
-       * Step 3: Show setup wizard if dependencies are missing AND setup
-       * has never been completed. If the user has completed setup before
-       * (`setup_completed: true`), skip the wizard even if some deps are
-       * missing — they may have been intentionally removed, or the app
-       * was updated and detection is temporarily broken. The user can
-       * always re-run the wizard from Settings.
+       * Step 4: Show setup wizard if dependencies are missing AND setup
+       * has never been completed AND no app update is pending. If an app
+       * update is available, we skip the wizard so the user sees the
+       * update banner in the main UI and can update first. After updating
+       * and restarting, the wizard will run on the new version.
+       *
+       * If the user has completed setup before (`setup_completed: true`),
+       * skip the wizard even if some deps are missing — they may have been
+       * intentionally removed, or the app was updated and detection is
+       * temporarily broken. The user can always re-run the wizard from Settings.
        *
        * We read the latest state imperatively via getState() rather than
        * using the reactive selectors, because at this point the async
@@ -383,7 +405,7 @@ function App() {
         depState.gamdl?.installed &&
         requiredToolsReady
       );
-      if (!depsReady && !settingsState.settings.setup_completed) {
+      if (!depsReady && !settingsState.settings.setup_completed && !appUpdateAvailable) {
         setShowSetupWizard(true);
       }
     };
@@ -397,7 +419,7 @@ function App() {
           'error'
         );
     });
-  }, [isReady, loadSettings, checkAll, setShowSetupWizard]);
+  }, [isReady, loadSettings, checkAll, checkForUpdates, setShowSetupWizard]);
 
   /*
    * ─── Effect 3: Sync Sidebar State from Settings ────────────────────
@@ -451,12 +473,11 @@ function App() {
     const { auto_check_updates: autoCheck, update_check_interval_hours: intervalHours } =
       useSettingsStore.getState().settings;
 
-    /* Startup check (runs once on app launch) */
-    if (autoCheck) {
-      checkForUpdates().catch(() => {
-        /* Non-fatal: silently ignore update check failures on startup */
-      });
-    }
+    /* Startup check is now handled in Effect 2 (before setup wizard decision),
+     * so we skip it here to avoid a redundant duplicate check. Effect 2 runs
+     * the check unconditionally (even for first-launch users who haven't
+     * configured auto_check_updates yet). This Effect only handles the
+     * periodic timer and tray listener. */
 
     /*
      * Periodic check timer. When enabled, checks for updates every N hours

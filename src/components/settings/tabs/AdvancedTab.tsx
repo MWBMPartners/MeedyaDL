@@ -110,11 +110,12 @@ const DOWNLOAD_MODE_OPTIONS = [
 
 /**
  * Remux mode dropdown options.
- * FFmpeg is the recommended default; MP4Box is provided as an alternative.
+ * MP4Box is the recommended default — handles subtitle/CC tracks in music
+ * videos better than FFmpeg (avoids "Invalid data" errors).
  */
 const REMUX_MODE_OPTIONS = [
-  { value: 'ffmpeg', label: 'FFmpeg (recommended)' },
-  { value: 'mp4box', label: 'MP4Box (alternative)' },
+  { value: 'mp4box', label: 'MP4Box (recommended)' },
+  { value: 'ffmpeg', label: 'FFmpeg (alternative)' },
 ];
 
 /**
@@ -244,7 +245,7 @@ export function AdvancedTab() {
         {/* Remux mode */}
         <Select
           label="Remux Mode"
-          description="Which tool to use for container format conversion"
+          description="Which tool to use for video remuxing. MP4Box handles subtitle/CC tracks better."
           options={REMUX_MODE_OPTIONS}
           value={settings.remux_mode}
           onChange={(e) => updateSettings({ remux_mode: e.target.value as RemuxMode })}
