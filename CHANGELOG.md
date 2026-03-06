@@ -8,14 +8,27 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Make verbose logging a session-only setting that resets on restart (#157)
+
+Verbose logging can expose sensitive data (auth tokens, cookies, API
+  responses, MusicKit credentials). As a safety measure, it now always
+  resets to off on app startup — users must re-enable it each session.
+
+  - Reset verbose_activity_log to false in load_settings() on startup
+  - Add session-only note to toggle description and warning box in UI
+  - Update settings.rs doc comment documenting session-only behavior
+  - Update help/troubleshooting.md with session-only callout
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.6.11] - 2026-03-06
+
+### ✨ Features
+
 - Change default remux mode to MP4Box for better subtitle handling and update app behavior on first launch
-
-### 🔒 Security
-
-- Make verbose logging a session-only setting that resets to off on every app restart (#157)
-
-  Prevents sensitive data (auth tokens, cookie paths, API responses, MusicKit credentials) from being
-  logged permanently if the user forgets to disable verbose logging after a debugging session.
 
 ### 📚 Documentation
 
