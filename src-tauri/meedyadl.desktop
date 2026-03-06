@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=MeedyaDL
+Comment=A multiplatform media downloader
+GenericName=Media Downloader
+Exec=meedyadl %u
+Icon=meedyadl
+Type=Application
+Terminal=false
+Categories=AudioVideo;Audio;Video;Network;Utility;
+Keywords=download;music;media;apple;audio;video;
+StartupNotify=true
+StartupWMClass=MeedyaDL
+MimeType=x-scheme-handler/meedyadl;
