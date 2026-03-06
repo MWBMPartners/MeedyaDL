@@ -634,6 +634,30 @@ export function validateMusicKitCredentials(): Promise<string> {
   return invoke<string>('validate_musickit_credentials');
 }
 
+/**
+ * Validates MusicKit credentials using explicit Team ID and Key ID values.
+ *
+ * Rust handler: `validate_musickit_credentials()` in `src-tauri/src/commands/credentials.rs`
+ *
+ * This variant is used by Settings UI so validation tests the current
+ * unsaved field values rather than stale values persisted on disk.
+ */
+export function validateMusicKitCredentialsWithInput(
+  teamId: string | null,
+  keyId: string | null
+): Promise<string> {
+  return invoke<string>('validate_musickit_credentials', { teamId, keyId });
+}
+
+/**
+ * Checks whether a build-time MusicKit developer token is embedded.
+ *
+ * Rust handler: `has_embedded_musickit_token()` in `src-tauri/src/commands/credentials.rs`
+ */
+export function hasEmbeddedMusicKitToken(): Promise<boolean> {
+  return invoke<boolean>('has_embedded_musickit_token');
+}
+
 // ============================================================
 // Update Commands
 // ============================================================

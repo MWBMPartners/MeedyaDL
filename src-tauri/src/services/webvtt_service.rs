@@ -55,8 +55,7 @@ pub fn generate_webvtt_for_directory(album_dir: &str) -> Result<usize, String> {
     }
 
     // Collect all media file stems (unique base names without extension)
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory: {e}"))?;
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
 
     let mut generated = 0;
 
@@ -214,9 +213,7 @@ fn collect_text_content(node: &roxmltree::Node) -> String {
             text.push_str(t);
         } else if child.tag_name().name() == "span" {
             // Check for background vocal marker
-            let is_bg = child
-                .attribute("role")
-                .is_some_and(|r| r.contains("x-bg"));
+            let is_bg = child.attribute("role").is_some_and(|r| r.contains("x-bg"));
 
             let span_text: String = child
                 .children()

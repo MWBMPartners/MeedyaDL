@@ -150,8 +150,8 @@ async fn analyse_and_tag(ffmpeg_path: &Path, file_path: &Path) -> Result<ReplayG
     let gain_db = result.gain_db;
     let true_peak = result.true_peak;
     tokio::task::spawn_blocking(move || {
-        let mut tag = Tag::read_from_path(&tag_path)
-            .map_err(|e| format!("Failed to read M4A: {e}"))?;
+        let mut tag =
+            Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
         // replaygain_track_gain — e.g., "-4.20 dB"
         tag.set_data(

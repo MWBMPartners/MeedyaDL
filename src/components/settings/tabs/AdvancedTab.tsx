@@ -98,7 +98,8 @@ import {
   testWrapperConnection,
   storeCredential,
   getCredential,
-  validateMusicKitCredentials,
+  validateMusicKitCredentialsWithInput,
+  hasEmbeddedMusicKitToken,
   hasEmbeddedAcoustidKey,
   auditApiFields,
 } from '@/lib/tauri-commands';
@@ -161,6 +162,8 @@ export function AdvancedTab() {
   // ── AcoustID state ──
   /** Whether a built-in AcoustID API key is available (embedded at compile time) */
   const [hasBuiltInKey, setHasBuiltInKey] = useState(false);
+  /** Whether a build-time MusicKit developer token is available */
+  const [hasBuiltInMusicKitToken, setHasBuiltInMusicKitToken] = useState(false);
 
   // ── API Field Audit state ──
   const [auditUrl, setAuditUrl] = useState('');
@@ -191,6 +194,13 @@ export function AdvancedTab() {
     hasEmbeddedAcoustidKey()
       .then(setHasBuiltInKey)
       .catch(() => setHasBuiltInKey(false));
+  }, []);
+
+  // Check for build-time MusicKit token on mount
+  useEffect(() => {
+    hasEmbeddedMusicKitToken()
+      .then(setHasBuiltInMusicKitToken)
+      .catch(() => setHasBuiltInMusicKitToken(false));
   }, []);
 
   /** Handles the "Test Connection" button click */
@@ -226,14 +236,17 @@ export function AdvancedTab() {
     setValidating(true);
     setValidationResult(null);
     try {
-      const result = await validateMusicKitCredentials();
+      const result = await validateMusicKitCredentialsWithInput(
+        settings.musickit_team_id ?? null,
+        settings.musickit_key_id ?? null
+      );
       setValidationResult(result);
     } catch (err) {
       setValidationResult(`Error: ${err}`);
     } finally {
       setValidating(false);
     }
-  }, []);
+  }, [settings.musickit_key_id, settings.musickit_team_id]);
 
   /**
    * Opens a URL in the system default browser via the Tauri shell plugin.
@@ -456,19 +469,30 @@ export function AdvancedTab() {
             </button>
             .
           </p>
+          {hasBuiltInMusicKitToken && (
+            <div className="rounded-platform border border-status-info/40 bg-status-info/10 px-3 py-2 text-xs text-status-info">
+              A build-time MusicKit developer token is embedded in this release. Most end users do
+              not need to enter Apple Developer credentials unless they want to override the built-in
+              token for testing.
+            </div>
+          )}
           <Input
             label="MusicKit Team ID"
             description="Your Apple Developer Team ID (10-character alphanumeric)"
             value={settings.musickit_team_id ?? ''}
             placeholder="XXXXXXXXXX"
-            onChange={(e) => updateSettings({ musickit_team_id: e.target.value || null })}
+            onChange={(e) =>
+              updateSettings({ musickit_team_id: e.target.value.toUpperCase() || null })
+            }
           />
           <Input
             label="MusicKit Key ID"
             description="The Key ID for your MusicKit private key (10-character alphanumeric)"
             value={settings.musickit_key_id ?? ''}
             placeholder="XXXXXXXXXX"
-            onChange={(e) => updateSettings({ musickit_key_id: e.target.value || null })}
+            onChange={(e) =>
+              updateSettings({ musickit_key_id: e.target.value.toUpperCase() || null })
+            }
           />
           <div className="space-y-2">
             <label className="block text-sm font-medium text-content-primary">

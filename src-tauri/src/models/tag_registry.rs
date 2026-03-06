@@ -554,6 +554,9 @@ mod tests {
         assert!(paths.iter().any(|(scope, _, _)| scope == "album"));
         assert!(paths.iter().any(|(scope, _, _)| scope == "track"));
         // Total should be album_tags + track_tags
-        assert_eq!(paths.len(), registry.album_tags.len() + registry.track_tags.len());
+        assert_eq!(
+            paths.len(),
+            registry.album_tags.len() + registry.track_tags.len()
+        );
     }
 }

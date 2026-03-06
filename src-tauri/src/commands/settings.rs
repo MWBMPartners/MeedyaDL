@@ -38,6 +38,9 @@
 // - Netscape cookie format: https://curl.se/docs/http-cookies.html
 
 // serde::Serialize is required for CookieValidation which is returned to the frontend.
+use std::sync::LazyLock;
+
+use regex::Regex;
 use serde::Serialize;
 // AppHandle for resolving app data directory paths (settings.json location).
 use tauri::AppHandle;
@@ -133,6 +136,33 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 /// * `Err(String)` - File write or serialization error.
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    static MUSICKIT_ID_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
+
+    let mut settings = settings;
+
+    let normalize_musickit_id =
+        |label: &str, value: Option<String>| -> Result<Option<String>, String> {
+            let Some(raw) = value else {
+                return Ok(None);
+            };
+            let normalized = raw.trim().to_ascii_uppercase();
+            if normalized.is_empty() {
+                return Ok(None);
+            }
+            if !MUSICKIT_ID_RE.is_match(&normalized) {
+                return Err(format!(
+                    "{label} must be exactly 10 uppercase letters/numbers (A-Z, 0-9)."
+                ));
+            }
+            Ok(Some(normalized))
+        };
+
+    settings.musickit_team_id =
+        normalize_musickit_id("MusicKit Team ID", settings.musickit_team_id.take())?;
+    settings.musickit_key_id =
+        normalize_musickit_id("MusicKit Key ID", settings.musickit_key_id.take())?;
+
     // Load previous settings for diff logging (best-effort — if this fails,
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::load_settings(&app).ok();
@@ -208,9 +238,10 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
                     serde_json::Value::Number(n) => n.to_string(),
                     serde_json::Value::Null => "null".to_string(),
                     serde_json::Value::Array(a) => {
-                        let items: Vec<String> = a.iter().map(|i| {
-                            i.as_str().map_or_else(|| i.to_string(), str::to_string)
-                        }).collect();
+                        let items: Vec<String> = a
+                            .iter()
+                            .map(|i| i.as_str().map_or_else(|| i.to_string(), str::to_string))
+                            .collect();
                         format!("[{}]", items.join(", "))
                     }
                     other => other.to_string(),

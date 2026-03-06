@@ -205,88 +205,155 @@ pub async fn delete_credential(key: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn validate_musickit_credentials(
     app: tauri::AppHandle,
+    team_id: Option<String>,
+    key_id: Option<String>,
 ) -> Result<String, String> {
+    use std::sync::LazyLock;
+
     use crate::services::{apple_music_api, config_service};
+    use regex::Regex;
 
-    // 1. Load settings for Team ID and Key ID
+    static ID_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
+
+    // Resolve from current UI input first, then persisted settings as fallback.
     let settings = config_service::load_settings(&app).unwrap_or_default();
+    let team_id = team_id
+        .as_deref()
+        .or(settings.musickit_team_id.as_deref())
+        .ok_or(
+            "MusicKit Team ID not configured. Enter your 10-character Team ID in Settings > Advanced > API Credentials.",
+        )?;
+    let key_id = key_id
+        .as_deref()
+        .or(settings.musickit_key_id.as_deref())
+        .ok_or(
+            "MusicKit Key ID not configured. Enter your 10-character Key ID in Settings > Advanced > API Credentials.",
+        )?;
 
-    let team_id = settings
-        .musickit_team_id
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .ok_or("MusicKit Team ID not configured. Enter your 10-character Team ID in Settings > Cover Art.")?;
+    let team_id = team_id.trim().to_ascii_uppercase();
+    let key_id = key_id.trim().to_ascii_uppercase();
 
-    let key_id = settings
-        .musickit_key_id
-        .as_ref()
-        .filter(|s| !s.is_empty())
-        .ok_or("MusicKit Key ID not configured. Enter your 10-character Key ID in Settings > Cover Art.")?;
+    if !ID_RE.is_match(&team_id) {
+        return Err(
+            "MusicKit Team ID must be exactly 10 uppercase letters/numbers (A-Z, 0-9).".to_string(),
+        );
+    }
+    if !ID_RE.is_match(&key_id) {
+        return Err(
+            "MusicKit Key ID must be exactly 10 uppercase letters/numbers (A-Z, 0-9).".to_string(),
+        );
+    }
 
     // 2. Get private key from OS keychain
     let private_key = apple_music_api::get_private_key_from_keychain()
         .map_err(|e| format!("Keychain error: {e}"))?
         .ok_or(
             "MusicKit private key not found in OS keychain. \
-             Paste your .p8 private key content in Settings > Cover Art and click 'Save to Keychain'.",
+             Paste your .p8 private key content in Settings > Advanced > API Credentials and click 'Save to Keychain'.",
         )?;
 
     // 3. Generate JWT
-    let jwt = apple_music_api::generate_musickit_jwt(team_id, key_id, &private_key)
-        .map_err(|e| format!("JWT generation failed: {e}. Check that your private key is a valid .p8 PEM file."))?;
+    let jwt =
+        apple_music_api::generate_musickit_jwt(&team_id, &key_id, &private_key).map_err(|e| {
+            format!(
+                "JWT generation failed: {e}. Check that your private key is a valid .p8 PEM file."
+            )
+        })?;
 
     log::info!("MusicKit validation: JWT generated (iss={team_id}, kid={key_id})");
-
-    // 4. Make a lightweight test API call to a known public album
-    // Using "Abbey Road" by The Beatles — a universally available album
-    let test_url = "https://amp-api.music.apple.com/v1/catalog/us/albums/1441164495";
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let response = client
-        .get(test_url)
-        .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
-        .header("Origin", "https://music.apple.com")
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {e}. Check your internet connection."))?;
+    // 4. Probe both known Apple Music API hostnames.
+    // A 200/404 response on either host proves auth success.
+    let test_urls = [
+        "https://amp-api.music.apple.com/v1/catalog/us/albums/1441164495",
+        "https://api.music.apple.com/v1/catalog/us/albums/1441164495",
+    ];
 
-    let status = response.status().as_u16();
-    match status {
-        200 => {
-            log::info!("MusicKit validation: credentials valid (HTTP 200)");
-            Ok("MusicKit credentials are valid! API authentication successful.".to_string())
+    let mut statuses: Vec<(String, u16)> = Vec::new();
+    let mut network_errors: Vec<String> = Vec::new();
+
+    for url in test_urls {
+        match client
+            .get(url)
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("User-Agent", "meedyadl")
+            .header("Origin", "https://music.apple.com")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                statuses.push((url.to_string(), resp.status().as_u16()));
+            }
+            Err(err) => {
+                network_errors.push(format!("{url}: {err}"));
+            }
         }
-        401 => {
-            log::warn!("MusicKit validation: authentication failed (HTTP 401)");
-            Err(
-                "Authentication failed (HTTP 401). Your MusicKit credentials are invalid. \
-                 Check on developer.apple.com that: (1) your Team ID matches, \
-                 (2) your Key ID has not been revoked, (3) your private key (.p8) \
-                 matches the Key ID."
-                    .to_string(),
-            )
-        }
-        403 => {
-            log::warn!("MusicKit validation: forbidden (HTTP 403)");
-            Err(
-                "Forbidden (HTTP 403). Your MusicKit key may not have the required \
-                 permissions. Ensure the MusicKit service is enabled for your key \
-                 on developer.apple.com."
-                    .to_string(),
-            )
-        }
-        429 => Err("Rate limited (HTTP 429). Apple Music API is temporarily limiting requests. Try again in a few minutes.".to_string()),
-        404 => {
-            // 404 means the JWT authenticated successfully (didn't get 401),
-            // but the test album wasn't found. Credentials are valid.
-            log::info!("MusicKit validation: credentials valid (HTTP 404 — test album not found, auth OK)");
-            Ok("MusicKit credentials are valid! API authentication successful.".to_string())
-        }
-        _ => Err(format!("Unexpected HTTP {status} from Apple Music API. Try again later.")),
+    }
+
+    if statuses.iter().any(|(_, s)| *s == 200 || *s == 404) {
+        log::info!("MusicKit validation: credentials valid (statuses={statuses:?})");
+        return Ok("MusicKit credentials are valid! API authentication successful.".to_string());
+    }
+
+    if statuses.iter().all(|(_, s)| *s == 401) {
+        log::warn!("MusicKit validation: authentication failed on all hosts (HTTP 401)");
+        return Err(
+            "Authentication failed (HTTP 401). Your MusicKit credentials are invalid. \
+             Check on developer.apple.com that: (1) Team ID is correct, (2) Key ID is active, \
+             (3) private key (.p8) matches the Key ID, (4) key has MusicKit/Media Services access."
+                .to_string(),
+        );
+    }
+
+    if statuses.iter().any(|(_, s)| *s == 403) {
+        return Err(
+            "Forbidden (HTTP 403). Your MusicKit key likely lacks required permissions. \
+             Ensure MusicKit (Media Services) is enabled for that key in Apple Developer."
+                .to_string(),
+        );
+    }
+
+    if statuses.iter().any(|(_, s)| *s == 429) {
+        return Err(
+            "Rate limited (HTTP 429). Apple Music API is temporarily limiting requests. Try again in a few minutes."
+                .to_string(),
+        );
+    }
+
+    if statuses.is_empty() {
+        return Err(format!(
+            "Network error while contacting Apple Music API. {}",
+            network_errors.join(" | ")
+        ));
+    }
+
+    Err(format!(
+        "Unexpected response while validating MusicKit credentials: {:?}.",
+        statuses
+    ))
+}
+
+/// Returns true if a build-time MusicKit developer token is embedded.
+#[tauri::command]
+pub fn has_embedded_musickit_token() -> bool {
+    crate::services::apple_music_api::has_embedded_musickit_developer_token()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn musickit_id_normalization_logic() {
+        let team = " REDACTED0001 ".trim().to_ascii_uppercase();
+        let key = " REDACTED0002 ".trim().to_ascii_uppercase();
+        assert_eq!(team, "REDACTED0001");
+        assert_eq!(key, "REDACTED0002");
+        assert_eq!(team.len(), 10);
+        assert_eq!(key.len(), 10);
     }
 }
