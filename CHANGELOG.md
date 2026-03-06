@@ -20,8 +20,18 @@ Verbose logging can expose sensitive data (auth tokens, cookies, API
   - Update help/troubleshooting.md with session-only callout
 
 
+### 🐛 Bug Fixes
+
+- Improve line wrapping on MusicKit credential validation result text
+
+The validation message next to the Test Credentials button was being
+  squeezed onto one line. Use items-start alignment, shrink-0 on the
+  button, and leading-relaxed on the result text for cleaner wrapping.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.6.11] - 2026-03-06
