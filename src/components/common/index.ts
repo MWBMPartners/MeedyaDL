@@ -154,3 +154,9 @@ export { ProgressBar } from './ProgressBar';
  * Rendered in App.tsx above the main content area.
  */
 export { UpdateBanner } from './UpdateBanner';
+
+/**
+ * Collapsible, visually distinct settings section container.
+ * Used across all settings tabs for consistent section grouping.
+ */
+export { SettingsSection } from './SettingsSection';

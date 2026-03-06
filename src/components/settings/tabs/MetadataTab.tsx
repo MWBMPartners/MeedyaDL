@@ -36,7 +36,7 @@
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form components: Toggle for boolean switches.
-import { Toggle } from '@/components/common';
+import { Toggle, SettingsSection } from '@/components/common';
 
 /**
  * MetadataTab -- Renders the Metadata settings tab.
@@ -53,16 +53,14 @@ export function MetadataTab() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="space-y-3 max-w-xl">
       {/* ================================================================
           Section 1: Automatic Tags
           ================================================================ */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-2">Automatic Tags</h3>
-        <p className="text-sm text-content-secondary leading-relaxed mb-2">
-          MeedyaDL automatically enriches downloaded files with metadata after every download. Codec
-          tags (lossless, spatial audio), source tags, and channel configuration are always written.
-        </p>
+      <SettingsSection
+        title="Automatic Tags"
+        description="MeedyaDL automatically enriches downloaded files with metadata after every download. Codec tags (lossless, spatial audio), source tags, and channel configuration are always written."
+      >
         <p className="text-sm text-content-tertiary leading-relaxed mb-4">
           API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs) require MusicKit
           credentials. Configure them in Settings &gt; Advanced &gt; API Credentials.
@@ -81,17 +79,12 @@ export function MetadataTab() {
           checked={settings.content_advisory_in_filenames}
           onChange={(checked) => updateSettings({ content_advisory_in_filenames: checked })}
         />
-      </div>
+      </SettingsSection>
 
       {/* ================================================================
           Section 2: AcoustID Fingerprinting (opt-in)
           ================================================================ */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-4">
-          AcoustID Fingerprinting
-        </h3>
-
-        <div className="space-y-4">
+      <SettingsSection title="AcoustID Fingerprinting">
           <Toggle
             label="Enable AcoustID Fingerprinting"
             description="Generate audio fingerprints and look up AcoustID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
@@ -105,24 +98,19 @@ export function MetadataTab() {
               Settings &gt; Advanced &gt; API Credentials.
             </p>
           )}
-        </div>
-      </div>
+      </SettingsSection>
 
       {/* ================================================================
           Section 3: ReplayGain Analysis (opt-in)
           ================================================================ */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-4">ReplayGain Analysis</h3>
-
-        <div className="space-y-4">
+      <SettingsSection title="ReplayGain Analysis">
           <Toggle
             label="Enable ReplayGain Analysis"
             description="Analyse audio loudness and embed non-destructive ReplayGain metadata for volume normalisation. Uses FFmpeg (already installed). Analyses each file individually."
             checked={settings.replaygain_enabled}
             onChange={(checked) => updateSettings({ replaygain_enabled: checked })}
           />
-        </div>
-      </div>
+      </SettingsSection>
 
     </div>
   );
