@@ -20,7 +20,30 @@ Verbose logging can expose sensitive data (auth tokens, cookies, API
   - Update help/troubleshooting.md with session-only callout
 
 - Add Linux app menu integration and suppress release-build terminal output (#159)
-- Remove MusicKit credential requirement from Music Video Companions (#160) — MusicBrainz ISRC lookup now serves as a credential-free discovery path; feature marked as Experimental
+
+- Add custom .desktop file with proper Categories, Keywords, and
+    Terminal=false for Linux application menu discoverability
+  - Reference desktopTemplate in tauri.conf.json deb config
+  - Suppress stderr tracing layer in release builds unless RUST_LOG
+    is explicitly set — prevents terminal flooding on Raspberry Pi
+    and other Linux systems when launched from command line
+
+- Remove MusicKit credential gate from Music Video Companions (#160)
+
+Music Video Companions no longer requires MusicKit credentials.
+  MusicBrainz ISRC lookup (Step 6b) now serves as a credential-free
+  discovery and download path for Apple Music videos. Step 6 (MusicKit
+  API) still runs when credentials are available but gracefully skips
+  when they are not.
+
+  - Remove disabled prop and conditional description from toggle
+  - Mark feature as Experimental with warning box when enabled
+  - Step 6b now downloads Apple Music videos found via MusicBrainz
+  - Step 6b runs when either musicbrainz_lookup OR music_video_companion
+    is enabled
+  - Extract download_music_video_by_url() shared helper
+  - Update settings model docs and enrichment pipeline comments
+
 
 ### 🐛 Bug Fixes
 
@@ -36,6 +59,41 @@ The validation message next to the Test Credentials button was being
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Fix clickable URL in wrapper help and expand MusicKit setup guide
+
+- Replace clickable http://192.168.3.179:30020 in Help > Wrapper >
+    Automatic Pre-Flight Check with non-clickable backtick-wrapped
+    http://127.0.0.1:30020
+  - Significantly expand Step 2 (Create a MusicKit Key) in Help >
+    Animated Artwork with detailed instructions covering: free vs paid
+    account checkbox differences (MusicKit vs Media Services), the
+    Configure/App ID flow, direct URL for the Keys page, and a tip for
+    when the MusicKit option doesn't appear
+
+
+### 🔧 Refactoring
+
+- Reorganise Advanced settings tab section order
+
+- Move File Options above Error Reporting
+  - Move API Credentials just above Setup
+  - Move API Field Audit from Metadata tab into Advanced tab (below
+    AcoustID, within the API Credentials section)
+
+  New order: Processing → Wrapper → File Options → Error Reporting →
+  Diagnostics → API Credentials (MusicKit, AcoustID, API Field Audit) →
+  Setup
+
+- Add collapsible SettingsSection component to all settings tabs
+
+Create a reusable SettingsSection component with bordered card styling,
+  clickable header with rotating chevron, and collapsible content. Apply
+  it across all 10 settings tabs (General, Quality, CoverArt, Lyrics,
+  Metadata, Tools, Fallback, Templates, Cookies, Advanced) for consistent
+  visual distinction between sections. Tighten inter-section spacing from
+  space-y-6 to space-y-3 for a more compact layout.
+
 
 ## [0.6.11] - 2026-03-06
 
