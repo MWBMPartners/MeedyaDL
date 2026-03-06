@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- Streamline macOS menu setup in run function
+
+## [0.6.12] - 2026-03-06
+
 ### ✨ Features
 
 - Make verbose logging a session-only setting that resets on restart (#157)
