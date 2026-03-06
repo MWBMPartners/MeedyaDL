@@ -52,15 +52,23 @@ If you don't already have one, sign up at [developer.apple.com](https://develope
 A MusicKit key is a cryptographic credential that lets MeedyaDL authenticate with the Apple Music API. You create it once in the Apple Developer portal.
 
 1. Sign in to the [Apple Developer Portal](https://developer.apple.com/account)
-2. In the left sidebar, look under **Program resources** (or scroll down on the main page) and click **Certificates, Identifiers & Profiles**
-3. In the left sidebar of the Certificates page, click **Keys**
-4. Click the **+** (plus) button in the top-right to create a new key
-5. On the "Register a New Key" page:
-   - Enter a **Key Name** (e.g., "MeedyaDL" -- this is just a label for your reference)
-   - Under **Key Services**, check the **MusicKit** checkbox
-   - You do **not** need to fill in the "App ID" field. If prompted for one, you can select any existing App ID or leave it as the default
-6. Click **Continue**
-7. Review the details and click **Register**
+2. You need to navigate to the **Keys** section. There are two ways to get there depending on your portal layout:
+   - **Option A (sidebar):** In the left sidebar, look under **Program resources** and click **Certificates, Identifiers & Profiles**. Then in the left sidebar of that page, click **Keys**.
+   - **Option B (direct URL):** Go directly to [developer.apple.com/account/resources/authkeys/list](https://developer.apple.com/account/resources/authkeys/list)
+3. Click the **+** (plus) button in the top-right corner to create a new key. If you don't see a **+** button, look for a **Create a key** or **Register a New Key** link instead.
+4. On the **"Register a New Key"** page:
+   - **Key Name:** Enter a descriptive name (e.g., "MeedyaDL"). This is just a label for your own reference — it doesn't affect functionality.
+   - **Key Services:** You need to enable MusicKit access. The checkbox label varies depending on your account type:
+     - **Free account:** Look for **MusicKit** as a standalone checkbox
+     - **Paid Developer Program:** Look for **Media Services (MusicKit, ShazamKit, Apple Music Feed)**. This is a bundled option — checking it enables MusicKit along with related services. Either label works for MeedyaDL.
+   - **Check the box** next to whichever MusicKit option appears for your account
+   - If you see a **"Configure"** button next to the MusicKit/Media Services option after checking it: click it. You may be asked to select or create an **App ID**. If so, you can select **any existing App ID** from the dropdown, or create a minimal one (any bundle identifier like `com.example.meedyadl` will work). The App ID does not need to match a real app — it is just a required association in Apple's system. Click **Save** to return to the key registration page.
+   - If no "Configure" button appears, you can skip this — not all account types require it.
+
+> **Tip:** If you don't see any MusicKit-related checkbox at all, make sure you're on the correct page ("Register a New Key") and that you've accepted all Apple Developer agreements. Free accounts may need to accept an updated agreement at [developer.apple.com/account](https://developer.apple.com/account) before the MusicKit option appears.
+
+5. Click **Continue** to proceed to the confirmation screen
+6. Review the details (key name and enabled services) and click **Register** to create the key
 
 ### Step 3: Download Your Private Key
 
