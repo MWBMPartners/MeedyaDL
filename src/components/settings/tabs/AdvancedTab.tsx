@@ -448,8 +448,9 @@ export function AdvancedTab() {
           </div>
 
           {/* Test Credentials button */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-start gap-2">
             <Button
+              className="shrink-0"
               variant="secondary"
               size="sm"
               onClick={handleTestCredentials}
@@ -464,7 +465,7 @@ export function AdvancedTab() {
             </Button>
             {validationResult && (
               <span
-                className={`text-xs ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error' : 'text-status-success'}`}
+                className={`text-xs leading-relaxed pt-1 ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error' : 'text-status-success'}`}
               >
                 {validationResult}
               </span>
