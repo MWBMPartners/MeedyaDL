@@ -269,7 +269,11 @@ When diagnosing a problem, search the log file for **ERROR** entries first. The 
 
 ### Verbose Activity Log
 
-MeedyaDL includes a **Verbose Activity Log** setting in **Settings > Advanced** that shows detailed diagnostic information directly in the Activity Log panel. When enabled, you will see:
+MeedyaDL includes a **Verbose Activity Log** setting in **Settings > Advanced** that shows detailed diagnostic information directly in the Activity Log panel.
+
+> **Session-only setting:** As a safety measure, verbose logging automatically resets to **off** every time MeedyaDL is restarted. This prevents sensitive data (authentication tokens, cookie paths, API responses, MusicKit credentials) from being logged permanently by accident. You will need to re-enable it each session if needed.
+
+When enabled, you will see:
 
 - **Codec detection results**: ffprobe-detected codec vs. requested codec, and the resolved effective codec used for tagging
 - **Enrichment parameters**: requested codec, native priority mode, output directory
@@ -304,6 +308,8 @@ $env:RUST_LOG="debug"
 ```
 
 Verbose logging produces significantly more output and may cause log files to grow quickly. Only enable it when actively troubleshooting an issue, and remember to disable it afterward by launching the application normally without the environment variable.
+
+> **Note:** The `RUST_LOG` environment variable controls the *log file* verbosity and is independent of the in-app **Verbose Activity Log** toggle (which controls the Activity Log panel). Both reset when the application is restarted — `RUST_LOG` because it is an environment variable, and the in-app toggle because it is a session-only setting.
 
 ---
 
