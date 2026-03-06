@@ -71,6 +71,7 @@ The validation message next to the Test Credentials button was being
     Configure/App ID flow, direct URL for the Keys page, and a tip for
     when the MusicKit option doesn't appear
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
