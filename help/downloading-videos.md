@@ -137,6 +137,7 @@ Here are some recommendations for getting the best video download experience:
 - **Check your cookies before starting** -- Video downloads require valid Apple Music authentication. Verify that your cookies are current and not expired before beginning a video download session. See [Cookie Management](cookie-management.md) for instructions on refreshing cookies.
 - **Be mindful of bandwidth** -- Large video files take longer to download. A stable internet connection is recommended, especially for 4K content.
 - **Mix audio and video in the queue** -- The download queue handles both music and video items seamlessly. You can paste a mix of song and video URLs without needing to process them separately.
+- **Use MP4Box for remuxing (default)** -- MP4Box handles music videos with embedded subtitle/CC tracks better than FFmpeg. If you encounter "Invalid data found when processing input" errors during video downloads, check that your remux mode is set to MP4Box in **Settings > Advanced > Processing**.
 
 ---
 

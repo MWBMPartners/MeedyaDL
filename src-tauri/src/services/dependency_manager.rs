@@ -1442,9 +1442,18 @@ async fn install_mp4box_windows_inner(
 ///
 /// Source: <https://download.tsi.telecom-paristech.fr/gpac/new_builds>/
 async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
-    log::info!("Installing MP4Box on Linux from GPAC .deb package");
+    let arch = std::env::consts::ARCH;
+    log::info!("Installing MP4Box on Linux ({arch})");
 
-    // Create temp directory
+    // GPAC only publishes x86_64 .deb packages. On ARM (aarch64, arm),
+    // install via the system package manager instead since GPAC is available
+    // in Debian/Raspberry Pi OS/Ubuntu ARM repositories.
+    if arch != "x86_64" {
+        log::info!("ARM architecture detected ({arch}), trying apt install gpac");
+        return install_mp4box_via_apt(app).await;
+    }
+
+    // Create temp directory for x86_64 .deb extraction
     let temp_dir = std::env::temp_dir().join("meedyadl_gpac_install");
     if temp_dir.exists() {
         std::fs::remove_dir_all(&temp_dir).ok();
@@ -1460,6 +1469,86 @@ async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
     }
 
     result
+}
+
+/// Installs `MP4Box` on ARM Linux via `apt` (the system package manager).
+///
+/// GPAC doesn't publish ARM `.deb` packages on their nightly build server,
+/// but `gpac` is available in the Debian/Ubuntu/Raspberry Pi OS ARM
+/// repositories. This function runs `sudo apt-get install -y gpac`, then
+/// copies the installed `MP4Box` binary to `MeedyaDL`'s managed tool directory.
+///
+/// Requires `sudo` privileges. If `apt-get` is not available or the install
+/// fails, returns an error so the caller can fall back to the mirror.
+async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
+    // Verify apt-get is available
+    let which_apt = tokio::process::Command::new("which")
+        .arg("apt-get")
+        .output()
+        .await
+        .map_err(|e| format!("Failed to check for apt-get: {e}"))?;
+
+    if !which_apt.status.success() {
+        return Err(
+            "apt-get not found. Cannot install GPAC on this system. \
+             Install manually: sudo apt install gpac"
+                .to_string(),
+        );
+    }
+
+    // Run sudo apt-get install -y gpac
+    log::info!("Running: sudo apt-get install -y gpac");
+    let apt_output = tokio::process::Command::new("sudo")
+        .args(["apt-get", "install", "-y", "gpac"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run 'sudo apt-get install -y gpac': {e}"))?;
+
+    if !apt_output.status.success() {
+        let stderr = String::from_utf8_lossy(&apt_output.stderr);
+        return Err(format!(
+            "'sudo apt-get install -y gpac' failed: {}",
+            stderr.trim()
+        ));
+    }
+
+    log::info!("'apt-get install gpac' completed successfully");
+
+    // Find the installed MP4Box binary via `which`
+    let which_output = tokio::process::Command::new("which")
+        .arg("MP4Box")
+        .output()
+        .await
+        .map_err(|e| format!("Failed to locate MP4Box after apt install: {e}"))?;
+
+    let mp4box_path = if which_output.status.success() {
+        String::from_utf8_lossy(&which_output.stdout).trim().to_string()
+    } else {
+        // Also check lowercase variant
+        let which_lower = tokio::process::Command::new("which")
+            .arg("mp4box")
+            .output()
+            .await
+            .map_err(|e| format!("Failed to locate mp4box after apt install: {e}"))?;
+
+        if which_lower.status.success() {
+            String::from_utf8_lossy(&which_lower.stdout)
+                .trim()
+                .to_string()
+        } else {
+            return Err(
+                "MP4Box binary not found after apt install. \
+                 Try: sudo apt install gpac && which MP4Box"
+                    .to_string(),
+            );
+        }
+    };
+
+    log::info!("Found system MP4Box at {mp4box_path}");
+
+    // Copy to MeedyaDL's managed tool directory
+    copy_and_verify_mp4box(app, std::path::Path::new(&mp4box_path), "apt (system package manager)")
+        .await
 }
 
 /// Inner implementation for Linux GPAC .deb extraction.
@@ -1536,7 +1625,8 @@ async fn install_mp4box_linux_inner(
 /// First tries the platform's native installation method:
 ///   - macOS: Homebrew → .pkg extraction
 ///   - Windows: NSIS silent installer
-///   - Linux: .deb extraction
+///   - Linux x86_64: .deb extraction from GPAC nightly builds
+///   - Linux ARM (aarch64/armv7): `apt-get install gpac`
 ///
 /// If the platform-specific method fails, falls back to the
 /// MWBMPartners/meedyadl-tools mirror repository for a generic binary archive.

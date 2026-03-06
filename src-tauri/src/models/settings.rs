@@ -594,7 +594,9 @@ pub struct AppSettings {
     pub download_mode: DownloadMode,
 
     /// Remux tool selection. See `RemuxMode` in `gamdl_options.rs`.
-    /// Default: `Ffmpeg` because `FFmpeg` is a required dependency anyway.
+    /// Default: `Mp4box` — better subtitle/CC handling in music videos.
+    /// FFmpeg can fail with "Invalid data found when processing input" on
+    /// videos with embedded subtitles/CC tracks.
     pub remux_mode: RemuxMode,
 
     /// Whether to use the wrapper authentication system for accessing
@@ -916,9 +918,9 @@ impl Default for AppSettings {
             // yt-dlp is the default downloader because it is installed as
             // a Python dependency alongside GAMDL (no extra binary needed).
             download_mode: DownloadMode::Ytdlp,
-            // FFmpeg is the default remuxer because it is a required
-            // dependency for GAMDL anyway.
-            remux_mode: RemuxMode::Ffmpeg,
+            // MP4Box is the default remuxer — handles subtitle/CC tracks in
+            // music videos better than FFmpeg (avoids "Invalid data" errors).
+            remux_mode: RemuxMode::Mp4box,
             // Wrapper is disabled by default. Most users use cookie-based
             // auth. The wrapper is an advanced feature for accessing
             // certain DRM-protected streams.
