@@ -363,7 +363,7 @@ In **Settings > Advanced**, click the **Test Connection** button next to the Wra
 
 ### Automatic Pre-Flight Check
 
-Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at http://192.168.3.179:30020 timed out — check that it is running").
+Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at \`http://127.0.0.1:30020\` timed out — check that it is running").
 
 This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. Wrapper notifications are **deduplicated** (only one is shown at a time) and **auto-dismiss** when the wrapper becomes reachable again on a subsequent download.
 
