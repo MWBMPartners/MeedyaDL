@@ -54,7 +54,7 @@
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Visual chip/pill builder for GAMDL template strings.
-import { TemplateBuilder } from '@/components/common';
+import { TemplateBuilder, SettingsSection } from '@/components/common';
 
 /**
  * TemplatesTab -- Renders the Templates settings tab.
@@ -78,7 +78,7 @@ export function TemplatesTab() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="space-y-3 max-w-xl">
       {/* Template variable reference (useful when in raw edit mode) */}
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated">
         <h4 className="text-xs font-semibold text-content-primary mb-2">
@@ -98,8 +98,7 @@ export function TemplatesTab() {
       </div>
 
       {/* Section: Folder Templates */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary">Folder Templates</h3>
+      <SettingsSection title="Folder Templates">
 
         <TemplateBuilder
           label="Album Folder"
@@ -121,11 +120,10 @@ export function TemplatesTab() {
           value={settings.no_album_folder_template}
           onChange={(v) => updateSettings({ no_album_folder_template: v })}
         />
-      </div>
+      </SettingsSection>
 
       {/* Section: File Templates */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary">File Templates</h3>
+      <SettingsSection title="File Templates">
 
         <TemplateBuilder
           label="Single Disc File"
@@ -155,7 +153,7 @@ export function TemplatesTab() {
           onChange={(v) => updateSettings({ playlist_file_template: v })}
           variableCategories={['track', 'album', 'playlist']}
         />
-      </div>
+      </SettingsSection>
     </div>
   );
 }

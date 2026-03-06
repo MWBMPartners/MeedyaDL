@@ -56,7 +56,7 @@ import { useUiStore } from '@/stores/uiStore';
 
 // Shared form components: Select for format dropdown, Toggle for the save switch,
 // Input for the size number field.
-import { Select, Toggle, Input } from '@/components/common';
+import { Select, Toggle, Input, SettingsSection } from '@/components/common';
 
 // TypeScript union type for cover format values.
 import type { CoverFormat } from '@/types';
@@ -87,14 +87,11 @@ export function CoverArtTab() {
   const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="space-y-3 max-w-xl">
       {/* ============================================================ */}
       {/* Section 1: Static Cover Art (GAMDL) */}
       {/* ============================================================ */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-4">Cover Art</h3>
-
-        <div className="space-y-4">
+      <SettingsSection title="Cover Art">
           {/* Save cover art */}
           <Toggle
             label="Save Cover Art"
@@ -143,16 +140,12 @@ export function CoverArtTab() {
               />
             </>
           )}
-        </div>
-      </div>
+      </SettingsSection>
 
       {/* ============================================================ */}
       {/* Section 2: Animated Artwork (Apple MusicKit API) */}
       {/* ============================================================ */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-4">Animated Artwork</h3>
-
-        <div className="space-y-4">
+      <SettingsSection title="Animated Artwork">
           {/* Master toggle for animated artwork downloading */}
           <Toggle
             label="Download Animated Cover Art"
@@ -187,8 +180,7 @@ export function CoverArtTab() {
               for setup instructions.
             </p>
           )}
-        </div>
-      </div>
+      </SettingsSection>
     </div>
   );
 }

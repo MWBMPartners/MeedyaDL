@@ -58,7 +58,7 @@ import { useUpdateStore } from '@/stores/updateStore';
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button } from '@/components/common';
+import { Toggle, FilePickerButton, Select, Button, SettingsSection } from '@/components/common';
 
 // Lucide icon for the refresh/check action button.
 import { RefreshCw } from 'lucide-react';
@@ -178,11 +178,9 @@ export function GeneralTab() {
   };
 
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="space-y-3 max-w-xl">
       {/* Section: Output */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-4">Output</h3>
-
+      <SettingsSection title="Output">
         {/* Output directory picker */}
         <FilePickerButton
           label="Output Directory"
@@ -192,11 +190,10 @@ export function GeneralTab() {
           directory
           placeholder="Default: ~/Music/Apple Music"
         />
-      </div>
+      </SettingsSection>
 
       {/* Section: Appearance */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Appearance</h3>
+      <SettingsSection title="Appearance">
 
         {/*
          * Theme mode selector -- controls dark/light/auto appearance.
@@ -232,11 +229,10 @@ export function GeneralTab() {
             updateSettings({ ui_language: val === 'auto' ? '' : val });
           }}
         />
-      </div>
+      </SettingsSection>
 
       {/* Section: Preferences */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Preferences</h3>
+      <SettingsSection title="Preferences">
 
         {/* Metadata language */}
         <Select
@@ -310,7 +306,7 @@ export function GeneralTab() {
           </div>
           {checkError && !isChecking && <p className="text-xs text-status-error">{checkError}</p>}
         </div>
-      </div>
+      </SettingsSection>
     </div>
   );
 }

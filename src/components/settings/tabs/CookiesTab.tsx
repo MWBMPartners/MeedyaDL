@@ -96,7 +96,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components used in the form controls and action buttons.
-import { FilePickerButton, Button, Tooltip } from '@/components/common';
+import { FilePickerButton, Button, Tooltip, SettingsSection } from '@/components/common';
 
 // TypeScript types for cookie data.
 import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
@@ -883,19 +883,16 @@ export function CookiesTab() {
 
   /* ---- Render ---- */
   return (
-    <div className="space-y-6 max-w-xl">
-      {/* ============================================================
-          Section 1: Header with Status Badge
-          Shows the tab title alongside the current cookie status
-          so the user can see the state at a glance.
-          ============================================================ */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <Cookie size={18} className="text-accent" />
-          <h3 className="text-sm font-medium text-content-primary">Authentication Cookies</h3>
+    <div className="space-y-3 max-w-xl">
+      <SettingsSection title="Authentication Cookies">
+        {/* Status Badge */}
+        <div className="flex items-center justify-between -mt-2 mb-2">
+          <div className="flex items-center gap-2.5">
+            <Cookie size={18} className="text-accent" />
+            <span className="text-sm font-medium text-content-primary">Status</span>
+          </div>
+          <StatusBadge status={cookieStatus} />
         </div>
-        <StatusBadge status={cookieStatus} />
-      </div>
 
       {/* ============================================================
           Prominent Valid Banner
@@ -1254,6 +1251,7 @@ export function CookiesTab() {
           )}
         </div>
       )}
+      </SettingsSection>
     </div>
   );
 }
