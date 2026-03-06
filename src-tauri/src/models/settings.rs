@@ -304,14 +304,16 @@ pub struct AppSettings {
     pub custom_companion_codecs: Vec<SongCodec>,
 
     /// Whether to automatically download music videos as companions when
-    /// downloading audio tracks. When enabled, after each download completes,
-    /// `MeedyaDL` queries the Apple Music API to find music videos for each
-    /// track in the album, then spawns a separate GAMDL invocation for each
-    /// available music video.
+    /// downloading audio tracks. **Experimental.** After each download
+    /// completes, MeedyaDL discovers music videos via two sources:
     ///
-    /// Requires valid `MusicKit` credentials (`musickit_team_id`,
-    /// `musickit_key_id`, and a private key in the OS keychain). The toggle
-    /// is disabled in the UI when credentials are not configured.
+    /// 1. **Apple Music API** (Step 6) — queries music video relationships
+    ///    for each track. Requires MusicKit credentials (Team ID, Key ID,
+    ///    and private key in OS keychain). Gracefully skipped when
+    ///    credentials are not configured.
+    /// 2. **MusicBrainz ISRC lookup** (Step 6b) — discovers videos via
+    ///    ISRC codes. No credentials required. Apple Music URLs found
+    ///    here are downloaded via GAMDL.
     ///
     /// Music videos use the video quality settings from Settings > Quality
     /// (resolution, codec priority, remux format).
@@ -320,10 +322,11 @@ pub struct AppSettings {
 
     /// When enabled, uses the MusicBrainz database to discover music
     /// videos and cross-platform links for downloaded tracks via ISRC
-    /// codes. No credentials required (free public API). Runs as a
-    /// fallback when the MusicKit-based video lookup finds no results.
-    /// Also stores discovered platform URLs (Spotify, YouTube, etc.)
-    /// as metadata for future cross-platform features.
+    /// codes. No credentials required (free public API). Also used by
+    /// Music Video Companions (when enabled) as a fallback or sole
+    /// discovery source when MusicKit credentials are not configured.
+    /// Stores discovered platform URLs (Spotify, YouTube, etc.) as
+    /// metadata for future cross-platform features.
     #[serde(default)]
     pub musicbrainz_lookup: bool,
 
@@ -831,7 +834,7 @@ impl Default for AppSettings {
             companion_mode: CompanionMode::AtmosToLossless,
             // No custom companion codecs — only relevant in Custom mode.
             custom_companion_codecs: Vec::new(),
-            // Music video companions disabled by default — requires MusicKit credentials.
+            // Music video companions disabled by default — experimental feature.
             music_video_companion: false,
             // MusicBrainz lookup disabled by default — opt-in for video discovery fallback.
             musicbrainz_lookup: false,

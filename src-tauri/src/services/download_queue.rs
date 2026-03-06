@@ -1601,18 +1601,21 @@ fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
 // Music video companion downloads
 // ============================================================
 
-/// Downloads music videos as companions for audio tracks.
+/// Downloads music videos as companions via the Apple Music API (Step 6).
 ///
 /// Called inside the enrichment pipeline's async block (after Step 5: ReplayGain).
 /// Queries the Apple Music API to find music videos related to the downloaded
 /// tracks, then spawns a GAMDL invocation for each available music video.
 ///
 /// This is a fire-and-forget operation — failures are logged but do not
-/// affect the primary download status or queue progression.
+/// affect the primary download status or queue progression. Gracefully
+/// skips if MusicKit credentials are not configured — Step 6b (MusicBrainz)
+/// provides a credential-free fallback path.
 ///
 /// # Requirements
 /// - `settings.music_video_companion` must be `true`
-/// - MusicKit credentials must be configured (Team ID, Key ID, private key)
+/// - MusicKit credentials required (Team ID, Key ID, private key) — exits
+///   early with a debug log if missing
 /// - `album_metadata` provides song IDs (reused from enrichment Step 1)
 async fn spawn_music_video_companion_inner(
     app: &tauri::AppHandle,
@@ -1735,7 +1738,7 @@ async fn spawn_music_video_companion_inner(
         &format!("Found {} music video(s) — downloading as companions", unique_relations.len()),
     );
 
-    // Download each music video
+    // Download each music video using the shared helper
     for relation in &unique_relations {
         if shutdown.is_triggered() {
             log::info!("Music video companions stopping early for {dl_id} (app shutting down)");
@@ -1754,75 +1757,7 @@ async fn spawn_music_video_companion_inner(
             &format!("Downloading music video: {mv_name}"),
         );
 
-        // Build minimal GamdlOptions focused on video download. We reuse the
-        // user's video quality settings (resolution, codec priority, remux format)
-        // and authentication settings (cookies, wrapper) to ensure consistency.
-        // Audio-specific fields (song_codec, fallback chain) are left at defaults
-        // since GAMDL auto-detects content type from the music video URL.
-        let opts = crate::models::gamdl_options::GamdlOptions {
-            output_path: Some(settings.output_path.clone()),
-            music_video_resolution: Some(settings.default_video_resolution.clone()),
-            music_video_codec_priority: Some(settings.default_video_codec_priority.clone()),
-            music_video_remux_format: Some(settings.default_video_remux_format.clone()),
-            temp_path: Some(settings.temp_path.clone()),
-            cookies_path: settings.cookies_path.clone(),
-            use_wrapper: Some(settings.use_wrapper),
-            wrapper_account_url: if settings.use_wrapper {
-                Some(settings.wrapper_account_url.clone())
-            } else {
-                None
-            },
-            ..Default::default()
-        };
-
-        // Build and spawn the GAMDL command with the music video URL
-        let mv_urls = vec![mv_url];
-        let mut cmd = match super::gamdl_service::build_gamdl_command_public(app, &mv_urls, &opts) {
-            Ok(c) => c,
-            Err(e) => {
-                log::debug!("Music video companion command build failed for {dl_id}: {e}");
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!("Music video download failed ({mv_name}): {e}"),
-                );
-                continue;
-            }
-        };
-
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-
-        match cmd.spawn() {
-            Ok(child) => match child.wait_with_output().await {
-                Ok(output) if output.status.success() => {
-                    log::info!("Music video companion downloaded for {dl_id}: {mv_name}");
-                    emit_download_log(
-                        app,
-                        dl_id,
-                        &format!("Music video downloaded: {mv_name}"),
-                    );
-                }
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let last_err = stderr.lines().last().unwrap_or("unknown error");
-                    log::debug!(
-                        "Music video companion failed for {dl_id} ({mv_name}): {last_err}"
-                    );
-                    emit_download_log(
-                        app,
-                        dl_id,
-                        &format!("Music video failed ({mv_name}): {last_err}"),
-                    );
-                }
-                Err(e) => {
-                    log::debug!("Music video companion process error for {dl_id}: {e}");
-                }
-            },
-            Err(e) => {
-                log::debug!("Failed to spawn music video companion for {dl_id}: {e}");
-            }
-        }
+        download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings).await;
     }
 
     emit_download_log(
@@ -1833,6 +1768,89 @@ async fn spawn_music_video_companion_inner(
             unique_relations.len()
         ),
     );
+}
+
+/// Downloads a single music video given its Apple Music URL.
+///
+/// Shared helper used by both the MusicKit-based video companion pipeline
+/// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
+/// minimal `GamdlOptions` using the user's video quality settings and
+/// spawns a GAMDL subprocess. Fire-and-forget: failures are logged but
+/// do not affect the primary download.
+///
+/// Returns `true` if the download succeeded, `false` otherwise.
+async fn download_music_video_by_url(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    video_url: &str,
+    video_label: &str,
+    settings: &crate::models::settings::AppSettings,
+) -> bool {
+    let opts = crate::models::gamdl_options::GamdlOptions {
+        output_path: Some(settings.output_path.clone()),
+        music_video_resolution: Some(settings.default_video_resolution.clone()),
+        music_video_codec_priority: Some(settings.default_video_codec_priority.clone()),
+        music_video_remux_format: Some(settings.default_video_remux_format.clone()),
+        temp_path: Some(settings.temp_path.clone()),
+        cookies_path: settings.cookies_path.clone(),
+        use_wrapper: Some(settings.use_wrapper),
+        wrapper_account_url: if settings.use_wrapper {
+            Some(settings.wrapper_account_url.clone())
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+
+    let urls = vec![video_url.to_string()];
+    let mut cmd = match super::gamdl_service::build_gamdl_command_public(app, &urls, &opts) {
+        Ok(c) => c,
+        Err(e) => {
+            log::debug!("Music video download command build failed for {dl_id}: {e}");
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Music video download failed ({video_label}): {e}"),
+            );
+            return false;
+        }
+    };
+
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    match cmd.spawn() {
+        Ok(child) => match child.wait_with_output().await {
+            Ok(output) if output.status.success() => {
+                log::info!("Music video downloaded for {dl_id}: {video_label}");
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!("Music video downloaded: {video_label}"),
+                );
+                true
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let last_err = stderr.lines().last().unwrap_or("unknown error");
+                log::debug!("Music video download failed for {dl_id} ({video_label}): {last_err}");
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!("Music video failed ({video_label}): {last_err}"),
+                );
+                false
+            }
+            Err(e) => {
+                log::debug!("Music video process error for {dl_id}: {e}");
+                false
+            }
+        },
+        Err(e) => {
+            log::debug!("Failed to spawn music video download for {dl_id}: {e}");
+            false
+        }
+    }
 }
 
 // ============================================================
@@ -3786,15 +3804,16 @@ pub fn process_queue(
                                 }
                             }
 
-                            // --- Step 6: Music video companion downloads (opt-in) ---
-                            // When `music_video_companion` is enabled AND MusicKit credentials
-                            // are configured, queries the Apple Music API for music videos
-                            // related to the downloaded tracks. Each found video is downloaded
-                            // as a separate GAMDL subprocess. Reuses album_metadata from Step 1
+                            // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
+                            // When `music_video_companion` is enabled, queries the Apple Music
+                            // API for music videos related to the downloaded tracks (requires
+                            // MusicKit credentials). Each found video is downloaded as a
+                            // separate GAMDL subprocess. Reuses album_metadata from Step 1
                             // (avoids duplicate API calls). Fire-and-forget: API failures or
                             // video download failures do NOT affect the primary download status
-                            // or queue progression. Skipped if the original URL is already a
-                            // music-video URL (no self-referencing companion).
+                            // or queue progression. Gracefully skips if MusicKit credentials
+                            // are not configured — Step 6b (MusicBrainz) provides a
+                            // credential-free fallback path.
                             if enrich_settings.music_video_companion && !enrich_shutdown.is_triggered() {
                                 spawn_music_video_companion_inner(
                                     &enrich_app,
@@ -3806,13 +3825,19 @@ pub fn process_queue(
                                 ).await;
                             }
 
-                            // --- Step 6b: MusicBrainz video discovery (opt-in fallback) ---
-                            // When enabled, uses MusicBrainz ISRC lookups to discover music
-                            // videos that the MusicKit API may have missed. No credentials
-                            // required. Also stores cross-platform URLs (YouTube, Spotify,
-                            // etc.) as metadata for future use.
+                            // --- Step 6b: MusicBrainz video discovery and download ---
+                            // Runs when `musicbrainz_lookup` OR `music_video_companion` is
+                            // enabled. Uses MusicBrainz ISRC lookups to discover music videos
+                            // that the MusicKit API may have missed (or as the sole discovery
+                            // method when MusicKit credentials are not configured). No
+                            // credentials required. When `music_video_companion` is also
+                            // enabled, Apple Music video URLs discovered here are downloaded
+                            // via GAMDL (same as Step 6). Cross-platform URLs (YouTube,
+                            // Spotify, etc.) are logged for future reference.
                             tokio::task::yield_now().await;
-                            if enrich_settings.musicbrainz_lookup && !enrich_shutdown.is_triggered() {
+                            let run_musicbrainz = (enrich_settings.musicbrainz_lookup || enrich_settings.music_video_companion)
+                                && !enrich_shutdown.is_triggered();
+                            if run_musicbrainz {
                                 // Only run MusicBrainz lookup if we have ISRC codes from Step 1
                                 if let Some(ref metadata) = album_metadata {
                                     let isrc_tracks: Vec<(String, Option<String>)> = metadata
@@ -3830,7 +3855,7 @@ pub fn process_queue(
 
                                         match super::musicbrainz_service::lookup_videos_for_tracks(&isrc_tracks).await {
                                             Ok(videos) if !videos.is_empty() => {
-                                                // Filter for Apple Music video URLs (downloadable now)
+                                                // Filter for Apple Music video URLs (downloadable via GAMDL)
                                                 let am_videos: Vec<_> = videos.iter()
                                                     .filter(|v| v.platform == "apple_music")
                                                     .collect();
@@ -3853,6 +3878,31 @@ pub fn process_queue(
                                                         video.platform,
                                                         video.url,
                                                     );
+                                                }
+
+                                                // Download Apple Music videos when music_video_companion is enabled
+                                                if enrich_settings.music_video_companion && !am_videos.is_empty() {
+                                                    emit_download_log(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "MusicBrainz: downloading {} Apple Music video(s)...",
+                                                            am_videos.len(),
+                                                        ),
+                                                    );
+                                                    for video in &am_videos {
+                                                        if enrich_shutdown.is_triggered() {
+                                                            break;
+                                                        }
+                                                        let label = video.title.as_deref().unwrap_or("unknown");
+                                                        download_music_video_by_url(
+                                                            &enrich_app,
+                                                            &enrich_dl_id,
+                                                            &video.url,
+                                                            label,
+                                                            &enrich_settings,
+                                                        ).await;
+                                                    }
                                                 }
                                             }
                                             Ok(_) => {
