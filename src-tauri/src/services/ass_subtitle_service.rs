@@ -64,8 +64,8 @@ pub fn generate_ass_for_directory(album_dir: &str) -> Result<usize, String> {
         return Err(format!("Not a directory: {album_dir}"));
     }
 
-    let entries = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
 
     let mut generated = 0;
 
@@ -223,7 +223,9 @@ pub fn ttml_to_ass(ttml_content: &str, title: &str) -> Result<String, String> {
     let mut ass = build_script_info(title);
     ass.push_str(&build_styles(has_bg_vocals));
     ass.push_str("\n[Events]\n");
-    ass.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+    ass.push_str(
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+    );
     for event in &events {
         ass.push_str(event);
         ass.push('\n');
@@ -348,7 +350,9 @@ pub fn webvtt_to_ass(vtt_content: &str, title: &str) -> Result<String, String> {
     let mut ass = build_script_info(title);
     ass.push_str(&build_styles(false));
     ass.push_str("\n[Events]\n");
-    ass.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+    ass.push_str(
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+    );
     for event in &events {
         ass.push_str(event);
         ass.push('\n');
@@ -377,10 +381,7 @@ fn vtt_tags_to_ass(line: &str) -> String {
                 }
             }
 
-            let tag_inner = tag
-                .trim_start_matches('<')
-                .trim_end_matches('>')
-                .trim();
+            let tag_inner = tag.trim_start_matches('<').trim_end_matches('>').trim();
             let tag_lower = tag_inner.to_lowercase();
 
             match tag_lower.as_str() {
@@ -619,22 +620,34 @@ mod tests {
 
     #[test]
     fn rgb_to_ass_red() {
-        assert_eq!(rgb_hex_to_ass_color("#FF0000"), Some("&H000000FF&".to_string()));
+        assert_eq!(
+            rgb_hex_to_ass_color("#FF0000"),
+            Some("&H000000FF&".to_string())
+        );
     }
 
     #[test]
     fn rgb_to_ass_blue() {
-        assert_eq!(rgb_hex_to_ass_color("#0000FF"), Some("&H00FF0000&".to_string()));
+        assert_eq!(
+            rgb_hex_to_ass_color("#0000FF"),
+            Some("&H00FF0000&".to_string())
+        );
     }
 
     #[test]
     fn rgb_to_ass_white() {
-        assert_eq!(rgb_hex_to_ass_color("#FFFFFF"), Some("&H00FFFFFF&".to_string()));
+        assert_eq!(
+            rgb_hex_to_ass_color("#FFFFFF"),
+            Some("&H00FFFFFF&".to_string())
+        );
     }
 
     #[test]
     fn rgb_to_ass_green() {
-        assert_eq!(rgb_hex_to_ass_color("#00FF00"), Some("&H0000FF00&".to_string()));
+        assert_eq!(
+            rgb_hex_to_ass_color("#00FF00"),
+            Some("&H0000FF00&".to_string())
+        );
     }
 
     #[test]
@@ -654,19 +667,28 @@ mod tests {
 
     #[test]
     fn ass_overrides_bold() {
-        let style = TtmlStyle { bold: true, ..Default::default() };
+        let style = TtmlStyle {
+            bold: true,
+            ..Default::default()
+        };
         assert_eq!(apply_ass_overrides("hello", &style), "{\\b1}hello{\\b0}");
     }
 
     #[test]
     fn ass_overrides_italic() {
-        let style = TtmlStyle { italic: true, ..Default::default() };
+        let style = TtmlStyle {
+            italic: true,
+            ..Default::default()
+        };
         assert_eq!(apply_ass_overrides("hello", &style), "{\\i1}hello{\\i0}");
     }
 
     #[test]
     fn ass_overrides_underline() {
-        let style = TtmlStyle { underline: true, ..Default::default() };
+        let style = TtmlStyle {
+            underline: true,
+            ..Default::default()
+        };
         assert_eq!(apply_ass_overrides("hello", &style), "{\\u1}hello{\\u0}");
     }
 

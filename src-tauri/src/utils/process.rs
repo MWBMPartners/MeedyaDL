@@ -1089,7 +1089,8 @@ mod tests {
         // captured as Error events, even when they contain "exception" in a
         // function name (e.g., `map_httpcore_exceptions`). These are stack
         // frames, not error messages.
-        let line = r#"File "/path/to/httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
+        let line =
+            r#"File "/path/to/httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
         if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
             panic!("Traceback frame should not be captured as Error");
         }

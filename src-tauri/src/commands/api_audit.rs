@@ -31,9 +31,6 @@ use crate::services::api_audit_service::{self, ApiAuditResult};
 /// * `Ok(ApiAuditResult)` - Audit results with field breakdowns
 /// * `Err(String)` - Credential, URL, or API error
 #[tauri::command]
-pub async fn audit_api_fields(
-    app: AppHandle,
-    album_url: String,
-) -> Result<ApiAuditResult, String> {
+pub async fn audit_api_fields(app: AppHandle, album_url: String) -> Result<ApiAuditResult, String> {
     api_audit_service::audit_album_fields(&app, album_url).await
 }
