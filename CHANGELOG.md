@@ -33,7 +33,7 @@ GAMDL 2.9.2 fixes artist download pagination. Bump MIN_COMPATIBLE_GAMDL
 
 - Create meedyadl-tools mirror repository for tool binary fallbacks
 
-  Created MWBMPartners/meedyadl-tools GitHub repo with a `latest` release
+  Created MeedyaDL/MeedyaDL-Tools GitHub repo with a `latest` release
   tag for hosting pre-built tool binaries. Initial asset: ARM64 Linux
   MP4Box binary. This enables the mirror fallback path in the dependency
   manager when primary upstream sources fail.
