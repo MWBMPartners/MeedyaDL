@@ -60,7 +60,7 @@ import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
 import type { SongCodec, VideoResolution } from '@/types';
 
 // Shared components: Button for toggle tabs, FallbackChainList for reorderable lists.
-import { Button, FallbackChainList } from '@/components/common';
+import { Button, FallbackChainList, SettingsSection } from '@/components/common';
 
 /**
  * FallbackTab -- Main exported component for the Fallback settings tab.
@@ -91,18 +91,13 @@ export function FallbackTab() {
   const [activeChain, setActiveChain] = useState<'music' | 'video'>('music');
 
   return (
-    <div className="space-y-6 max-w-xl">
-      <div>
-        <p className="text-sm text-content-secondary mb-4">
-          When the preferred codec or resolution is unavailable, GAMDL will automatically try the
-          next option in the chain. Drag items to reorder priority (top = highest priority). Note:
-          codecs marked (Experimental) may fail intermittently without the Wrapper service — only
-          AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone.
-        </p>
-      </div>
-
-      {/* Chain selector tabs */}
-      <div className="flex gap-2 border-b border-border-light pb-2">
+    <div className="space-y-3 max-w-xl">
+      <SettingsSection
+        title="Fallback Chain"
+        description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Drag items to reorder priority (top = highest priority). Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."
+      >
+        {/* Chain selector tabs */}
+        <div className="flex gap-2 border-b border-border-light pb-2">
         <Button
           variant={activeChain === 'music' ? 'primary' : 'ghost'}
           size="sm"
@@ -119,40 +114,41 @@ export function FallbackTab() {
         </Button>
       </div>
 
-      {/* Music fallback chain */}
-      {activeChain === 'music' && (
-        <div>
-          <h3 className="text-base font-semibold text-content-primary mb-2">
-            Audio Codec Fallback Chain
-          </h3>
-          <p className="text-xs text-content-tertiary mb-3">
-            <strong>ALAC</strong> = lossless (perfect quality) &middot; <strong>Atmos</strong> =
-            spatial 3D audio &middot; <strong>AC3</strong> = 5.1 surround sound &middot;{' '}
-            <strong>AAC Binaural</strong> = spatial for regular headphones &middot;{' '}
-            <strong>AAC</strong> = standard quality &middot; <strong>AAC Legacy</strong> = older
-            device compatibility
-          </p>
-          <FallbackChainList<SongCodec>
-            items={settings.music_fallback_chain}
-            labels={SONG_CODEC_LABELS}
-            onChange={(chain) => updateSettings({ music_fallback_chain: chain })}
-          />
-        </div>
-      )}
+        {/* Music fallback chain */}
+        {activeChain === 'music' && (
+          <div>
+            <h4 className="text-sm font-semibold text-content-primary mb-2">
+              Audio Codec Fallback Chain
+            </h4>
+            <p className="text-xs text-content-tertiary mb-3">
+              <strong>ALAC</strong> = lossless (perfect quality) &middot; <strong>Atmos</strong> =
+              spatial 3D audio &middot; <strong>AC3</strong> = 5.1 surround sound &middot;{' '}
+              <strong>AAC Binaural</strong> = spatial for regular headphones &middot;{' '}
+              <strong>AAC</strong> = standard quality &middot; <strong>AAC Legacy</strong> = older
+              device compatibility
+            </p>
+            <FallbackChainList<SongCodec>
+              items={settings.music_fallback_chain}
+              labels={SONG_CODEC_LABELS}
+              onChange={(chain) => updateSettings({ music_fallback_chain: chain })}
+            />
+          </div>
+        )}
 
-      {/* Video fallback chain */}
-      {activeChain === 'video' && (
-        <div>
-          <h3 className="text-base font-semibold text-content-primary mb-3">
-            Video Resolution Fallback Chain
-          </h3>
-          <FallbackChainList<VideoResolution>
-            items={settings.video_fallback_chain}
-            labels={VIDEO_RESOLUTION_LABELS}
-            onChange={(chain) => updateSettings({ video_fallback_chain: chain })}
-          />
-        </div>
-      )}
+        {/* Video fallback chain */}
+        {activeChain === 'video' && (
+          <div>
+            <h4 className="text-sm font-semibold text-content-primary mb-3">
+              Video Resolution Fallback Chain
+            </h4>
+            <FallbackChainList<VideoResolution>
+              items={settings.video_fallback_chain}
+              labels={VIDEO_RESOLUTION_LABELS}
+              onChange={(chain) => updateSettings({ video_fallback_chain: chain })}
+            />
+          </div>
+        )}
+      </SettingsSection>
     </div>
   );
 }

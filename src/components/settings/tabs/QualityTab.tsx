@@ -55,7 +55,7 @@
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form components.
-import { Select, Toggle, FallbackChainList, CheckboxGroup } from '@/components/common';
+import { Select, Toggle, FallbackChainList, CheckboxGroup, SettingsSection } from '@/components/common';
 
 // Label maps and type definitions for audio codecs, video resolutions, video codecs, and companion modes.
 // These Record<T, string> maps are used to populate the <Select> dropdown options and reorderable lists.
@@ -148,10 +148,9 @@ export function QualityTab() {
   ];
 
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="space-y-3 max-w-xl">
       {/* Section: Audio */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Audio Quality</h3>
+      <SettingsSection title="Audio Quality">
 
         {/* Default audio codec */}
         <Select
@@ -219,11 +218,10 @@ export function QualityTab() {
             });
           }}
         />
-      </div>
+      </SettingsSection>
 
       {/* Section: Video */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Video Quality</h3>
+      <SettingsSection title="Video Quality">
 
         {/* Default video resolution */}
         <Select
@@ -293,7 +291,7 @@ export function QualityTab() {
           checked={settings.musicbrainz_lookup}
           onChange={(checked) => updateSettings({ musicbrainz_lookup: checked })}
         />
-      </div>
+      </SettingsSection>
     </div>
   );
 }

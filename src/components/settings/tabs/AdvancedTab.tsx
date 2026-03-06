@@ -85,7 +85,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
 // Input for text/number fields, Button for actions.
-import { Select, Toggle, Input, Button, HelpButton } from '@/components/common';
+import { Select, Toggle, Input, Button, HelpButton, SettingsSection } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
 import type { DownloadMode, RemuxMode, WrapperTestResult, ApiAuditResult } from '@/types';
@@ -261,12 +261,9 @@ export function AdvancedTab() {
   };
 
   return (
-    <div className="space-y-6 max-w-xl">
-      {/* Section: Processing */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Processing</h3>
-
-        {/* Download mode */}
+    <div className="space-y-3 max-w-xl">
+      {/* ── Processing ── */}
+      <SettingsSection title="Processing" description="Download and remux tool selection.">
         <Select
           label="Download Mode"
           description="Which tool to use for downloading HLS streams"
@@ -274,8 +271,6 @@ export function AdvancedTab() {
           value={settings.download_mode}
           onChange={(e) => updateSettings({ download_mode: e.target.value as DownloadMode })}
         />
-
-        {/* Remux mode */}
         <Select
           label="Remux Mode"
           description="Which tool to use for video remuxing. MP4Box handles subtitle/CC tracks better."
@@ -283,12 +278,110 @@ export function AdvancedTab() {
           value={settings.remux_mode}
           onChange={(e) => updateSettings({ remux_mode: e.target.value as RemuxMode })}
         />
-      </div>
+      </SettingsSection>
 
-      {/* Section: Wrapper */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Wrapper</h3>
+      {/* ── File Options ── */}
+      <SettingsSection title="File Options" description="Filename truncation and metadata tag exclusions.">
+        <Input
+          label="Truncate Filenames"
+          description="Maximum filename length (leave empty for no limit)"
+          type="number"
+          min={10}
+          max={255}
+          value={settings.truncate?.toString() ?? ''}
+          placeholder="No limit"
+          onChange={(e) => {
+            const val = e.target.value;
+            updateSettings({ truncate: val ? parseInt(val, 10) : null });
+          }}
+        />
+        <Input
+          label="Excluded Tags"
+          description="Comma-separated list of metadata tags to exclude from downloaded files"
+          value={settings.exclude_tags.join(', ')}
+          placeholder="e.g., lyrics, comment"
+          onChange={(e) => {
+            const tags = e.target.value
+              .split(',')
+              .map((t) => t.trim())
+              .filter(Boolean);
+            updateSettings({ exclude_tags: tags });
+          }}
+        />
+      </SettingsSection>
 
+      {/* ── Error Reporting ── */}
+      <SettingsSection title="Error Reporting" description="Crash report settings and local error history.">
+        <Toggle
+          label="Send Anonymous Crash Reports"
+          description="When enabled, anonymous crash data (error message, stack trace, app version, OS) is sent to our error tracking service to help identify and fix bugs. No personal data, download history, or account information is ever included. Requires an app restart to take effect."
+          checked={settings.sentry_enabled}
+          onChange={(checked) => updateSettings({ sentry_enabled: checked })}
+        />
+        <p className="text-xs text-content-tertiary">
+          Error reports (crashes and download failures) are always saved locally to your app data
+          directory regardless of this setting. You can view and report them below.
+        </p>
+        <CrashReportSection />
+      </SettingsSection>
+
+      {/* ── Diagnostics ── */}
+      <SettingsSection title="Diagnostics" description="Verbose logging for troubleshooting.">
+        <Toggle
+          label="Verbose Activity Log"
+          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. This setting is session-only and will reset to off when the application is restarted."
+          checked={settings.verbose_activity_log}
+          onChange={(checked) => updateSettings({ verbose_activity_log: checked })}
+        />
+        {settings.verbose_activity_log && (
+          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+            <p className="text-xs font-semibold text-status-warning mb-1">
+              Sensitive Data Warning
+            </p>
+            <p className="text-xs text-status-warning">
+              Verbose logging includes detailed information that may contain sensitive data such as
+              cookie file paths/values, wrapper URLs with authentication tokens, Apple Music API responses,
+              MusicKit credentials, and full download URLs. Disable this setting before sharing
+              activity logs with others.
+            </p>
+            <p className="text-xs text-status-warning mt-2">
+              As a safety measure, this setting will automatically reset to off when the application
+              is restarted. You will need to re-enable it each session if needed.
+            </p>
+          </div>
+        )}
+      </SettingsSection>
+
+      {/* ── Setup ── */}
+      <SettingsSection title="Setup" description="Re-run the first-time setup wizard.">
+        <p className="text-xs text-content-secondary">
+          Verify and reinstall dependencies. Your existing settings will be preserved.
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={async () => {
+            const confirmed = window.confirm(
+              'This will reset the setup wizard flag and reload the app. ' +
+                'Your settings will be preserved, but the setup wizard will ' +
+                'appear on next load to verify your dependencies. Continue?'
+            );
+            if (!confirmed) return;
+            updateSettings({ setup_completed: false });
+            try {
+              await saveSettings();
+            } catch {
+              /* Reload anyway — in-memory state has setup_completed: false */
+            }
+            window.location.reload();
+          }}
+        >
+          Re-run Setup Wizard
+        </Button>
+      </SettingsSection>
+
+      {/* ── Wrapper ── */}
+      <SettingsSection title="Wrapper" description="Alternative authentication via a locally-running wrapper service." defaultOpen={false}>
         {!supportsWrapper && (
           <p className="text-xs text-content-tertiary bg-surface-secondary rounded-platform p-2">
             The Wrapper service only provides native binaries for Linux x86_64. On this platform you
@@ -313,15 +406,12 @@ export function AdvancedTab() {
               checked={settings.auto_retry_without_wrapper}
               onChange={(checked) => updateSettings({ auto_retry_without_wrapper: checked })}
             />
-
             <Input
               label="Wrapper Account URL"
               description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper for setup instructions."
               value={settings.wrapper_account_url}
               onChange={(e) => updateSettings({ wrapper_account_url: e.target.value })}
             />
-
-            {/* Test Connection button with inline result display */}
             <div className="flex items-center gap-2">
               <Button
                 variant="secondary"
@@ -344,110 +434,11 @@ export function AdvancedTab() {
             </div>
           </>
         )}
-      </div>
+      </SettingsSection>
 
-      {/* Section: File Options */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">File Options</h3>
-
-        {/* Filename truncation -- nullable number field.
-            When the input is empty, `truncate` is set to `null` (no limit).
-            When the input has a value, it is parsed to an integer. The
-            nullish coalescing operator (`?? ''`) converts `null` to an
-            empty string for the input's display value. */}
-        <Input
-          label="Truncate Filenames"
-          description="Maximum filename length (leave empty for no limit)"
-          type="number"
-          min={10}
-          max={255}
-          value={settings.truncate?.toString() ?? ''} /* null -> '' for display */
-          placeholder="No limit"
-          onChange={(e) => {
-            const val = e.target.value;
-            updateSettings({
-              truncate: val ? parseInt(val, 10) : null, // Empty string -> null (no limit)
-            });
-          }}
-        />
-
-        {/* Excluded tags -- comma-separated string <-> string[] conversion.
-            The display value joins the array with ', ' for readability.
-            The onChange handler splits on commas, trims whitespace from
-            each segment, and filters out empty strings to avoid storing
-            blank entries in the array. */}
-        <Input
-          label="Excluded Tags"
-          description="Comma-separated list of metadata tags to exclude from downloaded files"
-          value={settings.exclude_tags.join(', ')} /* string[] -> display string */
-          placeholder="e.g., lyrics, comment"
-          onChange={(e) => {
-            const tags = e.target.value
-              .split(',') // Split on commas into segments
-              .map((t) => t.trim()) // Trim whitespace from each segment
-              .filter(Boolean); // Remove empty strings (e.g., trailing comma)
-            updateSettings({ exclude_tags: tags }); // Persist as string[]
-          }}
-        />
-      </div>
-
-      {/* Section: Error Reporting */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Error Reporting</h3>
-
-        <Toggle
-          label="Send Anonymous Crash Reports"
-          description="When enabled, anonymous crash data (error message, stack trace, app version, OS) is sent to our error tracking service to help identify and fix bugs. No personal data, download history, or account information is ever included. Requires an app restart to take effect."
-          checked={settings.sentry_enabled}
-          onChange={(checked) => updateSettings({ sentry_enabled: checked })}
-        />
-
-        <p className="text-xs text-content-tertiary">
-          Error reports (crashes and download failures) are always saved locally to your app data
-          directory regardless of this setting. You can view and report them below.
-        </p>
-
-        {/* Recent error reports list with GitHub reporting */}
-        <CrashReportSection />
-      </div>
-
-      {/* Section: Diagnostics */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">Diagnostics</h3>
-
-        <Toggle
-          label="Verbose Activity Log"
-          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. This setting is session-only and will reset to off when the application is restarted."
-          checked={settings.verbose_activity_log}
-          onChange={(checked) => updateSettings({ verbose_activity_log: checked })}
-        />
-
-        {settings.verbose_activity_log && (
-          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
-            <p className="text-xs font-semibold text-status-warning mb-1">
-              Sensitive Data Warning
-            </p>
-            <p className="text-xs text-status-warning">
-              Verbose logging includes detailed information that may contain sensitive data such as
-              cookie file paths/values, wrapper URLs with authentication tokens, Apple Music API responses,
-              MusicKit credentials, and full download URLs. Disable this setting before sharing
-              activity logs with others.
-            </p>
-            <p className="text-xs text-status-warning mt-2">
-              As a safety measure, this setting will automatically reset to off when the application
-              is restarted. You will need to re-enable it each session if needed.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ================================================================
-          Section: API Credentials
-          ================================================================ */}
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-content-primary mb-4">API Credentials</h3>
-
-        {/* ── MusicKit Credentials ── */}
+      {/* ── API Credentials ── */}
+      <SettingsSection title="API Credentials" description="MusicKit, AcoustID, and developer tools." defaultOpen={false}>
+        {/* MusicKit */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <h4 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h4>
@@ -465,8 +456,6 @@ export function AdvancedTab() {
             </button>
             .
           </p>
-
-          {/* Team ID */}
           <Input
             label="MusicKit Team ID"
             description="Your Apple Developer Team ID (10-character alphanumeric)"
@@ -474,8 +463,6 @@ export function AdvancedTab() {
             placeholder="XXXXXXXXXX"
             onChange={(e) => updateSettings({ musickit_team_id: e.target.value || null })}
           />
-
-          {/* Key ID */}
           <Input
             label="MusicKit Key ID"
             description="The Key ID for your MusicKit private key (10-character alphanumeric)"
@@ -483,8 +470,6 @@ export function AdvancedTab() {
             placeholder="XXXXXXXXXX"
             onChange={(e) => updateSettings({ musickit_key_id: e.target.value || null })}
           />
-
-          {/* Private Key (stored in OS keychain) */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-content-primary">
               MusicKit Private Key (.p8)
@@ -524,8 +509,6 @@ export function AdvancedTab() {
               )}
             </div>
           </div>
-
-          {/* Test Credentials button */}
           <div className="flex items-start gap-2">
             <Button
               className="shrink-0"
@@ -551,13 +534,11 @@ export function AdvancedTab() {
           </div>
         </div>
 
-        {/* Divider between MusicKit and AcoustID */}
         <div className="border-t border-border" />
 
-        {/* ── AcoustID API Key ── */}
+        {/* AcoustID */}
         <div className="space-y-3">
           <h4 className="text-sm font-medium text-content-secondary">AcoustID</h4>
-
           <Input
             label={hasBuiltInKey ? 'AcoustID API Key (Optional Override)' : 'AcoustID API Key'}
             description={
@@ -600,10 +581,9 @@ export function AdvancedTab() {
           />
         </div>
 
-        {/* Divider between AcoustID and API Field Audit */}
         <div className="border-t border-border" />
 
-        {/* ── API Field Audit (developer diagnostic tool) ── */}
+        {/* API Field Audit */}
         <div>
           <button
             type="button"
@@ -637,17 +617,14 @@ export function AdvancedTab() {
                   {auditLoading ? 'Auditing...' : 'Audit'}
                 </button>
               </div>
-
               {!hasMusicKitCredentials && (
                 <p className="text-sm text-status-warning">
                   MusicKit credentials required. Configure Team ID and Key ID above.
                 </p>
               )}
-
               {auditError && (
                 <p className="text-sm text-status-error">{auditError}</p>
               )}
-
               {auditResult && (
                 <div className="space-y-3 text-sm">
                   <div className="flex gap-4 flex-wrap">
@@ -658,7 +635,6 @@ export function AdvancedTab() {
                       {auditResult.track_count} tracks
                     </span>
                   </div>
-
                   <div className="flex gap-4 flex-wrap text-sm">
                     <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400">
                       {auditResult.known_fields.length} known
@@ -670,7 +646,6 @@ export function AdvancedTab() {
                       {auditResult.missing_fields.length} missing
                     </span>
                   </div>
-
                   {auditResult.unknown_fields.length > 0 && (
                     <div>
                       <h4 className="text-sm font-medium text-amber-400 mb-1">
@@ -697,7 +672,6 @@ export function AdvancedTab() {
                       </div>
                     </div>
                   )}
-
                   {auditResult.missing_fields.length > 0 && (
                     <div>
                       <h4 className="text-sm font-medium text-gray-400 mb-1">
@@ -713,39 +687,7 @@ export function AdvancedTab() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* ================================================================
-          Section: Setup
-          ================================================================ */}
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-2">Setup</h3>
-        <p className="text-xs text-content-secondary mb-3">
-          Re-run the first-time setup wizard to verify and reinstall dependencies. Your existing
-          settings will be preserved.
-        </p>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={async () => {
-            const confirmed = window.confirm(
-              'This will reset the setup wizard flag and reload the app. ' +
-                'Your settings will be preserved, but the setup wizard will ' +
-                'appear on next load to verify your dependencies. Continue?'
-            );
-            if (!confirmed) return;
-            updateSettings({ setup_completed: false });
-            try {
-              await saveSettings();
-            } catch {
-              /* Reload anyway — in-memory state has setup_completed: false */
-            }
-            window.location.reload();
-          }}
-        >
-          Re-run Setup Wizard
-        </Button>
-      </div>
+      </SettingsSection>
     </div>
   );
 }

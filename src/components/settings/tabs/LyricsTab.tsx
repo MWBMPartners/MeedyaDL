@@ -38,7 +38,7 @@
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Shared form component: Toggle for boolean switches.
-import { Toggle } from '@/components/common';
+import { Toggle, SettingsSection } from '@/components/common';
 
 // TypeScript union type for the lyrics format values.
 import type { LyricsFormat } from '@/types';
@@ -118,11 +118,8 @@ export function LyricsTab() {
   }
 
   return (
-    <div className="space-y-6 max-w-xl">
-      <div>
-        <h3 className="text-base font-semibold text-content-primary mb-4">Synced Lyrics</h3>
-
-        <div className="space-y-4">
+    <div className="space-y-3 max-w-xl">
+      <SettingsSection title="Synced Lyrics">
           {/* Enhanced LRC (word-by-word sync) */}
           <Toggle
             label="Enhanced Lyrics (Word-by-Word Sync)"
@@ -238,8 +235,7 @@ export function LyricsTab() {
             checked={settings.synced_lyrics_only}
             onChange={(checked) => updateSettings({ synced_lyrics_only: checked })}
           />
-        </div>
-      </div>
+      </SettingsSection>
     </div>
   );
 }
