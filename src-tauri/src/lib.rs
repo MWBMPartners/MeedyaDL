@@ -613,7 +613,7 @@ pub fn run() {
     // `Builder::default()` creates a new builder with sensible defaults.
     // Each chained method returns the builder, allowing fluent configuration.
     // Reference: https://docs.rs/tauri/latest/tauri/struct.Builder.html
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // ---------------------------------------------------------------
         // Managed State
         // ---------------------------------------------------------------
@@ -765,7 +765,8 @@ pub fn run() {
             commands::crash_reports::get_github_issue_url,
             // API field audit command (diagnostic tool)
             commands::api_audit::audit_api_fields,
-        ])
+        ]);
+
         // ---------------------------------------------------------------
         // macOS Application Menu
         // ---------------------------------------------------------------
@@ -774,51 +775,64 @@ pub fn run() {
         // showing the generic macOS About dialog. Other standard menu
         // items (Edit, Window, etc.) are preserved.
         //
+        // On Linux and Windows, no application menu is added — the app
+        // uses a custom titlebar/sidebar and the in-window menu bar is
+        // unwanted.
+        //
         // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
-        .menu(|app| {
-            use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+        #[cfg(target_os = "macos")]
+        let builder = builder
+            .menu(|app| {
+                use tauri::menu::{
+                    MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+                };
 
-            let app_submenu = SubmenuBuilder::new(app, "MeedyaDL")
-                .item(&MenuItemBuilder::with_id("about_meedyadl", "About MeedyaDL").build(app)?)
-                .separator()
-                .item(&PredefinedMenuItem::services(app, None)?)
-                .separator()
-                .hide()
-                .hide_others()
-                .show_all()
-                .separator()
-                .quit()
-                .build()?;
+                let app_submenu = SubmenuBuilder::new(app, "MeedyaDL")
+                    .item(
+                        &MenuItemBuilder::with_id("about_meedyadl", "About MeedyaDL")
+                            .build(app)?,
+                    )
+                    .separator()
+                    .item(&PredefinedMenuItem::services(app, None)?)
+                    .separator()
+                    .hide()
+                    .hide_others()
+                    .show_all()
+                    .separator()
+                    .quit()
+                    .build()?;
 
-            let edit_submenu = SubmenuBuilder::new(app, "Edit")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
+                let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
 
-            let window_submenu = SubmenuBuilder::new(app, "Window")
-                .minimize()
-                .item(&PredefinedMenuItem::maximize(app, None)?)
-                .separator()
-                .close_window()
-                .build()?;
+                let window_submenu = SubmenuBuilder::new(app, "Window")
+                    .minimize()
+                    .item(&PredefinedMenuItem::maximize(app, None)?)
+                    .separator()
+                    .close_window()
+                    .build()?;
 
-            MenuBuilder::new(app)
-                .item(&app_submenu)
-                .item(&edit_submenu)
-                .item(&window_submenu)
-                .build()
-        })
-        .on_menu_event(|app, event| {
-            if event.id().as_ref() == "about_meedyadl" {
-                use tauri::Emitter;
-                let _ = app.emit("navigate-help-about", ());
-            }
-        })
+                MenuBuilder::new(app)
+                    .item(&app_submenu)
+                    .item(&edit_submenu)
+                    .item(&window_submenu)
+                    .build()
+            })
+            .on_menu_event(|app, event| {
+                if event.id().as_ref() == "about_meedyadl" {
+                    use tauri::Emitter;
+                    let _ = app.emit("navigate-help-about", ());
+                }
+            });
+
+        builder
         // ---------------------------------------------------------------
         // Graceful Shutdown -- window event handler
         // ---------------------------------------------------------------
