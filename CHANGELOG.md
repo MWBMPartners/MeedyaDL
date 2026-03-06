@@ -9,8 +9,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### ✨ Features
 
 - Make verbose logging a session-only setting that resets on restart (#157)
-- Add custom `.desktop` file for Linux app menu integration
-- Suppress stderr tracing output in release builds to keep terminal clean
+
+Verbose logging can expose sensitive data (auth tokens, cookies, API
+  responses, MusicKit credentials). As a safety measure, it now always
+  resets to off on app startup — users must re-enable it each session.
+
+  - Reset verbose_activity_log to false in load_settings() on startup
+  - Add session-only note to toggle description and warning box in UI
+  - Update settings.rs doc comment documenting session-only behavior
+  - Update help/troubleshooting.md with session-only callout
+
+- Add Linux app menu integration and suppress release-build terminal output (#159)
+
+- Add custom .desktop file with proper Categories, Keywords, and
+    Terminal=false for Linux application menu discoverability
+  - Reference desktopTemplate in tauri.conf.json deb config
+  - Suppress stderr tracing layer in release builds unless RUST_LOG
+    is explicitly set — prevents terminal flooding on Raspberry Pi
+    and other Linux systems when launched from command line
 
 
 ### 🐛 Bug Fixes
@@ -24,6 +40,7 @@ The validation message next to the Test Credentials button was being
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
