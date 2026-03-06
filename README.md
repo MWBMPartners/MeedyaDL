@@ -334,7 +334,7 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v0.6.12) <!-- x-release-please-version -->
+### v1.x — Current (v0.6.13) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
