@@ -41,6 +41,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+/// Compile-time embedded MusicKit developer token.
+///
+/// Set via the `MUSICKIT_DEVELOPER_TOKEN` environment variable at build time
+/// (for example from a GitHub Actions secret). This enables release builds to
+/// ship with API access for end users who do not have their own Apple
+/// Developer credentials.
+///
+/// Security note: this is a bearer token (not a private key), but it can still
+/// be extracted from binaries and should be scoped/rotated operationally.
+const EMBEDDED_MUSICKIT_DEVELOPER_TOKEN: Option<&str> = option_env!("MUSICKIT_DEVELOPER_TOKEN");
+
 // ============================================================
 // Public Types
 // ============================================================
@@ -220,10 +231,8 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
 
     // Match music-video URLs: /storefront/music-video/slug/video_id
     static MV_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(
-            r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)",
-        )
-        .expect("Invalid music-video regex")
+        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)")
+            .expect("Invalid music-video regex")
     });
 
     if let Some(caps) = ALBUM_RE.captures(url) {
@@ -309,6 +318,41 @@ pub fn generate_musickit_jwt(
         .map_err(|e| format!("Invalid MusicKit private key: {e}"))?;
 
     encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign MusicKit JWT: {e}"))
+}
+
+/// Resolve the effective MusicKit developer token for API requests.
+///
+/// Priority:
+/// 1. User-provided Team ID + Key ID + private key (generate fresh JWT)
+/// 2. Compile-time embedded `MUSICKIT_DEVELOPER_TOKEN`
+/// 3. `None` (MusicKit API unavailable)
+///
+/// Returns an error only if user credentials are present but invalid.
+pub fn resolve_musickit_developer_token(
+    team_id: Option<&str>,
+    key_id: Option<&str>,
+    private_key_pem: Option<&str>,
+) -> Result<Option<String>, String> {
+    let team = team_id.map(str::trim).filter(|s| !s.is_empty());
+    let key = key_id.map(str::trim).filter(|s| !s.is_empty());
+    let private_key = private_key_pem.map(str::trim).filter(|s| !s.is_empty());
+
+    if let (Some(team), Some(key), Some(private_key)) = (team, key, private_key) {
+        return generate_musickit_jwt(team, key, private_key).map(Some);
+    }
+
+    Ok(EMBEDDED_MUSICKIT_DEVELOPER_TOKEN
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(std::string::ToString::to_string))
+}
+
+/// Returns true when a build-time MusicKit developer token is embedded.
+#[must_use]
+pub fn has_embedded_musickit_developer_token() -> bool {
+    EMBEDDED_MUSICKIT_DEVELOPER_TOKEN
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
 }
 
 // ============================================================
@@ -628,9 +672,8 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 .unwrap_or_default();
 
             // Apple Digital Master / Mastered for iTunes certification (track-level)
-            let is_apple_digital_master = attrs
-                .get("isAppleDigitalMaster")
-                .and_then(|v| v.as_bool());
+            let is_apple_digital_master =
+                attrs.get("isAppleDigitalMaster").and_then(|v| v.as_bool());
 
             // Track-level release date (may differ from album release date)
             let release_date = attrs
@@ -779,7 +822,10 @@ pub async fn fetch_music_video_relations(
             "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs?ids={ids_param}&relate=music-videos"
         );
 
-        log::debug!("Querying Apple Music API for music video relations: {} song(s)", chunk.len());
+        log::debug!(
+            "Querying Apple Music API for music video relations: {} song(s)",
+            chunk.len()
+        );
 
         let response = client
             .get(&url)
@@ -882,9 +928,7 @@ pub fn normalize_apple_music_url(url: &str) -> String {
     // immediately after the domain, with no storefront segment).
     if let Some((base, rest)) = detect_non_geographic_url(url) {
         let storefront = resolve_storefront_sync();
-        log::info!(
-            "Non-geographic Apple Music URL detected — injecting storefront '{storefront}'"
-        );
+        log::info!("Non-geographic Apple Music URL detected — injecting storefront '{storefront}'");
         return format!("{base}/{storefront}{rest}");
     }
 
@@ -1196,7 +1240,10 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
                 duration_in_millis: Some(200_690),
                 has_lyrics: Some(true),
                 play_params_id: Some("1649434280".to_string()),
-                url: Some("https://music.apple.com/us/album/anti-hero/1649434004?i=1649434280".to_string()),
+                url: Some(
+                    "https://music.apple.com/us/album/anti-hero/1649434004?i=1649434280"
+                        .to_string(),
+                ),
                 preview_url: Some("https://audio-ssl.itunes.apple.com/preview.m4a".to_string()),
                 genre_names: vec!["Pop".to_string(), "Music".to_string()],
                 raw_json: serde_json::Value::Null,
@@ -1395,7 +1442,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
         // Should have a 2-letter storefront injected between domain and /album/
         assert!(result.contains("/album/midnights/1649434004"));
         assert_ne!(result, url); // Should have changed
-        // Verify structural correctness: domain/{2-letter-code}/album/...
+                                 // Verify structural correctness: domain/{2-letter-code}/album/...
         let after_domain = result
             .strip_prefix("https://music.apple.com/")
             .expect("should start with domain");

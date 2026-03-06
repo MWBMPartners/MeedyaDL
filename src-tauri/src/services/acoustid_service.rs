@@ -182,8 +182,8 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
     // can block for seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
     let tag_path = file_path.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let mut tag = Tag::read_from_path(&tag_path)
-            .map_err(|e| format!("Failed to read M4A: {e}"))?;
+        let mut tag =
+            Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
         // Acoustid Id — the UUID from acoustid.org
         tag.set_data(

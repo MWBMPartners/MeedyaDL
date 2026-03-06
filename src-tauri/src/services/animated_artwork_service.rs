@@ -130,33 +130,17 @@ pub async fn process_album_artwork(
         return Ok(empty_result());
     }
 
-    // Team ID and Key ID are stored in settings (non-sensitive).
-    let team_id = match &settings.musickit_team_id {
-        Some(id) if !id.is_empty() => id.clone(),
-        _ => {
-            log::debug!("MusicKit Team ID not configured, skipping animated artwork");
-            return Ok(empty_result());
-        }
-    };
-
-    let key_id = match &settings.musickit_key_id {
-        Some(id) if !id.is_empty() => id.clone(),
-        _ => {
-            log::debug!("MusicKit Key ID not configured, skipping animated artwork");
-            return Ok(empty_result());
-        }
-    };
-
-    // Private key is stored in the OS keychain (sensitive).
+    // Team ID / Key ID are non-sensitive settings fields. Private key is
+    // sensitive and read from OS keychain. If these are incomplete, we may
+    // still continue if a build-time embedded MusicKit token is available.
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
     let private_key = match apple_music_api::get_private_key_from_keychain() {
-        Ok(Some(key)) => key,
-        Ok(None) => {
-            log::debug!("MusicKit private key not stored in keychain, skipping animated artwork");
-            return Ok(empty_result());
-        }
+        Ok(Some(key)) => Some(key),
+        Ok(None) => None,
         Err(e) => {
             log::warn!("Failed to read MusicKit private key from keychain: {e}");
-            return Ok(empty_result());
+            None
         }
     };
 
@@ -173,12 +157,28 @@ pub async fn process_album_artwork(
         }
     };
 
-    // --- Step 3: Generate MusicKit JWT ---
-    let jwt = apple_music_api::generate_musickit_jwt(&team_id, &key_id, &private_key)?;
+    // --- Step 3: Resolve MusicKit developer token (user creds or embedded fallback) ---
+    let jwt = match apple_music_api::resolve_musickit_developer_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    )? {
+        Some(token) => token,
+        None => {
+            log::debug!(
+                "MusicKit credentials not configured and no embedded token found, skipping animated artwork"
+            );
+            return Ok(empty_result());
+        }
+    };
 
     // --- Step 4: Query Apple Music API for album metadata (includes artwork URLs) ---
-    let metadata =
-        apple_music_api::fetch_album_metadata_with_fallback(&jwt, &parsed.storefront, &parsed.album_id).await?;
+    let metadata = apple_music_api::fetch_album_metadata_with_fallback(
+        &jwt,
+        &parsed.storefront,
+        &parsed.album_id,
+    )
+    .await?;
 
     let Some(metadata) = metadata else {
         log::debug!(

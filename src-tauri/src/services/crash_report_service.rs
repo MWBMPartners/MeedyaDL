@@ -22,7 +22,10 @@ use crate::utils::platform;
 fn crashes_dir(app: &AppHandle) -> PathBuf {
     let dir = platform::get_app_data_dir(app).join("crashes");
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        log::warn!("Failed to create crash reports directory {}: {e}", dir.display());
+        log::warn!(
+            "Failed to create crash reports directory {}: {e}",
+            dir.display()
+        );
     }
     dir
 }
@@ -73,7 +76,10 @@ pub fn get_crash_report(app: &AppHandle, id: &str) -> Option<CrashReport> {
 /// actually deleted, making deletion bugs invisible).
 pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
     let dir = crashes_dir(app);
-    log::debug!("delete_crash_report: looking for id={id} in {}", dir.display());
+    log::debug!(
+        "delete_crash_report: looking for id={id} in {}",
+        dir.display()
+    );
 
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,

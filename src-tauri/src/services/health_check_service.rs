@@ -156,7 +156,13 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
     // Internet works, but can we reach the specific API endpoint GAMDL uses?
     // Any HTTP response (including 401, 403) = reachable.
     log::info!("Pre-flight internet check: starting Tier 2 (Apple Music API)");
-    if try_reach(&client, "Apple Music API", "https://amp-api.music.apple.com/").await {
+    if try_reach(
+        &client,
+        "Apple Music API",
+        "https://amp-api.music.apple.com/",
+    )
+    .await
+    {
         log::info!("Pre-flight internet check: all tiers PASSED");
         return None; // Everything is reachable
     }
@@ -509,9 +515,7 @@ fn probe_write_access(dir: &std::path::Path, display_path: &str) -> Option<Prefl
                 format!("Output directory is on a full disk: {display_path}")
             } else if e.raw_os_error() == Some(30) {
                 // EROFS: read-only file system (macOS)
-                format!(
-                    "Output directory is on a read-only file system: {display_path}"
-                )
+                format!("Output directory is on a read-only file system: {display_path}")
             } else if e.raw_os_error() == Some(60) {
                 // ETIMEDOUT on macOS (disconnected CloudMounter mount)
                 format!(
