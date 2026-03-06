@@ -19,6 +19,7 @@ Renamed mirror repository from MWBMPartners/meedyadl-tools to
   MeedyaDL/MeedyaDL-Tools across code, config, and documentation.
   Also fixed example asset extension (.zip → .tar.gz) in tool-versions.toml.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.6.10] - 2026-03-05
 
