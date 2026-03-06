@@ -264,23 +264,32 @@ export function QualityTab() {
           onChange={(e) => updateSettings({ default_video_remux_format: e.target.value })}
         />
 
-        {/* Music video companion downloads (requires MusicKit credentials) */}
+        {/* Music video companion downloads */}
         <Toggle
-          label="Music Video Companions"
-          description={
-            settings.musickit_team_id && settings.musickit_key_id
-              ? 'When downloading audio, also download the music video for each track (if available on Apple Music). Uses the video quality settings above.'
-              : 'Requires MusicKit credentials (Settings > Cover Art > Animated Artwork).'
-          }
+          label="Music Video Companions (Experimental)"
+          description="When downloading audio, also download the music video for each track (if available on Apple Music). Uses the video quality settings above. Discovery via Apple Music API (requires MusicKit credentials) and/or MusicBrainz ISRC lookup (no credentials needed)."
           checked={settings.music_video_companion}
           onChange={(checked) => updateSettings({ music_video_companion: checked })}
-          disabled={!settings.musickit_team_id || !settings.musickit_key_id}
         />
+
+        {settings.music_video_companion && (
+          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+            <p className="text-xs font-semibold text-status-warning mb-1">
+              Experimental Feature
+            </p>
+            <p className="text-xs text-status-warning">
+              Music video discovery uses two sources: the Apple Music API (if MusicKit credentials are
+              configured in Settings &gt; Advanced &gt; API Credentials) and MusicBrainz ISRC lookups
+              (no credentials needed). Results may vary — not all tracks have music videos, and
+              MusicBrainz coverage depends on community contributions.
+            </p>
+          </div>
+        )}
 
         {/* MusicBrainz video lookup (no credentials needed) */}
         <Toggle
           label="MusicBrainz Video Lookup"
-          description="Use MusicBrainz database to discover music videos via ISRC codes. No credentials required. Runs as a fallback when the Apple Music API video lookup finds no results."
+          description="Use MusicBrainz database to discover music videos and cross-platform URLs via ISRC codes. No credentials required. Also used by Music Video Companions when MusicKit credentials are not configured."
           checked={settings.musicbrainz_lookup}
           onChange={(checked) => updateSettings({ musicbrainz_lookup: checked })}
         />

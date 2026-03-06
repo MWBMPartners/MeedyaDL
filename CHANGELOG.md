@@ -20,14 +20,7 @@ Verbose logging can expose sensitive data (auth tokens, cookies, API
   - Update help/troubleshooting.md with session-only callout
 
 - Add Linux app menu integration and suppress release-build terminal output (#159)
-
-- Add custom .desktop file with proper Categories, Keywords, and
-    Terminal=false for Linux application menu discoverability
-  - Reference desktopTemplate in tauri.conf.json deb config
-  - Suppress stderr tracing layer in release builds unless RUST_LOG
-    is explicitly set — prevents terminal flooding on Raspberry Pi
-    and other Linux systems when launched from command line
-
+- Remove MusicKit credential requirement from Music Video Companions (#160) — MusicBrainz ISRC lookup now serves as a credential-free discovery path; feature marked as Experimental
 
 ### 🐛 Bug Fixes
 
