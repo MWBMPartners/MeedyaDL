@@ -32,14 +32,14 @@
 # Example mirror assets:
 #   ffmpeg-linux-x86_64.tar.gz
 #   ffmpeg-windows-x86_64.zip
-#   mp4decrypt-macos-aarch64.zip
+#   mp4decrypt-macos-aarch64.tar.gz
 #   nm3u8dlre-linux-x86_64.tar.gz
 #   mp4box-windows-x86_64.zip
 #
 # To populate the mirror, upload tool binaries to the GitHub release
 # matching the release_tag below. See the mirror repo README for details.
 [mirror]
-github_repo = "MWBMPartners/meedyadl-tools"
+github_repo = "MeedyaDL/MeedyaDL-Tools"
 release_tag = "latest"
 
 [ffmpeg]

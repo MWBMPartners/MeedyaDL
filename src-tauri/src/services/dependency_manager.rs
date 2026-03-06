@@ -90,7 +90,7 @@ fn load_tool_version_config(tool_id: &str) -> Option<ToolVersionConfig> {
 /// the dependency manager queries this repo's releases for matching assets.
 #[derive(Debug, serde::Deserialize)]
 struct MirrorConfig {
-    /// GitHub repository in "owner/name" format (e.g., "MWBMPartners/meedyadl-tools")
+    /// GitHub repository in "owner/name" format (e.g., "MeedyaDL/MeedyaDL-Tools")
     github_repo: String,
     /// Release tag to query for downloadable assets (e.g., "latest")
     release_tag: String,
@@ -400,7 +400,7 @@ fn get_mirror_asset_prefix(tool_id: &str) -> Result<String, String> {
 
 /// Queries the mirror repository for a tool's download URL.
 ///
-/// The mirror at `MWBMPartners/meedyadl-tools` hosts pre-built binaries
+/// The mirror at `MeedyaDL/MeedyaDL-Tools` hosts pre-built binaries
 /// with standardized naming. This function queries the repo's GitHub
 /// Releases API to find the matching asset for the current platform.
 ///
@@ -450,7 +450,7 @@ async fn get_mirror_download_url(
 ///
 /// Resolution order:
 ///   1. Primary upstream source (hardcoded URL or upstream GitHub API)
-///   2. MWBMPartners/meedyadl-tools mirror repository (fallback)
+///   2. MeedyaDL/MeedyaDL-Tools mirror repository (fallback)
 ///
 /// # Arguments
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
@@ -909,7 +909,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
     // Step 1-3: Download with automatic mirror fallback.
     // Tries the primary upstream source first (hardcoded URL or GitHub API),
-    // then falls back to the MWBMPartners/meedyadl-tools mirror repository.
+    // then falls back to the MeedyaDL/MeedyaDL-Tools mirror repository.
     let tool_dir = get_tool_dir(app, tool_id);
     download_tool_with_fallback(tool_id, &tool_dir).await?;
 
@@ -1629,7 +1629,7 @@ async fn install_mp4box_linux_inner(
 ///   - Linux ARM (aarch64/armv7): `apt-get install gpac`
 ///
 /// If the platform-specific method fails, falls back to the
-/// MWBMPartners/meedyadl-tools mirror repository for a generic binary archive.
+/// MeedyaDL/MeedyaDL-Tools mirror repository for a generic binary archive.
 async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String> {
     // Try platform-specific installer first
     let platform_result = match std::env::consts::OS {
