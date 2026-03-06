@@ -200,6 +200,36 @@ Users reported repeated `HTTP 401` failures when testing MusicKit credentials in
    - embedded `MUSICKIT_DEVELOPER_TOKEN` fallback.
 5. Settings UI now surfaces when a build-time MusicKit token is embedded so Apple Developer credentials are optional for most end users.
 
+### Recommended Production Architecture (Option 2: Server-Issued Token)
+
+If legal/compliance review permits MusicKit usage for this app, the safest
+operational model is to mint developer tokens on a backend and send short-lived
+tokens to clients. Do not ship `.p8` private keys in desktop builds.
+
+#### Implementation Outline
+
+1. Build a token service (single endpoint, for example `POST /musickit/token`).
+2. Store Team ID, Key ID, and `.p8` private key only in server-side secret storage.
+3. On request, server signs a MusicKit JWT and returns `token` + `expires_at`.
+4. App caches token in memory and refreshes before expiry (e.g. 5-10 minute buffer).
+5. All MusicKit API callers (artwork, metadata enrichment, music-video lookup, validator)
+   use one shared token provider abstraction.
+6. Add abuse controls: rate limiting, telemetry, and key/token rotation runbook.
+
+#### Fallback Strategy
+
+- Dev/local: user Team ID + Key ID + private key in OS keychain.
+- Release without backend: optional embedded `MUSICKIT_DEVELOPER_TOKEN`
+  (higher extraction/abuse risk, rotate aggressively).
+- Preferred release: server-issued short-lived token.
+
+#### 401 Scope Clarification
+
+Issue #161 was not only the **Test Credentials** workflow. Runtime MusicKit
+paths were also updated (`animated_artwork_service`, `metadata_tag_service`,
+`download_queue` music-video relation lookup) so token resolution is consistent
+during real downloads/enrichment.
+
 ### How the Auto-Update System Works
 
 1. **Version detection**: The app checks GitHub Releases API and PyPI for newer versions of MeedyaDL, GAMDL, and Python.
