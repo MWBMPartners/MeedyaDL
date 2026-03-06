@@ -64,10 +64,12 @@ pub mod utils;
 // phase of application startup.
 // ---------------------------------------------------------------------------
 
-/// Initialises the `tracing` subscriber with dual-output logging:
+/// Initialises the `tracing` subscriber with file logging and optional stderr:
 ///
-/// 1. **stderr** -- Coloured, human-readable output for development. Controlled
-///    by the `RUST_LOG` environment variable (e.g., `RUST_LOG=debug`).
+/// 1. **stderr** (dev/debug only) -- Coloured, human-readable output for the
+///    terminal. Only active in debug builds or when `RUST_LOG` is explicitly
+///    set. Suppressed in release builds to avoid flooding the terminal when
+///    the app is launched from a command line.
 /// 2. **Rolling file** -- Daily-rotated log files written to
 ///    `{app_data_dir}/logs/` with the prefix `meedyadl`. Files are named
 ///    `meedyadl.YYYY-MM-DD.log` and old files are kept for 7 days.
@@ -108,16 +110,24 @@ fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::Worker
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("meedyadl=info,warn"));
 
-    // Build the layered subscriber
-    let registry = tracing_subscriber::registry()
-        .with(env_filter)
-        // stderr layer: coloured, with timestamps, for dev console
-        .with(
+    // stderr layer: coloured, with timestamps, for dev console.
+    // Only enabled in debug builds or when RUST_LOG is explicitly set, so that
+    // release builds launched from a terminal don't flood it with log output.
+    let stderr_layer = if cfg!(debug_assertions) || std::env::var("RUST_LOG").is_ok() {
+        Some(
             fmt::layer()
                 .with_target(true)
                 .with_thread_ids(false)
                 .with_file(false),
         )
+    } else {
+        None
+    };
+
+    // Build the layered subscriber
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stderr_layer)
         // File layer: plain text (no ANSI colours), with timestamps
         .with(
             fmt::layer()
