@@ -339,7 +339,7 @@ export function AdvancedTab() {
 
         <Toggle
           label="Verbose Activity Log"
-          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging."
+          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. This setting is session-only and will reset to off when the application is restarted."
           checked={settings.verbose_activity_log}
           onChange={(checked) => updateSettings({ verbose_activity_log: checked })}
         />
@@ -351,9 +351,13 @@ export function AdvancedTab() {
             </p>
             <p className="text-xs text-status-warning">
               Verbose logging includes detailed information that may contain sensitive data such as
-              cookie file paths, wrapper URLs with authentication tokens, Apple Music API responses,
+              cookie file paths/values, wrapper URLs with authentication tokens, Apple Music API responses,
               MusicKit credentials, and full download URLs. Disable this setting before sharing
               activity logs with others.
+            </p>
+            <p className="text-xs text-status-warning mt-2">
+              As a safety measure, this setting will automatically reset to off when the application
+              is restarted. You will need to re-enable it each session if needed.
             </p>
           </div>
         )}
