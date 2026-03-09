@@ -187,7 +187,7 @@ reqwest = { version = "0.12", features = ["stream", "json"] }
 # Used on Windows where tools are distributed as .zip files.
 # Supports deflate, bzip2, and zstd compression methods.
 # @see https://docs.rs/zip/ -- zip crate documentation
-zip = "2"
+zip = "4"
 
 # flate2 -- GZIP/DEFLATE compression and decompression.
 # Used in combination with the tar crate to decompress .tar.gz archives,
