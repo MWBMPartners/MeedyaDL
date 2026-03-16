@@ -315,7 +315,7 @@ tracing-appender = "0.2"
 # ever sent without explicit user consent.
 # @see https://docs.rs/sentry/ -- sentry SDK documentation
 # @see https://docs.sentry.io/platforms/rust/ -- Sentry Rust platform guide
-sentry = { version = "0.46", features = ["tracing"] }
+sentry = { version = "0.47", features = ["tracing"] }
 
 # sentry-tracing -- Sentry integration layer for the `tracing` ecosystem.
 # Bridges `tracing` events and spans to Sentry, sending `error!()` events
