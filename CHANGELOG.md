@@ -9,6 +9,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### ✨ Features
 
 - **Tailwind CSS v4 migration** (#174) — Tailwind CSS 3.4.17 → 4.2.2; `@tailwindcss/postcss` 4.2.2 replaces `tailwindcss` as PostCSS plugin; `autoprefixer` removed (built into v4); `@tailwindcss/typography` loaded via `@plugin` in CSS instead of `require()` in JS; `globals.css` migrated from `@tailwind` directives to `@import "tailwindcss"` + `@config` + `@plugin`; macOS minimum raised to 13.3 (Safari 16.4+ required by v4); Vite targets updated from safari13/chrome105 to safari16.4/chrome111
+- **Queue progress indicators** (#178) — queue header statistics bar showing active/queued/completed/failed counts with an aggregate progress bar; "Track N of M" counter in QueueItem for album downloads
+- **Codec filename suffixes from registry** (#118) — moved codec suffix definitions from hardcoded values to `codecs.toml` registry; added suffixes for all audio codecs (e.g., AAC Binaural → `[Binaural]`, AAC Downmix → `[Downmix]`, AAC Legacy → `[AAC Legacy]`, HE-AAC → `[HE-AAC]`)
 - Add `delete_all_crash_reports` command and "Clear All" button in crash report UI
 - Monthly Dependency Report CI workflow
 
@@ -19,6 +21,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Fix CookiesTab copy timeout cleanup on unmount
 - Fix flaky Windows CI test
 - Resolve npm audit vulnerabilities (flatted, undici)
+
+### ♿ Accessibility
+
+- **Core accessibility improvements** (partial #125) — ARIA labels on interactive elements, `aria-live` regions for dynamic content, `prefers-reduced-motion` media query support, skip navigation link
 
 ### 🔒 Security
 
@@ -35,9 +41,18 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ⚙️ CI/DX
 
+- **cargo-deny licence scanning** (#112) — `deny.toml` config with permissive licence allowlist; CI step added to backend job
+- **Integration tests** (#113) — 30 enrichment pipeline integration tests covering Rich SRT, WebVTT, Enhanced LRC, and ASS conversion services
+- **Settings tab tests** (#114) — 20 React component rendering tests for Settings tabs
 - Dependabot config updated to ignore major version bumps
 - ESLint Node.js globals configured for scripts/ directory
 - Improved crash report error logging and messages
+
+### ⬆️ Dependencies
+
+- `@vitejs/plugin-react` 4.7.0 → 5.2.0
+- `@commitlint/cli` 19.8.1 → 20.5.0
+- `react-markdown` 9.1.0 → 10.1.0
 
 ### 🔧 Refactoring
 
