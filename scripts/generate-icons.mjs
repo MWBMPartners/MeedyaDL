@@ -49,7 +49,6 @@ import sharp from 'sharp';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { deflateSync } from 'zlib';
 
 // Resolve the directory of this script (ESM equivalent of __dirname)
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -429,7 +429,10 @@ pub async fn fetch_album_metadata(
 
     log::debug!("Querying Apple Music API for album metadata: {url}");
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
@@ -812,7 +815,10 @@ pub async fn fetch_music_video_relations(
         return Ok(Vec::new());
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let mut relations = Vec::new();
 
     // Batch song IDs into groups of 100 (Apple Music API limit per request)

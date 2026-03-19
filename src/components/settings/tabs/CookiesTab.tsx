@@ -64,7 +64,7 @@
 // @see https://react.dev/reference/react/useState
 // @see https://react.dev/reference/react/useMemo
 // @see https://react.dev/reference/react/useCallback
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
 // Lucide icons used throughout the tab's various sub-components.
 // @see https://lucide.dev/icons/
@@ -576,6 +576,16 @@ export function CookiesTab() {
    */
   const [copySuccess, setCopySuccess] = useState(false);
 
+  /** Ref for the copy-success reset timeout, cleared on unmount. */
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up copy-success timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
+
   /* ---- Auto-import state ---- */
   /** List of detected browsers for auto-import */
   const [browsers, setBrowsers] = useState<DetectedBrowser[]>([]);
@@ -859,8 +869,10 @@ export function CookiesTab() {
       await navigator.clipboard.writeText(settings.cookies_path);
       setCopySuccess(true);
 
-      /* Reset the success indicator after 2 seconds */
-      setTimeout(() => setCopySuccess(false), 2000);
+      /* Reset the success indicator after 2 seconds.
+         Uses the ref stored at component scope for cleanup on unmount. */
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = setTimeout(() => setCopySuccess(false), 2000);
     } catch {
       /* Clipboard write can fail if the document is not focused or
          the permission was denied -- silently ignore. */

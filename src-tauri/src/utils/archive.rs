@@ -366,9 +366,15 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
 /// * `Ok(())` on successful extraction.
 /// * `Err(message)` if the archive cannot be opened, decompressed, or unpacked.
 ///
+/// # Security
+/// Iterates entries individually and validates each path to prevent
+/// **tar-slip** path traversal attacks, where a malicious archive
+/// could contain entries like `../../etc/crontab`. Entries with `..`
+/// components or absolute paths are skipped with a warning.
+///
 /// # Reference
 /// - `GzDecoder`: <https://docs.rs/flate2/latest/flate2/read/struct.GzDecoder.html>
-/// - `Archive::unpack`: <https://docs.rs/tar/latest/tar/struct.Archive.html#method.unpack>
+/// - `Archive::entries`: <https://docs.rs/tar/latest/tar/struct.Archive.html#method.entries>
 /// - `spawn_blocking`: <https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html>
 pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), String> {
     log::info!(
@@ -393,29 +399,54 @@ pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), Stri
         // decompressed tar file to disk.
         let file = std::fs::File::open(&archive_path)
             .map_err(|e| format!("Failed to open archive {}: {}", archive_path.display(), e))?;
-        // `GzDecoder` implements `Read` and transparently decompresses the
-        // gzip stream on each read call. It detects the gzip header
-        // automatically.
-        // Reference: https://docs.rs/flate2/latest/flate2/read/struct.GzDecoder.html
         let decoder = flate2::read::GzDecoder::new(file);
-        // `Archive::new` wraps any `Read` implementor and interprets the
-        // byte stream as a POSIX tar archive.
-        // Reference: https://docs.rs/tar/latest/tar/struct.Archive.html
         let mut archive = tar::Archive::new(decoder);
 
-        // Preserve Unix file permissions (mode bits) when extracting.
-        // Without this, all files would get default permissions (0o644).
-        archive.set_preserve_permissions(true);
-        // Allow overwriting existing files at the destination. This ensures
-        // re-installation of a dependency replaces old files cleanly.
-        archive.set_overwrite(true);
+        // Iterate entries individually for path traversal validation,
+        // rather than using `archive.unpack()` which extracts blindly.
+        let entries = archive
+            .entries()
+            .map_err(|e| format!("Failed to read tar.gz entries: {e}"))?;
 
-        // Unpack all entries (files, directories, symlinks) to the
-        // destination directory. The `tar` crate handles creation of
-        // subdirectories and permission setting automatically.
-        archive
-            .unpack(&dest)
-            .map_err(|e| format!("Failed to extract tar.gz archive: {e}"))?;
+        for entry_result in entries {
+            let mut entry = entry_result
+                .map_err(|e| format!("Failed to read tar entry: {e}"))?;
+
+            let entry_path = entry
+                .path()
+                .map_err(|e| format!("Failed to read tar entry path: {e}"))?
+                .into_owned();
+
+            // Security: reject entries with ".." components or absolute
+            // paths that could escape the destination directory (tar-slip).
+            if entry_path.components().any(|c| {
+                matches!(c, std::path::Component::ParentDir)
+            }) || entry_path.is_absolute()
+            {
+                log::warn!(
+                    "Skipping tar entry with unsafe path: {}",
+                    entry_path.display()
+                );
+                continue;
+            }
+
+            let outpath = dest.join(&entry_path);
+
+            // Create parent directories as needed
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!("Failed to create directory {}: {e}", parent.display())
+                })?;
+            }
+
+            // Extract the entry, preserving permissions
+            entry.unpack(&outpath).map_err(|e| {
+                format!(
+                    "Failed to extract tar entry {}: {e}",
+                    entry_path.display()
+                )
+            })?;
+        }
 
         log::info!("TAR.GZ extraction complete to {}", dest.display());
         Ok(())

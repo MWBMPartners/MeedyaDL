@@ -23,7 +23,7 @@
  *      MDN -- the ARIA tooltip role.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 
 /**
  * Props accepted by the {@link Tooltip} component.
@@ -100,20 +100,27 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   const [visible, setVisible] = useState(false);
 
   /**
-   * Stores the setTimeout id so it can be cleared on mouse leave.
-   * Using `ReturnType<typeof setTimeout>` keeps the type compatible
-   * across browser (number) and Node.js (NodeJS.Timeout) environments.
+   * Stores the setTimeout id so it can be cleared on mouse leave or unmount.
+   * Uses useRef instead of useState because the timeout ID is a mutable value
+   * that doesn't affect rendering and must be accessible in cleanup functions.
    */
-  const [timeoutId, setTimeoutId] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending timeout on unmount to prevent state updates
+  // on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   /**
    * Starts the 300ms show delay. Called on mouseenter and focus events.
-   * The timeout id is stored in state so it can be cancelled if the
+   * The timeout id is stored in a ref so it can be cancelled if the
    * user leaves before the delay completes.
    */
   const handleMouseEnter = () => {
-    const id = setTimeout(() => setVisible(true), 300);
-    setTimeoutId(id);
+    timeoutRef.current = setTimeout(() => setVisible(true), 300);
   };
 
   /**
@@ -121,8 +128,8 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
    * Called on mouseleave and blur events.
    */
   const handleMouseLeave = () => {
-    if (timeoutId) clearTimeout(timeoutId);
-    setTimeoutId(null);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
     setVisible(false);
   };
 
