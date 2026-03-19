@@ -16,7 +16,7 @@ This guide walks you through the first-time setup of MeedyaDL, from system requi
 
 MeedyaDL is available on the following platforms:
 
-- **macOS 11.0+** (Big Sur or later) -- Apple Silicon (.dmg)
+- **macOS 13.3+** (Ventura or later) -- Apple Silicon (.dmg)
 - **Windows x64 / ARM64** -- NSIS installer (.exe)
 - **Linux x64** -- Debian package (.deb) or AppImage (.AppImage)
 - **Raspberry Pi** -- ARM64 (64-bit Raspberry Pi OS)

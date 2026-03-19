@@ -312,10 +312,10 @@ export default {
   /**
    * plugins -- Array of Tailwind CSS plugins to extend functionality.
    *
-   * Active plugins:
-   *   - @tailwindcss/typography -- Prose styling for rendered markdown in HelpViewer
+   * In Tailwind v4, plugins are loaded via the @plugin directive in CSS
+   * (see globals.css). This array is kept empty for compatibility.
    *
    * @see https://tailwindcss.com/docs/plugins
    */
-  plugins: [require('@tailwindcss/typography')],
+  plugins: [],
 };

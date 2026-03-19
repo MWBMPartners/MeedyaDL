@@ -769,7 +769,7 @@ MeedyaDL/
 
 ├── package.json                #    Node.js config
 
-├── tailwind.config.js          #    Tailwind CSS config
+├── tailwind.config.js          #    Tailwind CSS v4 config (referenced via @config in globals.css)
 
 ├── vite.config.ts              #    Vite bundler config
 

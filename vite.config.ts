@@ -108,8 +108,8 @@ export default defineConfig({
    *
    * These settings follow the official Tauri 2.0 Vite integration guide to
    * ensure the compiled JavaScript is compatible with each platform's WebView engine:
-   *   - macOS/Linux: WebKit (Safari-based) -- target safari13
-   *   - Windows: Chromium (Edge WebView2) -- target chrome105
+   *   - macOS/Linux: WebKit (Safari-based) -- target safari16.4
+   *   - Windows: Chromium (Edge WebView2) -- target chrome111
    *
    * The TAURI_ENV_PLATFORM environment variable is set by the Tauri CLI during
    * `cargo tauri build` and `cargo tauri dev`, allowing platform-conditional config.
@@ -122,16 +122,16 @@ export default defineConfig({
      * target -- Browser compatibility target for esbuild output.
      *
      * Controls which JavaScript syntax features esbuild will downlevel:
-     *   - 'safari13': Ensures compatibility with WebKit on macOS 11+ and Linux
-     *     (WKWebView / webkit2gtk). Safari 13 was chosen by Tauri as a safe baseline.
-     *   - 'chrome105': Ensures compatibility with Edge WebView2 on Windows.
-     *     Chrome 105 matches the minimum Chromium version bundled with WebView2.
+     *   - 'safari16.4': Ensures compatibility with WebKit on macOS 13.3+ and Linux.
+     *     Required by Tailwind CSS v4 which uses modern CSS features (oklch, @property).
+     *   - 'chrome111': Ensures compatibility with Edge WebView2 on Windows.
+     *     Aligns with Tailwind CSS v4's minimum browser requirements.
      *
      * Without this, Vite defaults to 'modules' (browsers supporting ES modules),
      * which may include syntax too modern for the Tauri WebView on older OS versions.
      */
     target:
-      process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+      process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome111' : 'safari16.4',
 
     /**
      * minify -- Minification and obfuscation strategy.

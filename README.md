@@ -87,7 +87,7 @@
 
 | Platform | Architecture | Format | Notes |
 |----------|-------------|--------|-------|
-| 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | Requires macOS 11.0 (Big Sur) or later |
+| 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | Requires macOS 13.3 (Ventura) or later |
 | 🪟 **Windows** | x64 (64-bit) | `.exe` (NSIS) | Also works on ARM64 via emulation |
 | 🪟 **Windows** | ARM64 | `.exe` (NSIS) | Native ARM64 build |
 | 🐧 **Linux** | x64 | `.deb`, `.AppImage` | Also works on ChromeOS via Crostini |
@@ -154,7 +154,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 ```text
 ┌─────────────────────────────────────────┐
 │           React 19 + TypeScript         │  ← Frontend UI
-│         Tailwind CSS + Zustand          │
+│       Tailwind CSS v4 + Zustand         │
 ├─────────────────────────────────────────┤
 │              Tauri 2.0 IPC              │  ← Bridge
 ├─────────────────────────────────────────┤
@@ -167,7 +167,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Frontend** | React 19, TypeScript, Tailwind CSS, Zustand | Reactive UI with platform-adaptive themes |
+| **Frontend** | React 19, TypeScript, Tailwind CSS v4, Zustand | Reactive UI with platform-adaptive themes |
 | **Framework** | Tauri 2.0 | Lightweight native shell, IPC, plugins |
 | **Backend** | Rust, Tokio, Reqwest | Async process management, downloads, credential storage |
 | **Engine** | Python (standalone), GAMDL | Apple Music interaction and decryption |
