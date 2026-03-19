@@ -193,6 +193,17 @@ pub struct AppSettings {
     /// Apple Music API.
     pub language: String,
 
+    /// Apple Music storefront code (e.g., `"gb"`, `"us"`, `"jp"`).
+    /// Required by GAMDL >= 2.9.3 for API requests.
+    ///
+    /// When empty (default), auto-detected from the language setting's
+    /// region code (e.g., `"en-GB"` → `"gb"`). When set explicitly,
+    /// the user's value is always used and never overwritten.
+    ///
+    /// Controlled in Settings > General > Storefront.
+    #[serde(default)]
+    pub storefront: String,
+
     /// Whether to overwrite existing files during download. When `false`,
     /// GAMDL skips tracks that already exist in the output directory.
     /// Maps to `GamdlOptions::overwrite` / GAMDL `--overwrite`.
@@ -797,6 +808,8 @@ impl Default for AppSettings {
             // English (US) metadata by default; users in other regions
             // can change this to get localized track/album names.
             language: "en-US".to_string(),
+            // Empty = auto-detect from language region code (e.g., en-US → us).
+            storefront: String::new(),
             // Do not overwrite by default to prevent accidental data loss.
             overwrite: false,
             // Auto-detect UI language from OS locale by default.
