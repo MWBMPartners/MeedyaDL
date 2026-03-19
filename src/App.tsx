@@ -71,6 +71,14 @@ import { usePlatform } from './hooks/usePlatform';
  */
 import { useTheme } from './hooks/useTheme';
 
+/**
+ * Custom hook for global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
+ * Cmd/Ctrl+Q, Cmd/Ctrl+Enter). Registers a single window-level keydown
+ * listener with cleanup on unmount.
+ * @see ./hooks/useKeyboardShortcuts.ts for shortcut definitions
+ */
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+
 /* ─── Zustand Stores ─────────────────────────────────────────────────── */
 /*
  * Each store is a Zustand slice providing global state and actions.
@@ -198,6 +206,16 @@ function App() {
    * @see ./hooks/useTheme.ts
    */
   useTheme();
+
+  /*
+   * ─── Keyboard Shortcuts ────────────────────────────────────────────
+   * Registers global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
+   * Cmd/Ctrl+Q, Cmd/Ctrl+Enter) via a single window-level keydown listener.
+   * Shortcuts are suppressed when focus is in form elements to avoid
+   * interfering with text editing. Cleanup is automatic on unmount.
+   * @see ./hooks/useKeyboardShortcuts.ts
+   */
+  useKeyboardShortcuts();
 
   /*
    * ─── Local State ───────────────────────────────────────────────────
