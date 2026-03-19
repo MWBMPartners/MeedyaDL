@@ -219,6 +219,14 @@ export function GeneralTab() {
          * Other values are language codes that map to public/locales/{code}/.
          * Requires app restart to take full effect across all components.
          */}
+        {/* High-contrast accessibility toggle */}
+        <Toggle
+          label="High Contrast"
+          description="Increase visual contrast for accessibility. Uses stronger borders, pure black/white text, and thicker focus indicators. Also auto-activates when your OS has high-contrast mode enabled."
+          checked={settings.high_contrast}
+          onChange={(checked) => updateSettings({ high_contrast: checked })}
+        />
+
         <Select
           label="Language"
           description="Application display language (requires restart to take full effect)"

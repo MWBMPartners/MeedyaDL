@@ -6,7 +6,7 @@
  *
  * Tests that the useTheme hook correctly manages CSS classes and the
  * color-scheme property on the <html> element based on the theme_override
- * setting from the settings store.
+ * and high_contrast settings from the settings store.
  *
  * Uses @testing-library/react's renderHook() to test the hook in isolation
  * without mounting a full component tree.
@@ -31,14 +31,15 @@ const getHtml = () => document.documentElement;
  * from one test don't leak into the next.
  */
 beforeEach(() => {
-  getHtml().classList.remove('theme-dark', 'theme-light');
+  getHtml().classList.remove('theme-dark', 'theme-light', 'high-contrast');
   getHtml().style.colorScheme = '';
 
-  /* Reset the settings store to default (theme_override: null = auto) */
+  /* Reset the settings store to default (theme_override: null = auto, high_contrast: false) */
   useSettingsStore.setState({
     settings: {
       ...useSettingsStore.getState().settings,
       theme_override: null,
+      high_contrast: false,
     },
   });
 });
@@ -169,5 +170,69 @@ describe('useTheme', () => {
 
     expect(getHtml().classList.contains('theme-dark')).toBe(false);
     expect(getHtml().style.colorScheme).toBe('');
+  });
+
+  // =========================================================================
+  // High-Contrast Mode
+  // =========================================================================
+  it('adds high-contrast class when high_contrast setting is true', () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, high_contrast: true },
+    });
+
+    renderHook(() => useTheme());
+
+    expect(getHtml().classList.contains('high-contrast')).toBe(true);
+  });
+
+  it('does not add high-contrast class when setting is false', () => {
+    renderHook(() => useTheme());
+
+    expect(getHtml().classList.contains('high-contrast')).toBe(false);
+  });
+
+  it('removes high-contrast class when setting changes from true to false', () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, high_contrast: true },
+    });
+
+    renderHook(() => useTheme());
+    expect(getHtml().classList.contains('high-contrast')).toBe(true);
+
+    act(() => {
+      useSettingsStore.setState({
+        settings: { ...useSettingsStore.getState().settings, high_contrast: false },
+      });
+    });
+
+    expect(getHtml().classList.contains('high-contrast')).toBe(false);
+  });
+
+  it('removes high-contrast class on unmount', () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, high_contrast: true },
+    });
+
+    const { unmount } = renderHook(() => useTheme());
+    expect(getHtml().classList.contains('high-contrast')).toBe(true);
+
+    unmount();
+
+    expect(getHtml().classList.contains('high-contrast')).toBe(false);
+  });
+
+  it('high-contrast and theme-dark can coexist', () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        theme_override: 'dark',
+        high_contrast: true,
+      },
+    });
+
+    renderHook(() => useTheme());
+
+    expect(getHtml().classList.contains('theme-dark')).toBe(true);
+    expect(getHtml().classList.contains('high-contrast')).toBe(true);
   });
 });

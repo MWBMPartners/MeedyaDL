@@ -152,6 +152,13 @@ import { LoadingSpinner } from './components/common';
  */
 import './styles/themes/base.css';
 
+/**
+ * High-contrast accessibility theme: overrides base/platform tokens with
+ * maximum-contrast values when the `high-contrast` class is present on <html>.
+ * Must be imported after base.css so its selectors can override the defaults.
+ */
+import './styles/themes/a11y-high-contrast.css';
+
 /* ─── i18n ──────────────────────────────────────────────────────────── */
 
 /**

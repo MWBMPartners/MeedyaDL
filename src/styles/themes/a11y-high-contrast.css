@@ -1,0 +1,256 @@
+/**
+ * Copyright (c) 2024-2026 MeedyaDL
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * High-Contrast Accessibility Theme
+ * ===================================
+ *
+ * Overrides the base and platform CSS custom properties with values that
+ * maximise visual contrast for users with low vision. Activated by:
+ *
+ *   1. The `high_contrast` boolean setting in Settings > General > Appearance,
+ *      which adds the `high-contrast` class to <html> via the useTheme hook.
+ *   2. The OS-level `prefers-contrast: high` media query (auto-detection),
+ *      also managed by the useTheme hook.
+ *
+ * Design principles:
+ *   - Text: pure black (#000000) in light mode, pure white (#ffffff) in dark
+ *   - Borders: strong, opaque lines instead of subtle translucent overlays
+ *   - Status colours: more saturated with higher contrast ratios
+ *   - Surfaces: greater luminance differentiation between levels
+ *   - Focus indicators: thick (3px) visible outlines on all interactive elements
+ *   - Sidebar: stronger contrast between active/inactive items
+ *
+ * Works with both light and dark modes. The dark-mode variant is triggered by
+ * either the `.theme-dark` class (manual override) or the
+ * `prefers-color-scheme: dark` media query (auto mode).
+ *
+ * @see src/styles/themes/base.css -- Base tokens that these overrides replace
+ * @see src/hooks/useTheme.ts -- Hook that manages the high-contrast class
+ */
+
+/* ============================================================
+ * High-Contrast: Light Mode
+ * ============================================================ */
+html.high-contrast {
+  /* ---- Sidebar ---- */
+  --sidebar-bg: #e8e8e8;
+  --sidebar-hover: rgba(0, 0, 0, 0.12);
+  --sidebar-active: rgba(0, 0, 0, 0.18);
+  --sidebar-text: #333333;
+  --sidebar-text-active: #000000;
+  --sidebar-border: #000000;
+
+  /* ---- Surfaces ---- */
+  --surface-primary: #ffffff;
+  --surface-secondary: #f0f0f0;
+  --surface-elevated: #e8e8e8;
+  --surface-overlay: rgba(0, 0, 0, 0.65);
+
+  /* ---- Accent ---- */
+  --accent: #0050a0;
+  --accent-hover: #003d7a;
+  --accent-light: rgba(0, 80, 160, 0.15);
+
+  /* ---- Text ---- */
+  --text-primary: #000000;
+  --text-secondary: #333333;
+  --text-tertiary: #555555;
+  --text-inverse: #ffffff;
+
+  /* ---- Status ---- */
+  --status-success: #006b1f;
+  --status-warning: #8a4d00;
+  --status-error: #c00000;
+  --status-info: #0050a0;
+
+  /* ---- Status Backgrounds ---- */
+  --status-success-bg: #d4edda;
+  --status-error-bg: #f8d7da;
+  --status-warning-bg: #fff3cd;
+  --status-info-bg: #cce5ff;
+
+  /* ---- Borders ---- */
+  --border: #666666;
+  --border-light: #888888;
+  --border-strong: #000000;
+
+  /* ---- Shadows ---- */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+/* ============================================================
+ * High-Contrast: Dark Mode (manual .theme-dark override)
+ * ============================================================ */
+html.high-contrast.theme-dark {
+  /* ---- Sidebar ---- */
+  --sidebar-bg: #0a0a0a;
+  --sidebar-hover: rgba(255, 255, 255, 0.15);
+  --sidebar-active: rgba(255, 255, 255, 0.22);
+  --sidebar-text: #cccccc;
+  --sidebar-text-active: #ffffff;
+  --sidebar-border: #ffffff;
+
+  /* ---- Surfaces ---- */
+  --surface-primary: #000000;
+  --surface-secondary: #0a0a0a;
+  --surface-elevated: #1a1a1a;
+  --surface-overlay: rgba(0, 0, 0, 0.8);
+
+  /* ---- Accent ---- */
+  --accent: #4da6ff;
+  --accent-hover: #80c0ff;
+  --accent-light: rgba(77, 166, 255, 0.2);
+
+  /* ---- Text ---- */
+  --text-primary: #ffffff;
+  --text-secondary: #cccccc;
+  --text-tertiary: #999999;
+  --text-inverse: #000000;
+
+  /* ---- Status ---- */
+  --status-success: #4cdf6b;
+  --status-warning: #ffb833;
+  --status-error: #ff5555;
+  --status-info: #4da6ff;
+
+  /* ---- Status Backgrounds ---- */
+  --status-success-bg: #0a3d1a;
+  --status-error-bg: #3d0a0a;
+  --status-warning-bg: #3d2a00;
+  --status-info-bg: #0a2a4d;
+
+  /* ---- Borders ---- */
+  --border: #999999;
+  --border-light: #777777;
+  --border-strong: #ffffff;
+
+  /* ---- Shadows ---- */
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+
+/* ============================================================
+ * High-Contrast: Dark Mode (auto via prefers-color-scheme)
+ *
+ * Applied when the OS is in dark mode and no manual theme-light
+ * class is set. The :not(.theme-light) guard prevents these
+ * dark overrides from applying when the user forces light mode.
+ * ============================================================ */
+@media (prefers-color-scheme: dark) {
+  html.high-contrast:not(.theme-light):not(.theme-dark) {
+    --sidebar-bg: #0a0a0a;
+    --sidebar-hover: rgba(255, 255, 255, 0.15);
+    --sidebar-active: rgba(255, 255, 255, 0.22);
+    --sidebar-text: #cccccc;
+    --sidebar-text-active: #ffffff;
+    --sidebar-border: #ffffff;
+
+    --surface-primary: #000000;
+    --surface-secondary: #0a0a0a;
+    --surface-elevated: #1a1a1a;
+    --surface-overlay: rgba(0, 0, 0, 0.8);
+
+    --accent: #4da6ff;
+    --accent-hover: #80c0ff;
+    --accent-light: rgba(77, 166, 255, 0.2);
+
+    --text-primary: #ffffff;
+    --text-secondary: #cccccc;
+    --text-tertiary: #999999;
+    --text-inverse: #000000;
+
+    --status-success: #4cdf6b;
+    --status-warning: #ffb833;
+    --status-error: #ff5555;
+    --status-info: #4da6ff;
+
+    --status-success-bg: #0a3d1a;
+    --status-error-bg: #3d0a0a;
+    --status-warning-bg: #3d2a00;
+    --status-info-bg: #0a2a4d;
+
+    --border: #999999;
+    --border-light: #777777;
+    --border-strong: #ffffff;
+
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* ============================================================
+ * Focus Indicators
+ *
+ * Thick, high-visibility focus outlines on all focusable elements.
+ * Uses !important sparingly because focus visibility is critical
+ * for accessibility and must override any component-level styles.
+ * ============================================================ */
+html.high-contrast *:focus-visible {
+  outline: 3px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* ============================================================
+ * OS-Level Auto-Detection
+ *
+ * When the operating system has "Increase Contrast" enabled
+ * (macOS) or the equivalent high-contrast accessibility setting,
+ * the browser reports `prefers-contrast: high`. These rules
+ * apply the high-contrast light-mode overrides automatically
+ * without requiring the user to toggle the setting in MeedyaDL.
+ *
+ * The useTheme hook also listens for this media query and sets
+ * the `high-contrast` class on <html>, ensuring JavaScript-
+ * driven behaviours (like focus rings) also activate.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-contrast
+ * ============================================================ */
+@media (prefers-contrast: high) {
+  :root:not(.high-contrast) {
+    /* Light-mode high-contrast overrides for OS auto-detection.
+     * These serve as a CSS-only fallback even before JS runs. */
+    --sidebar-bg: #e8e8e8;
+    --sidebar-hover: rgba(0, 0, 0, 0.12);
+    --sidebar-active: rgba(0, 0, 0, 0.18);
+    --sidebar-text: #333333;
+    --sidebar-text-active: #000000;
+    --sidebar-border: #000000;
+
+    --surface-secondary: #f0f0f0;
+    --surface-elevated: #e8e8e8;
+    --surface-overlay: rgba(0, 0, 0, 0.65);
+
+    --accent: #0050a0;
+    --accent-hover: #003d7a;
+    --accent-light: rgba(0, 80, 160, 0.15);
+
+    --text-primary: #000000;
+    --text-secondary: #333333;
+    --text-tertiary: #555555;
+
+    --status-success: #006b1f;
+    --status-warning: #8a4d00;
+    --status-error: #c00000;
+    --status-info: #0050a0;
+
+    --status-success-bg: #d4edda;
+    --status-error-bg: #f8d7da;
+    --status-warning-bg: #fff3cd;
+    --status-info-bg: #cce5ff;
+
+    --border: #666666;
+    --border-light: #888888;
+    --border-strong: #000000;
+
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Focus indicators for OS-level auto-detection */
+  *:focus-visible {
+    outline: 3px solid var(--accent) !important;
+    outline-offset: 2px !important;
+  }
+}
