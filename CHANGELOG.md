@@ -4,6 +4,21 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- Add storefront config.ini generation tests
+
+Verify storefront is written to config.ini:
+  - Auto-detect from language (en-US → us)
+  - Explicit override when set (gb)
+
+
 ## [0.8.1] - 2026-03-19
 
 ### ✨ Features
