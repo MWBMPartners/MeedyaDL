@@ -328,6 +328,7 @@ export function UpdateBanner() {
                       onClick={() => handleViewRelease(update.release_url!)}
                       className="p-1 rounded hover:bg-surface-secondary transition-colors"
                       title="View release"
+                      aria-label={`View ${update.name} release on GitHub`}
                     >
                       <ExternalLink size={14} className="text-content-tertiary" />
                     </button>
@@ -343,6 +344,7 @@ export function UpdateBanner() {
                     onClick={() => dismissUpdate(update.name)}
                     className="p-1 rounded hover:bg-surface-secondary transition-colors"
                     title="Dismiss"
+                    aria-label={`Dismiss ${update.name} update notification`}
                   >
                     <X size={14} className="text-content-tertiary" />
                   </button>
