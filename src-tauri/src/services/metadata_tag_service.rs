@@ -96,6 +96,7 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   tags are written:
 ///   - `SongCodec::Alac` → `isLossless = Y`
 ///   - `SongCodec::Atmos` → `SpatialType = Dolby Atmos` (both namespaces)
+///   - `SongCodec::Ac3` → `SpatialType = Dolby Digital` (both namespaces)
 ///   - `SongCodec::AacBinaural` / `AacHeBinaural` → `isBinaural = Y` (both namespaces)
 ///   - `SongCodec::AacDownmix` / `AacHeDownmix` → `isDownmix = Y` (both namespaces)
 ///   - All other codecs → no tags written (returns Ok immediately)
@@ -111,10 +112,11 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   Individual file failures are logged at debug level but do not stop
 ///   processing of remaining files.
 pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result<usize, String> {
-    // Codec-specific tags: ALAC, Atmos, Binaural, Downmix.
+    // Codec-specific tags: ALAC, Atmos, AC3, Binaural, Downmix.
     let tag_writer: Box<dyn Fn(&mut Tag)> = match codec {
         SongCodec::Alac => Box::new(write_lossless_tags),
         SongCodec::Atmos => Box::new(write_atmos_tags),
+        SongCodec::Ac3 => Box::new(write_dolby_digital_tags),
         SongCodec::AacBinaural | SongCodec::AacHeBinaural => Box::new(write_binaural_tags),
         SongCodec::AacDownmix | SongCodec::AacHeDownmix => Box::new(write_downmix_tags),
         _ => return Ok(0), // No custom tags for standard lossy codecs
@@ -219,6 +221,22 @@ fn write_atmos_tags(tag: &mut Tag) {
     // SpatialType under the MeedyaMeta namespace (MeedyaDL-branded)
     let meedya_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialType");
     tag.set_data(meedya_ident, Data::Utf8("Dolby Atmos".to_owned()));
+}
+
+/// Writes Dolby Digital (AC-3) surround audio identification tags to an M4A
+/// file's metadata. AC-3 is a legacy surround format that encodes 5.1 channel
+/// audio — it is distinct from Dolby Atmos (E-AC-3 JOC) but still a spatial
+/// format. Two tags are written in different namespaces.
+///
+/// Tags written:
+///   - `----:com.apple.iTunes:SpatialType` → "Dolby Digital"
+///   - `----:MeedyaMeta:SpatialType`       → "Dolby Digital"
+fn write_dolby_digital_tags(tag: &mut Tag) {
+    let itunes_ident = FreeformIdent::new_static(ITUNES_NAMESPACE, "SpatialType");
+    tag.set_data(itunes_ident, Data::Utf8("Dolby Digital".to_owned()));
+
+    let meedya_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialType");
+    tag.set_data(meedya_ident, Data::Utf8("Dolby Digital".to_owned()));
 }
 
 /// Writes binaural audio identification tags to an M4A file's metadata.
@@ -502,12 +520,13 @@ async fn enrich_single_file(
             )
         })?;
 
-        // --- Layer 1: Codec-specific tags (ALAC/Atmos/Binaural/Downmix) ---
+        // --- Layer 1: Codec-specific tags (ALAC/Atmos/AC3/Binaural/Downmix) ---
         // Uses the effective codec (ffprobe-detected when native priority,
         // or requested codec when single-codec mode).
         match effective_codec {
             SongCodec::Alac => write_lossless_tags(&mut tag),
             SongCodec::Atmos => write_atmos_tags(&mut tag),
+            SongCodec::Ac3 => write_dolby_digital_tags(&mut tag),
             SongCodec::AacBinaural | SongCodec::AacHeBinaural => {
                 write_binaural_tags(&mut tag);
             }
@@ -543,6 +562,12 @@ async fn enrich_single_file(
                 matched_track.map(|t| &t.raw_json),
             );
         }
+
+        // --- Layer 5: ISRC extraction from Vendor tag (fallback) ---
+        // GAMDL preserves the Apple Music Vendor string, which contains the
+        // ISRC in the format "Label:isrc:ISRCCODE". Extract and write to the
+        // standardised ISRC atom if not already set by the API (Layer 4).
+        extract_isrc_from_vendor(&mut tag);
 
         // Write all changes back to the file in a single operation
         tag.write_to_path(&tag_path).map_err(|e| {
@@ -607,6 +632,46 @@ fn write_local_tags(tag: &mut Tag) {
             FreeformIdent::new_static(ITUNES_NAMESPACE, "isMedley"),
             Data::Utf8("Y".to_owned()),
         );
+    }
+}
+
+/// Extract ISRC from the Vendor freeform atom as a fallback.
+///
+/// Apple Music M4A files contain a freeform atom under `com.apple.iTunes`
+/// with the name `Vendor`, whose value follows the pattern
+/// `Label:isrc:ISRCCODE` (e.g., `Universal Music:isrc:USUM71900156`).
+/// If the standardised ISRC atom (`----:com.apple.iTunes:ISRC`) was not
+/// already set by the API metadata layer, this function parses the Vendor
+/// string and writes the extracted ISRC.
+///
+/// The function is a no-op when:
+/// - The ISRC atom already exists (API metadata set it)
+/// - No Vendor atom is found
+/// - The Vendor value doesn't contain `:isrc:` (case-insensitive)
+fn extract_isrc_from_vendor(tag: &mut Tag) {
+    // Skip if the ISRC atom is already set (from API metadata or prior enrichment)
+    if tag.isrc().is_some() {
+        return;
+    }
+
+    // Try to read the Vendor freeform atom under the iTunes namespace
+    let vendor_ident = FreeformIdent::new_static(ITUNES_NAMESPACE, "Vendor");
+    let vendor_value = match tag.strings_of(&vendor_ident).next() {
+        Some(v) => v.to_owned(),
+        None => return,
+    };
+
+    // Parse the ISRC from the Vendor string.
+    // Format: "Label:isrc:ISRCCODE" — find ":isrc:" (case-insensitive)
+    // and take everything after it.
+    let lower = vendor_value.to_ascii_lowercase();
+    if let Some(pos) = lower.find(":isrc:") {
+        let isrc_start = pos + ":isrc:".len();
+        let isrc = vendor_value[isrc_start..].trim();
+        if !isrc.is_empty() {
+            log::debug!("Extracted ISRC from Vendor tag: {isrc}");
+            tag.set_isrc(isrc);
+        }
     }
 }
 

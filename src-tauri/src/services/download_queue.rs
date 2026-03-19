@@ -2679,11 +2679,11 @@ pub fn process_queue(
             false
         };
 
-        // === Codec suffix: modify file templates for companion coexistence ===
-        // When the companion mode would produce companions for this codec,
-        // add a suffix to file naming templates so specialist format files
-        // get tagged filenames (e.g., "01 Song Title [Lossless].m4a") while
-        // the companion download uses clean filenames ("01 Song Title.m4a").
+        // === Codec suffix: always apply codec suffix to primary download ===
+        // Codec suffixes (e.g., "[Lossless]", "[Dolby Atmos]") are always
+        // applied to primary download filenames so users can identify the
+        // codec at a glance. Standard AAC has an empty suffix in codecs.toml,
+        // so `apply_codec_suffix` is a no-op for it — filenames stay clean.
         //
         // IMPORTANT: When native `--song-codec-priority` is used, we don't know
         // which codec GAMDL will actually select from the priority chain until
@@ -2700,19 +2700,13 @@ pub fn process_queue(
         if !uses_native_priority {
             // Single-codec mode: we know exactly which codec will be used,
             // so the suffix accurately reflects the file content.
-            if let Some(ref codec) = download_options.song_codec {
-                if needs_primary_suffix(
-                    codec,
-                    &settings_for_companion.companion_mode,
-                    &settings_for_companion.custom_companion_codecs,
-                ) {
-                    apply_codec_suffix(&mut download_options);
-                    log::info!(
-                        "Download {} using codec with file suffix (companion mode: {:?})",
-                        download_id,
-                        settings_for_companion.companion_mode
-                    );
-                }
+            // Always apply — codecs with no suffix (e.g., standard AAC) are
+            // a no-op since `codec_suffix()` returns `None` for them.
+            if apply_codec_suffix(&mut download_options) {
+                log::info!(
+                    "Download {} using codec with file suffix",
+                    download_id,
+                );
             }
         } else if let Some(ref codec) = download_options.song_codec {
             // Native priority mode: log that we're using clean filenames because
@@ -3281,16 +3275,16 @@ pub fn process_queue(
                             // Parse the codec string and run full enrichment (codec tags,
                             // source tags, channel detection, API metadata). Returns the
                             // fetched AlbumMetadata for reuse by animated artwork.
-                            let codec = enrich_codec_str.as_deref().and_then(|s| match s {
-                                "alac" => Some(SongCodec::Alac),
-                                "atmos" => Some(SongCodec::Atmos),
-                                "aac" => Some(SongCodec::Aac),
-                                "aac-legacy" => Some(SongCodec::AacLegacy),
-                                "aac-he" => Some(SongCodec::AacHe),
-                                "aac-binaural" => Some(SongCodec::AacBinaural),
-                                "aac-downmix" => Some(SongCodec::AacDownmix),
-                                "ac3" => Some(SongCodec::Ac3),
-                                _ => None,
+                            let codec = enrich_codec_str.as_deref().and_then(|s| {
+                                let parsed = SongCodec::from_cli_string(s);
+                                if parsed.is_none() {
+                                    log::warn!(
+                                        "Unrecognised codec string '{}' for enrichment of {}, skipping codec tags",
+                                        s,
+                                        enrich_dl_id,
+                                    );
+                                }
+                                parsed
                             });
 
                             emit_verbose_download_log(
