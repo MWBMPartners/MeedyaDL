@@ -255,3 +255,15 @@ pub mod musicbrainz_service;
 /// response against known tag definitions in `tags.toml`. Reports new/
 /// unknown fields for human review. Does NOT auto-embed unknown fields.
 pub mod api_audit_service;
+
+/// End-to-end integration tests for the enrichment pipeline services.
+///
+/// Tests the subtitle/lyrics services with actual files on disk: creates
+/// temp directories with sample TTML/SRT/LRC/VTT sources, calls the
+/// directory-level public APIs, and verifies output files exist with
+/// correct content. Covers Rich SRT, WebVTT, Enhanced LRC, and ASS
+/// generation, including Unicode filename handling and source priority.
+///
+/// Only compiled in test mode (`cargo test`).
+#[cfg(test)]
+mod integration_tests;
