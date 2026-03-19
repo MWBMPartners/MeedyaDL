@@ -777,6 +777,27 @@ mod tests {
         assert!(ini.contains("language = en-US"));
     }
 
+    #[test]
+    fn ini_includes_storefront_auto_from_language() {
+        let settings = default_settings(); // language = "en-US", storefront = ""
+        let ini = settings_to_ini(&settings);
+        assert!(
+            ini.contains("storefront = us"),
+            "Should auto-detect 'us' from 'en-US': {ini}"
+        );
+    }
+
+    #[test]
+    fn ini_uses_explicit_storefront_when_set() {
+        let mut settings = default_settings();
+        settings.storefront = "gb".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(
+            ini.contains("storefront = gb"),
+            "Should use explicit 'gb': {ini}"
+        );
+    }
+
     // ----------------------------------------------------------
     // settings_to_ini: truncate
     // ----------------------------------------------------------
