@@ -116,6 +116,23 @@ export function MainLayout({ children }: MainLayoutProps) {
      */
     <div className="flex flex-col h-screen">
       {/*
+       * Skip navigation link -- visually hidden, becomes visible on focus.
+       * Allows keyboard users to bypass the sidebar and jump directly to
+       * the main content area. This is a WCAG 2.1 Level A requirement
+       * (Success Criterion 2.4.1: Bypass Blocks).
+       *
+       * Styling: Positioned off-screen by default. On focus, it slides
+       * into view at the top-left corner with a high z-index so it sits
+       * above all other content including the sidebar.
+       */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-accent focus:text-white focus:rounded-platform focus:text-sm focus:font-medium focus:shadow-platform focus:outline-none"
+      >
+        Skip to main content
+      </a>
+
+      {/*
        * Custom title bar for Windows/Linux (hidden on macOS).
        * On macOS the native title bar is used because `titleBarStyle`
        * is set to "overlay" in tauri.conf.json, which renders the
@@ -165,7 +182,7 @@ export function MainLayout({ children }: MainLayoutProps) {
            * active page component (e.g., DownloadForm, DownloadQueue).
            * @see https://react.dev/learn/passing-props-to-a-component#passing-jsx-as-children
            */}
-          <main className="flex-1 overflow-y-auto">{children}</main>
+          <main id="main-content" className="flex-1 overflow-y-auto">{children}</main>
 
           {/*
            * Bottom status bar -- pinned below the scrollable <main>.

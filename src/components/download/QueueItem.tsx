@@ -472,6 +472,7 @@ export function QueueItem({
               onClick={() => onCancel(item.id)}
               className="p-1.5 rounded-platform text-content-tertiary hover:text-status-error hover:bg-surface-elevated transition-colors"
               title="Cancel"
+              aria-label="Cancel download"
             >
               <X size={14} />
             </button>
@@ -487,6 +488,7 @@ export function QueueItem({
               onClick={() => onRetry(item.id)}
               className="p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
               title="Retry"
+              aria-label="Retry download"
             >
               <RotateCcw size={14} />
             </button>
