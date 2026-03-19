@@ -37,6 +37,7 @@ Update extract_isrc_from_vendor() with 3-case logic:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.7.0] - 2026-03-19
 
