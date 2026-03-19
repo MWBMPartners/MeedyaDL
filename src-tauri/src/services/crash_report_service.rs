@@ -69,14 +69,13 @@ pub fn get_crash_report(app: &AppHandle, id: &str) -> Option<CrashReport> {
 ///
 /// Scans all JSON files in the crashes directory, deserializes each,
 /// and removes the one whose `id` field matches. Returns `Ok(())` if
-/// the file was deleted or did not exist, `Err` if deletion failed.
+/// the file was deleted, `Err` if not found or deletion failed.
 ///
-/// Uses explicit logging at each step to diagnose silent failures
-/// (the function previously returned Ok(()) even when no file was
-/// actually deleted, making deletion bugs invisible).
+/// All logging uses INFO level (not DEBUG) so diagnostics are visible
+/// in production log files.
 pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
     let dir = crashes_dir(app);
-    log::debug!(
+    log::info!(
         "delete_crash_report: looking for id={id} in {}",
         dir.display()
     );
@@ -99,7 +98,7 @@ pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
         let contents = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                log::debug!(
+                log::info!(
                     "delete_crash_report: skipping {} (read failed: {e})",
                     path.display()
                 );
@@ -110,7 +109,7 @@ pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
         let report = match serde_json::from_str::<CrashReport>(&contents) {
             Ok(r) => r,
             Err(e) => {
-                log::debug!(
+                log::info!(
                     "delete_crash_report: skipping {} (parse failed: {e})",
                     path.display()
                 );
@@ -130,6 +129,50 @@ pub fn delete_crash_report(app: &AppHandle, id: &str) -> Result<(), String> {
     let msg = format!("Crash report not found: {id}");
     log::warn!("delete_crash_report: {msg}");
     Err(msg)
+}
+
+/// Deletes all crash report files from the crashes directory.
+///
+/// Removes every `.json` file without parsing — this is a brute-force
+/// cleanup that bypasses any potential deserialization issues. Returns
+/// the number of files successfully deleted.
+pub fn delete_all_crash_reports(app: &AppHandle) -> Result<u32, String> {
+    let dir = crashes_dir(app);
+    log::info!(
+        "delete_all_crash_reports: clearing all reports in {}",
+        dir.display()
+    );
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) => {
+            let msg = format!("Failed to read crashes directory: {e}");
+            log::warn!("delete_all_crash_reports: {msg}");
+            return Err(msg);
+        }
+    };
+
+    let mut deleted = 0u32;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    log::info!("delete_all_crash_reports: deleted {}", path.display());
+                    deleted += 1;
+                }
+                Err(e) => {
+                    log::warn!(
+                        "delete_all_crash_reports: failed to delete {}: {e}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+
+    log::info!("delete_all_crash_reports: deleted {deleted} file(s)");
+    Ok(deleted)
 }
 
 /// Exports a crash report as a formatted Markdown string suitable for

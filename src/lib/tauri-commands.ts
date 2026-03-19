@@ -939,6 +939,23 @@ export function deleteCrashReport(id: string): Promise<void> {
 }
 
 /**
+ * Deletes all crash reports from disk.
+ *
+ * Rust handler: `delete_all_crash_reports()` in `src-tauri/src/commands/crash_reports.rs`
+ * Returns: The number of files deleted
+ *
+ * Removes every `.json` file in the crashes directory without parsing.
+ * Used by the "Clear All" button in the CrashReportSection.
+ *
+ * Called by: CrashReportSection "Clear All" button
+ *
+ * @returns Promise resolving to the number of deleted reports
+ */
+export function deleteAllCrashReports(): Promise<number> {
+  return invoke<number>('delete_all_crash_reports');
+}
+
+/**
  * Exports a crash report as a formatted Markdown string.
  *
  * Rust handler: `export_crash_report()` in `src-tauri/src/commands/crash_reports.rs`
