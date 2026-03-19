@@ -24,9 +24,17 @@ GAMDL 2.9.x changed its output from "Getting track N of M: Title"
   - Update TypeScript types and download store handler
   - Progress bars now show fill and track names during Apple Music downloads
 
+- Update ISRC reconciliation logic for Vendor tag extraction
+
+Update extract_isrc_from_vendor() with 3-case logic:
+  1. ISRC blank → copy from Apple Vendor tag (Label:isrc:CODE)
+  2. ISRC set + Vendor differs → store both (API / Vendor format)
+  3. ISRC set + identical or no Vendor → no-op
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
