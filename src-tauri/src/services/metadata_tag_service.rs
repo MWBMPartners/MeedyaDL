@@ -65,6 +65,7 @@ use mp4ameta::{Data, FreeformIdent, Tag};
 use tauri::AppHandle;
 use tokio::process::Command;
 
+use crate::models::codec_registry::codec_suffix_from_registry;
 use crate::models::gamdl_options::SongCodec;
 use crate::models::tag_registry::{self, TagRegistry, TAG_REGISTRY};
 use crate::services::apple_music_api::AlbumMetadata;
@@ -401,6 +402,18 @@ pub async fn apply_enriched_metadata_tags(
         }
     }
 
+    // --- Post-enrichment: apply codec suffix to filenames ---
+    // Renames files like "01 Title.m4a" → "01 Title [Dolby Atmos].m4a"
+    // based on the requested codec. Skips files whose codec has no suffix
+    // defined in codecs.toml (e.g., standard AAC has empty suffix).
+    if let Some(suffix) = codec_suffix_from_registry(codec) {
+        if !suffix.is_empty() {
+            for file_path in &files_to_enrich {
+                apply_codec_rename_suffix(file_path, suffix);
+            }
+        }
+    }
+
     log::info!(
         "Enriched {} of {} M4A file(s) with metadata tags",
         tagged_count,
@@ -415,6 +428,10 @@ pub async fn apply_enriched_metadata_tags(
 // ============================================================
 
 /// Apply all enrichment layers to a single M4A file.
+///
+/// Returns the effective codec used for tagging (may differ from the
+/// requested codec when native priority is active and ffprobe detects
+/// the actual codec from the file).
 ///
 /// Runs ffprobe (async) for channel and codec detection, then offloads all
 /// `mp4ameta` Tag read/write operations to `spawn_blocking` to prevent
@@ -1189,6 +1206,50 @@ pub fn apply_advisory_suffixes(
     }
 
     (new_output_path, renamed_files)
+}
+
+/// Rename a single M4A file to include its codec suffix.
+///
+/// Appends the suffix (e.g., " [Dolby Atmos]", " [Lossless]") before
+/// the file extension. Idempotent: skips files that already contain the
+/// suffix in their stem.
+fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
+    if suffix.is_empty() {
+        return;
+    }
+
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    // Idempotency: skip if suffix already present
+    if stem.contains(suffix) {
+        return;
+    }
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("m4a");
+    let new_name = format!("{stem} {suffix}.{ext}");
+    let new_path = file_path.with_file_name(&new_name);
+
+    match std::fs::rename(file_path, &new_path) {
+        Ok(()) => {
+            log::debug!(
+                "Codec suffix: {} → {}",
+                file_path.display(),
+                new_path.display()
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "Failed to rename {} with codec suffix: {e}",
+                file_path.display()
+            );
+        }
+    }
 }
 
 /// Rename a single track file to include its content advisory suffix.

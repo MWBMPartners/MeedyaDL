@@ -406,11 +406,24 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     }
 }
 
-/// Appends metadata INI key-value pairs (language, `fetch_extra_tags`, `artist_auto_select`).
+/// Appends metadata INI key-value pairs (language, storefront, `fetch_extra_tags`, `artist_auto_select`).
 fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
     lines.push(format!("language = {}", settings.language));
+
+    // Storefront code for Apple Music API requests (e.g., "gb", "us", "jp").
+    // Required by GAMDL >= 2.9.3 which no longer auto-detects the storefront.
+    // Derived from the language setting: "en-GB" → "gb", "ja-JP" → "jp".
+    // Falls back to "us" if the language doesn't contain a region code.
+    let storefront = settings
+        .language
+        .split('-')
+        .next_back()
+        .filter(|s| s.len() == 2)
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_else(|| "us".to_string());
+    lines.push(format!("storefront = {storefront}"));
     // Boolean flag: when true, GAMDL fetches extra metadata tags
     // (normalization info, smooth playback data, etc.) from Apple Music.
     if settings.fetch_extra_tags {
