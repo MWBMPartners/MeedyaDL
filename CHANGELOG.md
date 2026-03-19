@@ -176,6 +176,7 @@ Fix 5 linter warnings:
 - Update changelog, readme, and project context for latest changes
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -196,6 +197,16 @@ Add 20 Vitest tests for GeneralTab, QualityTab, and AdvancedTab covering
   toggle rendering, toggle click handling, conditional visibility, and select
   dropdown rendering. Mocks lucide-react icons, Tauri IPC commands, and the
   shell plugin to enable jsdom testing without the Tauri runtime.
+
+
+### 🧹 Maintenance
+
+- Add .hintrc to suppress false-positive webhint warnings
+
+Disable three webhint rules that produce false positives on React/JSX:
+  - axe/aria: can't evaluate JSX ternary expressions for ARIA attributes
+  - no-inline-styles: dynamic runtime values and ErrorBoundary styles
+  - css-prefix-order: fixed where possible, remaining are intentional
 
 
 ## [0.6.13] - 2026-03-06
