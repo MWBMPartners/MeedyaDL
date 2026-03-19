@@ -450,7 +450,25 @@ fn build_gamdl_command(
         cmd.arg(config_path);
     }
 
-    log::info!("GAMDL command: python -m gamdl {urls:?} {cli_args:?}");
+    // Redact wrapper account URL from logged CLI args to prevent
+    // credential tokens in query parameters from persisting in log files.
+    let redacted_args: Vec<String> = {
+        let mut result = Vec::with_capacity(cli_args.len());
+        let mut skip_next = false;
+        for arg in &cli_args {
+            if skip_next {
+                result.push("[REDACTED]".to_string());
+                skip_next = false;
+            } else if arg == "--wrapper-account-url" {
+                result.push(arg.clone());
+                skip_next = true;
+            } else {
+                result.push(arg.clone());
+            }
+        }
+        result
+    };
+    log::info!("GAMDL command: python -m gamdl {urls:?} {redacted_args:?}");
 
     Ok(cmd)
 }

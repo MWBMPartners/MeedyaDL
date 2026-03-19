@@ -1,0 +1,137 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Dependency Outdated Report
+# ============================
+#
+# Scheduled workflow that checks for outdated dependencies (including major
+# version upgrades) and posts a summary to the GitHub Actions job summary.
+#
+# This complements Dependabot, which is configured to ignore major version
+# bumps (they require manual migration). This workflow ensures major version
+# availability is still visible so migrations can be planned proactively.
+#
+# Runs monthly on the 1st, or manually via workflow_dispatch.
+# Results are informational only — no PRs or issues are created.
+#
+# @see .github/dependabot.yml -- Dependabot config (minor/patch only)
+
+name: Dependency Report
+
+on:
+  schedule:
+    # Run at 09:00 UTC on the 1st of each month
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Outdated Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # ── npm dependencies ──────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Check npm outdated
+        id: npm_outdated
+        # npm outdated exits non-zero when packages are outdated — that's expected
+        run: |
+          echo "## npm Dependencies" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          OUTPUT=$(npm outdated --long 2>&1 || true)
+          if [ -z "$OUTPUT" ]; then
+            echo "All npm packages are up to date." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Filter for major version bumps (where Current major != Latest major)
+            echo "### All Outdated Packages" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            # Highlight major version jumps
+            MAJOR_BUMPS=$(echo "$OUTPUT" | awk 'NR>1 {
+              split($2, cur, ".");
+              split($4, lat, ".");
+              if (cur[1] != lat[1]) print $0
+            }' || true)
+            if [ -n "$MAJOR_BUMPS" ]; then
+              echo "### Major Version Upgrades Available" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "These require manual migration (blocked by Dependabot ignore rule):" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              echo "$MAJOR_BUMPS" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Cargo dependencies ───────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        with:
+          workspaces: src-tauri
+
+      # Install Linux system deps required for cargo check (Tauri needs these)
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Check Cargo outdated
+        run: |
+          echo "## Cargo Dependencies" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # cargo update --dry-run shows available semver-compatible updates
+          echo "### Semver-Compatible Updates Available" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cd src-tauri && cargo update --dry-run 2>&1 | grep -i "updating\|locking" >> "$GITHUB_STEP_SUMMARY" || echo "All Cargo packages are up to date." >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # For major version detection, install cargo-outdated
+          cargo install cargo-outdated 2>/dev/null || true
+          if command -v cargo-outdated &> /dev/null; then
+            echo "### All Outdated Packages (including major)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cargo outdated --root-deps-only 2>&1 >> "$GITHUB_STEP_SUMMARY" || echo "cargo-outdated check failed" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Summary footer
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This report runs monthly. Major version upgrades require manual migration — see the repo's GitHub Issues for tracked migrations." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "To run manually: \`gh workflow run \"Dependency Report\" --ref main\`" >> "$GITHUB_STEP_SUMMARY"

@@ -11,6 +11,7 @@
 //   - `list_crash_reports` -- List all saved crash reports
 //   - `get_crash_report` -- Get a single report by ID
 //   - `delete_crash_report` -- Delete a report by ID
+//   - `delete_all_crash_reports` -- Delete all reports at once
 //   - `export_crash_report` -- Export as formatted Markdown
 //   - `log_frontend_error` -- Save a frontend error as a crash report
 //   - `get_github_issue_url` -- Build a pre-filled GitHub new-issue URL
@@ -47,6 +48,15 @@ pub fn get_crash_report(app: AppHandle, id: String) -> Result<CrashReport, Strin
 #[tauri::command]
 pub fn delete_crash_report(app: AppHandle, id: String) -> Result<(), String> {
     crash_report_service::delete_crash_report(&app, &id)
+}
+
+/// Deletes all crash reports from disk.
+///
+/// Removes every `.json` file in the crashes directory without parsing.
+/// Returns the number of files deleted.
+#[tauri::command]
+pub fn delete_all_crash_reports(app: AppHandle) -> Result<u32, String> {
+    crash_report_service::delete_all_crash_reports(&app)
 }
 
 /// Exports a crash report as a formatted Markdown string.
