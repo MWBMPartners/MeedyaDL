@@ -17,6 +17,8 @@
  * │          │   children (active page component)    │
  * │          │                                       │
  * │          ├───────────────────────────────────────┤
+ * │          │   GlobalProgressBar (per-item + queue) │
+ * │          ├───────────────────────────────────────┤
  * │          │             StatusBar                 │
  * ├──────────┴───────────────────────────────────────┤
  * │          ToastContainer (overlay, top-right)     │
@@ -46,6 +48,7 @@
 import type { ReactNode } from 'react';
 
 /** Sibling layout components assembled into the shell. */
+import { GlobalProgressBar } from './GlobalProgressBar';
 import { Sidebar } from './Sidebar';
 import { TitleBar } from './TitleBar';
 import { StatusBar } from './StatusBar';
@@ -183,6 +186,15 @@ export function MainLayout({ children }: MainLayoutProps) {
            * @see https://react.dev/learn/passing-props-to-a-component#passing-jsx-as-children
            */}
           <main id="main-content" className="flex-1 overflow-y-auto">{children}</main>
+
+          {/*
+           * Global progress bars -- always visible when downloads are active.
+           * Upper bar: per-item progress (current download)
+           * Lower bar: queue-level progress (completed / total)
+           * Auto-hides when no downloads are active or queued.
+           * @see GlobalProgressBar component in ./GlobalProgressBar.tsx
+           */}
+          <GlobalProgressBar />
 
           {/*
            * Bottom status bar -- pinned below the scrollable <main>.
