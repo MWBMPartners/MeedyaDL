@@ -27,7 +27,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Trash2, AlertTriangle } from 'lucide-react';
 
 import { Button } from '@/components/common';
-import { listCrashReports, deleteCrashReport } from '@/lib/tauri-commands';
+import { listCrashReports, deleteCrashReport, deleteAllCrashReports } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import type { CrashReport } from '@/types';
 
@@ -119,14 +119,36 @@ export function CrashReportSection() {
       await deleteCrashReport(id);
       setReports((prev) => prev.filter((r) => r.id !== id));
       addToast('Crash report deleted', 'info');
-    } catch {
-      addToast('Failed to delete crash report', 'error');
+    } catch (err) {
+      addToast(`Failed to delete crash report: ${err}`, 'error');
+    }
+  };
+
+  /** Deletes all crash reports and clears the displayed list. */
+  const handleDeleteAll = async () => {
+    try {
+      const count = await deleteAllCrashReports();
+      setReports([]);
+      addToast(`Deleted ${count} error report(s)`, 'info');
+    } catch (err) {
+      addToast(`Failed to clear error reports: ${err}`, 'error');
     }
   };
 
   return (
     <div className="space-y-2">
-      <h4 className="text-xs font-medium text-content-secondary">Recent Error Reports</h4>
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-medium text-content-secondary">Recent Error Reports</h4>
+        {reports.length > 1 && (
+          <button
+            type="button"
+            onClick={handleDeleteAll}
+            className="text-[10px] text-content-tertiary hover:text-status-error transition-colors"
+          >
+            Clear All
+          </button>
+        )}
+      </div>
 
       {reports.length === 0 ? (
         /* Empty state */

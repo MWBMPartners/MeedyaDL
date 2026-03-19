@@ -239,7 +239,29 @@ export default [
   },
 
   /**
-   * Config object #3: Global ignore patterns.
+   * Config object #3: Node.js build scripts.
+   *
+   * Scripts in the scripts/ directory are Node.js utilities (icon generation,
+   * version bumping) that need Node.js globals (console, process, Buffer).
+   * They don't use TypeScript or React, so they only need the base rules
+   * with the right global environment.
+   */
+  {
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+      },
+    },
+  },
+
+  /**
+   * Config object #4: Global ignore patterns.
    *
    * Files and directories matching these patterns are completely excluded from linting.
    * This block uses only 'ignores' (no 'files' or 'rules'), making it a global ignore

@@ -473,7 +473,10 @@ async fn check_app_update(
     // Required headers:
     // - User-Agent: GitHub API requires a UA string (can be anything)
     // - Accept: Request v3 JSON format
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let response = client
         .get(url)
         .header("User-Agent", "meedyadl")
