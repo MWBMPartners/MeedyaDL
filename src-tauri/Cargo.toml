@@ -483,3 +483,15 @@ base64 = "0.22"
 # handles natively.
 # @see https://docs.rs/roxmltree/ -- roxmltree API reference
 roxmltree = "0.21"
+
+# ============================================================
+# [dev-dependencies] -- Dependencies used only during testing
+# ============================================================
+# @see https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#development-dependencies
+[dev-dependencies]
+
+# tempfile -- Secure temporary file and directory creation.
+# Used in integration tests to create isolated temp directories with sample
+# media/subtitle files for testing enrichment pipeline services end-to-end.
+# @see https://docs.rs/tempfile/ -- tempfile crate documentation
+tempfile = "3"
