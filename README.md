@@ -33,7 +33,7 @@
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music. Non-geographic URLs (without a storefront code) are auto-detected and normalized
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
 - **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions. **Music video companions** — optionally download the music video for each track alongside audio (requires MusicKit credentials)
-- **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry
+- **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry. Queue header shows live statistics (active/queued/completed/failed counts) with an aggregate progress bar; album downloads display a "Track N of M" counter
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
 
@@ -78,7 +78,8 @@
 - **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
 - **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
-- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, SHA-256 checksum verification for dependency downloads
+- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, SHA-256 checksum verification for dependency downloads, `cargo-deny` licence scanning in CI
+- **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 
 ---
