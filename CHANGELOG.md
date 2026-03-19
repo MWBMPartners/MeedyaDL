@@ -4,7 +4,15 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.8.1] - 2026-03-19
+
+### ✨ Features
+
+- Add storefront as user-configurable setting
+
+Add explicit storefront field to AppSettings so users can set their
+  Apple Music region (e.g., gb, us, jp) directly.
+
 
 ### 🐛 Bug Fixes
 
@@ -12,6 +20,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.8.0] - 2026-03-19
