@@ -157,11 +157,24 @@ Change bump-patch-for-minor-pre-major from true to false so that
   while the project is pre-1.0, which didn't reflect the significance
   of changes like Tailwind v4 migration, accessibility themes, etc.
 
+- Resolve VS Code Problems — CSS prefix order and inline style
+
+Fix 5 linter warnings:
+  - globals.css: reorder user-select after -webkit-user-select (2 instances)
+  - macos.css: reorder backdrop-filter after -webkit-backdrop-filter (2 instances)
+  - SettingsSection.tsx: replace inline transform style with Tailwind rotate class
+
+  Remaining 24 Problems are documented unfixable:
+  - ARIA attribute values: Edge DevTools false positives on JSX expressions
+  - Inline styles: dynamic runtime values (progress bar widths)
+  - main.tsx: intentional ErrorBoundary styles (must work without CSS)
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update changelog, readme, and project context for latest changes
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
