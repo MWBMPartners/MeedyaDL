@@ -104,6 +104,24 @@ static TRACK_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid track info regex")
 });
 
+/// Matches GAMDL 2.9.x track information lines.
+///
+/// Capture groups:
+///   1. `current` -- current track number (e.g. "1")
+///   2. `total`   -- total track count (e.g. "15")
+///   3. `title`   -- track title in quotes (e.g. "F1")
+///
+/// Example input: `[Track 1/15] Downloading "F1"`
+///
+/// GAMDL 2.9.x changed its output format from "Getting track N of M: Title"
+/// to "[Track N/M] Downloading "Title"". This regex handles the new format.
+/// The `(?i)` flag handles case variations. The title quotes are optional
+/// to handle edge cases.
+static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)\[Track\s+(\d+)/(\d+)\]\s+Downloading\s+"?([^"]+)"?"#)
+        .expect("Invalid track info v2 regex")
+});
+
 /// Matches GAMDL "Saved to" completion lines.
 ///
 /// Capture groups:
@@ -211,6 +229,12 @@ pub enum GamdlOutputEvent {
         artist: String,
         /// Album name (empty string if not parsed - album info often comes separately)
         album: String,
+        /// Current track number (1-based), if available from "[Track N/M]" format
+        #[serde(skip_serializing_if = "Option::is_none")]
+        track_number: Option<u32>,
+        /// Total track count, if available from "[Track N/M]" format
+        #[serde(skip_serializing_if = "Option::is_none")]
+        track_total: Option<u32>,
     },
 
     /// Download progress update from yt-dlp's output
@@ -341,6 +365,33 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
             // Album info typically comes from a separate GAMDL output line
             // and is not available in the "Getting song/track" line.
             album: String::new(),
+            track_number: None,
+            track_total: None,
+        };
+    }
+
+    // Priority 3b: GAMDL 2.9.x track information format.
+    // "[Track 1/15] Downloading "F1"" — new format introduced in GAMDL 2.9.x.
+    // The line often arrives wrapped in an [INFO timestamp] prefix from GAMDL's
+    // logging, so we match on the [Track N/M] portion within the line.
+    if let Some(captures) = TRACK_INFO_V2_REGEX.captures(trimmed) {
+        let title = captures
+            .get(3)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
+        let track_number = captures
+            .get(1)
+            .and_then(|m| m.as_str().parse::<u32>().ok());
+        let track_total = captures
+            .get(2)
+            .and_then(|m| m.as_str().parse::<u32>().ok());
+
+        return GamdlOutputEvent::TrackInfo {
+            title,
+            artist: String::new(),
+            album: String::new(),
+            track_number,
+            track_total,
         };
     }
 

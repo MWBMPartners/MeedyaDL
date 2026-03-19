@@ -5504,6 +5504,8 @@ mod tests {
             title: "Anti-Hero".to_string(),
             artist: "Taylor Swift".to_string(),
             album: String::new(),
+            track_number: None,
+            track_total: None,
         };
         queue.update_item_progress(&id, &event);
 
@@ -5525,6 +5527,8 @@ mod tests {
             title: "Bohemian Rhapsody".to_string(),
             artist: String::new(),
             album: String::new(),
+            track_number: None,
+            track_total: None,
         };
         queue.update_item_progress(&id, &event);
 
@@ -6133,6 +6137,8 @@ mod tests {
                 title: "Test Song".to_string(),
                 artist: "Test Artist".to_string(),
                 album: String::new(),
+                track_number: None,
+                track_total: None,
             },
         );
         queue.update_item_progress(

@@ -554,6 +554,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           case 'track_info':
             // Update the currently-downloading track name for display.
             item.current_track = progress.event.title || null;
+            item.state = 'downloading';
+            // Compute approximate progress from track counts (GAMDL 2.9.x).
+            // When [Track N/M] format is available, use (N-1)/M as the
+            // percentage (N-1 because track N is starting, not finished).
+            if (progress.event.track_number != null && progress.event.track_total != null && progress.event.track_total > 0) {
+              item.progress = Math.round(((progress.event.track_number - 1) / progress.event.track_total) * 100);
+              item.total_tracks = progress.event.track_total;
+              item.completed_tracks = progress.event.track_number - 1;
+            }
             break;
           case 'processing_step':
             // Transition to 'processing' (post-download remuxing/tagging).

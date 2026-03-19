@@ -905,7 +905,7 @@ export interface CookieImportResult {
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions} - Discriminated unions
  */
 export type GamdlOutputEvent =
-  | { type: 'track_info'; title: string; artist: string; album: string }
+  | { type: 'track_info'; title: string; artist: string; album: string; track_number?: number; track_total?: number }
   | { type: 'download_progress'; percent: number; speed: string; eta: string }
   | { type: 'processing_step'; step: string }
   | { type: 'error'; message: string }
