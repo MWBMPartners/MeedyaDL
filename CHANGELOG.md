@@ -169,11 +169,21 @@ Fix 5 linter warnings:
   - Inline styles: dynamic runtime values (progress bar widths)
   - main.tsx: intentional ErrorBoundary styles (must work without CSS)
 
+- **(ci)** Restrict cargo-deny to Linux runners only
+
+cargo-deny-action is a Docker container action which is only supported
+  on Linux runners. It was failing on macOS and Windows with:
+  "Container action is only supported on Linux"
+
+  Add `if: runner.os == 'Linux'` condition since licence/advisory checks
+  are platform-independent — running once on Linux is sufficient.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update changelog, readme, and project context for latest changes
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
