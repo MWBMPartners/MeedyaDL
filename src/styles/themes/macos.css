@@ -156,8 +156,8 @@
  * This matches the vibrancy effect of native macOS sidebar panels.
  */
 .platform-macos aside {
-  backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
 }
 
 /*
@@ -167,8 +167,8 @@
  * Targets elements using Tailwind's bg-surface-elevated class.
  */
 .platform-macos .bg-surface-elevated {
-  backdrop-filter: blur(10px) saturate(150%);
   -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
 }
 
 /* ============================================================

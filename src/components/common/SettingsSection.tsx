@@ -51,9 +51,7 @@ export function SettingsSection({
         onClick={() => setOpen(!open)}
         aria-expanded={open ? 'true' : 'false'}
       >
-        <span className="text-xs text-content-tertiary select-none transition-transform duration-150"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        >
+        <span className={`text-xs text-content-tertiary select-none transition-transform duration-150 ${open ? 'rotate-90' : 'rotate-0'}`}>
           ▶
         </span>
         <div className="flex-1 min-w-0">
