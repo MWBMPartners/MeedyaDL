@@ -425,6 +425,8 @@ export interface AppSettings {
   temp_path: string;
   /** Language/locale code for metadata (e.g., "en-US") */
   language: string;
+  /** Apple Music storefront code (e.g., "gb", "us"). Empty = auto-detect from language */
+  storefront: string;
   /** Whether to overwrite existing files by default */
   overwrite: boolean;
   /** UI display language code (e.g., "en", "de", "fr"). Empty = auto-detect from OS */

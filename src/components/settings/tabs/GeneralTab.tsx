@@ -58,7 +58,7 @@ import { useUpdateStore } from '@/stores/updateStore';
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button, SettingsSection } from '@/components/common';
+import { Toggle, FilePickerButton, Select, Input, Button, SettingsSection } from '@/components/common';
 
 // Lucide icon for the refresh/check action button.
 import { RefreshCw } from 'lucide-react';
@@ -289,6 +289,15 @@ export function GeneralTab() {
           options={LANGUAGE_OPTIONS}
           value={settings.language}
           onChange={(e) => updateSettings({ language: e.target.value })}
+        />
+
+        {/* Apple Music storefront region */}
+        <Input
+          label="Storefront"
+          description="Apple Music storefront region code (e.g., gb, us, jp). Leave blank to auto-detect from metadata language."
+          placeholder="Auto-detect"
+          value={settings.storefront}
+          onChange={(e) => updateSettings({ storefront: e.target.value.toLowerCase().trim() })}
         />
 
         {/* Overwrite existing files */}
