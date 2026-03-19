@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Add storefront to GAMDL config, codec suffix rename, ISRC logic
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.8.0] - 2026-03-19
+
 ### ✨ Features
 
 - Enhance codec handling by adding AC3 support and refining suffix application
