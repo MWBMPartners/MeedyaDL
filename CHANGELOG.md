@@ -6,6 +6,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Enhance codec handling by adding AC3 support and refining suffix application
+
 ### 🐛 Bug Fixes
 
 - Parse GAMDL 2.9.x track format for progress bar display
@@ -23,6 +27,7 @@ GAMDL 2.9.x changed its output from "Getting track N of M: Title"
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.7.0] - 2026-03-19
