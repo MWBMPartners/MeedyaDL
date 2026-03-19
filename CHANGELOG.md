@@ -147,11 +147,22 @@ Move hardcoded codec suffix strings from download_queue.rs to the
   Existing suffixes preserved: ALAC=[Lossless], Atmos=[Dolby Atmos],
   AC3=[Dolby Digital].
 
+- Enable minor version bumps for feat: commits pre-1.0
+
+Change bump-patch-for-minor-pre-major from true to false so that
+  feat: commits correctly bump the minor version (0.6.x → 0.7.0)
+  instead of only the patch version (0.6.x → 0.6.y).
+
+  The previous setting was treating all feat: commits as patch bumps
+  while the project is pre-1.0, which didn't reflect the significance
+  of changes like Tailwind v4 migration, accessibility themes, etc.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update changelog, readme, and project context for latest changes
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
