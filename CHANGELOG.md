@@ -147,11 +147,46 @@ Move hardcoded codec suffix strings from download_queue.rs to the
   Existing suffixes preserved: ALAC=[Lossless], Atmos=[Dolby Atmos],
   AC3=[Dolby Digital].
 
+- Enable minor version bumps for feat: commits pre-1.0
+
+Change bump-patch-for-minor-pre-major from true to false so that
+  feat: commits correctly bump the minor version (0.6.x → 0.7.0)
+  instead of only the patch version (0.6.x → 0.6.y).
+
+  The previous setting was treating all feat: commits as patch bumps
+  while the project is pre-1.0, which didn't reflect the significance
+  of changes like Tailwind v4 migration, accessibility themes, etc.
+
+- Resolve VS Code Problems — CSS prefix order and inline style
+
+Fix 5 linter warnings:
+  - globals.css: reorder user-select after -webkit-user-select (2 instances)
+  - macos.css: reorder backdrop-filter after -webkit-backdrop-filter (2 instances)
+  - SettingsSection.tsx: replace inline transform style with Tailwind rotate class
+
+  Remaining 24 Problems are documented unfixable:
+  - ARIA attribute values: Edge DevTools false positives on JSX expressions
+  - Inline styles: dynamic runtime values (progress bar widths)
+  - main.tsx: intentional ErrorBoundary styles (must work without CSS)
+
+- **(ci)** Restrict cargo-deny to Linux runners only
+
+cargo-deny-action is a Docker container action which is only supported
+  on Linux runners. It was failing on macOS and Windows with:
+  "Container action is only supported on Linux"
+
+  Add `if: runner.os == 'Linux'` condition since licence/advisory checks
+  are platform-independent — running once on Linux is sufficient.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update changelog, readme, and project context for latest changes
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -172,6 +207,16 @@ Add 20 Vitest tests for GeneralTab, QualityTab, and AdvancedTab covering
   toggle rendering, toggle click handling, conditional visibility, and select
   dropdown rendering. Mocks lucide-react icons, Tauri IPC commands, and the
   shell plugin to enable jsdom testing without the Tauri runtime.
+
+
+### 🧹 Maintenance
+
+- Add .hintrc to suppress false-positive webhint warnings
+
+Disable three webhint rules that produce false positives on React/JSX:
+  - axe/aria: can't evaluate JSX ternary expressions for ARIA attributes
+  - no-inline-styles: dynamic runtime values and ErrorBoundary styles
+  - css-prefix-order: fixed where possible, remaining are intentional
 
 
 ## [0.6.13] - 2026-03-06
