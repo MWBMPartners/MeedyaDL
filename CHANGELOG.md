@@ -8,30 +8,177 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- **Tailwind CSS v4 migration** (#174) — Tailwind CSS 3.4.17 → 4.2.2; `@tailwindcss/postcss` 4.2.2 replaces `tailwindcss` as PostCSS plugin; `autoprefixer` removed (built into v4); `@tailwindcss/typography` loaded via `@plugin` in CSS instead of `require()` in JS; `globals.css` migrated from `@tailwind` directives to `@import "tailwindcss"` + `@config` + `@plugin`; macOS minimum raised to 13.3 (Safari 16.4+ required by v4); Vite targets updated from safari13/chrome105 to safari16.4/chrome111
-- **Queue progress indicators** (#178) — queue header statistics bar showing active/queued/completed/failed counts with an aggregate progress bar; "Track N of M" counter in QueueItem for album downloads
-- **Codec filename suffixes from registry** (#118) — moved codec suffix definitions from hardcoded values to `codecs.toml` registry; added suffixes for all audio codecs (e.g., AAC Binaural → `[Binaural]`, AAC Downmix → `[Downmix]`, AAC Legacy → `[AAC Legacy]`, HE-AAC → `[HE-AAC]`)
-- Add `delete_all_crash_reports` command and "Clear All" button in crash report UI
-- Monthly Dependency Report CI workflow
+- Migrate to Tailwind CSS v4 and update documentation
+
+Migrate from Tailwind CSS v3.4.17 to v4.2.2 (closes #174):
+  - Replace tailwindcss PostCSS plugin with @tailwindcss/postcss
+  - Remove autoprefixer (built into v4's LightningCSS)
+  - Replace @tailwind directives with @import "tailwindcss" + @config + @plugin
+  - Load @tailwindcss/typography via @plugin in CSS instead of require() in JS
+  - Bump macOS minimum from 11.0 to 13.3 (Safari 16.4+ required by v4)
+  - Update Vite targets: safari13 → safari16.4, chrome105 → chrome111
+
+  Documentation updates:
+  - CHANGELOG.md: add all unreleased changes (security, stability, CI)
+  - README.md: update Tailwind version and macOS minimum
+  - Project_Plan.md: update status and add post-release entries
+  - DEV_NOTES.md: update project structure references
+  - CLAUDE.md: update architecture, build targets, Vite config
+  - help/faq.md, help/getting-started.md: update macOS version
+
+- Add cargo-deny for licence scanning and security advisory auditing in CI
+
+Add cargo-deny configuration (deny.toml) and CI step to scan the Rust
+  dependency tree for licence compliance and known security advisories.
+  The config allows MIT-compatible licences, ignores Tauri's unmaintained
+  GTK3 transitive dependencies, and pins the GitHub Action to a commit SHA.
+
+- Core accessibility improvements (partial #125)
+
+High-impact a11y improvements across the UI:
+  - ARIA labels on icon-only buttons (Sidebar, UpdateBanner, QueueItem)
+  - aria-live regions for toasts, activity log, and progress bars
+  - prefers-reduced-motion media query disabling animations
+  - Skip navigation link for keyboard users (WCAG 2.1 SC 2.4.1)
+  - ProgressBar role="progressbar" with proper value attributes
+
+- Upgrade dependencies and add queue progress indicators
+
+Dependency upgrades (closes #117):
+  - @vitejs/plugin-react 4.7.0 → 5.2.0
+  - @commitlint/cli 19.8.1 → 20.5.0
+  - react-markdown 9.1.0 → 10.1.0
+  - All semver-compatible updates applied
+
+  Queue progress indicators (closes #178):
+  - Add queue header statistics bar with active/queued/completed/failed
+    counts and aggregate progress bar
+  - Add "Track N of M" counter in QueueItem for album downloads
+  - Both derived from existing store data, no backend changes needed
+
+- Add global keyboard shortcuts (closes #179)
+
+Add useKeyboardShortcuts hook with application-wide shortcuts:
+  - Cmd/Ctrl+D: navigate to Download page and focus URL input
+  - Cmd/Ctrl+,: navigate to Settings
+  - Cmd/Ctrl+Q: navigate to Queue
+  - Escape and Cmd+Enter already handled by Modal and DownloadForm
+
+  Shortcuts suppressed when focus is in input/textarea/select fields.
+  Uses imperative store access to avoid unnecessary re-renders.
+
+- Add high-contrast accessibility theme (closes #180)
+
+Add a toggleable high-contrast theme for users with low vision:
+  - Pure black/white text with WCAG AA+ contrast ratios
+  - Strong opaque borders replacing translucent ones
+  - Saturated status colours for clear differentiation
+  - 3px focus-visible outlines on all interactive elements
+  - Supports both light and dark mode simultaneously
+  - Auto-detects OS prefers-contrast: high media query
+  - Toggle in Settings > General > Appearance
+
+- Add colour blindness accessibility themes (closes #181)
+
+Add three colour vision deficiency (CVD) theme variants:
+  - Deuteranopia (red-green): success→blue, error→orange, warning→yellow
+  - Protanopia (red-green): same palette as deuteranopia
+  - Tritanopia (blue-yellow): warning→pink, info→teal
+
+  Each variant overrides status colours in both light and dark mode.
+  Select in Settings > General > Appearance > Colour Vision dropdown.
+
+- Move progress bars to global layout — visible on all pages
+
+Add GlobalProgressBar component to MainLayout, rendered between <main>
+  and StatusBar. Always visible regardless of which page the user is on:
+  - Upper bar: per-item progress (current track name, speed, ETA)
+  - Lower bar: queue-level progress (completed / total items)
+  - Auto-hides when no downloads are active or queued
+
+  Remove duplicate ProgressBar from DownloadQueue page header (text
+  stats retained for context on the Queue page).
+
+
+### 🐛 Bug Fixes
+
+- Security hardening, dependency updates, and stability improvements
+
+Security fixes (closes #175, #176, #177):
+  - Fix TAR extraction path traversal vulnerability — iterate entries
+    individually and reject paths with `..` components or absolute paths
+  - Add explicit timeouts to all reqwest HTTP clients (Apple Music API,
+    AcoustID, GitHub API, update checker) preventing indefinite blocking
+  - Redact wrapper account URL from GAMDL CLI args log line to prevent
+    credential tokens from persisting in plaintext log files
+
+  Dependency updates:
+  - Fix npm audit vulnerabilities (flatted < 3.4.0, undici 7.0.0-7.23.0)
+  - Update lz4_flex 0.11.5 → 0.11.6 (memory leak fix, closes Dependabot
+    security alert #17)
+
+  CI/DX improvements:
+  - Add monthly Dependency Report workflow for major version visibility
+  - Fix Dependabot config to actually ignore major version bumps (the
+    comment said it did but the ignore rule was missing)
+  - Fix ESLint errors in Node.js build scripts (add globals for console,
+    process, Buffer; remove unused deflateSync import)
+  - Fix flaky Windows CI test (probe_nonexistent_directory_with_valid_parent)
+
+  Crash report improvements:
+  - Add delete_all_crash_reports command + "Clear All" UI button
+  - Promote delete logging from debug to info for production visibility
+  - Show actual error messages in frontend delete failure toasts
+
+  Stability improvements:
+  - Fix Tooltip setTimeout cleanup on unmount (useRef + useEffect)
+  - Fix CookiesTab copy-success timeout cleanup on unmount
+
+- Move codec filename suffixes to codecs.toml registry (closes #118)
+
+Move hardcoded codec suffix strings from download_queue.rs to the
+  codecs.toml registry, preventing filename collisions when users select
+  multiple lossy codecs in Custom companion mode.
+
+  New suffixes: AAC Binaural → [Binaural], AAC Downmix → [Downmix],
+  AAC Legacy → [AAC Legacy], HE-AAC → [HE-AAC], and variants.
+  Standard AAC 256 keeps clean filenames (empty suffix).
+
+  Existing suffixes preserved: ALAC=[Lossless], Atmos=[Dolby Atmos],
+  AC3=[Dolby Digital].
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update changelog, readme, and project context for latest changes
+
+### 🧪 Testing
+
+- Add enrichment pipeline integration tests (closes #113)
+
+Add 30 end-to-end integration tests across 4 subtitle/lyrics services:
+  - Rich SRT: TTML→SRT conversion, styling, multi-track, unicode filenames
+  - WebVTT: TTML/SRT/LRC→VTT conversion, source priority, fallbacks
+  - Enhanced LRC: word-level timing, line-level fallback, multi-track
+  - ASS: TTML→ASS conversion, styling override tags, VTT fallback
+  - Cross-service pipeline tests and CJK/emoji filename edge cases
+
+  Total Rust tests: 579 → 609 (+30)
+
+- Add React component rendering tests for settings tabs (closes #114)
+
+Add 20 Vitest tests for GeneralTab, QualityTab, and AdvancedTab covering
+  toggle rendering, toggle click handling, conditional visibility, and select
+  dropdown rendering. Mocks lucide-react icons, Tauri IPC commands, and the
+  shell plugin to enable jsdom testing without the Tauri runtime.
+
+
+## [0.6.13] - 2026-03-06
 
 ### 🐛 Bug Fixes
 
 - Resolve MusicKit 401 validation flow and add embedded token fallback
-- Fix Tooltip setTimeout cleanup on unmount (prevents state update on unmounted component)
-- Fix CookiesTab copy timeout cleanup on unmount
-- Fix flaky Windows CI test
-- Resolve npm audit vulnerabilities (flatted, undici)
-
-### ♿ Accessibility
-
-- **Core accessibility improvements** (partial #125) — ARIA labels on interactive elements, `aria-live` regions for dynamic content, `prefers-reduced-motion` media query support, skip navigation link
-
-### 🔒 Security
-
-- Fix TAR extraction path traversal vulnerability (#175)
-- Add HTTP client timeouts to 4 previously-unbounded instances (#176)
-- Redact wrapper URL from GAMDL CLI args log (#177)
-- Upgrade lz4_flex 0.11.5 → 0.11.6 (memory leak fix)
 
 ### 📚 Documentation
 
@@ -39,25 +186,9 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
-### ⚙️ CI/DX
-
-- **cargo-deny licence scanning** (#112) — `deny.toml` config with permissive licence allowlist; CI step added to backend job
-- **Integration tests** (#113) — 30 enrichment pipeline integration tests covering Rich SRT, WebVTT, Enhanced LRC, and ASS conversion services
-- **Settings tab tests** (#114) — 20 React component rendering tests for Settings tabs
-- Dependabot config updated to ignore major version bumps
-- ESLint Node.js globals configured for scripts/ directory
-- Improved crash report error logging and messages
-
-### ⬆️ Dependencies
-
-- `@vitejs/plugin-react` 4.7.0 → 5.2.0
-- `@commitlint/cli` 19.8.1 → 20.5.0
-- `react-markdown` 9.1.0 → 10.1.0
-
 ### 🔧 Refactoring
 
 - Streamline macOS menu setup in run function
-- PostCSS config simplified to single `@tailwindcss/postcss` plugin
 
 ## [0.6.12] - 2026-03-06
 
