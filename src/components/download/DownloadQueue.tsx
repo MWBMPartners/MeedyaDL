@@ -38,10 +38,13 @@
  */
 
 /**
- * React `useEffect` hook for the polling interval on mount.
+ * React hooks:
+ * - `useEffect`  -- polling interval on mount.
+ * - `useMemo`    -- derived queue statistics (counts, overall progress).
  * @see https://react.dev/reference/react/useEffect
+ * @see https://react.dev/reference/react/useMemo
  */
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 
 /**
  * Lucide icons for the page header action buttons.
@@ -58,8 +61,8 @@ import { Download, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useUiStore } from '@/stores/uiStore';
 
-/** Reusable button component from the common library. */
-import { Button } from '@/components/common';
+/** Reusable button and progress bar components from the common library. */
+import { Button, ProgressBar } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -316,6 +319,46 @@ export function DownloadQueue() {
     (i) => i.state === 'downloading' || i.state === 'processing'
   ).length;
 
+  /**
+   * Aggregate queue statistics derived from the current queue items.
+   * Computes per-state counts and an overall progress ratio (completed / total).
+   * Only non-zero counts are included in the display segments array.
+   *
+   * Memoised to avoid recalculating on every render when the queue items
+   * array reference has not changed.
+   *
+   * @see https://react.dev/reference/react/useMemo
+   */
+  const queueStats = useMemo(() => {
+    const total = queueItems.length;
+    const completed = queueItems.filter((i) => i.state === 'complete').length;
+    const failed = queueItems.filter((i) => i.state === 'error').length;
+    const active = queueItems.filter(
+      (i) => i.state === 'downloading' || i.state === 'processing'
+    ).length;
+    const queued = queueItems.filter((i) => i.state === 'queued').length;
+
+    /**
+     * Overall progress percentage: ratio of completed items to total items.
+     * Returns 0 when the queue is empty to avoid division by zero.
+     */
+    const overallProgress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    /**
+     * Build an array of display segments, only including non-zero counts.
+     * Each segment has a label and a Tailwind colour class matching the
+     * state icon colours from QueueItem's STATE_CONFIG.
+     */
+    const segments: { label: string; colorClass: string }[] = [];
+    if (active > 0) segments.push({ label: `${active} active`, colorClass: 'text-status-info' });
+    if (queued > 0) segments.push({ label: `${queued} queued`, colorClass: 'text-content-tertiary' });
+    if (completed > 0)
+      segments.push({ label: `${completed} completed`, colorClass: 'text-status-success' });
+    if (failed > 0) segments.push({ label: `${failed} failed`, colorClass: 'text-status-error' });
+
+    return { total, completed, overallProgress, segments };
+  }, [queueItems]);
+
   // ---------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------
@@ -408,6 +451,39 @@ export function DownloadQueue() {
           </div>
         }
       />
+
+      {/*
+       * Queue statistics bar -- shown when the queue has items.
+       * Displays per-state counts (only non-zero) and an overall
+       * progress bar showing the completed/total ratio.
+       */}
+      {queueItems.length > 0 && (
+        <div className="px-4 py-2 border-b border-border-light bg-surface-secondary">
+          {/*
+           * Top row: per-state count segments separated by middot characters.
+           * Each segment is coloured to match its state icon (e.g., blue for
+           * active, green for completed) for visual consistency with QueueItem.
+           */}
+          <div className="flex items-center gap-1 text-xs">
+            {queueStats.segments.map((seg, idx) => (
+              <span key={seg.label} className="flex items-center gap-1">
+                {idx > 0 && <span className="text-content-tertiary">&middot;</span>}
+                <span className={seg.colorClass}>{seg.label}</span>
+              </span>
+            ))}
+          </div>
+
+          {/*
+           * Overall progress bar -- shows completed / total ratio.
+           * Uses a compact height (h-1.5) to stay visually subordinate
+           * to the per-item progress bars. Only shown when there are
+           * items in the queue (the parent conditional already handles this).
+           */}
+          <div className="mt-1.5">
+            <ProgressBar value={queueStats.overallProgress} />
+          </div>
+        </div>
+      )}
 
       {/*
        * Scrollable queue item list.
