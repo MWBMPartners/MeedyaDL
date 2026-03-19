@@ -635,42 +635,61 @@ fn write_local_tags(tag: &mut Tag) {
     }
 }
 
-/// Extract ISRC from the Vendor freeform atom as a fallback.
+/// Reconcile ISRC between the standardised ISRC atom and the Apple Vendor tag.
 ///
 /// Apple Music M4A files contain a freeform atom under `com.apple.iTunes`
 /// with the name `Vendor`, whose value follows the pattern
-/// `Label:isrc:ISRCCODE` (e.g., `Universal Music:isrc:USUM71900156`).
-/// If the standardised ISRC atom (`----:com.apple.iTunes:ISRC`) was not
-/// already set by the API metadata layer, this function parses the Vendor
-/// string and writes the extracted ISRC.
+/// `Label:isrc:ISRCCODE` (e.g., `Warner:isrc:USAT22504136`).
 ///
-/// The function is a no-op when:
-/// - The ISRC atom already exists (API metadata set it)
-/// - No Vendor atom is found
-/// - The Vendor value doesn't contain `:isrc:` (case-insensitive)
+/// Three cases:
+///   1. ISRC blank, Vendor has ISRC → copy Vendor ISRC to standardised tag
+///   2. ISRC set, Vendor has ISRC → if different, append Vendor ISRC as
+///      additional value; if identical, do nothing
+///   3. ISRC set, no Vendor ISRC → do nothing
 fn extract_isrc_from_vendor(tag: &mut Tag) {
-    // Skip if the ISRC atom is already set (from API metadata or prior enrichment)
-    if tag.isrc().is_some() {
-        return;
-    }
-
     // Try to read the Vendor freeform atom under the iTunes namespace
     let vendor_ident = FreeformIdent::new_static(ITUNES_NAMESPACE, "Vendor");
     let vendor_value = match tag.strings_of(&vendor_ident).next() {
         Some(v) => v.to_owned(),
-        None => return,
+        None => return, // Case 3 (no Vendor tag at all)
     };
 
     // Parse the ISRC from the Vendor string.
     // Format: "Label:isrc:ISRCCODE" — find ":isrc:" (case-insensitive)
-    // and take everything after it.
     let lower = vendor_value.to_ascii_lowercase();
-    if let Some(pos) = lower.find(":isrc:") {
-        let isrc_start = pos + ":isrc:".len();
-        let isrc = vendor_value[isrc_start..].trim();
-        if !isrc.is_empty() {
-            log::debug!("Extracted ISRC from Vendor tag: {isrc}");
-            tag.set_isrc(isrc);
+    let vendor_isrc = match lower.find(":isrc:") {
+        Some(pos) => {
+            let isrc_start = pos + ":isrc:".len();
+            let extracted = vendor_value[isrc_start..].trim();
+            if extracted.is_empty() {
+                return; // Vendor has `:isrc:` but no actual code
+            }
+            extracted.to_string()
+        }
+        None => return, // Case 3 (Vendor exists but no ISRC in it)
+    };
+
+    let isrc_ident = FreeformIdent::new_static(ITUNES_NAMESPACE, "ISRC");
+    let existing_isrc: Option<String> = tag.strings_of(&isrc_ident).next().map(|s| s.to_owned());
+
+    match existing_isrc {
+        None => {
+            // Case 1: ISRC blank → set from Vendor
+            log::debug!("ISRC empty — setting from Vendor tag: {vendor_isrc}");
+            tag.set_data(isrc_ident, Data::Utf8(vendor_isrc));
+        }
+        Some(ref current) if current == &vendor_isrc => {
+            // Case 2a: identical — do nothing
+            log::debug!("ISRC matches Vendor tag: {vendor_isrc}");
+        }
+        Some(ref current) => {
+            // Case 2b: different — append Vendor ISRC as second value
+            // Write both ISRCs separated by " / " (common multi-value convention)
+            let combined = format!("{current} / {vendor_isrc}");
+            log::debug!(
+                "ISRC mismatch — API={current}, Vendor={vendor_isrc} — storing both: {combined}"
+            );
+            tag.set_data(isrc_ident, Data::Utf8(combined));
         }
     }
 }
