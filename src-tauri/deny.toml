@@ -1,0 +1,180 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# deny.toml -- cargo-deny configuration for licence scanning and advisory auditing
+# =================================================================================
+#
+# This file configures `cargo deny` to check the dependency tree for:
+#   1. Known security vulnerabilities and unmaintained crate advisories (RustSec)
+#   2. Licence compatibility with MeedyaDL's MIT licence
+#   3. Allowed crate sources (crates.io and GitHub only)
+#
+# Run locally:
+#   cd src-tauri && cargo deny check
+#
+# In CI, the EmbarkStudios/cargo-deny-action GitHub Action runs this automatically
+# as part of the backend job in .github/workflows/ci.yml.
+#
+# @see https://embarkstudios.github.io/cargo-deny/ -- cargo-deny documentation
+# @see https://rustsec.org/ -- RustSec Advisory Database
+
+# ============================================================
+# [graph] -- Dependency graph filtering
+# ============================================================
+# Exclude targets we don't build for to reduce false positives from
+# platform-specific transitive dependencies.
+#
+# @see https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+[graph]
+all-features = true
+
+# ============================================================
+# [advisories] -- Security vulnerability and unmaintained crate checks
+# ============================================================
+# Checks all dependencies against the RustSec Advisory Database for known
+# vulnerabilities (CVEs, soundness issues) and unmaintained crate warnings.
+#
+# @see https://embarkstudios.github.io/cargo-deny/checks/advisories.html
+# @see https://github.com/RustSec/advisory-db
+[advisories]
+# Ignore unmaintained crate advisories that come from Tauri's transitive
+# dependencies. Tauri 2.x still uses GTK3 bindings on Linux, which the gtk-rs
+# team has archived in favour of gtk4-rs. These are outside our control and
+# will be resolved when Tauri migrates to GTK4. Similarly, several other
+# unmaintained crates (derivative, fxhash, instant, proc-macro-error, unic-*)
+# are transitive dependencies from Tauri, tao, or wry that we cannot update
+# independently.
+#
+# All entries below are "unmaintained" advisories (not security vulnerabilities).
+# If a genuine security vulnerability appears, it will NOT be ignored.
+ignore = [
+    # GTK3 bindings (Tauri Linux dependency — awaiting Tauri GTK4 migration)
+    "RUSTSEC-2024-0411", # cairo-rs — unmaintained
+    "RUSTSEC-2024-0412", # cairo-sys-rs — unmaintained
+    "RUSTSEC-2024-0413", # atk — unmaintained
+    "RUSTSEC-2024-0414", # gdk — unmaintained
+    "RUSTSEC-2024-0415", # gdk-pixbuf — unmaintained
+    "RUSTSEC-2024-0416", # atk-sys — unmaintained
+    "RUSTSEC-2024-0417", # gdk-sys — unmaintained
+    "RUSTSEC-2024-0418", # gdk-pixbuf-sys — unmaintained
+    "RUSTSEC-2024-0419", # gio — unmaintained
+    "RUSTSEC-2024-0420", # glib — unmaintained
+
+    # Other unmaintained transitive dependencies from Tauri/tao/wry
+    "RUSTSEC-2024-0370", # proc-macro-error — unmaintained (used by tao, field-offset)
+    "RUSTSEC-2024-0384", # instant — unmaintained (used by parking_lot via Tauri)
+    "RUSTSEC-2024-0388", # derivative — unmaintained (used by zbus via Tauri D-Bus)
+    "RUSTSEC-2025-0057", # fxhash — unmaintained (used by selectors via Tauri)
+
+    # unic-* crates — unmaintained (used by html5ever/markup5ever via Tauri)
+    "RUSTSEC-2025-0075", # unic-char-range — unmaintained
+    "RUSTSEC-2025-0080", # unic-common — unmaintained
+    "RUSTSEC-2025-0081", # unic-char-property — unmaintained
+    "RUSTSEC-2025-0098", # unic-ucd-version — unmaintained
+    "RUSTSEC-2025-0100", # unic-ucd-ident — unmaintained
+]
+
+# ============================================================
+# [licenses] -- Licence compatibility checks
+# ============================================================
+# MeedyaDL is MIT-licensed. This section ensures all dependencies use
+# licences compatible with MIT distribution. Most Rust crates use
+# MIT/Apache-2.0 dual licensing. Some Tauri dependencies use MPL-2.0,
+# which is compatible when linked (not copy-pasted).
+#
+# @see https://embarkstudios.github.io/cargo-deny/checks/licenses.html
+# @see https://spdx.org/licenses/ -- SPDX licence identifiers
+[licenses]
+# Confidence threshold for licence file detection (0.0 - 1.0).
+# 0.8 is the recommended default — high enough to avoid false positives
+# while catching most licence variations.
+confidence-threshold = 0.8
+
+# Licences explicitly allowed in the dependency tree.
+# All of these are permissive or weakly-copyleft licences compatible
+# with MIT distribution as a desktop application.
+allow = [
+    # Permissive licences (no restrictions beyond attribution)
+    "MIT",                      # Most Rust crates
+    "MIT-0",                    # MIT No Attribution (even more permissive)
+    "Apache-2.0",               # Many Rust crates (often dual with MIT)
+    "Apache-2.0 WITH LLVM-exception", # rustix, wasi, linux-raw-sys
+    "BSD-2-Clause",             # zerocopy
+    "BSD-3-Clause",             # brotli, encoding_rs, subtle, num_enum
+    "BSL-1.0",                  # ryu (Boost Software Licence)
+    "ISC",                      # ring, rustls, aws-lc-rs, untrusted
+    "Unlicense",                # aho-corasick, memchr, byteorder, walkdir
+    "Zlib",                     # bytemuck, objc2-*, miniz_oxide, raw-window-handle
+    "0BSD",                     # adler2 (BSD Zero Clause)
+    "CC0-1.0",                  # constant_time_eq, dunce, tiny-keccak
+    "OpenSSL",                  # aws-lc-sys (OpenSSL licence, permissive)
+    "Unicode-3.0",              # icu_*, unicode-ident, zerovec, yoke
+    "CDLA-Permissive-2.0",      # webpki-root-certs (Community Data Licence)
+
+    # Weakly-copyleft licences (compatible with MIT for linking)
+    "MPL-2.0",                  # symphonia, cssparser, selectors (Mozilla Public Licence)
+]
+
+# Crates whose licence is not in a standard SPDX-parseable format or needs
+# manual verification. These have been reviewed and confirmed compatible.
+[[licenses.clarify]]
+# ring uses a custom ISC-style licence with OpenSSL heritage.
+# The licence text is ISC-compatible and has been reviewed.
+# @see https://github.com/briansmith/ring/blob/main/LICENSE
+name = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+# ---- LGPL exceptions ----
+# These crates are LGPL-licensed but are transitive dependencies that we
+# cannot avoid. They are statically linked into the binary, which technically
+# requires LGPL compliance (source availability for the LGPL portions).
+# MeedyaDL is open-source (MIT), so this obligation is satisfied.
+
+[[licenses.exceptions]]
+# configparser — MIT OR LGPL-3.0-or-later (direct dependency, MIT chosen)
+name = "configparser"
+allow = ["LGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+# libesedb — LGPL-3.0-or-later only (transitive via rookie cookie extraction)
+name = "libesedb"
+allow = ["LGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+# libesedb-sys — LGPL-3.0-or-later only (transitive via rookie)
+name = "libesedb-sys"
+allow = ["LGPL-3.0-or-later"]
+
+[[licenses.exceptions]]
+# r-efi — MIT OR Apache-2.0 OR LGPL-2.1-or-later (MIT chosen, but LGPL listed)
+name = "r-efi"
+allow = ["LGPL-2.1-or-later"]
+
+# ============================================================
+# [bans] -- Crate ban and duplicate detection
+# ============================================================
+# Skipped for now. The default deny-multiple-versions mode is too noisy
+# for a Tauri project with deep transitive dependency trees that naturally
+# pull in multiple versions of common crates (e.g., windows-sys, bitflags,
+# syn, tokio, indexmap). Revisit when the ecosystem converges.
+#
+# @see https://embarkstudios.github.io/cargo-deny/checks/bans.html
+[bans]
+multiple-versions = "allow"
+
+# ============================================================
+# [sources] -- Allowed crate sources
+# ============================================================
+# Restricts where crates can be fetched from. Only crates.io (the official
+# Rust package registry) and GitHub repositories are allowed. This prevents
+# supply chain attacks via unofficial registries.
+#
+# @see https://embarkstudios.github.io/cargo-deny/checks/sources.html
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# Allow crates from the official registry
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Allow git dependencies from GitHub (some Tauri plugins use git refs)
+allow-git = []
