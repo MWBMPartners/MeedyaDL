@@ -2698,15 +2698,25 @@ pub fn process_queue(
         let mut download_options = options;
         let settings_for_companion = load_settings_for_queue(&app);
         if !uses_native_priority {
-            // Single-codec mode: we know exactly which codec will be used,
-            // so the suffix accurately reflects the file content.
-            // Always apply — codecs with no suffix (e.g., standard AAC) are
-            // a no-op since `codec_suffix()` returns `None` for them.
-            if apply_codec_suffix(&mut download_options) {
-                log::info!(
-                    "Download {} using codec with file suffix",
-                    download_id,
-                );
+            // Single-codec mode: apply codec suffix to file templates only
+            // when companion downloads will produce alternative formats.
+            // The suffix prevents filename collisions between primary and
+            // companion files. For non-companion downloads, codec suffixes
+            // are applied as a post-download rename in the enrichment pipeline
+            // (see apply_codec_rename_suffixes in metadata_tag_service.rs).
+            if let Some(ref codec) = download_options.song_codec {
+                if needs_primary_suffix(
+                    codec,
+                    &settings_for_companion.companion_mode,
+                    &settings_for_companion.custom_companion_codecs,
+                ) {
+                    apply_codec_suffix(&mut download_options);
+                    log::info!(
+                        "Download {} using codec with file suffix (companion mode: {:?})",
+                        download_id,
+                        settings_for_companion.companion_mode
+                    );
+                }
             }
         } else if let Some(ref codec) = download_options.song_codec {
             // Native priority mode: log that we're using clean filenames because
