@@ -118,6 +118,28 @@ const UPDATE_INTERVAL_OPTIONS = [
   { value: '0', label: 'Startup only' },
 ];
 
+/**
+ * Colour vision deficiency options for the accessibility selector dropdown.
+ *
+ * - 'none': Standard colours (default). Internally stored as `""`.
+ * - 'deuteranopia': Red-green blindness (most common, ~6% of males).
+ * - 'protanopia': Red-green blindness (reduced red sensitivity).
+ * - 'tritanopia': Blue-yellow blindness (rare, ~0.01%).
+ *
+ * The useTheme hook reads the selected value and applies the corresponding
+ * CVD CSS class ('cvd-deuteranopia', 'cvd-protanopia', 'cvd-tritanopia')
+ * to the <html> element.
+ *
+ * @see src/hooks/useTheme.ts -- Hook that applies the CVD class
+ * @see src/styles/themes/a11y-colour-blind.css -- CSS rules for each variant
+ */
+const COLOUR_VISION_OPTIONS = [
+  { value: 'none', label: 'Normal' },
+  { value: 'deuteranopia', label: 'Deuteranopia (Red-Green)' },
+  { value: 'protanopia', label: 'Protanopia (Red-Green)' },
+  { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' },
+];
+
 const LANGUAGE_OPTIONS = [
   { value: 'en-US', label: 'English (US)' },
   { value: 'en-GB', label: 'English (UK)' },
@@ -225,6 +247,24 @@ export function GeneralTab() {
           description="Increase visual contrast for accessibility. Uses stronger borders, pure black/white text, and thicker focus indicators. Also auto-activates when your OS has high-contrast mode enabled."
           checked={settings.high_contrast}
           onChange={(checked) => updateSettings({ high_contrast: checked })}
+        />
+
+        {/*
+         * Colour vision deficiency selector -- remaps status colours to palettes
+         * that are distinguishable for users with specific types of colour blindness.
+         * An empty string (mapped to 'none' in the UI) means disabled.
+         * The useTheme hook applies the corresponding cvd-* CSS class to <html>.
+         */}
+        <Select
+          label="Colour Vision"
+          description="Adjust status colours for colour vision deficiency. Remaps success, error, warning, and info colours to a palette distinguishable for the selected condition."
+          options={COLOUR_VISION_OPTIONS}
+          value={settings.colour_blind_mode || 'none'}
+          onChange={(e) =>
+            updateSettings({
+              colour_blind_mode: e.target.value === 'none' ? '' : e.target.value,
+            })
+          }
         />
 
         <Select

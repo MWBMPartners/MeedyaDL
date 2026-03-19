@@ -724,6 +724,20 @@ pub struct AppSettings {
     /// Controlled in Settings > General > Appearance.
     #[serde(default)]
     pub high_contrast: bool,
+
+    /// Colour vision deficiency (CVD) simulation mode. Remaps status
+    /// colours (success, error, warning, info) to palettes that are
+    /// distinguishable for users with specific types of colour blindness.
+    ///
+    /// Valid values:
+    /// - `""` (empty string) -- Disabled; use standard status colours.
+    /// - `"deuteranopia"` -- Red-green colour blindness (most common, ~6% of males).
+    /// - `"protanopia"` -- Red-green colour blindness (reduced red sensitivity).
+    /// - `"tritanopia"` -- Blue-yellow colour blindness (rare).
+    ///
+    /// Controlled in Settings > General > Appearance.
+    #[serde(default)]
+    pub colour_blind_mode: String,
 }
 
 /// Serde default helper: returns `true` for `auto_start_queue`.
@@ -981,6 +995,10 @@ impl Default for AppSettings {
             // High-contrast accessibility theme disabled by default.
             // Auto-activates via the prefers-contrast: high media query.
             high_contrast: false,
+            // Colour vision deficiency mode disabled by default.
+            // Users can enable deuteranopia, protanopia, or tritanopia
+            // in Settings > General > Appearance to remap status colours.
+            colour_blind_mode: String::new(),
         }
     }
 }

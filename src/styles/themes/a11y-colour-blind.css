@@ -1,0 +1,181 @@
+/**
+ * Copyright (c) 2024-2026 MeedyaDL
+ * Licensed under the MIT License. See LICENSE file in the project root.
+ *
+ * Colour Vision Deficiency (CVD) Accessible Theme Variants
+ * =========================================================
+ *
+ * Overrides the status colour CSS custom properties with palettes that
+ * are distinguishable for users with specific types of colour blindness.
+ * Activated by the `colour_blind_mode` setting in Settings > General >
+ * Appearance, which adds a CVD class to <html> via the useTheme hook.
+ *
+ * Three variants:
+ *
+ *   1. `cvd-deuteranopia` -- Red-green colour blindness (most common, ~6% males).
+ *      Replaces green/red with blue/orange for maximum separation.
+ *
+ *   2. `cvd-protanopia` -- Red-green colour blindness (reduced red sensitivity).
+ *      Same remapping as deuteranopia since both affect red-green discrimination.
+ *
+ *   3. `cvd-tritanopia` -- Blue-yellow colour blindness (rare, ~0.01%).
+ *      Replaces blue/yellow with teal/pink since blue and yellow are problematic.
+ *
+ * Each variant provides both light and dark mode overrides. The dark-mode
+ * variant is triggered by either the `.theme-dark` class (manual override)
+ * or the `prefers-color-scheme: dark` media query (auto mode).
+ *
+ * Only status colours and their backgrounds are remapped -- other tokens
+ * (surfaces, text, borders) are left unchanged as they do not rely on
+ * red/green/blue discrimination.
+ *
+ * @see src/styles/themes/base.css -- Base tokens that these overrides replace
+ * @see src/styles/themes/a11y-high-contrast.css -- High-contrast overrides (can combine)
+ * @see src/hooks/useTheme.ts -- Hook that manages the CVD classes
+ */
+
+/* ============================================================
+ * Deuteranopia: Light Mode
+ *
+ * Red-green colour blindness (most common form).
+ * Success: green → blue (#0077b6) — clearly distinct from error
+ * Error: red → orange (#e76f51) — warm, distinct from success-blue
+ * Warning: orange → yellow (#ffd166) — brighter, distinct from error-orange
+ * Info: stays blue (#007aff) — already distinguishable
+ * ============================================================ */
+html.cvd-deuteranopia {
+  --status-success: #0077b6;
+  --status-error: #e76f51;
+  --status-warning: #d4a017;
+  --status-info: #007aff;
+
+  --status-success-bg: #d0ecf7;
+  --status-error-bg: #fce4dc;
+  --status-warning-bg: #fff5cc;
+  --status-info-bg: #dbeafe;
+}
+
+/* Deuteranopia: Dark Mode (manual .theme-dark override) */
+html.cvd-deuteranopia.theme-dark {
+  --status-success: #48b9e6;
+  --status-error: #f4a261;
+  --status-warning: #ffd166;
+  --status-info: #64b5f6;
+
+  --status-success-bg: #0a2a3d;
+  --status-error-bg: #3d1f0a;
+  --status-warning-bg: #3d3000;
+  --status-info-bg: #0a2040;
+}
+
+/* Deuteranopia: Dark Mode (auto via prefers-color-scheme) */
+@media (prefers-color-scheme: dark) {
+  html.cvd-deuteranopia:not(.theme-light):not(.theme-dark) {
+    --status-success: #48b9e6;
+    --status-error: #f4a261;
+    --status-warning: #ffd166;
+    --status-info: #64b5f6;
+
+    --status-success-bg: #0a2a3d;
+    --status-error-bg: #3d1f0a;
+    --status-warning-bg: #3d3000;
+    --status-info-bg: #0a2040;
+  }
+}
+
+/* ============================================================
+ * Protanopia: Light Mode
+ *
+ * Red-green colour blindness (reduced red sensitivity).
+ * Uses the same remapping as deuteranopia since both affect
+ * red-green discrimination. Separated into its own class for
+ * clarity and potential future fine-tuning.
+ * ============================================================ */
+html.cvd-protanopia {
+  --status-success: #0077b6;
+  --status-error: #e76f51;
+  --status-warning: #d4a017;
+  --status-info: #007aff;
+
+  --status-success-bg: #d0ecf7;
+  --status-error-bg: #fce4dc;
+  --status-warning-bg: #fff5cc;
+  --status-info-bg: #dbeafe;
+}
+
+/* Protanopia: Dark Mode (manual .theme-dark override) */
+html.cvd-protanopia.theme-dark {
+  --status-success: #48b9e6;
+  --status-error: #f4a261;
+  --status-warning: #ffd166;
+  --status-info: #64b5f6;
+
+  --status-success-bg: #0a2a3d;
+  --status-error-bg: #3d1f0a;
+  --status-warning-bg: #3d3000;
+  --status-info-bg: #0a2040;
+}
+
+/* Protanopia: Dark Mode (auto via prefers-color-scheme) */
+@media (prefers-color-scheme: dark) {
+  html.cvd-protanopia:not(.theme-light):not(.theme-dark) {
+    --status-success: #48b9e6;
+    --status-error: #f4a261;
+    --status-warning: #ffd166;
+    --status-info: #64b5f6;
+
+    --status-success-bg: #0a2a3d;
+    --status-error-bg: #3d1f0a;
+    --status-warning-bg: #3d3000;
+    --status-info-bg: #0a2040;
+  }
+}
+
+/* ============================================================
+ * Tritanopia: Light Mode
+ *
+ * Blue-yellow colour blindness (rare).
+ * Success: green (#34c759) → stays green (visible to tritanopes)
+ * Error: red (#ff3b30) → stays red (visible to tritanopes)
+ * Warning: orange → pink (#e63946) — since yellow is problematic
+ * Info: blue → teal (#2a9d8f) — since blue is problematic
+ * ============================================================ */
+html.cvd-tritanopia {
+  --status-success: #34c759;
+  --status-error: #ff3b30;
+  --status-warning: #e63946;
+  --status-info: #2a9d8f;
+
+  --status-success-bg: #d4edda;
+  --status-error-bg: #f8d7da;
+  --status-warning-bg: #fce4e6;
+  --status-info-bg: #d1f0eb;
+}
+
+/* Tritanopia: Dark Mode (manual .theme-dark override) */
+html.cvd-tritanopia.theme-dark {
+  --status-success: #4cdf6b;
+  --status-error: #ff6b6b;
+  --status-warning: #f07080;
+  --status-info: #5ec4b6;
+
+  --status-success-bg: #0a3d1a;
+  --status-error-bg: #3d0a0a;
+  --status-warning-bg: #3d0a12;
+  --status-info-bg: #0a3d33;
+}
+
+/* Tritanopia: Dark Mode (auto via prefers-color-scheme) */
+@media (prefers-color-scheme: dark) {
+  html.cvd-tritanopia:not(.theme-light):not(.theme-dark) {
+    --status-success: #4cdf6b;
+    --status-error: #ff6b6b;
+    --status-warning: #f07080;
+    --status-info: #5ec4b6;
+
+    --status-success-bg: #0a3d1a;
+    --status-error-bg: #3d0a0a;
+    --status-warning-bg: #3d0a12;
+    --status-info-bg: #0a3d33;
+  }
+}

@@ -150,6 +150,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   sidebar_collapsed: false, // UI preference: sidebar expanded by default
   theme_override: null, // null = follow OS theme; 'light' or 'dark' to override
   high_contrast: false, // High-contrast accessibility theme (auto-activates via OS prefers-contrast)
+  colour_blind_mode: '', // Colour vision deficiency mode: '', 'deuteranopia', 'protanopia', or 'tritanopia'
 };
 
 /**
