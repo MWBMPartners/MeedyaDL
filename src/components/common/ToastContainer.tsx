@@ -170,16 +170,22 @@ export function ToastContainer() {
   /* Action to remove a single toast by its id */
   const removeToast = useUiStore((s) => s.removeToast);
 
-  /* Early return -- render nothing when there are no active toasts */
-  if (toasts.length === 0) return null;
-
   return (
     /*
      * Fixed container -- top-right corner of the viewport.
      * flex-col gap-2 stacks multiple toasts vertically with 8px spacing.
      * pointer-events-none allows clicks to pass through to the content below.
+     *
+     * The container is always rendered (never null) so the aria-live region
+     * is in the DOM before content arrives. Screen readers must see a live
+     * region before it changes to announce updates.
      */
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+    <div
+      className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+      role="status"
+      aria-live="polite"
+      aria-label="Notifications"
+    >
       {toasts.map((toast) => (
         /*
          * Each toast is wrapped in a pointer-events-auto div so that its
