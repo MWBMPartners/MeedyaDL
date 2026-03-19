@@ -6,7 +6,7 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 
 ## Architecture
 
-- **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS + Zustand state management
+- **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS v4 + Zustand state management
 - **Backend**: Rust (Tauri 2.0) with IPC command handlers
 - **GAMDL Integration**: CLI subprocess calls (`python -m gamdl ...`) - never imported as a Python library
 - **Dependencies**: Self-contained in app data dir (Python via python-build-standalone, GAMDL via pip, tools)
@@ -158,7 +158,7 @@ Architectural changes planned across milestones:
 
 | Platform | Architecture | Format | Notes |
 | -------- | ------------ | ------ | ----- |
-| macOS | Apple Silicon (ARM64) | `.dmg`, `.app` | Needs `xattr -cr` for unsigned builds |
+| macOS | Apple Silicon (ARM64) | `.dmg`, `.app` | Requires macOS 13.3+; needs `xattr -cr` for unsigned builds |
 | Windows | x64 (64-bit) | `.exe` (NSIS) | Also works on ARM64 via emulation |
 | Windows | ARM64 | `.exe` (NSIS) | Native ARM64 build |
 | Linux | x64 | `.deb`, `.AppImage` | Also works on ChromeOS via Crostini |
@@ -184,6 +184,6 @@ cargo tauri build    # Build release binary
 - All settings stored as JSON in platform app data directory
 - GAMDL config.ini is synced from GUI settings
 - CSP in `tauri.conf.json` must include `connect-src ipc: http://ipc.localhost` for IPC
-- Vite build config uses `TAURI_ENV_PLATFORM` for platform-specific JS targets (safari13 / chrome105)
+- Vite build config uses `TAURI_ENV_PLATFORM` for platform-specific JS targets (safari16.4 / chrome111)
 - `devtools` Cargo feature enabled for WebView inspection in release builds
 - **macOS codesign `--timestamp` workaround**: Tauri's `tauri-macos-sign` crate omits `--timestamp` from `codesign` calls, causing non-deterministic notarization failures ([tauri#11992](https://github.com/tauri-apps/tauri/issues/11992)). Both `release.yml` and `pre-release.yml` include a PATH-based wrapper script (Step 8.9) that intercepts `/usr/bin/codesign` and injects `--timestamp` automatically. Remove the wrapper once the upstream Tauri fix lands.

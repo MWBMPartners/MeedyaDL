@@ -52,7 +52,7 @@
     "shortDescription": "A multiplatform media downloader",
     "longDescription": "MeedyaDL is a multiplatform media downloader with support for quality selection, download queue management, lyrics embedding, and cover art handling.",
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "13.3",
       "signingIdentity": null,
       "providerShortName": null,
       "entitlements": "./Entitlements.plist"

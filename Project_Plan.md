@@ -23,7 +23,7 @@
 |-------|-----------|---------|
 | **Frontend** | React + TypeScript | User interface components |
 | **Build Tool** | Vite | Fast frontend bundling |
-| **Styling** | Tailwind CSS | Platform-adaptive themes |
+| **Styling** | Tailwind CSS v4 | Platform-adaptive themes |
 | **Desktop Framework** | Tauri 2.0 | Native window, IPC, plugins |
 | **Backend** | Rust | Services, process management |
 | **State** | Zustand | Frontend state management |
@@ -52,7 +52,7 @@ Replaced the old PyQt5 prototype with a modern Tauri 2.0 + React + TypeScript sc
 - ✅ Project directory structure (src-tauri, src, help, assets, scripts)
 - ✅ Tauri configuration (tauri.conf.json, capabilities, plugins)
 - ✅ React + TypeScript + Vite frontend scaffold
-- ✅ Tailwind CSS with platform-adaptive themes (macOS, Windows, Linux)
+- ✅ Tailwind CSS v4 with platform-adaptive themes (macOS, Windows, Linux)
 - ✅ Rust backend with command/service/model/util module structure
 - ✅ All GAMDL CLI options modeled as typed Rust enums/structs
 - ✅ GitHub Actions: CI (lint+test+build), Release (multi-platform), Changelog (auto-generate)
@@ -319,6 +319,11 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **API field audit tool** (v0.6.4) - Developer diagnostic in Settings > Metadata. Fetches album from Apple Music API, diffs JSON against tags.toml. Reports known/unknown/missing fields. 10 unit tests.
 - ✅ **Dependabot automated dependency checks** (v0.6.4) - Weekly semver-compatible npm + Cargo dependency checks. Minor/patch grouped into single PRs per ecosystem.
 - ✅ **Security fixes** (v0.6.4) - Cookie domain substring sanitization (Code Scanning #11), Secure attribute on cookies (#4-10), CI permissions block (#1-2).
+- ✅ **Tailwind CSS v4 migration** - Tailwind CSS 3.4.17 → 4.2.2; `@tailwindcss/postcss` replaces `tailwindcss` as PostCSS plugin; `autoprefixer` removed (built into v4); `@tailwindcss/typography` via `@plugin` in CSS; `globals.css` migrated to `@import "tailwindcss"` + `@config` + `@plugin`; macOS minimum raised to 13.3 (Safari 16.4+ required); Vite targets updated to safari16.4/chrome111
+- ✅ **Security hardening** - TAR extraction path traversal fix, HTTP client timeouts added to 4 previously-unbounded instances, wrapper URL redacted from GAMDL CLI args log, lz4_flex 0.11.5 → 0.11.6 (memory leak fix)
+- ✅ **Crash report improvements** - `delete_all_crash_reports` command and "Clear All" UI button in Settings > Advanced > Crash Reporting
+- ✅ **Monthly Dependency Report CI workflow** - Automated monthly dependency audit reporting
+- ✅ **Frontend stability fixes** - Tooltip and CookiesTab setTimeout cleanup on unmount, flaky Windows test fix, npm audit vulnerability fixes (flatted, undici)
 
 ---
 
@@ -542,6 +547,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-02-28*
+*Last updated: 2026-03-19*
 
 (c) 2024-2026 MeedyaDL

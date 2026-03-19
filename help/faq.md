@@ -22,7 +22,7 @@ For more information, see [Getting Started](getting-started.md).
 
 MeedyaDL supports the following platforms:
 
-- **macOS** 11.0 (Big Sur) or later -- Apple Silicon (M-series)
+- **macOS** 13.3 (Ventura) or later -- Apple Silicon (M-series)
 - **Windows** -- x64 and ARM64
 - **Linux** -- x64
 - **Raspberry Pi** -- ARM64
