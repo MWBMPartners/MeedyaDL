@@ -39,6 +39,9 @@ export interface AudioCodecEntry {
   lossless: boolean;
   /** MIME type (e.g., "audio/alac", "audio/aac"). */
   mimetype: string | null;
+  /** Filename suffix for companion download disambiguation (e.g., "[Lossless]").
+   *  Empty string means the codec uses clean filenames. Null if not defined. */
+  suffix: string | null;
   /** Per-service CLI flag mappings. Key = service ID, value = CLI flag. */
   services: Record<string, string>;
 }

@@ -11,6 +11,9 @@
 #   - `name`     : Human-readable display name for the UI
 #   - `category` : Grouping for UI organisation ("spatial", "lossless", "lossy")
 #   - `lossless` : Whether this codec preserves original audio quality
+#   - `suffix`   : Filename suffix for companion download disambiguation
+#                  (e.g., "[Lossless]", "[Dolby Atmos]"). Empty string means
+#                  the codec uses clean filenames (most universal format).
 #   - `services` : Per-service CLI flag mappings (service_id = "flag_value")
 #                  Omitted services mean the codec is not available there.
 #
@@ -39,6 +42,7 @@ name = "Dolby Atmos (E-AC-3)"
 category = "spatial"
 lossless = false
 mimetype = "audio/eac3"
+suffix = "[Dolby Atmos]"
 [audio.eac3-atmos.services]
 gamdl = "atmos"
 
@@ -47,6 +51,7 @@ name = "Dolby Digital (AC-3)"
 category = "spatial"
 lossless = false
 mimetype = "audio/ac3"
+suffix = "[Dolby Digital]"
 [audio.ac3.services]
 gamdl = "ac3"
 
@@ -55,6 +60,7 @@ name = "Dolby Atmos (AC-4)"
 category = "spatial"
 lossless = false
 mimetype = "audio/ac4"
+suffix = "[Dolby Atmos AC-4]"
 # No service mappings yet — AC-4 Atmos is used in streaming but not
 # currently downloadable via any supported service engine.
 
@@ -63,6 +69,7 @@ name = "Dolby Atmos (TrueHD)"
 category = "spatial"
 lossless = true
 mimetype = "audio/truehd"
+suffix = "[Dolby TrueHD]"
 # No service mappings yet — TrueHD Atmos is disc-only (Blu-ray),
 # not available from any streaming service.
 
@@ -75,6 +82,7 @@ name = "ALAC Lossless"
 category = "lossless"
 lossless = true
 mimetype = "audio/alac"
+suffix = "[Lossless]"
 [audio.alac.services]
 gamdl = "alac"
 
@@ -83,6 +91,7 @@ name = "FLAC Lossless"
 category = "lossless"
 lossless = true
 mimetype = "audio/flac"
+suffix = "[Lossless]"
 [audio.flac.services]
 votify = "flac"
 
@@ -95,6 +104,7 @@ name = "AAC High Quality"
 category = "lossy"
 lossless = false
 mimetype = "audio/aac"
+suffix = ""
 [audio.aac-hq.services]
 gamdl = "aac"
 votify = "aac-high"
@@ -104,6 +114,7 @@ name = "AAC Medium Quality"
 category = "lossy"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[AAC Legacy]"
 [audio.aac-mq.services]
 gamdl = "aac-legacy"
 votify = "aac-medium"
@@ -113,6 +124,7 @@ name = "HE-AAC High Quality"
 category = "lossy"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[HE-AAC]"
 [audio.aac-he-hq.services]
 gamdl = "aac-he"
 
@@ -121,6 +133,7 @@ name = "HE-AAC Medium Quality"
 category = "lossy"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[HE-AAC Legacy]"
 [audio.aac-he-mq.services]
 gamdl = "aac-he-legacy"
 
@@ -133,6 +146,7 @@ name = "AAC Binaural"
 category = "spatial"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[Binaural]"
 [audio.aac-binaural.services]
 gamdl = "aac-binaural"
 
@@ -141,6 +155,7 @@ name = "HE-AAC Binaural"
 category = "spatial"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[HE Binaural]"
 [audio.aac-he-binaural.services]
 gamdl = "aac-he-binaural"
 
@@ -149,6 +164,7 @@ name = "AAC Downmix"
 category = "lossy"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[Downmix]"
 [audio.aac-downmix.services]
 gamdl = "aac-downmix"
 
@@ -157,6 +173,7 @@ name = "HE-AAC Downmix"
 category = "lossy"
 lossless = false
 mimetype = "audio/aac"
+suffix = "[HE Downmix]"
 [audio.aac-he-downmix.services]
 gamdl = "aac-he-downmix"
 
@@ -169,6 +186,7 @@ name = "Ogg Vorbis"
 category = "lossy"
 lossless = false
 mimetype = "audio/ogg"
+suffix = "[Ogg Vorbis]"
 [audio.ogg-vorbis.services]
 votify = "ogg-vorbis"
 
@@ -177,6 +195,7 @@ name = "Opus"
 category = "lossy"
 lossless = false
 mimetype = "audio/opus"
+suffix = "[Opus]"
 # YouTube/yt-dlp mapping TBD in M9
 
 # ============================================================

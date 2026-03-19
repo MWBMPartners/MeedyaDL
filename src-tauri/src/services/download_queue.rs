@@ -92,6 +92,7 @@ use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // after merging per-download overrides with global settings.
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
+use crate::models::codec_registry::codec_suffix_from_registry;
 use crate::models::gamdl_options::{GamdlOptions, LyricsFormat, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
@@ -1323,22 +1324,12 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
 /// When companion downloads are enabled, multiple codec versions of the same
 /// track can coexist in the same album folder. The suffix prevents filename
 /// collisions and makes the format instantly visible in file browsers.
-const fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
-    match codec {
-        SongCodec::Alac => Some("[Lossless]"),
-        SongCodec::Atmos => Some("[Dolby Atmos]"),
-        // Dolby Digital gets a suffix when used as a companion alongside Atmos
-        SongCodec::Ac3 => Some("[Dolby Digital]"),
-        // Lossy, legacy, and experimental codecs use clean filenames (no suffix)
-        SongCodec::Aac
-        | SongCodec::AacLegacy
-        | SongCodec::AacBinaural
-        | SongCodec::AacHeLegacy
-        | SongCodec::AacHe
-        | SongCodec::AacDownmix
-        | SongCodec::AacHeBinaural
-        | SongCodec::AacHeDownmix => None,
-    }
+///
+/// Suffixes are defined in `codecs.toml` under the `suffix` field of each
+/// audio codec entry. This function delegates to `codec_suffix_from_registry()`
+/// which looks up the suffix from the compiled-in registry data.
+fn codec_suffix(codec: &SongCodec) -> Option<&'static str> {
+    codec_suffix_from_registry(codec)
 }
 
 /// Determines whether the primary download's file templates should have a
