@@ -252,7 +252,7 @@ export function Sidebar() {
        *
        * `space-y-1` adds 4px vertical gap between nav buttons.
        */}
-      <nav className="flex-1 p-2 space-y-1">
+      <nav className="flex-1 p-2 space-y-1" aria-label="Main navigation">
         {NAV_ITEMS.map(({ page, label, icon: Icon }) => {
           /** Whether this nav item corresponds to the currently active page. */
           const isActive = currentPage === page;
@@ -270,6 +270,8 @@ export function Sidebar() {
             <button
               key={page}
               onClick={() => setPage(page)}
+              aria-label={label}
+              aria-current={isActive ? 'page' : undefined}
               className={`
                 no-drag w-full flex items-center gap-3 px-3 py-2
                 rounded-platform text-sm transition-colors

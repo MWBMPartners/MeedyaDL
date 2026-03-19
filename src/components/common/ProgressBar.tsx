@@ -98,34 +98,51 @@ export function ProgressBar({ value, label, className = '' }: ProgressBarProps) 
        * - h-2: 8px tall.
        * - rounded-full: fully rounded (pill shape).
        * - overflow-hidden: clips the filled bar to the track bounds.
+       *
+       * Split into two branches so the ARIA attributes are set correctly:
+       * - Indeterminate: role="progressbar" only (no aria-valuenow per spec).
+       * - Determinate: role="progressbar" with aria-valuenow/min/max.
        */}
-      <div className="h-2 w-full rounded-full bg-surface-elevated overflow-hidden">
-        {isIndeterminate ? (
-          /*
+      {isIndeterminate ? (
+        <div
+          className="h-2 w-full rounded-full bg-surface-elevated overflow-hidden"
+          role="progressbar"
+          aria-label={label ?? 'Download progress'}
+        >
+          {/*
            * Indeterminate bar -- 1/3 of the track width, continuously
            * sliding via the `indeterminate` @keyframes animation.
            * The animation is declared both as a Tailwind arbitrary value
            * `animate-[indeterminate_1.5s_ease-in-out_infinite]` and as
            * an inline style for maximum compatibility.
-           */
+           */}
           <div
             className="h-full w-1/3 rounded-full bg-accent animate-[indeterminate_1.5s_ease-in-out_infinite]"
             style={{
               animation: 'indeterminate 1.5s ease-in-out infinite',
             }}
           />
-        ) : (
-          /*
+        </div>
+      ) : (
+        <div
+          className="h-2 w-full rounded-full bg-surface-elevated overflow-hidden"
+          role="progressbar"
+          aria-valuenow={clampedValue}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={label ?? 'Download progress'}
+        >
+          {/*
            * Determinate bar -- width set as an inline percentage.
            * transition-all duration-300 ease-out provides a smooth 300ms
            * animation when the value changes (e.g. from 45% to 50%).
-           */
+           */}
           <div
             className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
             style={{ width: `${clampedValue}%` }}
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -258,3 +258,32 @@
     transform: translateX(300%);
   }
 }
+
+/* ============================================================
+ * Reduced Motion
+ * ---------------
+ * Respects the user's OS-level "Reduce motion" preference
+ * (System Settings > Accessibility on macOS, or equivalent on
+ * Windows/Linux). When enabled, all CSS animations and transitions
+ * are effectively disabled by setting near-zero durations.
+ *
+ * This is a high-impact accessibility improvement: users with
+ * vestibular disorders, motion sensitivity, or epilepsy may
+ * experience discomfort or seizures from animations.
+ *
+ * The 0.01ms duration (not 0ms) avoids edge cases where some
+ * browsers treat 0ms as "no transition" and skip events like
+ * `transitionend`, which can break JavaScript that depends on them.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
