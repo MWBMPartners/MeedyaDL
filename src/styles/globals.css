@@ -27,61 +27,29 @@
  *   - src/styles/themes/linux.css   -- Linux overrides (via .platform-linux class)
  *
  * Related config files:
- *   - postcss.config.js    -- PostCSS plugin pipeline (tailwindcss + autoprefixer)
+ *   - postcss.config.js    -- PostCSS plugin pipeline (@tailwindcss/postcss)
  *   - tailwind.config.js   -- Tailwind theme configuration (colors, fonts, spacing)
  *
- * @see https://tailwindcss.com/docs/functions-and-directives -- @tailwind, @layer, @apply docs
+ * @see https://tailwindcss.com/docs/v4-beta/migrating -- Tailwind CSS v4 migration guide
  * @see https://tailwindcss.com/docs/adding-base-styles -- How @layer base works
  * @see https://tailwindcss.com/docs/adding-custom-styles -- Custom styles in Tailwind
  */
 
 /*
- * @tailwind base -- Injects Tailwind's base styles (Preflight).
+ * Tailwind CSS v4 entry point.
  *
- * Preflight is a CSS reset built on modern-normalize that:
- *   - Removes default margins on all elements
- *   - Sets box-sizing: border-box on all elements
- *   - Sets a consistent font-family, line-height, and font-size on html
- *   - Resets headings to inherit font-size and font-weight
- *   - Makes images block-level and responsive (max-width: 100%)
- *   - Normalizes form elements across browsers
+ * @import "tailwindcss" replaces the three v3 directives (@tailwind base,
+ * @tailwind components, @tailwind utilities) with a single import that
+ * loads all of Tailwind's layers.
  *
- * Our @layer base overrides below build on top of these Preflight defaults.
+ * @config loads the existing JS theme configuration (custom colors, fonts,
+ * border radii, shadows, and typography plugin customisation).
  *
- * @see https://tailwindcss.com/docs/preflight
+ * @plugin loads the typography plugin (previously in tailwind.config.js plugins array).
  */
-@tailwind base;
-
-/*
- * @tailwind components -- Injects Tailwind's component classes.
- *
- * The component layer is for class-based abstractions that are more complex
- * than a single utility (e.g., .btn, .card, .badge). By default, Tailwind
- * includes no component classes -- this layer is a placeholder for:
- *   - Classes defined in our @layer components block below
- *   - Classes from Tailwind plugins (if any were registered in tailwind.config.js)
- *
- * Component classes have lower specificity than utility classes, so utilities
- * can always override them (e.g., <button class="btn bg-red-500"> works).
- *
- * @see https://tailwindcss.com/docs/adding-component-styles
- */
-@tailwind components;
-
-/*
- * @tailwind utilities -- Injects all Tailwind utility classes.
- *
- * This is the core of Tailwind CSS -- it generates all utility classes based on:
- *   - The default Tailwind theme
- *   - Custom theme extensions from tailwind.config.js (our platform colors, fonts, etc.)
- *   - Only classes actually used in files matching the 'content' patterns in tailwind.config.js
- *
- * In production, unused utilities are tree-shaken (purged) for a minimal CSS bundle.
- * In development, all utilities are available for instant HMR.
- *
- * @see https://tailwindcss.com/docs/utility-first
- */
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.js";
+@plugin "@tailwindcss/typography";
 
 /* ============================================================
  * Base Layer Overrides

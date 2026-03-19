@@ -6,9 +6,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **Tailwind CSS v4 migration** (#174) — Tailwind CSS 3.4.17 → 4.2.2; `@tailwindcss/postcss` 4.2.2 replaces `tailwindcss` as PostCSS plugin; `autoprefixer` removed (built into v4); `@tailwindcss/typography` loaded via `@plugin` in CSS instead of `require()` in JS; `globals.css` migrated from `@tailwind` directives to `@import "tailwindcss"` + `@config` + `@plugin`; macOS minimum raised to 13.3 (Safari 16.4+ required by v4); Vite targets updated from safari13/chrome105 to safari16.4/chrome111
+- Add `delete_all_crash_reports` command and "Clear All" button in crash report UI
+- Monthly Dependency Report CI workflow
+
 ### 🐛 Bug Fixes
 
 - Resolve MusicKit 401 validation flow and add embedded token fallback
+- Fix Tooltip setTimeout cleanup on unmount (prevents state update on unmounted component)
+- Fix CookiesTab copy timeout cleanup on unmount
+- Fix flaky Windows CI test
+- Resolve npm audit vulnerabilities (flatted, undici)
+
+### 🔒 Security
+
+- Fix TAR extraction path traversal vulnerability (#175)
+- Add HTTP client timeouts to 4 previously-unbounded instances (#176)
+- Redact wrapper URL from GAMDL CLI args log (#177)
+- Upgrade lz4_flex 0.11.5 → 0.11.6 (memory leak fix)
 
 ### 📚 Documentation
 
@@ -16,9 +33,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
+### ⚙️ CI/DX
+
+- Dependabot config updated to ignore major version bumps
+- ESLint Node.js globals configured for scripts/ directory
+- Improved crash report error logging and messages
+
 ### 🔧 Refactoring
 
 - Streamline macOS menu setup in run function
+- PostCSS config simplified to single `@tailwindcss/postcss` plugin
 
 ## [0.6.12] - 2026-03-06
 

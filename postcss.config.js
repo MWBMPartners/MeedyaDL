@@ -6,73 +6,32 @@
  * ====================================
  *
  * PostCSS is a CSS processing pipeline that Vite invokes automatically for every
- * CSS file imported in the application. It runs plugins in the order they are listed,
- * transforming CSS through each stage.
+ * CSS file imported in the application.
  *
- * The processing pipeline:
- *   1. tailwindcss -- Processes @tailwind directives in globals.css, scans source files
- *      for class usage (per tailwind.config.js 'content' setting), and generates the
- *      corresponding utility CSS. Also handles @apply and @layer directives.
- *   2. autoprefixer -- Scans the resulting CSS and adds vendor prefixes (-webkit-,
- *      -moz-, -ms-) based on the target browser list. Uses the 'browserslist' config
- *      from package.json (or defaults to "defaults" if none is specified).
+ * In Tailwind CSS v4, the PostCSS plugin has moved to @tailwindcss/postcss.
+ * Autoprefixer and CSS imports are handled automatically by Tailwind v4's
+ * built-in LightningCSS integration, so only a single plugin is needed.
  *
  * Related config files:
- *   - tailwind.config.js  -- Tailwind reads this for theme, content paths, and plugins
- *   - vite.config.ts      -- Vite automatically discovers and runs this PostCSS config
- *   - src/styles/globals.css -- Contains the @tailwind base/components/utilities directives
- *   - package.json        -- May contain a "browserslist" key for Autoprefixer targets
+ *   - tailwind.config.js    -- JS-based theme config (loaded via @config in globals.css)
+ *   - vite.config.ts        -- Vite automatically discovers and runs this PostCSS config
+ *   - src/styles/globals.css -- Contains @import "tailwindcss" and @config directive
  *
- * @see https://postcss.org/ -- PostCSS documentation
- * @see https://tailwindcss.com/docs/using-with-preprocessors -- Tailwind + PostCSS setup
- * @see https://github.com/postcss/autoprefixer -- Autoprefixer documentation
- * @see https://vite.dev/guide/features.html#postcss -- How Vite integrates PostCSS
+ * @see https://tailwindcss.com/docs/installation/using-postcss
  */
 
 export default {
-  /**
-   * plugins -- PostCSS plugins to apply, in order.
-   *
-   * Using the object syntax (plugin name as key, options as value) which is the
-   * shorthand format. An empty object `{}` means "use default options".
-   * Order matters: Tailwind must run first to generate utility CSS before
-   * Autoprefixer can add vendor prefixes to the output.
-   *
-   * @see https://postcss.org/docs/postcss-runner-guidelines
-   */
   plugins: {
     /**
-     * tailwindcss -- Processes Tailwind CSS directives (@tailwind, @apply, @layer).
+     * @tailwindcss/postcss -- Processes Tailwind CSS v4 directives.
      *
-     * This plugin reads tailwind.config.js from the project root, scans the 'content'
-     * files for Tailwind class usage, and generates optimized CSS. In development mode
-     * it generates all utilities for instant HMR; in production mode it tree-shakes
-     * unused classes for a minimal bundle.
+     * Replaces both the old `tailwindcss` and `autoprefixer` plugins.
+     * Handles utility generation, content scanning, vendor prefixing,
+     * and CSS nesting via LightningCSS.
      *
-     * Empty options `{}` means: auto-detect tailwind.config.js from the project root.
-     *
-     * @see https://tailwindcss.com/docs/installation/using-postcss
+     * Configuration is loaded via the @config directive in globals.css
+     * pointing to tailwind.config.js.
      */
-    tailwindcss: {},
-
-    /**
-     * autoprefixer -- Adds CSS vendor prefixes for cross-browser compatibility.
-     *
-     * Parses the generated CSS and adds prefixes like -webkit-backdrop-filter,
-     * -webkit-user-select, etc. based on the target browser list. This is critical
-     * for our platform themes because:
-     *   - backdrop-filter (used in macos.css Liquid Glass effects) needs -webkit- for Safari
-     *   - user-select (used in globals.css) needs -webkit- for older browsers
-     *   - app-region (used for window dragging) needs -webkit-app-region
-     *
-     * Target browsers are determined by 'browserslist' in package.json or a .browserslistrc file.
-     * Default targets cover >0.2% market share browsers, not dead, last 2 versions.
-     *
-     * Empty options `{}` means: use default browserslist configuration.
-     *
-     * @see https://github.com/postcss/autoprefixer#options
-     * @see https://browsersl.ist/ -- Interactive browserslist query tool
-     */
-    autoprefixer: {},
+    '@tailwindcss/postcss': {},
   },
 };
