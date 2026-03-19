@@ -713,6 +713,17 @@ pub struct AppSettings {
     /// `Some("light")` forces a specific theme. Consumed by the React
     /// frontend's `ThemeProvider` component.
     pub theme_override: Option<String>,
+
+    /// When enabled, applies a high-contrast accessibility theme that
+    /// increases visual contrast across all UI elements. Works in both
+    /// light and dark modes. Text uses pure black/white, borders are
+    /// stronger, status colours are more saturated, and focus indicators
+    /// are thick and visible. Also auto-activates when the OS-level
+    /// `prefers-contrast: high` media query is detected.
+    ///
+    /// Controlled in Settings > General > Appearance.
+    #[serde(default)]
+    pub high_contrast: bool,
 }
 
 /// Serde default helper: returns `true` for `auto_start_queue`.
@@ -967,6 +978,9 @@ impl Default for AppSettings {
             sidebar_collapsed: false,
             // Auto-detect theme from OS settings.
             theme_override: None,
+            // High-contrast accessibility theme disabled by default.
+            // Auto-activates via the prefers-contrast: high media query.
+            high_contrast: false,
         }
     }
 }
