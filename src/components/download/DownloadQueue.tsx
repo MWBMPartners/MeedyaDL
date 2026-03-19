@@ -61,8 +61,8 @@ import { Download, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useUiStore } from '@/stores/uiStore';
 
-/** Reusable button and progress bar components from the common library. */
-import { Button, ProgressBar } from '@/components/common';
+/** Reusable button component from the common library. */
+import { Button } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -473,15 +473,8 @@ export function DownloadQueue() {
             ))}
           </div>
 
-          {/*
-           * Overall progress bar -- shows completed / total ratio.
-           * Uses a compact height (h-1.5) to stay visually subordinate
-           * to the per-item progress bars. Only shown when there are
-           * items in the queue (the parent conditional already handles this).
-           */}
-          <div className="mt-1.5">
-            <ProgressBar value={queueStats.overallProgress} />
-          </div>
+          {/* Overall progress bar removed — now rendered globally
+           * in MainLayout via GlobalProgressBar, visible on all pages. */}
         </div>
       )}
 
