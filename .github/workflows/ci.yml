@@ -262,11 +262,13 @@ jobs:
       #   - Allowed crate sources (crates.io only)
       # Configuration is in src-tauri/deny.toml. GTK3 unmaintained advisories
       # from Tauri's Linux dependencies are explicitly ignored (no security risk).
-      # Licence checks are platform-independent, but we run on all matrix OSes
-      # since the action is fast and advisory checks may differ per-platform.
+      # Only runs on Linux because cargo-deny-action is a container action
+      # (Docker-based) which is not supported on macOS or Windows runners.
+      # Licence/advisory checks are platform-independent so running once suffices.
       # @see https://github.com/EmbarkStudios/cargo-deny-action
       # @see https://embarkstudios.github.io/cargo-deny/
       - name: Cargo deny
+        if: runner.os == 'Linux'
         uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # v2
         with:
           manifest-path: src-tauri/Cargo.toml
