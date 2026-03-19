@@ -6,6 +6,27 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Parse GAMDL 2.9.x track format for progress bar display
+
+GAMDL 2.9.x changed its output from "Getting track N of M: Title"
+  to "[Track N/M] Downloading \"Title\"". Add TRACK_INFO_V2_REGEX to
+  parse the new format and extract track number/total for progress
+  calculation.
+
+  - Add track_number/track_total optional fields to TrackInfo event
+  - Compute approximate progress from track counts (N-1/M percentage)
+  - Update TypeScript types and download store handler
+  - Progress bars now show fill and track names during Apple Music downloads
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.7.0] - 2026-03-19
+
 ### ✨ Features
 
 - Migrate to Tailwind CSS v4 and update documentation
