@@ -23,12 +23,18 @@
  *   - Adds/removes the `high-contrast` class on `<html>`, which activates
  *     the overrides in `a11y-high-contrast.css`.
  *
+ * Colour vision deficiency (CVD) mode:
+ *   - Controlled via the `colour_blind_mode` setting in Settings > General.
+ *   - Adds/removes `cvd-deuteranopia`, `cvd-protanopia`, or `cvd-tritanopia`
+ *     classes on `<html>`, which activate overrides in `a11y-colour-blind.css`.
+ *
  * The hook also sets the `color-scheme` CSS property on `<html>`, which tells
  * the browser to render native form controls (scrollbars, checkboxes, text
  * selection) in the appropriate mode.
  *
  * @see src/styles/themes/base.css -- CSS implementation of theme overrides
  * @see src/styles/themes/a11y-high-contrast.css -- High-contrast CSS overrides
+ * @see src/styles/themes/a11y-colour-blind.css -- CVD-friendly CSS overrides
  * @see src/stores/settingsStore.ts -- Source of the theme_override setting
  * @see {@link https://developer.mozilla.org/en-US/docs/Web/CSS/color-scheme}
  * @see {@link https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme}
@@ -50,6 +56,12 @@ const THEME_CLASSES = ['theme-dark', 'theme-light'] as const;
  * Must match the selector in `a11y-high-contrast.css`.
  */
 const HIGH_CONTRAST_CLASS = 'high-contrast';
+
+/**
+ * The three CSS classes used for colour vision deficiency (CVD) modes.
+ * Must match the selectors in `a11y-colour-blind.css`.
+ */
+const CVD_CLASSES = ['cvd-deuteranopia', 'cvd-protanopia', 'cvd-tritanopia'] as const;
 
 /**
  * Manages the theme override by adding/removing CSS classes on `<html>`.
@@ -87,6 +99,11 @@ export function useTheme(): void {
    * Subscribe to the high_contrast setting for the accessibility theme.
    */
   const highContrast = useSettingsStore((s) => s.settings.high_contrast);
+
+  /**
+   * Subscribe to the colour_blind_mode setting for CVD-friendly palettes.
+   */
+  const colourBlindMode = useSettingsStore((s) => s.settings.colour_blind_mode);
 
   /* Effect 1: Dark/light theme class management */
   useEffect(() => {
@@ -157,4 +174,26 @@ export function useTheme(): void {
       contrastQuery?.removeEventListener('change', applyHighContrast);
     };
   }, [highContrast]);
+
+  /* Effect 3: Colour vision deficiency (CVD) class management */
+  useEffect(() => {
+    const htmlEl = document.documentElement;
+
+    /* Remove any existing CVD class to start from a clean state */
+    htmlEl.classList.remove(...CVD_CLASSES);
+
+    /* Add the appropriate CVD class if a mode is selected */
+    if (colourBlindMode === 'deuteranopia') {
+      htmlEl.classList.add('cvd-deuteranopia');
+    } else if (colourBlindMode === 'protanopia') {
+      htmlEl.classList.add('cvd-protanopia');
+    } else if (colourBlindMode === 'tritanopia') {
+      htmlEl.classList.add('cvd-tritanopia');
+    }
+
+    /* Cleanup: remove CVD classes if the hook re-runs or component unmounts */
+    return () => {
+      htmlEl.classList.remove(...CVD_CLASSES);
+    };
+  }, [colourBlindMode]);
 }
