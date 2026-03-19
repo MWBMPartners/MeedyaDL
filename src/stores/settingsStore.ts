@@ -61,6 +61,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
   temp_path: '', // Resolved to {OS temp}/MeedyaDL by backend
   language: 'en-US', // Apple Music storefront language
+  storefront: '', // Auto-detect from language region (e.g., en-GB → gb)
   overwrite: false, // Do not overwrite existing files by default
   ui_language: '', // Auto-detect UI language from OS locale
   auto_check_updates: true, // Automatically check for updates on startup
