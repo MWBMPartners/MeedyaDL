@@ -36,6 +36,7 @@
 // 3. The value is the exact CLI flag string the engine expects
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use serde::Deserialize;
 
@@ -48,6 +49,11 @@ use super::gamdl_options::SongCodec;
 /// The codec definitions TOML file, compiled into the binary at build time.
 /// Located at `src-tauri/codecs.toml` relative to the project root.
 const CODECS_TOML: &str = include_str!("../../codecs.toml");
+
+/// Lazily-loaded codec registry singleton. Parsed once from the compiled-in
+/// `codecs.toml` on first access; subsequent calls return a reference to the
+/// cached instance. Thread-safe via `LazyLock`.
+pub static CODEC_REGISTRY: LazyLock<CodecRegistry> = LazyLock::new(load_registry);
 
 // ============================================================
 // Types
@@ -72,6 +78,10 @@ pub struct AudioCodecEntry {
     pub lossless: bool,
     /// MIME type for this audio format (e.g., "audio/alac", "audio/aac").
     pub mimetype: Option<String>,
+    /// Filename suffix for companion download disambiguation (e.g., "[Lossless]",
+    /// "[Dolby Atmos]"). Empty string means the codec uses clean filenames (no suffix).
+    /// `None` means no suffix was defined in the registry (treated as empty).
+    pub suffix: Option<String>,
     /// Per-service CLI flag mappings. Key = service engine ID (e.g., "gamdl"),
     /// value = exact CLI flag string (e.g., "atmos").
     pub services: HashMap<String, String>,
@@ -175,6 +185,10 @@ struct RawAudioCodec {
     category: String,
     lossless: bool,
     mimetype: Option<String>,
+    /// Filename suffix for companion download disambiguation (e.g., "[Lossless]").
+    /// Defaults to `None` for backwards compatibility with older codecs.toml files.
+    #[serde(default)]
+    suffix: Option<String>,
     #[serde(default)]
     services: HashMap<String, String>,
 }
@@ -239,6 +253,7 @@ pub fn load_registry() -> CodecRegistry {
             category: raw.category,
             lossless: raw.lossless,
             mimetype: raw.mimetype,
+            suffix: raw.suffix,
             services: raw.services,
         })
         .collect();
@@ -379,6 +394,27 @@ pub fn resolve_video(registry: &CodecRegistry, video_id: &str, service: &str) ->
         .iter()
         .find(|c| c.id == video_id)
         .and_then(|c| c.services.get(service).cloned())
+}
+
+/// Look up the filename suffix for a `SongCodec` from the codec registry.
+///
+/// Bridges the existing `SongCodec` enum to the registry's `suffix` field by
+/// converting the codec to its registry ID and looking up the suffix. Returns
+/// `Some(suffix)` for codecs with a non-empty suffix, or `None` for codecs
+/// that should use clean filenames (empty or missing suffix).
+///
+/// Uses the cached `CODEC_REGISTRY` singleton for zero-cost repeated lookups.
+/// The returned `&str` has `'static` lifetime because it borrows from the
+/// lazily-initialized `CODEC_REGISTRY` static, not from the input `codec`.
+#[must_use]
+pub fn codec_suffix_from_registry(codec: &SongCodec) -> Option<&'static str> {
+    let registry_id = song_codec_to_registry_id(codec);
+    CODEC_REGISTRY
+        .audio
+        .iter()
+        .find(|c| c.id == registry_id)
+        .and_then(|c| c.suffix.as_deref())
+        .filter(|s| !s.is_empty())
 }
 
 // ============================================================
@@ -713,5 +749,104 @@ mod tests {
         let registry_id = song_codec_to_registry_id(&codec);
         let gamdl_flag = resolve_audio(&registry, registry_id, "gamdl");
         assert_eq!(gamdl_flag, Some("aac-legacy".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // Codec suffix from registry
+    // ----------------------------------------------------------
+
+    #[test]
+    fn codec_suffix_alac_is_lossless() {
+        assert_eq!(codec_suffix_from_registry(&SongCodec::Alac), Some("[Lossless]"));
+    }
+
+    #[test]
+    fn codec_suffix_atmos_is_dolby_atmos() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::Atmos),
+            Some("[Dolby Atmos]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_ac3_is_dolby_digital() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::Ac3),
+            Some("[Dolby Digital]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_hq_is_empty_none() {
+        // AAC 256 (aac-hq) has suffix = "" in codecs.toml, which means
+        // it gets a clean filename — codec_suffix_from_registry returns None.
+        assert_eq!(codec_suffix_from_registry(&SongCodec::Aac), None);
+    }
+
+    #[test]
+    fn codec_suffix_aac_binaural() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacBinaural),
+            Some("[Binaural]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_downmix() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacDownmix),
+            Some("[Downmix]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_legacy() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacLegacy),
+            Some("[AAC Legacy]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_he() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacHe),
+            Some("[HE-AAC]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_he_binaural() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacHeBinaural),
+            Some("[HE Binaural]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_he_downmix() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacHeDownmix),
+            Some("[HE Downmix]")
+        );
+    }
+
+    #[test]
+    fn codec_suffix_aac_he_legacy() {
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::AacHeLegacy),
+            Some("[HE-AAC Legacy]")
+        );
+    }
+
+    #[test]
+    fn audio_codec_suffix_field_loaded() {
+        let registry = load_registry();
+        // ALAC should have a suffix defined
+        let alac = registry.audio.iter().find(|c| c.id == "alac").unwrap();
+        assert_eq!(alac.suffix.as_deref(), Some("[Lossless]"));
+        // AAC HQ should have an empty suffix (clean filename)
+        let aac = registry.audio.iter().find(|c| c.id == "aac-hq").unwrap();
+        assert_eq!(aac.suffix.as_deref(), Some(""));
     }
 }
