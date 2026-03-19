@@ -86,8 +86,8 @@
      * during drag-and-drop or rapid clicking. Input fields re-enable selection below.
      * -webkit-user-select is needed for WebKit-based browsers (Safari, Tauri's WebView).
      */
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
 
     /* Fill the entire WebView viewport */
     height: 100%;
@@ -143,8 +143,8 @@
   input,
   textarea,
   [contenteditable] {
-    user-select: text;
     -webkit-user-select: text;
+    user-select: text;
   }
 
   /*
