@@ -563,6 +563,8 @@ export interface AppSettings {
   theme_override: string | null;
   /** Whether to apply the high-contrast accessibility theme (stronger borders, pure B/W text, thicker focus indicators) */
   high_contrast: boolean;
+  /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
+  colour_blind_mode: string;
 }
 
 // ============================================================

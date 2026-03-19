@@ -103,6 +103,7 @@ const MOCK_SETTINGS: AppSettings = {
   sidebar_collapsed: true,
   theme_override: 'dark',
   high_contrast: false,
+  colour_blind_mode: '',
 };
 
 /**
@@ -182,6 +183,7 @@ beforeEach(() => {
       sidebar_collapsed: false,
       theme_override: null,
       high_contrast: false,
+      colour_blind_mode: '',
     },
     isLoading: false,
     isDirty: false,

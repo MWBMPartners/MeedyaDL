@@ -159,6 +159,13 @@ import './styles/themes/base.css';
  */
 import './styles/themes/a11y-high-contrast.css';
 
+/**
+ * Colour vision deficiency (CVD) accessible theme: overrides status colour
+ * tokens with CVD-friendly palettes when a `cvd-*` class is present on <html>.
+ * Must be imported after base.css so its selectors can override the defaults.
+ */
+import './styles/themes/a11y-colour-blind.css';
+
 /* ─── i18n ──────────────────────────────────────────────────────────── */
 
 /**
