@@ -418,12 +418,25 @@ export function QueueItem({
           <p className="text-sm text-content-primary truncate">{item.urls[0]}</p>
 
           {/*
-           * Current track name -- shown when the backend reports which
-           * track is currently being downloaded/processed (for album and
-           * playlist downloads that contain multiple tracks).
+           * Current track name and track counter -- shown when the backend
+           * reports which track is currently being downloaded/processed
+           * (for album and playlist downloads that contain multiple tracks).
+           *
+           * When `total_tracks` and `completed_tracks` are both available
+           * and the item is in an active state, a "Track N of M" counter
+           * is appended after the track name for aggregate progress context.
            */}
           {item.current_track && (
-            <p className="text-xs text-content-secondary mt-0.5 truncate">{item.current_track}</p>
+            <p className="text-xs text-content-secondary mt-0.5 truncate">
+              {item.current_track}
+              {isActive &&
+                item.total_tracks != null &&
+                item.completed_tracks != null && (
+                  <span className="text-content-tertiary ml-1.5">
+                    (Track {item.completed_tracks} of {item.total_tracks})
+                  </span>
+                )}
+            </p>
           )}
 
           {/*
