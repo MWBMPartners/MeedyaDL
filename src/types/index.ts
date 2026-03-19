@@ -561,6 +561,8 @@ export interface AppSettings {
   sidebar_collapsed: boolean;
   /** CSS theme override string, or null for auto-detection */
   theme_override: string | null;
+  /** Whether to apply the high-contrast accessibility theme (stronger borders, pure B/W text, thicker focus indicators) */
+  high_contrast: boolean;
 }
 
 // ============================================================
