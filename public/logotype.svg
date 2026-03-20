@@ -55,7 +55,7 @@
     svg.style.setProperty('logotype-primary', '#ffffff')
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     viewBox="0 0 600 130"
+     viewBox="0 0 487 130"
      role="img" aria-label="MeedyaDL logotype">
   <title>MeedyaDL Logotype</title>
   <desc>MeedyaSuite horizontal wordmark — techy futuristic style</desc>
@@ -410,9 +410,9 @@
     <!-- Circuit dot separators — three dots in a vertical stack
          between brand and suffix, evoking a data bus / circuit trace -->
     <g id="circuit-dots" aria-hidden="true">
-      <circle class="circuit-dot" cx="418" cy="58" r="3" opacity="0.6" />
-      <circle class="circuit-dot" cx="418" cy="72" r="3" opacity="0.4" />
-      <circle class="circuit-dot" cx="418" cy="86" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="342" cy="58" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="342" cy="72" r="3" opacity="0.4" />
+      <circle class="circuit-dot" cx="342" cy="86" r="3" opacity="0.6" />
     </g>
 
     <!-- Product suffix: swap this text per product.
@@ -423,12 +423,12 @@
          script below auto-positions this element and resizes the
          canvas to fit any suffix length. -->
     <text id="product-suffix"
-          x="434" y="90"
+          x="345" y="90"
           filter="url(#text-shadow)">DL</text>
 
     <!-- Decorative right bracket -->
     <polyline id="bracket-right" class="bracket-deco"
-              points="524,18 530,18 530,108 524,108"
+              points="473,18 479,18 479,108 473,108"
               filter="url(#bracket-shadow)" />
 
     <!-- Horizontal scan line — sweeps across the wordmark like a
