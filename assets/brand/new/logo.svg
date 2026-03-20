@@ -1,40 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (c) 2024-2026 MeedyaDL - MIT License -->
 <!--
-  MeedyaDL Logo (Icon) - Audio/Video transitioning
-  ==================================================
+  MeedyaDL Logo - Audio/Video crossfade with subtle download indicator
+  =====================================================================
 
-  A media downloader icon featuring a download arrow landing into
-  two alternating media symbols that crossfade on a loop:
-    - Vinyl disc (audio) with rotating grooves
-    - Film projector (video) with flickering beam
+  Two media symbols crossfade on an 8s cycle (configurable):
+    - Vinyl disc (audio): full-size, rotating grooves, realistic detail
+    - Film projector (video): full-size, dual reels, lens, flickering beam
 
-  The transition communicates "all media types" without cluttering
-  the icon with multiple simultaneous elements.
+  A subtle download arrow sits behind the media symbols as a watermark,
+  reinforcing the "download" concept without competing for attention.
 
-  Customisation via CSS custom properties (same system as logotype.svg):
-    logo-primary         Arrow gradient start     (default: #475569)
-    logo-secondary       Arrow gradient end        (default: #94A3B8)
-    logo-accent          Base tray / highlights    (default: #64748B)
-    logo-disc            Disc/projector body       (default: #334155)
-    logo-disc-highlight  Grooves / projector detail (default: #475569)
-    logo-beam            Projector beam colour     (default: #94A3B8)
-    logo-shadow          Drop shadow colour        (default: rgba(0,0,0,0.3))
-    logo-animation-speed Base animation duration   (default: 2.5s)
-    logo-transition-speed Crossfade cycle duration (default: 8s)
+  Customisation (CSS custom properties):
+    logo-primary, logo-secondary, logo-accent, logo-disc,
+    logo-disc-highlight, logo-beam, logo-shadow,
+    logo-animation-speed, logo-transition-speed
 
-  Colour modes: ?mode=light|dark|cb-deutan|cb-protan|cb-tritan
-                |cb-deutan-dark|cb-protan-dark|cb-tritan-dark
+  Modes: ?mode=light|dark|cb-deutan|cb-protan|cb-tritan
+         |cb-deutan-dark|cb-protan-dark|cb-tritan-dark
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
      viewBox="0 0 512 512" width="512" height="512"
      role="img" aria-label="MeedyaDL logo">
   <title>MeedyaDL Logo</title>
-  <desc>A download arrow with alternating vinyl disc and film projector symbols</desc>
+  <desc>Crossfading vinyl disc and film projector with download arrow watermark</desc>
 
   <defs>
     <style>
-      /* ── Custom Properties ───────────────────────────────── */
       :root {
         --logo-primary: #475569;
         --logo-secondary: #94A3B8;
@@ -47,29 +39,21 @@
         --logo-transition-speed: 8s;
       }
 
-      /* ── Dark Mode ───────────────────────────────────────── */
       @media (prefers-color-scheme: dark) {
         :root {
-          --logo-primary: #CBD5E1;
-          --logo-secondary: #F1F5F9;
-          --logo-accent: #94A3B8;
-          --logo-disc: #1E293B;
-          --logo-disc-highlight: #334155;
-          --logo-beam: #CBD5E1;
+          --logo-primary: #CBD5E1; --logo-secondary: #F1F5F9;
+          --logo-accent: #94A3B8; --logo-disc: #1E293B;
+          --logo-disc-highlight: #334155; --logo-beam: #CBD5E1;
           --logo-shadow: rgba(0, 0, 0, 0.6);
         }
       }
       .dark {
-        --logo-primary: #CBD5E1;
-        --logo-secondary: #F1F5F9;
-        --logo-accent: #94A3B8;
-        --logo-disc: #1E293B;
-        --logo-disc-highlight: #334155;
-        --logo-beam: #CBD5E1;
+        --logo-primary: #CBD5E1; --logo-secondary: #F1F5F9;
+        --logo-accent: #94A3B8; --logo-disc: #1E293B;
+        --logo-disc-highlight: #334155; --logo-beam: #CBD5E1;
         --logo-shadow: rgba(0, 0, 0, 0.6);
       }
 
-      /* ── Colour-blind (light) ────────────────────────────── */
       .cb-deutan {
         --logo-primary: #648FFF; --logo-secondary: #FFB000;
         --logo-accent: #785EF0; --logo-disc: #2D3748;
@@ -85,8 +69,6 @@
         --logo-accent: #D55E00; --logo-disc: #2D3748;
         --logo-disc-highlight: #4A5568; --logo-beam: #CC79A7;
       }
-
-      /* ── Colour-blind (dark) ─────────────────────────────── */
       .dark.cb-deutan, .cb-deutan-dark {
         --logo-primary: #85AAFF; --logo-secondary: #FFC940;
         --logo-accent: #9B85FF; --logo-disc: #1A202C;
@@ -103,9 +85,7 @@
         --logo-beam: #E09DBF; --logo-shadow: rgba(0,0,0,0.6);
       }
 
-      /* ── Crossfade transition ────────────────────────────── */
-      /* Each symbol is visible for ~40% of the cycle, with a
-         ~10% crossfade overlap at each transition point. */
+      /* ── Crossfade ───────────────────────────────────────── */
       @keyframes show-vinyl {
         0%, 40%  { opacity: 1; }
         50%, 90% { opacity: 0; }
@@ -116,7 +96,6 @@
         50%, 90% { opacity: 1; }
         100%     { opacity: 0; }
       }
-
       #vinyl-group {
         animation: show-vinyl var(--logo-transition-speed) ease-in-out infinite;
       }
@@ -124,235 +103,291 @@
         animation: show-projector var(--logo-transition-speed) ease-in-out infinite;
       }
 
-      /* ── Vinyl disc rotation ─────────────────────────────── */
+      /* ── Vinyl spin ──────────────────────────────────────── */
       @keyframes disc-spin {
         from { transform: rotate(0deg); }
         to   { transform: rotate(360deg); }
       }
       #disc-grooves {
         animation: disc-spin calc(var(--logo-animation-speed) * 5) linear infinite;
-        transform-origin: 256px 290px;
+        transform-origin: 256px 256px;
       }
 
-      /* ── Arrow bounce ────────────────────────────────────── */
-      @keyframes arrow-bounce {
-        0%, 100% { transform: translateY(0); }
-        50%      { transform: translateY(10px); }
-      }
-      #download-arrow-group {
-        animation: arrow-bounce var(--logo-animation-speed) ease-in-out infinite;
-      }
-
-      /* ── Projector beam flicker ──────────────────────────── */
-      @keyframes beam-flicker {
-        0%, 100% { opacity: 0.12; }
-        10%      { opacity: 0.18; }
-        20%      { opacity: 0.10; }
-        35%      { opacity: 0.20; }
-        50%      { opacity: 0.08; }
-        65%      { opacity: 0.22; }
-        75%      { opacity: 0.14; }
-        90%      { opacity: 0.19; }
-      }
-      #projector-beam {
-        animation: beam-flicker calc(var(--logo-animation-speed) * 0.4) steps(1) infinite;
-      }
-
-      /* ── Projector reel spin ─────────────────────────────── */
+      /* ── Projector reels ─────────────────────────────────── */
       @keyframes reel-spin {
         from { transform: rotate(0deg); }
         to   { transform: rotate(360deg); }
       }
-      #reel-spokes-top {
-        animation: reel-spin calc(var(--logo-animation-speed) * 2) linear infinite;
-        transform-origin: 230px 230px;
+      #reel-spokes-left {
+        animation: reel-spin calc(var(--logo-animation-speed) * 1.8) linear infinite;
+        transform-origin: 175px 175px;
       }
-      #reel-spokes-bottom {
-        animation: reel-spin calc(var(--logo-animation-speed) * 2.5) linear infinite reverse;
-        transform-origin: 290px 330px;
+      #reel-spokes-right {
+        animation: reel-spin calc(var(--logo-animation-speed) * 2.2) linear infinite reverse;
+        transform-origin: 337px 175px;
       }
 
-      /* ── Reduced Motion ──────────────────────────────────── */
+      /* ── Beam flicker ────────────────────────────────────── */
+      @keyframes beam-flicker {
+        0%   { opacity: 0.10; }
+        8%   { opacity: 0.18; }
+        15%  { opacity: 0.06; }
+        25%  { opacity: 0.20; }
+        35%  { opacity: 0.12; }
+        45%  { opacity: 0.22; }
+        55%  { opacity: 0.08; }
+        65%  { opacity: 0.19; }
+        75%  { opacity: 0.14; }
+        85%  { opacity: 0.21; }
+        95%  { opacity: 0.10; }
+        100% { opacity: 0.15; }
+      }
+      @keyframes beam-glow-pulse {
+        0%, 100% { opacity: 0.06; }
+        50%      { opacity: 0.12; }
+      }
+      #projector-beam {
+        animation: beam-flicker calc(var(--logo-animation-speed) * 0.3) steps(1) infinite;
+      }
+      #beam-glow {
+        animation: beam-glow-pulse calc(var(--logo-animation-speed) * 0.6) ease-in-out infinite;
+      }
+
+      /* ── Reduced motion ──────────────────────────────────── */
       @media (prefers-reduced-motion: reduce) {
-        #vinyl-group, #projector-group {
-          animation: none !important;
-        }
-        /* Show vinyl by default when animations disabled */
-        #vinyl-group { opacity: 1 !important; }
-        #projector-group { opacity: 0 !important; }
-        #disc-grooves, #download-arrow-group,
-        #projector-beam, #reel-spokes-top, #reel-spokes-bottom {
+        #vinyl-group { animation: none !important; opacity: 1 !important; }
+        #projector-group { animation: none !important; opacity: 0 !important; }
+        #disc-grooves, #reel-spokes-left, #reel-spokes-right,
+        #projector-beam, #beam-glow {
           animation: none !important;
         }
       }
     </style>
 
-    <!-- Arrow gradient -->
+    <!-- Gradients -->
     <linearGradient id="grad-arrow" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%"   stop-color="var(--logo-primary)" />
       <stop offset="100%" stop-color="var(--logo-secondary)" />
     </linearGradient>
-
-    <!-- Base tray gradient -->
     <linearGradient id="grad-tray" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%"   stop-color="var(--logo-accent)" />
       <stop offset="100%" stop-color="var(--logo-secondary)" />
     </linearGradient>
-
-    <!-- Projector beam cone gradient (fades out) -->
-    <linearGradient id="grad-beam" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="var(--logo-beam)" stop-opacity="0.25" />
+    <radialGradient id="grad-beam" cx="0%" cy="50%" r="100%" fx="0%" fy="50%">
+      <stop offset="0%"   stop-color="var(--logo-beam)" stop-opacity="0.35" />
+      <stop offset="40%"  stop-color="var(--logo-beam)" stop-opacity="0.15" />
       <stop offset="100%" stop-color="var(--logo-beam)" stop-opacity="0" />
-    </linearGradient>
+    </radialGradient>
+    <radialGradient id="grad-lens-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="var(--logo-beam)" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="var(--logo-beam)" stop-opacity="0" />
+    </radialGradient>
 
     <!-- Filters -->
-    <filter id="arrow-shadow" x="-15%" y="-15%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="4" stdDeviation="6"
-                    flood-color="var(--logo-shadow)" flood-opacity="0.5" />
-    </filter>
-    <filter id="disc-shadow" x="-10%" y="-10%" width="120%" height="130%">
-      <feDropShadow dx="0" dy="6" stdDeviation="10"
-                    flood-color="var(--logo-shadow)" flood-opacity="0.35" />
+    <filter id="media-shadow" x="-10%" y="-10%" width="125%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="8"
+                    flood-color="var(--logo-shadow)" flood-opacity="0.4" />
     </filter>
     <filter id="tray-shadow" x="-10%" y="-10%" width="120%" height="130%">
       <feDropShadow dx="0" dy="3" stdDeviation="4"
                     flood-color="var(--logo-shadow)" flood-opacity="0.3" />
     </filter>
 
-    <!-- Disc groove clip -->
+    <!-- Disc groove clip (ring between outer and inner) -->
     <clipPath id="disc-ring-clip">
-      <path d="M256,160 a130,130 0 1,0 0.001,0 Z M256,250 a40,40 0 1,1 -0.001,0 Z"
+      <path d="M256,96 a160,160 0 1,0 0.001,0 Z M256,210 a46,46 0 1,1 -0.001,0 Z"
             clip-rule="evenodd" />
     </clipPath>
   </defs>
 
-  <!-- ═══════════ MEDIA SYMBOL: VINYL DISC (audio) ═══════════ -->
-  <g id="vinyl-group" filter="url(#disc-shadow)">
-    <!-- Outer disc body -->
-    <circle id="disc-body" cx="256" cy="290" r="130"
+  <!-- ═══════════ LAYER 0: DOWNLOAD ARROW WATERMARK ═══════════ -->
+  <!-- Sits behind everything as a subtle background indicator.
+       Low opacity so the media symbols are the hero. -->
+  <g id="download-watermark" opacity="0.08">
+    <rect x="232" y="30" width="48" height="160" rx="10"
+          fill="var(--logo-primary)" />
+    <path d="M196,185 L256,250 L316,185"
+          fill="none" stroke="var(--logo-primary)" stroke-width="48"
+          stroke-linecap="round" stroke-linejoin="round" />
+    <!-- Small down-tray at bottom of watermark -->
+    <path d="M180,420 L180,445 Q180,460 196,460 L316,460 Q332,460 332,445 L332,420"
+          fill="none" stroke="var(--logo-primary)" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- ═══════════ LAYER 1a: VINYL DISC (audio) ═══════════ -->
+  <g id="vinyl-group" filter="url(#media-shadow)">
+    <!-- Outer disc -->
+    <circle id="disc-body" cx="256" cy="256" r="160"
             fill="var(--logo-disc)" />
 
-    <!-- Grooves (rotating) -->
+    <!-- Rotating grooves -->
     <g id="disc-grooves" clip-path="url(#disc-ring-clip)">
-      <circle cx="256" cy="290" r="115" fill="none"
-              stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.4" />
-      <circle cx="256" cy="290" r="100" fill="none"
+      <circle cx="256" cy="256" r="150" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.35" />
+      <circle cx="256" cy="256" r="140" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.5" opacity="0.25" />
+      <circle cx="256" cy="256" r="130" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.35" />
+      <circle cx="256" cy="256" r="120" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.5" opacity="0.25" />
+      <circle cx="256" cy="256" r="110" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.35" />
+      <circle cx="256" cy="256" r="100" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.5" opacity="0.25" />
+      <circle cx="256" cy="256" r="90" fill="none"
               stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.3" />
-      <circle cx="256" cy="290" r="85" fill="none"
-              stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.4" />
-      <circle cx="256" cy="290" r="70" fill="none"
+      <circle cx="256" cy="256" r="80" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.5" opacity="0.2" />
+      <circle cx="256" cy="256" r="70" fill="none"
               stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.3" />
-      <circle cx="256" cy="290" r="55" fill="none"
-              stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.35" />
+      <circle cx="256" cy="256" r="60" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.5" opacity="0.2" />
+      <!-- Light reflections across the surface -->
+      <line x1="256" y1="96" x2="190" y2="416"
+            stroke="white" stroke-width="40" opacity="0.02" />
+      <line x1="280" y1="96" x2="340" y2="416"
+            stroke="white" stroke-width="25" opacity="0.015" />
     </g>
 
-    <!-- Label area -->
-    <circle id="disc-label" cx="256" cy="290" r="40"
-            fill="var(--logo-disc-highlight)" opacity="0.6" />
+    <!-- Label area (inner circle) -->
+    <circle id="disc-label" cx="256" cy="256" r="46"
+            fill="var(--logo-disc-highlight)" opacity="0.7" />
+    <!-- Label detail -->
+    <circle cx="256" cy="256" r="38"
+            fill="none" stroke="var(--logo-disc)" stroke-width="0.5" opacity="0.4" />
 
-    <!-- Centre hole -->
-    <circle id="disc-hole" cx="256" cy="290" r="10"
-            fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
-            stroke-width="1.5" opacity="0.8" />
+    <!-- Centre spindle hole -->
+    <circle id="disc-hole" cx="256" cy="256" r="8"
+            fill="var(--logo-disc)" />
+    <circle cx="256" cy="256" r="8"
+            fill="none" stroke="var(--logo-disc-highlight)" stroke-width="1.5" opacity="0.5" />
+    <!-- Spindle pin highlight -->
+    <circle cx="256" cy="256" r="3"
+            fill="var(--logo-disc-highlight)" opacity="0.3" />
 
-    <!-- Highlight -->
-    <ellipse id="disc-reflection" cx="220" cy="250" rx="50" ry="18"
-             fill="white" opacity="0.04" transform="rotate(-25,220,250)" />
+    <!-- Surface reflection (realistic sheen) -->
+    <ellipse id="disc-sheen" cx="215" cy="210" rx="70" ry="25"
+             fill="white" opacity="0.035" transform="rotate(-30,215,210)" />
   </g>
 
-  <!-- ═══════════ MEDIA SYMBOL: FILM PROJECTOR (video) ═══════════ -->
-  <g id="projector-group" opacity="0" filter="url(#disc-shadow)">
+  <!-- ═══════════ LAYER 1b: FILM PROJECTOR (video) ═══════════ -->
+  <g id="projector-group" opacity="0" filter="url(#media-shadow)">
 
-    <!-- Projector body (rounded rectangle) -->
-    <rect id="projector-body" x="195" y="275" width="122" height="90"
-          rx="12" fill="var(--logo-disc)" />
-
-    <!-- Lens barrel -->
-    <rect id="projector-lens-barrel" x="317" y="300" width="40" height="30"
-          rx="6" fill="var(--logo-disc-highlight)" />
-    <!-- Lens glass -->
-    <circle id="projector-lens" cx="362" cy="315" r="12"
-            fill="var(--logo-disc)" stroke="var(--logo-accent)"
-            stroke-width="2.5" />
-    <circle cx="362" cy="315" r="6"
-            fill="var(--logo-accent)" opacity="0.5" />
-
-    <!-- Top reel (larger) -->
-    <circle id="reel-top" cx="230" cy="260" r="36"
-            fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" />
-    <circle cx="230" cy="260" r="8"
-            fill="var(--logo-disc-highlight)" opacity="0.6" />
-    <!-- Reel spokes (rotating) -->
-    <g id="reel-spokes-top">
-      <line x1="230" y1="230" x2="230" y2="250" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" opacity="0.5" />
-      <line x1="206" y1="247" x2="218" y2="255" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" opacity="0.5" />
-      <line x1="254" y1="247" x2="242" y2="255" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" opacity="0.5" />
-      <line x1="212" y1="278" x2="222" y2="268" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" opacity="0.5" />
-      <line x1="248" y1="278" x2="238" y2="268" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" opacity="0.5" />
-    </g>
-
-    <!-- Bottom reel (smaller) -->
-    <circle id="reel-bottom" cx="290" cy="330" r="26"
-            fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
-            stroke-width="2" />
-    <circle cx="290" cy="330" r="6"
-            fill="var(--logo-disc-highlight)" opacity="0.6" />
-    <!-- Reel spokes (rotating, reverse) -->
-    <g id="reel-spokes-bottom">
-      <line x1="290" y1="308" x2="290" y2="320" stroke="var(--logo-disc-highlight)"
-            stroke-width="1.5" opacity="0.5" />
-      <line x1="272" y1="320" x2="280" y2="326" stroke="var(--logo-disc-highlight)"
-            stroke-width="1.5" opacity="0.5" />
-      <line x1="308" y1="320" x2="300" y2="326" stroke="var(--logo-disc-highlight)"
-            stroke-width="1.5" opacity="0.5" />
-      <line x1="276" y1="344" x2="282" y2="336" stroke="var(--logo-disc-highlight)"
-            stroke-width="1.5" opacity="0.5" />
-      <line x1="304" y1="344" x2="298" y2="336" stroke="var(--logo-disc-highlight)"
-            stroke-width="1.5" opacity="0.5" />
-    </g>
-
-    <!-- Film strip connecting reels -->
-    <path id="film-strip"
-          d="M230,296 Q210,310 210,330 Q210,356 230,356 L260,356 Q280,356 290,356"
-          fill="none" stroke="var(--logo-disc-highlight)" stroke-width="3"
-          stroke-dasharray="8 4" opacity="0.4" />
-
-    <!-- Projector beam (flickering light cone) -->
-    <path id="projector-beam"
-          d="M374,305 L460,260 L460,370 Z"
-          fill="url(#grad-beam)" opacity="0.15" />
-
-    <!-- Body detail lines -->
-    <line x1="205" y1="345" x2="307" y2="345"
+    <!-- ── Projector Body ──────────────────────────────────── -->
+    <rect id="projector-body" x="125" y="265" width="200" height="110"
+          rx="14" fill="var(--logo-disc)" />
+    <!-- Body top edge detail -->
+    <line x1="140" y1="275" x2="310" y2="275"
           stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.3" />
-    <line x1="205" y1="352" x2="307" y2="352"
-          stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.2" />
-  </g>
+    <!-- Ventilation slots -->
+    <line x1="145" y1="350" x2="310" y2="350"
+          stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.25" />
+    <line x1="145" y1="356" x2="310" y2="356"
+          stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.2" />
+    <line x1="145" y1="362" x2="310" y2="362"
+          stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.15" />
 
-  <!-- ═══════════ BASE TRAY ═══════════ -->
-  <g id="download-base" filter="url(#tray-shadow)">
-    <path id="base-tray"
-          d="M145,400 L145,425 Q145,445 165,445 L347,445 Q367,445 367,425 L367,400"
-          fill="none" stroke="url(#grad-tray)" stroke-width="10"
-          stroke-linecap="round" stroke-linejoin="round" />
-  </g>
+    <!-- ── Left Reel (supply, larger) ──────────────────────── -->
+    <circle id="reel-housing-left" cx="175" cy="175" r="72"
+            fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
+            stroke-width="2.5" />
+    <!-- Reel inner rings -->
+    <circle cx="175" cy="175" r="55"
+            fill="none" stroke="var(--logo-disc-highlight)"
+            stroke-width="1" opacity="0.3" />
+    <circle cx="175" cy="175" r="20"
+            fill="var(--logo-disc-highlight)" opacity="0.4" />
+    <circle cx="175" cy="175" r="8"
+            fill="var(--logo-disc)" />
+    <!-- Spokes (rotating) -->
+    <g id="reel-spokes-left">
+      <line x1="175" y1="110" x2="175" y2="155" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="119" y1="143" x2="155" y2="165" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="231" y1="143" x2="195" y2="165" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="119" y1="207" x2="155" y2="185" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="231" y1="207" x2="195" y2="185" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="175" y1="240" x2="175" y2="195" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+    </g>
 
-  <!-- ═══════════ DOWNLOAD ARROW ═══════════ -->
-  <g id="download-arrow-group" filter="url(#arrow-shadow)">
-    <rect id="arrow-shaft" x="230" y="50" width="52" height="150"
-          rx="10" fill="url(#grad-arrow)" />
-    <path id="arrow-head"
-          d="M190,195 L256,268 L322,195"
-          fill="none" stroke="url(#grad-arrow)" stroke-width="52"
-          stroke-linecap="round" stroke-linejoin="round" />
-    <rect id="arrow-shine" x="244" y="62" width="10" height="80"
-          rx="5" fill="white" opacity="0.2" />
+    <!-- ── Right Reel (take-up, larger) ────────────────────── -->
+    <circle id="reel-housing-right" cx="337" cy="175" r="72"
+            fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
+            stroke-width="2.5" />
+    <circle cx="337" cy="175" r="55"
+            fill="none" stroke="var(--logo-disc-highlight)"
+            stroke-width="1" opacity="0.3" />
+    <circle cx="337" cy="175" r="20"
+            fill="var(--logo-disc-highlight)" opacity="0.4" />
+    <circle cx="337" cy="175" r="8"
+            fill="var(--logo-disc)" />
+    <!-- Spokes (rotating, reverse) -->
+    <g id="reel-spokes-right">
+      <line x1="337" y1="110" x2="337" y2="155" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="281" y1="143" x2="317" y2="165" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="393" y1="143" x2="357" y2="165" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="281" y1="207" x2="317" y2="185" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="393" y1="207" x2="357" y2="185" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+      <line x1="337" y1="240" x2="337" y2="195" stroke="var(--logo-disc-highlight)"
+            stroke-width="3" opacity="0.4" stroke-linecap="round" />
+    </g>
+
+    <!-- ── Film gate (between reels, above body) ───────────── -->
+    <rect x="225" y="220" width="62" height="45" rx="4"
+          fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
+          stroke-width="1.5" />
+    <!-- Film frame aperture -->
+    <rect x="233" y="226" width="46" height="33" rx="2"
+          fill="var(--logo-disc-highlight)" opacity="0.3" />
+
+    <!-- ── Film path (threading between reels and gate) ────── -->
+    <path d="M175,247 Q175,260 200,262 L225,262"
+          fill="none" stroke="var(--logo-disc-highlight)" stroke-width="2" opacity="0.35" />
+    <path d="M287,262 L312,262 Q337,260 337,247"
+          fill="none" stroke="var(--logo-disc-highlight)" stroke-width="2" opacity="0.35" />
+
+    <!-- ── Lens Assembly (front, right side) ───────────────── -->
+    <rect id="lens-barrel" x="325" y="292" width="55" height="46"
+          rx="8" fill="var(--logo-disc-highlight)" />
+    <!-- Lens mount ring -->
+    <circle id="lens-outer" cx="385" cy="315" r="22"
+            fill="var(--logo-disc)" stroke="var(--logo-accent)"
+            stroke-width="3" />
+    <!-- Lens glass (concentric rings for realism) -->
+    <circle cx="385" cy="315" r="16"
+            fill="var(--logo-disc-highlight)" opacity="0.5" />
+    <circle cx="385" cy="315" r="10"
+            fill="var(--logo-accent)" opacity="0.4" />
+    <circle cx="385" cy="315" r="5"
+            fill="var(--logo-beam)" opacity="0.6" />
+    <!-- Lens highlight -->
+    <ellipse cx="380" cy="310" rx="6" ry="4"
+             fill="white" opacity="0.15" transform="rotate(-20,380,310)" />
+
+    <!-- ── Projector Beam (flickering light cone, right side) ─ -->
+    <path id="projector-beam"
+          d="M407,300 L500,230 L500,400 Z"
+          fill="url(#grad-beam)" opacity="0.15" />
+    <!-- Beam glow (softer, wider) -->
+    <ellipse id="beam-glow" cx="460" cy="315" rx="50" ry="80"
+             fill="url(#grad-lens-glow)" opacity="0.08" />
+
+    <!-- ── Feet / Stand ────────────────────────────────────── -->
+    <rect x="155" y="375" width="30" height="8" rx="3"
+          fill="var(--logo-disc-highlight)" opacity="0.5" />
+    <rect x="265" y="375" width="30" height="8" rx="3"
+          fill="var(--logo-disc-highlight)" opacity="0.5" />
   </g>
 
   <!-- ═══════════ MODE SWITCH ═══════════ -->
@@ -371,7 +406,7 @@
             svg.classList.add(mode);
           }
         }
-      } catch (e) { /* no window / URLSearchParams */ }
+      } catch (e) {}
     })();
     // ]]>
   </script>
