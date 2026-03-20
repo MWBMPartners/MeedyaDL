@@ -249,6 +249,15 @@ pub mod ass_subtitle_service;
 /// Used by: `download_queue` (post-download enrichment Step 6b, when `musicbrainz_lookup` enabled)
 pub mod musicbrainz_service;
 
+/// Download history persistence service.
+///
+/// Records completed and failed downloads to `{app_data_dir}/history.json`
+/// for user review. Provides list, search, and clear operations. Maximum
+/// 1000 entries; oldest are trimmed on save.
+///
+/// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
+pub mod history_service;
+
 /// API field audit service — diagnostic tool for discovering new API fields.
 ///
 /// Fetches a real album from the Apple Music API and diffs the raw JSON

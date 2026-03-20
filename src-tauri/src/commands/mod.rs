@@ -101,6 +101,13 @@ pub mod artwork;
 /// Rust panic handler. Delegates to `services::crash_report_service`.
 pub mod crash_reports;
 
+/// Download history IPC commands (list, search, clear).
+///
+/// Provides commands for the frontend to view, search, and clear
+/// the persistent download history. Delegates to
+/// `services::history_service`.
+pub mod history;
+
 /// API field audit command — diagnostic tool for discovering new API fields.
 ///
 /// Provides `audit_api_fields` which fetches an Apple Music album and diffs

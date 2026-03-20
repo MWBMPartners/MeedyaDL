@@ -77,7 +77,7 @@
     "dismiss": "Dismiss",
     "viewDetails": "View Details",
     "preRelease": "Pre-Release",
-    "preReleaseWarning": "This is a pre-release version and may contain bugs or incomplete features. Not recommended for production use."
+    "preReleaseWarning": "This is a pre-release version and may contain bugs or incomplete features. Not recommended for every-day use."
   },
   "crashReporting": {
     "title": "Recent Crash Reports",

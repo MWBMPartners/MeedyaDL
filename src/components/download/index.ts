@@ -37,5 +37,8 @@ export { QueueItem } from './QueueItem';
 /** Activity log page showing live raw subprocess output for debugging. */
 export { ActivityLog } from './ActivityLog';
 
+/** Download history page showing persistent record of all downloads. */
+export { HistoryPage } from './HistoryPage';
+
 /** Collapsible panel showing session download statistics derived from queue items. */
 export { StatisticsPanel } from './StatisticsPanel';
