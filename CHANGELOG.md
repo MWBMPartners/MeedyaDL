@@ -42,6 +42,7 @@ Session-based stats derived from queue items via useMemo:
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
