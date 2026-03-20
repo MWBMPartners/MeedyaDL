@@ -432,14 +432,6 @@
           stroke="url(#logotype-grad-scan)"
           stroke-width="40"
           opacity="0" />
-
-    <!-- Bottom accent line — subtle tech underline -->
-    <line id="accent-underline"
-          x1="2" y1="112" x2="530" y2="112"
-          stroke="var(--logotype-accent)"
-          stroke-width="1"
-          stroke-dasharray="4 6"
-          opacity="0.3" />
   </g>
 
   <!-- ════════════════ DYNAMIC LAYOUT + MODE SWITCH ════════════════
@@ -452,7 +444,6 @@
          5. Measures #product-suffix bounding box
          6. Positions #bracket-right after the suffix
          7. Resizes the viewBox width to fit everything
-         8. Adjusts #accent-underline to span the full width
 
        To change the product name, just edit the <text> content of
        #product-suffix (e.g., "DL" -> "Manager") and reload. -->
@@ -464,7 +455,6 @@
       var dots   = document.getElementById('circuit-dots');
       var suffix = document.getElementById('product-suffix');
       var brR    = document.getElementById('bracket-right');
-      var line   = document.getElementById('accent-underline');
 
       if (!svg || !prefix || !suffix) return;
 
@@ -517,11 +507,6 @@
           brR.setAttribute('points',
             (brX - 6) + ',18 ' + brX + ',18 ' + brX + ',108 ' + (brX - 6) + ',108'
           );
-        }
-
-        // Resize underline
-        if (line) {
-          line.setAttribute('x2', brX);
         }
 
         // Resize the viewBox to fit
