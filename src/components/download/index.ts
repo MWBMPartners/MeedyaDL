@@ -36,3 +36,6 @@ export { QueueItem } from './QueueItem';
 
 /** Activity log page showing live raw subprocess output for debugging. */
 export { ActivityLog } from './ActivityLog';
+
+/** Collapsible panel showing session download statistics derived from queue items. */
+export { StatisticsPanel } from './StatisticsPanel';
