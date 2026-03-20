@@ -387,6 +387,11 @@
       <!-- Layer 2: coloured neon glow for brand feel -->
       <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="var(--logotype-glow)" flood-opacity="0.2" />
     </filter>
+
+    <!-- Drop shadow for bracket decorations -->
+    <filter id="bracket-shadow" x="-40%" y="-20%" width="180%" height="150%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="var(--logotype-shadow)" flood-opacity="0.5" />
+    </filter>
   </defs>
 
   <!-- ════════════════ WORDMARK ════════════════ -->
@@ -394,7 +399,8 @@
 
     <!-- Decorative left bracket -->
     <polyline id="bracket-left" class="bracket-deco"
-              points="8,18 2,18 2,108 8,108" />
+              points="8,18 2,18 2,108 8,108"
+              filter="url(#bracket-shadow)" />
 
     <!-- Brand prefix: "Meedya" — constant across all MeedyaSuite products.
          Orbitron Black gives the sharp, geometric, futuristic look. -->
@@ -423,7 +429,8 @@
 
     <!-- Decorative right bracket -->
     <polyline id="bracket-right" class="bracket-deco"
-              points="524,18 530,18 530,108 524,108" />
+              points="524,18 530,18 530,108 524,108"
+              filter="url(#bracket-shadow)" />
 
     <!-- Horizontal scan line — sweeps across the wordmark like a
          terminal cursor or HUD scanner. Pure decoration. -->
