@@ -1240,6 +1240,79 @@ Since all current releases are pre-releases, users on the default setting will s
 
 ---
 
+## Brand Asset Structure
+
+### Directory Layout
+
+All brand assets live in `assets/brand/`:
+
+```text
+assets/brand/
+├── icon.svg               # Source SVG icon (vinyl/reel design with CSS colour modes)
+├── logo.svg               # Animated SVG logo (vinyl/reel crossfade animation)
+├── logotype.svg           # Animated SVG logotype (gradient shimmer wordmark)
+├── brandkit.html          # Self-contained brand kit page (previews all assets)
+├── icon[-mode].png        # Rendered icon PNGs (1024x1024, 8 modes)
+├── icon[-mode].ico        # Windows ICO files (16-256px, 8 modes)
+├── icon[-mode].icns       # macOS ICNS files (16-1024px, 8 modes)
+├── icon[-mode]-liquidglass.png   # Liquid Glass variant PNGs (10% inset, 8 modes)
+├── icon[-mode]-liquidglass.icns  # Liquid Glass variant ICNS (8 modes)
+├── favicon[-mode].ico     # Favicon ICOs (16-48px, 8 modes)
+├── logo[-mode].png        # Animated logo as APNG (8 modes)
+└── logotype[-mode].png    # Animated logotype as APNG (8 modes)
+```
+
+**Colour modes** (8 total): default (light), dark, cb-deutan, cb-protan, cb-tritan, cb-deutan-dark, cb-protan-dark, cb-tritan-dark.
+
+**Naming convention**: `-mode` suffix is omitted for the default (light) variant (e.g., `icon.png` = light, `icon-dark.png` = dark).
+
+### Icon Generation (`scripts/generate-icons.mjs`)
+
+Renders `icon.svg` in all 8 colour modes using Puppeteer (headless browser), then generates platform-specific formats:
+
+- `.png` (1024x1024) -- copied from Puppeteer screenshot
+- `.ico` (16-256px multi-size) -- assembled via Python Pillow
+- `.icns` (16-1024px) -- assembled via macOS `iconutil`
+- Liquid Glass variants (10% padding inset) -- assembled via Pillow
+
+**Requirements**: `puppeteer` (npm), `python3` with `Pillow`, `iconutil` (macOS only for `.icns`).
+
+**Usage**: `node scripts/generate-icons.mjs`
+
+**Output**: 8 modes x 6 formats = 48 files in `assets/brand/`.
+
+### APNG Generation (`scripts/svg-to-apng.mjs`)
+
+Renders animated SVGs (logo.svg and logotype.svg) frame-by-frame in Puppeteer, then assembles frames into Animated PNG files using ffmpeg:
+
+- Captures frames at 15 fps for 8 seconds (120 frames per variant)
+- Auto-trims content bounds with 4px padding
+- Generates all 8 colour mode variants for both logo and logotype
+
+**Requirements**: `puppeteer` (npm), `ffmpeg` (for APNG assembly).
+
+**Usage**: `node scripts/svg-to-apng.mjs`
+
+**Output**: 2 SVGs x 8 modes = 16 APNG files in `assets/brand/`.
+
+### Copyright Year Update (`scripts/update-copyright-year.sh`)
+
+Updates the copyright end-year across all source files to the current calendar year. Covers: `.rs`, `.ts`, `.tsx`, `.css`, `.yml`, `.md`, `.svg`, `.html`, `LICENSE`, `tauri.conf.json`, and config files.
+
+- Auto-detects macOS vs Linux for correct `sed -i` syntax
+- Start year is 2026; uses `"Copyright (c) 2026"` for 2026, `"Copyright (c) 2026-YYYY"` for future years
+- Excludes itself from bulk find/sed to prevent self-corruption (its own header is updated via a targeted line-number sed)
+
+**Usage**: `./scripts/update-copyright-year.sh`
+
+Run at the start of each new calendar year or automate in CI.
+
+### Brand Asset License
+
+Brand assets (logo, logotype, icon) in `assets/brand/` are **proprietary** to MeedyaDL. They are NOT covered by the MIT license that applies to the source code. Do not redistribute, modify, or use the brand assets outside of MeedyaDL without written permission.
+
+---
+
 ## MeedyaSuite Logotype SVG — Customisation Guide
 
 The logotype SVG at `assets/brand/new/logotype.svg` is a fully self-contained, animated wordmark designed for use across the MeedyaSuite product family (MeedyaDL, MeedyaManager, MeedyaDB).
