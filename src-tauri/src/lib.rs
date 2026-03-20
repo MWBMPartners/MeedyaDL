@@ -924,6 +924,7 @@ pub fn run() {
             commands::dependencies::install_gamdl,
             commands::dependencies::check_all_dependencies,
             commands::dependencies::install_dependency,
+            commands::dependencies::get_component_versions,
             // Settings management commands
             commands::settings::get_settings,
             commands::settings::save_settings,
@@ -1158,6 +1159,10 @@ pub fn run() {
                 if let Ok(s) = services::config_service::load_settings(&startup_handle) {
                     emit_startup_settings_summary(&startup_handle, &s);
                 }
+
+                // Log component versions to the Activity Log for diagnostics.
+                // Runs after a short delay so dependencies have been detected.
+                commands::dependencies::log_component_versions_to_activity(&startup_handle).await;
             });
 
             Ok(())

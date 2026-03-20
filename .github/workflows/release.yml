@@ -649,9 +649,16 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+
+          # Extract the numeric version from the tag (strip leading "v")
+          VERSION="${TAG#v}"
+
+          # Base URL for release assets
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
           # Get the current release body
-          CURRENT_BODY=$(gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq '.body' 2>/dev/null || echo "")
+          CURRENT_BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
 
           # Check if the download guide has already been appended (idempotent)
           if echo "$CURRENT_BODY" | grep -q "Choose your download"; then
@@ -659,8 +666,13 @@ jobs:
             exit 0
           fi
 
-          # Build the download guide to append
-          DOWNLOAD_GUIDE=$(cat <<'GUIDE_EOF'
+          # Build the download guide with platform emojis and direct download
+          # links. This mirrors the releaseBody template used by tauri-action
+          # (lines 512-550) but is needed here because release-please creates
+          # the GitHub Release before tauri-action runs, so tauri-action's
+          # releaseBody is ignored for existing releases.
+          # Uses a double-quoted heredoc for variable expansion ($VERSION, $BASE).
+          DOWNLOAD_GUIDE=$(cat <<GUIDE_EOF
 
           ---
 
@@ -668,28 +680,30 @@ jobs:
 
           | If you're using... | Download this | Notes |
           |--------------------|--------------|-------|
-          | **Mac** (M1, M2, M3, M4) | `_aarch64.dmg` | Most Macs since late 2020 |
-          | **Windows** (most PCs) | `_x64-setup.exe` | Works on all modern Windows PCs |
-          | **Windows** (Snapdragon / ARM) | `_arm64-setup.exe` | Surface Pro X, Snapdragon laptops |
-          | **Linux** (most PCs) | `_amd64.deb` or `_amd64.AppImage` | Ubuntu, Debian, Mint, Pop!_OS |
-          | **Linux** (RPM-based) | `_x86_64.rpm` | Fedora, RHEL, CentOS, openSUSE |
-          | **Linux** (Raspberry Pi 4/5) | `_arm64.deb` or `_aarch64.rpm` | Requires 64-bit OS |
-          | **Chromebook** | `_amd64.deb` | Install via Linux (Crostini) |
+          | 🍎 **Mac** (M1, M2, M3, M4) | [MeedyaDL_${VERSION}_aarch64.dmg](${BASE}/MeedyaDL_${VERSION}_aarch64.dmg) | Most Macs since late 2020 |
+          | 🪟 **Windows** (most PCs) | [MeedyaDL_${VERSION}_x64-setup.exe](${BASE}/MeedyaDL_${VERSION}_x64-setup.exe) | Works on all modern Windows PCs |
+          | 🪟 **Windows** (Snapdragon / ARM) | [MeedyaDL_${VERSION}_arm64-setup.exe](${BASE}/MeedyaDL_${VERSION}_arm64-setup.exe) | Surface Pro X, Snapdragon laptops |
+          | 🐧 **Linux** (most PCs) | [MeedyaDL_${VERSION}_amd64.deb](${BASE}/MeedyaDL_${VERSION}_amd64.deb) or [.AppImage](${BASE}/MeedyaDL_${VERSION}_amd64.AppImage) | Ubuntu, Debian, Mint, Pop!_OS |
+          | 🐧 **Linux** (RPM-based) | [MeedyaDL-${VERSION}-1.x86_64.rpm](${BASE}/MeedyaDL-${VERSION}-1.x86_64.rpm) | Fedora, RHEL, CentOS, openSUSE |
+          | 🐧 **Linux** (Raspberry Pi 4/5) | [MeedyaDL_${VERSION}_arm64.deb](${BASE}/MeedyaDL_${VERSION}_arm64.deb) or [.aarch64.rpm](${BASE}/MeedyaDL-${VERSION}-1.aarch64.rpm) | Requires 64-bit OS |
+          | 💻 **Chromebook** | [MeedyaDL_${VERSION}_amd64.deb](${BASE}/MeedyaDL_${VERSION}_amd64.deb) | Install via Linux (Crostini) |
 
-          > **Not sure which to pick?** Most Mac users want the `.dmg`. Most Windows users want `_x64-setup.exe`. Most Linux desktop users want the `.deb` or `.AppImage`.
+          > **Not sure which to pick?** Most Mac users want the \`.dmg\`. Most Windows users want \`_x64-setup.exe\`. Most Linux desktop users want the \`.deb\` or \`.AppImage\`.
 
-          > **Windows ARM64 users**: The `_x64-setup.exe` also works on ARM64 via Windows' built-in emulation layer.
+          > **Windows ARM64 users**: The \`_x64-setup.exe\` also works on ARM64 via Windows' built-in emulation layer.
 
-          ### What are the `.sig` files?
+          > **Raspberry Pi users**: You may need to install [GDebi](https://packages.debian.org/gdebi) to install \`.deb\` packages with dependencies: \`sudo apt install gdebi-core && sudo gdebi MeedyaDL_*_arm64.deb\`
 
-          Files ending in `.sig` are **cryptographic signatures** used by MeedyaDL's built-in auto-updater. They verify that downloaded updates haven't been tampered with. **You do not need to download `.sig` files** — they are used automatically by the app when checking for updates. The `latest.json` file is also part of the auto-update system and can be ignored.
+          ### What are the \`.sig\` files?
+
+          Files ending in \`.sig\` are **cryptographic signatures** used by MeedyaDL's built-in auto-updater. They verify that downloaded updates haven't been tampered with. **You do not need to download \`.sig\` files** — they are used automatically by the app when checking for updates. The \`latest.json\` file is also part of the auto-update system and can be ignored.
 
           ### macOS Users
 
-          The macOS `.dmg` is code-signed and notarized by Apple. If macOS still shows a security warning on an unsigned development build, right-click the app and choose **Open**, or run:
-          ```
+          The macOS \`.dmg\` is code-signed and notarized by Apple. If macOS still shows a security warning on an unsigned development build, right-click the app and choose **Open**, or run:
+          \`\`\`
           xattr -cr /Applications/MeedyaDL.app
-          ```
+          \`\`\`
 
           ### First-Time Users
 
@@ -704,5 +718,5 @@ jobs:
           NEW_BODY="${CURRENT_BODY}${DOWNLOAD_GUIDE}"
 
           # Update the release
-          gh release edit "$TAG" --repo "${{ github.repository }}" --notes "$NEW_BODY"
+          gh release edit "$TAG" --repo "$REPO" --notes "$NEW_BODY"
           echo "Download guide appended to release notes for $TAG"
