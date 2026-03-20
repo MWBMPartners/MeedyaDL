@@ -5047,8 +5047,13 @@ pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
     match serde_json::to_string_pretty(&items) {
         Ok(json) => {
-            if let Err(e) = std::fs::write(&queue_path, json) {
-                log::warn!("Failed to save queue to disk: {e}");
+            // Atomic write: write to temp file then rename to prevent
+            // corruption on crash/power loss. See: #230
+            let temp_path = queue_path.with_extension("json.tmp");
+            if let Err(e) = std::fs::write(&temp_path, json) {
+                log::warn!("Failed to write temp queue file: {e}");
+            } else if let Err(e) = std::fs::rename(&temp_path, &queue_path) {
+                log::warn!("Failed to rename temp queue file: {e}");
             }
         }
         Err(e) => {

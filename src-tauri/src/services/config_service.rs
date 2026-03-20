@@ -233,11 +233,15 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     let json = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("Failed to serialize settings: {e}"))?;
 
-    // Atomically write the settings file. Note: std::fs::write is not truly atomic
-    // (no rename-based write), but is sufficient for our use case where concurrent
-    // writes are prevented by the Tauri command serialization.
-    std::fs::write(&settings_path, json)
-        .map_err(|e| format!("Failed to write settings file: {e}"))?;
+    // Atomic write: write to a temp file in the same directory, then rename.
+    // This prevents corruption if the process crashes or loses power mid-write,
+    // because rename() is atomic on all major filesystems (APFS, ext4, NTFS).
+    // See: https://github.com/MWBMPartners/MeedyaDL/issues/230
+    let temp_path = settings_path.with_extension("json.tmp");
+    std::fs::write(&temp_path, json)
+        .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
+    std::fs::rename(&temp_path, &settings_path)
+        .map_err(|e| format!("Failed to rename temp settings file: {e}"))?;
 
     log::info!("Settings saved to {}", settings_path.display());
 
