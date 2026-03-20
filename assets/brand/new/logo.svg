@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2024-2026 MeedyaDL - MIT License -->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     viewBox="0 0 512 512" width="512" height="512"
+     role="img" aria-label="MeedyaDL logo">
+  <title>MeedyaDL Logo</title>
+  <desc>A media downloader logo combining a download arrow with a music disc and waveform elements</desc>
+
+  <defs>
+    <style>
+      :root {
+        --logo-primary: #3B82F6;
+        --logo-secondary: #8B5CF6;
+        --logo-accent: #06B6D4;
+        --logo-shadow: rgba(0,0,0,0.1);
+        --logo-animation-speed: 2s;
+      }
+
+      /* Gradient fill classes */
+      #gradient-primary stop:first-child { stop-color: var(--logo-primary); }
+      #gradient-primary stop:last-child { stop-color: var(--logo-secondary); }
+
+      #gradient-accent stop:first-child { stop-color: var(--logo-accent); }
+      #gradient-accent stop:last-child { stop-color: var(--logo-primary); }
+
+      #gradient-disc stop:first-child { stop-color: var(--logo-secondary); }
+      #gradient-disc stop:last-child { stop-color: var(--logo-primary); }
+
+      #gradient-glow stop:first-child { stop-color: var(--logo-accent); stop-opacity: 0.4; }
+      #gradient-glow stop:last-child { stop-color: var(--logo-accent); stop-opacity: 0; }
+
+      /* Shadow filter */
+      #shadow-filter feDropShadow {
+        flood-color: var(--logo-shadow);
+      }
+
+      /* Animations */
+      @keyframes arrow-bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(12px); }
+      }
+
+      @keyframes disc-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes pulse-glow {
+        0%, 100% { opacity: 0.3; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(1.08); }
+      }
+
+      @keyframes waveform-pulse {
+        0%, 100% { transform: scaleY(1); }
+        50% { transform: scaleY(0.5); }
+      }
+
+      #download-arrow-group {
+        animation: arrow-bounce var(--logo-animation-speed) ease-in-out infinite;
+      }
+
+      #disc-grooves {
+        animation: disc-spin calc(var(--logo-animation-speed) * 4) linear infinite;
+        transform-origin: 256px 280px;
+      }
+
+      #glow-ring {
+        animation: pulse-glow var(--logo-animation-speed) ease-in-out infinite;
+        transform-origin: 256px 256px;
+      }
+
+      #waveform-bar-1 {
+        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0s;
+        transform-origin: center bottom;
+      }
+      #waveform-bar-2 {
+        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0.15s;
+        transform-origin: center bottom;
+      }
+      #waveform-bar-3 {
+        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0.3s;
+        transform-origin: center bottom;
+      }
+      #waveform-bar-4 {
+        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0.45s;
+        transform-origin: center bottom;
+      }
+      #waveform-bar-5 {
+        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0.6s;
+        transform-origin: center bottom;
+      }
+
+      /* Reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        #download-arrow-group,
+        #disc-grooves,
+        #glow-ring,
+        #waveform-bar-1,
+        #waveform-bar-2,
+        #waveform-bar-3,
+        #waveform-bar-4,
+        #waveform-bar-5 {
+          animation: none !important;
+        }
+      }
+    </style>
+
+    <!-- Gradients -->
+    <linearGradient id="gradient-primary" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </linearGradient>
+
+    <linearGradient id="gradient-accent" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </linearGradient>
+
+    <radialGradient id="gradient-disc" cx="50%" cy="50%" r="50%">
+      <stop offset="20%" />
+      <stop offset="100%" />
+    </radialGradient>
+
+    <radialGradient id="gradient-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </radialGradient>
+
+    <!-- Shadow filter -->
+    <filter id="shadow-filter" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.15" />
+    </filter>
+
+    <!-- Clip path for disc grooves confined to the disc ring -->
+    <clipPath id="disc-ring-clip">
+      <path d="M256,160 a120,120 0 1,0 0.001,0 Z M256,230 a50,50 0 1,1 -0.001,0 Z" clip-rule="evenodd" />
+    </clipPath>
+  </defs>
+
+  <!-- Background glow -->
+  <circle id="glow-ring" cx="256" cy="256" r="240" fill="url(#gradient-glow)" />
+
+  <!-- Main disc body -->
+  <g id="media-disc" filter="url(#shadow-filter)">
+    <!-- Outer disc -->
+    <circle id="disc-outer" cx="256" cy="280" r="120" fill="url(#gradient-disc)" opacity="0.9" />
+
+    <!-- Disc grooves (rotating) -->
+    <g id="disc-grooves" clip-path="url(#disc-ring-clip)">
+      <circle cx="256" cy="280" r="105" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
+      <circle cx="256" cy="280" r="95" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" />
+      <circle cx="256" cy="280" r="85" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
+      <circle cx="256" cy="280" r="75" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1" />
+      <circle cx="256" cy="280" r="65" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1" />
+      <!-- Radial light reflection -->
+      <line x1="256" y1="160" x2="200" y2="400" stroke="rgba(255,255,255,0.04)" stroke-width="30" />
+      <line x1="256" y1="160" x2="340" y2="380" stroke="rgba(255,255,255,0.03)" stroke-width="20" />
+    </g>
+
+    <!-- Disc inner ring -->
+    <circle id="disc-inner-ring" cx="256" cy="280" r="50" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2" />
+
+    <!-- Disc center hole -->
+    <circle id="disc-center" cx="256" cy="280" r="16" fill="rgba(0,0,0,0.3)" />
+    <circle cx="256" cy="280" r="6" fill="rgba(255,255,255,0.2)" />
+
+    <!-- Disc highlight -->
+    <ellipse id="disc-highlight" cx="230" cy="250" rx="40" ry="20" fill="rgba(255,255,255,0.08)" transform="rotate(-30,230,250)" />
+  </g>
+
+  <!-- Download arrow -->
+  <g id="download-arrow-group" filter="url(#shadow-filter)">
+    <!-- Arrow shaft -->
+    <rect id="arrow-shaft" x="232" y="60" width="48" height="140" rx="8" fill="url(#gradient-primary)" />
+
+    <!-- Arrow head (chevron) -->
+    <path id="arrow-head"
+          d="M196,195 L256,260 L316,195"
+          fill="none" stroke="url(#gradient-primary)" stroke-width="48"
+          stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Arrow shine -->
+    <rect id="arrow-shine" x="244" y="70" width="12" height="80" rx="6" fill="rgba(255,255,255,0.25)" />
+  </g>
+
+  <!-- Base platform / landing pad -->
+  <g id="download-base">
+    <path id="base-tray"
+          d="M160,370 L160,400 Q160,420 180,420 L332,420 Q352,420 352,400 L352,370"
+          fill="none" stroke="url(#gradient-accent)" stroke-width="12"
+          stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Waveform bars (audio visualiser) -->
+  <g id="waveform-group" transform="translate(0, 0)">
+    <rect id="waveform-bar-1" x="382" y="310" width="10" height="50" rx="5" fill="url(#gradient-accent)" opacity="0.8" />
+    <rect id="waveform-bar-2" x="400" y="290" width="10" height="70" rx="5" fill="url(#gradient-accent)" opacity="0.7" />
+    <rect id="waveform-bar-3" x="418" y="305" width="10" height="55" rx="5" fill="url(#gradient-accent)" opacity="0.8" />
+    <rect id="waveform-bar-4" x="436" y="320" width="10" height="40" rx="5" fill="url(#gradient-accent)" opacity="0.6" />
+    <rect id="waveform-bar-5" x="454" y="330" width="10" height="30" rx="5" fill="url(#gradient-accent)" opacity="0.5" />
+  </g>
+
+  <!-- Music note accent -->
+  <g id="music-note" transform="translate(60, 290)" opacity="0.7">
+    <ellipse id="note-head" cx="20" cy="50" rx="16" ry="12" fill="url(#gradient-accent)" transform="rotate(-20,20,50)" />
+    <rect id="note-stem" x="34" y="4" width="5" height="48" rx="2.5" fill="url(#gradient-accent)" />
+    <path id="note-flag" d="M39,4 Q56,10 50,28" fill="none" stroke="url(#gradient-accent)" stroke-width="5" stroke-linecap="round" />
+  </g>
+</svg>

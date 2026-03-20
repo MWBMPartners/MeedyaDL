@@ -48,7 +48,7 @@ If you are new to MeedyaDL, we recommend starting with the [Getting Started](get
 
 MeedyaDL is a multiplatform graphical user interface for GAMDL, built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It provides a user-friendly way to interact with the GAMDL command-line tool for downloading content from Apple Music.
 
-- **Version:** 0.1.3
+- **Version:** 0.10.0
 - **License:** MIT
 - **Author:** MeedyaDL
 
