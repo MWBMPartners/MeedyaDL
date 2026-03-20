@@ -470,6 +470,19 @@ symphonia = { version = "0.5", default-features = false, features = ["isomp4", "
 # @see https://docs.rs/base64/ -- base64 crate documentation
 base64 = "0.22"
 
+# ---- Deep Link URL Scheme ----
+
+# tauri-plugin-deep-link -- Custom URL scheme handler for deep linking.
+# Registers the `meedyadl://` URL scheme so external tools, bookmarklets,
+# and browser extensions can trigger downloads by opening URLs like:
+#   meedyadl://download?url=https://music.apple.com/gb/album/...
+#   meedyadl://download?url=...&codec=alac
+# On macOS, the plugin generates CFBundleURLTypes entries in Info.plist
+# automatically. On Linux, the .desktop file's MimeType field handles
+# scheme registration. On Windows, the plugin manages registry entries.
+# @see https://v2.tauri.app/plugin/deep-linking/
+tauri-plugin-deep-link = "2"
+
 # ---- XML Parsing ----
 
 # roxmltree -- Read-only XML tree parser with full namespace support.

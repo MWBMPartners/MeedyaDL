@@ -11,6 +11,7 @@
     "store:default",
     "process:default",
     "os:default",
-    "updater:default"
+    "updater:default",
+    "deep-link:default"
   ]
 }
