@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2024-2026 MeedyaDL - MIT License -->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     viewBox="0 0 800 200" width="800" height="200"
+     role="img" aria-label="MeedyaDL logotype">
+  <title>MeedyaDL Logotype</title>
+  <desc>MeedyaDL horizontal logotype with icon and wordmark</desc>
+
+  <defs>
+    <style>
+      :root {
+        --logo-primary: #3B82F6;
+        --logo-secondary: #8B5CF6;
+        --logo-accent: #06B6D4;
+        --logo-shadow: rgba(0,0,0,0.1);
+        --logo-animation-speed: 2s;
+      }
+
+      /* Gradient fill classes */
+      #logotype-gradient-primary stop:first-child { stop-color: var(--logo-primary); }
+      #logotype-gradient-primary stop:last-child { stop-color: var(--logo-secondary); }
+
+      #logotype-gradient-accent stop:first-child { stop-color: var(--logo-accent); }
+      #logotype-gradient-accent stop:last-child { stop-color: var(--logo-primary); }
+
+      #logotype-gradient-disc stop:first-child { stop-color: var(--logo-secondary); }
+      #logotype-gradient-disc stop:last-child { stop-color: var(--logo-primary); }
+
+      #logotype-gradient-glow stop:first-child { stop-color: var(--logo-accent); stop-opacity: 0.3; }
+      #logotype-gradient-glow stop:last-child { stop-color: var(--logo-accent); stop-opacity: 0; }
+
+      #logotype-gradient-text stop:first-child { stop-color: var(--logo-primary); }
+      #logotype-gradient-text stop:last-child { stop-color: var(--logo-secondary); }
+
+      #logotype-gradient-text-accent stop:first-child { stop-color: var(--logo-accent); }
+      #logotype-gradient-text-accent stop:last-child { stop-color: var(--logo-primary); }
+
+      /* Embedded font - system sans-serif stack with SVG text */
+      #wordmark-text {
+        font-family: 'Inter', 'SF Pro Display', -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+        font-weight: 700;
+        font-size: 82px;
+        letter-spacing: -1.5px;
+      }
+
+      #wordmark-suffix {
+        font-family: 'Inter', 'SF Pro Display', -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+        font-weight: 700;
+        font-size: 82px;
+        letter-spacing: -1.5px;
+      }
+
+      /* Shadow filter */
+      #logotype-shadow-filter feDropShadow {
+        flood-color: var(--logo-shadow);
+      }
+
+      /* Animations */
+      @keyframes logotype-arrow-bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(5px); }
+      }
+
+      @keyframes logotype-disc-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes logotype-pulse-glow {
+        0%, 100% { opacity: 0.25; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(1.06); }
+      }
+
+      @keyframes logotype-waveform-pulse {
+        0%, 100% { transform: scaleY(1); }
+        50% { transform: scaleY(0.5); }
+      }
+
+      @keyframes logotype-text-shimmer {
+        0% { stop-color: var(--logo-primary); }
+        50% { stop-color: var(--logo-accent); }
+        100% { stop-color: var(--logo-primary); }
+      }
+
+      #logotype-arrow-group {
+        animation: logotype-arrow-bounce var(--logo-animation-speed) ease-in-out infinite;
+      }
+
+      #logotype-disc-grooves {
+        animation: logotype-disc-spin calc(var(--logo-animation-speed) * 4) linear infinite;
+        transform-origin: 100px 110px;
+      }
+
+      #logotype-glow-ring {
+        animation: logotype-pulse-glow var(--logo-animation-speed) ease-in-out infinite;
+        transform-origin: 100px 100px;
+      }
+
+      #logotype-waveform-bar-1 {
+        animation: logotype-waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0s;
+        transform-origin: center bottom;
+      }
+      #logotype-waveform-bar-2 {
+        animation: logotype-waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0.2s;
+        transform-origin: center bottom;
+      }
+      #logotype-waveform-bar-3 {
+        animation: logotype-waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
+        animation-delay: 0.4s;
+        transform-origin: center bottom;
+      }
+
+      #logotype-gradient-text-animated stop:first-child {
+        animation: logotype-text-shimmer calc(var(--logo-animation-speed) * 2) ease-in-out infinite;
+      }
+
+      /* Reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        #logotype-arrow-group,
+        #logotype-disc-grooves,
+        #logotype-glow-ring,
+        #logotype-waveform-bar-1,
+        #logotype-waveform-bar-2,
+        #logotype-waveform-bar-3 {
+          animation: none !important;
+        }
+        #logotype-gradient-text-animated stop:first-child {
+          animation: none !important;
+        }
+      }
+    </style>
+
+    <!-- Gradients -->
+    <linearGradient id="logotype-gradient-primary" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </linearGradient>
+
+    <linearGradient id="logotype-gradient-accent" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </linearGradient>
+
+    <radialGradient id="logotype-gradient-disc" cx="50%" cy="50%" r="50%">
+      <stop offset="20%" />
+      <stop offset="100%" />
+    </radialGradient>
+
+    <radialGradient id="logotype-gradient-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </radialGradient>
+
+    <linearGradient id="logotype-gradient-text" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </linearGradient>
+
+    <linearGradient id="logotype-gradient-text-accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" />
+      <stop offset="100%" />
+    </linearGradient>
+
+    <linearGradient id="logotype-gradient-text-animated" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="50%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#06B6D4" />
+    </linearGradient>
+
+    <!-- Shadow filter -->
+    <filter id="logotype-shadow-filter" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.12" />
+    </filter>
+
+    <!-- Clip path for disc grooves -->
+    <clipPath id="logotype-disc-ring-clip">
+      <path d="M100,62 a48,48 0 1,0 0.001,0 Z M100,90 a20,20 0 1,1 -0.001,0 Z" clip-rule="evenodd" />
+    </clipPath>
+  </defs>
+
+  <!-- ==================== ICON SECTION (left) ==================== -->
+  <g id="logotype-icon" transform="translate(0, 0)">
+
+    <!-- Background glow -->
+    <circle id="logotype-glow-ring" cx="100" cy="100" r="94" fill="url(#logotype-gradient-glow)" />
+
+    <!-- Main disc body -->
+    <g id="logotype-media-disc" filter="url(#logotype-shadow-filter)">
+      <!-- Outer disc -->
+      <circle id="logotype-disc-outer" cx="100" cy="110" r="48" fill="url(#logotype-gradient-disc)" opacity="0.9" />
+
+      <!-- Disc grooves (rotating) -->
+      <g id="logotype-disc-grooves" clip-path="url(#logotype-disc-ring-clip)">
+        <circle cx="100" cy="110" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="0.8" />
+        <circle cx="100" cy="110" r="38" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.8" />
+        <circle cx="100" cy="110" r="34" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="0.8" />
+        <circle cx="100" cy="110" r="30" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="0.8" />
+        <circle cx="100" cy="110" r="26" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="0.8" />
+        <!-- Light reflection -->
+        <line x1="100" y1="62" x2="82" y2="158" stroke="rgba(255,255,255,0.04)" stroke-width="12" />
+      </g>
+
+      <!-- Disc inner ring -->
+      <circle id="logotype-disc-inner-ring" cx="100" cy="110" r="20" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+
+      <!-- Disc center -->
+      <circle id="logotype-disc-center" cx="100" cy="110" r="6" fill="rgba(0,0,0,0.3)" />
+      <circle cx="100" cy="110" r="2.5" fill="rgba(255,255,255,0.2)" />
+
+      <!-- Disc highlight -->
+      <ellipse id="logotype-disc-highlight" cx="90" cy="98" rx="16" ry="8" fill="rgba(255,255,255,0.08)" transform="rotate(-30,90,98)" />
+    </g>
+
+    <!-- Download arrow -->
+    <g id="logotype-arrow-group" filter="url(#logotype-shadow-filter)">
+      <!-- Arrow shaft -->
+      <rect id="logotype-arrow-shaft" x="90" y="24" width="20" height="56" rx="4" fill="url(#logotype-gradient-primary)" />
+
+      <!-- Arrow head -->
+      <path id="logotype-arrow-head"
+            d="M76,77 L100,102 L124,77"
+            fill="none" stroke="url(#logotype-gradient-primary)" stroke-width="20"
+            stroke-linecap="round" stroke-linejoin="round" />
+
+      <!-- Arrow shine -->
+      <rect id="logotype-arrow-shine" x="95" y="28" width="5" height="32" rx="2.5" fill="rgba(255,255,255,0.25)" />
+    </g>
+
+    <!-- Base tray -->
+    <g id="logotype-download-base">
+      <path id="logotype-base-tray"
+            d="M62,148 L62,158 Q62,166 70,166 L130,166 Q138,166 138,158 L138,148"
+            fill="none" stroke="url(#logotype-gradient-accent)" stroke-width="5"
+            stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+
+    <!-- Waveform bars -->
+    <g id="logotype-waveform-group">
+      <rect id="logotype-waveform-bar-1" x="150" y="118" width="4" height="22" rx="2" fill="url(#logotype-gradient-accent)" opacity="0.7" />
+      <rect id="logotype-waveform-bar-2" x="158" y="110" width="4" height="30" rx="2" fill="url(#logotype-gradient-accent)" opacity="0.6" />
+      <rect id="logotype-waveform-bar-3" x="166" y="122" width="4" height="18" rx="2" fill="url(#logotype-gradient-accent)" opacity="0.5" />
+    </g>
+
+    <!-- Music note -->
+    <g id="logotype-music-note" transform="translate(22, 114)" opacity="0.6">
+      <ellipse id="logotype-note-head" cx="8" cy="20" rx="7" ry="5" fill="url(#logotype-gradient-accent)" transform="rotate(-20,8,20)" />
+      <rect id="logotype-note-stem" x="14" y="2" width="2.5" height="19" rx="1.25" fill="url(#logotype-gradient-accent)" />
+      <path id="logotype-note-flag" d="M16.5,2 Q24,5 21,12" fill="none" stroke="url(#logotype-gradient-accent)" stroke-width="2.5" stroke-linecap="round" />
+    </g>
+  </g>
+
+  <!-- ==================== TEXT SECTION (right) ==================== -->
+  <g id="wordmark-group" transform="translate(195, 0)">
+
+    <!-- "Meedya" in primary gradient -->
+    <text id="wordmark-text"
+          x="0" y="132"
+          fill="url(#logotype-gradient-text-animated)"
+          font-family="'Inter', 'SF Pro Display', -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-weight="700"
+          font-size="82"
+          letter-spacing="-1.5">Meedya<tspan id="wordmark-suffix" fill="url(#logotype-gradient-text-accent)" font-weight="800">DL</tspan></text>
+
+    <!-- Subtle tagline underline -->
+    <line id="wordmark-underline"
+          x1="2" y1="148" x2="395" y2="148"
+          stroke="url(#logotype-gradient-accent)"
+          stroke-width="2"
+          stroke-linecap="round"
+          opacity="0.3" />
+  </g>
+</svg>
