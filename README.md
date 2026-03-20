@@ -389,7 +389,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 ```text
 MIT License
 
-Copyright (c) 2024-2026 MeedyaDL
+Copyright (c) 2026 MeedyaDL
 ```
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.

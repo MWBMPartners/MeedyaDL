@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2024-2026 MeedyaDL
+// Copyright (c) 2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // SVG to Animated PNG Converter (with mode variants)
