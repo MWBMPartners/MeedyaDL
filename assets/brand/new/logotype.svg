@@ -338,9 +338,9 @@
     <!-- Circuit dot separators — three dots in a vertical stack
          between brand and suffix, evoking a data bus / circuit trace -->
     <g id="circuit-dots" aria-hidden="true">
-      <circle class="circuit-dot" cx="418" cy="40" r="3.5" opacity="0.6" />
-      <circle class="circuit-dot" cx="418" cy="62" r="3.5" opacity="0.4" />
-      <circle class="circuit-dot" cx="418" cy="84" r="3.5" opacity="0.6" />
+      <circle class="circuit-dot" cx="418" cy="58" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="418" cy="72" r="3" opacity="0.4" />
+      <circle class="circuit-dot" cx="418" cy="86" r="3" opacity="0.6" />
     </g>
 
     <!-- Product suffix: swap this text per product.
@@ -414,26 +414,11 @@
         var pBox  = prefix.getBBox();
         var pEnd  = pBox.x + pBox.width;
 
-        // Position circuit dots after the prefix, vertically matching
-        // the cap height of the uppercase letters (measured from suffix bbox)
+        // Position circuit dots horizontally after the prefix
         var dotX = pEnd + GAP;
         var dotCircles = dots.querySelectorAll('circle');
-
-        // Temporarily position suffix to measure its cap height
-        suffix.setAttribute('x', dotX + DOT_GAP + 10);
-        var capBox = suffix.getBBox();
-        var capTop = capBox.y;              // top of uppercase letters
-        var capBot = capBox.y + capBox.height; // bottom of uppercase letters
-        var capMid = (capTop + capBot) / 2;
-
-        // Place 3 dots: top-aligned, centred, bottom-aligned with cap height
         for (var i = 0; i < dotCircles.length; i++) {
           dotCircles[i].setAttribute('cx', dotX);
-        }
-        if (dotCircles.length >= 3) {
-          dotCircles[0].setAttribute('cy', capTop + 4);   // near top
-          dotCircles[1].setAttribute('cy', capMid);         // centre
-          dotCircles[2].setAttribute('cy', capBot - 4);   // near bottom
         }
 
         // Position product suffix after the dots
