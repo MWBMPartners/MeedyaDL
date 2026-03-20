@@ -1,0 +1,65 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# CodeQL Code Scanning Workflow
+# ==============================
+#
+# Runs GitHub CodeQL static analysis on push to main and on pull requests.
+# This file overrides the GitHub "Default setup" dynamic CodeQL configuration
+# to exclude Rust analysis, which hangs indefinitely due to the full Cargo
+# build required by CodeQL's Rust extractor (often exceeding 6+ hours).
+#
+# Rust code quality is already covered by:
+#   - `cargo clippy -- -D warnings` in ci.yml (runs in ~10 seconds)
+#   - `cargo test` in ci.yml (runs 639+ tests)
+#   - `cargo-deny` licence scanning in ci.yml
+#
+# Languages analysed:
+#   - actions: GitHub Actions workflow YAML files
+#   - javascript-typescript: React/TypeScript frontend code
+#
+# To re-enable Rust analysis in the future, add 'rust' back to the matrix
+# and consider setting a timeout-minutes limit (e.g., 120).
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR to save Actions minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - actions
+          - javascript-typescript
+        # Rust is intentionally excluded — see header comment.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
