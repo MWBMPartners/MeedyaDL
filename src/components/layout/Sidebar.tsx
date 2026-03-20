@@ -55,6 +55,7 @@ import {
  */
 import { useUiStore } from '@/stores/uiStore';
 import { useDependencyStore } from '@/stores/dependencyStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdateStore } from '@/stores/updateStore';
 
 /** Platform detection hook used to apply macOS-specific spacing. */
@@ -153,6 +154,14 @@ export function Sidebar() {
   /** Toggles the sidebar between expanded and collapsed modes. */
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   /**
+   * Colour-blind mode setting — determines which SVG colour mode to use
+   * for the sidebar logo and logotype. Maps to ?mode= URL parameter.
+   * See: https://github.com/MWBMPartners/MeedyaDL/issues/220
+   */
+  const colourBlindMode = useSettingsStore((s) => s.settings.colour_blind_mode);
+  /** Build the SVG mode query string for colour-blind aware rendering */
+  const svgMode = colourBlindMode ? `?mode=cb-${colourBlindMode}` : '';
+  /**
    * Dependency status for Python and GAMDL -- the two required dependencies.
    * We subscribe to the individual status objects (not the `isReady()` getter
    * function) so that the Sidebar re-renders when dependency status actually
@@ -229,7 +238,7 @@ export function Sidebar() {
          * CSS animations still work; only embedded <script> is blocked.
          * See: https://github.com/MWBMPartners/MeedyaDL/issues/221 */}
         <img
-          src="/logo.svg"
+          src={`/logo.svg${svgMode}`}
           alt="MeedyaDL logo"
           className="w-8 h-8 rounded-platform flex-shrink-0 no-drag"
         />
@@ -242,7 +251,7 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <>
             <img
-              src="/logotype.svg"
+              src={`/logotype.svg${svgMode}`}
               alt="MeedyaDL"
               className="h-5 no-drag"
               onError={(e) => {
