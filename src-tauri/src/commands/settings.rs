@@ -38,10 +38,11 @@
 // - Netscape cookie format: https://curl.se/docs/http-cookies.html
 
 // serde::Serialize is required for CookieValidation which is returned to the frontend.
+// serde::Deserialize is required for SettingsExportFile which is read from user-provided files.
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 // AppHandle for resolving app data directory paths (settings.json location).
 use tauri::AppHandle;
 
@@ -552,4 +553,191 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
             })
         }
     }
+}
+
+// ============================================================
+// Settings Export/Import
+// ============================================================
+
+/// Wrapper struct for the settings export file format.
+///
+/// Contains a schema version, app identifier, timestamp, and the
+/// actual settings data. Sensitive fields (cookies path, wrapper URL,
+/// MusicKit credentials) are cleared before export to prevent
+/// accidental credential sharing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SettingsExportFile {
+    /// Schema version for forward compatibility. Currently `1`.
+    version: u32,
+    /// Application identifier. Must be `"MeedyaDL"` for import validation.
+    app: String,
+    /// ISO 8601 timestamp of when the export was created.
+    exported_at: String,
+    /// The actual settings data (with sensitive fields cleared).
+    settings: AppSettings,
+}
+
+/// Clears sensitive fields from an `AppSettings` clone before export.
+///
+/// This prevents accidental credential leakage when sharing settings
+/// files. The cleared fields are device-specific (cookie paths) or
+/// contain authentication secrets (wrapper URL, MusicKit credentials).
+fn clear_sensitive_fields(settings: &mut AppSettings) {
+    settings.cookies_path = None;
+    settings.wrapper_account_url = String::new();
+    settings.musickit_team_id = None;
+    settings.musickit_key_id = None;
+    settings.acoustid_api_key = String::new();
+}
+
+/// Exports application settings to a JSON file via a native save dialog.
+///
+/// **Frontend caller:** `exportSettings()` in `src/lib/tauri-commands.ts`
+///
+/// Opens a native "Save As" dialog with the `.json` file filter. The
+/// exported file contains all settings except sensitive fields (cookies
+/// path, wrapper URL, MusicKit credentials, AcoustID API key), which
+/// are cleared to prevent accidental credential sharing.
+///
+/// # Arguments
+/// * `app` - Tauri `AppHandle` for loading current settings and opening the dialog.
+///
+/// # Returns
+/// * `Ok(String)` - The absolute path where the file was saved.
+/// * `Err(String)` - Settings load failure, dialog cancelled, or write error.
+#[tauri::command]
+pub async fn export_settings(app: AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Load current settings
+    let mut settings = config_service::load_settings(&app)?;
+
+    // Clear sensitive fields before export
+    clear_sensitive_fields(&mut settings);
+
+    // Build the export file structure
+    let export_file = SettingsExportFile {
+        version: 1,
+        app: "MeedyaDL".to_string(),
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        settings,
+    };
+
+    // Serialize to pretty-printed JSON
+    let json = serde_json::to_string_pretty(&export_file)
+        .map_err(|e| format!("Failed to serialize settings: {e}"))?;
+
+    // Open a native save dialog with .json filter
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_file_name("meedyadl-settings.json")
+        .blocking_save_file();
+
+    match file_path {
+        Some(path) => {
+            let resolved = path
+                .as_path()
+                .ok_or_else(|| "Failed to resolve export file path".to_string())?;
+            std::fs::write(resolved, &json)
+                .map_err(|e| format!("Failed to write settings file: {e}"))?;
+            let filename = resolved
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("meedyadl-settings.json");
+            let export_path = resolved.to_string_lossy().to_string();
+            log::info!("Settings exported to {filename}");
+            emit_app_log(&app, &format!("Settings exported to {filename}"));
+            Ok(export_path)
+        }
+        None => Err("Export cancelled".to_string()),
+    }
+}
+
+/// Imports application settings from a JSON file via a native file picker.
+///
+/// **Frontend caller:** `importSettings()` in `src/lib/tauri-commands.ts`
+///
+/// Opens a native file picker dialog with the `.json` file filter. The
+/// selected file must be a valid `SettingsExportFile` with version `1`
+/// and app identifier `"MeedyaDL"`. Imported settings are merged into
+/// the current settings (overwriting all non-sensitive fields), saved
+/// to disk, and synced to GAMDL's config.ini.
+///
+/// Sensitive fields from the current settings are preserved — the
+/// import does not overwrite cookies path, wrapper URL, MusicKit
+/// credentials, or AcoustID API key, since these are device-specific.
+///
+/// # Arguments
+/// * `app` - Tauri `AppHandle` for loading/saving settings and opening the dialog.
+///
+/// # Returns
+/// * `Ok(())` - Settings imported and saved successfully.
+/// * `Err(String)` - Dialog cancelled, invalid file, or parse/save error.
+#[tauri::command]
+pub async fn import_settings(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Open a native file picker with .json filter
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .blocking_pick_file();
+
+    let Some(path) = file_path else {
+        return Err("Import cancelled".to_string());
+    };
+
+    // Read and parse the export file
+    let resolved = path
+        .as_path()
+        .ok_or_else(|| "Failed to resolve import file path".to_string())?;
+    let json = std::fs::read_to_string(resolved)
+        .map_err(|e| format!("Failed to read settings file: {e}"))?;
+
+    let export_file: SettingsExportFile =
+        serde_json::from_str(&json).map_err(|e| format!("Invalid settings file format: {e}"))?;
+
+    // Validate schema version
+    if export_file.version != 1 {
+        return Err(format!(
+            "Unsupported settings file version: {} (expected 1)",
+            export_file.version
+        ));
+    }
+
+    // Validate app identifier
+    if export_file.app != "MeedyaDL" {
+        return Err(format!(
+            "Invalid settings file: app identifier is {:?} (expected \"MeedyaDL\")",
+            export_file.app
+        ));
+    }
+
+    // Load current settings to preserve sensitive fields
+    let current = config_service::load_settings(&app).unwrap_or_default();
+
+    // Start with the imported settings, then restore sensitive fields
+    // from the current settings so device-specific credentials are
+    // not lost during import.
+    let mut merged = export_file.settings;
+    merged.cookies_path = current.cookies_path;
+    merged.wrapper_account_url = current.wrapper_account_url;
+    merged.musickit_team_id = current.musickit_team_id;
+    merged.musickit_key_id = current.musickit_key_id;
+    merged.acoustid_api_key = current.acoustid_api_key;
+
+    // Save the merged settings (also syncs to GAMDL config.ini)
+    config_service::save_settings(&app, &merged)?;
+
+    let filename = resolved
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("settings file");
+    log::info!("Settings imported from {filename}");
+    emit_app_log(&app, &format!("Settings imported from {filename}"));
+
+    Ok(())
 }

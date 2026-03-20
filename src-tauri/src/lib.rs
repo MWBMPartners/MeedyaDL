@@ -762,6 +762,9 @@ pub fn run() {
             commands::settings::check_output_path_before_download,
             commands::settings::get_default_output_path,
             commands::settings::test_wrapper_connection,
+            // Settings export/import commands
+            commands::settings::export_settings,
+            commands::settings::import_settings,
             // GAMDL download and queue management commands
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
