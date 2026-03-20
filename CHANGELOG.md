@@ -6,10 +6,85 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Implement atomic file writes for settings and queue (closes #230)
+
+Replace std::fs::write with write-to-temp-then-rename pattern for both
+  settings.json and queue.json. This prevents file corruption if the
+  process crashes or loses power during a write operation.
+
+  The rename() syscall is atomic on all major filesystems (APFS, ext4,
+  NTFS), so the file is either fully written or unchanged — never
+  partially written/corrupt.
+
+  Files affected:
+  - config_service.rs: settings.json -> settings.json.tmp -> rename
+  - download_queue.rs: queue.json -> queue.json.tmp -> rename
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update README, Dev_Notes, Claude memory with brand asset docs
+- Update CHANGELOG.md [skip ci]
+- Update CLAUDE.md with brand assets, directory structure, conventions [skip ci]
+
+- Added assets/brand/ and public/ to Key Directories
+  - Updated scripts/ description to include icon/APNG generators
+  - Added CodeQL to workflows list
+  - Added brand assets convention (proprietary license, SVG sources,
+    sidebar usage, regeneration scripts, copyright year)
+
+
+### Security
+
+- Sanitize newlines in INI config values (closes #226)
+
+Add sanitize_ini_value() that strips \n and \r from all user-provided
+  string values before writing to GAMDL's config.ini. Prevents INI
+  injection via crafted settings import files where a newline in a
+  path/URL/template value could inject arbitrary configparser keys.
+
+  Applied to: cookies_path, output_path, temp_path, wrapper_account_url,
+  all 6 template strings, all 4 tool paths.
+
+- Add rehype-sanitize to HelpViewer markdown rendering (closes #227)
+
+Add rehype-sanitize alongside rehype-raw to strip dangerous HTML
+  elements (script, iframe, event handlers) while preserving safe ones
+  (details, summary, strong, em, etc.).
+
+  Custom schema extends GitHub's default to allowlist <details> and
+  <summary> elements needed for collapsible About sections.
+
+- Replace sh -c format! with direct process invocations (closes #228)
+
+Eliminated two sh -c shell command constructions in dependency_manager.rs:
+
+  1. GPAC .pkg extraction: replaced gunzip|cpio pipe with two-step
+     process (gunzip to temp file, then cpio -F). No shell involved.
+
+  2. Debian .deb data extraction: replaced tar with shell glob
+     (data.tar.*) with Rust read_dir + find to locate the archive
+     file, then direct tar invocation with arg(). No shell involved.
+
+  Both changes prevent potential shell injection if paths ever contain
+  special characters. Paths are now passed as OS arguments, never
+  interpolated into shell strings.
+
+- Add field-level validation to settings import (closes #229)
+
+Add sanitize_imported_settings() that validates/cleans all user-provided
+  fields after JSON deserialization:
+  - Truncate paths to 1024 chars, URLs to 2048, templates to 512
+  - Strip \n and \r from all string values (INI injection prevention)
+  - Truncate language/storefront to 20/10 chars
+  - Limit exclude_tags array to 50 entries, each 100 chars max
+
+  Applied before merging with current settings so crafted import files
+  cannot inject excessively long strings or control characters.
+
 
 ## [0.11.0] - 2026-03-20
 
