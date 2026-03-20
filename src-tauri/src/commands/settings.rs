@@ -719,10 +719,12 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     // Load current settings to preserve sensitive fields
     let current = config_service::load_settings(&app).unwrap_or_default();
 
-    // Start with the imported settings, then restore sensitive fields
-    // from the current settings so device-specific credentials are
-    // not lost during import.
+    // Sanitize imported settings to prevent injection via crafted files.
+    // Truncate excessively long strings that could cause memory issues
+    // and strip path traversal sequences from path fields.
+    // See: https://github.com/MWBMPartners/MeedyaDL/issues/229
     let mut merged = export_file.settings;
+    sanitize_imported_settings(&mut merged);
     merged.cookies_path = current.cookies_path;
     merged.wrapper_account_url = current.wrapper_account_url;
     merged.musickit_team_id = current.musickit_team_id;
@@ -740,4 +742,61 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     emit_app_log(&app, &format!("Settings imported from {filename}"));
 
     Ok(())
+}
+
+/// Sanitize imported settings to prevent injection and resource exhaustion.
+/// Truncates excessively long string values and strips control characters.
+/// Applied after deserialization but before merging with current settings.
+fn sanitize_imported_settings(settings: &mut AppSettings) {
+    const MAX_PATH: usize = 1024;
+    const MAX_URL: usize = 2048;
+    const MAX_TEMPLATE: usize = 512;
+
+    fn truncate(s: &mut String, max: usize) {
+        if s.len() > max {
+            s.truncate(max);
+        }
+        // Strip newlines and carriage returns (INI injection prevention)
+        *s = s.replace('\n', "").replace('\r', "");
+    }
+
+    fn truncate_opt(s: &mut Option<String>, max: usize) {
+        if let Some(ref mut v) = s {
+            truncate(v, max);
+        }
+    }
+
+    // Paths
+    truncate(&mut settings.output_path, MAX_PATH);
+    truncate(&mut settings.temp_path, MAX_PATH);
+    truncate_opt(&mut settings.cookies_path, MAX_PATH);
+    truncate_opt(&mut settings.ffmpeg_path, MAX_PATH);
+    truncate_opt(&mut settings.mp4decrypt_path, MAX_PATH);
+    truncate_opt(&mut settings.mp4box_path, MAX_PATH);
+    truncate_opt(&mut settings.nm3u8dlre_path, MAX_PATH);
+
+    // URLs
+    truncate(&mut settings.wrapper_account_url, MAX_URL);
+
+    // Templates
+    truncate(&mut settings.album_folder_template, MAX_TEMPLATE);
+    truncate(&mut settings.compilation_folder_template, MAX_TEMPLATE);
+    truncate(&mut settings.no_album_folder_template, MAX_TEMPLATE);
+    truncate(&mut settings.single_disc_file_template, MAX_TEMPLATE);
+    truncate(&mut settings.multi_disc_file_template, MAX_TEMPLATE);
+    truncate(&mut settings.no_album_file_template, MAX_TEMPLATE);
+    truncate(&mut settings.playlist_file_template, MAX_TEMPLATE);
+
+    // Language/storefront (short strings)
+    truncate(&mut settings.language, 20);
+    truncate(&mut settings.storefront, 10);
+    truncate(&mut settings.ui_language, 20);
+
+    // Exclude tags (prevent excessively large arrays)
+    if settings.exclude_tags.len() > 50 {
+        settings.exclude_tags.truncate(50);
+    }
+    for tag in &mut settings.exclude_tags {
+        truncate(tag, 100);
+    }
 }
