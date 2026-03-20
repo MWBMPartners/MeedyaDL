@@ -219,26 +219,45 @@ export function Sidebar() {
         `}
       >
         {/*
-         * App icon: shared brand mark asset used across app/platform icons.
-         * `no-drag` ensures the image itself isn't treated as a drag handle.
+         * Animated brand logo (SVG with vinyl/reel crossfade).
+         * Uses <object> for full SVG animation support; the SVG auto-detects
+         * dark mode via @media(prefers-color-scheme) and colour-blind modes
+         * via inherited CSS classes. Falls back to static PNG via <img>.
+         * `no-drag` ensures the logo isn't treated as a drag handle.
          */}
-        <img
-          src="/app-icon.svg"
-          alt="MeedyaDL icon"
-          className="w-8 h-8 rounded-platform flex-shrink-0 no-drag"
-        />
+        <object
+          data="/logo.svg"
+          type="image/svg+xml"
+          className="w-8 h-8 rounded-platform flex-shrink-0 no-drag pointer-events-none"
+          aria-label="MeedyaDL logo"
+        >
+          <img
+            src="/app-icon.svg"
+            alt="MeedyaDL icon"
+            className="w-8 h-8 rounded-platform flex-shrink-0"
+          />
+        </object>
         {/*
-         * App name and subtitle -- hidden when the sidebar is collapsed.
-         * `no-drag` exempts this text from the drag-region so that future
+         * Animated brand logotype (SVG with gradient shimmer).
+         * Hidden when the sidebar is collapsed. Falls back to text + static PNG.
+         * `no-drag` exempts this from the drag-region so that future
          * interactive elements placed here (e.g., a dropdown) will work.
          */}
         {!sidebarCollapsed && (
-          <div className="no-drag">
-            <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
-              MeedyaDL
-            </h1>
-            <p className="text-[11px] text-content-secondary leading-tight">Media Downloader</p>
-          </div>
+          <object
+            data="/logotype.svg"
+            type="image/svg+xml"
+            className="h-5 no-drag pointer-events-none"
+            aria-label="MeedyaDL"
+          >
+            {/* Fallback: static text if SVG fails to load */}
+            <div className="no-drag">
+              <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
+                MeedyaDL
+              </h1>
+              <p className="text-[11px] text-content-secondary leading-tight">Media Downloader</p>
+            </div>
+          </object>
         )}
       </div>
 
