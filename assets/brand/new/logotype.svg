@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (c) 2024-2026 MeedyaDL - MIT License -->
 <!--
-  MeedyaSuite Logotype — Text-only wordmark
-  ==========================================
+  MeedyaSuite Logotype — Text-only wordmark (Techy / Futuristic)
+  ===============================================================
 
   Designed for use across the MeedyaSuite product family:
     - MeedyaDL      (Media Downloader)
@@ -12,40 +12,44 @@
   The "Meedya" prefix is the brand constant. The product suffix
   (id="product-suffix") is swappable per product.
 
-  Font: Poppins Black (900) — a geometric sans-serif with rounded
-  terminals that gives a modern, distinctive feel. The font is
-  referenced via @font-face with a Google Fonts import for web use.
-  For offline/print, convert text to outlines (paths) in a vector
-  editor (Illustrator: Type > Create Outlines; Inkscape: Path >
-  Object to Path).
+  Fonts:
+    - Brand prefix: Orbitron Black (900) — a sharp geometric display
+      face inspired by sci-fi/tech aesthetics. Square letterforms with
+      clipped corners give a digital, futuristic feel.
+    - Product suffix: Rajdhani SemiBold (600) — an angular condensed
+      sans-serif with a digital readout quality. Lighter weight and
+      narrower proportions visually subordinate the suffix to the brand.
+
+  Both fonts are loaded via Google Fonts @import. For offline/print,
+  convert text to outlines in a vector editor.
 
   Customisation via CSS custom properties:
-    - -\-logotype-primary:    Brand gradient start (default: #3B82F6)
-    - -\-logotype-secondary:  Brand gradient end   (default: #8B5CF6)
-    - -\-logotype-accent:     Suffix/highlight      (default: #06B6D4)
-    - -\-logotype-text:       Fallback text colour   (default: #1E293B)
-    - -\-logotype-animation-speed: Shimmer duration  (default: 4s)
+    --logotype-primary         Brand gradient start  (default: #3B82F6)
+    --logotype-secondary       Brand gradient end     (default: #8B5CF6)
+    --logotype-accent          Suffix / highlights    (default: #06B6D4)
+    --logotype-glow            Neon glow colour       (default: #06B6D4)
+    --logotype-animation-speed Shimmer cycle duration (default: 4s)
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     viewBox="0 0 680 120" width="680" height="120"
+     viewBox="0 0 720 130" width="720" height="130"
      role="img" aria-label="MeedyaDL logotype">
   <title>MeedyaDL Logotype</title>
-  <desc>MeedyaSuite horizontal wordmark — text only</desc>
+  <desc>MeedyaSuite horizontal wordmark — techy futuristic style</desc>
 
   <defs>
     <style>
-      /* ── Font Import ─────────────────────────────────────── */
-      /* Poppins Black (900) + Bold (700) from Google Fonts.
-         For environments without network access, install the
-         Poppins font family locally or convert to outlines. */
-      @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@700;900&amp;display=swap');
+      /* ── Font Imports ────────────────────────────────────── */
+      /* Orbitron: geometric, sharp-cornered display face.
+         Rajdhani: angular condensed sans with digital feel.
+         For offline use, install both locally or convert to outlines. */
+      @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&amp;family=Rajdhani:wght@600;700&amp;display=swap');
 
       /* ── Custom Properties ───────────────────────────────── */
       :root {
         --logotype-primary: #3B82F6;
         --logotype-secondary: #8B5CF6;
         --logotype-accent: #06B6D4;
-        --logotype-text: #1E293B;
+        --logotype-glow: #06B6D4;
         --logotype-animation-speed: 4s;
       }
 
@@ -66,136 +70,203 @@
 
       /* ── Typography ──────────────────────────────────────── */
       #brand-prefix {
-        font-family: 'Poppins', 'Montserrat', 'Nunito Sans', 'SF Pro Rounded', system-ui, sans-serif;
+        font-family: 'Orbitron', 'Audiowide', 'Share Tech', 'Rajdhani', monospace;
         font-weight: 900;
-        font-size: 84px;
-        letter-spacing: -2px;
-        fill: url(#logotype-grad-brand);
+        font-size: 72px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        fill: url(#logotype-grad-brand-anim);
       }
 
       #product-suffix {
-        font-family: 'Poppins', 'Montserrat', 'Nunito Sans', 'SF Pro Rounded', system-ui, sans-serif;
-        font-weight: 700;
-        font-size: 84px;
-        letter-spacing: -1px;
+        font-family: 'Rajdhani', 'Orbitron', 'Share Tech Mono', monospace;
+        font-weight: 600;
+        font-size: 72px;
+        letter-spacing: 4px;
+        text-transform: uppercase;
         fill: url(#logotype-grad-suffix);
       }
 
-      /* ── Decorative Accent Bar ───────────────────────────── */
-      #accent-bar {
+      /* ── Scan Line (decorative) ──────────────────────────── */
+      #scan-line {
+        opacity: 0;
+      }
+
+      /* ── Accent Bracket Decorations ──────────────────────── */
+      .bracket-deco {
+        fill: none;
+        stroke: var(--logotype-accent);
+        stroke-width: 2;
+        stroke-linecap: square;
         opacity: 0.5;
       }
 
-      /* ── Dot Separator ───────────────────────────────────── */
-      #brand-dot {
+      /* ── Circuit Dot Separators ──────────────────────────── */
+      .circuit-dot {
         fill: var(--logotype-accent);
-        opacity: 0.8;
       }
 
-      /* ── Animation: Gradient Shimmer ─────────────────────── */
-      @keyframes logotype-shimmer {
+      /* ── Glow Filter ─────────────────────────────────────── */
+      #glow-filter feDropShadow {
+        flood-color: var(--logotype-glow);
+      }
+
+      /* ── Animations ──────────────────────────────────────── */
+      @keyframes shimmer-cycle {
         0%   { stop-color: var(--logotype-primary); }
-        33%  { stop-color: var(--logotype-secondary); }
-        66%  { stop-color: var(--logotype-accent); }
+        33%  { stop-color: var(--logotype-accent); }
+        66%  { stop-color: var(--logotype-secondary); }
         100% { stop-color: var(--logotype-primary); }
       }
 
-      @keyframes accent-pulse {
-        0%, 100% { opacity: 0.35; }
-        50%      { opacity: 0.65; }
+      @keyframes scan-sweep {
+        0%   { x1: -100; x2: -60; opacity: 0; }
+        10%  { opacity: 0.15; }
+        90%  { opacity: 0.15; }
+        100% { x1: 720; x2: 760; opacity: 0; }
       }
 
-      @keyframes dot-breathe {
-        0%, 100% { r: 5; opacity: 0.7; }
-        50%      { r: 6; opacity: 1; }
+      @keyframes bracket-flicker {
+        0%, 92%, 100% { opacity: 0.5; }
+        94%           { opacity: 0.1; }
+        96%           { opacity: 0.6; }
       }
 
+      @keyframes dot-pulse {
+        0%, 100% { opacity: 0.4; r: 3; }
+        50%      { opacity: 1; r: 3.5; }
+      }
+
+      /* Animated gradient stops */
       #logotype-grad-brand-anim stop:nth-child(1) {
-        animation: logotype-shimmer var(--logotype-animation-speed) ease-in-out infinite;
+        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
       }
       #logotype-grad-brand-anim stop:nth-child(2) {
-        animation: logotype-shimmer var(--logotype-animation-speed) ease-in-out infinite;
+        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
         animation-delay: calc(var(--logotype-animation-speed) * 0.33);
       }
       #logotype-grad-brand-anim stop:nth-child(3) {
-        animation: logotype-shimmer var(--logotype-animation-speed) ease-in-out infinite;
+        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
         animation-delay: calc(var(--logotype-animation-speed) * 0.66);
       }
 
-      #accent-bar {
-        animation: accent-pulse calc(var(--logotype-animation-speed) * 0.75) ease-in-out infinite;
+      /* Scan line sweep */
+      #scan-line {
+        animation: scan-sweep calc(var(--logotype-animation-speed) * 2) linear infinite;
       }
 
-      #brand-dot {
-        animation: dot-breathe calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+      /* Bracket flicker */
+      .bracket-deco {
+        animation: bracket-flicker calc(var(--logotype-animation-speed) * 1.5) steps(1) infinite;
+      }
+
+      /* Circuit dot pulse */
+      .circuit-dot:nth-child(1) {
+        animation: dot-pulse calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+      }
+      .circuit-dot:nth-child(2) {
+        animation: dot-pulse calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+        animation-delay: 0.3s;
+      }
+      .circuit-dot:nth-child(3) {
+        animation: dot-pulse calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+        animation-delay: 0.6s;
       }
 
       /* ── Reduced Motion ──────────────────────────────────── */
       @media (prefers-reduced-motion: reduce) {
         #logotype-grad-brand-anim stop,
-        #accent-bar,
-        #brand-dot {
+        #scan-line,
+        .bracket-deco,
+        .circuit-dot {
           animation: none !important;
         }
+        #scan-line { opacity: 0 !important; }
+        .bracket-deco { opacity: 0.5 !important; }
+        .circuit-dot { opacity: 0.6 !important; }
       }
     </style>
 
-    <!-- Static gradient (fallback / no-animation contexts) -->
+    <!-- Static gradient fallback -->
     <linearGradient id="logotype-grad-brand" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" />
       <stop offset="100%" />
     </linearGradient>
 
-    <!-- Animated gradient for the brand prefix -->
+    <!-- Animated brand gradient -->
     <linearGradient id="logotype-grad-brand-anim" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%"   stop-color="#3B82F6" />
       <stop offset="50%"  stop-color="#8B5CF6" />
       <stop offset="100%" stop-color="#06B6D4" />
     </linearGradient>
 
-    <!-- Gradient for the product suffix -->
+    <!-- Product suffix gradient -->
     <linearGradient id="logotype-grad-suffix" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" />
       <stop offset="100%" />
     </linearGradient>
 
-    <!-- Gradient for the accent bar -->
-    <linearGradient id="logotype-grad-bar" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%"   stop-color="var(--logotype-accent)" stop-opacity="0" />
-      <stop offset="20%"  stop-color="var(--logotype-accent)" stop-opacity="0.6" />
-      <stop offset="80%"  stop-color="var(--logotype-primary)" stop-opacity="0.6" />
-      <stop offset="100%" stop-color="var(--logotype-primary)" stop-opacity="0" />
+    <!-- Scan line gradient -->
+    <linearGradient id="logotype-grad-scan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="var(--logotype-glow)" stop-opacity="0" />
+      <stop offset="50%"  stop-color="var(--logotype-glow)" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="var(--logotype-glow)" stop-opacity="0" />
     </linearGradient>
+
+    <!-- Neon glow filter for the brand text -->
+    <filter id="glow-filter" x="-5%" y="-15%" width="110%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#06B6D4" flood-opacity="0.25" />
+    </filter>
   </defs>
 
   <!-- ════════════════ WORDMARK ════════════════ -->
   <g id="wordmark-group">
 
-    <!-- Brand prefix: "Meedya" — constant across all MeedyaSuite products -->
-    <text id="brand-prefix"
-          x="0" y="86"
-          fill="url(#logotype-grad-brand-anim)">Meedya</text>
+    <!-- Decorative left bracket -->
+    <polyline id="bracket-left" class="bracket-deco"
+              points="8,18 2,18 2,108 8,108" />
 
-    <!-- Decorative dot separator between brand and product name.
-         Visually connects the two parts while keeping them distinct.
-         Positioned dynamically — adjust cx if suffix length changes. -->
-    <circle id="brand-dot" cx="410" cy="74" r="5" />
+    <!-- Brand prefix: "MEEDYA" — constant across all MeedyaSuite products.
+         Orbitron Black gives the sharp, geometric, futuristic look. -->
+    <text id="brand-prefix"
+          x="18" y="90"
+          filter="url(#glow-filter)">MEEDYA</text>
+
+    <!-- Circuit dot separators — three dots in a vertical stack
+         between brand and suffix, evoking a data bus / circuit trace -->
+    <g id="circuit-dots" aria-hidden="true">
+      <circle class="circuit-dot" cx="478" cy="58" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="478" cy="72" r="3" opacity="0.4" />
+      <circle class="circuit-dot" cx="478" cy="86" r="3" opacity="0.6" />
+    </g>
 
     <!-- Product suffix: swap this text per product.
-           MeedyaDL       → "DL"
-           MeedyaManager  → "Manager"  (increase viewBox width to ~920)
-           MeedyaDB       → "DB"
-         The suffix uses a lighter weight and accent gradient to
-         visually subordinate it to the brand prefix. -->
+           MeedyaDL       -> "DL"
+           MeedyaManager  -> "MGR"  or "MANAGER" (widen viewBox to ~980)
+           MeedyaDB       -> "DB"
+         Rajdhani gives a digital-readout, slightly condensed feel
+         that contrasts with the heavier Orbitron brand prefix. -->
     <text id="product-suffix"
-          x="425" y="86"
-          fill="url(#logotype-grad-suffix)">DL</text>
+          x="496" y="90">DL</text>
 
-    <!-- Accent bar — subtle underline spanning the full wordmark -->
-    <line id="accent-bar"
-          x1="4" y1="102" x2="500" y2="102"
-          stroke="url(#logotype-grad-bar)"
-          stroke-width="2.5"
-          stroke-linecap="round" />
+    <!-- Decorative right bracket -->
+    <polyline id="bracket-right" class="bracket-deco"
+              points="588,18 594,18 594,108 588,108" />
+
+    <!-- Horizontal scan line — sweeps across the wordmark like a
+         terminal cursor or HUD scanner. Pure decoration. -->
+    <line id="scan-line"
+          x1="-100" y1="70" x2="-60" y2="70"
+          stroke="url(#logotype-grad-scan)"
+          stroke-width="40"
+          opacity="0" />
+
+    <!-- Bottom accent line — subtle tech underline -->
+    <line id="accent-underline"
+          x1="2" y1="112" x2="594" y2="112"
+          stroke="var(--logotype-accent)"
+          stroke-width="1"
+          stroke-dasharray="4 6"
+          opacity="0.3" />
   </g>
 </svg>
