@@ -98,6 +98,7 @@ import {
   HelpCircle, // "Troubleshooting" topic
   FileText, // "About" topic
   ShieldAlert, // "Disclaimer" topic
+  Keyboard, // "Keyboard Shortcuts" topic
   Search, // Search icon in the sidebar search bar
   X, // Clear search button icon
 } from 'lucide-react';
@@ -830,6 +831,43 @@ Licensed under the MIT License.
 ## Links
 - MeedyaDL: [g2my.link/MeedyaDL](https://g2my.link/MeedyaDL)
 - GAMDL: [github.com/glomatico/gamdl](https://github.com/glomatico/gamdl)`,
+  },
+  {
+    id: 'keyboard-shortcuts',
+    label: 'Keyboard Shortcuts',
+    icon: Keyboard,
+    content: `# Keyboard Shortcuts
+
+## Application Shortcuts
+
+MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
+
+| Shortcut | Action |
+|----------|--------|
+| **Cmd/Ctrl + D** | Go to Download page and focus URL input |
+| **Cmd/Ctrl + ,** | Open Settings |
+| **Cmd/Ctrl + Q** | Open Queue |
+| **Escape** | Close active modal/dialog |
+| **Cmd/Ctrl + Enter** | Start download (when URL input is focused) |
+
+### Notes
+
+- On **macOS**, use the **Cmd (⌘)** key as the modifier.
+- On **Windows** and **Linux**, use the **Ctrl** key.
+- Shortcuts are disabled when typing in text inputs, textareas, or dropdown menus to avoid interference.
+- **Cmd/Ctrl + D** also selects all text in the URL input for quick replacement.
+
+### Modal Shortcuts
+
+When a modal dialog is open (e.g., Crash Report, file picker):
+- **Escape** closes the modal and returns focus to the main content.
+- Tab key cycles through focusable elements within the modal (focus trapping).
+
+### Accessibility
+
+- **Tab** moves focus forward through interactive elements.
+- **Shift + Tab** moves focus backward.
+- **Skip to main content** link appears on first Tab press (top-left corner).`,
   },
 ];
 
