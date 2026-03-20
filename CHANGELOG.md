@@ -6,6 +6,28 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Ensure all v0.x releases are marked as pre-release
+
+Add "prerelease": true to release-please-config.json so release-please
+  creates GitHub releases with the pre-release flag for all v0.x versions.
+
+  Fixed v0.10.0 and v0.8.0 which were incorrectly marked as full releases.
+
+  Also created GitHub issues for upcoming tasks:
+  - #208: auto-delete crash reports after submission
+  - #209: verbose logging persistence for pre-release versions
+  - #210: component library versions on About screen + startup log
+  - #211: restore platform emojis + download links in release tables
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.10.0] - 2026-03-20
+
 ### ✨ Features
 
 - Add meedyadl:// deep link URL scheme (closes #200)
