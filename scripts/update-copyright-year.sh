@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2024-2026 MeedyaDL
+# Copyright (c) 2026 MeedyaDL
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Copyright Year Updater for MeedyaDL
@@ -34,11 +34,18 @@ else
     SED_INPLACE=(sed -i)
 fi
 
-# Build the sed substitution command. The start year (2024) never changes.
-# shellcheck disable=SC1117
-YEAR_PATTERN='Copyright (c) 2024-[0-9][0-9][0-9][0-9]'
-YEAR_REPLACE="Copyright (c) 2024-${CURRENT_YEAR}"
-PATTERN="s/${YEAR_PATTERN}/${YEAR_REPLACE}/g"
+# Build the sed substitution commands. The start year is 2026.
+# If current year == start year, use just "2026". Otherwise "2026-YYYY".
+START_YEAR=2026
+if [ "$CURRENT_YEAR" = "$START_YEAR" ]; then
+    YEAR_REPLACE="Copyright (c) ${START_YEAR}"
+else
+    YEAR_REPLACE="Copyright (c) ${START_YEAR}-${CURRENT_YEAR}"
+fi
+# Two patterns: one for "YYYY-YYYY" ranges, one for standalone "YYYY"
+PATTERN_RANGE="s/Copyright (c) 20[0-9][0-9]-[0-9][0-9][0-9][0-9]/${YEAR_REPLACE}/g"
+PATTERN_SINGLE="s/Copyright (c) 20[0-9][0-9] MeedyaDL/${YEAR_REPLACE} MeedyaDL/g"
+PATTERN="${PATTERN_RANGE}"
 
 # --- Rust source files (.rs) ---
 find ./src-tauri/src -name "*.rs" -exec "${SED_INPLACE[@]}" "$PATTERN" {} \;

@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 MeedyaDL
+// Copyright (c) 2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Platform utilities for OS detection and path resolution.
