@@ -43,9 +43,13 @@
 /**
  * React's `ReactNode` type -- the broadest type for anything renderable
  * (elements, strings, numbers, fragments, portals, null, etc.).
+ * `useState` and `useRef` -- React hooks for local state and mutable refs.
+ * `useCallback` -- memoised callback to avoid re-creating drag event handlers.
  * @see https://react.dev/reference/react/ReactNode
+ * @see https://react.dev/reference/react/useState
+ * @see https://react.dev/reference/react/useRef
  */
-import type { ReactNode } from 'react';
+import { type ReactNode, useState, useRef, useCallback } from 'react';
 
 /** Sibling layout components assembled into the shell. */
 import { GlobalProgressBar } from './GlobalProgressBar';
@@ -56,6 +60,13 @@ import { StatusBar } from './StatusBar';
 /** Toast notification overlay rendered outside the normal document flow. */
 /** UpdateBanner: dismissible notification shown when updates are available. */
 import { ToastContainer, UpdateBanner } from '@/components/common';
+
+/** URL parser to validate dropped Apple Music URLs. */
+import { parseAppleMusicUrl } from '@/lib/url-parser';
+
+/** Zustand stores for UI navigation and download URL input. */
+import { useUiStore } from '@/stores/uiStore';
+import { useDownloadStore } from '@/stores/downloadStore';
 
 /**
  * Props for the {@link MainLayout} component.
@@ -111,6 +122,133 @@ interface MainLayoutProps {
  * @see https://tailwindcss.com/docs/height#screen  -- h-screen
  */
 export function MainLayout({ children }: MainLayoutProps) {
+  // ---------------------------------------------------------------------------
+  // Drag-and-drop state
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Whether a drag operation is currently hovering over the content area.
+   * Controls visibility of the drop-zone overlay.
+   */
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  /**
+   * Counter for nested `dragenter`/`dragleave` events.
+   *
+   * The browser fires `dragenter` when the cursor enters any child element,
+   * paired with a `dragleave` on the element being exited. Without a counter,
+   * the overlay would flicker as the cursor moves between child elements.
+   * We increment on `dragenter`, decrement on `dragleave`, and only hide
+   * the overlay when the counter reaches zero (cursor has fully left the
+   * content area).
+   *
+   * @see https://developer.mozilla.org/en-US/docs/Web/API/HTML_Drag_and_Drop_API#drag_events
+   */
+  const dragCounterRef = useRef(0);
+
+  /** UI store actions for navigation and toast notifications. */
+  const setPage = useUiStore((s) => s.setPage);
+  const addToast = useUiStore((s) => s.addToast);
+
+  /** Download store action to set the URL input field programmatically. */
+  const setUrlInput = useDownloadStore((s) => s.setUrlInput);
+
+  // ---------------------------------------------------------------------------
+  // Drag event handlers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handle `dragenter` on the content area.
+   * Increments the nested-element counter and shows the overlay.
+   */
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  /**
+   * Handle `dragleave` on the content area.
+   * Decrements the nested-element counter; hides overlay when counter
+   * reaches zero (cursor has fully exited the drop target).
+   */
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  }, []);
+
+  /**
+   * Handle `dragover` on the content area.
+   * `preventDefault()` is required to signal that this element accepts drops.
+   * Without it, the browser blocks the drop event entirely.
+   * @see https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/dragover_event
+   */
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  }, []);
+
+  /**
+   * Handle `drop` on the content area.
+   *
+   * Extracts the URL from the drop event data transfer, validates it as an
+   * Apple Music URL, and if valid: navigates to the Download page and populates
+   * the URL input field. Shows an error toast for invalid URLs.
+   *
+   * URL extraction priority:
+   *   1. `text/uri-list` -- standard format when dragging links from browsers
+   *   2. `text/plain`    -- fallback for plain-text drops (e.g., from text editors)
+   *
+   * @see https://developer.mozilla.org/en-US/docs/Web/API/DataTransfer/getData
+   */
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+
+      /* Reset drag state immediately on drop. */
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+
+      /*
+       * Extract the URL from the data transfer.
+       * Try `text/uri-list` first (standard for browser link drags),
+       * then fall back to `text/plain` (plain text selections).
+       */
+      const rawUrl =
+        e.dataTransfer.getData('text/uri-list') ||
+        e.dataTransfer.getData('text/plain');
+
+      /* Trim whitespace and newlines that browsers may include. */
+      const url = rawUrl.trim();
+
+      if (!url) {
+        return;
+      }
+
+      /* Validate the dropped URL as an Apple Music link. */
+      const parsed = parseAppleMusicUrl(url);
+
+      if (parsed.isValid) {
+        /* Navigate to the Download page and populate the URL input. */
+        setPage('download');
+        setUrlInput(url);
+        addToast('Apple Music URL dropped successfully', 'success');
+      } else {
+        addToast('Not a valid Apple Music URL', 'error');
+      }
+    },
+    [setPage, setUrlInput, addToast],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
     /**
      * Root container: full-viewport column layout.
@@ -164,8 +302,18 @@ export function MainLayout({ children }: MainLayoutProps) {
          * `flex-1` absorbs all remaining horizontal space after the sidebar.
          * `flex flex-col` stacks <main> on top of StatusBar.
          * `overflow-hidden` prevents this column itself from scrolling.
+         * `relative` establishes a positioning context for the drop-zone overlay.
+         *
+         * Drag-and-drop event handlers are attached here so the entire content
+         * area (excluding the sidebar) acts as a drop zone.
          */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div
+          className="flex-1 flex flex-col overflow-hidden relative"
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
           {/*
            * Update banner -- rendered ABOVE the scrollable <main> so it
            * stays visible regardless of page scroll position. It lives in
@@ -202,6 +350,41 @@ export function MainLayout({ children }: MainLayoutProps) {
            * @see StatusBar component in ./StatusBar.tsx
            */}
           <StatusBar />
+
+          {/*
+           * Drop-zone overlay -- displayed when a drag operation hovers
+           * over the content area. Covers the entire content column with
+           * a semi-transparent backdrop, dashed border, and instructional
+           * text. Hidden when the drag leaves or the drop completes.
+           *
+           * `pointer-events-none` ensures the overlay does not intercept
+           * mouse events itself (the parent div handles drag events).
+           * `z-50` places it above page content but below toasts.
+           */}
+          {isDragOver && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--color-bg-primary)]/80 backdrop-blur-sm pointer-events-none">
+              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-[var(--color-accent)] rounded-2xl">
+                {/*
+                 * Arrow-down icon (SVG) -- visual indicator that content
+                 * can be dropped here. Uses the accent colour for emphasis.
+                 */}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="w-12 h-12 text-[var(--color-accent)]"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" />
+                </svg>
+                <span className="text-lg font-medium text-[var(--color-text-primary)]">
+                  Drop Apple Music URL here
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
