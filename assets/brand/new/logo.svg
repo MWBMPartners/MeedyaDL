@@ -1,43 +1,119 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (c) 2024-2026 MeedyaDL - MIT License -->
+<!--
+  MeedyaDL Logo (Icon) - Simplified
+  ===================================
+
+  A clean media downloader icon: a download arrow landing into a
+  stylised vinyl disc, with a subtle base tray. Deliberately minimal
+  to read clearly at small sizes (favicons, app icons, tray icons).
+
+  Elements are layered with distinct colours for clarity:
+    1. Disc (background)  - dark slate, subtle grooves
+    2. Arrow (foreground)  - lighter steel/silver, high contrast
+    3. Base tray (ground)  - accent colour, anchors the composition
+
+  Customisation via CSS custom properties (same system as logotype.svg):
+    logo-primary         Arrow gradient start    (default: #475569)
+    logo-secondary       Arrow gradient end       (default: #94A3B8)
+    logo-accent          Base tray / highlights   (default: #64748B)
+    logo-disc            Disc fill colour         (default: #334155)
+    logo-disc-highlight  Disc groove highlights   (default: #475569)
+    logo-glow            Glow colour              (default: #94A3B8)
+    logo-shadow          Drop shadow colour       (default: rgba(0,0,0,0.3))
+    logo-animation-speed Arrow bounce duration    (default: 2.5s)
+
+  Colour modes: ?mode=light|dark|cb-deutan|cb-protan|cb-tritan
+                |cb-deutan-dark|cb-protan-dark|cb-tritan-dark
+  Or apply CSS classes: .dark, .cb-deutan, etc.
+-->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
      viewBox="0 0 512 512" width="512" height="512"
      role="img" aria-label="MeedyaDL logo">
   <title>MeedyaDL Logo</title>
-  <desc>A media downloader logo combining a download arrow with a music disc and waveform elements</desc>
+  <desc>A download arrow descending into a vinyl disc with a base tray</desc>
 
   <defs>
     <style>
+      /* ── Custom Properties ───────────────────────────────── */
       :root {
-        --logo-primary: #3B82F6;
-        --logo-secondary: #8B5CF6;
-        --logo-accent: #06B6D4;
-        --logo-shadow: rgba(0,0,0,0.1);
-        --logo-animation-speed: 2s;
+        --logo-primary: #475569;
+        --logo-secondary: #94A3B8;
+        --logo-accent: #64748B;
+        --logo-disc: #334155;
+        --logo-disc-highlight: #475569;
+        --logo-glow: #94A3B8;
+        --logo-shadow: rgba(0, 0, 0, 0.3);
+        --logo-animation-speed: 2.5s;
       }
 
-      /* Gradient fill classes */
-      #gradient-primary stop:first-child { stop-color: var(--logo-primary); }
-      #gradient-primary stop:last-child { stop-color: var(--logo-secondary); }
-
-      #gradient-accent stop:first-child { stop-color: var(--logo-accent); }
-      #gradient-accent stop:last-child { stop-color: var(--logo-primary); }
-
-      #gradient-disc stop:first-child { stop-color: var(--logo-secondary); }
-      #gradient-disc stop:last-child { stop-color: var(--logo-primary); }
-
-      #gradient-glow stop:first-child { stop-color: var(--logo-accent); stop-opacity: 0.4; }
-      #gradient-glow stop:last-child { stop-color: var(--logo-accent); stop-opacity: 0; }
-
-      /* Shadow filter */
-      #shadow-filter feDropShadow {
-        flood-color: var(--logo-shadow);
+      /* ── Dark Mode ───────────────────────────────────────── */
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --logo-primary: #CBD5E1;
+          --logo-secondary: #F1F5F9;
+          --logo-accent: #94A3B8;
+          --logo-disc: #1E293B;
+          --logo-disc-highlight: #334155;
+          --logo-glow: #CBD5E1;
+          --logo-shadow: rgba(0, 0, 0, 0.6);
+        }
       }
 
-      /* Animations */
+      .dark {
+        --logo-primary: #CBD5E1;
+        --logo-secondary: #F1F5F9;
+        --logo-accent: #94A3B8;
+        --logo-disc: #1E293B;
+        --logo-disc-highlight: #334155;
+        --logo-glow: #CBD5E1;
+        --logo-shadow: rgba(0, 0, 0, 0.6);
+      }
+
+      /* ── Colour-blind palettes (light) ───────────────────── */
+      .cb-deutan {
+        --logo-primary: #648FFF;
+        --logo-secondary: #FFB000;
+        --logo-accent: #785EF0;
+        --logo-disc: #2D3748;
+        --logo-disc-highlight: #4A5568;
+      }
+      .cb-protan {
+        --logo-primary: #648FFF;
+        --logo-secondary: #DC267F;
+        --logo-accent: #FFB000;
+        --logo-disc: #2D3748;
+        --logo-disc-highlight: #4A5568;
+      }
+      .cb-tritan {
+        --logo-primary: #D55E00;
+        --logo-secondary: #CC79A7;
+        --logo-accent: #D55E00;
+        --logo-disc: #2D3748;
+        --logo-disc-highlight: #4A5568;
+      }
+
+      /* ── Colour-blind palettes (dark) ────────────────────── */
+      .dark.cb-deutan, .cb-deutan-dark {
+        --logo-primary: #85AAFF; --logo-secondary: #FFC940;
+        --logo-accent: #9B85FF; --logo-disc: #1A202C;
+        --logo-shadow: rgba(0,0,0,0.6);
+      }
+      .dark.cb-protan, .cb-protan-dark {
+        --logo-primary: #85AAFF; --logo-secondary: #FF5CA1;
+        --logo-accent: #FFC940; --logo-disc: #1A202C;
+        --logo-shadow: rgba(0,0,0,0.6);
+      }
+      .dark.cb-tritan, .cb-tritan-dark {
+        --logo-primary: #FF8533; --logo-secondary: #E09DBF;
+        --logo-accent: #FF8533; --logo-disc: #1A202C;
+        --logo-shadow: rgba(0,0,0,0.6);
+      }
+
+      /* ── Animations ──────────────────────────────────────── */
       @keyframes arrow-bounce {
         0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(12px); }
+        50% { transform: translateY(10px); }
       }
 
       @keyframes disc-spin {
@@ -45,170 +121,140 @@
         to { transform: rotate(360deg); }
       }
 
-      @keyframes pulse-glow {
-        0%, 100% { opacity: 0.3; transform: scale(1); }
-        50% { opacity: 0.6; transform: scale(1.08); }
-      }
-
-      @keyframes waveform-pulse {
-        0%, 100% { transform: scaleY(1); }
-        50% { transform: scaleY(0.5); }
-      }
-
       #download-arrow-group {
         animation: arrow-bounce var(--logo-animation-speed) ease-in-out infinite;
       }
 
       #disc-grooves {
-        animation: disc-spin calc(var(--logo-animation-speed) * 4) linear infinite;
-        transform-origin: 256px 280px;
+        animation: disc-spin calc(var(--logo-animation-speed) * 5) linear infinite;
+        transform-origin: 256px 290px;
       }
 
-      #glow-ring {
-        animation: pulse-glow var(--logo-animation-speed) ease-in-out infinite;
-        transform-origin: 256px 256px;
-      }
-
-      #waveform-bar-1 {
-        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
-        animation-delay: 0s;
-        transform-origin: center bottom;
-      }
-      #waveform-bar-2 {
-        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
-        animation-delay: 0.15s;
-        transform-origin: center bottom;
-      }
-      #waveform-bar-3 {
-        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
-        animation-delay: 0.3s;
-        transform-origin: center bottom;
-      }
-      #waveform-bar-4 {
-        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
-        animation-delay: 0.45s;
-        transform-origin: center bottom;
-      }
-      #waveform-bar-5 {
-        animation: waveform-pulse var(--logo-animation-speed) ease-in-out infinite;
-        animation-delay: 0.6s;
-        transform-origin: center bottom;
-      }
-
-      /* Reduced motion */
+      /* ── Reduced Motion ──────────────────────────────────── */
       @media (prefers-reduced-motion: reduce) {
         #download-arrow-group,
-        #disc-grooves,
-        #glow-ring,
-        #waveform-bar-1,
-        #waveform-bar-2,
-        #waveform-bar-3,
-        #waveform-bar-4,
-        #waveform-bar-5 {
+        #disc-grooves {
           animation: none !important;
         }
       }
     </style>
 
-    <!-- Gradients -->
-    <linearGradient id="gradient-primary" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" />
-      <stop offset="100%" />
+    <!-- Arrow gradient: lighter steel for contrast against dark disc -->
+    <linearGradient id="grad-arrow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="var(--logo-primary)" />
+      <stop offset="100%" stop-color="var(--logo-secondary)" />
     </linearGradient>
 
-    <linearGradient id="gradient-accent" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" />
-      <stop offset="100%" />
+    <!-- Base tray gradient -->
+    <linearGradient id="grad-tray" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="var(--logo-accent)" />
+      <stop offset="100%" stop-color="var(--logo-secondary)" />
     </linearGradient>
 
-    <radialGradient id="gradient-disc" cx="50%" cy="50%" r="50%">
-      <stop offset="20%" />
-      <stop offset="100%" />
-    </radialGradient>
-
-    <radialGradient id="gradient-glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" />
-      <stop offset="100%" />
-    </radialGradient>
-
-    <!-- Shadow filter -->
-    <filter id="shadow-filter" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.15" />
+    <!-- Drop shadow for the arrow (lifts it off the disc) -->
+    <filter id="arrow-shadow" x="-15%" y="-15%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6"
+                    flood-color="var(--logo-shadow)" flood-opacity="0.5" />
     </filter>
 
-    <!-- Clip path for disc grooves confined to the disc ring -->
+    <!-- Subtle shadow for the disc -->
+    <filter id="disc-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10"
+                    flood-color="var(--logo-shadow)" flood-opacity="0.35" />
+    </filter>
+
+    <!-- Tray shadow -->
+    <filter id="tray-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4"
+                    flood-color="var(--logo-shadow)" flood-opacity="0.3" />
+    </filter>
+
+    <!-- Clip for disc grooves (ring between outer and inner circle) -->
     <clipPath id="disc-ring-clip">
-      <path d="M256,160 a120,120 0 1,0 0.001,0 Z M256,230 a50,50 0 1,1 -0.001,0 Z" clip-rule="evenodd" />
+      <path d="M256,160 a130,130 0 1,0 0.001,0 Z M256,240 a40,40 0 1,1 -0.001,0 Z"
+            clip-rule="evenodd" />
     </clipPath>
   </defs>
 
-  <!-- Background glow -->
-  <circle id="glow-ring" cx="256" cy="256" r="240" fill="url(#gradient-glow)" />
+  <!-- ═══════════ LAYER 1: VINYL DISC ═══════════ -->
+  <g id="media-disc" filter="url(#disc-shadow)">
 
-  <!-- Main disc body -->
-  <g id="media-disc" filter="url(#shadow-filter)">
-    <!-- Outer disc -->
-    <circle id="disc-outer" cx="256" cy="280" r="120" fill="url(#gradient-disc)" opacity="0.9" />
+    <!-- Outer disc body -->
+    <circle id="disc-body" cx="256" cy="290" r="130"
+            fill="var(--logo-disc)" />
 
-    <!-- Disc grooves (rotating) -->
+    <!-- Disc grooves (rotating, subtle) -->
     <g id="disc-grooves" clip-path="url(#disc-ring-clip)">
-      <circle cx="256" cy="280" r="105" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-      <circle cx="256" cy="280" r="95" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" />
-      <circle cx="256" cy="280" r="85" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
-      <circle cx="256" cy="280" r="75" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1" />
-      <circle cx="256" cy="280" r="65" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1" />
-      <!-- Radial light reflection -->
-      <line x1="256" y1="160" x2="200" y2="400" stroke="rgba(255,255,255,0.04)" stroke-width="30" />
-      <line x1="256" y1="160" x2="340" y2="380" stroke="rgba(255,255,255,0.03)" stroke-width="20" />
+      <circle cx="256" cy="290" r="115" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.4" />
+      <circle cx="256" cy="290" r="100" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.3" />
+      <circle cx="256" cy="290" r="85" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.4" />
+      <circle cx="256" cy="290" r="70" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="0.8" opacity="0.3" />
+      <circle cx="256" cy="290" r="55" fill="none"
+              stroke="var(--logo-disc-highlight)" stroke-width="1" opacity="0.35" />
     </g>
 
-    <!-- Disc inner ring -->
-    <circle id="disc-inner-ring" cx="256" cy="280" r="50" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2" />
+    <!-- Inner label ring -->
+    <circle id="disc-label" cx="256" cy="290" r="40"
+            fill="var(--logo-disc-highlight)" opacity="0.6" />
 
-    <!-- Disc center hole -->
-    <circle id="disc-center" cx="256" cy="280" r="16" fill="rgba(0,0,0,0.3)" />
-    <circle cx="256" cy="280" r="6" fill="rgba(255,255,255,0.2)" />
+    <!-- Centre hole -->
+    <circle id="disc-hole" cx="256" cy="290" r="10"
+            fill="var(--logo-disc)" stroke="var(--logo-disc-highlight)"
+            stroke-width="1.5" opacity="0.8" />
 
-    <!-- Disc highlight -->
-    <ellipse id="disc-highlight" cx="230" cy="250" rx="40" ry="20" fill="rgba(255,255,255,0.08)" transform="rotate(-30,230,250)" />
+    <!-- Subtle highlight reflection -->
+    <ellipse id="disc-reflection" cx="220" cy="250" rx="50" ry="18"
+             fill="white" opacity="0.04" transform="rotate(-25,220,250)" />
   </g>
 
-  <!-- Download arrow -->
-  <g id="download-arrow-group" filter="url(#shadow-filter)">
+  <!-- ═══════════ LAYER 2: BASE TRAY ═══════════ -->
+  <g id="download-base" filter="url(#tray-shadow)">
+    <path id="base-tray"
+          d="M145,400 L145,425 Q145,445 165,445 L347,445 Q367,445 367,425 L367,400"
+          fill="none" stroke="url(#grad-tray)" stroke-width="10"
+          stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- ═══════════ LAYER 3: DOWNLOAD ARROW ═══════════ -->
+  <g id="download-arrow-group" filter="url(#arrow-shadow)">
+
     <!-- Arrow shaft -->
-    <rect id="arrow-shaft" x="232" y="60" width="48" height="140" rx="8" fill="url(#gradient-primary)" />
+    <rect id="arrow-shaft" x="230" y="50" width="52" height="150"
+          rx="10" fill="url(#grad-arrow)" />
 
     <!-- Arrow head (chevron) -->
     <path id="arrow-head"
-          d="M196,195 L256,260 L316,195"
-          fill="none" stroke="url(#gradient-primary)" stroke-width="48"
+          d="M190,195 L256,268 L322,195"
+          fill="none" stroke="url(#grad-arrow)" stroke-width="52"
           stroke-linecap="round" stroke-linejoin="round" />
 
-    <!-- Arrow shine -->
-    <rect id="arrow-shine" x="244" y="70" width="12" height="80" rx="6" fill="rgba(255,255,255,0.25)" />
+    <!-- Shaft highlight (shine) -->
+    <rect id="arrow-shine" x="244" y="62" width="10" height="80"
+          rx="5" fill="white" opacity="0.2" />
   </g>
 
-  <!-- Base platform / landing pad -->
-  <g id="download-base">
-    <path id="base-tray"
-          d="M160,370 L160,400 Q160,420 180,420 L332,420 Q352,420 352,400 L352,370"
-          fill="none" stroke="url(#gradient-accent)" stroke-width="12"
-          stroke-linecap="round" stroke-linejoin="round" />
-  </g>
-
-  <!-- Waveform bars (audio visualiser) -->
-  <g id="waveform-group" transform="translate(0, 0)">
-    <rect id="waveform-bar-1" x="382" y="310" width="10" height="50" rx="5" fill="url(#gradient-accent)" opacity="0.8" />
-    <rect id="waveform-bar-2" x="400" y="290" width="10" height="70" rx="5" fill="url(#gradient-accent)" opacity="0.7" />
-    <rect id="waveform-bar-3" x="418" y="305" width="10" height="55" rx="5" fill="url(#gradient-accent)" opacity="0.8" />
-    <rect id="waveform-bar-4" x="436" y="320" width="10" height="40" rx="5" fill="url(#gradient-accent)" opacity="0.6" />
-    <rect id="waveform-bar-5" x="454" y="330" width="10" height="30" rx="5" fill="url(#gradient-accent)" opacity="0.5" />
-  </g>
-
-  <!-- Music note accent -->
-  <g id="music-note" transform="translate(60, 290)" opacity="0.7">
-    <ellipse id="note-head" cx="20" cy="50" rx="16" ry="12" fill="url(#gradient-accent)" transform="rotate(-20,20,50)" />
-    <rect id="note-stem" x="34" y="4" width="5" height="48" rx="2.5" fill="url(#gradient-accent)" />
-    <path id="note-flag" d="M39,4 Q56,10 50,28" fill="none" stroke="url(#gradient-accent)" stroke-width="5" stroke-linecap="round" />
-  </g>
+  <!-- ═══════════ MODE SWITCH SCRIPT ═══════════ -->
+  <script type="text/javascript">
+    // <![CDATA[
+    (function () {
+      try {
+        var svg = document.querySelector('svg');
+        var params = new URLSearchParams(window.location.search);
+        var mode = params.get('mode');
+        if (mode && mode !== 'light') {
+          if (mode.indexOf('-dark') > 0 && mode.indexOf('cb-') === 0) {
+            svg.classList.add('dark');
+            svg.classList.add(mode.replace('-dark', ''));
+          } else {
+            svg.classList.add(mode);
+          }
+        }
+      } catch (e) { /* no window / URLSearchParams */ }
+    })();
+    // ]]>
+  </script>
 </svg>
