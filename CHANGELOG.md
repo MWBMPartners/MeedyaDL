@@ -6,6 +6,437 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add pre-release verbose log persistence, collapsible About sections, component versions, and fix release table formatting
+
+- Version-aware verbose_activity_log: pre-release (v0.x) preserves setting
+    across restarts; full releases reset to false on startup (closes #216)
+  - Pre-release first-load notice modal shown on each new pre-release version
+    launch with option to install stable release if available
+  - last_seen_version field in AppSettings for version change detection
+  - Collapsible Help > About sub-sections using <details>/<summary> HTML
+    elements, collapsed by default (closes #214)
+  - Component Library section in About shows dynamic version table for all
+    installed components (Python, GAMDL, FFmpeg, etc.) (closes #215)
+  - get_component_versions IPC command returns version info for all components
+  - Component versions logged to Activity Log at app startup
+  - Fix release.yml finalize-release job to include platform emojis and
+    direct download links in release tables (was missing since v0.6.5)
+  - Add rehype-raw dependency for HTML-in-markdown support
+  - CSS styles for collapsible <details>/<summary> disclosure elements
+  - GitHub Issues created: #213 (auto-delete crash reports), #214 (collapsible
+    About), #215 (component versions), #216 (verbose log), #217 (logo redesign)
+
+- Add MeedyaDL logo SVGs, fix help version, close duplicate issues
+
+- New logo.svg and logotype.svg in assets/brand/new/ (closes #217)
+    - Animated SVG with CSS custom properties for customisation
+    - prefers-reduced-motion support
+    - Descriptively named elements
+  - Fix help/index.md version from 0.1.3 to 0.10.0
+  - Closed duplicate/superseded GitHub issues: #205, #208, #209, #210, #211
+
+- Logo crossfades between vinyl disc and film projector
+
+Redesign the logo to alternate between two media symbols:
+    - Vinyl disc (audio): rotating grooves, label area, centre hole
+    - Film projector (video): dual reels with spinning spokes,
+      lens barrel, flickering beam cone, film strip detail
+
+  The two symbols crossfade on an 8s cycle (customisable via
+  --logo-transition-speed). Each is visible for ~40% of the cycle
+  with smooth 10% crossfade overlaps. When reduced-motion is active,
+  the vinyl disc is shown statically.
+
+  Natural animations:
+    - Disc grooves rotate continuously
+    - Projector reels spin (top and bottom at different speeds)
+    - Projector beam flickers with irregular steps
+    - Download arrow bounces
+
+  Same colour/mode system as logotype.svg:
+    - CSS custom properties for all colours
+    - ?mode= URL parameter (light/dark/cb-deutan/etc.)
+    - prefers-color-scheme and prefers-reduced-motion
+    - Drop shadows per layer
+
+- Rebuild logo.svg with full colour mode system and drop shadows
+
+Promoted concept D to main logo.svg with complete implementation:
+  - Disc/reel at r=195, vinyl internals r=190
+  - Drop shadows on: emblem (disc-shadow), outer glow (for dark bg),
+    chevron groups (chev-shadow) - all use CSS var(--logo-shadow/glow)
+  - Full colour mode system matching logotype.svg:
+    light (default), dark (@media + .dark class),
+    cb-deutan/protan/tritan (light + dark variants)
+  - ?mode= URL parameter support via embedded script
+  - SVG has no fixed width/height - expands to fill container
+  - All colours use CSS custom properties (no hardcoded colours
+    outside the vinyl black surface)
+  - Vinyl and reel each in their own wrapper group with clip-path
+  - prefers-reduced-motion disables all animations
+
+- Generate APNG animations from logo and logotype SVGs
+
+New script scripts/svg-to-apng.mjs:
+  - Renders SVG animations frame-by-frame via headless Chromium (puppeteer)
+  - Captures with omitBackground for full alpha transparency
+  - Assembles frames into APNG via ffmpeg
+  - 15 FPS, 8-second cycle (120 frames per animation)
+
+  Output files:
+  - assets/brand/new/logo.apng (15 MB, 512x512, vinyl/reel crossfade)
+  - assets/brand/new/logotype.apng (4 MB, 600x130, gradient shimmer)
+
+  Both have full alpha transparency and loop infinitely.
+  Run: node scripts/svg-to-apng.mjs to regenerate.
+
+- Promote logo_new2 to logo.svg, align logotype dark/CB colours, add test page
+- Generate animated PNG for all 8 colour modes, .png extension
+
+Replaces the old .apng files with .png-extension animated PNGs for
+  compatibility. Generates 16 files total (2 SVGs x 8 modes):
+
+  Logo (512x512, 15fps, 8s cycle, vinyl/reel crossfade + chevrons):
+    logo.png, logo-dark.png, logo-cb-deutan.png, logo-cb-protan.png,
+    logo-cb-tritan.png, logo-cb-deutan-dark.png, logo-cb-protan-dark.png,
+    logo-cb-tritan-dark.png
+
+  Logotype (485x99 trimmed, 15fps, 8s cycle, gradient shimmer):
+    logotype.png, logotype-dark.png, logotype-cb-deutan.png,
+    logotype-cb-protan.png, logotype-cb-tritan.png,
+    logotype-cb-deutan-dark.png, logotype-cb-protan-dark.png,
+    logotype-cb-tritan-dark.png
+
+  All files have full alpha transparency, content-aware trimming,
+  and infinite looping. Mode colours applied via inline styles in
+  the puppeteer renderer for reliable cross-browser support.
+
+- Add split disc/reel app icon with all platform formats
+
+New icon.svg: static split design with left-half vinyl record and
+  right-half film reel, clipped via SVG clipPath. No animations or
+  chevrons — designed for app icons, favicons, and tray icons.
+
+  Generated formats:
+    icon.png              — 1024x1024 static PNG (281 KB)
+    icon.ico              — Windows ICO, 16-256px (62 KB)
+    favicon.ico           — Web favicon, 16/32/48px (6 KB)
+    icon.icns             — macOS ICNS via iconutil (798 KB)
+    icon-liquidglass.png  — Apple Liquid Glass, 10% inset (332 KB)
+    icon-liquidglass.icns — Apple Liquid Glass ICNS (790 KB)
+
+  All have full alpha transparency. Regenerate with:
+    node scripts/generate-icons.mjs
+
+- Add brand kit page and icon previews to test page
+
+brandkit.html — comprehensive brand reference including:
+    - Logo section with all 8 mode variants (light/dark/CB)
+    - Logotype section with all 8 mode variants
+    - App icon section (PNG, ICO, ICNS, Liquid Glass)
+    - Full colour palette (light, dark, 3x colour-blind)
+    - Typography reference (Orbitron + Rajdhani)
+    - MeedyaSuite product name variants
+    - Complete file reference table with sizes and use cases
+    - Customisation methods (URL param, hash, class, JS)
+    - Regeneration script commands
+    - Adapts to system dark mode via prefers-color-scheme
+
+  logo.html — added icon section with:
+    - icon.svg on light and dark backgrounds
+    - icon.png static preview
+    - Liquid Glass on light and dark backgrounds
+    - Favicon size previews (48/32/16px)
+
+- Generate icon variants for all 8 colour modes, update copyright to 2026
+- Restructure brand assets, wire new icons, proprietary license
+
+Brand restructure:
+  - Copied brand assets from assets/brand/new/ to assets/brand/
+  - Deleted logo.html (replaced by brandkit.html)
+  - Updated SVG license headers from MIT to proprietary:
+    "All rights reserved. MeedyaDL brand assets are proprietary."
+
+  Tauri icons regenerated from new icon.svg:
+  - All standard sizes (32-512px) + @2x variants
+  - Windows Store logos (Square30-310px + StoreLogo)
+  - iOS AppIcon set (20-512@2x)
+  - Android mipmap set (mdpi-xxxhdpi)
+  - icon.ico and icon.icns replaced
+
+  Web integration:
+  - New favicon.ico and app-icon.svg copied to public/
+  - index.html: added ICO fallback alongside SVG favicon
+  - tauri.conf.json icon paths unchanged (already correct)
+
+- Consolidate brand assets, wire animated SVGs into sidebar
+
+Brand asset consolidation:
+  - Removed assets/brand/new/ (duplicate of assets/brand/)
+  - Removed assets/icons/app-icon.svg (replaced by assets/brand/)
+  - Updated scripts/svg-to-apng.mjs and generate-icons.mjs to use
+    assets/brand/ instead of assets/brand/new/
+
+  Sidebar branding:
+  - Replaced static <img> icon with animated <object> logo.svg
+    (vinyl/reel crossfade, auto dark mode, colour-blind aware)
+  - Replaced text "MeedyaDL" with animated <object> logotype.svg
+    (gradient shimmer, bracket flash, dot pulse)
+  - Both use <object> for full SVG animation support with fallback
+    content (static icon PNG / text) for non-SVG contexts
+  - pointer-events-none prevents interference with drag regions
+  - SVGs auto-detect dark mode via @media(prefers-color-scheme)
+
+  Public assets:
+  - Copied logo.svg and logotype.svg to public/ for web runtime access
+
+
+### 🐛 Bug Fixes
+
+- Redesign logotype SVG as text-only wordmark for MeedyaSuite
+
+- Remove icon from logotype (text-only as requested)
+  - Switch from Inter to Poppins Black (900) for more character
+  - Design as MeedyaSuite brand template:
+    - "Meedya" prefix is the brand constant (id="brand-prefix")
+    - Product suffix is swappable (id="product-suffix")
+    - Works for MeedyaDL, MeedyaManager, MeedyaDB
+  - Animated gradient shimmer on brand text
+  - Decorative dot separator between brand and suffix
+  - CSS custom properties for theming
+  - prefers-reduced-motion support
+  - Google Fonts @import for Poppins with fallback stack
+
+- Switch logotype to Orbitron + Rajdhani for techy/futuristic feel
+
+Replace Poppins (generic geometric sans) with:
+  - Orbitron Black (900) for brand prefix — sharp geometric display
+    face with clipped corners, sci-fi/tech aesthetic
+  - Rajdhani SemiBold (600) for product suffix — angular condensed
+    sans with digital readout quality
+
+  Add decorative tech elements:
+  - Square bracket frames flanking the wordmark
+  - Vertical circuit-dot separator (3-dot data bus motif)
+  - Horizontal scan line animation (HUD/terminal sweep)
+  - Dashed accent underline (circuit trace)
+  - Neon glow filter on brand text
+  - All uppercase for sharper tech feel
+
+- Remove double-hyphens from XML comment in logotype.svg
+
+XML forbids '--' inside comments. The CSS custom property names
+  listed in the header comment contained '--' prefixes which caused
+  a parse error in browsers (Edge, Chrome, Firefox). Removed the
+  '--' prefixes from the comment text — the actual CSS properties
+  in the <style> block are unaffected.
+
+- Embed Orbitron + Rajdhani fonts as base64 WOFF2 in logotype SVG
+
+Replace the external Google Fonts @import with four self-contained
+  @font-face declarations using base64-encoded WOFF2 data:
+    - Orbitron 700 (brand prefix, bold)
+    - Orbitron 900 (brand prefix, black)
+    - Rajdhani 600 (product suffix, semibold)
+    - Rajdhani 700 (product suffix, bold)
+
+  The SVG is now fully self-contained (68 KB) and renders correctly
+  without any network requests. Fonts can be edited/changed by
+  replacing the base64 data or converting text to outlines.
+
+- Tighten logotype spacing and reduce canvas width
+
+Move circuit dots, product suffix, and right bracket ~60px left to
+  eliminate the excess gap between "MEEDYA" and the separator dots.
+  Reduce viewBox from 720x130 to 600x130 to match the tighter layout.
+
+- Dynamic canvas width, mixed-case brand, respect suffix casing
+
+- Change "MEEDYA" to "Meedya" for brand prefix
+  - Remove text-transform: uppercase from both text styles so casing
+    respects the actual text content per product:
+      MeedyaDL, MeedyaDB, MeedyaManager
+  - Add embedded <script> that dynamically measures text widths and
+    repositions circuit dots, suffix, bracket, underline, and resizes
+    the viewBox on load — canvas auto-fits any suffix length
+  - Remove hardcoded width attribute; viewBox drives sizing
+  - Uses document.fonts.ready API for accurate post-font measurement
+
+- Tighten dot separator to colon-like spacing (Meedya:DL)
+
+Reduce GAP and DOT_GAP from 16px/12px to 3px/3px so the circuit
+  dots sit tight against the brand prefix and suffix, reading as
+  "Meedya:DL" rather than "Meedya  :  DL".
+
+- Heavier suffix weight, drop shadows, dark/colour-blind palettes
+
+Suffix text ("DL"):
+  - Switch from Rajdhani 600 to Orbitron 900 (matches prefix weight)
+  - Add 1.5px stroke for extra visual heft
+  - Now reads as one cohesive word with the prefix
+
+  Drop shadows:
+  - New dual-layer text-shadow filter on both prefix and suffix
+  - Layer 1: dark directional shadow for legibility on any background
+  - Layer 2: coloured neon glow for brand feel
+  - Shadow colour/opacity driven by CSS custom properties
+
+  Colour adaptation:
+  - Automatic dark mode via @media(prefers-color-scheme: dark)
+  - Manual .dark class override for app-controlled themes
+  - Colour-blind palettes: .cb-deutan, .cb-protan, .cb-tritan
+  - All colours overridable via CSS custom properties or JS
+
+- Embed full font character sets, match dot height to cap height
+- Switch to slate/steel palette, add ?mode= URL parameter
+
+Colour palette:
+  - Replace blue/purple/cyan AI-vibe colours with slate/steel gradient
+    (dark slate #475569 -> steel #64748B -> silver #94A3B8)
+  - Dark mode: light silver/near-white for visibility on dark backgrounds
+  - Colour-blind palettes updated with dark variants for all 3 types
+
+  URL parameter mode switching:
+  - ?mode=light (default slate/steel)
+  - ?mode=dark (silver/white for dark backgrounds)
+  - ?mode=cb-deutan, ?mode=cb-protan, ?mode=cb-tritan (light bg)
+  - ?mode=cb-deutan-dark, ?mode=cb-protan-dark, ?mode=cb-tritan-dark
+  - Script reads window.location.search and applies CSS classes on load
+  - Also still supports CSS class application and direct JS property override
+
+- Extend animated gradient to suffix and dots
+
+- Suffix ("DL") now uses its own animated gradient
+    (logotype-grad-suffix-anim) with offset timing from the prefix,
+    so the shimmer flows across the entire wordmark
+  - Circuit dots use a separate animated gradient
+    (logotype-grad-dots-anim) with a faster independent rhythm
+    (0.6x the base animation speed) via dot-shimmer keyframes
+  - All three animations are coordinated but distinct:
+    prefix shimmer, suffix shimmer (offset), dots shimmer (faster)
+  - Reduced motion media query updated to disable all three
+
+- Variable fonts, thicker brackets with flash control, Dev_Notes docs
+- Re-embed full character set fonts (207 + 465 glyphs)
+
+Replace Latin-subset fonts with full character sets downloaded from
+  the canonical Google Fonts repository:
+  - Orbitron variable (400-900): 207 glyphs, 15 KB (full Latin Extended)
+  - Rajdhani Bold: 465 glyphs, 102 KB (full Latin Extended + Devanagari)
+
+  SVG size: 179 KB (was 49 KB subset / 308 KB with 4 static files)
+
+- Redesign logo — simplified, distinct layers, slate/steel palette
+
+Simplified from 6 overlapping same-colour elements to 3 clearly
+  separated layers with distinct colours:
+    1. Vinyl disc (dark slate) — background, with subtle grooves
+    2. Base tray (accent steel gradient) — anchors the composition
+    3. Download arrow (light steel/silver gradient) — foreground, high contrast
+
+- Full-size projector with realistic detail, download arrow as watermark
+
+Projector redesign (fills same space as vinyl disc):
+  - Dual full-size reels (r=72) with 6 spokes each, spinning opposite
+  - Film gate between reels with frame aperture detail
+  - Film threading path connecting reels through gate
+  - Multi-ring lens assembly (barrel, mount, glass, highlight)
+  - Light beam cone from lens with flickering animation
+  - Soft beam glow ellipse with pulsing animation
+  - Ventilation slots and feet for realism
+  - Body, detail lines, proportions all match vinyl disc scale
+
+  Download arrow:
+  - Moved to background as a subtle watermark (8% opacity)
+  - Includes arrow shaft, chevron head, and small base tray
+  - Visible but doesn't compete with media symbols
+  - Removed the foreground arrow and separate base tray
+
+- Lighter disc/reel colours, match reel speed to vinyl, dynamic sizing
+- Remove dashed accent underline from logotype
+
+Remove the dotted/dashed bottom line (accent-underline element) and
+  all script references to it. The line was a decorative tech element
+  but appeared as a stray visual artefact.
+
+- Trim APNG to actual content bounds, remove excess whitespace
+
+The svg-to-apng script now reads the SVG's viewBox after the dynamic
+  layout script has run, then resizes the viewport to match. This trims
+  the logotype APNG from 600px to ~487px wide (matching the actual text
+  width after font measurement).
+
+  - Replaced ffmpeg cropdetect with puppeteer viewBox measurement
+  - Logotype trimmed: 600x130 -> 487x130 (no more side padding)
+  - Logo unchanged: 512x512 (viewBox doesn't resize)
+  - Added 1.5s wait before measurement for font loading
+
+- Content-aware trim for both APNGs, removes whitespace on all sides
+
+Replace viewBox-only measurement with union bounding box of all
+  rendered SVG elements (circle, path, line, rect, text, etc.).
+  This correctly trims both:
+  - logo.apng: 512x512 -> 472x447 (disc/chevrons only, no empty edges)
+  - logotype.apng: 600x130 -> 485x99 (text only, no side/top padding)
+
+  Both retain full alpha transparency via puppeteer omitBackground.
+
+- Add drop shadow to bracket decorations in logotype
+
+New bracket-shadow filter applied to both [ ] polylines for
+  visibility on any background. Uses --logotype-shadow colour variable.
+
+- Update brandkit with icon variants, clean up old icon assets
+
+- brandkit.html: added dark mode and colour-blind icon variant
+    sections with preview cards and download links
+  - Cleaned up assets/icons/variants/ (old concept SVGs removed)
+  - Updated assets/icons/app-icon.svg and public/app-icon.svg
+    with the new split disc/reel icon
+  - SVG license headers updated to proprietary format with full
+    copyright year
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CLAUDE.md with new features and architecture details [skip ci]
+
+- Add pre-release version handling, collapsible About, component versions
+  - Add drag-and-drop, batch paste, download history, notifications, deep links
+  - Update enrichment pipeline count (11→12 stages)
+  - Add keyboard shortcuts, settings sidebar, accessibility, storefront config
+  - Add ISRC handling, codec suffix rename, activity log search documentation
+  - Update key directories with missing entries (hooks, styles, history_service)
+
+- Add MeedyaSuite logotype customisation guide to Dev_Notes [skip ci]
+
+### 🔄 CI/CD
+
+- Add CodeQL workflow excluding Rust analysis
+
+Override GitHub's dynamic "Default setup" CodeQL configuration with an
+  explicit workflow that analyses only actions and javascript-typescript.
+
+  Rust analysis is excluded because CodeQL's Rust extractor requires a
+  full Cargo build, which routinely hangs for 6+ hours on this project
+  (see Actions run #500). Rust code quality is already covered by
+  cargo clippy, cargo test, and cargo-deny in ci.yml.
+
+
+### Revert
+
+- Restore original pulsating dot size and vertical positions
+
+Revert the dot height/radius changes from the previous commit.
+  Dots return to cy=58/72/86, r=3 (original colon-like positions).
+  Dynamic script only repositions dots horizontally, not vertically.
+
+
+## [0.10.1] - 2026-03-20
+
 ### 🐛 Bug Fixes
 
 - Ensure all v0.x releases are marked as pre-release
