@@ -439,6 +439,9 @@ export interface AppSettings {
   update_check_interval_hours: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
+  /** Whether to send native OS desktop notifications for download events (completion/failure).
+   * Notifications are only sent when the app window is not focused. */
+  desktop_notifications: boolean;
   /** Default audio codec for song downloads */
   default_song_codec: SongCodec;
   /** Default maximum video resolution */

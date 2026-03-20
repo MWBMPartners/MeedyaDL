@@ -167,6 +167,45 @@ fn redact_url_query(url: &str) -> &str {
     url.split('?').next().unwrap_or(url)
 }
 
+/// Sends a native OS desktop notification if the setting is enabled and the
+/// main application window is not focused.
+///
+/// This avoids interrupting users who are actively watching the queue. When the
+/// window is minimized, in the background, or the user has switched to another
+/// app, a notification alerts them that a download has completed or failed.
+///
+/// Silently does nothing if:
+/// - The `desktop_notifications` setting is `false`.
+/// - The main window is currently focused (visible and in foreground).
+/// - The notification fails to build or send (non-critical).
+fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
+    use tauri::Manager;
+    use tauri_plugin_notification::NotificationExt;
+
+    // Check if desktop notifications are enabled in user settings
+    let settings = load_settings_for_queue(app);
+    if !settings.desktop_notifications {
+        return;
+    }
+
+    // Only send notifications when the window is NOT focused.
+    // If the user is actively looking at the app, they can see the queue status.
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_focused().unwrap_or(false) {
+            return;
+        }
+    }
+
+    // Send the OS-native notification. Use .ok() to swallow errors silently --
+    // notification failure is never worth interrupting the download flow.
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .ok();
+}
+
 /// Normalises a URL for duplicate detection by lowercasing the domain,
 /// stripping trailing slashes, and removing query parameters except
 /// essential ones like `?i=` (Apple Music track IDs within album URLs).
@@ -3269,6 +3308,14 @@ pub fn process_queue(
                                         "error": error_msg,
                                     }),
                                 );
+
+                                // Send a desktop notification for the terminal failure
+                                send_desktop_notification(
+                                    &app_clone,
+                                    "Download Failed",
+                                    &format!("Download failed: {error_msg}"),
+                                );
+
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
                                 // format was unavailable.
@@ -3336,6 +3383,15 @@ pub fn process_queue(
 
                     log::info!("Download {dl_id} completed successfully");
 
+                    // Build a display name for the notification body. Prefer the
+                    // track name from the queue item, fall back to the URL basename.
+                    let notification_name = history_track_name.clone().unwrap_or_else(|| {
+                        urls.first()
+                            .and_then(|u| u.rsplit('/').next())
+                            .unwrap_or("Download")
+                            .to_string()
+                    });
+
                     // Record successful download in history
                     history_service::save_history_entry(
                         &app_clone,
@@ -3361,6 +3417,14 @@ pub fn process_queue(
 
                     // Notify frontend of successful completion
                     let _ = app_clone.emit("download-complete", &dl_id);
+
+                    // Send a native OS desktop notification if the window is
+                    // not focused, so the user knows their download finished.
+                    send_desktop_notification(
+                        &app_clone,
+                        "Download Complete",
+                        &format!("{notification_name} downloaded successfully"),
+                    );
 
                     // === Unified post-download enrichment (background, fire-and-forget) ===
                     // After a successful download, run all post-processing in a single
@@ -4453,6 +4517,13 @@ pub fn process_queue(
                                 "error": error_msg,
                                 "category": error_category,
                             }),
+                        );
+
+                        // Send a desktop notification for the terminal failure
+                        send_desktop_notification(
+                            &app_clone,
+                            "Download Failed",
+                            &format!("Download failed: {error_msg}"),
                         );
 
                         // Spawn companion downloads on failure — unless the error
