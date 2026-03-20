@@ -6,6 +6,21 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Dynamic brand theming — sidebar respects colour-blind mode (closes #220)
+
+Read colour_blind_mode from settings store and pass as ?mode= query
+  parameter to the sidebar logo.svg and logotype.svg <img> tags.
+
+  When a colour-blind mode is active (deuteranopia/protanopia/tritanopia),
+  the SVGs render with the corresponding accessible palette. The mode
+  parameter is processed by the SVGs' embedded JavaScript.
+
+  Dark mode continues to be handled automatically via @media
+  (prefers-color-scheme: dark) in the SVG CSS.
+
+
 ### 🐛 Bug Fixes
 
 - Implement atomic file writes for settings and queue (closes #230)
@@ -22,6 +37,26 @@ Replace std::fs::write with write-to-temp-then-rename pattern for both
   - config_service.rs: settings.json -> settings.json.tmp -> rename
   - download_queue.rs: queue.json -> queue.json.tmp -> rename
 
+- Debounce queue saves, create SECURITY.md, CSP-safe SVG embeds
+
+#233 (closes): Debounce queue persistence to max once per 500ms.
+  Uses AtomicU64 timestamp to skip rapid sequential saves, with a
+  delayed follow-up save to ensure final state is always persisted.
+
+  #234 (closes): Create SECURITY.md with vulnerability reporting
+  instructions, supported versions, and security measures list.
+
+  #221 (closes): Switch sidebar SVG embeds from <object> to <img> tags.
+  <img> blocks SVG script execution (CSP defence-in-depth) while still
+  rendering CSS animations. Added onError fallback for logotype.
+
+- Resolve clippy warnings from CI (collapsible_str_replace, needless_borrow)
+
+Fix 3 clippy warnings that failed CI on Windows (Rust 1.94.0):
+  - config_service.rs: .replace('\n', "").replace('\r', "") -> .replace(['\n', '\r'], "")
+  - settings.rs: same collapsible_str_replace fix
+  - dependency_manager.rs: remove needless & on read_dir(temp_dir)
+
 
 ### 📚 Documentation
 
@@ -36,6 +71,7 @@ Replace std::fs::write with write-to-temp-then-rename pattern for both
   - Added brand assets convention (proprietary license, SVG sources,
     sidebar usage, regeneration scripts, copyright year)
 
+- Update CHANGELOG.md [skip ci]
 
 ### Security
 
