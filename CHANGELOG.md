@@ -6,6 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Re-sync config.ini before each GAMDL invocation to prevent stale config
+
+GAMDL 2.9.3 overwrites config.ini with its own defaults when run,
+  causing our storefront and other settings to be lost. The storefront
+  being None causes: AttributeError: 'NoneType' has no attribute 'upper'
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CLAUDE.md and memory with security hardening details [skip ci]
+
+## [0.12.0] - 2026-03-20
+
 ### ✨ Features
 
 - Dynamic brand theming — sidebar respects colour-blind mode (closes #220)
