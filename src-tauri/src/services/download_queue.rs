@@ -3119,8 +3119,9 @@ pub fn process_queue(
                                     }
                                 }
 
-                                // Save error report for user-reportable diagnostics
-                                let mut err_ctx = std::collections::HashMap::new();
+                                // Save error report for user-reportable diagnostics.
+                                // Include a redacted settings snapshot for context.
+                                let mut err_ctx = settings_snapshot_for_context(&app_clone);
                                 if let Some(ref url) = urls.first() {
                                     err_ctx.insert("url".to_string(), url.to_string());
                                 }
@@ -4253,7 +4254,9 @@ pub fn process_queue(
                         // Skip for network errors — these are connectivity issues,
                         // not application bugs, and would just add noise.
                         if error_category != "network" {
-                            let mut context = std::collections::HashMap::new();
+                            // Start with a redacted settings snapshot, then add
+                            // error-specific fields on top.
+                            let mut context = settings_snapshot_for_context(&app_clone);
                             context
                                 .insert("error_category".to_string(), error_category.to_string());
                             if let Some(ref url) = urls.first() {
@@ -4699,6 +4702,93 @@ fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
             AppSettings::default()
         }
     }
+}
+
+/// Creates a redacted settings snapshot for inclusion in crash/error reports.
+///
+/// Captures the most diagnostically useful settings (codec, resolution,
+/// companion mode, feature flags, download mode) as a flat `HashMap`.
+/// **No sensitive data** is included: no paths, no credentials, no
+/// wrapper URLs, no MusicKit keys, no cookie paths. Only safe-to-share
+/// configuration values that help diagnose download failures.
+///
+/// Merged into the crash report `context` alongside error-specific fields
+/// like `error_category`, `url`, and `gamdl_version`.
+fn settings_snapshot_for_context(app: &AppHandle) -> std::collections::HashMap<String, String> {
+    let s = load_settings_for_queue(app);
+    let mut m = std::collections::HashMap::new();
+
+    // Core download config
+    m.insert(
+        "setting.codec".to_string(),
+        s.default_song_codec.to_cli_string().to_string(),
+    );
+    m.insert(
+        "setting.video_resolution".to_string(),
+        s.default_video_resolution.to_cli_string().to_string(),
+    );
+    let companion_str = serde_json::to_value(&s.companion_mode)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.companion_mode));
+    m.insert("setting.companion_mode".to_string(), companion_str);
+    let dl_mode = serde_json::to_value(&s.download_mode)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.download_mode));
+    m.insert("setting.download_mode".to_string(), dl_mode);
+    let storefront = if s.storefront.is_empty() {
+        "auto".to_string()
+    } else {
+        s.storefront.clone()
+    };
+    m.insert("setting.storefront".to_string(), storefront);
+
+    // Feature flags (booleans as "true"/"false")
+    m.insert(
+        "setting.enhanced_lrc".to_string(),
+        s.enhanced_lrc.to_string(),
+    );
+    m.insert(
+        "setting.advisory_suffixes".to_string(),
+        s.content_advisory_in_filenames.to_string(),
+    );
+    m.insert(
+        "setting.acoustid".to_string(),
+        s.acoustid_enabled.to_string(),
+    );
+    m.insert(
+        "setting.replaygain".to_string(),
+        s.replaygain_enabled.to_string(),
+    );
+    m.insert(
+        "setting.musicbrainz".to_string(),
+        s.musicbrainz_lookup.to_string(),
+    );
+    m.insert(
+        "setting.fallback_enabled".to_string(),
+        s.fallback_enabled.to_string(),
+    );
+    m.insert(
+        "setting.auto_start_queue".to_string(),
+        s.auto_start_queue.to_string(),
+    );
+
+    // Auth status (redacted — presence only, no values)
+    m.insert(
+        "setting.use_wrapper".to_string(),
+        s.use_wrapper.to_string(),
+    );
+    m.insert(
+        "setting.cookies_set".to_string(),
+        s.cookies_path.is_some().to_string(),
+    );
+    m.insert(
+        "setting.musickit_configured".to_string(),
+        (s.musickit_team_id.is_some() && s.musickit_key_id.is_some()).to_string(),
+    );
+
+    m
 }
 
 // ============================================================
