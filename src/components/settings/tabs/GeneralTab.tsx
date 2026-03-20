@@ -373,6 +373,14 @@ export function GeneralTab() {
           onChange={(checked) => updateSettings({ auto_start_queue: checked })}
         />
 
+        {/* Desktop notifications */}
+        <Toggle
+          label="Desktop Notifications"
+          description="Show native OS notifications when downloads complete or fail. Notifications are only shown when the app window is not focused."
+          checked={settings.desktop_notifications}
+          onChange={(checked) => updateSettings({ desktop_notifications: checked })}
+        />
+
         {/* Auto-check for updates */}
         <Toggle
           label="Auto-Check for Updates"
