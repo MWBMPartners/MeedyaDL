@@ -2,22 +2,23 @@
 // Copyright (c) 2024-2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// SVG to APNG Converter
-// ======================
+// SVG to Animated PNG Converter (with mode variants)
+// ====================================================
 // Renders animated SVG files frame-by-frame in a headless browser,
-// then assembles the frames into an APNG (Animated PNG) with full
-// alpha transparency.
+// then assembles the frames into APNG files with full alpha transparency.
+//
+// Generates all colour mode variants for both logo and logotype:
+//   - default (light), dark, cb-deutan, cb-protan, cb-tritan,
+//     cb-deutan-dark, cb-protan-dark, cb-tritan-dark
+//
+// Output uses .png extension for compatibility (files are APNG format).
 //
 // Usage:
 //   node scripts/svg-to-apng.mjs
 //
 // Requirements:
-//   - puppeteer (bundled with project via npx)
-//   - ffmpeg (for APNG assembly)
-//
-// Output:
-//   assets/brand/new/logo.apng
-//   assets/brand/new/logotype.apng
+//   - puppeteer (npm install --save-dev puppeteer)
+//   - ffmpeg (brew install ffmpeg)
 
 import puppeteer from 'puppeteer';
 import { execFileSync } from 'child_process';
@@ -30,95 +31,112 @@ const ROOT = resolve(__dirname, '..');
 const BRAND_DIR = resolve(ROOT, 'assets/brand/new');
 const TEMP_DIR = resolve(ROOT, '.apng-frames');
 
-// ── Configuration ─────────────────────────────────────────────
-const CONFIGS = [
+// ── Modes to generate ─────────────────────────────────────────
+const MODES = [
+  { suffix: '',               mode: null,              label: 'default (light)' },
+  { suffix: '-dark',          mode: 'dark',            label: 'dark' },
+  { suffix: '-cb-deutan',     mode: 'cb-deutan',       label: 'CB deuteranopia' },
+  { suffix: '-cb-protan',     mode: 'cb-protan',       label: 'CB protanopia' },
+  { suffix: '-cb-tritan',     mode: 'cb-tritan',       label: 'CB tritanopia' },
+  { suffix: '-cb-deutan-dark', mode: 'cb-deutan-dark', label: 'CB deuteranopia (dark)' },
+  { suffix: '-cb-protan-dark', mode: 'cb-protan-dark', label: 'CB protanopia (dark)' },
+  { suffix: '-cb-tritan-dark', mode: 'cb-tritan-dark', label: 'CB tritanopia (dark)' },
+];
+
+// ── SVG sources ───────────────────────────────────────────────
+const SVGS = [
   {
     name: 'logo',
     svgFile: resolve(BRAND_DIR, 'logo.svg'),
-    outputFile: resolve(BRAND_DIR, 'logo.apng'),
     width: 512,
     height: 512,
     fps: 15,
-    // Full cycle = 8s crossfade. Capture one complete cycle.
     durationSeconds: 8,
-    // Auto-trim transparent edges
-    trim: true,
   },
   {
     name: 'logotype',
     svgFile: resolve(BRAND_DIR, 'logotype.svg'),
-    outputFile: resolve(BRAND_DIR, 'logotype.apng'),
     width: 600,
     height: 130,
     fps: 15,
-    // Gradient shimmer cycle = 4s. Capture two cycles for smoothness.
     durationSeconds: 8,
-    // Auto-trim transparent edges from each frame
-    trim: true,
   },
 ];
 
 // ── Main ──────────────────────────────────────────────────────
 async function main() {
-  console.log('SVG to APNG Converter');
-  console.log('=====================\n');
+  console.log('SVG to Animated PNG Converter');
+  console.log('==============================');
+  console.log(`Generating ${SVGS.length} SVGs x ${MODES.length} modes = ${SVGS.length * MODES.length} files\n`);
 
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
-  for (const config of CONFIGS) {
-    console.log(`\n── ${config.name} ──`);
-    console.log(`  SVG: ${config.svgFile}`);
-    console.log(`  Size: ${config.width}x${config.height}`);
-    console.log(`  FPS: ${config.fps}`);
-    console.log(`  Duration: ${config.durationSeconds}s`);
+  for (const svgConfig of SVGS) {
+    console.log(`\n━━ ${svgConfig.name.toUpperCase()} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
-    const frameDir = resolve(TEMP_DIR, config.name);
-    if (existsSync(frameDir)) rmSync(frameDir, { recursive: true });
-    mkdirSync(frameDir, { recursive: true });
+    const svgContent = readFileSync(svgConfig.svgFile, 'utf-8');
+    const totalFrames = svgConfig.fps * svgConfig.durationSeconds;
+    const frameDelayMs = 1000 / svgConfig.fps;
 
-    const totalFrames = config.fps * config.durationSeconds;
-    const frameDelayMs = 1000 / config.fps;
-    console.log(`  Total frames: ${totalFrames}`);
+    for (const modeConfig of MODES) {
+      const outputName = `${svgConfig.name}${modeConfig.suffix}.png`;
+      const outputFile = resolve(BRAND_DIR, outputName);
+      const frameDir = resolve(TEMP_DIR, `${svgConfig.name}${modeConfig.suffix}`);
 
-    // Read the SVG content
-    const svgContent = readFileSync(config.svgFile, 'utf-8');
+      console.log(`\n  ${outputName} (${modeConfig.label})`);
 
-    // Create a page with the SVG
-    const page = await browser.newPage();
-    await page.setViewport({
-      width: config.width,
-      height: config.height,
-      deviceScaleFactor: 1,
-    });
+      if (existsSync(frameDir)) rmSync(frameDir, { recursive: true });
+      mkdirSync(frameDir, { recursive: true });
 
-    // Load SVG as an HTML page with transparent background
-    const html = `<!DOCTYPE html>
+      // Create page
+      const page = await browser.newPage();
+      await page.setViewport({
+        width: svgConfig.width,
+        height: svgConfig.height,
+        deviceScaleFactor: 1,
+      });
+
+      // Build HTML with mode applied via query param
+      const modeParam = modeConfig.mode ? `?mode=${modeConfig.mode}` : '';
+      const html = `<!DOCTYPE html>
 <html>
 <head>
   <style>
     * { margin: 0; padding: 0; }
-    body { background: transparent; width: ${config.width}px; height: ${config.height}px; overflow: hidden; }
-    svg { width: ${config.width}px; height: ${config.height}px; }
+    body { background: transparent; width: ${svgConfig.width}px; height: ${svgConfig.height}px; overflow: hidden; }
+    svg { width: ${svgConfig.width}px; height: ${svgConfig.height}px; }
   </style>
 </head>
 <body>${svgContent}</body>
+<script>
+  // Apply mode via the SVG's own script mechanism
+  ${modeConfig.mode ? `
+  (function() {
+    var svg = document.querySelector('svg');
+    if (!svg) return;
+    var mode = '${modeConfig.mode}';
+    if (mode.indexOf('-dark') > 0 && mode.indexOf('cb-') === 0) {
+      svg.classList.add('dark');
+      svg.classList.add(mode.replace('-dark', ''));
+    } else {
+      svg.classList.add(mode);
+    }
+    // Also set inline styles as fallback
+    var style = svg.style;
+    ${generateInlineStyleJS(svgConfig.name, modeConfig.mode)}
+  })();
+  ` : ''}
+</script>
 </html>`;
 
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 10000 });
+      // Wait for fonts to load and animations to start
+      await new Promise((r) => setTimeout(r, 2000));
 
-    // Wait for fonts to load, animations to start, and dynamic layout to run
-    await new Promise((r) => setTimeout(r, 1500));
-
-    // Auto-trim: measure the actual rendered content bounding box,
-    // then crop the viewport/clip to fit tightly. This handles both:
-    //   - SVGs with dynamic viewBox resizing (logotype)
-    //   - SVGs with static viewBox but content that doesn't fill it (logo)
-    let clipRegion = { x: 0, y: 0, width: config.width, height: config.height };
-    if (config.trim) {
-      // Measure the union bounding box of all visible SVG elements
+      // Measure content bounds for trimming
       const bounds = await page.evaluate(() => {
         const svg = document.querySelector('svg');
         if (!svg) return null;
@@ -133,82 +151,102 @@ async function main() {
               maxX = Math.max(maxX, r.x + r.width);
               maxY = Math.max(maxY, r.y + r.height);
             }
-          } catch (e) { /* ignore unmeasurable elements */ }
+          } catch (e) {}
         });
         if (minX >= maxX) return null;
         return { minX, minY, maxX, maxY };
       });
 
+      let clipRegion = { x: 0, y: 0, width: svgConfig.width, height: svgConfig.height };
       if (bounds) {
-        // Add small padding, clamp to viewport
         const pad = 4;
-        const cx = Math.max(0, Math.floor(bounds.minX) - pad);
-        const cy = Math.max(0, Math.floor(bounds.minY) - pad);
-        const cw = Math.min(config.width - cx, Math.ceil(bounds.maxX - bounds.minX) + pad * 2);
-        const ch = Math.min(config.height - cy, Math.ceil(bounds.maxY - bounds.minY) + pad * 2);
-        clipRegion = { x: cx, y: cy, width: cw, height: ch };
-        console.log(`  Trimmed to: ${cw}x${ch} at (${cx},${cy}) (from ${config.width}x${config.height})`);
-      }
-    }
-
-    // Capture frames
-    console.log('  Capturing frames...');
-    for (let i = 0; i < totalFrames; i++) {
-      const framePath = resolve(frameDir, `frame_${String(i).padStart(4, '0')}.png`);
-      await page.screenshot({
-        path: framePath,
-        type: 'png',
-        omitBackground: true, // Transparent background
-        clip: clipRegion,
-      });
-
-      // Wait for next frame
-      if (i < totalFrames - 1) {
-        await new Promise((r) => setTimeout(r, frameDelayMs));
+        clipRegion = {
+          x: Math.max(0, Math.floor(bounds.minX) - pad),
+          y: Math.max(0, Math.floor(bounds.minY) - pad),
+          width: Math.min(svgConfig.width, Math.ceil(bounds.maxX - bounds.minX) + pad * 2),
+          height: Math.min(svgConfig.height, Math.ceil(bounds.maxY - bounds.minY) + pad * 2),
+        };
+        console.log(`    Trimmed: ${clipRegion.width}x${clipRegion.height}`);
       }
 
-      // Progress indicator
-      if ((i + 1) % 20 === 0 || i === totalFrames - 1) {
-        process.stdout.write(`\r  Captured ${i + 1}/${totalFrames} frames`);
+      // Capture frames
+      for (let i = 0; i < totalFrames; i++) {
+        const framePath = resolve(frameDir, `frame_${String(i).padStart(4, '0')}.png`);
+        await page.screenshot({
+          path: framePath,
+          type: 'png',
+          omitBackground: true,
+          clip: clipRegion,
+        });
+        if (i < totalFrames - 1) {
+          await new Promise((r) => setTimeout(r, frameDelayMs));
+        }
+        if ((i + 1) % 30 === 0 || i === totalFrames - 1) {
+          process.stdout.write(`\r    Captured ${i + 1}/${totalFrames} frames`);
+        }
       }
-    }
-    console.log('');
+      console.log('');
 
-    await page.close();
+      await page.close();
 
-    // Assemble APNG using ffmpeg (execFileSync handles spaces in paths)
-    console.log('  Assembling APNG...');
-    const ffmpegArgs = [
-      '-y',
-      '-framerate', String(config.fps),
-      '-i', resolve(frameDir, 'frame_%04d.png'),
-      '-plays', '0',           // Loop forever
-      '-f', 'apng',
-      config.outputFile,
-    ];
+      // Assemble APNG
+      try {
+        execFileSync('ffmpeg', [
+          '-y',
+          '-framerate', String(svgConfig.fps),
+          '-i', resolve(frameDir, 'frame_%04d.png'),
+          '-plays', '0',
+          '-f', 'apng',
+          outputFile,
+        ], { stdio: 'pipe' });
 
-    try {
-      execFileSync('ffmpeg', ffmpegArgs, { stdio: 'pipe' });
-      const stat = existsSync(config.outputFile)
-        ? Math.round(
-            readFileSync(config.outputFile).length / 1024
-          )
-        : 0;
-      console.log(`  Output: ${config.outputFile} (${stat} KB)`);
-    } catch (err) {
-      console.error(`  ffmpeg failed: ${err.stderr?.toString() || err.message}`);
+        const sizeKB = Math.round(readFileSync(outputFile).length / 1024);
+        console.log(`    Output: ${outputName} (${sizeKB} KB)`);
+      } catch (err) {
+        console.error(`    ffmpeg failed: ${err.stderr?.toString().split('\n').pop()}`);
+      }
     }
   }
 
   await browser.close();
 
-  // Clean up temp frames
+  // Clean up
   if (existsSync(TEMP_DIR)) {
     rmSync(TEMP_DIR, { recursive: true });
-    console.log('\n  Cleaned up temp frames.');
+    console.log('\nCleaned up temp frames.');
   }
 
   console.log('\nDone!');
+}
+
+// Generate inline style.setProperty() calls for a given SVG + mode
+function generateInlineStyleJS(svgName, mode) {
+  const LOGO_MODES = {
+    'dark': {'--logo-primary':'#E2E8F0','--logo-secondary':'#F8FAFC','--logo-accent':'#CBD5E1','--logo-disc':'#94A3B8','--logo-disc-highlight':'#CBD5E1','--logo-vinyl':'#64748B','--logo-vinyl-groove':'#7A8A9E','--logo-vinyl-groove-alt':'#94A3B8','--logo-shadow':'rgba(0,0,0,0.7)','--logo-glow':'rgba(226,232,240,0.15)'},
+    'cb-deutan': {'--logo-primary':'#648FFF','--logo-secondary':'#FFB000','--logo-accent':'#785EF0','--logo-disc':'#7B8FAA','--logo-disc-highlight':'#9BADC4','--logo-vinyl':'#5A6E87','--logo-vinyl-groove':'#6A7E97','--logo-vinyl-groove-alt':'#7B8FAA'},
+    'cb-protan': {'--logo-primary':'#648FFF','--logo-secondary':'#DC267F','--logo-accent':'#FFB000','--logo-disc':'#7B8FAA','--logo-disc-highlight':'#9BADC4','--logo-vinyl':'#5A6E87','--logo-vinyl-groove':'#6A7E97','--logo-vinyl-groove-alt':'#7B8FAA'},
+    'cb-tritan': {'--logo-primary':'#D55E00','--logo-secondary':'#CC79A7','--logo-accent':'#D55E00','--logo-disc':'#7B8FAA','--logo-disc-highlight':'#9BADC4','--logo-vinyl':'#5A6E87','--logo-vinyl-groove':'#6A7E97','--logo-vinyl-groove-alt':'#7B8FAA'},
+    'cb-deutan-dark': {'--logo-primary':'#85AAFF','--logo-secondary':'#FFC940','--logo-accent':'#9B85FF','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
+    'cb-protan-dark': {'--logo-primary':'#85AAFF','--logo-secondary':'#FF5CA1','--logo-accent':'#FFC940','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
+    'cb-tritan-dark': {'--logo-primary':'#FF8533','--logo-secondary':'#E09DBF','--logo-accent':'#FF8533','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
+  };
+  const LOGOTYPE_MODES = {
+    'dark': {'--logotype-primary':'#E2E8F0','--logotype-secondary':'#F8FAFC','--logotype-accent':'#CBD5E1','--logotype-glow':'#E2E8F0','--logotype-shadow':'rgba(0,0,0,0.7)'},
+    'cb-deutan': {'--logotype-primary':'#648FFF','--logotype-secondary':'#FFB000','--logotype-accent':'#785EF0','--logotype-glow':'#648FFF'},
+    'cb-protan': {'--logotype-primary':'#648FFF','--logotype-secondary':'#DC267F','--logotype-accent':'#FFB000','--logotype-glow':'#648FFF'},
+    'cb-tritan': {'--logotype-primary':'#D55E00','--logotype-secondary':'#CC79A7','--logotype-accent':'#D55E00','--logotype-glow':'#CC79A7'},
+    'cb-deutan-dark': {'--logotype-primary':'#85AAFF','--logotype-secondary':'#FFC940','--logotype-accent':'#9B85FF','--logotype-glow':'#85AAFF','--logotype-shadow':'rgba(0,0,0,0.7)'},
+    'cb-protan-dark': {'--logotype-primary':'#85AAFF','--logotype-secondary':'#FF5CA1','--logotype-accent':'#FFC940','--logotype-glow':'#85AAFF','--logotype-shadow':'rgba(0,0,0,0.7)'},
+    'cb-tritan-dark': {'--logotype-primary':'#FF8533','--logotype-secondary':'#E09DBF','--logotype-accent':'#FF8533','--logotype-glow':'#E09DBF','--logotype-shadow':'rgba(0,0,0,0.7)'},
+  };
+
+  const modes = svgName === 'logo' ? LOGO_MODES : LOGOTYPE_MODES;
+  const props = modes[mode];
+  if (!props) return '';
+
+  return Object.entries(props)
+    .map(([k, v]) => `style.setProperty('${k}', '${v}');`)
+    .join('\n    ');
 }
 
 main().catch((err) => {
