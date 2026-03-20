@@ -31,7 +31,7 @@
     logotype-animation-speed Shimmer cycle duration (default: 4s)
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     viewBox="0 0 720 130" width="720" height="130"
+     viewBox="0 0 600 130" width="600" height="130"
      role="img" aria-label="MeedyaDL logotype">
   <title>MeedyaDL Logotype</title>
   <desc>MeedyaSuite horizontal wordmark — techy futuristic style</desc>
@@ -146,7 +146,7 @@
         0%   { x1: -100; x2: -60; opacity: 0; }
         10%  { opacity: 0.15; }
         90%  { opacity: 0.15; }
-        100% { x1: 720; x2: 760; opacity: 0; }
+        100% { x1: 600; x2: 640; opacity: 0; }
       }
 
       @keyframes bracket-flicker {
@@ -258,9 +258,9 @@
     <!-- Circuit dot separators — three dots in a vertical stack
          between brand and suffix, evoking a data bus / circuit trace -->
     <g id="circuit-dots" aria-hidden="true">
-      <circle class="circuit-dot" cx="478" cy="58" r="3" opacity="0.6" />
-      <circle class="circuit-dot" cx="478" cy="72" r="3" opacity="0.4" />
-      <circle class="circuit-dot" cx="478" cy="86" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="418" cy="58" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="418" cy="72" r="3" opacity="0.4" />
+      <circle class="circuit-dot" cx="418" cy="86" r="3" opacity="0.6" />
     </g>
 
     <!-- Product suffix: swap this text per product.
@@ -270,11 +270,11 @@
          Rajdhani gives a digital-readout, slightly condensed feel
          that contrasts with the heavier Orbitron brand prefix. -->
     <text id="product-suffix"
-          x="496" y="90">DL</text>
+          x="434" y="90">DL</text>
 
     <!-- Decorative right bracket -->
     <polyline id="bracket-right" class="bracket-deco"
-              points="588,18 594,18 594,108 588,108" />
+              points="524,18 530,18 530,108 524,108" />
 
     <!-- Horizontal scan line — sweeps across the wordmark like a
          terminal cursor or HUD scanner. Pure decoration. -->
@@ -286,7 +286,7 @@
 
     <!-- Bottom accent line — subtle tech underline -->
     <line id="accent-underline"
-          x1="2" y1="112" x2="594" y2="112"
+          x1="2" y1="112" x2="530" y2="112"
           stroke="var(--logotype-accent)"
           stroke-width="1"
           stroke-dasharray="4 6"
