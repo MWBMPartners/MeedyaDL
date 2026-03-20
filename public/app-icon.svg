@@ -1,48 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2026 MeedyaDL - MIT License -->
 <!--
-  Copyright (c) 2024-2026 MeedyaDL
-  Licensed under the MIT License. See LICENSE file in the project root.
-
-  MeedyaDL Application Icon
-  Media-forward hybrid mark: open clapperboard + download arrow + music-note badge.
+  MeedyaDL App Icon - Split disc/reel (static)
+  ==============================================
+  Left half: vinyl record (audio)
+  Right half: film reel (video)
+  No animations, no chevrons. Designed for app icons, favicons, etc.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="MeedyaDL icon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"
+     role="img" aria-label="MeedyaDL icon">
+  <title>MeedyaDL Icon</title>
+  <desc>Split icon: left half vinyl record, right half film reel</desc>
+
   <defs>
-    <linearGradient id="bg" x1="60" y1="40" x2="452" y2="472" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2B9FFF"/>
-      <stop offset="1" stop-color="#0F78F8"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="120" y1="80" x2="392" y2="350" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#8DD0FF" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="#8DD0FF" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#04142C" flood-opacity="0.26"/>
+    <style>
+      :root {
+        --logo-disc: #64748B;
+        --logo-disc-highlight: #94A3B8;
+        --logo-vinyl: #475569;
+        --logo-vinyl-groove: #546478;
+        --logo-vinyl-groove-alt: #64748B;
+        --logo-accent: #64748B;
+        --logo-secondary: #94A3B8;
+        --logo-shadow: rgba(0, 0, 0, 0.35);
+      }
+    </style>
+
+    <!-- Clip: left half of the circle -->
+    <clipPath id="clip-left">
+      <rect x="0" y="0" width="256" height="512" />
+    </clipPath>
+
+    <!-- Clip: right half of the circle -->
+    <clipPath id="clip-right">
+      <rect x="256" y="0" width="256" height="512" />
+    </clipPath>
+
+    <!-- Clip: disc boundary -->
+    <clipPath id="clip-disc">
+      <circle cx="256" cy="256" r="237" />
+    </clipPath>
+
+    <!-- Shadow -->
+    <filter id="disc-shadow" x="-15%" y="-12%" width="130%" height="135%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="var(--logo-shadow)" flood-opacity="0.4" />
     </filter>
   </defs>
 
-  <g filter="url(#shadow)">
-    <rect x="24" y="24" width="464" height="464" rx="106" fill="url(#bg)"/>
-    <rect x="24" y="24" width="464" height="464" rx="106" fill="url(#shine)"/>
-    <rect x="70" y="70" width="372" height="372" rx="84" fill="none" stroke="#C8E5FF" stroke-opacity="0.24" stroke-width="8"/>
+  <!-- Outer disc body -->
+  <circle cx="256" cy="256" r="240" fill="var(--logo-disc)" filter="url(#disc-shadow)" />
 
-    <g transform="rotate(-12 256 166)">
-      <rect x="140" y="132" width="232" height="54" rx="15" fill="#061B37" fill-opacity="0.92"/>
-      <line x1="162" y1="140" x2="184" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
-      <line x1="206" y1="140" x2="228" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
-      <line x1="250" y1="140" x2="272" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
-      <line x1="294" y1="140" x2="316" y2="178" stroke="#8CCBFF" stroke-width="10" stroke-linecap="round"/>
+  <!-- ═══════════ LEFT HALF: VINYL RECORD ═══════════ -->
+  <g clip-path="url(#clip-left)">
+    <g clip-path="url(#clip-disc)">
+      <circle cx="256" cy="256" r="235" fill="var(--logo-vinyl)" />
+      <!-- Grooves -->
+      <circle cx="256" cy="256" r="230" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="227" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="224" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="221" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="218" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="215" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="212" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="209" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="206" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="203" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="200" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="197" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="194" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="191" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="188" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="185" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="182" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="179" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="176" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="173" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="170" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="167" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="164" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="161" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="158" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="155" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="152" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="149" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="146" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="143" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="140" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="137" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="134" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="131" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="128" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="125" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="122" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="119" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="116" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="113" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="110" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="107" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="104" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="101" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="98" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+      <circle cx="256" cy="256" r="95" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+      <circle cx="256" cy="256" r="92" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.6" opacity="0.4" />
+      <!-- Sheen -->
+      <ellipse cx="180" cy="180" rx="155" ry="60" fill="white" opacity="0.03" transform="rotate(-40,180,180)" />
+      <!-- Label (left half visible) -->
+      <circle cx="256" cy="256" r="85" fill="var(--logo-disc-highlight)" />
+      <circle cx="256" cy="256" r="83" fill="none" stroke="var(--logo-accent)" stroke-width="0.8" />
+      <line x1="216" y1="238" x2="296" y2="238" stroke="var(--logo-accent)" stroke-width="1.5" opacity="0.4" />
+      <line x1="224" y1="250" x2="288" y2="250" stroke="var(--logo-accent)" stroke-width="1" opacity="0.3" />
+      <line x1="232" y1="275" x2="280" y2="275" stroke="var(--logo-accent)" stroke-width="1" opacity="0.3" />
+      <!-- Music note -->
+      <ellipse cx="248" cy="267" rx="7" ry="5" fill="var(--logo-secondary)" opacity="0.45" transform="rotate(-15,248,267)" />
+      <rect x="254" y="250" width="2.5" height="18" rx="1" fill="var(--logo-secondary)" opacity="0.45" />
+      <path d="M256.5,250 Q265,253 262,260" fill="none" stroke="var(--logo-secondary)" stroke-width="1.5" stroke-linecap="round" opacity="0.45" />
     </g>
-
-    <rect x="154" y="210" width="204" height="150" rx="24" fill="#061B37" fill-opacity="0.90"/>
-    <path d="M256 236V292" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"/>
-    <path d="M224 270L256 302L288 270" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M214 322V336C214 346.493 222.507 355 233 355H279C289.493 355 298 346.493 298 336V322" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
-
-    <circle cx="352" cy="352" r="40" fill="#0C66D9" stroke="#9BD2FF" stroke-width="4"/>
-    <circle cx="349" cy="366" r="9" fill="#FFFFFF"/>
-    <circle cx="371" cy="356" r="9" fill="#FFFFFF"/>
-    <rect x="345" y="320" width="8" height="42" rx="4" fill="#FFFFFF"/>
-    <rect x="367" y="312" width="8" height="38" rx="4" fill="#FFFFFF"/>
-    <path d="M349 322L371 314V326L349 334V322Z" fill="#FFFFFF"/>
   </g>
+
+  <!-- ═══════════ RIGHT HALF: FILM REEL ═══════════ -->
+  <g clip-path="url(#clip-right)">
+    <g clip-path="url(#clip-disc)">
+      <circle cx="256" cy="256" r="235" fill="var(--logo-vinyl)" />
+      <circle cx="256" cy="256" r="232" fill="none" stroke="var(--logo-disc-highlight)" stroke-width="2.5" />
+      <!-- Sprocket channel -->
+      <circle cx="256" cy="256" r="218" fill="none" stroke="var(--logo-disc-highlight)" stroke-width="20" stroke-dasharray="18 14" opacity="0.35" />
+      <!-- Windows -->
+      <ellipse cx="256" cy="100" rx="52" ry="38" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+      <ellipse cx="412" cy="256" rx="38" ry="52" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+      <ellipse cx="256" cy="412" rx="52" ry="38" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+      <ellipse cx="100" cy="256" rx="38" ry="52" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+      <!-- Ribs -->
+      <line x1="256" y1="35" x2="256" y2="145" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+      <line x1="477" y1="256" x2="367" y2="256" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+      <line x1="256" y1="477" x2="256" y2="367" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+      <line x1="35" y1="256" x2="145" y2="256" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+      <!-- Hub -->
+      <circle cx="256" cy="256" r="76" fill="var(--logo-vinyl)" stroke="var(--logo-disc-highlight)" stroke-width="3" />
+      <line x1="256" y1="184" x2="256" y2="224" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+      <line x1="194" y1="220" x2="222" y2="240" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+      <line x1="194" y1="292" x2="222" y2="272" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+      <line x1="256" y1="328" x2="256" y2="288" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+      <line x1="318" y1="292" x2="290" y2="272" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+      <line x1="318" y1="220" x2="290" y2="240" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+      <circle cx="256" cy="256" r="32" fill="var(--logo-disc-highlight)" opacity="0.5" />
+      <!-- Sheen -->
+      <ellipse cx="180" cy="180" rx="155" ry="60" fill="white" opacity="0.025" transform="rotate(-40,180,180)" />
+      <!-- Window shadows -->
+      <ellipse cx="256" cy="97" rx="48" ry="10" fill="black" opacity="0.08" />
+      <ellipse cx="415" cy="256" rx="10" ry="48" fill="black" opacity="0.08" />
+      <ellipse cx="256" cy="415" rx="48" ry="10" fill="black" opacity="0.08" />
+      <ellipse cx="97" cy="256" rx="10" ry="48" fill="black" opacity="0.08" />
+    </g>
+  </g>
+
+  <!-- Centre spindle (spans both halves) -->
+  <circle cx="256" cy="256" r="9" fill="var(--logo-vinyl)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+  <circle cx="254" cy="254" r="2.5" fill="white" opacity="0.08" />
+
+  <!-- Thin divider line at the seam (subtle) -->
+  <line x1="256" y1="16" x2="256" y2="496" stroke="var(--logo-disc-highlight)" stroke-width="0.5" opacity="0.15" />
 </svg>
