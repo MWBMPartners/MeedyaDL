@@ -6,8 +6,41 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Log key settings on startup and include in crash reports (closes #203)
+
+Activity Log: emit 3 concise [System] entries on every startup:
+  - Config: codec, video resolution, companion mode, storefront, download mode
+  - Features: enhanced_lrc, advisory_suffixes, acoustid, replaygain, musicbrainz
+  - Auth: wrapper status, cookies presence, musickit configuration
+
+  Crash Reports: add settings_snapshot_for_context() helper that populates
+  crash report context with redacted settings (no paths/credentials).
+  Integrated into both error handler sites in download_queue.rs.
+
+- Add settings export/import for backup and device transfer (closes #202)
+- Add keyboard shortcuts help topic (closes #201)
+
+Add 'Keyboard Shortcuts' to the in-app HelpViewer with:
+  - Full shortcuts table (Cmd/Ctrl+D, Cmd+,, Cmd+Q, Escape, Cmd+Enter)
+  - Platform-specific modifier key notes (Cmd on macOS, Ctrl on Win/Linux)
+  - Modal shortcuts (Escape, Tab focus trapping)
+  - Accessibility navigation (Tab, Shift+Tab, skip link)
+
+- Add download statistics panel on Activity page (closes #198)
+
+Session-based stats derived from queue items via useMemo:
+  - Total downloads, success rate (green/amber/red), top codec
+  - Active/Queued/Completed/Failed counts with status colours
+  - Collapsed by default, hidden when queue empty
+
+  Full historical stats will follow #196 (download history database).
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
