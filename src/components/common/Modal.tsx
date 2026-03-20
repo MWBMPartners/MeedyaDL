@@ -27,7 +27,7 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useCallback, type ReactNode } from 'react';
+import { useEffect, useCallback, useRef, type ReactNode } from 'react';
 
 /**
  * Lucide "X" icon used for the modal close button.
@@ -87,31 +87,66 @@ interface ModalProps {
  * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
  */
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
+  /** Ref to the modal panel for focus management */
+  const panelRef = useRef<HTMLDivElement>(null);
+  /** Ref to the element that had focus before the modal opened */
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
   /*
-   * Memoised keydown handler -- only recreated when the onClose reference
-   * changes. Calls onClose() when the Escape key is pressed.
-   *
-   * @see https://react.dev/reference/react/useCallback -- useCallback docs
+   * Focus trap and keyboard handling.
+   * - Escape closes the modal.
+   * - Tab/Shift+Tab cycle between focusable elements inside the panel.
+   * See: https://github.com/MWBMPartners/MeedyaDL/issues/218
    */
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      // Focus trap: cycle Tab within the modal
+      if (e.key === 'Tab' && panelRef.current) {
+        const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     },
     [onClose]
   );
 
   /*
-   * Attach / detach the global keydown listener whenever the modal opens
-   * or closes. The cleanup function returned by useEffect removes the
-   * listener when `open` becomes false or the component unmounts, preventing
-   * memory leaks and stale handler calls.
-   *
-   * @see https://react.dev/reference/react/useEffect -- useEffect cleanup pattern
+   * Manage focus: move into modal on open, restore on close.
+   * Attach keydown listener for Escape + Tab trap.
    */
   useEffect(() => {
     if (open) {
+      // Save the previously focused element to restore later
+      previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
-      return () => document.removeEventListener('keydown', handleKeyDown);
+      // Move focus into the modal after a tick (allows render to complete)
+      requestAnimationFrame(() => {
+        if (panelRef.current) {
+          const firstFocusable = panelRef.current.querySelector<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          (firstFocusable ?? panelRef.current).focus();
+        }
+      });
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        // Restore focus to the element that opened the modal
+        previousFocusRef.current?.focus();
+      };
     }
   }, [open, handleKeyDown]);
 
@@ -143,11 +178,16 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
        *   narrow screens.
        */}
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? 'modal-title' : undefined}
+        tabIndex={-1}
         className={`
           ${maxWidth} w-full mx-4
           bg-surface-primary rounded-platform-lg
           shadow-platform-lg border border-border-light
-          overflow-hidden
+          overflow-hidden outline-none
         `}
         onClick={(e) => e.stopPropagation()}
       >
@@ -158,7 +198,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
          */}
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
-            <h3 className="text-base font-semibold text-content-primary">{title}</h3>
+            <h3 id="modal-title" className="text-base font-semibold text-content-primary">{title}</h3>
             {/*
              * Close button -- uses the Lucide X icon at 18px.
              * aria-label="Close" ensures screen readers announce its purpose.
