@@ -1084,6 +1084,43 @@ export interface ParsedUrl {
 }
 
 // ============================================================
+// Download History Types
+// ============================================================
+
+/**
+ * A single download history entry.
+ *
+ * Mirrors: Rust struct `HistoryEntry` in `src-tauri/src/services/history_service.rs`
+ *
+ * Recorded after a download reaches a terminal state (success or failure).
+ * Contains enough metadata to identify the download and its outcome.
+ */
+export interface HistoryEntry {
+  /** Unique identifier (UUID v4) */
+  id: string;
+  /** The Apple Music URL that was downloaded */
+  url: string;
+  /** Track or album title (if known) */
+  title?: string;
+  /** Artist name (if known) */
+  artist?: string;
+  /** Album name (if known) */
+  album?: string;
+  /** Audio codec used (e.g., "alac", "aac", "atmos") */
+  codec?: string;
+  /** Absolute path to the output file or directory */
+  file_path?: string;
+  /** ISO 8601 timestamp when the download was queued */
+  started_at: string;
+  /** ISO 8601 timestamp when the download completed or failed */
+  completed_at: string;
+  /** Outcome: "success" or "failed" */
+  status: string;
+  /** Error message (only for failed downloads) */
+  error_message?: string;
+}
+
+// ============================================================
 // UI Types
 // ============================================================
 
@@ -1096,7 +1133,7 @@ export interface ParsedUrl {
  *
  * @see App.tsx renderPage() for the page-to-component mapping
  */
-export type AppPage = 'download' | 'queue' | 'activity' | 'updates' | 'settings' | 'help';
+export type AppPage = 'download' | 'queue' | 'history' | 'activity' | 'updates' | 'settings' | 'help';
 
 /**
  * Toast notification severity levels.

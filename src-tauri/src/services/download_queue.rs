@@ -100,7 +100,7 @@ use crate::models::settings::{AppSettings, CompanionMode};
 // config_service: Used to load settings during fallback decisions.
 // gamdl_service: Provides build_gamdl_command_public() and GamdlProgress for subprocess execution.
 // crash_report_service: Used to save download error reports for user-reportable diagnostics.
-use crate::services::{config_service, crash_report_service, gamdl_service};
+use crate::services::{config_service, crash_report_service, gamdl_service, history_service};
 // CrashReport: Reused for download error reports (source: "download_error").
 use crate::models::crash_report::CrashReport;
 // process: Provides parse_gamdl_output() for parsing GAMDL output lines and
@@ -2906,7 +2906,7 @@ pub fn process_queue(
                     // === Success path ===
                     // GAMDL exited with code 0. Check whether output files were
                     // actually produced before declaring success.
-                    let (output_path_for_artwork, completed_codec) = {
+                    let (output_path_for_artwork, completed_codec, history_track_name, history_created_at) = {
                         let mut q = queue_clone.lock().await;
 
                         // Check if GAMDL emitted a "Saved to:" line during the run.
@@ -3237,6 +3237,30 @@ pub fn process_queue(
                                     log::debug!("Failed to save download error report: {e}");
                                 }
 
+                                // Record failed download in history
+                                {
+                                    let q = queue_clone.lock().await;
+                                    let created = q.get_status().iter().find(|s| s.id == dl_id)
+                                        .map(|s| s.created_at.clone()).unwrap_or_default();
+                                    drop(q);
+                                    history_service::save_history_entry(
+                                        &app_clone,
+                                        history_service::HistoryEntry {
+                                            id: uuid::Uuid::new_v4().to_string(),
+                                            url: urls.first().cloned().unwrap_or_default(),
+                                            title: None,
+                                            artist: None,
+                                            album: None,
+                                            codec: None,
+                                            file_path: None,
+                                            started_at: created,
+                                            completed_at: chrono::Utc::now().to_rfc3339(),
+                                            status: "failed".to_string(),
+                                            error_message: Some(error_msg.clone()),
+                                        },
+                                    );
+                                }
+
                                 save_queue_to_disk(&app_clone, &queue_clone).await;
                                 let _ = app_clone.emit(
                                     "download-error",
@@ -3282,12 +3306,14 @@ pub fn process_queue(
                         }
                         q.on_task_finished();
 
-                        // Extract output_path and codec_used while we have the lock
+                        // Extract output_path, codec_used, and history metadata while we have the lock
                         let status = q.get_status();
                         let item = status.iter().find(|s| s.id == dl_id);
                         let result = (
                             item.and_then(|s| s.output_path.clone()),
                             item.and_then(|s| s.codec_used.clone()),
+                            item.and_then(|s| s.current_track.clone()),
+                            item.map(|s| s.created_at.clone()),
                         );
                         drop(q);
                         result
@@ -3309,6 +3335,24 @@ pub fn process_queue(
                     }
 
                     log::info!("Download {dl_id} completed successfully");
+
+                    // Record successful download in history
+                    history_service::save_history_entry(
+                        &app_clone,
+                        history_service::HistoryEntry {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            url: urls.first().cloned().unwrap_or_default(),
+                            title: history_track_name,
+                            artist: None,
+                            album: None,
+                            codec: completed_codec.clone(),
+                            file_path: output_path_for_artwork.clone(),
+                            started_at: history_created_at.unwrap_or_default(),
+                            completed_at: chrono::Utc::now().to_rfc3339(),
+                            status: "success".to_string(),
+                            error_message: None,
+                        },
+                    );
 
                     // Persist queue state: completed item is now in terminal state,
                     // so it will be excluded from the persistence file (only
@@ -4377,6 +4421,30 @@ pub fn process_queue(
                                 log::debug!("Failed to save download error report: {e}");
                             }
                         } // end: skip error reports for network errors
+
+                        // Record failed download in history
+                        {
+                            let q = queue_clone.lock().await;
+                            let created = q.get_status().iter().find(|s| s.id == dl_id)
+                                .map(|s| s.created_at.clone()).unwrap_or_default();
+                            drop(q);
+                            history_service::save_history_entry(
+                                &app_clone,
+                                history_service::HistoryEntry {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    url: urls.first().cloned().unwrap_or_default(),
+                                    title: None,
+                                    artist: None,
+                                    album: None,
+                                    codec: None,
+                                    file_path: None,
+                                    started_at: created,
+                                    completed_at: chrono::Utc::now().to_rfc3339(),
+                                    status: "failed".to_string(),
+                                    error_message: Some(error_msg.clone()),
+                                },
+                            );
+                        }
 
                         let _ = app_clone.emit(
                             "download-error",

@@ -1037,6 +1037,57 @@ export function getGitHubIssueUrl(id: string): Promise<string> {
 }
 
 // ============================================================
+// Download History Commands
+// ============================================================
+//
+// Commands for viewing, searching, and clearing the persistent
+// download history stored in `{app_data_dir}/history.json`.
+//
+// See: src-tauri/src/commands/history.rs
+
+/**
+ * Returns all download history entries, sorted newest first.
+ *
+ * Rust handler: `list_history()` in `src-tauri/src/commands/history.rs`
+ * Returns: `HistoryEntry[]`
+ *
+ * Called by: HistoryPage component
+ *
+ * @returns Promise resolving to an array of history entries (newest first)
+ */
+export function listHistory(): Promise<import('@/types').HistoryEntry[]> {
+  return invoke<import('@/types').HistoryEntry[]>('list_history');
+}
+
+/**
+ * Deletes all download history entries from disk.
+ *
+ * Rust handler: `clear_history()` in `src-tauri/src/commands/history.rs`
+ *
+ * Called by: HistoryPage "Clear History" button
+ *
+ * @returns Promise resolving when history is cleared
+ */
+export function clearHistory(): Promise<void> {
+  return invoke<void>('clear_history');
+}
+
+/**
+ * Searches history entries by case-insensitive substring match
+ * on title, artist, album, and URL fields.
+ *
+ * Rust handler: `search_history()` in `src-tauri/src/commands/history.rs`
+ *
+ * Called by: HistoryPage search input
+ *
+ * @param query - Search string to match against history entries
+ * @returns Promise resolving to matching history entries (newest first)
+ */
+export function searchHistory(query: string): Promise<import('@/types').HistoryEntry[]> {
+  return invoke<import('@/types').HistoryEntry[]>('search_history', { query });
+}
+
+// ============================================================
 // API Field Audit Commands
 // ============================================================
 //
