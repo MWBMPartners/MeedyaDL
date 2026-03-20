@@ -83,6 +83,14 @@ import ReactMarkdown from 'react-markdown';
  */
 import remarkGfm from 'remark-gfm';
 
+/**
+ * rehype-raw: Allows raw HTML tags (e.g., <details>, <summary>) to pass
+ * through ReactMarkdown without being stripped. Required for collapsible
+ * sections in the About page using native HTML disclosure elements.
+ * @see {@link https://github.com/rehypejs/rehype-raw}
+ */
+import rehypeRaw from 'rehype-raw';
+
 // Lucide icons for each help topic in the sidebar.
 // Each topic has a dedicated icon for quick visual identification.
 import {
@@ -816,21 +824,65 @@ MeedyaDL is licensed under the MIT License. See the LICENSE file for full detail
     // actual app version from tauri.conf.json via getVersion().
     content: `# About MeedyaDL
 
-## Version
-v{{VERSION}}
+**Version** v{{VERSION}}
 
-## Credits
+A multiplatform media downloader desktop application. Currently supports Apple Music via GAMDL, with planned support for additional services.
+
+<details>
+<summary><strong>Credits</strong></summary>
+
 - **GAMDL** by glomatico — The Apple Music download engine
 - **Tauri** — Cross-platform desktop framework
-- Built with React, TypeScript, and Rust
+- **React** — User interface library
+- **TypeScript** — Type-safe JavaScript
+- **Rust** — Backend systems language
+- **Tailwind CSS** — Utility-first CSS framework
+- **Zustand** — Lightweight state management
+- **Vite** — Frontend build tooling
 
-## License
+</details>
+
+<details>
+<summary><strong>License</strong></summary>
+
 Copyright (c) 2024-2026 MeedyaDL
-Licensed under the MIT License.
 
-## Links
+Licensed under the MIT License. See the LICENSE file in the project root for the full license text.
+
+</details>
+
+<details>
+<summary><strong>Links</strong></summary>
+
 - MeedyaDL: [g2my.link/MeedyaDL](https://g2my.link/MeedyaDL)
-- GAMDL: [github.com/glomatico/gamdl](https://github.com/glomatico/gamdl)`,
+- GAMDL: [github.com/glomatico/gamdl](https://github.com/glomatico/gamdl)
+- Report Issues: [GitHub Issues](https://github.com/MWBMPartners/MeedyaDL/issues)
+
+</details>
+
+<details>
+<summary><strong>Open Source Acknowledgements</strong></summary>
+
+MeedyaDL is built on top of many open-source projects. Key dependencies include:
+
+- **GAMDL** (MIT) — Apple Music download engine
+- **Tauri** (MIT/Apache-2.0) — Desktop application framework
+- **React** (MIT) — UI component library
+- **FFmpeg** (LGPL/GPL) — Media processing toolkit
+- **mp4decrypt** (MIT) — MP4 decryption utility
+- **N_m3u8DL-RE** (MIT) — HLS/DASH stream downloader
+- **MP4Box/GPAC** (LGPL) — Media container toolkit
+
+See the project's \`Cargo.toml\` and \`package.json\` for the complete dependency list.
+
+</details>
+
+<details>
+<summary><strong>Component Library</strong></summary>
+
+{{COMPONENT_VERSIONS}}
+
+</details>`,
   },
   {
     id: 'keyboard-shortcuts',
@@ -971,11 +1023,29 @@ export function HelpViewer() {
 
   /** App version fetched from tauri.conf.json, used in the About topic */
   const [appVersion, setAppVersion] = useState('...');
+  /** Component version table (markdown) for the About > Component Library section */
+  const [componentVersions, setComponentVersions] = useState('*Loading...*');
   useEffect(() => {
     getVersion()
       .then((v) => setAppVersion(v))
       .catch(() => setAppVersion('unknown'));
   }, []);
+
+  // Fetch component versions when the About topic is selected
+  useEffect(() => {
+    if (activeTopic !== 'about') return;
+    import('@/lib/tauri-commands')
+      .then(({ getComponentVersions }) => getComponentVersions())
+      .then((versions) => {
+        const rows = versions
+          .filter((v) => v.installed)
+          .map((v) => `| ${v.name} | ${v.version ?? 'unknown'} |`)
+          .join('\n');
+        const table = `| Component | Version |\n|-----------|--------|\n${rows}`;
+        setComponentVersions(table);
+      })
+      .catch(() => setComponentVersions('*Unable to load component versions.*'));
+  }, [activeTopic]);
 
   /* ---- Store bindings for help deep-linking ---- */
   /** Deep-link topic ID set by HelpButton clicks (null when no deep-link) */
@@ -1248,6 +1318,7 @@ export function HelpViewer() {
           <div className="max-w-2xl prose prose-sm dark:prose-invert">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
               components={{
                 // Custom link handler:
                 //  - Internal links (#topic-id) navigate within the help viewer
@@ -1281,7 +1352,9 @@ export function HelpViewer() {
                 ),
               }}
             >
-              {topic.content.replace('{{VERSION}}', appVersion)}
+              {topic.content
+                .replace('{{VERSION}}', appVersion)
+                .replace('{{COMPONENT_VERSIONS}}', componentVersions)}
             </ReactMarkdown>
           </div>
         </div>

@@ -560,6 +560,8 @@ export interface AppSettings {
   sentry_enabled: boolean;
   /** When true, emits detailed [VERBOSE] messages to Activity Log (may expose sensitive data). */
   verbose_activity_log: boolean;
+  /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */
+  last_seen_version: string;
   /** Whether the setup wizard has been completed at least once */
   setup_completed: boolean;
   /** Whether the sidebar is in collapsed (icon-only) mode */
@@ -791,6 +793,23 @@ export interface DependencyStatus {
   path: string | null;
   /** Where the tool was installed from: "system" (from PATH) or "managed" (downloaded) */
   source: string | null;
+}
+
+/**
+ * Version information for a single MeedyaDL component.
+ *
+ * Mirrors: Rust struct `ComponentVersion` in `src-tauri/src/commands/dependencies.rs`
+ *
+ * Used by Help > About "Component Library" section and Activity Log
+ * startup messages to display installed component versions.
+ */
+export interface ComponentVersion {
+  /** Component display name (e.g., "Python", "GAMDL", "FFmpeg") */
+  name: string;
+  /** Detected version string, or null if not installed */
+  version: string | null;
+  /** Whether the component is currently installed */
+  installed: boolean;
 }
 
 // ============================================================

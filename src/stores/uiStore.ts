@@ -78,6 +78,14 @@ interface UiState {
   showSetupWizard: boolean;
 
   /**
+   * Controls visibility of the pre-release first-load notice modal.
+   * Shown when a new pre-release version (v0.x.x) is launched for the first
+   * time. Dismissed by the user, after which the modal won't appear again
+   * until the next version change.
+   */
+  showPrereleaseNotice: boolean;
+
+  /**
    * When set, the Help page should auto-navigate to this topic ID on mount.
    * Used by the `<HelpButton>` component for contextual deep-linking from
    * settings fields to their corresponding help documentation.
@@ -115,6 +123,12 @@ interface UiState {
    * @param show -- `true` to display the wizard, `false` to dismiss it
    */
   setShowSetupWizard: (show: boolean) => void;
+
+  /**
+   * Show or hide the pre-release first-load notice modal.
+   * @param show -- `true` to display the notice, `false` to dismiss it
+   */
+  setShowPrereleaseNotice: (show: boolean) => void;
 
   /**
    * Navigate to the Help page and auto-select a specific topic.
@@ -185,6 +199,7 @@ export const useUiStore = create<UiState>((set) => ({
   sidebarCollapsed: false, // Sidebar starts fully expanded; overridden by settings on startup
   toasts: [], // No active notifications on launch
   showSetupWizard: false, // Setup wizard hidden until <App> decides to show it
+  showPrereleaseNotice: false, // Pre-release notice hidden until version change detected
   helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
 
   // -------------------------------------------------------------------------
@@ -213,6 +228,9 @@ export const useUiStore = create<UiState>((set) => ({
 
   /** Show or hide the setup wizard modal overlay. */
   setShowSetupWizard: (show) => set({ showSetupWizard: show }),
+
+  /** Show or hide the pre-release first-load notice modal. */
+  setShowPrereleaseNotice: (show) => set({ showPrereleaseNotice: show }),
 
   /**
    * Navigate to the Help page and deep-link to a specific topic.

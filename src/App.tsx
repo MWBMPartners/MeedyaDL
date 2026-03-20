@@ -45,6 +45,13 @@
 import { useEffect, useState } from 'react';
 
 /**
+ * Tauri app info API for retrieving the current app version at runtime.
+ * Used to detect pre-release versions (v0.x.x) for the first-load notice.
+ * @see {@link https://v2.tauri.app/reference/javascript/api/namespaceapp/}
+ */
+import { getVersion } from '@tauri-apps/api/app';
+
+/**
  * Tauri event listener API for receiving events emitted from the Rust backend.
  * `listen<T>(event, handler)` returns an unlisten function for cleanup.
  * Used here to receive: gamdl-output, download-complete, download-error,
@@ -142,6 +149,13 @@ import { SetupWizard } from './components/setup';
 
 /** LoadingSpinner: Animated spinner shown during async loading states */
 import { LoadingSpinner } from './components/common';
+
+/**
+ * PrereleaseNoticeModal: First-load notice shown on each new pre-release
+ * version launch. Warns about instability and offers stable release install.
+ * @see ./components/common/PrereleaseNoticeModal.tsx
+ */
+import PrereleaseNoticeModal from './components/common/PrereleaseNoticeModal';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -439,6 +453,31 @@ function App() {
       );
       if (!depsReady && !settingsState.settings.setup_completed && !appUpdateAvailable) {
         setShowSetupWizard(true);
+      }
+
+      /*
+       * Step 5: Pre-release first-load notice.
+       *
+       * On the first launch of a new pre-release version (v0.x.x), show a
+       * modal informing the user about the pre-release status, potential
+       * bugs, and verbose logging behaviour. The version change is detected
+       * by comparing the current app version against `last_seen_version`
+       * (which the Rust backend updates in load_settings()).
+       *
+       * The notice is suppressed if the setup wizard is shown (to avoid
+       * modal stacking) — it will appear on the next launch after setup.
+       */
+      try {
+        const currentVersion = await getVersion();
+        const isPrerelease = currentVersion.startsWith('0.');
+        const previousVersion = settingsState.settings.last_seen_version;
+        const versionChanged = previousVersion !== '' && previousVersion !== currentVersion;
+
+        if (isPrerelease && versionChanged && !showSetupWizard) {
+          useUiStore.getState().setShowPrereleaseNotice(true);
+        }
+      } catch {
+        /* Non-fatal: version check failure shouldn't block app startup */
       }
     };
 
@@ -921,7 +960,15 @@ function App() {
    * area so it remains visible regardless of page scroll position.
    * @see ./components/layout/MainLayout.tsx
    */
-  return <MainLayout>{renderPage()}</MainLayout>;
+  return (
+    <>
+      <MainLayout>{renderPage()}</MainLayout>
+      {/* Pre-release first-load notice — rendered as an overlay on top of the
+       * main application. Uses the Modal component so it doesn't block the UI
+       * and can be dismissed independently. */}
+      <PrereleaseNoticeModal />
+    </>
+  );
 }
 
 export default App;
