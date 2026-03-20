@@ -412,6 +412,7 @@ New bracket-shadow filter applied to both [ ] polylines for
   - Update key directories with missing entries (hooks, styles, history_service)
 
 - Add MeedyaSuite logotype customisation guide to Dev_Notes [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
