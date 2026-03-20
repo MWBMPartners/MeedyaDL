@@ -55,6 +55,7 @@ Add blank /// line between the parameter list and the function
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.12.0] - 2026-03-20
 
