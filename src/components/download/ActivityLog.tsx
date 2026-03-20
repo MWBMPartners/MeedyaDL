@@ -10,12 +10,16 @@
 // up or clicks "Pause".
 //
 // Text is fully selectable and copyable for bug reporting purposes.
+//
+// The StatisticsPanel is rendered at the top of the page (before the log
+// entries) to give a quick overview of session download activity.
 
 import { useEffect, useRef, useCallback } from 'react';
 
 import { useActivityStore } from '@/stores/activityStore';
 import { Button } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { StatisticsPanel } from '@/components/download/StatisticsPanel';
 import { Download, Pause, Play, Trash2 } from 'lucide-react';
 import { exportActivityLog } from '@/lib/tauri-commands';
 
@@ -173,6 +177,9 @@ export function ActivityLog() {
           </div>
         }
       />
+
+      {/* Session statistics panel (collapsible, hidden when queue is empty) */}
+      <StatisticsPanel />
 
       {/* Scrollable log container */}
       <div
