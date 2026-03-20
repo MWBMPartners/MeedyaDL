@@ -341,3 +341,111 @@ pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, 
     emit_app_log(&app, &format!("{name} installed"));
     Ok(result)
 }
+
+/// A single component version entry for the About screen and Activity Log.
+///
+/// Contains the human-readable name and detected version string for each
+/// installed component (Python, GAMDL, external tools).
+#[derive(Debug, Clone, Serialize)]
+pub struct ComponentVersion {
+    /// Component display name (e.g., "Python", "GAMDL", "FFmpeg")
+    pub name: String,
+    /// Detected version string (e.g., "3.12.8", "2.9.3", "ffmpeg version 7.1")
+    /// `None` if the component is not installed.
+    pub version: Option<String>,
+    /// Whether the component is currently installed
+    pub installed: bool,
+}
+
+/// Retrieves the version information for all MeedyaDL components.
+///
+/// **Frontend caller:** `getComponentVersions()` in `src/lib/tauri-commands.ts`
+///
+/// Unlike `check_all_dependencies` (which skips version detection for speed),
+/// this command runs `--version` on each installed tool to gather actual version
+/// strings. Intended for display in Help > About and for Activity Log startup
+/// messages.
+///
+/// # Arguments
+/// * `app` - Tauri `AppHandle` for resolving tool binary paths.
+///
+/// # Returns
+/// * `Ok(Vec<ComponentVersion>)` - Version info for all components.
+///   Components that are not installed will have `version: None`.
+#[tauri::command]
+pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersion>, String> {
+    let mut versions = Vec::new();
+
+    // Python version
+    let python_version = python_manager::check_python_status(&app).await.ok().flatten();
+    versions.push(ComponentVersion {
+        name: "Python".to_string(),
+        version: python_version.clone(),
+        installed: python_version.is_some(),
+    });
+
+    // GAMDL version (via pip show)
+    let gamdl_version = gamdl_service::get_gamdl_version(&app).await.ok().flatten();
+    versions.push(ComponentVersion {
+        name: "GAMDL".to_string(),
+        version: gamdl_version.clone(),
+        installed: gamdl_version.is_some(),
+    });
+
+    // External tools: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
+    for tool in dependency_manager::get_all_tools() {
+        let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
+        let installed = binary_path.exists();
+        let version = if installed {
+            dependency_manager::get_tool_version(&binary_path, tool.id)
+                .await
+                .ok()
+        } else {
+            None
+        };
+        versions.push(ComponentVersion {
+            name: tool.name.to_string(),
+            version,
+            installed,
+        });
+    }
+
+    // MeedyaDL itself
+    versions.push(ComponentVersion {
+        name: "MeedyaDL".to_string(),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        installed: true,
+    });
+
+    Ok(versions)
+}
+
+/// Emits component version information to the Activity Log at startup.
+///
+/// Called during app setup to log all installed component versions as a
+/// `[System]` entry. Useful for debugging user-reported issues.
+pub async fn log_component_versions_to_activity(app: &AppHandle) {
+    match get_component_versions(app.clone()).await {
+        Ok(versions) => {
+            let version_strings: Vec<String> = versions
+                .iter()
+                .filter(|v| v.installed)
+                .map(|v| {
+                    format!(
+                        "{} {}",
+                        v.name,
+                        v.version.as_deref().unwrap_or("(unknown)")
+                    )
+                })
+                .collect();
+            if !version_strings.is_empty() {
+                let msg = format!("Component versions: {}", version_strings.join(", "));
+                emit_app_log(app, &msg);
+                log::info!("{msg}");
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to gather component versions: {e}");
+        }
+    }
+}

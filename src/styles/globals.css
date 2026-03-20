@@ -260,6 +260,57 @@
 }
 
 /* ============================================================
+ * Collapsible Sections (HTML <details>/<summary>)
+ * ------------------------------------------------
+ * Styles the native HTML disclosure elements used for collapsible
+ * sections in the Help > About page and other prose content.
+ * The marker triangle is replaced with a custom Tailwind-styled
+ * indicator for consistency across platforms.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/details
+ * ============================================================ */
+
+/* Prose context: style details/summary within react-markdown output */
+.prose details {
+  margin: 0.75rem 0;
+  border: 1px solid var(--border-primary);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.prose details summary {
+  cursor: pointer;
+  padding: 0.625rem 0.875rem;
+  background: var(--surface-secondary);
+  list-style: none; /* Remove default marker */
+  user-select: none;
+}
+
+/* Custom disclosure marker using CSS ::before pseudo-element */
+.prose details summary::before {
+  content: '\25B6'; /* Black right-pointing triangle */
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 0.625rem;
+  transition: transform 150ms ease;
+  vertical-align: middle;
+}
+
+.prose details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+/* Remove WebKit default marker on Safari */
+.prose details summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Content area padding inside collapsed sections */
+.prose details > *:not(summary) {
+  padding: 0 0.875rem;
+}
+
+/* ============================================================
  * Reduced Motion
  * ---------------
  * Respects the user's OS-level "Reduce motion" preference

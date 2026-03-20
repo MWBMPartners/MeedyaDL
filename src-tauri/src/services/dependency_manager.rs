@@ -1766,7 +1766,7 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
 /// # Arguments
 /// * `binary_path` - Path to the tool binary
 /// * `tool_id` - The tool identifier (for tool-specific parsing)
-async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String, String> {
+pub async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String, String> {
     // Different tools use different version flags:
     // - FFmpeg and MP4Box use single-dash "-version" (non-standard but that's how they work)
     // - Most other tools use double-dash "--version" (GNU convention)

@@ -64,6 +64,7 @@ import type {
   AppSettings,
   ArtworkResult,
   ComponentUpdate,
+  ComponentVersion,
   CookieCheckResult,
   CookieImportResult,
   CookieValidation,
@@ -217,6 +218,22 @@ export function checkAllDependencies(): Promise<DependencyStatus[]> {
  */
 export function installDependency(name: string): Promise<string> {
   return invoke<string>('install_dependency', { name });
+}
+
+/**
+ * Retrieves version information for all MeedyaDL components.
+ *
+ * Rust handler: `get_component_versions()` in `src-tauri/src/commands/dependencies.rs`
+ * Returns: Array of component version entries (name, version, installed status)
+ *
+ * Unlike `checkAllDependencies` (which skips version detection for speed),
+ * this runs `--version` on each installed tool. Used by Help > About and
+ * Activity Log startup messages.
+ *
+ * @returns Promise resolving to an array of ComponentVersion objects
+ */
+export function getComponentVersions(): Promise<ComponentVersion[]> {
+  return invoke<ComponentVersion[]>('get_component_versions');
 }
 
 // ============================================================
