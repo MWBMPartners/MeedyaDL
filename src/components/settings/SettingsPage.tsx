@@ -2,12 +2,13 @@
  * Copyright (c) 2024-2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file SettingsPage.tsx -- Settings page container with 10-tab navigation.
+ * @file SettingsPage.tsx -- Settings page container with 10-tab grouped navigation.
  *
  * This is the top-level settings component rendered when the user navigates to
  * the "Settings" page via the application sidebar. It provides:
  *
- *   1. A **left sidebar** listing all 10 settings tabs with icons.
+ *   1. A **left sidebar** listing all 10 settings tabs grouped under 4
+ *      section headers (General, Download, Authentication, System).
  *   2. A **content area** on the right that renders the active tab's component.
  *   3. A **header bar** with "Reset" and "Save Changes" action buttons.
  *
@@ -153,6 +154,22 @@ const TABS: SettingsTab[] = [
 ];
 
 /**
+ * Groups settings tabs into logical sections for the sidebar navigation.
+ * Each group has a label (rendered as a section header) and a list of tab IDs
+ * that belong to that group. The tab IDs must match entries in the TABS array.
+ *
+ * Groups are rendered as static (non-collapsible) sections with visually
+ * distinct headers -- with only 4 groups, collapsible behaviour would add
+ * UI complexity without meaningful benefit.
+ */
+const SETTINGS_GROUPS: { label: string; tabs: string[] }[] = [
+  { label: 'General', tabs: ['general'] },
+  { label: 'Download', tabs: ['quality', 'fallback', 'lyrics', 'cover-art', 'metadata', 'templates'] },
+  { label: 'Authentication', tabs: ['cookies'] },
+  { label: 'System', tabs: ['tools', 'advanced'] },
+];
+
+/**
  * SettingsPage -- Top-level settings page component.
  *
  * Renders the full settings page with a vertical tab sidebar on the left
@@ -275,31 +292,50 @@ export function SettingsPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* ----------------------------------------------------------------
             Tab sidebar (left column)
-            Fixed width of w-44 (176px). Lists all 10 tabs as buttons.
-            The active tab receives an accent background and font weight.
-            The sidebar scrolls independently if the window is too short
-            to display all tabs (unlikely at 10 items, but defensive).
+            Fixed width of w-44 (176px). Tabs are grouped under 4 section
+            headers (General, Download, Authentication, System). Each
+            group has a small uppercase header label followed by its tab
+            buttons. The active tab receives an accent background and
+            font weight. The sidebar scrolls independently if the window
+            is too short to display all groups.
             ---------------------------------------------------------------- */}
-        <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2 space-y-0.5">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`
-                w-full flex items-center gap-2.5 px-3 py-2
-                rounded-platform text-sm transition-colors
-                ${
-                  activeTab === id
-                    ? 'bg-accent-light text-accent font-medium' /* Active tab styling */
-                    : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
-                }
-              `}
-            >
-              {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
-              <Icon size={16} className="flex-shrink-0" />
-              {/* Tab label text */}
-              {label}
-            </button>
+        <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
+          {SETTINGS_GROUPS.map((group, groupIndex) => (
+            <div key={group.label} className={groupIndex > 0 ? 'mt-3' : ''}>
+              {/* Group section header -- uppercase, small, muted colour */}
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary select-none">
+                {group.label}
+              </div>
+
+              {/* Tab items within this group */}
+              <div className="space-y-0.5">
+                {group.tabs.map((tabId) => {
+                  const tab = TABS.find((t) => t.id === tabId);
+                  if (!tab) return null;
+                  const { id, label, icon: Icon } = tab;
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setActiveTab(id)}
+                      className={`
+                        w-full flex items-center gap-2.5 px-3 py-2
+                        rounded-platform text-sm transition-colors
+                        ${
+                          activeTab === id
+                            ? 'bg-accent-light text-accent font-medium' /* Active tab styling */
+                            : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
+                        }
+                      `}
+                    >
+                      {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
+                      <Icon size={16} className="flex-shrink-0" />
+                      {/* Tab label text */}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </nav>
 
