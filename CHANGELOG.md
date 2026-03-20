@@ -8,6 +8,74 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Add meedyadl:// deep link URL scheme (closes #200)
+
+Register custom URL scheme via tauri-plugin-deep-link:
+  - meedyadl://download?url=<apple_music_url>&codec=<optional>
+  - Handles both running-app (on_open_url) and cold-start (get_current)
+  - Pre-fills download form URL input and navigates to Download page
+  - Brings main window to foreground on deep link receipt
+  - Activity log entry for received deep links
+
+- Add activity log search and category filtering (closes #199)
+
+- Search input with clear button for case-insensitive text filtering
+  - Category toggles: System (on), Download (on), Verbose (off by default)
+  - Filtered count shown in subtitle when filters active
+  - Empty state message when no entries match
+  - Export still exports all entries regardless of filter
+  - ARIA role="checkbox" with aria-checked on filter toggles
+
+- Add duplicate URL detection in download queue (closes #197)
+
+- normalize_url_for_dedup(): lowercase domain, strip trailing slashes,
+    fragments, and non-essential query params (keeps ?i= for track IDs)
+  - has_duplicate_urls(): checks against active/queued items only
+  - StartDownloadResult struct replaces plain string return from start_download
+  - Frontend shows warning toast for duplicates (non-blocking)
+  - 13 new unit tests for normalisation and duplicate detection
+
+- Add persistent download history page (closes #196)
+
+JSON-based history database at {app_data_dir}/history.json:
+  - Records URL, title, artist, album, codec, file path, timestamps
+  - Max 1000 entries with oldest trimmed
+  - Search via Rust backend (case-insensitive on title/artist/album/URL)
+
+  New History page (sidebar nav between Queue and Activity):
+  - Search input with 300ms debounce
+  - Status icons (success/failed), codec badges, dates
+  - "Open Folder" action for successful downloads
+  - "Clear History" button
+  - 3 new Rust unit tests (639 total)
+
+- Add drag-and-drop URL input from browser (closes #195)
+
+Drag Apple Music URLs from any browser directly into MeedyaDL:
+  - Drop-zone overlay with semi-transparent backdrop and dashed border
+  - Extracts URL from text/uri-list or text/plain data transfer
+  - Validates via parseAppleMusicUrl, navigates to Download page
+  - Nested dragenter/dragleave counter prevents overlay flicker
+  - Success/error toasts for valid/invalid URLs
+
+- Add batch URL paste — queue multiple Apple Music URLs at once (closes #194)
+
+Replace the single-line URL input with an auto-resizing textarea that
+  supports pasting multiple Apple Music URLs (one per line). When multiple
+  URLs are detected, each is validated individually and submitted as a
+  separate queue item. The badge shows "N URLs" count instead of content
+  type. Summary toast reports queued/failed/skipped counts. Quality
+  overrides apply to all URLs in the batch. Single-URL flow is unchanged.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.9.0] - 2026-03-20
+
+### ✨ Features
+
 - Log key settings on startup and include in crash reports (closes #203)
 
 Activity Log: emit 3 concise [System] entries on every startup:
