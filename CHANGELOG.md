@@ -76,9 +76,21 @@ Integrate tauri-plugin-notification for download events:
   - desktop_notifications setting (default: true) in Settings > General
   - Backend-driven via send_desktop_notification() helper
 
+- Add settings sidebar sub-categories (closes #207)
+
+Group settings tabs under 4 section headers:
+  - General: General
+  - Download: Quality, Fallback, Lyrics, Cover Art, Metadata, Templates
+  - Authentication: Cookies
+  - System: Tools, Advanced
+
+  Section headers: 10px uppercase, muted colour, non-interactive.
+  Prepares for per-service settings groups in multi-service architecture.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
