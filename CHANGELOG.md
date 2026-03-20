@@ -25,6 +25,7 @@ Add "prerelease": true to release-please-config.json so release-please
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.10.0] - 2026-03-20
 
