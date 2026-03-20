@@ -49,10 +49,12 @@ src/                    # React frontend
   types/                # TypeScript type definitions mirroring Rust models (includes codec-registry.ts)
   styles/themes/        # Platform CSS (base, macos, windows, linux, a11y-high-contrast, a11y-colour-blind)
 public/locales/         # i18n translation files ({lang}/translation.json)
+public/                 # Web runtime assets (logo.svg, logotype.svg, app-icon.svg, favicon.ico)
 help/                   # Markdown help documentation (12 topics)
-scripts/                # Build utilities (copyright year updater, version bump)
+scripts/                # Build utilities (copyright year updater, version bump, icon generator, APNG generator)
+assets/brand/           # Brand assets: SVGs, animated PNGs, icons (ICO/ICNS/PNG), brandkit.html. PROPRIETARY LICENSE.
 .github/ISSUE_TEMPLATE/ # Issue templates (crash-report.yml)
-.github/workflows/      # CI, Release, Release Please, Changelog workflows
+.github/workflows/      # CI, Release, Release Please, Changelog, CodeQL workflows
 ```
 
 ## Implementation Phases (All Complete)
@@ -104,6 +106,7 @@ scripts/                # Build utilities (copyright year updater, version bump)
 - **ISRC handling**: `extract_isrc_from_vendor()` in `metadata_tag_service.rs` with 3-case logic: (1) ISRC blank → copy from Vendor, (2) ISRC set + differs → store both, (3) match or no Vendor → no-op.
 - **Codec suffix post-download rename**: `apply_codec_rename_suffix()` in `metadata_tag_service.rs`. Template-based approach broke GAMDL; files are renamed after download instead. Suffix from `codec_suffix_from_registry()`.
 - **i18n groundwork**: Uses `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Translation files in `public/locales/{lang}/translation.json` (currently en, de, fr). Language setting `ui_language` in AppSettings (empty = auto-detect from OS). Language dropdown in Settings > General (Appearance section). `initI18n()` called during app startup in App.tsx. To translate a component: `const { t } = useTranslation()` → `t('key')`. To add a language: create locale JSON, add to `AVAILABLE_LOCALES` in `i18n.ts` and `UI_LANGUAGE_OPTIONS` in `GeneralTab.tsx`.
+- **Brand assets**: All brand files in `assets/brand/` (logo.svg, logotype.svg, icon.svg, brandkit.html + PNG/ICO/ICNS variants). Brand assets are **proprietary** (not MIT) — do not change license headers. Sidebar uses `<object>` tags for animated SVG logo + logotype with static fallback. Regenerate with `node scripts/generate-icons.mjs` (icons) and `node scripts/svg-to-apng.mjs` (animated PNGs). Copyright year: `2026` (dynamic via `scripts/update-copyright-year.sh`).
 - **Git operations**: Do NOT auto-commit or auto-push. Only edit files — let the user control git operations.
 - **Documentation maintenance**: When adding features, modifying settings, changing commands/services, or altering UI — update ALL affected markdown files (README.md, Project_Plan.md, CHANGELOG.md, CLAUDE.md, help/*.md). This includes version numbers, file counts, feature lists, project structure trees, and help topic cross-references. Project_Plan.md serves as both the plan and status tracker (PROJECT_STATUS.md was consolidated into it).
 - **GitHub Issue tracking**: For every task (features, bug fixes, enhancements, security fixes): (1) Create a GitHub Issue if one doesn't exist (`gh issue create`); (2) Close with completion comment when done (`gh issue close --reason completed`); (3) Link parent/child issues in the body (e.g., "Depends on #107", "Part of #100"); (4) Add to "MeedyaDL Development" project (`gh project item-add 6 --owner MWBMPartners`); (5) Create follow-up issues for any future work identified during implementation.
