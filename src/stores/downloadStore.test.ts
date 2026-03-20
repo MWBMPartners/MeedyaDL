@@ -149,17 +149,21 @@ describe('downloadStore', () => {
         .getState()
         .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
 
-      vi.mocked(commands.startDownload).mockResolvedValueOnce('dl-id-123');
+      vi.mocked(commands.startDownload).mockResolvedValueOnce({
+        download_id: 'dl-id-123',
+        duplicate_warning: null,
+      });
 
-      const downloadId = await useDownloadStore.getState().submitDownload();
+      const result = await useDownloadStore.getState().submitDownload();
 
-      expect(downloadId).toBe('dl-id-123');
+      expect(result.download_id).toBe('dl-id-123');
+      expect(result.duplicate_warning).toBeNull();
       expect(commands.startDownload).toHaveBeenCalledWith(
         {
           urls: ['https://music.apple.com/us/album/midnights/1649434004'],
           options: undefined,
         },
-        undefined
+        undefined,
       );
       /* Input should be cleared after successful submission */
       expect(useDownloadStore.getState().urlInput).toBe('');
@@ -183,7 +187,10 @@ describe('downloadStore', () => {
         .setUrlInput('https://music.apple.com/us/album/midnights/1649434004');
       useDownloadStore.getState().setOverrideOptions({ song_codec: 'atmos' });
 
-      vi.mocked(commands.startDownload).mockResolvedValueOnce('dl-id-456');
+      vi.mocked(commands.startDownload).mockResolvedValueOnce({
+        download_id: 'dl-id-456',
+        duplicate_warning: null,
+      });
 
       await useDownloadStore.getState().submitDownload();
 
@@ -192,7 +199,7 @@ describe('downloadStore', () => {
           urls: ['https://music.apple.com/us/album/midnights/1649434004'],
           options: { song_codec: 'atmos' },
         },
-        undefined
+        undefined,
       );
     });
 

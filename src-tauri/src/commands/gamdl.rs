@@ -49,7 +49,7 @@ use tauri::{AppHandle, Emitter, State};
 // DownloadRequest: the deserialized JSON payload from the frontend containing
 // URLs and optional per-download quality/format overrides.
 // QueueItemStatus: per-item status info (id, state, progress, error message).
-use crate::models::download::{DownloadRequest, QueueItemStatus};
+use crate::models::download::{DownloadRequest, QueueItemStatus, StartDownloadResult};
 // download_queue module contains the queue processing logic (process_queue).
 // QueueHandle is an Arc<Mutex<DownloadQueue>> shared across all command invocations.
 use crate::services::download_queue::{self, QueueHandle};
@@ -105,7 +105,8 @@ pub struct QueueStatus {
 ///   the user manually starts the queue or a future online download triggers processing.
 ///
 /// # Returns
-/// * `Ok(String)` - The unique download ID (UUID v4) assigned to this download.
+/// * `Ok(StartDownloadResult)` - Contains the download ID (UUID v4) and an optional
+///   `duplicate_warning` message when the URL is already in the active queue.
 /// * `Err(String)` - Human-readable error message if the event emission fails.
 ///
 /// # Errors
@@ -121,7 +122,7 @@ pub async fn start_download(
     queue: State<'_, QueueHandle>,
     request: DownloadRequest,
     skip_auto_start: Option<bool>,
-) -> Result<String, String> {
+) -> Result<StartDownloadResult, String> {
     // Load current settings for merging with per-download overrides.
     // If settings can't be loaded (corrupted file, etc.), fall back to defaults
     // so the download can still proceed with sensible quality/format choices.
@@ -163,6 +164,19 @@ pub async fn start_download(
             );
         }
     }
+
+    // Check for duplicate URLs already in the active queue. This is a
+    // non-blocking warning — the download proceeds regardless, but the
+    // frontend can show a toast to let the user know.
+    let duplicate_warning = {
+        let q = queue.lock().await;
+        if q.has_duplicate_urls(&request.urls) {
+            log::info!("Duplicate URL detected in queue: {}", request.urls.join(", "));
+            Some("This URL is already in the queue".to_string())
+        } else {
+            None
+        }
+    };
 
     // Multi-select artist auto-select: if the URL is an artist URL and
     // multiple modes are configured, split into N separate downloads (one
@@ -213,7 +227,10 @@ pub async fn start_download(
             download_queue::process_queue(app, queue_handle).await;
         }
 
-        return Ok(first_id);
+        return Ok(StartDownloadResult {
+            download_id: first_id,
+            duplicate_warning: duplicate_warning.clone(),
+        });
     }
 
     // Single-mode path: standard enqueue (also handles single artist_auto_select_multi)
@@ -260,7 +277,10 @@ pub async fn start_download(
         download_queue::process_queue(app, queue_handle).await;
     }
 
-    Ok(download_id)
+    Ok(StartDownloadResult {
+        download_id,
+        duplicate_warning,
+    })
 }
 
 /// Cancels an active or queued download.

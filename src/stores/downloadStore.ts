@@ -46,7 +46,7 @@ import { create } from 'zustand';
 // GamdlOptions    -- per-download quality/format overrides (all fields optional)
 // GamdlProgress   -- payload shape for `gamdl://progress` Tauri events
 // QueueItemStatus -- detailed status of a single download queue item
-import type { GamdlOptions, GamdlProgress, QueueItemStatus } from '@/types';
+import type { GamdlOptions, GamdlProgress, QueueItemStatus, StartDownloadResult } from '@/types';
 
 // Pure function that validates and classifies an Apple Music URL (song, album, etc.).
 // Returns { url, isValid, contentType }.
@@ -154,13 +154,14 @@ interface DownloadState {
   /**
    * Submit the current URL for download to the Rust backend.
    * Validates the URL, calls `commands.startDownload()`, clears the input on
-   * success, and returns the new download ID.
+   * success, and returns the result containing the download ID and an optional
+   * duplicate warning.
    * @param skipAutoStart - When true, item is queued but queue processing
    *   is not triggered. Used when the device is offline.
-   * @returns The unique download ID assigned by the backend
+   * @returns The start download result (download ID + optional duplicate warning)
    * @throws If the URL is invalid or the Rust command fails
    */
-  submitDownload: (skipAutoStart?: boolean) => Promise<string>;
+  submitDownload: (skipAutoStart?: boolean) => Promise<StartDownloadResult>;
 
   /**
    * Cancel an active or queued download by its ID.
@@ -350,14 +351,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     set({ isSubmitting: true, error: null });
     try {
       // IPC call: send the download request to the Rust download_queue service.
-      // The backend enqueues the job and immediately returns a unique download ID.
-      const downloadId = await commands.startDownload(
+      // The backend enqueues the job and returns a result containing the
+      // download ID and an optional duplicate URL warning.
+      const result = await commands.startDownload(
         {
           urls: [urlInput],
           // Convert null -> undefined so Tauri serializes as Option::None in Rust.
           options: overrideOptions ?? undefined,
         },
-        skipAutoStart
+        skipAutoStart,
       );
 
       // Clear the input form after successful submission, readying it for
@@ -370,7 +372,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         isSubmitting: false,
       });
 
-      return downloadId;
+      return result;
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isSubmitting: false });
