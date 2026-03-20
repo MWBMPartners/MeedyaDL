@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file HelpViewer.tsx -- Help documentation viewer with search.
@@ -845,7 +845,7 @@ A multiplatform media downloader desktop application. Currently supports Apple M
 <details>
 <summary><strong>License</strong></summary>
 
-Copyright (c) 2024-2026 MeedyaDL
+Copyright (c) 2026 MeedyaDL
 
 Licensed under the MIT License. See the LICENSE file in the project root for the full license text.
 

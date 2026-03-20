@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2024-2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaDL
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file SetupWizard.tsx -- Multi-step setup wizard container component.
