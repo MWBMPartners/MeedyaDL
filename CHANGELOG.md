@@ -67,9 +67,19 @@ Replace the single-line URL input with an auto-resizing textarea that
   type. Summary toast reports queued/failed/skipped counts. Quality
   overrides apply to all URLs in the batch. Single-URL flow is unchanged.
 
+- Add native OS desktop notifications (closes #193)
+
+Integrate tauri-plugin-notification for download events:
+  - "Download Complete" notification on successful download
+  - "Download Failed" notification on terminal failure
+  - Suppressed when app window is focused (background only)
+  - desktop_notifications setting (default: true) in Settings > General
+  - Backend-driven via send_desktop_notification() helper
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.9.0] - 2026-03-20
