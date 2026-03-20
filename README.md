@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/meedyadl-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/logo/meedyadl-logo-light.svg">
-    <img src="assets/logo/meedyadl-logo.svg" alt="MeedyaDL Logo" height="80">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logo.png">
+    <img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="80">
   </picture>
 </p>
 <p align="center">
@@ -16,6 +16,7 @@
   <a href="https://github.com/MWBMPartners/MeedyaDL/releases"><img src="https://img.shields.io/github/v/release/MWBMPartners/MeedyaDL?include_prereleases&style=flat-square&label=Version" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License: MIT"></a>
   <a href="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/ci.yml"><img src="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status"></a>
+  <a href="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/codeql.yml"><img src="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
 </p>
 
@@ -79,8 +80,13 @@
 - **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
 - **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, SHA-256 checksum verification for dependency downloads, `cargo-deny` licence scanning in CI
-- **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation
+- **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
+- **Pre-release version handling** — verbose activity logging persists across restarts during pre-release versions (v0.x.x) for easier debugging; first-load notice modal warns users when a new pre-release version is launched
+- **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) via the `get_component_versions` IPC command
+- **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
+- **CodeQL workflow** — GitHub CodeQL static analysis for Actions YAML and JavaScript/TypeScript. Rust is intentionally excluded (build hangs indefinitely) since Rust code quality is covered by clippy and cargo test in CI
+- **Brand assets** — vinyl/reel icon design with animated SVG logo and logotype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + logotype via `<object>` tags with static PNG/text fallbacks
 
 ---
 
