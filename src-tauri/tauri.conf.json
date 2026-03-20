@@ -76,6 +76,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["meedyadl"]
+      }
+    },
     "shell": {
       "open": true
     },

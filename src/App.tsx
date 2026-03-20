@@ -769,6 +769,61 @@ function App() {
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 
   /*
+   * ─── Effect 6b: Deep Link URL Handler ──────────────────────────────
+   *
+   * Listens for the 'deep-link-download' event emitted by the Rust backend
+   * when a `meedyadl://download?url=...` URL is opened by an external tool,
+   * bookmarklet, or browser extension.
+   *
+   * On receiving the event:
+   * 1. Navigates to the Download page
+   * 2. Pre-fills the URL input with the received Apple Music URL
+   * 3. Shows a toast notification confirming the URL was received
+   * 4. Optionally stores the codec parameter for use in quality overrides
+   *
+   * @see setup_deep_link_handler() in lib.rs for the Rust-side handler
+   * @see https://v2.tauri.app/plugin/deep-linking/ -- Tauri deep link plugin
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    let unlistenDeepLink: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unlistenDeepLink = await listen<{ url: string; codec: string | null }>(
+          'deep-link-download',
+          (event) => {
+            try {
+              const { url, codec } = event.payload;
+
+              // Navigate to the Download page
+              useUiStore.getState().setPage('download');
+
+              // Pre-fill the URL input via the download store
+              useDownloadStore.getState().setUrlInput(url);
+
+              // Show a toast confirming the URL was received
+              const codecSuffix = codec ? ` (codec: ${codec})` : '';
+              useUiStore
+                .getState()
+                .addToast(`URL received from external link${codecSuffix}`, 'info');
+
+              console.log(`Deep link received: ${url}${codec ? `, codec=${codec}` : ''}`);
+            } catch (err) {
+              console.error('Error in deep-link-download handler:', err);
+            }
+          }
+        );
+      } catch {
+        /* Tauri API unavailable */
+      }
+    };
+    setup();
+
+    return () => unlistenDeepLink?.();
+  }, [isReady]);
+
+  /*
    * ─── Effect 7: Activity Log Event Listener ─────────────────────────
    *
    * Subscribes to the "activity-log" Tauri event which carries every raw
