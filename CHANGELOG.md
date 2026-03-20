@@ -57,6 +57,20 @@ Fix 3 clippy warnings that failed CI on Windows (Rust 1.94.0):
   - settings.rs: same collapsible_str_replace fix
   - dependency_manager.rs: remove needless & on read_dir(temp_dir)
 
+- Add focus trap, ARIA dialog role, and focus management to Modal (closes #218, #182 partial)
+
+Modal accessibility improvements:
+  - Added role="dialog" and aria-modal="true" to the panel element
+  - Added aria-labelledby linking to the modal title
+  - Focus trap: Tab/Shift+Tab cycle within focusable elements inside
+    the modal, preventing focus from escaping to background content
+  - Auto-focus: moves focus to the first focusable element on open
+  - Focus restore: returns focus to the triggering element on close
+  - Panel has tabIndex={-1} so it can receive programmatic focus
+
+  These are the critical accessibility fixes from the audit (#218).
+  Manual QA testing (#182) still needed for VoiceOver/NVDA/Orca.
+
 
 ### 📚 Documentation
 
@@ -71,6 +85,7 @@ Fix 3 clippy warnings that failed CI on Windows (Rust 1.94.0):
   - Added brand assets convention (proprietary license, SVG sources,
     sidebar usage, regeneration scripts, copyright year)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### Security
