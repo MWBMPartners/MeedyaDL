@@ -68,6 +68,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   check_pre_releases: false, // Only show stable releases by default
   update_check_interval_hours: 6, // Check for updates every 6 hours
   auto_start_queue: true, // Start processing immediately when items are enqueued
+  desktop_notifications: true, // OS-native notifications for download events when window not focused
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless
   default_video_resolution: '2160p', // Preferred video quality: 4K
   default_video_codec_priority: 'h265,h264', // Try H.265 first, fall back to H.264
