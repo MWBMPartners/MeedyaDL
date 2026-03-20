@@ -592,6 +592,21 @@ export interface DownloadRequest {
 }
 
 /**
+ * Response from the `start_download` Tauri command.
+ *
+ * Mirrors: Rust struct `StartDownloadResult` in `src-tauri/src/models/download.rs`
+ *
+ * Contains the download ID and an optional duplicate warning when the
+ * submitted URL is already present in the active queue.
+ */
+export interface StartDownloadResult {
+  /** The unique download ID (UUID v4) assigned to this download */
+  download_id: string;
+  /** Optional warning when a duplicate URL is detected in the queue */
+  duplicate_warning?: string | null;
+}
+
+/**
  * Possible states of a download queue item (state machine).
  *
  * Mirrors: Rust enum `DownloadState` in `src-tauri/src/models/download.rs`
