@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update README, Dev_Notes, Claude memory with brand asset docs
+
+## [0.11.0] - 2026-03-20
+
 ### ✨ Features
 
 - Add pre-release verbose log persistence, collapsible About sections, component versions, and fix release table formatting
