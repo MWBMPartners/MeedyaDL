@@ -572,6 +572,42 @@ export function testWrapperConnection(url: string): Promise<import('@/types').Wr
   return invoke<import('@/types').WrapperTestResult>('test_wrapper_connection', { url });
 }
 
+/**
+ * Exports application settings to a JSON file via a native save dialog.
+ *
+ * Rust handler: `export_settings()` in `src-tauri/src/commands/settings.rs`
+ * Returns: string path where the file was saved
+ *
+ * Sensitive fields (cookies path, wrapper URL, MusicKit credentials,
+ * AcoustID API key) are cleared before export to prevent accidental
+ * credential sharing.
+ *
+ * Called by: GeneralTab "Export Settings" button
+ *
+ * @returns Promise resolving to the export file path
+ */
+export function exportSettings(): Promise<string> {
+  return invoke<string>('export_settings');
+}
+
+/**
+ * Imports application settings from a JSON file via a native file picker.
+ *
+ * Rust handler: `import_settings()` in `src-tauri/src/commands/settings.rs`
+ *
+ * The selected file must be a valid MeedyaDL settings export (version 1).
+ * Imported settings overwrite all non-sensitive fields. Sensitive fields
+ * (cookies path, wrapper URL, MusicKit credentials, AcoustID API key)
+ * are preserved from the current settings.
+ *
+ * Called by: GeneralTab "Import Settings" button
+ *
+ * @returns Promise resolving when import is complete
+ */
+export function importSettings(): Promise<void> {
+  return invoke<void>('import_settings');
+}
+
 // ============================================================
 // Credential Commands
 // ============================================================
