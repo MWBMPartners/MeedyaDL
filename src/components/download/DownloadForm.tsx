@@ -46,10 +46,13 @@
  */
 
 /**
- * React `useState` hook used for the local `showOverrides` toggle.
+ * React hooks used for local component state and side effects.
  * @see https://react.dev/reference/react/useState
+ * @see https://react.dev/reference/react/useRef
+ * @see https://react.dev/reference/react/useCallback
+ * @see https://react.dev/reference/react/useMemo
  */
-import { useState } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 
 /**
  * Lucide React icons used for content-type badges and UI controls.
@@ -76,6 +79,7 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Layers,
 } from 'lucide-react';
 
 /**
@@ -97,6 +101,9 @@ import {
   checkInternetBeforeDownload,
   checkOutputPathBeforeDownload,
 } from '@/lib/tauri-commands';
+
+/** Apple Music URL parser for multi-URL validation. */
+import { parseAppleMusicUrl } from '@/lib/url-parser';
 
 /**
  * Type imports for Apple Music content types and audio codecs.
@@ -205,6 +212,12 @@ export function DownloadForm() {
    */
   const submitDownload = useDownloadStore((s) => s.submitDownload);
   /**
+   * Submits multiple URLs as individual downloads to the Rust backend.
+   * Used when the user pastes multiple Apple Music URLs (one per line).
+   * @see downloadStore.submitBatchDownload in @/stores/downloadStore.ts
+   */
+  const submitBatchDownload = useDownloadStore((s) => s.submitBatchDownload);
+  /**
    * Per-download quality overrides (or `null` to use global defaults).
    * Contains optional fields like `song_codec` and `music_video_resolution`.
    * @see GamdlOptions in @/types/index.ts
@@ -243,6 +256,80 @@ export function DownloadForm() {
 
   /** Navigation to the Settings page (for the "Go to Settings" link). */
   const setPage = useUiStore((s) => s.setPage);
+
+  /**
+   * Ref for the textarea element, used for auto-resize.
+   * The textarea dynamically adjusts its height to fit content.
+   */
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * Auto-resize the textarea to fit its content.
+   * Resets height to 'auto' first to correctly measure scrollHeight,
+   * then sets height to the actual content height, clamped to a maximum
+   * of 200px to avoid the textarea consuming too much vertical space.
+   */
+  const autoResizeTextarea = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      const maxHeight = 200;
+      const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+      textarea.style.height = `${newHeight}px`;
+      // Switch to scrollable overflow when content exceeds max height
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+  }, []);
+
+  /**
+   * Parse the URL input into individual lines, filtering out empty lines.
+   * Memoised to avoid re-computing on every render when urlInput hasn't changed.
+   * Returns an array of trimmed, non-empty lines from the input.
+   */
+  const parsedLines = useMemo(() => {
+    return urlInput
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }, [urlInput]);
+
+  /**
+   * Detect whether the input contains multiple URLs (multi-line mode).
+   * A single line is handled by the existing single-URL flow.
+   */
+  const isMultiUrl = parsedLines.length > 1;
+
+  /**
+   * For multi-URL mode: validate each line individually and collect
+   * the valid URLs, invalid count, and content type summary.
+   * Memoised to avoid re-parsing on every render.
+   */
+  const multiUrlInfo = useMemo(() => {
+    if (!isMultiUrl) return null;
+
+    const validUrls: string[] = [];
+    let invalidCount = 0;
+
+    for (const line of parsedLines) {
+      const parsed = parseAppleMusicUrl(line);
+      if (parsed.isValid) {
+        validUrls.push(parsed.url);
+      } else {
+        invalidCount++;
+      }
+    }
+
+    return { validUrls, invalidCount, totalLines: parsedLines.length };
+  }, [isMultiUrl, parsedLines]);
+
+  /**
+   * Determine whether the submit button should be enabled.
+   * - Single URL mode: uses the store's `urlIsValid` flag.
+   * - Multi-URL mode: requires at least one valid URL in the batch.
+   */
+  const canSubmit = isMultiUrl
+    ? (multiUrlInfo?.validUrls.length ?? 0) > 0
+    : urlIsValid;
 
   // ---------------------------------------------------------------
   // Event handlers
@@ -312,35 +399,91 @@ export function DownloadForm() {
       }
     }
 
-    try {
-      const result = await submitDownload(isOffline);
+    // Branch: multi-URL batch submission vs single-URL submission
+    if (isMultiUrl && multiUrlInfo && multiUrlInfo.validUrls.length > 0) {
+      // --- Multi-URL batch mode ---
+      try {
+        const result = await submitBatchDownload(multiUrlInfo.validUrls, isOffline);
 
-      // Show duplicate URL warning if the backend detected a match.
-      // This is non-blocking — the download is still queued.
-      if (result.duplicate_warning) {
-        addToast(result.duplicate_warning, 'warning');
-      }
+        // Show duplicate warnings (batched into a single toast if multiple)
+        if (result.duplicateWarnings.length > 0) {
+          addToast(
+            result.duplicateWarnings.length === 1
+              ? result.duplicateWarnings[0]
+              : `${result.duplicateWarnings.length} duplicate URLs detected in queue`,
+            'warning'
+          );
+        }
 
-      if (isOffline) {
-        addToast('Download queued — will start when internet is available', 'warning');
-      } else {
-        addToast('Download added to queue', 'success');
+        // Build summary toast message
+        const parts: string[] = [];
+        if (result.queued > 0) {
+          parts.push(`${result.queued} download${result.queued !== 1 ? 's' : ''} added to queue`);
+        }
+        if (result.failed > 0) {
+          parts.push(`${result.failed} failed to queue`);
+        }
+        if (multiUrlInfo.invalidCount > 0) {
+          parts.push(`${multiUrlInfo.invalidCount} invalid URL${multiUrlInfo.invalidCount !== 1 ? 's' : ''} skipped`);
+        }
+
+        const summaryMsg = parts.join(', ');
+
+        if (isOffline) {
+          addToast(`${summaryMsg} — will start when internet is available`, 'warning');
+        } else if (result.failed > 0 || multiUrlInfo.invalidCount > 0) {
+          addToast(summaryMsg, 'warning');
+        } else {
+          addToast(summaryMsg, 'success');
+        }
+
+        // Reset textarea height after clearing input
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+      } catch {
+        addToast('Failed to add downloads', 'error');
       }
-    } catch {
-      addToast('Failed to add download', 'error');
+    } else {
+      // --- Single-URL mode (existing flow) ---
+      try {
+        const result = await submitDownload(isOffline);
+
+        // Show duplicate URL warning if the backend detected a match.
+        // This is non-blocking — the download is still queued.
+        if (result.duplicate_warning) {
+          addToast(result.duplicate_warning, 'warning');
+        }
+
+        if (isOffline) {
+          addToast('Download queued — will start when internet is available', 'warning');
+        } else {
+          addToast('Download added to queue', 'success');
+        }
+
+        // Reset textarea height after clearing input
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+      } catch {
+        addToast('Failed to add download', 'error');
+      }
     }
   };
 
   /**
-   * Handles the Enter key in the URL input field.
-   * Submits the form if the URL is valid and no submission is in progress.
-   * This provides a keyboard-friendly shortcut so users don't need to
-   * click the "Add to Queue" button.
+   * Handles keyboard events in the URL textarea.
+   *
+   * - **Enter** (without Shift): submits the form if valid and not submitting.
+   *   `preventDefault()` stops the newline from being inserted.
+   * - **Shift+Enter**: inserts a newline (default textarea behaviour) for
+   *   multi-URL entry. No special handling needed.
    *
    * @see https://react.dev/learn/responding-to-events
    */
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && urlIsValid && !isSubmitting) {
+    if (e.key === 'Enter' && !e.shiftKey && canSubmit && !isSubmitting) {
+      e.preventDefault();
       handleSubmit();
     }
   };
@@ -415,8 +558,9 @@ export function DownloadForm() {
             Apple Music URL
           </label>
 
-          {/* Input row: text field + submit button side-by-side */}
-          <div className="flex gap-2">
+          {/* Input row: textarea + submit button side-by-side.
+              `items-start` keeps the button top-aligned when textarea grows. */}
+          <div className="flex gap-2 items-start">
             {/*
              * URL text input with inline content-type badge.
              * `relative` positioning on the wrapper allows the badge
@@ -424,56 +568,75 @@ export function DownloadForm() {
              */}
             <div className="flex-1 relative">
               {/*
-               * Controlled text input bound to `downloadStore.urlInput`.
+               * Controlled textarea bound to `downloadStore.urlInput`.
+               *
+               * Supports both single-URL and multi-URL (one per line) input.
+               * Auto-resizes vertically to fit content, capped at 200px.
                *
                * onChange: calls `setUrlInput()` which validates the URL
                *   in real-time via `parseAppleMusicUrl()` from
-               *   `@/lib/url-parser.ts`.
-               * onKeyDown: submits on Enter if URL is valid.
+               *   `@/lib/url-parser.ts`. Also triggers auto-resize.
+               * onKeyDown: Enter submits (Shift+Enter inserts newline).
                *
                * Border colour changes based on validation state:
                *  - Red (`border-status-error`) when input is non-empty
-               *    but the URL is invalid.
+               *    but neither single-URL nor multi-URL is valid.
                *  - Default (`border-border`) otherwise, with accent
                *    colour on focus (`focus:border-accent`).
                *
-               * @see https://react.dev/reference/react-dom/components/input
+               * @see https://react.dev/reference/react-dom/components/textarea
                */}
-              <input
+              <textarea
+                ref={textareaRef}
                 id="url-input"
-                type="text"
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
                   // Clear cookie error when URL changes (user is retrying)
                   if (cookieError) setCookieError(null);
+                  // Auto-resize textarea to fit content after React updates the value
+                  requestAnimationFrame(autoResizeTextarea);
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="https://music.apple.com/..."
+                placeholder="Paste one or more Apple Music URLs (one per line)"
+                rows={1}
                 className={`
                   w-full px-3 py-2 text-sm rounded-platform border
                   bg-surface-secondary text-content-primary
                   placeholder-content-tertiary
-                  transition-colors
+                  transition-colors resize-none overflow-hidden
                   focus:ring-1 focus:ring-accent
-                  ${urlInput && !urlIsValid ? 'border-status-error focus:border-status-error' : 'border-border focus:border-accent'}
+                  ${urlInput && !canSubmit ? 'border-status-error focus:border-status-error' : 'border-border focus:border-accent'}
                 `}
+                style={{ minHeight: '38px' }}
               />
 
               {/*
                * Content-type badge -- absolutely positioned inside the
-               * input (right-aligned, vertically centred).
+               * textarea (right-aligned, top-aligned for multi-line).
                *
-               * Only shown when `urlIsValid` is true. Displays the
-               * detected content type icon + label (e.g., "Album").
-               * The icon component is resolved from `CONTENT_TYPE_ICONS`
-               * and the label from `CONTENT_TYPE_LABELS`.
+               * Single-URL mode: shows the detected content type icon +
+               * label (e.g., "Album") when `urlIsValid` is true.
+               *
+               * Multi-URL mode: shows a count badge (e.g., "3 URLs")
+               * with the valid/invalid breakdown.
                *
                * `rounded-full` makes it pill-shaped.
                * `bg-accent-light text-accent` uses the accent colour
                * at a light tint for the background.
                */}
-              {urlIsValid && (
+              {isMultiUrl && multiUrlInfo && multiUrlInfo.validUrls.length > 0 && (
+                <div className="absolute right-2 top-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
+                  <Layers size={12} />
+                  {multiUrlInfo.validUrls.length} URL{multiUrlInfo.validUrls.length !== 1 ? 's' : ''}
+                  {multiUrlInfo.invalidCount > 0 && (
+                    <span className="text-status-warning ml-1">
+                      ({multiUrlInfo.invalidCount} invalid)
+                    </span>
+                  )}
+                </div>
+              )}
+              {!isMultiUrl && urlIsValid && (
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
                   <ContentIcon size={12} />
                   {CONTENT_TYPE_LABELS[contentType]}
@@ -494,7 +657,7 @@ export function DownloadForm() {
               variant="primary"
               icon={<Plus size={16} />}
               loading={isSubmitting}
-              disabled={!urlIsValid}
+              disabled={!canSubmit}
               onClick={handleSubmit}
             >
               Add to Queue
@@ -506,12 +669,15 @@ export function DownloadForm() {
            *  - Red error text when the input has text but URL is invalid.
            *  - Grey helper text when the input is empty (shows supported types).
            */}
-          {urlInput && !urlIsValid && (
+          {urlInput && !canSubmit && !isMultiUrl && (
             <p className="text-xs text-status-error">Please enter a valid Apple Music URL</p>
+          )}
+          {urlInput && !canSubmit && isMultiUrl && (
+            <p className="text-xs text-status-error">No valid Apple Music URLs found</p>
           )}
           {!urlInput && (
             <p className="text-xs text-content-tertiary">
-              Supports songs, albums, playlists, music videos, and artist pages
+              Supports songs, albums, playlists, music videos, and artist pages. Paste multiple URLs (one per line) to queue them all.
             </p>
           )}
 

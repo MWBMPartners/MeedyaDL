@@ -272,6 +272,21 @@ interface DownloadState {
    * Called after successful submission or when the user clicks "Clear".
    */
   clearInput: () => void;
+
+  /**
+   * Submit multiple URLs as individual downloads to the Rust backend.
+   * Each URL is submitted as a separate queue item with the same quality
+   * overrides. Returns a summary of successes, failures, and duplicate warnings.
+   * @param urls - Array of validated Apple Music URLs
+   * @param skipAutoStart - When true, items are queued but queue processing
+   *   is not triggered. Used when the device is offline.
+   * @returns Summary with counts of queued, failed, and duplicate-warned items
+   */
+  submitBatchDownload: (urls: string[], skipAutoStart?: boolean) => Promise<{
+    queued: number;
+    failed: number;
+    duplicateWarnings: string[];
+  }>;
 }
 
 /**
@@ -650,4 +665,73 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       urlContentType: 'unknown',
       overrideOptions: null,
     }),
+
+  // -------------------------------------------------------------------------
+  // Batch download submission
+  // -------------------------------------------------------------------------
+
+  /**
+   * Submit multiple URLs as individual downloads to the Rust backend.
+   *
+   * Each URL is submitted as a separate `startDownload()` IPC call with
+   * the current quality overrides applied to all items. This allows users
+   * to paste multiple Apple Music URLs (one per line) and queue them all
+   * at once.
+   *
+   * Flow:
+   *   1. Set `isSubmitting = true` to disable the UI.
+   *   2. Iterate over the URL array, calling `commands.startDownload()` for each.
+   *   3. Collect successes, failures, and duplicate warnings.
+   *   4. Clear the input form on completion.
+   *   5. Return a summary for the calling component to display toasts.
+   *
+   * @param urls - Array of validated Apple Music URLs to submit
+   * @param skipAutoStart - When true, items are queued but not auto-started
+   * @returns Summary object with queued/failed counts and duplicate warnings
+   */
+  submitBatchDownload: async (urls, skipAutoStart) => {
+    const { overrideOptions } = get();
+
+    set({ isSubmitting: true, error: null });
+
+    let queued = 0;
+    let failed = 0;
+    const duplicateWarnings: string[] = [];
+
+    try {
+      for (const url of urls) {
+        try {
+          const result = await commands.startDownload(
+            {
+              urls: [url],
+              options: overrideOptions ?? undefined,
+            },
+            skipAutoStart,
+          );
+          queued++;
+          if (result.duplicate_warning) {
+            duplicateWarnings.push(result.duplicate_warning);
+          }
+        } catch {
+          // Individual URL failure — continue with remaining URLs
+          failed++;
+        }
+      }
+
+      // Clear the input form after batch submission is complete.
+      set({
+        urlInput: '',
+        urlIsValid: false,
+        urlContentType: 'unknown',
+        overrideOptions: null,
+        isSubmitting: false,
+      });
+
+      return { queued, failed, duplicateWarnings };
+    } catch (e) {
+      const msg = String(e);
+      set({ error: msg, isSubmitting: false });
+      throw new Error(msg);
+    }
+  },
 }));
