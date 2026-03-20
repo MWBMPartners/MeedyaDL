@@ -120,7 +120,7 @@ import { MainLayout } from './components/layout';
  * DownloadForm: URL input and option configuration for new downloads.
  * DownloadQueue: Real-time view of all queued/active/completed downloads.
  */
-import { DownloadForm, DownloadQueue, ActivityLog } from './components/download';
+import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './components/download';
 
 /** UpdatesPage: Detailed update view with full release notes */
 import { UpdatesPage } from './components/updates';
@@ -895,6 +895,8 @@ function App() {
         return <DownloadForm />; // URL input form and download options
       case 'queue':
         return <DownloadQueue />; // Real-time download queue with progress
+      case 'history':
+        return <HistoryPage />; // Persistent download history
       case 'activity':
         return <ActivityLog />; // Live subprocess output log
       case 'updates':
