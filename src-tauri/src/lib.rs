@@ -430,6 +430,163 @@ fn setup_queue_recovery(app: &tauri::App) {
     });
 }
 
+/// Parses a `meedyadl://` deep link URL and extracts the download parameters.
+///
+/// Supported URL format:
+///   `meedyadl://download?url=<apple_music_url>[&codec=<codec>]`
+///
+/// # Arguments
+/// * `deep_link_url` -- The full `meedyadl://` URL string to parse.
+///
+/// # Returns
+/// A tuple of `(download_url, optional_codec)` if the URL is valid,
+/// or `None` if the URL cannot be parsed or is missing required parameters.
+fn parse_deep_link_url(deep_link_url: &str) -> Option<(String, Option<String>)> {
+    // Parse the deep link URL. The `url` crate handles percent-decoding
+    // and query parameter extraction.
+    let parsed = url::Url::parse(deep_link_url).ok()?;
+
+    // Verify the scheme is `meedyadl` and the host/path indicates a download action.
+    // Accept both `meedyadl://download?...` and `meedyadl://download/?...`
+    if parsed.scheme() != "meedyadl" {
+        return None;
+    }
+
+    // The "host" in a custom scheme URL is the action (e.g., "download").
+    // url::Url parses `meedyadl://download?url=...` with host = "download".
+    let action = parsed.host_str().unwrap_or("");
+    if action != "download" {
+        log::warn!("Unknown deep link action: '{action}' (expected 'download')");
+        return None;
+    }
+
+    // Extract the `url` query parameter (required).
+    let mut download_url: Option<String> = None;
+    let mut codec: Option<String> = None;
+
+    for (key, value) in parsed.query_pairs() {
+        match key.as_ref() {
+            "url" => download_url = Some(value.to_string()),
+            "codec" => codec = Some(value.to_string()),
+            other => {
+                log::debug!("Ignoring unknown deep link parameter: '{other}'");
+            }
+        }
+    }
+
+    let url = download_url?;
+    if url.is_empty() {
+        return None;
+    }
+
+    Some((url, codec))
+}
+
+/// Handles a list of deep link URLs by parsing each one and emitting a
+/// `deep-link-download` event to the frontend for the first valid URL.
+///
+/// Also brings the main application window to the foreground so the user
+/// can see the pre-filled download form.
+///
+/// # Arguments
+/// * `app` -- The Tauri `AppHandle` for emitting events and accessing windows.
+/// * `urls` -- The list of deep link URL strings received from the OS.
+fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
+    use tauri::Emitter;
+    use tauri::Manager;
+
+    for deep_url in &urls {
+        let url_str = deep_url.as_str();
+        log::info!("Deep link received: {url_str}");
+
+        if let Some((download_url, codec)) = parse_deep_link_url(url_str) {
+            log::info!(
+                "Deep link parsed: url={download_url}, codec={}",
+                codec.as_deref().unwrap_or("(default)")
+            );
+
+            // Emit a typed event to the frontend with the parsed parameters.
+            // The frontend listens for `deep-link-download` and navigates to
+            // the Download page with the URL pre-filled.
+            let payload = serde_json::json!({
+                "url": download_url,
+                "codec": codec,
+            });
+            if let Err(e) = app.emit("deep-link-download", payload) {
+                log::error!("Failed to emit deep-link-download event: {e}");
+            }
+
+            // Bring the main window to the foreground so the user sees the
+            // pre-filled download form.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
+            // Log to the activity log
+            utils::activity_log::emit_app_log(
+                app,
+                &format!("URL received from deep link: {download_url}"),
+            );
+
+            // Only process the first valid deep link URL
+            return;
+        }
+
+        log::warn!("Failed to parse deep link URL: {url_str}");
+    }
+}
+
+/// Registers the deep link URL handler for the `meedyadl://` custom scheme.
+///
+/// Sets up two handlers:
+/// 1. **Runtime handler** (`on_open_url`): Called when the app is already running
+///    and a deep link URL is opened by an external tool.
+/// 2. **Startup handler** (`get_current`): Checks if the app was launched via a
+///    deep link URL (i.e., the app was not running when the URL was opened).
+///
+/// Both handlers parse the URL and emit a `deep-link-download` event to the
+/// frontend with the extracted download URL and optional codec parameter.
+fn setup_deep_link_handler(app: &tauri::App) {
+    use tauri_plugin_deep_link::DeepLinkExt;
+
+    let app_handle = app.handle().clone();
+
+    // Handler for deep links received while the app is already running.
+    // The closure captures a clone of the AppHandle for event emission.
+    app.deep_link().on_open_url(move |event| {
+        let urls = event.urls();
+        if !urls.is_empty() {
+            handle_deep_link_urls(&app_handle, urls);
+        }
+    });
+
+    // Check if the app was launched via a deep link URL.
+    // This handles the case where the app was not running and the OS started
+    // it in response to a `meedyadl://` URL being opened.
+    // We delay this check so the frontend event listeners are ready.
+    let startup_handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        // Wait for frontend to initialise (same delay as queue recovery)
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        match startup_handle.deep_link().get_current() {
+            Ok(Some(urls)) if !urls.is_empty() => {
+                log::info!("App launched via deep link ({} URL(s))", urls.len());
+                handle_deep_link_urls(&startup_handle, urls);
+            }
+            Ok(_) => {
+                // No startup deep link — normal launch
+            }
+            Err(e) => {
+                log::debug!("Could not check startup deep link: {e}");
+            }
+        }
+    });
+
+    log::info!("Deep link handler registered for meedyadl:// scheme");
+}
+
 /// Emit a concise summary of key settings at startup.
 ///
 /// Logs the most diagnostically useful settings to the activity log
@@ -722,6 +879,16 @@ pub fn run() {
         // current operating system and CPU architecture.
         // Reference: https://v2.tauri.app/plugin/os/
         .plugin(tauri_plugin_os::init())
+        // Deep Link plugin: registers the `meedyadl://` custom URL scheme so
+        // external tools, bookmarklets, and browser extensions can trigger
+        // downloads by opening URLs like:
+        //   meedyadl://download?url=https://music.apple.com/gb/album/...
+        // The plugin generates platform-specific scheme registrations:
+        //   - macOS: CFBundleURLTypes in Info.plist (automatic)
+        //   - Linux: x-scheme-handler/meedyadl in .desktop file (manual)
+        //   - Windows: registry entries (automatic via plugin)
+        // Reference: https://v2.tauri.app/plugin/deep-linking/
+        .plugin(tauri_plugin_deep_link::init())
         // ---------------------------------------------------------------
         // IPC Command Registration
         // ---------------------------------------------------------------
@@ -951,6 +1118,17 @@ pub fn run() {
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
+
+            // Register the deep link URL handler for the `meedyadl://` scheme.
+            // When an external tool opens a URL like:
+            //   meedyadl://download?url=https://music.apple.com/gb/album/...&codec=alac
+            // this handler parses the URL parameters and emits a `deep-link-download`
+            // event to the frontend, which navigates to the Download page and pre-fills
+            // the URL input. Also brings the main window to the foreground.
+            //
+            // The handler also checks for any URL that was used to launch the app
+            // (e.g., when the app was not running and was started via a deep link).
+            setup_deep_link_handler(app);
 
             // Emit a startup activity log event after a short delay so the
             // frontend event listeners are registered before we send it.
