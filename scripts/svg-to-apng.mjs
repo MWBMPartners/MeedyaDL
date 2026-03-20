@@ -41,6 +41,8 @@ const CONFIGS = [
     fps: 15,
     // Full cycle = 8s crossfade. Capture one complete cycle.
     durationSeconds: 8,
+    // Auto-trim transparent edges
+    trim: true,
   },
   {
     name: 'logotype',
@@ -51,6 +53,8 @@ const CONFIGS = [
     fps: 15,
     // Gradient shimmer cycle = 4s. Capture two cycles for smoothness.
     durationSeconds: 8,
+    // Auto-trim transparent edges from each frame
+    trim: true,
   },
 ];
 
@@ -105,8 +109,39 @@ async function main() {
 
     await page.setContent(html, { waitUntil: 'networkidle0' });
 
-    // Wait a moment for fonts to load and animations to start
-    await new Promise((r) => setTimeout(r, 500));
+    // Wait for fonts to load, animations to start, and dynamic layout to run
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // After the dynamic layout script runs, read the updated viewBox
+    // to determine actual content width (the script resizes viewBox to
+    // fit the text). Then set the viewport to match for tight framing.
+    let clipRegion = { x: 0, y: 0, width: config.width, height: config.height };
+    if (config.trim) {
+      const viewBox = await page.evaluate(() => {
+        const svg = document.querySelector('svg');
+        if (!svg) return null;
+        const vb = svg.getAttribute('viewBox');
+        if (!vb) return null;
+        const [x, y, w, h] = vb.split(/[\s,]+/).map(Number);
+        return { x, y, w, h };
+      });
+      if (viewBox && viewBox.w > 0 && viewBox.h > 0) {
+        // Resize the viewport and CSS to match the actual viewBox content
+        const scale = config.height / viewBox.h; // scale to match configured height
+        const newWidth = Math.ceil(viewBox.w * scale);
+        const newHeight = config.height;
+        await page.setViewport({ width: newWidth, height: newHeight, deviceScaleFactor: 1 });
+        await page.evaluate((w, h) => {
+          document.body.style.width = w + 'px';
+          document.body.style.height = h + 'px';
+          const svg = document.querySelector('svg');
+          if (svg) { svg.style.width = w + 'px'; svg.style.height = h + 'px'; }
+        }, newWidth, newHeight);
+        clipRegion = { x: 0, y: 0, width: newWidth, height: newHeight };
+        console.log(`  Trimmed to: ${newWidth}x${newHeight} (viewBox ${viewBox.w}x${viewBox.h})`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+    }
 
     // Capture frames
     console.log('  Capturing frames...');
@@ -116,12 +151,7 @@ async function main() {
         path: framePath,
         type: 'png',
         omitBackground: true, // Transparent background
-        clip: {
-          x: 0,
-          y: 0,
-          width: config.width,
-          height: config.height,
-        },
+        clip: clipRegion,
       });
 
       // Wait for next frame
