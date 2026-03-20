@@ -1237,3 +1237,96 @@ The update checker in `update_checker.rs` uses two different GitHub API endpoint
 | `check_pre_releases: true` | `releases?per_page=5` | Returns newest releases including pre-releases |
 
 Since all current releases are pre-releases, users on the default setting will see "no updates available" until a full release is published.
+
+---
+
+## MeedyaSuite Logotype SVG — Customisation Guide
+
+The logotype SVG at `assets/brand/new/logotype.svg` is a fully self-contained, animated wordmark designed for use across the MeedyaSuite product family (MeedyaDL, MeedyaManager, MeedyaDB).
+
+### Changing Colours / Gradients
+
+All colours are controlled via CSS custom properties in the SVG's `<style>` block. There are **four colour modes** built in, each with its own set of properties:
+
+| Mode | Trigger | Properties |
+|------|---------|-----------|
+| **Light** (default) | Default / `?mode=light` | `--logotype-primary: #475569` (dark slate), `--logotype-secondary: #94A3B8` (silver), `--logotype-accent: #64748B` (steel), `--logotype-glow: #94A3B8` |
+| **Dark** | `@media (prefers-color-scheme: dark)` / `.dark` class / `?mode=dark` | `--logotype-primary: #CBD5E1`, `--logotype-secondary: #F1F5F9`, `--logotype-accent: #94A3B8`, `--logotype-glow: #CBD5E1` |
+| **Colour-blind (light)** | `.cb-deutan` / `.cb-protan` / `.cb-tritan` class or `?mode=cb-deutan` etc. | Uses IBM's colour-blind-safe palette (blue/amber/pink variants) |
+| **Colour-blind (dark)** | `.dark.cb-deutan` or `?mode=cb-deutan-dark` etc. | Brighter versions of the CB palettes for dark backgrounds |
+
+**To change colours for any mode**, edit the CSS custom properties in the corresponding block inside `<style>`:
+
+```css
+:root {
+  --logotype-primary: #475569;     /* Gradient start — darkest colour */
+  --logotype-secondary: #94A3B8;   /* Gradient end — lightest colour */
+  --logotype-accent: #64748B;      /* Suffix, dots, brackets, underline */
+  --logotype-glow: #94A3B8;        /* Neon glow filter colour */
+  --logotype-shadow: rgba(0,0,0,0.3); /* Drop shadow colour */
+}
+```
+
+**At runtime** (e.g., from the app), override via:
+- URL parameter: `logotype.svg?mode=dark`
+- CSS class: `<svg class="dark">` or `<div class="dark"><img src="logotype.svg"></div>`
+- JavaScript: `svgElement.style.setProperty('--logotype-primary', '#ff0000')`
+
+### Changing Animation Speed
+
+Two CSS custom properties control all animation timing:
+
+| Property | Default | Controls |
+|----------|---------|----------|
+| `--logotype-animation-speed` | `4s` | Gradient shimmer on brand prefix, suffix, and circuit dots |
+| `--logotype-bracket-flash-speed` | `3s` | Bracket flicker/flash frequency |
+
+To make animations faster, reduce the values; slower, increase them:
+```css
+:root {
+  --logotype-animation-speed: 2s;        /* Faster shimmer */
+  --logotype-bracket-flash-speed: 1.5s;  /* Faster bracket flash */
+}
+```
+
+The dot pulse animation runs at `0.6×` the base animation speed. The suffix shimmer is offset by half a cycle from the prefix so the gradient appears to flow across the full wordmark.
+
+### Changing the Product Name
+
+Edit the `<text id="product-suffix">` element:
+```xml
+<text id="product-suffix" ...>DL</text>       <!-- MeedyaDL -->
+<text id="product-suffix" ...>Manager</text>   <!-- MeedyaManager -->
+<text id="product-suffix" ...>DB</text>        <!-- MeedyaDB -->
+```
+
+The embedded JavaScript auto-repositions the dots, brackets, underline, and resizes the canvas (`viewBox`) on load. No manual width adjustment needed.
+
+### Fonts
+
+Two Google Fonts are embedded as base64 WOFF2 inside the SVG (no network requests needed):
+
+| Font | Style | Used For |
+|------|-------|----------|
+| **Orbitron** (variable, 400–900) | Geometric, sharp-cornered, sci-fi | Brand prefix ("Meedya") at weight 900 |
+| **Rajdhani** (Bold 700) | Angular, condensed, digital readout | Product suffix ("DL") at weight 900 + 1.5px stroke |
+
+Font weight is controlled via CSS `font-weight` in the `#brand-prefix` and `#product-suffix` rules. Orbitron is a variable font so any weight from 400–900 works.
+
+### SVG Element IDs
+
+All elements have descriptive IDs for manual editing or JavaScript access:
+
+| ID | Element |
+|----|---------|
+| `brand-prefix` | "Meedya" text |
+| `product-suffix` | "DL" / "Manager" / "DB" text |
+| `circuit-dots` | Three pulsating vertical dots (group) |
+| `bracket-left` / `bracket-right` | Decorative square brackets |
+| `accent-underline` | Dashed bottom line |
+| `scan-line` | Horizontal scan sweep (decorative) |
+| `wordmark-group` | Container for all visible elements |
+
+### File Size
+
+~49 KB with two embedded fonts. The Orbitron variable font replaced 2 static weights, and Rajdhani uses a single weight — reduced from ~308 KB (4 separate static fonts) to ~49 KB.
