@@ -282,7 +282,8 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `settings` - The application settings to convert and write
-/// Syncs settings to GAMDL's config.ini. Public so gamdl_service can
+///
+/// Syncs settings to GAMDL's config.ini. Public so `gamdl_service` can
 /// call it immediately before each invocation to ensure fresh config.
 pub fn sync_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     // Resolve the GAMDL config.ini path: {app_data_dir}/gamdl/config.ini
