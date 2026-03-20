@@ -29,6 +29,7 @@
  * Icon-to-page mapping:
  *  - `Download`     -> Download page    (@see https://lucide.dev/icons/download)
  *  - `ListOrdered`  -> Queue page       (@see https://lucide.dev/icons/list-ordered)
+ *  - `Clock`        -> History page     (@see https://lucide.dev/icons/clock)
  *  - `Settings`     -> Settings page    (@see https://lucide.dev/icons/settings)
  *  - `HelpCircle`   -> Help page        (@see https://lucide.dev/icons/help-circle)
  *  - `ChevronLeft`  -> Collapse sidebar (@see https://lucide.dev/icons/chevron-left)
@@ -37,6 +38,7 @@
 import {
   Download,
   ListOrdered,
+  Clock,
   ScrollText,
   ArrowUpCircle,
   Settings,
@@ -106,6 +108,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { page: 'download', label: 'Download', icon: Download },
   { page: 'queue', label: 'Queue', icon: ListOrdered },
+  { page: 'history', label: 'History', icon: Clock },
   { page: 'activity', label: 'Activity', icon: ScrollText },
   { page: 'updates', label: 'Updates', icon: ArrowUpCircle },
   { page: 'settings', label: 'Settings', icon: Settings },
