@@ -5036,7 +5036,37 @@ fn settings_snapshot_for_context(app: &AppHandle) -> std::collections::HashMap<S
 /// Called after every queue mutation (enqueue, cancel, retry, clear, fallback,
 /// network retry, completion, error) to ensure the on-disk state is always
 /// up-to-date for crash recovery.
+/// Debounced queue persistence. Saves at most once per 500ms to reduce
+/// I/O pressure for rapid sequential mutations (e.g., batch enqueue).
+/// See: https://github.com/MWBMPartners/MeedyaDL/issues/233
 pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST_SAVE_MS: AtomicU64 = AtomicU64::new(0);
+    const DEBOUNCE_MS: u64 = 500;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_SAVE_MS.load(Ordering::Relaxed);
+
+    if now.saturating_sub(last) < DEBOUNCE_MS {
+        // Schedule a delayed save to ensure the final state is persisted
+        let app_clone = app.clone();
+        let queue_clone = queue.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(DEBOUNCE_MS)).await;
+            save_queue_to_disk_inner(&app_clone, &queue_clone).await;
+        });
+        return;
+    }
+    LAST_SAVE_MS.store(now, Ordering::Relaxed);
+
+    save_queue_to_disk_inner(app, queue).await;
+}
+
+/// Internal save implementation (not debounced).
+async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandle) {
     // Clone persistable items while holding the lock (very fast — just cloning URLs + IDs)
     let items = {
         let q = queue.lock().await;
