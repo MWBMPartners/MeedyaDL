@@ -207,10 +207,10 @@
         letter-spacing: 2px;
         /* No text-transform — respects per-product casing:
            "DL", "DB", "Manager" etc. */
-        fill: url(#logotype-grad-suffix);
+        fill: url(#logotype-grad-suffix-anim);
         /* Subtle stroke adds visual weight to match the prefix */
         paint-order: stroke fill;
-        stroke: url(#logotype-grad-suffix);
+        stroke: url(#logotype-grad-suffix-anim);
         stroke-width: 1.5px;
         stroke-linejoin: round;
       }
@@ -231,7 +231,7 @@
 
       /* ── Circuit Dot Separators ──────────────────────────── */
       .circuit-dot {
-        fill: var(--logotype-accent);
+        fill: url(#logotype-grad-dots-anim);
       }
 
       /* ── Glow Filter ─────────────────────────────────────── */
@@ -278,6 +278,35 @@
         animation-delay: calc(var(--logotype-animation-speed) * 0.66);
       }
 
+      /* Animated gradient stops — suffix (offset timing from prefix) */
+      #logotype-grad-suffix-anim stop:nth-child(1) {
+        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--logotype-animation-speed) * 0.5);
+      }
+      #logotype-grad-suffix-anim stop:nth-child(2) {
+        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--logotype-animation-speed) * 0.83);
+      }
+      #logotype-grad-suffix-anim stop:nth-child(3) {
+        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--logotype-animation-speed) * 0.16);
+      }
+
+      /* Animated gradient stops — circuit dots (faster, independent rhythm) */
+      @keyframes dot-shimmer {
+        0%   { stop-color: var(--logotype-accent); }
+        50%  { stop-color: var(--logotype-primary); }
+        100% { stop-color: var(--logotype-accent); }
+      }
+
+      #logotype-grad-dots-anim stop:nth-child(1) {
+        animation: dot-shimmer calc(var(--logotype-animation-speed) * 0.6) ease-in-out infinite;
+      }
+      #logotype-grad-dots-anim stop:nth-child(2) {
+        animation: dot-shimmer calc(var(--logotype-animation-speed) * 0.6) ease-in-out infinite;
+        animation-delay: calc(var(--logotype-animation-speed) * 0.3);
+      }
+
       /* Scan line sweep */
       #scan-line {
         animation: scan-sweep calc(var(--logotype-animation-speed) * 2) linear infinite;
@@ -304,6 +333,8 @@
       /* ── Reduced Motion ──────────────────────────────────── */
       @media (prefers-reduced-motion: reduce) {
         #logotype-grad-brand-anim stop,
+        #logotype-grad-suffix-anim stop,
+        #logotype-grad-dots-anim stop,
         #scan-line,
         .bracket-deco,
         .circuit-dot {
@@ -328,10 +359,23 @@
       <stop offset="100%" stop-color="#94A3B8" />
     </linearGradient>
 
-    <!-- Product suffix gradient -->
+    <!-- Product suffix gradient (static fallback) -->
     <linearGradient id="logotype-grad-suffix" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" />
       <stop offset="100%" />
+    </linearGradient>
+
+    <!-- Product suffix gradient (animated, offset from brand prefix) -->
+    <linearGradient id="logotype-grad-suffix-anim" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#64748B" />
+      <stop offset="50%"  stop-color="#94A3B8" />
+      <stop offset="100%" stop-color="#475569" />
+    </linearGradient>
+
+    <!-- Circuit dots gradient (animated, independent faster rhythm) -->
+    <linearGradient id="logotype-grad-dots-anim" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#64748B" />
+      <stop offset="100%" stop-color="#94A3B8" />
     </linearGradient>
 
     <!-- Scan line gradient -->
