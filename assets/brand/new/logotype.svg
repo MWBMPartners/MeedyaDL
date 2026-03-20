@@ -24,11 +24,11 @@
   convert text to outlines in a vector editor.
 
   Customisation via CSS custom properties:
-    --logotype-primary         Brand gradient start  (default: #3B82F6)
-    --logotype-secondary       Brand gradient end     (default: #8B5CF6)
-    --logotype-accent          Suffix / highlights    (default: #06B6D4)
-    --logotype-glow            Neon glow colour       (default: #06B6D4)
-    --logotype-animation-speed Shimmer cycle duration (default: 4s)
+    logotype-primary         Brand gradient start  (default: #3B82F6)
+    logotype-secondary       Brand gradient end     (default: #8B5CF6)
+    logotype-accent          Suffix / highlights    (default: #06B6D4)
+    logotype-glow            Neon glow colour       (default: #06B6D4)
+    logotype-animation-speed Shimmer cycle duration (default: 4s)
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
      viewBox="0 0 720 130" width="720" height="130"
