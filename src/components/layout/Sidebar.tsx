@@ -225,18 +225,14 @@ export function Sidebar() {
          * via inherited CSS classes. Falls back to static PNG via <img>.
          * `no-drag` ensures the logo isn't treated as a drag handle.
          */}
-        <object
-          data="/logo.svg"
-          type="image/svg+xml"
-          className="w-8 h-8 rounded-platform flex-shrink-0 no-drag pointer-events-none"
-          aria-label="MeedyaDL logo"
-        >
-          <img
-            src="/app-icon.svg"
-            alt="MeedyaDL icon"
-            className="w-8 h-8 rounded-platform flex-shrink-0"
-          />
-        </object>
+        {/* SVG loaded as <img> prevents script execution (CSP defence-in-depth).
+         * CSS animations still work; only embedded <script> is blocked.
+         * See: https://github.com/MWBMPartners/MeedyaDL/issues/221 */}
+        <img
+          src="/logo.svg"
+          alt="MeedyaDL logo"
+          className="w-8 h-8 rounded-platform flex-shrink-0 no-drag"
+        />
         {/*
          * Animated brand logotype (SVG with gradient shimmer).
          * Hidden when the sidebar is collapsed. Falls back to text + static PNG.
@@ -244,20 +240,26 @@ export function Sidebar() {
          * interactive elements placed here (e.g., a dropdown) will work.
          */}
         {!sidebarCollapsed && (
-          <object
-            data="/logotype.svg"
-            type="image/svg+xml"
-            className="h-5 no-drag pointer-events-none"
-            aria-label="MeedyaDL"
-          >
-            {/* Fallback: static text if SVG fails to load */}
-            <div className="no-drag">
+          <>
+            <img
+              src="/logotype.svg"
+              alt="MeedyaDL"
+              className="h-5 no-drag"
+              onError={(e) => {
+                // Fallback to text if SVG fails to load
+                const target = e.currentTarget;
+                target.style.display = 'none';
+                const fallback = target.nextElementSibling as HTMLElement;
+                if (fallback) fallback.style.display = 'block';
+              }}
+            />
+            <div className="no-drag hidden">
               <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
                 MeedyaDL
               </h1>
               <p className="text-[11px] text-content-secondary leading-tight">Media Downloader</p>
             </div>
-          </object>
+          </>
         )}
       </div>
 
