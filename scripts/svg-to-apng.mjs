@@ -112,34 +112,42 @@ async function main() {
     // Wait for fonts to load, animations to start, and dynamic layout to run
     await new Promise((r) => setTimeout(r, 1500));
 
-    // After the dynamic layout script runs, read the updated viewBox
-    // to determine actual content width (the script resizes viewBox to
-    // fit the text). Then set the viewport to match for tight framing.
+    // Auto-trim: measure the actual rendered content bounding box,
+    // then crop the viewport/clip to fit tightly. This handles both:
+    //   - SVGs with dynamic viewBox resizing (logotype)
+    //   - SVGs with static viewBox but content that doesn't fill it (logo)
     let clipRegion = { x: 0, y: 0, width: config.width, height: config.height };
     if (config.trim) {
-      const viewBox = await page.evaluate(() => {
+      // Measure the union bounding box of all visible SVG elements
+      const bounds = await page.evaluate(() => {
         const svg = document.querySelector('svg');
         if (!svg) return null;
-        const vb = svg.getAttribute('viewBox');
-        if (!vb) return null;
-        const [x, y, w, h] = vb.split(/[\s,]+/).map(Number);
-        return { x, y, w, h };
+        const els = svg.querySelectorAll('circle,path,line,rect,ellipse,text,polyline');
+        let minX = 9999, minY = 9999, maxX = 0, maxY = 0;
+        els.forEach((el) => {
+          try {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) {
+              minX = Math.min(minX, r.x);
+              minY = Math.min(minY, r.y);
+              maxX = Math.max(maxX, r.x + r.width);
+              maxY = Math.max(maxY, r.y + r.height);
+            }
+          } catch (e) { /* ignore unmeasurable elements */ }
+        });
+        if (minX >= maxX) return null;
+        return { minX, minY, maxX, maxY };
       });
-      if (viewBox && viewBox.w > 0 && viewBox.h > 0) {
-        // Resize the viewport and CSS to match the actual viewBox content
-        const scale = config.height / viewBox.h; // scale to match configured height
-        const newWidth = Math.ceil(viewBox.w * scale);
-        const newHeight = config.height;
-        await page.setViewport({ width: newWidth, height: newHeight, deviceScaleFactor: 1 });
-        await page.evaluate((w, h) => {
-          document.body.style.width = w + 'px';
-          document.body.style.height = h + 'px';
-          const svg = document.querySelector('svg');
-          if (svg) { svg.style.width = w + 'px'; svg.style.height = h + 'px'; }
-        }, newWidth, newHeight);
-        clipRegion = { x: 0, y: 0, width: newWidth, height: newHeight };
-        console.log(`  Trimmed to: ${newWidth}x${newHeight} (viewBox ${viewBox.w}x${viewBox.h})`);
-        await new Promise((r) => setTimeout(r, 300));
+
+      if (bounds) {
+        // Add small padding, clamp to viewport
+        const pad = 4;
+        const cx = Math.max(0, Math.floor(bounds.minX) - pad);
+        const cy = Math.max(0, Math.floor(bounds.minY) - pad);
+        const cw = Math.min(config.width - cx, Math.ceil(bounds.maxX - bounds.minX) + pad * 2);
+        const ch = Math.min(config.height - cy, Math.ceil(bounds.maxY - bounds.minY) + pad * 2);
+        clipRegion = { x: cx, y: cy, width: cw, height: ch };
+        console.log(`  Trimmed to: ${cw}x${ch} at (${cx},${cy}) (from ${config.width}x${config.height})`);
       }
     }
 
