@@ -90,6 +90,18 @@ import remarkGfm from 'remark-gfm';
  * @see {@link https://github.com/rehypejs/rehype-raw}
  */
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+
+/**
+ * Custom sanitization schema extending the default GitHub-style schema
+ * to allow <details>/<summary> (collapsible sections in About page).
+ * All dangerous elements (script, iframe, event handlers) are stripped.
+ * @see {@link https://github.com/MWBMPartners/MeedyaDL/issues/227}
+ */
+const helpSanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), 'details', 'summary'],
+};
 
 // Lucide icons for each help topic in the sidebar.
 // Each topic has a dedicated icon for quick visual identification.
@@ -1318,7 +1330,7 @@ export function HelpViewer() {
           <div className="max-w-2xl prose prose-sm dark:prose-invert">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeRaw]}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema]]}
               components={{
                 // Custom link handler:
                 //  - Internal links (#topic-id) navigate within the help viewer
