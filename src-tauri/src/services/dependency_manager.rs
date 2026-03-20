@@ -1601,7 +1601,7 @@ async fn install_mp4box_linux_inner(
 
     // Find the data archive file (data.tar.xz, data.tar.gz, or data.tar.zst)
     // without using shell globbing. See: https://github.com/MWBMPartners/MeedyaDL/issues/228
-    let data_archive = std::fs::read_dir(&temp_dir)
+    let data_archive = std::fs::read_dir(temp_dir)
         .map_err(|e| format!("Failed to read temp directory: {e}"))?
         .filter_map(|entry| entry.ok())
         .map(|e| e.path())

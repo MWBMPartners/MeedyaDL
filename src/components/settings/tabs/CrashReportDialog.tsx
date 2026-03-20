@@ -31,7 +31,7 @@ import { useState, useEffect } from 'react';
 import { ExternalLink } from 'lucide-react';
 
 import { Modal, Button, LoadingSpinner } from '@/components/common';
-import { exportCrashReport, getGitHubIssueUrl } from '@/lib/tauri-commands';
+import { exportCrashReport, getGitHubIssueUrl, deleteCrashReport } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import type { CrashReport } from '@/types';
 
@@ -87,7 +87,15 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
       const url = await getGitHubIssueUrl(report.id);
       const { open: openUrl } = await import('@tauri-apps/plugin-shell');
       await openUrl(url);
-      addToast('Opening GitHub Issues in your browser...', 'info');
+      // Auto-delete the report after successful GitHub submission.
+      // The report has been sent to the user's browser for submission,
+      // so the local copy is no longer needed. See: #213
+      try {
+        await deleteCrashReport(report.id);
+        addToast('Report opened in browser and cleaned up locally', 'info');
+      } catch {
+        addToast('Opening GitHub Issues in your browser...', 'info');
+      }
       onReported?.();
       onClose();
     } catch {
