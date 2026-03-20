@@ -1153,14 +1153,29 @@ async fn install_mp4box_from_pkg_inner(
     std::fs::create_dir_all(&payload_dir)
         .map_err(|e| format!("Failed to create payload directory: {e}"))?;
 
-    let extract_status = tokio::process::Command::new("sh")
-        .args([
-            "-c",
-            &format!(
-                "gunzip -c '{}' | cpio -id 2>/dev/null",
-                payload_path.to_string_lossy()
-            ),
-        ])
+    // Use a two-step process instead of sh -c to avoid shell injection.
+    // Step 3a: Decompress with gunzip to a temp file.
+    // Step 3b: Extract with cpio from the decompressed file.
+    // See: https://github.com/MWBMPartners/MeedyaDL/issues/228
+    let decompressed = temp_dir.join("Payload.cpio");
+    let gunzip_output = tokio::process::Command::new("gunzip")
+        .args(["-c"])
+        .arg(&payload_path)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to decompress GPAC payload: {e}"))?;
+
+    if !gunzip_output.status.success() {
+        return Err("gunzip failed to decompress GPAC payload".to_string());
+    }
+    tokio::fs::write(&decompressed, &gunzip_output.stdout)
+        .await
+        .map_err(|e| format!("Failed to write decompressed payload: {e}"))?;
+
+    let extract_status = tokio::process::Command::new("cpio")
+        .args(["-id", "--quiet"])
+        .arg("-F")
+        .arg(&decompressed)
         .current_dir(&payload_dir)
         .output()
         .await
@@ -1584,16 +1599,25 @@ async fn install_mp4box_linux_inner(
     std::fs::create_dir_all(&data_dir)
         .map_err(|e| format!("Failed to create data directory: {e}"))?;
 
-    // Use shell globbing to find and extract the data archive
-    let extract_status = tokio::process::Command::new("sh")
-        .args([
-            "-c",
-            &format!(
-                "tar xf '{}/data.tar.'* -C '{}'",
-                temp_dir.to_string_lossy(),
-                data_dir.to_string_lossy()
-            ),
-        ])
+    // Find the data archive file (data.tar.xz, data.tar.gz, or data.tar.zst)
+    // without using shell globbing. See: https://github.com/MWBMPartners/MeedyaDL/issues/228
+    let data_archive = std::fs::read_dir(&temp_dir)
+        .map_err(|e| format!("Failed to read temp directory: {e}"))?
+        .filter_map(|entry| entry.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("data.tar."))
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| "No data.tar.* archive found in .deb package".to_string())?;
+
+    let extract_status = tokio::process::Command::new("tar")
+        .arg("xf")
+        .arg(&data_archive)
+        .arg("-C")
+        .arg(&data_dir)
         .output()
         .await
         .map_err(|e| format!("Failed to extract data archive: {e}"))?;
