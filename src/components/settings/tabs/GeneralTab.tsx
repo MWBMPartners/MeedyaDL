@@ -53,6 +53,12 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // Update store for manual update checking trigger.
 import { useUpdateStore } from '@/stores/updateStore';
 
+// UI store for toast notifications (used by settings export/import).
+import { useUiStore } from '@/stores/uiStore';
+
+// IPC command wrappers for settings export/import.
+import { exportSettings, importSettings } from '@/lib/tauri-commands';
+
 // Shared form control components:
 // - Toggle: renders a labelled on/off switch
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
@@ -60,8 +66,8 @@ import { useUpdateStore } from '@/stores/updateStore';
 // - Button: platform-adaptive button with loading/icon support
 import { Toggle, FilePickerButton, Select, Input, Button, SettingsSection } from '@/components/common';
 
-// Lucide icon for the refresh/check action button.
-import { RefreshCw } from 'lucide-react';
+// Lucide icons for the refresh/check action button and export/import buttons.
+import { Download, RefreshCw, Upload } from 'lucide-react';
 
 /**
  * Available language options for GAMDL's metadata language preference.
@@ -180,6 +186,15 @@ export function GeneralTab() {
   /** Transient message shown after a check completes */
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
+  /** Toast notification helper */
+  const addToast = useUiStore((s) => s.addToast);
+  /** Load settings from backend (used after import to refresh UI) */
+  const loadSettings = useSettingsStore((s) => s.loadSettings);
+  /** Whether a settings export is in progress */
+  const [isExporting, setIsExporting] = useState(false);
+  /** Whether a settings import is in progress */
+  const [isImporting, setIsImporting] = useState(false);
+
   /**
    * Handle the "Check for Updates" button click.
    * Calls the backend update check and shows a brief result message.
@@ -196,6 +211,48 @@ export function GeneralTab() {
       }
     } catch {
       // Error is stored in the update store's error field
+    }
+  };
+
+  /**
+   * Export current settings to a JSON file via native save dialog.
+   * Sensitive fields (credentials, cookies) are excluded automatically.
+   */
+  const handleExportSettings = async () => {
+    setIsExporting(true);
+    try {
+      await exportSettings();
+      addToast('Settings exported successfully', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Don't show a toast for user cancellation
+      if (!message.includes('cancelled')) {
+        addToast(`Failed to export settings: ${message}`, 'error');
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  /**
+   * Import settings from a JSON file via native file picker.
+   * After import, reloads settings from backend to refresh the UI.
+   */
+  const handleImportSettings = async () => {
+    setIsImporting(true);
+    try {
+      await importSettings();
+      // Reload settings from backend so the UI reflects the imported values
+      await loadSettings();
+      addToast('Settings imported successfully', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Don't show a toast for user cancellation
+      if (!message.includes('cancelled')) {
+        addToast(`Failed to import settings: ${message}`, 'error');
+      }
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -362,6 +419,34 @@ export function GeneralTab() {
             )}
           </div>
           {checkError && !isChecking && <p className="text-xs text-status-error">{checkError}</p>}
+        </div>
+      </SettingsSection>
+
+      {/* Section: Backup */}
+      <SettingsSection title="Backup">
+        <p className="text-xs text-content-secondary mb-2">
+          Export your settings to a file for backup or transfer to another device.
+          Sensitive fields (cookies, credentials) are excluded from the export.
+        </p>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Upload size={14} />}
+            loading={isExporting}
+            onClick={handleExportSettings}
+          >
+            {isExporting ? 'Exporting...' : 'Export Settings'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Download size={14} />}
+            loading={isImporting}
+            onClick={handleImportSettings}
+          >
+            {isImporting ? 'Importing...' : 'Import Settings'}
+          </Button>
         </div>
       </SettingsSection>
     </div>
