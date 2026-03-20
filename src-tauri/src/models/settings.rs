@@ -242,6 +242,15 @@ pub struct AppSettings {
     #[serde(default = "default_auto_start_queue")]
     pub auto_start_queue: bool,
 
+    /// Whether to send native OS desktop notifications for download events
+    /// (completion and terminal failure). Notifications are only sent when
+    /// the main application window is not focused, so they do not interrupt
+    /// users who are actively watching the queue. Default: `true`.
+    ///
+    /// Controlled in Settings > General > Preferences.
+    #[serde(default = "default_true")]
+    pub desktop_notifications: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -826,6 +835,9 @@ impl Default for AppSettings {
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
             auto_start_queue: true,
+            // Desktop notifications enabled by default — OS-native alerts
+            // for download completion and failure when the window is not focused.
+            desktop_notifications: true,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).

@@ -472,6 +472,13 @@ base64 = "0.22"
 
 # ---- Deep Link URL Scheme ----
 
+# tauri-plugin-notification -- Native OS desktop notifications.
+# Sends push notifications to the OS notification center (macOS, Windows, Linux)
+# for download events (completion, failure) when the app window is not focused.
+# Controlled by the `desktop_notifications` user setting (default: enabled).
+# @see https://v2.tauri.app/plugin/notification/
+tauri-plugin-notification = "2"
+
 # tauri-plugin-deep-link -- Custom URL scheme handler for deep linking.
 # Registers the `meedyadl://` URL scheme so external tools, bookmarklets,
 # and browser extensions can trigger downloads by opening URLs like:

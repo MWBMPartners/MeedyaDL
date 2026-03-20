@@ -879,6 +879,11 @@ pub fn run() {
         // current operating system and CPU architecture.
         // Reference: https://v2.tauri.app/plugin/os/
         .plugin(tauri_plugin_os::init())
+        // Notification plugin: sends native OS desktop notifications for
+        // download events (completion, failure) when the app window is not
+        // focused. Controlled by the `desktop_notifications` setting.
+        // Reference: https://v2.tauri.app/plugin/notification/
+        .plugin(tauri_plugin_notification::init())
         // Deep Link plugin: registers the `meedyadl://` custom URL scheme so
         // external tools, bookmarklets, and browser extensions can trigger
         // downloads by opening URLs like:
