@@ -700,9 +700,15 @@ pub struct AppSettings {
     /// API responses, and MusicKit credentials. Only enable when collecting
     /// detailed logs for issue tracking; disable before sharing logs.
     ///
-    /// **Session-only**: This setting is always reset to `false` on app startup
-    /// in `load_settings()` as a safety measure to prevent sensitive data from
-    /// being logged permanently by accident. Users must re-enable it each session.
+    /// **Reset behaviour** (version-aware):
+    /// - **Pre-release versions** (v0.x.x): The setting is **preserved** across
+    ///   restarts because verbose logging is critical for debugging pre-release
+    ///   issues. Users can still toggle it off manually.
+    /// - **Full/public releases** (v1.0.0+): The setting is **reset to `false`**
+    ///   on every startup as a safety measure to prevent sensitive data from
+    ///   being logged permanently by accident.
+    /// - **Upgrade from pre-release → full release**: The setting is reset to
+    ///   `false` on the first launch of the full release version.
     ///
     /// Controlled in Settings > Advanced > Diagnostics.
     #[serde(default)]
@@ -711,6 +717,15 @@ pub struct AppSettings {
     // ================================================================
     // Application State
     // ================================================================
+    /// The last app version the user launched. Compared against the current
+    /// `CARGO_PKG_VERSION` on startup to detect version changes (e.g., for
+    /// showing a pre-release first-load notice or resetting verbose logging
+    /// when upgrading from pre-release → full release).
+    ///
+    /// Empty string = first run (no previous version recorded).
+    #[serde(default)]
+    pub last_seen_version: String,
+
     /// Whether the first-run setup wizard has been completed at least once.
     /// When `true`, the app skips the wizard on startup even if some
     /// dependencies are missing (shows a warning banner instead). This
@@ -1009,6 +1024,8 @@ impl Default for AppSettings {
             verbose_activity_log: false,
 
             // --- Application state ---
+            // No previous version on first run; populated by load_settings().
+            last_seen_version: String::new(),
             // Setup wizard has not been completed yet on a fresh install.
             setup_completed: false,
 

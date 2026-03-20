@@ -342,7 +342,7 @@ export function AdvancedTab() {
       <SettingsSection title="Diagnostics" description="Verbose logging for troubleshooting.">
         <Toggle
           label="Verbose Activity Log"
-          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. This setting is session-only and will reset to off when the application is restarted."
+          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. In pre-release versions (v0.x.x), this setting is preserved across restarts. In full releases, it resets to off on each restart as a safety measure."
           checked={settings.verbose_activity_log}
           onChange={(checked) => updateSettings({ verbose_activity_log: checked })}
         />
@@ -358,8 +358,9 @@ export function AdvancedTab() {
               activity logs with others.
             </p>
             <p className="text-xs text-status-warning mt-2">
-              As a safety measure, this setting will automatically reset to off when the application
-              is restarted. You will need to re-enable it each session if needed.
+              In pre-release versions (v0.x.x), this setting is preserved across restarts to aid
+              debugging. In full releases, it automatically resets to off on restart. You may need
+              to re-enable it each session in full release builds.
             </p>
           </div>
         )}

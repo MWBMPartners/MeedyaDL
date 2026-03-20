@@ -114,13 +114,59 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         AppSettings::default()
     };
 
-    // Safety measure: always reset verbose logging to disabled on startup.
-    // Verbose logging can expose sensitive data (cookies, auth tokens, API
-    // responses, MusicKit credentials) so it must not persist across sessions.
-    // Users can re-enable it per-session in Settings > Advanced > Diagnostics.
-    if settings.verbose_activity_log {
-        log::info!("Resetting verbose_activity_log to false (session-only setting)");
-        settings.verbose_activity_log = false;
+    // Version-aware verbose logging reset.
+    //
+    // The current app version determines whether verbose logging persists:
+    //   - Pre-release (v0.x.x): verbose logging is preserved across restarts
+    //     because it's critical for debugging pre-release issues.
+    //   - Full release (v1.0.0+): verbose logging is reset to false every
+    //     startup to prevent sensitive data exposure in production.
+    //   - Upgrade from pre-release → full release: verbose logging is reset
+    //     on the first launch of the new full release.
+    //
+    // The `last_seen_version` field tracks the previous app version so we
+    // can detect version transitions.
+    let current_version = env!("CARGO_PKG_VERSION");
+    let is_prerelease = current_version.starts_with("0.");
+
+    if is_prerelease {
+        // Pre-release: preserve verbose_activity_log setting as-is.
+        // This helps developers and testers keep verbose logging enabled
+        // across restarts for continuous debugging.
+        if settings.verbose_activity_log {
+            log::info!(
+                "Pre-release build (v{current_version}): preserving verbose_activity_log=true"
+            );
+        }
+    } else {
+        // Full release: always reset verbose logging to disabled on startup.
+        // Verbose logging can expose sensitive data (cookies, auth tokens, API
+        // responses, MusicKit credentials) so it must not persist across sessions.
+        // Users can re-enable it per-session in Settings > Advanced > Diagnostics.
+        if settings.verbose_activity_log {
+            log::info!(
+                "Full release (v{current_version}): resetting verbose_activity_log to false"
+            );
+            settings.verbose_activity_log = false;
+        }
+    }
+
+    // Track version changes for first-load notices and transition logic.
+    // The frontend reads `last_seen_version` to detect when a new version is
+    // launched for the first time (e.g., to show a pre-release warning modal).
+    let previous_version = settings.last_seen_version.clone();
+    if previous_version != current_version {
+        log::info!(
+            "Version changed: {} → {}",
+            if previous_version.is_empty() { "(first run)" } else { &previous_version },
+            current_version
+        );
+        settings.last_seen_version = current_version.to_string();
+        // Persist the updated last_seen_version immediately so subsequent
+        // loads (e.g., from load_settings_from_default_path) see the new value.
+        if let Err(e) = save_settings(app, &settings) {
+            log::warn!("Failed to persist last_seen_version update: {e}");
+        }
     }
 
     // Always regenerate GAMDL's config.ini on load to ensure the on-disk INI
