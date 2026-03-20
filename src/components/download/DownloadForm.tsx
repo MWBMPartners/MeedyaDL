@@ -313,7 +313,14 @@ export function DownloadForm() {
     }
 
     try {
-      await submitDownload(isOffline);
+      const result = await submitDownload(isOffline);
+
+      // Show duplicate URL warning if the backend detected a match.
+      // This is non-blocking — the download is still queued.
+      if (result.duplicate_warning) {
+        addToast(result.duplicate_warning, 'warning');
+      }
+
       if (isOffline) {
         addToast('Download queued — will start when internet is available', 'warning');
       } else {

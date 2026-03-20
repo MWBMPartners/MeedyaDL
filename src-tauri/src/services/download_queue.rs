@@ -167,6 +167,69 @@ fn redact_url_query(url: &str) -> &str {
     url.split('?').next().unwrap_or(url)
 }
 
+/// Normalises a URL for duplicate detection by lowercasing the domain,
+/// stripping trailing slashes, and removing query parameters except
+/// essential ones like `?i=` (Apple Music track IDs within album URLs).
+///
+/// This produces a canonical form so that cosmetically different URLs
+/// pointing to the same resource are recognised as duplicates:
+///   - `https://Music.Apple.Com/us/album/...` == `https://music.apple.com/us/album/...`
+///   - `https://music.apple.com/us/album/foo/123/` == `https://music.apple.com/us/album/foo/123`
+///   - `https://music.apple.com/us/album/foo/123?ls=1` == `https://music.apple.com/us/album/foo/123`
+///   - `https://music.apple.com/us/album/foo/123?i=456` is kept distinct (track-specific)
+fn normalize_url_for_dedup(url: &str) -> String {
+    // Split scheme + authority from path+query.
+    // URL structure: scheme://authority/path?query#fragment
+    let url = url.trim();
+
+    // Find the end of "scheme://".
+    let after_scheme = if let Some(pos) = url.find("://") {
+        pos + 3
+    } else {
+        // Not a valid URL — return lowercased as-is for best-effort comparison.
+        return url.to_lowercase();
+    };
+
+    // Split authority (domain[:port]) from the rest at the first `/` after `://`.
+    let (before_path, path_and_rest) = match url[after_scheme..].find('/') {
+        Some(slash_pos) => {
+            let abs = after_scheme + slash_pos;
+            (&url[..abs], &url[abs..])
+        }
+        None => {
+            // No path — just the domain (e.g., `https://example.com`).
+            return url.to_lowercase();
+        }
+    };
+
+    // Lowercase the scheme + authority (domain is case-insensitive per RFC 3986).
+    let lower_authority = before_path.to_lowercase();
+
+    // Strip fragment (#...) first, then handle query.
+    let without_fragment = path_and_rest.split('#').next().unwrap_or(path_and_rest);
+
+    // Split path from query string.
+    let (path, query) = match without_fragment.find('?') {
+        Some(q) => (&without_fragment[..q], Some(&without_fragment[q + 1..])),
+        None => (without_fragment, None),
+    };
+
+    // Strip trailing slashes from the path.
+    let path = path.trim_end_matches('/');
+
+    // Keep only the `i=` query parameter (Apple Music track ID within an album).
+    let essential_query = query.and_then(|q| {
+        q.split('&')
+            .find(|param| param.starts_with("i="))
+            .map(|param| format!("?{param}"))
+    });
+
+    format!(
+        "{lower_authority}{path}{}",
+        essential_query.unwrap_or_default()
+    )
+}
+
 /// Checks if the given path contains any .m4a or .m4v audio/video files.
 fn has_audio_files(dir: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -514,6 +577,33 @@ impl DownloadQueue {
 
         self.items.push_back(item);
         download_id
+    }
+
+    /// Checks whether any of the given URLs already exist in the queue in an
+    /// active or pending state (Queued, Downloading, or Processing).
+    ///
+    /// Returns `true` if at least one URL matches an existing queue item.
+    /// Completed, cancelled, and errored items are ignored since those are
+    /// effectively inert and cleared on restart.
+    ///
+    /// URL comparison uses [`normalize_url_for_dedup`] for case-insensitive,
+    /// trailing-slash-insensitive, and query-parameter-stripped matching.
+    #[must_use]
+    pub fn has_duplicate_urls(&self, urls: &[String]) -> bool {
+        // Build a set of normalised incoming URLs for O(n+m) comparison.
+        let incoming: HashSet<String> = urls.iter().map(|u| normalize_url_for_dedup(u)).collect();
+
+        self.items.iter().any(|item| {
+            // Only check active/pending items — terminal states are irrelevant.
+            matches!(
+                item.status.state,
+                DownloadState::Queued | DownloadState::Downloading | DownloadState::Processing
+            ) && item
+                .status
+                .urls
+                .iter()
+                .any(|u| incoming.contains(&normalize_url_for_dedup(u)))
+        })
     }
 
     /// Returns the public status of all queue items for display in the frontend.
@@ -6486,5 +6576,160 @@ mod tests {
     fn count_codec_skip_warnings_empty() {
         let warnings: Vec<String> = vec![];
         assert_eq!(count_codec_skip_warnings(&warnings), 0);
+    }
+
+    // ==========================================================
+    // normalize_url_for_dedup() tests
+    // ==========================================================
+
+    /// Verifies that domain case is normalised (RFC 3986 host is case-insensitive).
+    #[test]
+    fn normalize_url_lowercases_domain() {
+        let a = normalize_url_for_dedup("https://Music.Apple.Com/us/album/test/123");
+        let b = normalize_url_for_dedup("https://music.apple.com/us/album/test/123");
+        assert_eq!(a, b);
+    }
+
+    /// Verifies that trailing slashes are stripped.
+    #[test]
+    fn normalize_url_strips_trailing_slash() {
+        let a = normalize_url_for_dedup("https://music.apple.com/us/album/test/123/");
+        let b = normalize_url_for_dedup("https://music.apple.com/us/album/test/123");
+        assert_eq!(a, b);
+    }
+
+    /// Verifies that non-essential query parameters are removed.
+    #[test]
+    fn normalize_url_strips_non_essential_query() {
+        let a = normalize_url_for_dedup("https://music.apple.com/us/album/test/123?ls=1&app=music");
+        let b = normalize_url_for_dedup("https://music.apple.com/us/album/test/123");
+        assert_eq!(a, b);
+    }
+
+    /// Verifies that the `?i=` query parameter (track ID) is preserved.
+    #[test]
+    fn normalize_url_keeps_track_id_query() {
+        let url = normalize_url_for_dedup(
+            "https://music.apple.com/us/album/test/123?i=456&ls=1",
+        );
+        assert_eq!(url, "https://music.apple.com/us/album/test/123?i=456");
+    }
+
+    /// Verifies that a URL with only `?i=` and no other params is preserved correctly.
+    #[test]
+    fn normalize_url_keeps_track_id_only() {
+        let url = normalize_url_for_dedup(
+            "https://music.apple.com/us/album/test/123?i=456",
+        );
+        assert_eq!(url, "https://music.apple.com/us/album/test/123?i=456");
+    }
+
+    /// Verifies that fragment identifiers are stripped.
+    #[test]
+    fn normalize_url_strips_fragment() {
+        let a = normalize_url_for_dedup("https://music.apple.com/us/album/test/123#section");
+        let b = normalize_url_for_dedup("https://music.apple.com/us/album/test/123");
+        assert_eq!(a, b);
+    }
+
+    /// Verifies that two identical URLs produce the same normalised form.
+    #[test]
+    fn normalize_url_identical_urls_match() {
+        let url = "https://music.apple.com/us/album/midnights/1649434004";
+        assert_eq!(
+            normalize_url_for_dedup(url),
+            normalize_url_for_dedup(url),
+        );
+    }
+
+    // ==========================================================
+    // has_duplicate_urls() tests
+    // ==========================================================
+
+    /// Verifies that `has_duplicate_urls` returns false for an empty queue.
+    #[test]
+    fn has_duplicate_urls_empty_queue() {
+        let queue = DownloadQueue::new();
+        let urls = vec!["https://music.apple.com/us/album/test/123".to_string()];
+        assert!(!queue.has_duplicate_urls(&urls));
+    }
+
+    /// Verifies that `has_duplicate_urls` detects an exact URL match
+    /// in a Queued item.
+    #[test]
+    fn has_duplicate_urls_detects_match() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            options: None,
+        };
+        queue.enqueue(request, &settings);
+
+        let urls = vec!["https://music.apple.com/us/album/test/123".to_string()];
+        assert!(queue.has_duplicate_urls(&urls));
+    }
+
+    /// Verifies that `has_duplicate_urls` detects a case-insensitive match.
+    #[test]
+    fn has_duplicate_urls_case_insensitive() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            options: None,
+        };
+        queue.enqueue(request, &settings);
+
+        let urls = vec!["https://Music.Apple.Com/us/album/test/123".to_string()];
+        assert!(queue.has_duplicate_urls(&urls));
+    }
+
+    /// Verifies that `has_duplicate_urls` ignores completed items.
+    #[test]
+    fn has_duplicate_urls_ignores_completed() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            options: None,
+        };
+        let id = queue.enqueue(request, &settings);
+        // Transition to complete
+        queue.set_complete(&id);
+
+        let urls = vec!["https://music.apple.com/us/album/test/123".to_string()];
+        assert!(!queue.has_duplicate_urls(&urls));
+    }
+
+    /// Verifies that `has_duplicate_urls` ignores errored items.
+    #[test]
+    fn has_duplicate_urls_ignores_errored() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            options: None,
+        };
+        let id = queue.enqueue(request, &settings);
+        queue.set_error(&id, "some error");
+
+        let urls = vec!["https://music.apple.com/us/album/test/123".to_string()];
+        assert!(!queue.has_duplicate_urls(&urls));
+    }
+
+    /// Verifies that `has_duplicate_urls` returns false for a different URL.
+    #[test]
+    fn has_duplicate_urls_no_match() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            options: None,
+        };
+        queue.enqueue(request, &settings);
+
+        let urls = vec!["https://music.apple.com/us/album/other/456".to_string()];
+        assert!(!queue.has_duplicate_urls(&urls));
     }
 }
