@@ -41,7 +41,7 @@
 //
 // The JSON file is the single source of truth, managed by the React frontend
 // via Tauri commands (load_settings, save_settings). When settings are saved,
-// `sync_to_gamdl_config()` writes a config.ini that GAMDL can read natively.
+// `sync_gamdl_config()` writes a config.ini that GAMDL can read natively.
 //
 // The config.ini is passed to GAMDL via `--config-path` in gamdl_service.rs.
 // This avoids having to pass every setting as a CLI flag, and allows GAMDL
@@ -173,7 +173,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // matches the current code's key format (underscores, `key = true` booleans).
     // Without this, upgrading from a version that wrote hyphens/bare keys would
     // leave a stale config.ini that GAMDL's configparser rejects.
-    if let Err(e) = sync_to_gamdl_config(app, &settings) {
+    if let Err(e) = sync_gamdl_config(app, &settings) {
         log::warn!("Failed to sync config.ini on load: {e}");
     }
 
@@ -248,7 +248,7 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     // Sync relevant settings to GAMDL's config.ini (the derived config).
     // This is a best-effort operation: if it fails, the JSON save still succeeds.
     // GAMDL will still work via CLI flags; the config.ini is a convenience.
-    if let Err(e) = sync_to_gamdl_config(app, settings) {
+    if let Err(e) = sync_gamdl_config(app, settings) {
         log::warn!("Failed to sync settings to GAMDL config: {e}");
         // Don't fail the save operation — the JSON settings are the source of truth
     }
@@ -282,7 +282,9 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `settings` - The application settings to convert and write
-fn sync_to_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+/// Syncs settings to GAMDL's config.ini. Public so gamdl_service can
+/// call it immediately before each invocation to ensure fresh config.
+pub fn sync_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     // Resolve the GAMDL config.ini path: {app_data_dir}/gamdl/config.ini
     // This path is passed to GAMDL via --config-path in gamdl_service::build_gamdl_command().
     let config_path = platform::get_gamdl_config_path(app);
