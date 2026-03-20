@@ -430,114 +430,74 @@ fn setup_queue_recovery(app: &tauri::App) {
     });
 }
 
-/// Emit a verbose summary of key settings at startup.
+/// Emit a concise summary of key settings at startup.
 ///
-/// Dumps the most diagnostically useful settings to the activity log
-/// in verbose mode, so users can share their configuration when
-/// reporting bugs. Sensitive fields (credentials, paths) are redacted.
-fn emit_verbose_settings_summary(app: &tauri::AppHandle, s: &models::settings::AppSettings) {
-    use utils::activity_log::emit_verbose_app_log;
+/// Logs the most diagnostically useful settings to the activity log
+/// in three compact lines so users (and crash reports) can quickly
+/// identify the active configuration. Always runs (not verbose-only).
+/// Sensitive fields (credentials, paths, wrapper URLs) are redacted.
+fn emit_startup_settings_summary(app: &tauri::AppHandle, s: &models::settings::AppSettings) {
+    use utils::activity_log::emit_app_log;
 
-    let chain: Vec<&str> = s
-        .music_fallback_chain
-        .iter()
-        .map(|c| c.to_cli_string())
-        .collect();
-
-    emit_verbose_app_log(app, &format!("Output path: {}", s.output_path));
-    emit_verbose_app_log(
-        app,
-        &format!("Language: {}, UI language: {}", s.language, s.ui_language),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "Song codec: {}, Video: {}",
-            s.default_song_codec.to_cli_string(),
-            s.default_video_resolution.to_cli_string()
-        ),
-    );
+    // Derive a short companion mode label from the serde serialization
     let companion_str = serde_json::to_value(&s.companion_mode)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_else(|| format!("{:?}", s.companion_mode));
-    emit_verbose_app_log(
+
+    // Derive a short download mode label
+    let dl_mode = serde_json::to_value(&s.download_mode)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.download_mode));
+
+    // Storefront: show the configured value or "auto" if empty
+    let storefront = if s.storefront.is_empty() {
+        "auto"
+    } else {
+        &s.storefront
+    };
+
+    // Helper: "on"/"off" for booleans
+    let flag = |b: bool| if b { "on" } else { "off" };
+
+    // Line 1: Core download configuration
+    emit_app_log(
         app,
         &format!(
-            "Fallback enabled: {}, Companion mode: {companion_str}",
-            s.fallback_enabled
+            "Config: codec={}, video={}, companions={companion_str}, storefront={storefront}, mode={dl_mode}, auto_start={}",
+            s.default_song_codec.to_cli_string(),
+            s.default_video_resolution.to_cli_string(),
+            flag(s.auto_start_queue),
         ),
     );
-    emit_verbose_app_log(
-        app,
-        &format!("Music fallback chain: [{}]", chain.join(", ")),
-    );
-    emit_verbose_app_log(
+
+    // Line 2: Feature flags
+    emit_app_log(
         app,
         &format!(
-            "Use wrapper: {}, Auto-retry without wrapper: {}",
-            s.use_wrapper, s.auto_retry_without_wrapper
+            "Features: enhanced_lrc={}, advisory_suffixes={}, acoustid={}, replaygain={}, musicbrainz={}, animated_artwork={}",
+            flag(s.enhanced_lrc),
+            flag(s.content_advisory_in_filenames),
+            flag(s.acoustid_enabled),
+            flag(s.replaygain_enabled),
+            flag(s.musicbrainz_lookup),
+            flag(s.animated_artwork_enabled),
         ),
     );
-    emit_verbose_app_log(
+
+    // Line 3: Authentication status (redacted — no credentials or paths)
+    let cookies_status = if s.cookies_path.is_some() { "set" } else { "not set" };
+    let musickit_status = if s.musickit_team_id.is_some() && s.musickit_key_id.is_some() {
+        "configured"
+    } else {
+        "not configured"
+    };
+    emit_app_log(
         app,
         &format!(
-            "Enhanced LRC: {}, Lyrics fallback: {}, Rich SRT: {}",
-            s.enhanced_lrc, s.lyrics_fallback_enabled, s.generate_rich_srt
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "WebVTT: {}, ASS: {}, Embed subtitles: {}",
-            s.generate_webvtt, s.generate_ass, s.embed_subtitles
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "AcoustID: {}, ReplayGain: {}, MusicBrainz: {}",
-            s.acoustid_enabled, s.replaygain_enabled, s.musicbrainz_lookup
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "Animated artwork: {}, Music video companion: {}",
-            s.animated_artwork_enabled, s.music_video_companion
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "Content advisory in filenames: {}, Fetch extra tags: {}",
-            s.content_advisory_in_filenames, s.fetch_extra_tags
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "Auto-start queue: {}, Overwrite: {}",
-            s.auto_start_queue, s.overwrite
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "Sentry: {}, Verbose log: {}",
-            s.sentry_enabled, s.verbose_activity_log
-        ),
-    );
-    emit_verbose_app_log(
-        app,
-        &format!(
-            "Cookies: {}, MusicKit configured: {}",
-            if s.cookies_path.is_some() {
-                "configured"
-            } else {
-                "not set"
-            },
-            s.musickit_team_id.is_some() && s.musickit_key_id.is_some(),
+            "Auth: wrapper={}, cookies={cookies_status}, musickit={musickit_status}",
+            flag(s.use_wrapper),
         ),
     );
 }
@@ -1004,11 +964,9 @@ pub fn run() {
                     ),
                 );
 
-                // In verbose mode, dump key settings at startup for diagnostics
-                if utils::activity_log::is_verbose_logging() {
-                    if let Ok(s) = services::config_service::load_settings(&startup_handle) {
-                        emit_verbose_settings_summary(&startup_handle, &s);
-                    }
+                // Log concise settings summary at startup for diagnostics
+                if let Ok(s) = services::config_service::load_settings(&startup_handle) {
+                    emit_startup_settings_summary(&startup_handle, &s);
                 }
             });
 
