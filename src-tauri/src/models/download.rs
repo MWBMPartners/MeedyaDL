@@ -84,6 +84,21 @@ pub struct DownloadRequest {
     pub options: Option<GamdlOptions>,
 }
 
+/// Response returned by the `start_download` Tauri command.
+///
+/// Contains the unique download ID and an optional duplicate warning
+/// when the submitted URL is already present in the active queue.
+/// The frontend uses the `duplicate_warning` field to show a toast
+/// notification without blocking the download.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartDownloadResult {
+    /// The unique download ID (UUID v4) assigned to this download.
+    pub download_id: String,
+    /// Optional warning message when a duplicate URL is detected in the queue.
+    /// `None` when the URL is not a duplicate.
+    pub duplicate_warning: Option<String>,
+}
+
 /// The possible states of a download queue item.
 ///
 /// This enum models the state machine for a single download. See the

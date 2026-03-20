@@ -72,6 +72,7 @@ import type {
   DownloadRequest,
   PlatformInfo,
   QueueStatus,
+  StartDownloadResult,
   UpdateCheckResult,
 } from '@/types';
 
@@ -359,27 +360,32 @@ export function getDefaultOutputPath(): Promise<string> {
 // ============================================================
 
 /**
- * Starts a new download and returns the unique download ID.
+ * Starts a new download and returns the result including the download ID
+ * and an optional duplicate warning.
  *
- * Rust handler: `start_download()` in `src-tauri/src/commands/download.rs`
+ * Rust handler: `start_download()` in `src-tauri/src/commands/gamdl.rs`
  * Argument: `request` - `DownloadRequest { urls, options? }`
- * Returns: string UUID of the newly created queue item
+ * Returns: `StartDownloadResult` with download ID and optional duplicate warning
  *
  * The Rust backend:
- * 1. Creates a new queue item with a UUID
- * 2. Merges per-download options with global settings
- * 3. Spawns the GAMDL subprocess with the merged options
- * 4. Begins emitting `gamdl-output` events as the subprocess runs
+ * 1. Checks for duplicate URLs already in the active queue
+ * 2. Creates a new queue item with a UUID
+ * 3. Merges per-download options with global settings
+ * 4. Spawns the GAMDL subprocess with the merged options
+ * 5. Begins emitting `gamdl-output` events as the subprocess runs
  *
  * Called by: downloadStore.submitDownload()
  *
  * @param request - Download request with URLs and optional overrides
  * @param skipAutoStart - When true, the item is queued but queue processing
  *   is not triggered. Used when the device is offline.
- * @returns Promise resolving to the download ID (UUID v4 string)
+ * @returns Promise resolving to the start download result
  */
-export function startDownload(request: DownloadRequest, skipAutoStart?: boolean): Promise<string> {
-  return invoke<string>('start_download', { request, skipAutoStart });
+export function startDownload(
+  request: DownloadRequest,
+  skipAutoStart?: boolean,
+): Promise<StartDownloadResult> {
+  return invoke<StartDownloadResult>('start_download', { request, skipAutoStart });
 }
 
 /**
