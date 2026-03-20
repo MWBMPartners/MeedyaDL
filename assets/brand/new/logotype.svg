@@ -31,7 +31,7 @@
     logotype-animation-speed Shimmer cycle duration (default: 4s)
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     viewBox="0 0 600 130" width="600" height="130"
+     viewBox="0 0 600 130" height="130"
      role="img" aria-label="MeedyaDL logotype">
   <title>MeedyaDL Logotype</title>
   <desc>MeedyaSuite horizontal wordmark — techy futuristic style</desc>
@@ -97,7 +97,7 @@
         font-weight: 900;
         font-size: 72px;
         letter-spacing: 2px;
-        text-transform: uppercase;
+        /* No text-transform — casing comes from the text content itself */
         fill: url(#logotype-grad-brand-anim);
       }
 
@@ -106,7 +106,8 @@
         font-weight: 600;
         font-size: 72px;
         letter-spacing: 4px;
-        text-transform: uppercase;
+        /* No text-transform — respects per-product casing:
+           "DL", "DB", "Manager" etc. */
         fill: url(#logotype-grad-suffix);
       }
 
@@ -249,11 +250,11 @@
     <polyline id="bracket-left" class="bracket-deco"
               points="8,18 2,18 2,108 8,108" />
 
-    <!-- Brand prefix: "MEEDYA" — constant across all MeedyaSuite products.
+    <!-- Brand prefix: "Meedya" — constant across all MeedyaSuite products.
          Orbitron Black gives the sharp, geometric, futuristic look. -->
     <text id="brand-prefix"
           x="18" y="90"
-          filter="url(#glow-filter)">MEEDYA</text>
+          filter="url(#glow-filter)">Meedya</text>
 
     <!-- Circuit dot separators — three dots in a vertical stack
          between brand and suffix, evoking a data bus / circuit trace -->
@@ -264,11 +265,12 @@
     </g>
 
     <!-- Product suffix: swap this text per product.
-           MeedyaDL       -> "DL"
-           MeedyaManager  -> "MGR"  or "MANAGER" (widen viewBox to ~980)
-           MeedyaDB       -> "DB"
-         Rajdhani gives a digital-readout, slightly condensed feel
-         that contrasts with the heavier Orbitron brand prefix. -->
+           MeedyaDL      -> "DL"
+           MeedyaDB      -> "DB"
+           MeedyaManager -> "Manager"
+         Casing is preserved as-is (no text-transform). The layout
+         script below auto-positions this element and resizes the
+         canvas to fit any suffix length. -->
     <text id="product-suffix"
           x="434" y="90">DL</text>
 
@@ -292,4 +294,86 @@
           stroke-dasharray="4 6"
           opacity="0.3" />
   </g>
+
+  <!-- ════════════════ DYNAMIC LAYOUT ════════════════
+       Measures the rendered text widths and repositions the circuit
+       dots, product suffix, right bracket, underline, and viewBox
+       so the canvas fits any suffix length automatically.
+
+       When the SVG loads, the script:
+         1. Measures the bounding box of #brand-prefix
+         2. Positions #circuit-dots at prefix-end + gap
+         3. Positions #product-suffix after the dots
+         4. Measures #product-suffix bounding box
+         5. Positions #bracket-right after the suffix
+         6. Resizes the viewBox width to fit everything
+         7. Adjusts #accent-underline to span the full width
+
+       To change the product name, just edit the <text> content of
+       #product-suffix (e.g., "DL" -> "Manager") and reload. -->
+  <script type="text/javascript">
+    // <![CDATA[
+    (function () {
+      var svg    = document.querySelector('svg');
+      var prefix = document.getElementById('brand-prefix');
+      var dots   = document.getElementById('circuit-dots');
+      var suffix = document.getElementById('product-suffix');
+      var brR    = document.getElementById('bracket-right');
+      var line   = document.getElementById('accent-underline');
+
+      if (!svg || !prefix || !suffix) return;
+
+      // Wait for fonts to load before measuring
+      var measure = function () {
+        var GAP     = 16;  // px between elements
+        var DOT_GAP = 12;  // px between dots and suffix
+        var PAD_R   = 14;  // right padding after suffix before bracket
+        var MARGIN  = 8;   // margin after bracket to edge
+
+        // Measure brand prefix bounding box
+        var pBox  = prefix.getBBox();
+        var pEnd  = pBox.x + pBox.width;
+
+        // Position circuit dots after the prefix
+        var dotX = pEnd + GAP;
+        var dotCircles = dots.querySelectorAll('circle');
+        for (var i = 0; i < dotCircles.length; i++) {
+          dotCircles[i].setAttribute('cx', dotX);
+        }
+
+        // Position product suffix after the dots
+        var suffixX = dotX + DOT_GAP;
+        suffix.setAttribute('x', suffixX);
+
+        // Measure suffix bounding box (after repositioning)
+        var sBox = suffix.getBBox();
+        var sEnd = sBox.x + sBox.width;
+
+        // Position right bracket
+        var brX = sEnd + PAD_R;
+        if (brR) {
+          brR.setAttribute('points',
+            (brX - 6) + ',18 ' + brX + ',18 ' + brX + ',108 ' + (brX - 6) + ',108'
+          );
+        }
+
+        // Resize underline
+        if (line) {
+          line.setAttribute('x2', brX);
+        }
+
+        // Resize the viewBox to fit
+        var totalW = brX + MARGIN;
+        svg.setAttribute('viewBox', '0 0 ' + totalW + ' 130');
+      };
+
+      // Try to use Font Face API; fall back to a timeout for older browsers
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(measure);
+      } else {
+        setTimeout(measure, 200);
+      }
+    })();
+    // ]]>
+  </script>
 </svg>
