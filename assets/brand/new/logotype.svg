@@ -24,10 +24,10 @@
   declarations for fully self-contained, offline-capable rendering.
 
   Customisation via CSS custom properties:
-    logotype-primary         Brand gradient start   (default: #3B82F6)
-    logotype-secondary       Brand gradient end      (default: #8B5CF6)
-    logotype-accent          Suffix / highlights     (default: #06B6D4)
-    logotype-glow            Neon glow colour        (default: #06B6D4)
+    logotype-primary         Brand gradient start   (default: #475569 slate)
+    logotype-secondary       Brand gradient end      (default: #94A3B8 silver)
+    logotype-accent          Suffix / highlights     (default: #64748B steel)
+    logotype-glow            Glow colour             (default: #94A3B8 silver)
     logotype-shadow          Drop shadow colour      (default: rgba(0,0,0,0.3))
     logotype-shadow-blur     Shadow blur radius      (default: 4)
     logotype-animation-speed Shimmer cycle duration  (default: 4s)
@@ -36,13 +36,21 @@
     Light mode:   default palette (blue/purple/cyan)
     Dark mode:    brighter variants via @media(prefers-color-scheme:dark)
 
-  Colour modes (manual, apply class to SVG or parent):
-    .dark         Dark mode override
-    .cb-deutan    Deuteranopia-safe palette (blue/amber)
-    .cb-protan    Protanopia-safe palette (blue/pink/amber)
-    .cb-tritan    Tritanopia-safe palette (orange/pink)
+  Colour modes (via ?mode= URL parameter):
+    ?mode=light              Default light palette (slate/steel)
+    ?mode=dark               Light silver for dark backgrounds
+    ?mode=cb-deutan          Deuteranopia-safe (light bg)
+    ?mode=cb-protan          Protanopia-safe (light bg)
+    ?mode=cb-tritan          Tritanopia-safe (light bg)
+    ?mode=cb-deutan-dark     Deuteranopia-safe (dark bg)
+    ?mode=cb-protan-dark     Protanopia-safe (dark bg)
+    ?mode=cb-tritan-dark     Tritanopia-safe (dark bg)
 
-  Or set properties directly:
+  Or apply CSS classes to SVG or parent:
+    .dark, .cb-deutan, .cb-protan, .cb-tritan
+    .dark.cb-deutan, .dark.cb-protan, .dark.cb-tritan
+
+  Or set properties directly via JS:
     svg.style.setProperty('logotype-primary', '#ffffff')
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
@@ -89,10 +97,10 @@
            - Or apply a class: .dark, .cb-deutan, .cb-protan, .cb-tritan
            - Or set via JS: svg.style.setProperty('--logotype-primary', '#fff') */
       :root {
-        --logotype-primary: #3B82F6;
-        --logotype-secondary: #8B5CF6;
-        --logotype-accent: #06B6D4;
-        --logotype-glow: #06B6D4;
+        --logotype-primary: #475569;
+        --logotype-secondary: #94A3B8;
+        --logotype-accent: #64748B;
+        --logotype-glow: #94A3B8;
         --logotype-shadow: rgba(0, 0, 0, 0.3);
         --logotype-shadow-blur: 4;
         --logotype-animation-speed: 4s;
@@ -101,10 +109,10 @@
       /* Dark mode — brighter, higher contrast for dark backgrounds */
       @media (prefers-color-scheme: dark) {
         :root {
-          --logotype-primary: #60A5FA;
-          --logotype-secondary: #A78BFA;
-          --logotype-accent: #22D3EE;
-          --logotype-glow: #22D3EE;
+          --logotype-primary: #CBD5E1;
+          --logotype-secondary: #F1F5F9;
+          --logotype-accent: #94A3B8;
+          --logotype-glow: #CBD5E1;
           --logotype-shadow: rgba(0, 0, 0, 0.6);
           --logotype-shadow-blur: 6;
         }
@@ -120,15 +128,14 @@
         --logotype-shadow-blur: 6;
       }
 
-      /* Colour-blind: Deuteranopia (red-green, most common) */
+      /* ── Colour-blind palettes (light background) ────── */
       .cb-deutan {
         --logotype-primary: #648FFF;
         --logotype-secondary: #FFB000;
-        --logotype-accent: #FFB000;
+        --logotype-accent: #785EF0;
         --logotype-glow: #648FFF;
       }
 
-      /* Colour-blind: Protanopia (red-green) */
       .cb-protan {
         --logotype-primary: #648FFF;
         --logotype-secondary: #DC267F;
@@ -136,12 +143,36 @@
         --logotype-glow: #648FFF;
       }
 
-      /* Colour-blind: Tritanopia (blue-yellow) */
       .cb-tritan {
         --logotype-primary: #D55E00;
         --logotype-secondary: #CC79A7;
         --logotype-accent: #D55E00;
         --logotype-glow: #CC79A7;
+      }
+
+      /* ── Colour-blind palettes (dark background) ─────── */
+      .dark.cb-deutan, .cb-deutan-dark {
+        --logotype-primary: #85AAFF;
+        --logotype-secondary: #FFC940;
+        --logotype-accent: #9B85FF;
+        --logotype-glow: #85AAFF;
+        --logotype-shadow: rgba(0, 0, 0, 0.6);
+      }
+
+      .dark.cb-protan, .cb-protan-dark {
+        --logotype-primary: #85AAFF;
+        --logotype-secondary: #FF5CA1;
+        --logotype-accent: #FFC940;
+        --logotype-glow: #85AAFF;
+        --logotype-shadow: rgba(0, 0, 0, 0.6);
+      }
+
+      .dark.cb-tritan, .cb-tritan-dark {
+        --logotype-primary: #FF8533;
+        --logotype-secondary: #E09DBF;
+        --logotype-accent: #FF8533;
+        --logotype-glow: #E09DBF;
+        --logotype-shadow: rgba(0, 0, 0, 0.6);
       }
 
       /* ── Gradient Stops ──────────────────────────────────── */
@@ -292,9 +323,9 @@
 
     <!-- Animated brand gradient -->
     <linearGradient id="logotype-grad-brand-anim" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%"   stop-color="#3B82F6" />
-      <stop offset="50%"  stop-color="#8B5CF6" />
-      <stop offset="100%" stop-color="#06B6D4" />
+      <stop offset="0%"   stop-color="#475569" />
+      <stop offset="50%"  stop-color="#64748B" />
+      <stop offset="100%" stop-color="#94A3B8" />
     </linearGradient>
 
     <!-- Product suffix gradient -->
@@ -375,19 +406,17 @@
           opacity="0.3" />
   </g>
 
-  <!-- ════════════════ DYNAMIC LAYOUT ════════════════
-       Measures the rendered text widths and repositions the circuit
-       dots, product suffix, right bracket, underline, and viewBox
-       so the canvas fits any suffix length automatically.
-
-       When the SVG loads, the script:
-         1. Measures the bounding box of #brand-prefix
-         2. Positions #circuit-dots at prefix-end + gap
-         3. Positions #product-suffix after the dots
-         4. Measures #product-suffix bounding box
-         5. Positions #bracket-right after the suffix
-         6. Resizes the viewBox width to fit everything
-         7. Adjusts #accent-underline to span the full width
+  <!-- ════════════════ DYNAMIC LAYOUT + MODE SWITCH ════════════════
+       On load, this script:
+         1. Reads ?mode= URL parameter and applies the corresponding
+            CSS class (light/dark/cb-deutan/cb-protan/cb-tritan etc.)
+         2. Measures the bounding box of #brand-prefix
+         3. Positions #circuit-dots at prefix-end + gap
+         4. Positions #product-suffix after the dots
+         5. Measures #product-suffix bounding box
+         6. Positions #bracket-right after the suffix
+         7. Resizes the viewBox width to fit everything
+         8. Adjusts #accent-underline to span the full width
 
        To change the product name, just edit the <text> content of
        #product-suffix (e.g., "DL" -> "Manager") and reload. -->
@@ -402,6 +431,23 @@
       var line   = document.getElementById('accent-underline');
 
       if (!svg || !prefix || !suffix) return;
+
+      // ── ?mode= URL parameter ──────────────────────────
+      // Supported values: light, dark, cb-deutan, cb-protan,
+      // cb-tritan, cb-deutan-dark, cb-protan-dark, cb-tritan-dark
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var mode = params.get('mode');
+        if (mode && mode !== 'light') {
+          // Map compound modes like "cb-deutan-dark" to two classes
+          if (mode.indexOf('-dark') > 0 && mode.indexOf('cb-') === 0) {
+            svg.classList.add('dark');
+            svg.classList.add(mode.replace('-dark', ''));
+          } else {
+            svg.classList.add(mode);
+          }
+        }
+      } catch (e) { /* URLSearchParams not available or no window */ }
 
       // Wait for fonts to load before measuring
       var measure = function () {
