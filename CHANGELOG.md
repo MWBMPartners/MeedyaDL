@@ -14,11 +14,29 @@ GAMDL 2.9.3 overwrites config.ini with its own defaults when run,
   causing our storefront and other settings to be lost. The storefront
   being None causes: AttributeError: 'NoneType' has no attribute 'upper'
 
+- Correct logotype static fallback positions for <img> rendering
+
+When loaded as <img> (in the app sidebar), JavaScript doesn't execute,
+  so the dynamic layout script can't reposition elements. The hardcoded
+  fallback positions were set for the old uppercase "MEEDYA" layout,
+  leaving a 76px gap with the current mixed-case "Meedya".
+
+  Updated static positions to match the script's calculated values:
+  - Dots: cx 418 -> 342
+  - Suffix: x 434 -> 345
+  - Bracket: x 524 -> 473
+  - ViewBox: 600 -> 487
+
+  The dynamic script still runs in browser contexts and will override
+  these for other product names (Manager, DB). But for "DL", the static
+  positions now render correctly without JavaScript.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CLAUDE.md and memory with security hardening details [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.12.0] - 2026-03-20
 
