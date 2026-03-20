@@ -316,6 +316,14 @@ fn sync_to_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), S
 ///
 /// # Returns
 /// The INI file content as a string
+/// Sanitize a string value for safe inclusion in an INI file.
+/// Strips newline and carriage return characters that could inject
+/// additional INI keys when parsed by Python's configparser.
+/// See: https://github.com/MWBMPartners/MeedyaDL/issues/226
+fn sanitize_ini_value(value: &str) -> String {
+    value.replace('\n', "").replace('\r', "")
+}
+
 fn settings_to_ini(settings: &AppSettings) -> String {
     let mut lines = Vec::new();
 
@@ -347,7 +355,7 @@ fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // authenticate with Apple Music. Without cookies, downloads will fail.
     // The cookies.txt file is extracted from a browser session (Netscape format).
     if let Some(ref path) = settings.cookies_path {
-        lines.push(format!("cookies_path = {path}"));
+        lines.push(format!("cookies_path = {}", sanitize_ini_value(path)));
     }
 }
 
@@ -429,7 +437,7 @@ fn ini_cover_section(lines: &mut Vec<String>, settings: &AppSettings) {
 fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output directory for downloaded files. Only written if non-empty.
     if !settings.output_path.is_empty() {
-        lines.push(format!("output_path = {}", settings.output_path));
+        lines.push(format!("output_path = {}", sanitize_ini_value(&settings.output_path)));
     }
     // Temp directory for intermediate files. If the user left this empty,
     // resolve to a "MeedyaDL" subdirectory within the OS temp directory so
@@ -437,10 +445,10 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     if settings.temp_path.is_empty() {
         lines.push(format!(
             "temp_path = {}",
-            std::env::temp_dir().join("MeedyaDL").to_string_lossy()
+            sanitize_ini_value(&std::env::temp_dir().join("MeedyaDL").to_string_lossy())
         ));
     } else {
-        lines.push(format!("temp_path = {}", settings.temp_path));
+        lines.push(format!("temp_path = {}", sanitize_ini_value(&settings.temp_path)));
     }
     // Boolean flag: when true, existing files are overwritten without prompting.
     if settings.overwrite {
@@ -499,43 +507,43 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
     if !settings.album_folder_template.is_empty() {
         lines.push(format!(
             "album_folder_template = {}",
-            settings.album_folder_template
+            sanitize_ini_value(&settings.album_folder_template)
         ));
     }
     if !settings.compilation_folder_template.is_empty() {
         lines.push(format!(
             "compilation_folder_template = {}",
-            settings.compilation_folder_template
+            sanitize_ini_value(&settings.compilation_folder_template)
         ));
     }
     if !settings.no_album_folder_template.is_empty() {
         lines.push(format!(
             "no_album_folder_template = {}",
-            settings.no_album_folder_template
+            sanitize_ini_value(&settings.no_album_folder_template)
         ));
     }
     if !settings.single_disc_file_template.is_empty() {
         lines.push(format!(
             "single_disc_file_template = {}",
-            settings.single_disc_file_template
+            sanitize_ini_value(&settings.single_disc_file_template)
         ));
     }
     if !settings.multi_disc_file_template.is_empty() {
         lines.push(format!(
             "multi_disc_file_template = {}",
-            settings.multi_disc_file_template
+            sanitize_ini_value(&settings.multi_disc_file_template)
         ));
     }
     if !settings.no_album_file_template.is_empty() {
         lines.push(format!(
             "no_album_file_template = {}",
-            settings.no_album_file_template
+            sanitize_ini_value(&settings.no_album_file_template)
         ));
     }
     if !settings.playlist_file_template.is_empty() {
         lines.push(format!(
             "playlist_file_template = {}",
-            settings.playlist_file_template
+            sanitize_ini_value(&settings.playlist_file_template)
         ));
     }
 }
@@ -546,16 +554,16 @@ fn ini_tool_path_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Note: managed tool paths (installed by dependency_manager.rs) are injected
     // separately via gamdl_service::inject_tool_paths() at command build time.
     if let Some(ref path) = settings.ffmpeg_path {
-        lines.push(format!("ffmpeg_path = {path}"));
+        lines.push(format!("ffmpeg_path = {}", sanitize_ini_value(path)));
     }
     if let Some(ref path) = settings.mp4decrypt_path {
-        lines.push(format!("mp4decrypt_path = {path}"));
+        lines.push(format!("mp4decrypt_path = {}", sanitize_ini_value(path)));
     }
     if let Some(ref path) = settings.mp4box_path {
-        lines.push(format!("mp4box_path = {path}"));
+        lines.push(format!("mp4box_path = {}", sanitize_ini_value(path)));
     }
     if let Some(ref path) = settings.nm3u8dlre_path {
-        lines.push(format!("nm3u8dlre_path = {path}"));
+        lines.push(format!("nm3u8dlre_path = {}", sanitize_ini_value(path)));
     }
 }
 
@@ -567,7 +575,7 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push("use_wrapper = true".to_string());
         lines.push(format!(
             "wrapper_account_url = {}",
-            settings.wrapper_account_url
+            sanitize_ini_value(&settings.wrapper_account_url)
         ));
     }
 }
