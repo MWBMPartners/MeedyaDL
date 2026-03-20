@@ -325,8 +325,8 @@
 
       // Wait for fonts to load before measuring
       var measure = function () {
-        var GAP     = 16;  // px between elements
-        var DOT_GAP = 12;  // px between dots and suffix
+        var GAP     = 3;   // px between prefix and dots (tight, like a colon)
+        var DOT_GAP = 3;   // px between dots and suffix (tight, like a colon)
         var PAD_R   = 14;  // right padding after suffix before bracket
         var MARGIN  = 8;   // margin after bracket to edge
 
