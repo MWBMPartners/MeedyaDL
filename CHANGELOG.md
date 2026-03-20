@@ -87,6 +87,7 @@ Modal accessibility improvements:
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### Security
 
