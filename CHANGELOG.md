@@ -93,6 +93,7 @@ Group settings tabs under 4 section headers:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.9.0] - 2026-03-20
 
