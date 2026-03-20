@@ -31,11 +31,22 @@ When loaded as <img> (in the app sidebar), JavaScript doesn't execute,
   these for other product names (Manager, DB). But for "DL", the static
   positions now render correctly without JavaScript.
 
+- Revert master logotype.svg, keep tight positions only in public/
+
+Master (assets/brand/logotype.svg) restored to original wide fallback
+  positions (viewBox 600, dots cx=418, suffix x=434). The dynamic JS
+  script handles positioning at runtime in browser contexts.
+
+  Only public/logotype.svg retains the tight static positions (viewBox
+  487, dots cx=342, suffix x=345) for the app sidebar where JS doesn't
+  execute inside <img> tags.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CLAUDE.md and memory with security hardening details [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.12.0] - 2026-03-20
