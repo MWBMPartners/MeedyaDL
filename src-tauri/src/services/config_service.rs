@@ -325,7 +325,7 @@ fn sync_to_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), S
 /// additional INI keys when parsed by Python's configparser.
 /// See: https://github.com/MWBMPartners/MeedyaDL/issues/226
 fn sanitize_ini_value(value: &str) -> String {
-    value.replace('\n', "").replace('\r', "")
+    value.replace(['\n', '\r'], "")
 }
 
 fn settings_to_ini(settings: &AppSettings) -> String {

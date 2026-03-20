@@ -757,7 +757,7 @@ fn sanitize_imported_settings(settings: &mut AppSettings) {
             s.truncate(max);
         }
         // Strip newlines and carriage returns (INI injection prevention)
-        *s = s.replace('\n', "").replace('\r', "");
+        *s = s.replace(['\n', '\r'], "");
     }
 
     fn truncate_opt(s: &mut Option<String>, max: usize) {
