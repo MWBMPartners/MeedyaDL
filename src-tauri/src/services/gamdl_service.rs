@@ -441,9 +441,16 @@ fn build_gamdl_command(
     // out-of-the-box with the tools installed by dependency_manager.rs.
     inject_tool_paths(app, &mut cmd, options);
 
-    // Always pass our managed GAMDL config path (config.ini) to keep
-    // configuration self-contained within the app data directory.
-    // This config.ini is synced from GUI settings by config_service::sync_to_gamdl_config().
+    // Re-sync the managed config.ini immediately before each GAMDL invocation.
+    // GAMDL 2.9.3 may overwrite config.ini with its own defaults when run,
+    // so we must regenerate it fresh every time to ensure our settings take effect.
+    // This also ensures the storefront is always set (required by GAMDL >= 2.9.3).
+    if let Ok(settings) = crate::services::config_service::load_settings(app) {
+        if let Err(e) = crate::services::config_service::sync_gamdl_config(app, &settings) {
+            log::warn!("Failed to sync config.ini before GAMDL invocation: {e}");
+        }
+    }
+
     let config_path = platform::get_gamdl_config_path(app);
     if config_path.exists() {
         cmd.arg("--config-path");
