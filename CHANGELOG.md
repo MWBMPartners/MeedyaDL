@@ -41,11 +41,18 @@ Master (assets/brand/logotype.svg) restored to original wide fallback
   487, dots cx=342, suffix x=345) for the app sidebar where JS doesn't
   execute inside <img> tags.
 
+- Resolve doc_lazy_continuation clippy warning in sync_gamdl_config
+
+Add blank /// line between the parameter list and the function
+  description paragraph. Clippy 1.94 treats the continuation as a
+  malformed doc list item without the separator.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CLAUDE.md and memory with security hardening details [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
