@@ -253,7 +253,7 @@ export function Sidebar() {
             <img
               src={`/logotype.svg${svgMode}`}
               alt="MeedyaDL"
-              className="h-5 no-drag"
+              className="h-8 no-drag"
               onError={(e) => {
                 // Fallback to text if SVG fails to load
                 const target = e.currentTarget;
