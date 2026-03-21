@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.12.1] - 2026-03-20
+
 ### 🐛 Bug Fixes
 
 - Re-sync config.ini before each GAMDL invocation to prevent stale config
