@@ -108,17 +108,17 @@ jobs:
 
     steps:
       # Step 1: Check out the repository code.
-      # actions/checkout@v4 clones the repo at the commit that triggered this workflow.
+      # actions/checkout@v6 clones the repo at the commit that triggered this workflow.
       # @see https://github.com/actions/checkout
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Step 2: Set up Node.js LTS with npm dependency caching.
       # 'lts/*' automatically selects the latest LTS version (currently Node 22.x).
       # 'cache: npm' caches ~/.npm to speed up npm ci on subsequent runs.
       # @see https://github.com/actions/setup-node
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -174,7 +174,7 @@ jobs:
     steps:
       # Step 1: Check out the repository code.
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Step 2: Install Linux system dependencies required by Tauri.
       # These are C/C++ libraries that Tauri's Rust code links against.
@@ -213,7 +213,7 @@ jobs:
       # This can save 5-15 minutes on subsequent runs by reusing compiled dependencies.
       # @see https://github.com/Swatinem/rust-cache
       - name: Cache Rust
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           workspaces: src-tauri
 
@@ -221,7 +221,7 @@ jobs:
       # Even though we're testing the backend, Tauri's cargo check/build requires
       # the frontend dist/ directory to exist (referenced in tauri.conf.json).
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 'lts/*'
           cache: 'npm'
