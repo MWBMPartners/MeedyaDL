@@ -216,14 +216,14 @@ jobs:
 
       # Step 1: Check out the repository code at the tagged commit.
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ steps.tag.outputs.name }}
 
       # Step 2: Set up Node.js LTS with npm dependency caching.
       # Required for building the frontend (Vite build) before Tauri packaging.
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 'lts/*'
           cache: 'npm'
@@ -241,7 +241,7 @@ jobs:
       # Release builds compile all dependencies from scratch with optimizations,
       # which takes 15-30 minutes without caching. The cache saves most of this time.
       - name: Cache Rust
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           workspaces: src-tauri
 
