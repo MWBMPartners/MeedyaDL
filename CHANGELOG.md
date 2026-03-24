@@ -6,6 +6,21 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Upgrade pinned GitHub Actions from Node.js 20 to Node.js 24 (#241)
+
+actions/checkout v4→v6.0.2, actions/setup-node v4→v6.3.0,
+  Swatinem/rust-cache v2.8.2→v2.9.1 — all now use Node.js 24 runtime,
+  resolving the deprecation warning before the June 2, 2026 deadline.
+
+
+## [0.13.0] - 2026-03-24
+
 ### ✨ Features
 
 - Double sidebar logo and logotype size, expand logotype to fill width
