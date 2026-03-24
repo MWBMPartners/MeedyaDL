@@ -240,7 +240,7 @@ export function Sidebar() {
         <img
           src={`/logo.svg${svgMode}`}
           alt="MeedyaDL logo"
-          className="w-8 h-8 rounded-platform flex-shrink-0 no-drag"
+          className="w-16 h-16 rounded-platform flex-shrink-0 no-drag"
         />
         {/*
          * Animated brand logotype (SVG with gradient shimmer).
@@ -253,7 +253,7 @@ export function Sidebar() {
             <img
               src={`/logotype.svg${svgMode}`}
               alt="MeedyaDL"
-              className="h-8 no-drag"
+              className="h-16 flex-1 min-w-0 no-drag"
               onError={(e) => {
                 // Fallback to text if SVG fails to load
                 const target = e.currentTarget;
