@@ -27,6 +27,19 @@ When the detected codec is Atmos, AC3, or Binaural, writes a
   the ISRC as belonging to the spatial version of the track, enabling
   future cross-platform ISRC matching for spatial audio variants.
 
+- Enhance empty state messages with icons and improved guidance (#251)
+- Add copy-to-clipboard button for Activity Log entries (#255)
+
+Each log entry now shows a small copy icon on hover (top-right corner).
+  Clicking copies the entry's line content to the clipboard. Uses
+  group-hover opacity transition for non-intrusive discoverability.
+
+- Add keyboard shortcuts help page (#252)
+
+New help/keyboard-shortcuts.md documenting all navigation (Cmd+D,
+  Cmd+comma, Cmd+Q) and action shortcuts (Enter, Shift+Enter, Escape).
+  Added to help index under new "Reference" section.
+
 
 ### 🐛 Bug Fixes
 
@@ -55,6 +68,7 @@ Added debouncedSave() to settingsStore — batches rapid save calls
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.14.0] - 2026-03-26
