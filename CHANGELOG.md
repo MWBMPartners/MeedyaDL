@@ -114,6 +114,13 @@ QueueItem children already have role="listitem". Parent container now
   - troubleshooting.md: false failure fix, auth mode logging, log export
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CLAUDE.md with missing modules and ASS enrichment stage [skip ci]
+
+Add 4 missing services (health_check, api_audit, ass_subtitle, mediainfo),
+  2 missing commands (api_audit, history), 1 missing model (tag_registry) to
+  Key Directories. Add ASS subtitle generation as enrichment step 2f.
+
 
 ### 🧪 Testing
 
