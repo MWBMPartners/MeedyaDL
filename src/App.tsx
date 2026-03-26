@@ -473,7 +473,7 @@ function App() {
         const previousVersion = settingsState.settings.last_seen_version;
         const versionChanged = previousVersion !== '' && previousVersion !== currentVersion;
 
-        if (isPrerelease && versionChanged && !showSetupWizard) {
+        if (isPrerelease && versionChanged && !useUiStore.getState().showSetupWizard) {
           useUiStore.getState().setShowPrereleaseNotice(true);
         }
       } catch {
