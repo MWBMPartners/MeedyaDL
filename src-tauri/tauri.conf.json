@@ -46,6 +46,14 @@
     "resources": [
       "../help/*"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["meedyadl"],
+        "mimeType": "application/x-meedyadl+json",
+        "name": "MeedyaDL Manifest",
+        "role": "Editor"
+      }
+    ],
     "createUpdaterArtifacts": true,
     "copyright": "Copyright (c) 2026 MeedyaDL",
     "category": "Utility",
