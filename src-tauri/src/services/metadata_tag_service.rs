@@ -1498,7 +1498,7 @@ fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 ///
 /// ffprobe ships alongside `FFmpeg` in the same download archive. Its path
 /// is derived by replacing the `FFmpeg` binary name with "ffprobe".
-fn get_ffprobe_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub fn get_ffprobe_path(app: &AppHandle) -> Result<PathBuf, String> {
     let ffmpeg_bin = dependency_manager::get_tool_binary_path(app, "ffmpeg");
     let ffprobe_name = if cfg!(target_os = "windows") {
         "ffprobe.exe"
@@ -1522,7 +1522,7 @@ fn get_ffprobe_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// from the first audio stream of an M4A file. Used for both channel
 /// tagging and codec detection (to determine actual codec when GAMDL
 /// uses native priority and doesn't report which codec was selected).
-struct FfprobeAudioInfo {
+pub struct FfprobeAudioInfo {
     /// Channel configuration string (e.g., "2.0", "5.1", "7.1").
     channel_config: String,
     /// FFmpeg codec name (e.g., "alac", "aac", "eac3", "ac3").
@@ -1540,7 +1540,7 @@ struct FfprobeAudioInfo {
 /// - Codec profile (e.g., "LC", "HE-AAC") for AAC variant identification
 ///
 /// Returns `None` if ffprobe fails or the file has no audio stream.
-async fn detect_audio_info(ffprobe_path: &Path, file_path: &Path) -> Option<FfprobeAudioInfo> {
+pub async fn detect_audio_info(ffprobe_path: &Path, file_path: &Path) -> Option<FfprobeAudioInfo> {
     let output = Command::new(ffprobe_path)
         .args([
             "-v",
@@ -1592,7 +1592,7 @@ async fn detect_audio_info(ffprobe_path: &Path, file_path: &Path) -> Option<Ffpr
 /// # Returns
 /// The most accurate `SongCodec` determination, combining ffprobe analysis
 /// with the requested codec as a hint for ambiguous cases.
-fn resolve_codec_from_ffprobe(info: &FfprobeAudioInfo, requested_codec: &SongCodec) -> SongCodec {
+pub fn resolve_codec_from_ffprobe(info: &FfprobeAudioInfo, requested_codec: &SongCodec) -> SongCodec {
     match info.codec_name.as_str() {
         // Unambiguous: ALAC is always lossless
         "alac" => SongCodec::Alac,
