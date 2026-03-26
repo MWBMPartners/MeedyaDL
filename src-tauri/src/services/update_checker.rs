@@ -513,7 +513,7 @@ async fn check_app_update(
 
     // Extract the release object: either the single response (stable mode)
     // or the first item from the array (pre-release mode, newest first).
-    let release = if is_list {
+    let (release, all_releases) = if is_list {
         let releases = json
             .as_array()
             .ok_or("GitHub API returned unexpected format (expected array)")?;
@@ -531,15 +531,34 @@ async fn check_app_update(
                 tag_name: None,
             });
         }
-        // Index 0 is the newest release (may be a pre-release)
-        &releases[0]
+        // Index 0 is the newest release (may be a pre-release).
+        // Keep the full array for multi-version release note aggregation.
+        (&releases[0], Some(releases.as_slice()))
     } else {
-        // Stable mode: response is a single release object
-        &json
+        // Stable mode: response is a single release object.
+        // We may need to fetch intermediate releases separately.
+        (&json, None)
     };
 
     // Delegate to the response parser to extract fields and build the ComponentUpdate.
-    Ok(parse_release_from_response(release, &current_version))
+    let mut update = parse_release_from_response(release, &current_version);
+
+    // For multi-version jumps (e.g., v0.13.0 → v0.15.0), aggregate release notes
+    // from all intermediate versions so the user sees a complete changelog.
+    if update.update_available {
+        let combined_body = aggregate_intermediate_release_notes(
+            &client,
+            &current_version,
+            all_releases,
+            check_pre_releases,
+        )
+        .await;
+        if let Some(body) = combined_body {
+            update.release_body = Some(body);
+        }
+    }
+
+    Ok(update)
 }
 
 /// Parses a single GitHub release JSON object into a `ComponentUpdate`.
@@ -628,6 +647,110 @@ fn parse_release_from_response(
             Some(raw_tag.to_string())
         },
     }
+}
+
+/// Aggregates release notes from all versions between the user's current version
+/// and the latest available version.
+///
+/// When a user jumps multiple versions (e.g., v0.13.0 → v0.15.0), simply showing
+/// the latest release's notes omits everything that changed in intermediate versions.
+/// This function collects release bodies for all versions newer than `current_version`,
+/// ordered newest-first with markdown headers for each version.
+///
+/// # Arguments
+/// * `client` - Pre-configured HTTP client (reused from the initial API call)
+/// * `current_version` - The running app version (bare semver, e.g., "0.13.0")
+/// * `existing_releases` - If the caller already fetched a release array (pre-release mode),
+///   pass it here to avoid a redundant API call. `None` in stable mode.
+/// * `check_pre_releases` - Whether pre-releases should be included
+///
+/// # Returns
+/// `Some(combined_body)` if multiple intermediate releases were found, `None` if only
+/// one release is newer (no aggregation needed) or on any API error (graceful fallback).
+async fn aggregate_intermediate_release_notes(
+    client: &reqwest::Client,
+    current_version: &str,
+    existing_releases: Option<&[serde_json::Value]>,
+    check_pre_releases: bool,
+) -> Option<String> {
+    // Fetch the release list if we don't already have it (stable mode only fetches /latest).
+    // Request up to 20 releases — enough to cover any reasonable version gap.
+    let owned_releases: Vec<serde_json::Value>;
+    let releases = if let Some(existing) = existing_releases {
+        existing
+    } else {
+        // Fetch the full release list. Pre-release filtering is handled below
+        // in the .filter() call, not by the GitHub API endpoint.
+        let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20";
+        let response = client
+            .get(url)
+            .header("User-Agent", "meedyadl")
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        owned_releases = response.json::<Vec<serde_json::Value>>().await.ok()?;
+        &owned_releases
+    };
+
+    // Filter to releases that are newer than current_version, ordered newest-first
+    // (GitHub API returns them in reverse chronological order).
+    let intermediate: Vec<&serde_json::Value> = releases
+        .iter()
+        .filter(|r| {
+            let tag = r["tag_name"]
+                .as_str()
+                .unwrap_or("")
+                .trim_start_matches('v');
+            if tag.is_empty() {
+                return false;
+            }
+            // Skip pre-releases if user only wants stable
+            if !check_pre_releases && r["prerelease"].as_bool().unwrap_or(false) {
+                return false;
+            }
+            is_newer(current_version, tag)
+        })
+        .collect();
+
+    // If only one release is newer, no aggregation needed — the caller already has its body.
+    if intermediate.len() <= 1 {
+        return None;
+    }
+
+    // Combine release bodies newest-first, each with a version header.
+    let mut combined = String::new();
+    for release in &intermediate {
+        let tag = release["tag_name"].as_str().unwrap_or("unknown");
+        let body = release["body"].as_str().unwrap_or("").trim();
+        if body.is_empty() {
+            continue;
+        }
+        if !combined.is_empty() {
+            combined.push_str("\n\n---\n\n");
+        }
+        // Check if the body already starts with a version heading (e.g., "## [0.15.0]")
+        // to avoid duplicating it. Release-please bodies typically start with the version.
+        let body_starts_with_version = body.starts_with('#');
+        if !body_starts_with_version {
+            combined.push_str(&format!("## {tag}\n\n"));
+        }
+        combined.push_str(body);
+    }
+
+    if combined.is_empty() {
+        return None;
+    }
+
+    log::info!(
+        "Aggregated release notes from {} intermediate versions (current: v{current_version})",
+        intermediate.len()
+    );
+
+    Some(combined)
 }
 
 /// Checks for Python runtime updates by comparing with python-build-standalone.
