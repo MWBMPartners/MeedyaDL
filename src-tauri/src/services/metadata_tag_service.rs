@@ -382,8 +382,11 @@ pub async fn apply_enriched_metadata_tags(
         (output_path.to_string(), m4a_files, None)
     };
 
-    // Process each M4A file with all enrichment layers
+    // Process each M4A file with all enrichment layers.
+    // Collect the ffprobe-detected codec per file so we can apply the
+    // correct suffix based on the ACTUAL codec, not the requested one.
     let mut tagged_count = 0;
+    let mut file_codecs: Vec<(PathBuf, SongCodec)> = Vec::new();
     for file_path in &files_to_enrich {
         match enrich_single_file(
             file_path,
@@ -395,7 +398,10 @@ pub async fn apply_enriched_metadata_tags(
         )
         .await
         {
-            Ok(()) => tagged_count += 1,
+            Ok(detected_codec) => {
+                tagged_count += 1;
+                file_codecs.push((file_path.clone(), detected_codec));
+            }
             Err(e) => {
                 log::debug!("Failed to enrich {}: {}", file_path.display(), e);
             }
@@ -404,11 +410,12 @@ pub async fn apply_enriched_metadata_tags(
 
     // --- Post-enrichment: apply codec suffix to filenames ---
     // Renames files like "01 Title.m4a" → "01 Title [Dolby Atmos].m4a"
-    // based on the requested codec. Skips files whose codec has no suffix
-    // defined in codecs.toml (e.g., standard AAC has empty suffix).
-    if let Some(suffix) = codec_suffix_from_registry(codec) {
-        if !suffix.is_empty() {
-            for file_path in &files_to_enrich {
+    // based on the ffprobe-detected codec per file. This ensures the suffix
+    // reflects the ACTUAL content (e.g., ALAC when native priority fell back
+    // from Atmos), not just what was requested.
+    for (file_path, detected_codec) in &file_codecs {
+        if let Some(suffix) = codec_suffix_from_registry(detected_codec) {
+            if !suffix.is_empty() {
                 apply_codec_rename_suffix(file_path, suffix);
             }
         }
@@ -429,9 +436,10 @@ pub async fn apply_enriched_metadata_tags(
 
 /// Apply all enrichment layers to a single M4A file.
 ///
-/// Returns the effective codec used for tagging (may differ from the
+/// Returns the effective codec detected for the file (may differ from the
 /// requested codec when native priority is active and ffprobe detects
-/// the actual codec from the file).
+/// the actual codec from the file). The caller uses this to apply the
+/// correct codec suffix to the filename.
 ///
 /// Runs ffprobe (async) for channel and codec detection, then offloads all
 /// `mp4ameta` Tag read/write operations to `spawn_blocking` to prevent
@@ -449,7 +457,7 @@ async fn enrich_single_file(
     ffprobe_path: Option<&PathBuf>,
     album_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
-) -> Result<(), String> {
+) -> Result<SongCodec, String> {
     // Run ffprobe first (async I/O — subprocess with .await).
     // Returns codec name, profile, and channel config in a single call.
     let audio_info = match ffprobe_path {
@@ -520,7 +528,9 @@ async fn enrich_single_file(
     // Extract channel config from audio info (separate from codec detection)
     let channel_config = audio_info.as_ref().map(|info| info.channel_config.clone());
 
-    // Clone data needed for the blocking closure (all are Send + 'static)
+    // Clone data needed for the blocking closure (all are Send + 'static).
+    // effective_codec is cloned so we can return it after the closure consumes the original.
+    let return_codec = effective_codec.clone();
     let tag_path = file_path.to_path_buf();
     let metadata_owned = album_metadata.cloned();
 
@@ -601,7 +611,7 @@ async fn enrich_single_file(
     .await
     .map_err(|e| format!("Metadata enrichment task panicked: {e}"))??;
 
-    Ok(())
+    Ok(return_codec)
 }
 
 // ============================================================
