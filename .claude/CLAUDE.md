@@ -139,13 +139,7 @@ Manual override: `version-bump.yml` + `scripts/bump-version.mjs` for non-standar
 
 All workflows (CI, Changelog, Release Please, Release) support both automatic (`on: push`) and manual (`workflow_dispatch`) triggers.
 
-During rapid development, add `[skip ci]` to commit messages to prevent auto-triggering:
-
-```bash
-git commit -m "feat: add queue persistence [skip ci]"
-```
-
-When ready to validate, manually trigger via CLI or GitHub UI:
+**Do NOT use `[skip ci]`** in commit messages unless the user explicitly requests it. Every push must trigger CI to validate changes. Manual triggering is available if needed:
 
 ```bash
 gh workflow run "CI" --ref main
