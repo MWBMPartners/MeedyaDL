@@ -196,7 +196,7 @@ export function ActivityLog() {
   }, [paused, setPaused]);
 
   /**
-   * Export all log entries to a .txt file via native save dialog.
+   * Export all log entries to a .log file via native save dialog.
    * Exports the full unfiltered entries, not just the filtered view.
    * Silently catches cancellation (user closed the dialog).
    */
