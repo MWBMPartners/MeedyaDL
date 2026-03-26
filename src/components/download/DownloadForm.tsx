@@ -82,6 +82,7 @@ import {
   ChevronUp,
   Plus,
   Layers,
+  FileDown,
 } from 'lucide-react';
 
 /**
@@ -102,6 +103,7 @@ import {
   checkCookiesBeforeDownload,
   checkInternetBeforeDownload,
   checkOutputPathBeforeDownload,
+  importManifest,
 } from '@/lib/tauri-commands';
 
 /** Apple Music URL parser for multi-URL validation. */
@@ -492,6 +494,25 @@ export function DownloadForm() {
     }
   };
 
+  /**
+   * Handles the "Import Manifest" action.
+   *
+   * Opens a native file picker filtered to `.meedyadl` files, parses
+   * the manifest, and populates the URL textarea with the source URLs
+   * (one per line for batch queueing).
+   */
+  const handleImportManifest = async () => {
+    try {
+      const urls = await importManifest();
+      if (urls.length > 0) {
+        setUrlInput(urls.join('\n'));
+        addToast(`Imported ${urls.length} URL${urls.length !== 1 ? 's' : ''} from manifest`, 'success');
+      }
+    } catch {
+      // User cancelled the dialog — silently ignore
+    }
+  };
+
   // ---------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------
@@ -665,6 +686,14 @@ export function DownloadForm() {
               onClick={handleSubmit}
             >
               Add to Queue
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<FileDown size={16} />}
+              onClick={handleImportManifest}
+              title="Import a .meedyadl manifest file"
+            >
+              Import
             </Button>
           </div>
 

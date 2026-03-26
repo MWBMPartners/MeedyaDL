@@ -511,9 +511,11 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
                                 Ok(manifest) => {
                                     let manifest_urls: Vec<String> =
                                         manifest.sources.iter().map(|s| s.url.clone()).collect();
-                                    if let Some(first_url) = manifest_urls.first() {
+                                    if !manifest_urls.is_empty() {
+                                        // Join all URLs with newlines for multi-URL textarea input
+                                        let joined_urls = manifest_urls.join("\n");
                                         let payload = serde_json::json!({
-                                            "url": first_url,
+                                            "url": joined_urls,
                                             "codec": serde_json::Value::Null,
                                         });
                                         if let Err(e) = app.emit("deep-link-download", payload) {
