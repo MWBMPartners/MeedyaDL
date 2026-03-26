@@ -8,6 +8,62 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Aggregate release notes across multi-version jumps in update checker [skip ci]
+
+When a user jumps multiple versions (e.g., v0.13.0 → v0.15.0), the Updates
+  page now shows combined release notes from all intermediate versions, not
+  just the latest. Fetches up to 20 releases from GitHub API and filters to
+  those newer than current_version. Bodies are concatenated newest-first with
+  horizontal rule separators.
+
+  Also adds Animated Cover Art developer documentation to DEV_NOTES.md.
+
+
+### 🐛 Bug Fixes
+
+- Use URL hostname parsing instead of substring matching in detectPlatform [skip ci]
+
+Resolves CodeQL alerts #13, #14, #15 (Incomplete URL substring sanitization).
+  `url.includes('music.apple.com')` could match crafted hostnames like
+  `evil-music.apple.com.attacker.com`. Now uses `new URL().hostname` for
+  exact hostname comparison.
+
+- Bundle English translations inline to prevent raw i18n keys on first render [skip ci]
+
+The sidebar was briefly showing raw keys like "sidebar.ready" and
+  "sidebar.checkForUpdates" because i18n resources were loaded via async
+  fetch() inside a useEffect, which completes after the first render.
+
+- Detect actual codec before planning companion downloads with native priority [skip ci]
+
+When native priority is used (--song-codec-priority atmos,alac,aac,...),
+  GAMDL may silently fall back to ALAC when Atmos is unavailable. Previously,
+  companion downloads were planned against the REQUESTED codec ("atmos"),
+  causing a redundant ALAC companion download when primary was already ALAC.
+
+- Clear inherited binaural/downmix tags on non-binaural codecs, add activity log for codec detection fallback
+
+Two fixes:
+
+  1. isBinaural/isDownmix tags (MeedyaDL-specific MeedyaMeta namespace)
+  were persisting on AAC Legacy and other non-binaural/downmix files.
+  When effective codec is not binaural/downmix, enrichment now explicitly
+  removes these tags via clear_binaural_downmix_tags(). Prevents stale
+  tags from prior enrichment passes or overwrite scenarios.
+
+  2. Codec detection fallback chain (MediaInfo -> ffprobe -> requested)
+  now emits activity log entries (not just verbose/debug logs) so users
+  see when detection falls back. Passes dl_id for per-download logging.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.15.0] - 2026-03-26
+
+### ✨ Features
+
 - Integrate MediaInfo CLI for accurate codec detection (#246)
 
 - Added MediaInfo as 5th managed tool in dependency_manager (optional)
