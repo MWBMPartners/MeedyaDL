@@ -61,3 +61,8 @@ version_flag = "--version"
 minimum_version = "2.0"
 binary_name = "MP4Box"
 version_flag = "-version"
+
+[mediainfo]
+minimum_version = "22.0"
+binary_name = "mediainfo"
+version_flag = "--version"

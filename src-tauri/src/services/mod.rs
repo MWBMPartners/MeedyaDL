@@ -249,6 +249,14 @@ pub mod ass_subtitle_service;
 /// Used by: `download_queue` (post-download enrichment Step 6b, when `musicbrainz_lookup` enabled)
 pub mod musicbrainz_service;
 
+/// MediaInfo CLI service — accurate codec detection via `mediainfo --Output=JSON`.
+///
+/// Provides definitive Dolby Atmos detection via `Format_AdditionalFeatures: "JOC"`.
+/// Falls back to ffprobe when MediaInfo is not installed (optional dependency).
+///
+/// Used by: `metadata_tag_service` (codec detection in enrichment Step 1)
+pub mod mediainfo_service;
+
 /// Download history persistence service.
 ///
 /// Records completed and failed downloads to `{app_data_dir}/history.json`
