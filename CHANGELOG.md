@@ -75,9 +75,19 @@ enrich_single_file() now returns the effective SongCodec detected via
   GAMDL silently fell back). Now the suffix accurately reflects the
   file's actual content.
 
+- Manifest tweaks — download start time, null codec, vendor MIME (#245)
+
+- downloaded_at now captures when the download starts processing
+    (not when enrichment finishes or the manifest is written)
+  - codec fields default to null at both source and track level —
+    the manifest is a metafile for re-downloading, not a quality spec
+  - MIME type changed to vendor convention per RFC 6838 §3.2:
+    application/vnd.mwbmpartners.meedyadl.download+json
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
