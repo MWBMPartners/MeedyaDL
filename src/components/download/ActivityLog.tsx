@@ -31,7 +31,7 @@ import { useActivityStore } from '@/stores/activityStore';
 import { Button, Input } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { Download, Pause, Play, Trash2, Search, X } from 'lucide-react';
+import { Download, Pause, Play, Trash2, Search, X, Copy } from 'lucide-react';
 import { exportActivityLog } from '@/lib/tauri-commands';
 
 /**
@@ -381,7 +381,7 @@ export function ActivityLog() {
           filteredEntries.map((entry, i) => (
             <div
               key={i}
-              className={`whitespace-pre-wrap break-all ${
+              className={`group relative whitespace-pre-wrap break-all pr-6 ${
                 entry.stream === 'internal'
                   ? 'text-accent-primary'
                   : entry.stream === 'stderr'
@@ -401,6 +401,17 @@ export function ActivityLog() {
                 </>
               )}
               {entry.line}
+              <button
+                type="button"
+                className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5"
+                title="Copy to clipboard"
+                aria-label="Copy log entry"
+                onClick={() => {
+                  navigator.clipboard.writeText(entry.line);
+                }}
+              >
+                <Copy size={10} />
+              </button>
             </div>
           ))
         )}
