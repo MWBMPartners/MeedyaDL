@@ -369,9 +369,10 @@ export function ActivityLog() {
         aria-label="Activity log"
       >
         {entries.length === 0 ? (
-          <p className="text-content-tertiary text-center py-8">
-            No activity yet. Start a download or perform an action to see live output here.
-          </p>
+          <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
+            <p className="text-sm font-medium">No activity yet</p>
+            <p className="text-xs mt-1">Start a download to see live output here. The log resets on app restart.</p>
+          </div>
         ) : filteredEntries.length === 0 ? (
           <p className="text-content-tertiary text-center py-8">
             No entries match the current search or filter criteria.
