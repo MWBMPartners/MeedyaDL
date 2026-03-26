@@ -1073,6 +1073,7 @@ export type AppleMusicContentType =
   | 'playlist'
   | 'music-video'
   | 'artist'
+  | 'library'
   | 'unknown';
 
 /**
