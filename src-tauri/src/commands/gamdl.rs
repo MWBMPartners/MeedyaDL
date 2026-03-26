@@ -806,7 +806,7 @@ fn format_timestamp_short(iso: &str) -> String {
         .map_or_else(|_| iso.to_string(), |dt| dt.format("%H:%M:%S").to_string())
 }
 
-/// Exports activity log entries to a `.txt` file via a native save dialog.
+/// Exports activity log entries to a `.log` file via a native save dialog.
 ///
 /// **Frontend caller:** `exportActivityLog(entries)` in `src/lib/tauri-commands.ts`
 ///
@@ -860,12 +860,12 @@ pub async fn export_activity_log(
 
     let text = lines.join("\n");
 
-    // Open native save dialog with .txt filter (same pattern as export_queue)
+    // Open native save dialog with .log filter
     let file_path = app
         .dialog()
         .file()
-        .add_filter("Text File", &["txt"])
-        .set_file_name("meedyadl-activity-log.txt")
+        .add_filter("Log File", &["log"])
+        .set_file_name("meedyadl-activity-log.log")
         .blocking_save_file();
 
     match file_path {

@@ -560,7 +560,7 @@ export function processQueue(): Promise<void> {
 }
 
 /**
- * Exports activity log entries to a `.txt` file via a native save dialog.
+ * Exports activity log entries to a `.log` file via a native save dialog.
  *
  * Rust handler: `export_activity_log()` in `src-tauri/src/commands/gamdl.rs`
  *
