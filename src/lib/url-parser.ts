@@ -179,6 +179,12 @@ function detectContentType(url: string): AppleMusicContentType {
       return 'artist';
     }
 
+    /* Library URLs: /library/ path segment (personal library items) */
+    /* e.g., /library/albums/l.8zPXbAv, /library/songs/..., /library/playlists/... */
+    if (path.includes('/library/')) {
+      return 'library';
+    }
+
     /* No recognized content type path segment found */
     return 'unknown';
   } catch {
@@ -212,6 +218,8 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
       return 'Music Video';
     case 'artist':
       return 'Artist';
+    case 'library':
+      return 'Library';
     default:
       return 'Unknown';
   }
