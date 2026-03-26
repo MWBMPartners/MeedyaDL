@@ -63,6 +63,7 @@ import { useState, useRef, useCallback, useMemo } from 'react';
  *  - `ListMusic`  -> playlist     (@see https://lucide.dev/icons/list-music)
  *  - `Video`      -> music-video  (@see https://lucide.dev/icons/video)
  *  - `User`       -> artist       (@see https://lucide.dev/icons/user)
+ *  - `Library`    -> library      (@see https://lucide.dev/icons/library)
  *  - `HelpCircle` -> unknown      (@see https://lucide.dev/icons/help-circle)
  *
  * UI controls:
@@ -75,6 +76,7 @@ import {
   ListMusic,
   Video,
   User,
+  Library,
   HelpCircle,
   ChevronDown,
   ChevronUp,
@@ -139,6 +141,7 @@ const CONTENT_TYPE_ICONS: Record<AppleMusicContentType, typeof Music> = {
   playlist: ListMusic, // Playlist URL
   'music-video': Video, // Music video URL
   artist: User, // Artist page URL
+  library: Library, // Personal library URL
   unknown: HelpCircle, // Unrecognised or unparseable URL
 };
 
@@ -153,6 +156,7 @@ const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
   playlist: 'Playlist',
   'music-video': 'Music Video',
   artist: 'Artist',
+  library: 'Library',
   unknown: 'Unknown',
 };
 
