@@ -11,7 +11,7 @@ import { useEffect, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button } from '@/components/common';
-import { Trash2, Search, CheckCircle, XCircle, X, FolderOpen } from 'lucide-react';
+import { Trash2, Search, CheckCircle, XCircle, X, FolderOpen, Clock } from 'lucide-react';
 import { listHistory, clearHistory, searchHistory } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -156,7 +156,8 @@ export function HistoryPage() {
           </div>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-content-tertiary">
-            <p className="text-sm">
+            {!searchQuery && <Clock size={32} className="mb-3 opacity-40" />}
+            <p className="text-sm font-medium">
               {searchQuery ? 'No matching downloads found.' : 'No download history yet.'}
             </p>
             {!searchQuery && (
