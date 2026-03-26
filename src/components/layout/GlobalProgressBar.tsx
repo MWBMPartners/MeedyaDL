@@ -96,12 +96,11 @@ export function GlobalProgressBar() {
         <span className="text-[10px] text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
-        {/* Speed + ETA (right) */}
-        {speedEta && (
-          <span className="text-[10px] text-content-tertiary whitespace-nowrap flex-shrink-0">
-            {speedEta}
-          </span>
-        )}
+        {/* Speed + ETA + percentage (right) */}
+        <span className="text-[10px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+          {speedEta ? `${speedEta} · ` : ''}
+          {itemProgress !== null ? `${Math.round(itemProgress)}%` : 'Processing…'}
+        </span>
       </div>
       <div
         className="h-1 w-full rounded-full bg-surface-elevated overflow-hidden mb-1.5"
@@ -128,8 +127,11 @@ export function GlobalProgressBar() {
 
       {/* Lower bar: queue-level progress */}
       <div className="flex items-center gap-2 mb-0.5">
-        <span className="text-[10px] text-content-tertiary">
+        <span className="text-[10px] text-content-tertiary truncate min-w-0 flex-1">
           {completedItems} of {totalItems} complete
+        </span>
+        <span className="text-[10px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+          {queueProgress}%
         </span>
       </div>
       <div
