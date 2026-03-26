@@ -3,21 +3,18 @@
 //
 // Zustand store for the Activity Log page. Accumulates raw subprocess
 // output lines emitted by the Rust backend via the "activity-log" Tauri
-// event. Entries are capped at MAX_ENTRIES to prevent unbounded memory
-// growth during long download sessions.
+// event. No entry cap — the log grows unbounded within a session and
+// resets on app restart.
 
 import { create } from 'zustand';
 import type { ActivityLogEntry } from '@/types';
-
-/** Maximum number of log entries retained in memory. */
-const MAX_ENTRIES = 5000;
 
 interface ActivityState {
   /** All log entries, newest last. */
   entries: ActivityLogEntry[];
   /** Whether auto-scrolling is paused (user scrolled up or clicked Pause). */
   paused: boolean;
-  /** Append a new log entry; trims oldest entries if over MAX_ENTRIES. */
+  /** Append a new log entry. */
   addEntry: (entry: ActivityLogEntry) => void;
   /** Set the paused state (controls auto-scroll in the Activity Log view). */
   setPaused: (paused: boolean) => void;
@@ -30,13 +27,7 @@ export const useActivityStore = create<ActivityState>((set) => ({
   paused: false,
 
   addEntry: (entry) =>
-    set((state) => {
-      const next = [...state.entries, entry];
-      if (next.length > MAX_ENTRIES) {
-        return { entries: next.slice(next.length - MAX_ENTRIES) };
-      }
-      return { entries: next };
-    }),
+    set((state) => ({ entries: [...state.entries, entry] })),
 
   setPaused: (paused) => set({ paused }),
 
