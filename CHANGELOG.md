@@ -51,6 +51,15 @@ Added translation keys for:
   Components still use hardcoded English — wiring useTranslation() to
   these keys is incremental follow-up work.
 
+- Wire useTranslation() to Sidebar navigation and footer (#111)
+
+Nav item labels now use t('nav.{page}') with fallback to static label.
+  Footer status text ("Ready"/"Setup Required") and update button text
+  ("Check for Updates"/"Checking..."/"N Updates") use translation keys.
+
+  First component to use react-i18next — establishes the pattern for
+  incremental i18n wiring across the rest of the UI.
+
 
 ### 🐛 Bug Fixes
 
@@ -83,6 +92,12 @@ Both JS (VITE_SENTRY_DSN) and Rust (SENTRY_DSN) now read the DSN
   Sentry is a no-op with a debug log message. Removes the placeholder
   examplePublicKey@o0.ingest.sentry.io/0 that was sending data nowhere.
 
+- Add role=list to queue items container for screen reader navigation (#125)
+
+QueueItem children already have role="listitem". Parent container now
+  has role="list" + aria-label="Download queue items" so screen readers
+  can identify the list structure.
+
 
 ### 📚 Documentation
 
@@ -98,6 +113,7 @@ Both JS (VITE_SENTRY_DSN) and Rust (SENTRY_DSN) now read the DSN
   - faq.md: .meedyadl files, queue Clear All, library URLs
   - troubleshooting.md: false failure fix, auth mode logging, log export
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -106,6 +122,12 @@ Both JS (VITE_SENTRY_DSN) and Rust (SENTRY_DSN) now read the DSN
 Added 4 new tests for library URL parsing (albums, songs, playlists,
   recently-added). Updated getContentTypeLabel test to cover the new
   'library' content type. Total: 260 tests (was 256).
+
+- Add activityStore unit tests (#232)
+
+6 tests covering: initial state, entry addition, ordering, no entry
+  cap (verifies old 5000 limit was removed), clearEntries, paused state.
+  Total: 266 tests across 19 test files.
 
 
 ## [0.14.0] - 2026-03-26
