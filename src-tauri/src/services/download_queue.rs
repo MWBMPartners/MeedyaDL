@@ -1624,14 +1624,12 @@ fn plan_companions(
 
         // Custom: each user-selected codec becomes its own tier.
         // The last tier gets the clean filename; earlier tiers get suffixes.
-        // Codecs matching the primary codec are skipped (no point downloading
-        // the same codec as a companion).
+        // All user-selected codecs are included — even if one matches the
+        // primary setting. With native priority the actual codec GAMDL picks
+        // may differ from the requested primary, so the user's explicit
+        // selections must be respected.
         CompanionMode::Custom => {
-            // Filter out the primary codec from the custom list
-            let filtered: Vec<&SongCodec> = custom_codecs
-                .iter()
-                .filter(|c| c.to_cli_string() != primary_codec)
-                .collect();
+            let filtered: Vec<&SongCodec> = custom_codecs.iter().collect();
 
             if filtered.is_empty() {
                 return vec![];
@@ -2723,6 +2721,18 @@ pub fn process_queue(
         };
 
         log::info!("Processing download {download_id}");
+
+        // Emit a clear separator in the activity log so users can easily
+        // distinguish where one queue item ends and the next begins.
+        let separator_url = urls.first().cloned().unwrap_or_default();
+        emit_download_log(
+            &app,
+            &download_id,
+            &format!(
+                "════════════════════════════════════════\n\
+                 Starting download: {separator_url}"
+            ),
+        );
 
         // === GAMDL version detection (cached, runs once per queue lifetime) ===
         // Detect the installed GAMDL version on the first download so we can
