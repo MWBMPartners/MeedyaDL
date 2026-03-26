@@ -635,6 +635,25 @@ async fn enrich_single_file(
         // standardised ISRC atom if not already set by the API (Layer 4).
         extract_isrc_from_vendor(&mut tag);
 
+        // --- Layer 5b: Spatial ISRC annotation ---
+        // When the detected codec is Atmos or AC3 (spatial), tag the file
+        // with MeedyaMeta:SpatialAudioCodec so downstream tools know this
+        // ISRC is from the spatial version of the track. The Apple Music API
+        // returns a single ISRC per track — this marker helps identify
+        // spatial variants for future cross-platform ISRC matching.
+        let spatial_codecs = [
+            SongCodec::Atmos,
+            SongCodec::Ac3,
+            SongCodec::AacBinaural,
+        ];
+        if spatial_codecs.contains(&effective_codec) {
+            let spatial_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialAudioCodec");
+            tag.set_data(
+                spatial_ident,
+                Data::Utf8(effective_codec.to_cli_string().to_string()),
+            );
+        }
+
         // Write all changes back to the file in a single operation
         tag.write_to_path(&tag_path).map_err(|e| {
             format!(
