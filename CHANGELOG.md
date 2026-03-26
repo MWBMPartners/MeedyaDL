@@ -46,6 +46,11 @@ Generated from assets/brand/icon-doc.svg (split disc/reel design).
   Tauri v2 doesn't expose fileAssociations.icon yet — platform-specific
   wiring deferred to follow-up issue.
 
+- Add .meedyadl document type icon SVG source
+
+Split disc/reel design matching the MeedyaDL brand. Source file for
+  the PNG/ICO/ICNS variants already committed. Brand asset (proprietary).
+
 
 ### 🐛 Bug Fixes
 
@@ -103,6 +108,7 @@ npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
