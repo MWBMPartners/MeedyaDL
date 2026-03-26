@@ -535,7 +535,7 @@ export function DownloadQueue() {
            * @see QueueItem in ./QueueItem.tsx
            * @see https://react.dev/learn/rendering-lists
            */
-          <div>
+          <div role="list" aria-label="Download queue items">
             {queueItems.map((item) => (
               <QueueItem
                 key={item.id}
