@@ -507,6 +507,33 @@ pub async fn clear_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resul
     Ok(removed)
 }
 
+/// Clears ALL non-active items from the queue (completed, cancelled,
+/// errored, and queued). Active downloads are preserved.
+///
+/// **Frontend caller:** `clearAllQueue()` in `src/lib/tauri-commands.ts`
+///
+/// # Returns
+/// * `Ok(usize)` - The number of items removed.
+#[tauri::command]
+pub async fn clear_all_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<usize, String> {
+    let removed = {
+        let mut q = queue.lock().await;
+        q.clear_all()
+    };
+
+    let queue_handle = queue.inner().clone();
+    download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+    if removed > 0 {
+        emit_app_log(&app, &format!("Cleared all {removed} item(s) from queue"));
+    }
+
+    Ok(removed)
+}
+
 /// Returns the current status of all items in the download queue.
 ///
 /// **Frontend caller:** `getQueueStatus()` in `src/lib/tauri-commands.ts`
