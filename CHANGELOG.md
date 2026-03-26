@@ -60,6 +60,19 @@ Split disc/reel design matching the MeedyaDL brand. Source file for
   - Deep link / file association: multi-source manifests now emit all
     URLs joined by newlines (not just the first) for batch queueing
 
+- Clear all queue with confirmation, wrapper logging, CVD debugging (#248)
+
+- "Clear All" button on Queue page with confirmation modal. Removes all
+    non-active items (queued, completed, cancelled, errored). Active
+    downloads are preserved. Uses clear_all() in DownloadQueue + IPC.
+  - Wrapper authentication status now emitted to user-visible Activity Log
+    at download start: "Authentication: Wrapper ({url})" or
+    "Authentication: Cookie-based (no wrapper)".
+  - CVD (colour blind) modes verified working — CSS bundle confirmed to
+    contain all 9 CVD selectors. Added console.debug logging to useTheme
+    hook for easier troubleshooting.
+  - Animated artwork confirmed independent of wrapper (uses MusicKit JWT).
+
 
 ### 🐛 Bug Fixes
 
@@ -117,6 +130,7 @@ npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
