@@ -860,12 +860,16 @@ pub async fn export_activity_log(
 
     let text = lines.join("\n");
 
-    // Open native save dialog with .log filter
+    // Open native save dialog with .log filter.
+    // Filename includes the current date/time for easy identification.
+    let default_name = chrono::Local::now()
+        .format("MeedyaDL-activity-log_%Y-%m-%d_%Hh%Mm.log")
+        .to_string();
     let file_path = app
         .dialog()
         .file()
         .add_filter("Log File", &["log"])
-        .set_file_name("meedyadl-activity-log.log")
+        .set_file_name(&default_name)
         .blocking_save_file();
 
     match file_path {
