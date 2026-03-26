@@ -260,6 +260,9 @@ export function DownloadForm() {
    */
   const [cookieError, setCookieError] = useState<string | null>(null);
 
+  /** Whether preflight checks are running (disables submit button). */
+  const [isChecking, setIsChecking] = useState(false);
+
   /** Navigation to the Settings page (for the "Go to Settings" link). */
   const setPage = useUiStore((s) => s.setPage);
 
@@ -359,6 +362,16 @@ export function DownloadForm() {
    * error toast on failure.
    */
   const handleSubmit = async () => {
+    setIsChecking(true);
+    try {
+      await runPreflightAndSubmit();
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  /** Internal: run preflight checks then submit. Separated so setIsChecking wraps the full flow. */
+  const runPreflightAndSubmit = async () => {
     // Check internet connectivity — if offline, we still queue the download
     // but skip auto-start so it waits until the user retries or connectivity
     // returns and a future download triggers queue processing.
@@ -488,7 +501,7 @@ export function DownloadForm() {
    * @see https://react.dev/learn/responding-to-events
    */
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && canSubmit && !isSubmitting) {
+    if (e.key === 'Enter' && !e.shiftKey && canSubmit && !isSubmitting && !isChecking) {
       e.preventDefault();
       handleSubmit();
     }
@@ -681,8 +694,8 @@ export function DownloadForm() {
             <Button
               variant="primary"
               icon={<Plus size={16} />}
-              loading={isSubmitting}
-              disabled={!canSubmit}
+              loading={isSubmitting || isChecking}
+              disabled={!canSubmit || isChecking}
               onClick={handleSubmit}
             >
               Add to Queue
