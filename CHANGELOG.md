@@ -8,6 +8,59 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Integrate MediaInfo CLI for accurate codec detection (#246)
+
+- Added MediaInfo as 5th managed tool in dependency_manager (optional)
+  - tool-versions.toml: [mediainfo] section (min v22.0)
+  - New mediainfo_service.rs: JSON parser for mediainfo --Output=JSON
+    with definitive Atmos detection (Format_AdditionalFeatures: "JOC")
+  - metadata_tag_service.rs: MediaInfo primary, ffprobe fallback
+    for codec detection in enrichment Step 1
+  - URL resolver for macOS (DMG/.pkg), Windows (ZIP), Linux (mirror)
+  - 8 unit tests for codec classification (Atmos, AC3, ALAC, AAC, HE-AAC)
+  - Setup Wizard auto-detects MediaInfo via get_all_tools()
+
+- Add SpatialAudioCodec ISRC annotation for Atmos/AC3 tracks (#121)
+
+When the detected codec is Atmos, AC3, or Binaural, writes a
+  MeedyaDL:SpatialAudioCodec freeform atom to the file. This marks
+  the ISRC as belonging to the spatial version of the track, enabling
+  future cross-platform ISRC matching for spatial audio variants.
+
+
+### 🐛 Bug Fixes
+
+- Add loading state during preflight checks to prevent duplicate submissions (#249)
+
+Wraps handleSubmit with isChecking state that disables the "Add to
+  Queue" button and shows a spinner while preflight checks (internet,
+  output path, cookies) are running. Prevents users from clicking
+  multiple times on slow networks.
+
+- Add debounced save to prevent concurrent settings write race (#250)
+
+Added debouncedSave() to settingsStore — batches rapid save calls
+  within 300ms into a single disk write. Auto-save callers (toggle
+  switches) should use this instead of saveSettings() directly.
+  Manual "Save" button still uses saveSettings() for instant feedback.
+
+- Add aria-labels to context menu and queue items (#254)
+
+- ContextMenu: aria-label="Actions menu" on the role="menu" container
+  - QueueItem: role="listitem" + aria-label with download URL on each item
+
+  WCAG 2.1 compliance — screen readers can now identify context menus
+  and queue items.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.14.0] - 2026-03-26
+
+### ✨ Features
+
 - Accept Apple Music personal library URLs (#243)
 
 Library URLs (e.g., music.apple.com/library/albums/l.8zPXbAv) were
