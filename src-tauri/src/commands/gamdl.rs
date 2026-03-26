@@ -884,3 +884,55 @@ pub async fn export_activity_log(
         None => Err("Export cancelled".to_string()),
     }
 }
+
+/// Imports a `.meedyadl` manifest file via a native open dialog.
+///
+/// **Frontend caller:** `importManifest()` in `src/lib/tauri-commands.ts`
+///
+/// Parses the manifest and returns the source URLs for the frontend
+/// to populate the download form. Supports both single-source and
+/// multi-platform manifests (returns all source URLs).
+///
+/// # Returns
+/// * `Ok(Vec<String>)` - List of download URLs from the manifest sources
+/// * `Err(String)` if the dialog is cancelled, file is invalid, or I/O fails
+#[tauri::command]
+pub async fn import_manifest(app: AppHandle) -> Result<Vec<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("MeedyaDL Manifest", &["meedyadl"])
+        .blocking_pick_file();
+
+    match file_path {
+        Some(path) => {
+            let resolved = path
+                .as_path()
+                .ok_or_else(|| "Failed to resolve manifest file path".to_string())?;
+            let contents = std::fs::read_to_string(resolved)
+                .map_err(|e| format!("Failed to read manifest file: {e}"))?;
+            let manifest: crate::models::manifest::ManifestFile =
+                serde_json::from_str(&contents)
+                    .map_err(|e| format!("Invalid manifest file: {e}"))?;
+
+            let urls: Vec<String> = manifest
+                .sources
+                .iter()
+                .map(|s| s.url.clone())
+                .collect();
+
+            if urls.is_empty() {
+                return Err("Manifest contains no download sources".to_string());
+            }
+
+            log::info!(
+                "Imported manifest with {} source(s)",
+                urls.len()
+            );
+            Ok(urls)
+        }
+        None => Err("Import cancelled".to_string()),
+    }
+}
