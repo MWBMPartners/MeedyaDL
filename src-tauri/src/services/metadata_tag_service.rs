@@ -356,6 +356,12 @@ pub async fn apply_enriched_metadata_tags(
         }
     };
 
+    // Get MediaInfo path (optional — more accurate codec detection for Atmos/AC3)
+    let mediainfo_path = super::mediainfo_service::get_mediainfo_path(app);
+    if mediainfo_path.is_some() {
+        log::debug!("MediaInfo available for codec detection");
+    }
+
     // Resolve album metadata: reuse pre-fetched or try API fetch
     let album_metadata: Option<AlbumMetadata> = match pre_fetched_metadata {
         Some(m) => Some(m.clone()),
@@ -393,6 +399,7 @@ pub async fn apply_enriched_metadata_tags(
             codec,
             uses_native_priority,
             ffprobe_path.as_ref(),
+            mediainfo_path.as_ref(),
             album_metadata.as_ref(),
             event_context,
         )
@@ -455,22 +462,54 @@ async fn enrich_single_file(
     requested_codec: &SongCodec,
     uses_native_priority: bool,
     ffprobe_path: Option<&PathBuf>,
+    mediainfo_path: Option<&PathBuf>,
     album_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
 ) -> Result<SongCodec, String> {
-    // Run ffprobe first (async I/O — subprocess with .await).
-    // Returns codec name, profile, and channel config in a single call.
-    let audio_info = match ffprobe_path {
-        Some(ffprobe) => detect_audio_info(ffprobe, file_path).await,
-        None => None,
+    // Try MediaInfo first (more accurate for Atmos/AC3 detection), then ffprobe as fallback.
+    let mediainfo_result = if let Some(mi_path) = mediainfo_path {
+        super::mediainfo_service::detect_codec(mi_path, file_path).await
+    } else {
+        None
+    };
+
+    // Run ffprobe as fallback (async I/O — subprocess with .await).
+    let audio_info = if mediainfo_result.is_none() {
+        match ffprobe_path {
+            Some(ffprobe) => detect_audio_info(ffprobe, file_path).await,
+            None => None,
+        }
+    } else {
+        None // Skip ffprobe when MediaInfo succeeded
     };
 
     // Determine the effective codec for tag writing.
-    // When native priority was used, ffprobe detects the actual codec from
-    // the file. When single-codec mode was used, the requested codec is
-    // always correct. Falls back to requested codec if ffprobe is unavailable.
+    // Priority: MediaInfo > ffprobe > requested codec.
+    // When native priority was used, the actual codec is detected from the
+    // file. When single-codec mode was used, the requested codec is always
+    // correct. Falls back to requested codec if neither tool is available.
     let effective_codec = if uses_native_priority {
-        if let Some(ref info) = audio_info {
+        if let Some(ref mi) = mediainfo_result {
+            // MediaInfo detection — definitive for Atmos/AC3/ALAC/AAC
+            if let Some((app_handle, dl_id)) = event_context {
+                let filename = file_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("?");
+                crate::utils::activity_log::emit_verbose_download_log(
+                    app_handle,
+                    dl_id,
+                    &format!(
+                        "Codec detection (MediaInfo): format={}, features={}, resolved={} [{}]",
+                        mi.format,
+                        mi.additional_features.as_deref().unwrap_or("none"),
+                        mi.codec.to_cli_string(),
+                        filename,
+                    ),
+                );
+            }
+            mi.codec.clone()
+        } else if let Some(ref info) = audio_info {
             let resolved = resolve_codec_from_ffprobe(info, requested_codec);
             // Log codec detection result in verbose mode
             if let Some((app_handle, dl_id)) = event_context {

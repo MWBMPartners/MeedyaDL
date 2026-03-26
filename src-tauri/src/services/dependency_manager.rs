@@ -171,6 +171,15 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
             let caps = re.captures(first_line)?;
             Some(caps.get(1)?.as_str().to_string())
         }
+        "mediainfo" => {
+            // MediaInfo: "MediaInfo Command line,\nMediaInfoLib - v26.01"
+            // The version is on the second line, but first_line may be the first.
+            // Try to find "v{major}.{minor}" anywhere in the output.
+            let full_output = output;
+            let re = regex::Regex::new(r"v(\d+\.\d+)").ok()?;
+            let caps = re.captures(full_output)?;
+            Some(caps.get(1)?.as_str().to_string())
+        }
         _ => {
             // Generic: try to find any version-like pattern
             let re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
@@ -565,6 +574,12 @@ const TOOLS: &[ToolInfo] = &[
         required: true,
         description: "MP4 muxing and remuxing tool (GPAC)",
     },
+    ToolInfo {
+        name: "MediaInfo",
+        id: "mediainfo",
+        required: false,
+        description: "Media file analysis for accurate codec detection",
+    },
 ];
 
 /// Returns the download URL and archive format for a tool on the current platform.
@@ -596,6 +611,7 @@ async fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::Archiv
         "mp4decrypt" => get_mp4decrypt_url(os, arch),
         "nm3u8dlre" => get_nm3u8dlre_url(os, arch).await,
         "mp4box" => get_mp4box_url(os, arch),
+        "mediainfo" => get_mediainfo_url(os, arch),
         _ => Err(format!("Unknown tool: {tool_id}")),
     }
 }
@@ -748,6 +764,40 @@ fn get_mp4box_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFor
     Err("MP4Box installation is handled by platform-specific install functions".to_string())
 }
 
+/// Returns the MediaInfo CLI download URL for the given platform.
+///
+/// MediaInfo is available as a self-contained CLI binary:
+/// - macOS: Universal binary (extracted from .pkg in DMG) via mirror
+/// - Windows: ZIP with MediaInfo.exe + LIBCURL.DLL via mirror
+/// - Linux: .deb packages via apt-get or mirror
+///
+/// All platforms fall through to the mirror fallback in `download_tool_with_fallback()`.
+fn get_mediainfo_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    match (os, arch) {
+        ("macos", _) => Ok((
+            "https://mediaarea.net/download/binary/mediainfo/26.01/MediaInfo_CLI_26.01_Mac.dmg"
+                .to_string(),
+            archive::ArchiveFormat::TarGz, // Mirror repackages as tar.gz
+        )),
+        ("windows", "x86_64") => Ok((
+            "https://mediaarea.net/download/binary/mediainfo/26.01/MediaInfo_CLI_26.01_Windows_x64.zip"
+                .to_string(),
+            archive::ArchiveFormat::Zip,
+        )),
+        ("windows", "aarch64") => Ok((
+            "https://mediaarea.net/download/binary/mediainfo/26.01/MediaInfo_CLI_26.01_Windows_ARM64.zip"
+                .to_string(),
+            archive::ArchiveFormat::Zip,
+        )),
+        ("linux", _) => {
+            // Linux uses apt-get or .deb bundle from mirror.
+            // Primary URL is a placeholder — install_tool() will fall through to mirror.
+            Err("MediaInfo on Linux is installed via apt-get or .deb bundle from mirror".to_string())
+        }
+        _ => Err(format!("No pre-built MediaInfo available for {os}/{arch}")),
+    }
+}
+
 /// Returns the path to a tool's installation directory.
 ///
 /// Each tool gets its own subdirectory under {`app_data}/tools`/.
@@ -787,6 +837,7 @@ pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
         "mp4decrypt" => format!("mp4decrypt{exe_ext}"),
         "nm3u8dlre" => format!("N_m3u8DL-RE{exe_ext}"),
         "mp4box" => format!("MP4Box{exe_ext}"),
+        "mediainfo" => format!("mediainfo{exe_ext}"),
         _ => format!("{tool_id}{exe_ext}"),
     };
 
@@ -1755,6 +1806,11 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
         ],
         // MP4Box: check both the expected case and lowercase variant
         "mp4box" => vec![format!("MP4Box{}", exe_ext), format!("mp4box{}", exe_ext)],
+        // MediaInfo: check both expected case and uppercase variant
+        "mediainfo" => vec![
+            format!("mediainfo{}", exe_ext),
+            format!("MediaInfo{}", exe_ext),
+        ],
         _ => vec![format!("{}{}", tool_id, exe_ext)],
     };
 
