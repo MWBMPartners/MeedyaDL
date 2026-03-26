@@ -281,6 +281,37 @@ fn write_downmix_tags(tag: &mut Tag) {
     );
 }
 
+/// Removes isBinaural and isDownmix tags from an M4A file's metadata.
+///
+/// Apple Music's servers or GAMDL's `--fetch-extra-tags` may embed these
+/// delivery-mode indicators into files regardless of which codec was actually
+/// downloaded. This function strips them when the effective codec is not
+/// binaural or downmix, preventing incorrect tagging on AAC Legacy, standard
+/// AAC, ALAC, or other non-spatial formats.
+fn clear_binaural_downmix_tags(tag: &mut Tag) {
+    let binaural_itunes = FreeformIdent::new_static(ITUNES_NAMESPACE, "isBinaural");
+    let binaural_meedya = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "isBinaural");
+    let downmix_itunes = FreeformIdent::new_static(ITUNES_NAMESPACE, "isDownmix");
+    let downmix_meedya = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "isDownmix");
+
+    // Only log if we actually removed something (avoid noise)
+    let had_binaural = tag.strings_of(&binaural_itunes).next().is_some()
+        || tag.strings_of(&binaural_meedya).next().is_some();
+    let had_downmix = tag.strings_of(&downmix_itunes).next().is_some()
+        || tag.strings_of(&downmix_meedya).next().is_some();
+
+    tag.remove_data_of(&binaural_itunes);
+    tag.remove_data_of(&binaural_meedya);
+    tag.remove_data_of(&downmix_itunes);
+    tag.remove_data_of(&downmix_meedya);
+
+    if had_binaural || had_downmix {
+        log::debug!(
+            "Cleared inherited binaural/downmix tags (binaural={had_binaural}, downmix={had_downmix})"
+        );
+    }
+}
+
 /// Checks whether a file path has an `.m4a` extension (case-insensitive).
 fn is_m4a(path: &Path) -> bool {
     path.extension()
@@ -599,7 +630,13 @@ async fn enrich_single_file(
             SongCodec::AacDownmix | SongCodec::AacHeDownmix => {
                 write_downmix_tags(&mut tag);
             }
-            _ => {} // No codec tags for standard lossy formats
+            _ => {
+                // Explicitly remove binaural/downmix tags that may have been
+                // inherited from Apple's servers or GAMDL's --fetch-extra-tags.
+                // These are delivery-mode indicators that only apply to specific
+                // codec variants, not to AAC Legacy/standard AAC/ALAC etc.
+                clear_binaural_downmix_tags(&mut tag);
+            }
         }
 
         // --- Layer 2: Source & format tags (always-on, no API needed) ---

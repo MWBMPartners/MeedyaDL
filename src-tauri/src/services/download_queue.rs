@@ -2364,6 +2364,7 @@ async fn run_lyrics_fallback(
 /// or falls back to `requested_codec` if detection fails.
 async fn detect_actual_primary_codec(
     app: &tauri::AppHandle,
+    dl_id: &str,
     output_path: Option<&str>,
     requested_codec: &str,
 ) -> String {
@@ -2403,33 +2404,57 @@ async fn detect_actual_primary_codec(
         if let Some(result) = super::mediainfo_service::detect_codec(&mediainfo_bin, &m4a_path).await {
             let actual_str = result.codec.to_cli_string().to_string();
             if actual_str != requested_codec {
-                log::info!(
-                    "Native priority actual codec detected via MediaInfo: {} (requested: {}) — companions will use actual",
-                    actual_str,
-                    requested_codec
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Actual codec detected via MediaInfo: {} (requested: {}) — companions adjusted",
+                        actual_str, requested_codec
+                    ),
                 );
             }
             return actual_str;
         }
+        // MediaInfo present but detection failed for this file
+        emit_download_log(
+            app,
+            dl_id,
+            "MediaInfo codec detection failed — falling back to ffprobe",
+        );
     }
 
-    // Fall back to ffprobe if MediaInfo unavailable
+    // Fall back to ffprobe if MediaInfo unavailable or failed
     if let Ok(ffprobe) = super::metadata_tag_service::get_ffprobe_path(app) {
         if let Some(info) = super::metadata_tag_service::detect_audio_info(&ffprobe, &m4a_path).await {
             let actual = super::metadata_tag_service::resolve_codec_from_ffprobe(&info, &requested_song_codec);
             let actual_str = actual.to_cli_string().to_string();
             if actual_str != requested_codec {
-                log::info!(
-                    "Native priority actual codec detected via ffprobe: {} (requested: {}) — companions will use actual",
-                    actual_str,
-                    requested_codec
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Actual codec detected via ffprobe: {} (requested: {}) — companions adjusted",
+                        actual_str, requested_codec
+                    ),
                 );
             }
             return actual_str;
         }
+        // ffprobe present but detection failed
+        emit_download_log(
+            app,
+            dl_id,
+            "ffprobe codec detection also failed — using requested codec for companions",
+        );
+    } else {
+        // Neither MediaInfo nor ffprobe available
+        emit_download_log(
+            app,
+            dl_id,
+            "No codec detection tools available — using requested codec for companions",
+        );
     }
 
-    log::debug!("Codec detection failed (neither MediaInfo nor ffprobe available) — using requested codec for companions");
     requested_codec.to_string()
 }
 
@@ -4499,6 +4524,7 @@ pub fn process_queue(
                     let actual_codec_for_companions = if uses_native_priority {
                         detect_actual_primary_codec(
                             &app_clone,
+                            &dl_id,
                             output_path_for_artwork.as_deref(),
                             &primary_codec_for_companions,
                         )
