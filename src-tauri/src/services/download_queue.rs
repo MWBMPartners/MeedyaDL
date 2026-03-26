@@ -2352,6 +2352,87 @@ async fn run_lyrics_fallback(
 /// Spawns companion and lyrics companion downloads as background tasks.
 ///
 /// Companions are independent downloads of the same content in different
+/// Detects the actual audio codec of downloaded files by running ffprobe on
+/// the first `.m4a` file in the output directory.
+///
+/// When native priority is used (`--song-codec-priority atmos,alac,aac,...`),
+/// GAMDL silently falls back through the chain. The requested codec may be
+/// "atmos" but the actual files may be ALAC. This function probes the real
+/// codec so companion downloads are planned against the actual content.
+///
+/// Returns the CLI string of the detected codec (e.g., "alac", "atmos"),
+/// or falls back to `requested_codec` if detection fails.
+async fn detect_actual_primary_codec(
+    app: &tauri::AppHandle,
+    output_path: Option<&str>,
+    requested_codec: &str,
+) -> String {
+    let Some(dir) = output_path else {
+        return requested_codec.to_string();
+    };
+
+    let dir_path = std::path::Path::new(dir);
+    if !dir_path.is_dir() {
+        return requested_codec.to_string();
+    }
+
+    // Find the first .m4a file in the output directory
+    let first_m4a = match std::fs::read_dir(dir_path) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok())
+            .find(|e| {
+                e.path()
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("m4a"))
+            })
+            .map(|e| e.path()),
+        Err(_) => None,
+    };
+
+    let Some(m4a_path) = first_m4a else {
+        log::debug!("No .m4a files in output dir for codec detection — using requested codec");
+        return requested_codec.to_string();
+    };
+
+    // Parse the requested codec for the ffprobe fallback path
+    let requested_song_codec = crate::models::gamdl_options::SongCodec::from_cli_string(requested_codec)
+        .unwrap_or(crate::models::gamdl_options::SongCodec::Aac);
+
+    // Try MediaInfo first (more reliable, especially for Atmos/AC3 distinction)
+    if let Some(mediainfo_bin) = super::mediainfo_service::get_mediainfo_path(app) {
+        if let Some(result) = super::mediainfo_service::detect_codec(&mediainfo_bin, &m4a_path).await {
+            let actual_str = result.codec.to_cli_string().to_string();
+            if actual_str != requested_codec {
+                log::info!(
+                    "Native priority actual codec detected via MediaInfo: {} (requested: {}) — companions will use actual",
+                    actual_str,
+                    requested_codec
+                );
+            }
+            return actual_str;
+        }
+    }
+
+    // Fall back to ffprobe if MediaInfo unavailable
+    if let Ok(ffprobe) = super::metadata_tag_service::get_ffprobe_path(app) {
+        if let Some(info) = super::metadata_tag_service::detect_audio_info(&ffprobe, &m4a_path).await {
+            let actual = super::metadata_tag_service::resolve_codec_from_ffprobe(&info, &requested_song_codec);
+            let actual_str = actual.to_cli_string().to_string();
+            if actual_str != requested_codec {
+                log::info!(
+                    "Native priority actual codec detected via ffprobe: {} (requested: {}) — companions will use actual",
+                    actual_str,
+                    requested_codec
+                );
+            }
+            return actual_str;
+        }
+    }
+
+    log::debug!("Codec detection failed (neither MediaInfo nor ffprobe available) — using requested codec for companions");
+    requested_codec.to_string()
+}
+
 /// codecs (e.g., ALAC companion for an Atmos primary). They fire regardless
 /// of whether the primary download succeeded or failed — the companion codec
 /// may succeed where the primary format was unavailable.
@@ -3648,7 +3729,7 @@ pub fn process_queue(
                     // This runs in a separate tokio task so it doesn't block the queue
                     // from processing the next download. Failures are logged but never
                     // propagate to the user or affect the download status.
-                    if let Some(output_dir) = output_path_for_artwork {
+                    if let Some(output_dir) = output_path_for_artwork.clone() {
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
                         let enrich_dl_id = dl_id.clone();
@@ -4409,15 +4490,30 @@ pub fn process_queue(
                     }
 
                     // Spawn companion downloads (codec + lyrics) as background tasks.
-                    // Uses the primary codec from pre-match extraction since
-                    // completed_codec may differ (e.g., after fallback).
+                    // When native priority was used, GAMDL may have silently fallen
+                    // back to a different codec (e.g., Atmos requested but ALAC
+                    // delivered). Detect the actual codec via ffprobe so companions
+                    // are planned against reality, not the request. This prevents
+                    // redundant downloads (e.g., ALAC companion when primary is
+                    // already ALAC after Atmos fallback).
+                    let actual_codec_for_companions = if uses_native_priority {
+                        detect_actual_primary_codec(
+                            &app_clone,
+                            output_path_for_artwork.as_deref(),
+                            &primary_codec_for_companions,
+                        )
+                        .await
+                    } else {
+                        primary_codec_for_companions.clone()
+                    };
+
                     // When native priority was used, force all companions to
                     // use suffixed filenames (primary has clean filenames).
                     spawn_companion_downloads(
                         &app_clone,
                         &dl_id,
                         &urls,
-                        &primary_codec_for_companions,
+                        &actual_codec_for_companions,
                         &companion_base_options,
                         &shutdown_clone,
                         uses_native_priority,
