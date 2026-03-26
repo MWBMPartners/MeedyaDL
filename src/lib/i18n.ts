@@ -23,6 +23,12 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 
+// English translations are bundled inline so they're available synchronously
+// from the very first render. Without this, components using useTranslation()
+// would briefly display raw keys (e.g., "sidebar.ready") until the async
+// fetch of /locales/en/translation.json completes.
+import enTranslations from '../../public/locales/en/translation.json';
+
 /**
  * Available locale codes. When adding a new translation, add the code here
  * and create the corresponding `public/locales/{code}/translation.json` file.
@@ -67,11 +73,10 @@ export async function initI18n(): Promise<void> {
         lookupLocalStorage: 'meedyadl-ui-language',
         caches: ['localStorage'],
       },
-      resources: {}, // loaded dynamically below
+      resources: {
+        en: { translation: enTranslations },
+      },
     });
-
-  // Pre-load English (always available as fallback)
-  await loadLocaleResources('en');
 
   // If detected language is not English, load it too
   const detected = i18n.language?.split('-')[0];
