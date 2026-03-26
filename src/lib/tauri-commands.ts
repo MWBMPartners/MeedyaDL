@@ -573,6 +573,17 @@ export function exportActivityLog(entries: import('@/types').ActivityLogEntry[])
   return invoke<number>('export_activity_log', { entries });
 }
 
+/**
+ * Imports a `.meedyadl` manifest file via a native open dialog.
+ *
+ * Rust handler: `import_manifest()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * @returns Promise resolving to an array of download URLs from the manifest
+ */
+export function importManifest(): Promise<string[]> {
+  return invoke<string[]>('import_manifest');
+}
+
 // ============================================================
 // Settings Utility Commands
 // ============================================================

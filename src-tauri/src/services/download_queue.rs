@@ -391,6 +391,131 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 }
 
 // ============================================================
+// Manifest writer
+// ============================================================
+
+/// Write or update a `.meedyadl` manifest file in the album output directory.
+///
+/// If a manifest already exists, the new source is merged (append or
+/// replace matching platform+URL). Uses atomic write-to-temp-then-rename.
+fn write_manifest(
+    album_dir: &str,
+    urls: &[String],
+    codec: Option<&str>,
+    album_metadata: Option<&crate::services::apple_music_api::AlbumMetadata>,
+    settings: &crate::models::settings::AppSettings,
+) {
+    use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
+
+    let dir = std::path::Path::new(album_dir);
+    if !dir.exists() {
+        return;
+    }
+
+    let manifest_path = dir.join(".meedyadl");
+    let url = urls.first().cloned().unwrap_or_default();
+    if url.is_empty() {
+        return;
+    }
+
+    // Determine platform from the URL domain
+    let platform = if url.contains("music.apple.com")
+        || url.contains("classical.apple.com")
+        || url.contains("itunes.apple.com")
+    {
+        "apple-music"
+    } else {
+        "unknown"
+    };
+
+    // Build per-track metadata from AlbumMetadata (if available)
+    let tracks: Vec<ManifestTrack> = album_metadata
+        .map(|meta| {
+            meta.tracks
+                .iter()
+                .map(|t| {
+                    // Build individual track URL if we have the album URL + song ID
+                    let track_url = if !t.song_id.is_empty() && url.contains("/album/") {
+                        // e.g., https://music.apple.com/gb/album/slug/123?i=456
+                        Some(format!("{}?i={}", url, t.song_id))
+                    } else {
+                        None
+                    };
+                    ManifestTrack {
+                        number: t.track_number,
+                        disc: t.disc_number,
+                        title: t.name.clone(),
+                        url: track_url,
+                        codec: codec.map(|c| c.to_string()),
+                        isrc: t.isrc.clone(),
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let storefront = if settings.storefront.is_empty() {
+        None
+    } else {
+        Some(settings.storefront.clone())
+    };
+
+    let source = ManifestSource {
+        platform: platform.to_string(),
+        url: url.clone(),
+        storefront,
+        downloaded_at: chrono::Utc::now().to_rfc3339(),
+        codec: codec.map(|c| c.to_string()),
+        tracks,
+    };
+
+    // Read existing manifest or create new
+    let mut manifest = if manifest_path.exists() {
+        match std::fs::read_to_string(&manifest_path) {
+            Ok(contents) => match serde_json::from_str::<ManifestFile>(&contents) {
+                Ok(existing) => existing,
+                Err(e) => {
+                    log::warn!("Failed to parse existing manifest: {e}");
+                    ManifestFile::new(source.clone())
+                }
+            },
+            Err(e) => {
+                log::warn!("Failed to read existing manifest: {e}");
+                ManifestFile::new(source.clone())
+            }
+        }
+    } else {
+        ManifestFile::new(source.clone())
+    };
+
+    // Merge the source (appends or replaces matching platform+url)
+    if manifest_path.exists() {
+        manifest.merge_source(source);
+    }
+
+    // Write atomically (temp file + rename)
+    match serde_json::to_string_pretty(&manifest) {
+        Ok(json) => {
+            let tmp_path = manifest_path.with_extension("meedyadl.tmp");
+            if let Err(e) = std::fs::write(&tmp_path, &json) {
+                log::warn!("Failed to write manifest temp file: {e}");
+                return;
+            }
+            if let Err(e) = std::fs::rename(&tmp_path, &manifest_path) {
+                log::warn!("Failed to rename manifest temp file: {e}");
+                // Clean up temp file
+                let _ = std::fs::remove_file(&tmp_path);
+                return;
+            }
+            log::info!("Wrote download manifest to {}", manifest_path.display());
+        }
+        Err(e) => {
+            log::warn!("Failed to serialise manifest: {e}");
+        }
+    }
+}
+
+// ============================================================
 // Queue item (internal representation with extra tracking fields)
 // ============================================================
 
@@ -4223,6 +4348,17 @@ pub fn process_queue(
                                     }
                                 }
                             }
+
+                            // Write/update .meedyadl manifest in the album folder.
+                            // Records the source URL and per-track metadata so users
+                            // can re-download by importing the manifest file.
+                            write_manifest(
+                                &album_dir,
+                                &enrich_urls,
+                                enrich_codec_str.as_deref(),
+                                album_metadata.as_ref(),
+                                &enrich_settings,
+                            );
 
                             emit_download_log(
                                 &enrich_app,

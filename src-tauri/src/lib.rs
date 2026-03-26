@@ -499,6 +499,51 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
         let url_str = deep_url.as_str();
         log::info!("Deep link received: {url_str}");
 
+        // Handle .meedyadl file associations (file:// URLs)
+        if deep_url.scheme() == "file" {
+            if let Ok(file_path) = deep_url.to_file_path() {
+                if file_path.extension().and_then(|e| e.to_str()) == Some("meedyadl") {
+                    log::info!("Manifest file opened: {}", file_path.display());
+                    match std::fs::read_to_string(&file_path) {
+                        Ok(contents) => {
+                            match serde_json::from_str::<models::manifest::ManifestFile>(&contents)
+                            {
+                                Ok(manifest) => {
+                                    let manifest_urls: Vec<String> =
+                                        manifest.sources.iter().map(|s| s.url.clone()).collect();
+                                    if let Some(first_url) = manifest_urls.first() {
+                                        let payload = serde_json::json!({
+                                            "url": first_url,
+                                            "codec": serde_json::Value::Null,
+                                        });
+                                        if let Err(e) = app.emit("deep-link-download", payload) {
+                                            log::error!(
+                                                "Failed to emit manifest download event: {e}"
+                                            );
+                                        }
+                                        if let Some(window) = app.get_webview_window("main") {
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
+                                        utils::activity_log::emit_app_log(
+                                            app,
+                                            &format!(
+                                                "Manifest imported: {} source(s)",
+                                                manifest_urls.len()
+                                            ),
+                                        );
+                                        return;
+                                    }
+                                }
+                                Err(e) => log::warn!("Failed to parse manifest: {e}"),
+                            }
+                        }
+                        Err(e) => log::warn!("Failed to read manifest file: {e}"),
+                    }
+                }
+            }
+        }
+
         if let Some((download_url, codec)) = parse_deep_link_url(url_str) {
             log::info!(
                 "Deep link parsed: url={download_url}, codec={}",
@@ -953,6 +998,8 @@ pub fn run() {
             commands::gamdl::process_queue_manual,
             // Activity log export
             commands::gamdl::export_activity_log,
+            // Manifest import
+            commands::gamdl::import_manifest,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
