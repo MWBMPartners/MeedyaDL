@@ -821,9 +821,11 @@ pub fn run() {
     // events and shuts down the SDK. We use a compile-time DSN constant
     // (public DSNs are safe to embed per Sentry docs -- they only identify
     // the project, not authenticate requests).
-    let _sentry_guard = if sentry_enabled {
+    // Sentry DSN via compile-time env var. Without a real DSN, Sentry is a no-op.
+    let sentry_dsn = option_env!("SENTRY_DSN").unwrap_or("");
+    let _sentry_guard = if sentry_enabled && !sentry_dsn.is_empty() && !sentry_dsn.contains("examplePublicKey") {
         Some(sentry::init((
-            "https://examplePublicKey@o0.ingest.sentry.io/0",
+            sentry_dsn,
             sentry::ClientOptions {
                 release: Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION"))),
                 environment: Some(std::borrow::Cow::Borrowed(if cfg!(debug_assertions) {
@@ -831,7 +833,6 @@ pub fn run() {
                 } else {
                     "production"
                 })),
-                // Capture 100% of errors, 20% of transactions (performance)
                 sample_rate: 1.0,
                 traces_sample_rate: 0.2,
                 ..Default::default()

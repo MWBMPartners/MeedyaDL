@@ -74,15 +74,21 @@ import './styles/globals.css';
   try {
     const settings = await invoke<{ sentry_enabled?: boolean }>('get_settings');
     if (settings?.sentry_enabled) {
-      const Sentry = await import('@sentry/browser');
-      Sentry.init({
-        dsn: 'https://examplePublicKey@o0.ingest.sentry.io/0',
-        release: `meedyadl@${__APP_VERSION__}`,
-        environment: import.meta.env.DEV ? 'development' : 'production',
-        // Capture 100% of errors, 20% of transactions
-        sampleRate: 1.0,
-        tracesSampleRate: 0.2,
-      });
+      // Sentry DSN must be configured via VITE_SENTRY_DSN env var at build time.
+      // Without a real DSN, Sentry is a no-op (data goes nowhere).
+      const dsn = import.meta.env.VITE_SENTRY_DSN;
+      if (dsn && !dsn.includes('examplePublicKey')) {
+        const Sentry = await import('@sentry/browser');
+        Sentry.init({
+          dsn,
+          release: `meedyadl@${__APP_VERSION__}`,
+          environment: import.meta.env.DEV ? 'development' : 'production',
+          sampleRate: 1.0,
+          tracesSampleRate: 0.2,
+        });
+      } else {
+        console.debug('[Sentry] No DSN configured — error reporting disabled');
+      }
     }
   } catch {
     // Settings not available yet (first run, or backend not ready) -- skip Sentry init
