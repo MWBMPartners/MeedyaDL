@@ -53,6 +53,7 @@ import {
  * @see useUiStore in @/stores/uiStore.ts         -- current page & sidebar state
  * @see useDependencyStore in @/stores/dependencyStore.ts -- isReady() for status dot
  */
+import { useTranslation } from 'react-i18next';
 import { useUiStore } from '@/stores/uiStore';
 import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -190,6 +191,17 @@ export function Sidebar() {
    */
   const { isMacOS } = usePlatform();
 
+  /** i18n translation function for nav labels and status text. */
+  const { t } = useTranslation();
+
+  /** Map page IDs to translated nav labels (fallback to static label). */
+  const navLabel = (item: NavItem): string => {
+    const key = `nav.${item.page}`;
+    const translated = t(key);
+    // If i18n returns the key itself (missing translation), use the static label
+    return translated === key ? item.label : translated;
+  };
+
   return (
     /**
      * Root `<aside>` element for the sidebar.
@@ -286,7 +298,9 @@ export function Sidebar() {
        * `space-y-1` adds 4px vertical gap between nav buttons.
        */}
       <nav className="flex-1 p-2 space-y-1" aria-label="Main navigation">
-        {NAV_ITEMS.map(({ page, label, icon: Icon }) => {
+        {NAV_ITEMS.map((navItem) => {
+          const { page, icon: Icon } = navItem;
+          const label = navLabel(navItem);
           /** Whether this nav item corresponds to the currently active page. */
           const isActive = currentPage === page;
 
@@ -371,10 +385,10 @@ export function Sidebar() {
                 isReady ? 'bg-status-success' : 'bg-status-warning'
               }`}
             />
-            {isReady ? 'Ready' : 'Setup Required'}
+            {isReady ? t('sidebar.ready') : t('sidebar.setupRequired')}
           </div>
         ) : (
-          <Tooltip content={isReady ? 'Ready' : 'Setup Required'} position="right">
+          <Tooltip content={isReady ? t('sidebar.ready') : t('sidebar.setupRequired')} position="right">
             <div className="flex justify-center">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -409,10 +423,10 @@ export function Sidebar() {
           };
 
           const label = isChecking
-            ? 'Checking...'
+            ? t('sidebar.checking')
             : hasUpdates
-              ? `${updateCount} Update${updateCount !== 1 ? 's' : ''}`
-              : 'Check for Updates';
+              ? t('sidebar.updatesAvailable', { count: updateCount })
+              : t('sidebar.checkForUpdates');
 
           const updateButton = (
             <button
