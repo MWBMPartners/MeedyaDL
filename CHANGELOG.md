@@ -22,6 +22,7 @@ Companion downloads inherited TTML as the lyrics format (forced by
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.16.0] - 2026-03-26
 
