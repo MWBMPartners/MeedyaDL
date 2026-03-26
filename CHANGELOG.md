@@ -59,6 +59,13 @@ Two fixes:
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Remove [skip ci] convention — all pushes must trigger CI
+
+Updated CLAUDE.md to explicitly prohibit [skip ci] in commit messages
+  unless the user explicitly requests it. Every push to main must trigger
+  CI, Release Please, and CodeQL workflows for proper validation.
+
 
 ## [0.15.0] - 2026-03-26
 
