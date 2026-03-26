@@ -44,7 +44,7 @@
  * @see https://react.dev/reference/react/useEffect
  * @see https://react.dev/reference/react/useMemo
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 /**
  * Lucide icons for the page header action buttons.
@@ -61,8 +61,8 @@ import { Download, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useUiStore } from '@/stores/uiStore';
 
-/** Reusable button component from the common library. */
-import { Button } from '@/components/common';
+/** Reusable UI components from the common library. */
+import { Button, Modal } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -135,6 +135,9 @@ export function DownloadQueue() {
    */
   const clearFinished = useDownloadStore((s) => s.clearFinished);
 
+  /** Clear ALL non-active items from the queue. */
+  const clearAll = useDownloadStore((s) => s.clearAll);
+
   /**
    * Exports the current queue to a `.meedyadl` file via a native save dialog.
    * Only non-terminal items (queued/active) are included in the export.
@@ -155,6 +158,9 @@ export function DownloadQueue() {
 
   /** Shows a toast notification for action feedback. */
   const addToast = useUiStore((s) => s.addToast);
+
+  /** Confirmation modal state for "Clear All". */
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
 
   // ---------------------------------------------------------------
   // Polling effect
@@ -274,10 +280,21 @@ export function DownloadQueue() {
    * Clear all finished items (complete, error, cancelled) from the queue.
    * Wraps `clearFinished()` with toast feedback showing the count removed.
    */
-  const handleClearAll = async () => {
+  const handleClearFinished = async () => {
     try {
       const removed = await clearFinished();
       addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
+    } catch {
+      addToast('Failed to clear queue', 'error');
+    }
+  };
+
+  /** Clear ALL non-active items after user confirms. */
+  const handleClearAllConfirmed = async () => {
+    setShowClearAllConfirm(false);
+    try {
+      const removed = await clearAll();
+      addToast(`Cleared all ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
     } catch {
       addToast('Failed to clear queue', 'error');
     }
@@ -429,9 +446,20 @@ export function DownloadQueue() {
                 variant="ghost"
                 size="sm"
                 icon={<Trash2 size={14} />}
-                onClick={handleClearAll}
+                onClick={handleClearFinished}
               >
                 Clear Completed ({finishedCount})
+              </Button>
+            )}
+
+            {queueItems.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Trash2 size={14} />}
+                onClick={() => setShowClearAllConfirm(true)}
+              >
+                Clear All
               </Button>
             )}
 
@@ -520,6 +548,35 @@ export function DownloadQueue() {
           </div>
         )}
       </div>
+
+      {/* Confirmation modal for "Clear All" */}
+      <Modal
+        open={showClearAllConfirm}
+        onClose={() => setShowClearAllConfirm(false)}
+        title="Clear All Queue Items"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          This will remove all queued, completed, failed, and cancelled items
+          from the download queue. Active downloads will not be interrupted.
+        </p>
+        <p className="text-sm text-content-secondary mb-6">
+          This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => setShowClearAllConfirm(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleClearAllConfirmed}
+          >
+            Clear All
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
