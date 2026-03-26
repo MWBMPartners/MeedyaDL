@@ -99,6 +99,56 @@
       "unhandled_rejection": "Unhandled Rejection"
     }
   },
+  "download": {
+    "title": "Download",
+    "subtitle": "Enter an Apple Music URL to download music or videos",
+    "urlLabel": "Apple Music URL",
+    "addToQueue": "Add to Queue",
+    "import": "Import",
+    "importManifest": "Import a .meedyadl manifest file",
+    "validationError": "Please enter a valid Apple Music URL",
+    "noValidUrls": "No valid Apple Music URLs found",
+    "urlHint": "Supports songs, albums, playlists, music videos, and artist pages. Paste multiple URLs (one per line) to queue them all.",
+    "contentTypes": {
+      "song": "Song",
+      "album": "Album",
+      "playlist": "Playlist",
+      "musicVideo": "Music Video",
+      "artist": "Artist",
+      "library": "Library",
+      "unknown": "Unknown"
+    }
+  },
+  "queue": {
+    "title": "Queue",
+    "empty": "No downloads in queue",
+    "emptyHint": "Paste an Apple Music URL on the Download page to get started",
+    "clearCompleted": "Clear Completed",
+    "clearAll": "Clear All",
+    "clearAllTitle": "Clear All Queue Items",
+    "clearAllMessage": "This will remove all queued, completed, failed, and cancelled items from the download queue. Active downloads will not be interrupted.",
+    "clearAllWarning": "This action cannot be undone.",
+    "startQueue": "Start Queue",
+    "export": "Export",
+    "refresh": "Refresh"
+  },
+  "activity": {
+    "title": "Activity",
+    "empty": "No activity yet",
+    "emptyHint": "Start a download to see live output here. The log resets on app restart.",
+    "noMatches": "No entries match the current search or filter criteria.",
+    "export": "Export Log",
+    "pause": "Pause",
+    "resume": "Resume",
+    "copyEntry": "Copy log entry"
+  },
+  "history": {
+    "title": "History",
+    "empty": "No download history yet.",
+    "emptyHint": "Completed and failed downloads will appear here.",
+    "noMatches": "No matching downloads found.",
+    "clearAll": "Clear History"
+  },
   "common": {
     "loading": "Loading...",
     "error": "Error",
