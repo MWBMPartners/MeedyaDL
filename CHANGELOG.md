@@ -40,6 +40,17 @@ New help/keyboard-shortcuts.md documenting all navigation (Cmd+D,
   Cmd+comma, Cmd+Q) and action shortcuts (Enter, Shift+Enter, Escape).
   Added to help index under new "Reference" section.
 
+- Add i18n translation keys for download, queue, activity, history (#111)
+
+Added translation keys for:
+  - Download page: URL label, content types, import manifest, validation
+  - Queue page: empty state, clear all/completed, start/export/refresh
+  - Activity Log: empty state, export, pause/resume, copy entry
+  - History page: empty state, clear history
+
+  Components still use hardcoded English — wiring useTranslation() to
+  these keys is incremental follow-up work.
+
 
 ### 🐛 Bug Fixes
 
@@ -65,11 +76,37 @@ Added debouncedSave() to settingsStore — batches rapid save calls
   WCAG 2.1 compliance — screen readers can now identify context menus
   and queue items.
 
+- Remove placeholder Sentry DSN, use env var for real DSN (#231)
+
+Both JS (VITE_SENTRY_DSN) and Rust (SENTRY_DSN) now read the DSN
+  from environment variables at build time. Without a configured DSN,
+  Sentry is a no-op with a debug log message. Removes the placeholder
+  examplePublicKey@o0.ingest.sentry.io/0 that was sending data nowhere.
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update help topics for manifest files, codec detection, queue management (#256)
+
+- downloading-music.md: .meedyadl manifest files, Import button,
+    drag-and-drop, library URL support
+  - quality-settings.md: custom companion mode, ffprobe/MediaInfo codec
+    detection, codec suffix accuracy
+  - faq.md: .meedyadl files, queue Clear All, library URLs
+  - troubleshooting.md: false failure fix, auth mode logging, log export
+
+
+### 🧪 Testing
+
+- Add library URL parser tests and update content type label tests (#232)
+
+Added 4 new tests for library URL parsing (albums, songs, playlists,
+  recently-added). Updated getContentTypeLabel test to cover the new
+  'library' content type. Total: 260 tests (was 256).
+
 
 ## [0.14.0] - 2026-03-26
 
