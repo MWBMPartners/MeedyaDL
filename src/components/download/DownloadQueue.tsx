@@ -518,8 +518,9 @@ export function DownloadQueue() {
            * Centered vertically and horizontally with flex utilities.
            */
           <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
-            <p className="text-sm">No downloads in queue</p>
-            <p className="text-xs mt-1">Add a download from the Download page to get started</p>
+            <Download size={32} className="mb-3 opacity-40" />
+            <p className="text-sm font-medium">No downloads in queue</p>
+            <p className="text-xs mt-1">Paste an Apple Music URL on the Download page to get started</p>
           </div>
         ) : (
           /*
