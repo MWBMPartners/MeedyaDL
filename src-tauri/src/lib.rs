@@ -991,6 +991,7 @@ pub fn run() {
             commands::gamdl::retry_download,
             commands::gamdl::retry_download_without_wrapper,
             commands::gamdl::clear_queue,
+            commands::gamdl::clear_all_queue,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
             // Queue export/import commands

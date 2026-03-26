@@ -185,10 +185,15 @@ export function useTheme(): void {
     /* Add the appropriate CVD class if a mode is selected */
     if (colourBlindMode === 'deuteranopia') {
       htmlEl.classList.add('cvd-deuteranopia');
+      console.debug('[useTheme] CVD mode: deuteranopia');
     } else if (colourBlindMode === 'protanopia') {
       htmlEl.classList.add('cvd-protanopia');
+      console.debug('[useTheme] CVD mode: protanopia');
     } else if (colourBlindMode === 'tritanopia') {
       htmlEl.classList.add('cvd-tritanopia');
+      console.debug('[useTheme] CVD mode: tritanopia');
+    } else {
+      console.debug('[useTheme] CVD mode: disabled');
     }
 
     /* Cleanup: remove CVD classes if the hook re-runs or component unmounts */
