@@ -56,9 +56,21 @@ plan_companions() previously filtered out codecs matching the primary
   Also adds a visual separator (═══) in the activity log when each new
   queue item starts processing, making it easy to distinguish boundaries.
 
+- Apply codec suffix based on ffprobe-detected codec, not requested
+
+enrich_single_file() now returns the effective SongCodec detected via
+  ffprobe. The post-enrichment suffix rename uses this per-file detected
+  codec instead of the requested codec from settings.
+
+  Previously, requesting Atmos with native priority could apply a
+  [Dolby Atmos] suffix to files that actually contained ALAC (when
+  GAMDL silently fell back). Now the suffix accurately reflects the
+  file's actual content.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
