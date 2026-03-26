@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v0.15.0** (2026-03-01) — All 6 phases complete + post-release features <!-- x-release-please-version -->
+**v0.16.0** (2026-03-01) — All 6 phases complete + post-release features <!-- x-release-please-version -->
 
 ---
 
