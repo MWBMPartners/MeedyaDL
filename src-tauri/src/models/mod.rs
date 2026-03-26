@@ -79,6 +79,13 @@ pub mod crash_report;
 /// Bridge functions connect the existing `SongCodec` enum to registry IDs.
 pub mod codec_registry;
 
+/// Download manifest model (.meedyadl files in album folders).
+///
+/// Defines `ManifestFile`, `ManifestSource`, and `ManifestTrack` for
+/// recording download source URLs and per-track metadata. Enables
+/// one-click re-download and multi-platform source tracking.
+pub mod manifest;
+
 /// Metadata tag registry — config-driven tag definitions from tags.toml.
 ///
 /// Defines which Apple Music API JSON fields map to which MP4 freeform atoms.
