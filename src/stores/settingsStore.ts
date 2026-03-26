@@ -43,6 +43,10 @@ import type { AppSettings } from '@/types';
 // `getSettings` -> Rust `get_settings`, `saveSettings` -> Rust `save_settings`.
 import * as commands from '@/lib/tauri-commands';
 
+// Debounce timer for auto-save operations. Prevents concurrent writes when
+// multiple settings are toggled rapidly. Only the last save within 300ms fires.
+let _saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
  * Default settings used as the initial store state and as a reset target.
  *
@@ -219,6 +223,9 @@ interface SettingsState {
    */
   saveSettings: () => Promise<void>;
 
+  /** Debounced save — batches rapid changes within 300ms into one write. */
+  debouncedSave: () => void;
+
   /**
    * Merge partial changes into the current settings (in-memory only).
    * Uses the spread operator to produce a new `settings` object, ensuring
@@ -312,6 +319,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // Re-throw so callers can chain their own error handling.
       throw new Error(message);
     }
+  },
+
+  /**
+   * Debounced save — batches rapid save calls into a single disk write.
+   * Use this for auto-save triggers (e.g., toggle switches that save immediately).
+   * The manual "Save" button should call `saveSettings()` directly for instant feedback.
+   */
+  debouncedSave: () => {
+    if (_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = setTimeout(async () => {
+      _saveDebounceTimer = null;
+      try {
+        await commands.saveSettings(get().settings);
+        set({ isDirty: false });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        set({ error: message });
+      }
+    }, 300);
   },
 
   /**
