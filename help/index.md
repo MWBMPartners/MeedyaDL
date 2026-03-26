@@ -29,6 +29,10 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 - [:cookie: Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
 - [:film_frames: Animated Artwork](animated-artwork.md) -- Downloading animated cover art from Apple Music using MusicKit credentials.
 
+### Reference
+
+- [:keyboard: Keyboard Shortcuts](keyboard-shortcuts.md) -- Navigation and action shortcuts for power users.
+
 ### Support
 
 - [:wrench: Troubleshooting](troubleshooting.md) -- Common errors, their solutions, and where to find log files.
