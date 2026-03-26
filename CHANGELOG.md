@@ -35,6 +35,17 @@ After enrichment, writes a `.meedyadl` JSON manifest to each album
   multi-platform source merging — new platforms append to the existing
   manifest without overwriting.
 
+- Generate .meedyadl document type icon in PNG/ICO/ICNS formats
+
+Generated from assets/brand/icon-doc.svg (split disc/reel design).
+  Icon files ready for platform-specific file association wiring:
+  - icon-doc.png (512px) — cross-platform fallback
+  - icon-doc.icns — macOS CFBundleTypeIconFile
+  - icon-doc.ico — Windows registry association
+
+  Tauri v2 doesn't expose fileAssociations.icon yet — platform-specific
+  wiring deferred to follow-up issue.
+
 
 ### 🐛 Bug Fixes
 
@@ -92,6 +103,7 @@ npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
