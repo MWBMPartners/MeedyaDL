@@ -84,9 +84,15 @@ enrich_single_file() now returns the effective SongCodec detected via
   - MIME type changed to vendor convention per RFC 6838 §3.2:
     application/vnd.mwbmpartners.meedyadl.download+json
 
+- **(deps)** Resolve picomatch ReDoS vulnerability (GHSA-c2c7-rcm5-vvqj)
+
+npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
+  via extglob quantifiers and method injection in POSIX character classes.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
