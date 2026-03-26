@@ -103,6 +103,23 @@ See [Getting Started](getting-started.md) for initial configuration.
 
 Content availability depends on your Apple Music account's region. The app downloads whatever content is available to your account. If a song, album, or music video is not available in your region's Apple Music catalog, it will not be accessible for download through MeedyaDL.
 
+### What is a .meedyadl file?
+
+A `.meedyadl` file is a download manifest that MeedyaDL saves in each album's output folder after a successful download. It contains the source Apple Music URLs and per-track metadata, allowing you to re-download the same content later without looking up URLs or reconfiguring settings. You can re-import a manifest by clicking the **Import** button on the Download page, dragging the file onto the app window, or using the Queue Import feature. See [Downloading Music](downloading-music.md#download-manifests-meedyadl-files) for full details.
+
+### How do I clear the download queue?
+
+The Queue page provides two options for clearing items:
+
+- **Clear Completed** -- Removes only completed and cancelled items from the queue, keeping active, queued, and failed items so you can review errors and retry.
+- **Clear All** -- Removes all items from the queue regardless of status, including failed items. Active downloads are cancelled before being removed.
+
+Both buttons are in the queue header. If you want to keep failed items visible for review, use **Clear Completed** instead of **Clear All**.
+
+### Does MeedyaDL support library URLs?
+
+Yes. MeedyaDL accepts personal library URLs that use the `music.apple.com/library/...` path format. These point to content in your own iCloud Music Library. Paste them into the download form the same way you would paste a catalog URL. This is useful for downloading content you have added to your library, including items that may have been removed from the public Apple Music catalog. See [Downloading Music](downloading-music.md#library-urls) for details.
+
 ---
 
 ## Quality and Formats
