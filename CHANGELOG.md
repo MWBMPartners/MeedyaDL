@@ -51,6 +51,15 @@ Generated from assets/brand/icon-doc.svg (split disc/reel design).
 Split disc/reel design matching the MeedyaDL brand. Source file for
   the PNG/ICO/ICNS variants already committed. Brand asset (proprietary).
 
+- Wire up .meedyadl manifest import UI (#247)
+
+- "Import" button on Download page: opens native file picker for
+    .meedyadl files, populates URL textarea with source URLs
+  - Drag-and-drop: .meedyadl files dropped on the app are parsed and
+    URLs populated (alongside existing Apple Music URL drop support)
+  - Deep link / file association: multi-source manifests now emit all
+    URLs joined by newlines (not just the first) for batch queueing
+
 
 ### 🐛 Bug Fixes
 
@@ -108,6 +117,7 @@ npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
