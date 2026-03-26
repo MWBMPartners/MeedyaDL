@@ -242,6 +242,39 @@ Only some tracks in an album were downloaded, with the rest showing "Requested f
 
 ---
 
+### Download Output Issues
+
+#### "No output files" but GAMDL Succeeded
+
+The download appears to complete (GAMDL exits successfully) but MeedyaDL reports "no output files" or marks the item as failed.
+
+- **Cause:** In earlier versions, MeedyaDL's output detection could miss files when GAMDL used certain naming patterns or when the output directory contained unexpected characters. This was a known issue in versions prior to v0.10.
+- **Solution:** Update to the latest version of MeedyaDL. This issue has been fixed in recent releases with improved output file detection logic. If you are already on the latest version and still see this error, check that your output directory path does not contain special characters, and verify the directory is writable.
+
+#### Activity Log Shows Authentication Method
+
+When a download starts, the Activity Log now displays which authentication method is being used: **"Downloading via wrapper at {url}"** or **"Downloading with cookie-based authentication"**. This is normal informational output, not an error.
+
+- **Purpose:** This helps you confirm which authentication path is active for each download, which is useful when troubleshooting failures. If a download fails with an auth error and the log shows cookie-based authentication, the most likely fix is to refresh your cookies. If the log shows wrapper authentication, check that the wrapper service is running and reachable.
+- **Note:** When the **Verbose Activity Log** is enabled in Settings > Advanced, additional authentication details are shown, including wrapper URL, credential status, and token expiry information.
+
+---
+
+### Activity Log Export
+
+#### How to Export the Activity Log
+
+You can export the contents of the Activity Log to a text file for sharing or archival purposes.
+
+1. Open the **Activity Log** panel (accessible from the sidebar or the bottom panel).
+2. Click the **Export** button in the Activity Log header.
+3. Choose a save location in the native file dialog -- the default filename includes a timestamp (e.g., `activity-log-2026-03-26.log`).
+4. The exported `.log` file is a plain-text file with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
+
+The export captures all entries currently visible in the Activity Log, respecting any active search or filter. To export the complete unfiltered log, clear the search field and ensure all category filters (System, Download, Verbose) are enabled before exporting.
+
+---
+
 ## Log Files
 
 ### Log File Locations

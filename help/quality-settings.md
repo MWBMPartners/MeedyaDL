@@ -147,6 +147,26 @@ After a primary download completes successfully, MeedyaDL automatically spawns a
 
 - **Custom metadata:** MeedyaDL also writes custom metadata tags into specialist format files so downstream tools can programmatically identify the codec tier. ALAC files receive `isLossless = Y`; Dolby Atmos files receive `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#custom-codec-metadata-tags) for full details.
 
+#### Custom Companion Mode
+
+The **Custom...** companion mode gives you full control over which codecs are downloaded alongside your primary format. When you select Custom, a set of checkboxes appears listing all available audio codecs. Check every codec you want as a companion -- each selected codec (excluding your primary format) runs as its own independent companion download.
+
+The order of your selections determines file naming: the last codec in your selection list uses a clean filename (no suffix), while all other companions receive a format suffix to prevent collisions. For example, if you select Atmos, ALAC, and AAC as companions, AAC files get clean filenames, ALAC files get `[Lossless]`, and Atmos files get `[Dolby Atmos]`.
+
+Custom mode is useful when you want a specific combination that none of the preset modes cover -- for example, downloading both AAC Binaural and ALAC companions alongside Atmos, or downloading every single codec variant for archival purposes.
+
+#### Codec Suffix Detection
+
+The format suffix appended to companion filenames (e.g., `[Lossless]`, `[Dolby Atmos]`) is determined by inspecting the **actual content** of the downloaded file, not the codec that was requested. MeedyaDL uses ffprobe (and optionally MediaInfo) to detect the real codec of each file after GAMDL finishes writing it. This is important because GAMDL's native codec priority mode may select a different codec than the one originally requested -- for example, requesting Atmos may result in an ALAC file if Atmos is unavailable for that track.
+
+By basing the suffix on detected content rather than the requested format, filenames always accurately reflect what the file actually contains.
+
+#### MediaInfo (Optional)
+
+For more accurate codec detection -- particularly for identifying Dolby Atmos content -- you can install **MediaInfo** as an optional tool via the Setup Wizard. MediaInfo provides deeper container-level analysis than ffprobe alone, and can reliably distinguish Atmos (EC-3 with JOC) from standard AC-3 or AAC. When MediaInfo is installed, MeedyaDL uses it alongside ffprobe for codec identification during the enrichment pipeline.
+
+MediaInfo is not required for normal operation. ffprobe handles the majority of codec detection correctly. MediaInfo is most useful if you frequently download Dolby Atmos content and want the highest confidence that codec suffixes and metadata tags accurately reflect the spatial audio format.
+
 ### AC3 (Dolby Digital)
 
 AC3, also known as Dolby Digital, is a multichannel surround-sound audio codec widely used in home theater systems.
