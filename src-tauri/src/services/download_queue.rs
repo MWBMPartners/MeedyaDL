@@ -865,6 +865,27 @@ impl DownloadQueue {
         removed
     }
 
+    /// Removes ALL non-active items from the queue (completed, cancelled,
+    /// errored, and queued). Active downloads (Downloading/Processing) are
+    /// kept to avoid interrupting in-progress work.
+    ///
+    /// # Returns
+    /// Number of items removed.
+    pub fn clear_all(&mut self) -> usize {
+        let before = self.items.len();
+        self.items.retain(|item| {
+            matches!(
+                item.status.state,
+                DownloadState::Downloading | DownloadState::Processing
+            )
+        });
+        let removed = before - self.items.len();
+        if removed > 0 {
+            log::info!("Cleared all {removed} items from queue (active downloads preserved)");
+        }
+        removed
+    }
+
     /// Updates the state of a queue item.
     /// Used by the download task to report progress.
     pub fn update_item_state(&mut self, download_id: &str, state: DownloadState) {
@@ -3032,12 +3053,24 @@ pub fn process_queue(
         // Redact query parameters to avoid leaking authentication tokens
         // (e.g., ?token=abc) into log files which have no automatic cleanup.
         if let Some(ref url) = wrapper_url_for_logging {
+            let safe_url = redact_url_query(url);
             log::info!(
-                "Download {download_id} using wrapper at {}",
-                redact_url_query(url)
+                "Download {download_id} using wrapper at {safe_url}"
+            );
+            // User-visible Activity Log: show auth mode clearly
+            emit_download_log(
+                &app,
+                &download_id,
+                &format!("Authentication: Wrapper ({safe_url})"),
             );
             // Verbose: show full wrapper URL (not redacted) for troubleshooting
             emit_verbose_download_log(&app, &download_id, &format!("Wrapper URL (full): {url}"));
+        } else {
+            emit_download_log(
+                &app,
+                &download_id,
+                "Authentication: Cookie-based (no wrapper)",
+            );
         }
 
         // Verbose: log the full download options

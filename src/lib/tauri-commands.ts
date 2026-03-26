@@ -479,6 +479,18 @@ export function clearQueue(): Promise<number> {
 }
 
 /**
+ * Clears ALL non-active items from the queue (completed, cancelled,
+ * errored, and queued). Active downloads are preserved.
+ *
+ * Rust handler: `clear_all_queue()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * @returns Promise resolving to the count of cleared items
+ */
+export function clearAllQueue(): Promise<number> {
+  return invoke<number>('clear_all_queue');
+}
+
+/**
  * Returns the current status of the entire download queue.
  *
  * Rust handler: `get_queue_status()` in `src-tauri/src/commands/download.rs`

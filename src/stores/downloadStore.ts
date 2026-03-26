@@ -198,6 +198,14 @@ interface DownloadState {
   clearFinished: () => Promise<number>;
 
   /**
+   * Clear ALL non-active items from the queue (completed, cancelled,
+   * errored, and queued). Active downloads are preserved.
+   * IPC call: `commands.clearAllQueue()` -> Rust `clear_all_queue`
+   * @returns The count of items that were cleared
+   */
+  clearAll: () => Promise<number>;
+
+  /**
    * Fetch the full queue snapshot from the Rust backend.
    * IPC call: `commands.getQueueStatus()` -> Rust `get_queue_status`
    * Called on app startup, after mutations, and periodically for consistency.
@@ -462,6 +470,22 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
       return 0; // Return 0 on failure -- no items were cleared
+    }
+  },
+
+  /**
+   * Clear ALL non-active items from the queue.
+   * IPC call: `commands.clearAllQueue()` -> Rust `clear_all_queue`
+   */
+  clearAll: async () => {
+    try {
+      const removed = await commands.clearAllQueue();
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+      return removed;
+    } catch (e) {
+      set({ error: String(e) });
+      return 0;
     }
   },
 
