@@ -2635,6 +2635,16 @@ fn spawn_companion_downloads(
                                                 );
                                             }
                                         }
+
+                                        // Run lyrics conversion for companion downloads.
+                                        // Companions inherit the TTML lyrics format (forced by
+                                        // Enhanced LRC), so TTML sidecars are downloaded but never
+                                        // converted unless we do it here.
+                                        run_companion_lyrics_conversion(
+                                            &comp_app,
+                                            &comp_dl_id,
+                                            output_dir,
+                                        );
                                     }
 
                                     tier_succeeded = true;
@@ -2686,6 +2696,80 @@ fn spawn_companion_downloads(
                 }
             }
         });
+    }
+
+    /// Runs lyrics format conversion on a companion download's output directory.
+    ///
+    /// Companions inherit TTML as the lyrics format (forced by Enhanced LRC),
+    /// but the enrichment pipeline only runs for the primary download. This
+    /// function runs the same conversion steps so companion sidecars get
+    /// Enhanced LRC, Rich SRT, WebVTT, and ASS conversions.
+    fn run_companion_lyrics_conversion(
+        app: &tauri::AppHandle,
+        dl_id: &str,
+        output_dir: &str,
+    ) {
+        let settings = load_settings_for_queue(app);
+
+        if !std::path::Path::new(output_dir).is_dir() {
+            return;
+        }
+
+        // Enhanced LRC: TTML → word-by-word LRC
+        if settings.enhanced_lrc {
+            match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(output_dir) {
+                Ok(count) if count > 0 => {
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::debug!("Companion Enhanced LRC conversion failed: {e}");
+                }
+            }
+        }
+
+        // Rich SRT: TTML → styled SRT with bold/italic/colour
+        if settings.generate_rich_srt {
+            match super::rich_srt_service::generate_rich_srt_for_directory(output_dir) {
+                Ok(count) if count > 0 => {
+                    log::debug!("Companion: generated {count} Rich SRT file(s)");
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::debug!("Companion Rich SRT generation failed: {e}");
+                }
+            }
+        }
+
+        // WebVTT: TTML/SRT/LRC → .vtt
+        if settings.generate_webvtt {
+            match super::webvtt_service::generate_webvtt_for_directory(output_dir) {
+                Ok(count) if count > 0 => {
+                    log::debug!("Companion: generated {count} WebVTT file(s)");
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::debug!("Companion WebVTT generation failed: {e}");
+                }
+            }
+        }
+
+        // ASS: → styled .ass subtitles
+        if settings.generate_ass {
+            match super::ass_subtitle_service::generate_ass_for_directory(output_dir) {
+                Ok(count) if count > 0 => {
+                    log::debug!("Companion: generated {count} ASS subtitle file(s)");
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::debug!("Companion ASS generation failed: {e}");
+                }
+            }
+        }
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
