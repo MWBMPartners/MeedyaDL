@@ -27,6 +27,14 @@ Shows an Apple Music icon next to the track name in the per-item
   progress bar. Uses inline SVG with a detectPlatform() helper and
   PLATFORM_ICONS lookup, extensible for future services.
 
+- Embed .meedyadl manifest file in album download folders (#245)
+
+After enrichment, writes a `.meedyadl` JSON manifest to each album
+  output directory. Records source URL, platform, storefront, codec,
+  and per-track metadata (ISRC, title, individual URLs). Supports
+  multi-platform source merging — new platforms append to the existing
+  manifest without overwriting.
+
 
 ### 🐛 Bug Fixes
 
@@ -70,6 +78,7 @@ enrich_single_file() now returns the effective SongCodec detected via
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
