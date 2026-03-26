@@ -373,6 +373,8 @@ export function QueueItem({
      */
     <div
       className="px-4 py-3 border-b border-border-light last:border-b-0 hover:bg-surface-secondary transition-colors"
+      role="listitem"
+      aria-label={`Download: ${item.urls?.[0] ?? 'unknown'}`}
       onContextMenu={handleContextMenu}
     >
       {/*

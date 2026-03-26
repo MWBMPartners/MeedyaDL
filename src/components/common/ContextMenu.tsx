@@ -130,6 +130,7 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
     <div
       ref={menuRef}
       role="menu"
+      aria-label="Actions menu"
       style={{ left: pos.x, top: pos.y }}
       className="fixed z-50 min-w-[180px] py-1 bg-surface-elevated border border-border rounded-platform shadow-lg"
     >
