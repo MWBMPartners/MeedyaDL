@@ -6,8 +6,39 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Accept Apple Music personal library URLs (#243)
+
+Library URLs (e.g., music.apple.com/library/albums/l.8zPXbAv) were
+  rejected by the frontend URL parser. Added 'library' content type with
+  /library/ path detection, Library icon, and label. URLs pass through
+  to GAMDL as-is; enrichment naturally skips non-catalog URLs.
+
+
+### 🐛 Bug Fixes
+
+- Resolve false 'no output files' failure on GAMDL 2.9.x album downloads (#242)
+
+GAMDL 2.9.x with native --song-codec-priority does not emit "Saved to:"
+  lines for album downloads. The success path only set output_path via that
+  event, and the disk-scan fallback (find_album_directory) only ran inside
+  codec/IO error branches — the clean-exit path was unhandled.
+
+  Added a general disk-scan fallback before the terminal failure check that
+  runs for ALL cases where output_path is None after GAMDL exits 0. This
+  prevents the cascading bug where the false failure triggered auto-retry
+  without wrapper, which overwrote successful Atmos files with ALAC.
+
+- Export activity log as .log instead of .txt
+
+Changes the native save dialog filter and default filename from
+  meedyadl-activity-log.txt to meedyadl-activity-log.log.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
