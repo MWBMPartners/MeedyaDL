@@ -15,6 +15,18 @@ Library URLs (e.g., music.apple.com/library/albums/l.8zPXbAv) were
   /library/ path detection, Library icon, and label. URLs pass through
   to GAMDL as-is; enrichment naturally skips non-catalog URLs.
 
+- Enhance GlobalProgressBar to display download percentage alongside speed and ETA
+- Improve activity log — remove entry cap, timestamped export filename
+
+- Remove 5,000 entry cap; log grows unbounded per session, resets on restart
+  - Export filename now includes date/time: MeedyaDL-activity-log_YYYY-MM-DD_HHhMMm.log
+
+- Add platform icon to GlobalProgressBar
+
+Shows an Apple Music icon next to the track name in the per-item
+  progress bar. Uses inline SVG with a detectPlatform() helper and
+  PLATFORM_ICONS lookup, extensible for future services.
+
 
 ### 🐛 Bug Fixes
 
@@ -35,9 +47,19 @@ GAMDL 2.9.x with native --song-codec-priority does not emit "Saved to:"
 Changes the native save dialog filter and default filename from
   meedyadl-activity-log.txt to meedyadl-activity-log.log.
 
+- Include all user-selected codecs in Custom companion tiers
+
+plan_companions() previously filtered out codecs matching the primary
+  setting. With native priority the actual codec GAMDL picks may differ,
+  so the user's explicit Custom selections are now always respected.
+
+  Also adds a visual separator (═══) in the activity log when each new
+  queue item starts processing, making it easy to distinguish boundaries.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
