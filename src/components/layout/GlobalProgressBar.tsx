@@ -29,13 +29,18 @@ import { useDownloadStore } from '@/stores/downloadStore';
  * Extensible for future services (Spotify, YouTube, BBC iPlayer).
  */
 function detectPlatform(urls?: string[]): 'apple-music' | 'unknown' {
-  const url = urls?.[0] ?? '';
-  if (
-    url.includes('music.apple.com') ||
-    url.includes('classical.apple.com') ||
-    url.includes('itunes.apple.com')
-  ) {
-    return 'apple-music';
+  const raw = urls?.[0] ?? '';
+  try {
+    const { hostname } = new URL(raw);
+    if (
+      hostname === 'music.apple.com' ||
+      hostname === 'classical.apple.com' ||
+      hostname === 'itunes.apple.com'
+    ) {
+      return 'apple-music';
+    }
+  } catch {
+    // Malformed URL — fall through to unknown
   }
   return 'unknown';
 }
