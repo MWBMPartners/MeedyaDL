@@ -6,6 +6,25 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Run lyrics conversion (TTML → LRC/SRT/VTT/ASS) on companion downloads
+
+Companion downloads inherited TTML as the lyrics format (forced by
+  Enhanced LRC), but the enrichment pipeline only ran for the primary
+  download. This left TTML sidecars unconverted for companion tiers.
+
+  Adds run_companion_lyrics_conversion() which runs after each successful
+  companion tier: Enhanced LRC, Rich SRT, WebVTT, and ASS generation —
+  matching the same conversion steps as the primary enrichment pipeline.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.16.0] - 2026-03-26
+
 ### ✨ Features
 
 - Aggregate release notes across multi-version jumps in update checker [skip ci]
