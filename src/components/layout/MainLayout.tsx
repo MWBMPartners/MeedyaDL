@@ -214,6 +214,37 @@ export function MainLayout({ children }: MainLayoutProps) {
       dragCounterRef.current = 0;
       setIsDragOver(false);
 
+      /* Check for .meedyadl file drops first. */
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        const file = files[0];
+        if (file.name.endsWith('.meedyadl')) {
+          const reader = new FileReader();
+          reader.onload = async () => {
+            try {
+              const manifest = JSON.parse(reader.result as string);
+              const urls: string[] = (manifest.sources ?? []).map(
+                (s: { url: string }) => s.url
+              );
+              if (urls.length > 0) {
+                setPage('download');
+                setUrlInput(urls.join('\n'));
+                addToast(
+                  `Imported ${urls.length} URL${urls.length !== 1 ? 's' : ''} from manifest`,
+                  'success'
+                );
+              } else {
+                addToast('Manifest contains no download sources', 'error');
+              }
+            } catch {
+              addToast('Invalid .meedyadl manifest file', 'error');
+            }
+          };
+          reader.readAsText(file);
+          return;
+        }
+      }
+
       /*
        * Extract the URL from the data transfer.
        * Try `text/uri-list` first (standard for browser link drags),
