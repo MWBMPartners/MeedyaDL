@@ -218,13 +218,44 @@ describe('non-geographic URLs (no storefront code)', () => {
  * test serves as a safety net against accidental typos in the labels.
  */
 describe('getContentTypeLabel', () => {
-  /** Exhaustively tests all six content type variants */
+  /** Exhaustively tests all seven content type variants */
   it('returns correct labels for all content types', () => {
     expect(getContentTypeLabel('song')).toBe('Song');
     expect(getContentTypeLabel('album')).toBe('Album');
     expect(getContentTypeLabel('playlist')).toBe('Playlist');
     expect(getContentTypeLabel('music-video')).toBe('Music Video');
     expect(getContentTypeLabel('artist')).toBe('Artist');
+    expect(getContentTypeLabel('library')).toBe('Library');
     expect(getContentTypeLabel('unknown')).toBe('Unknown');
+  });
+});
+
+// ============================================================
+// Library URL Tests
+// ============================================================
+
+describe('parseAppleMusicUrl - library URLs', () => {
+  it('parses a library album URL', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/library/albums/l.8zPXbAv');
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('library');
+  });
+
+  it('parses a library songs URL', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/library/songs');
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('library');
+  });
+
+  it('parses a library playlists URL', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/library/playlists/p.abc123');
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('library');
+  });
+
+  it('parses a library recently-added URL', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/library/recently-added');
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('library');
   });
 });
