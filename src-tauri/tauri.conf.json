@@ -49,7 +49,7 @@
     "fileAssociations": [
       {
         "ext": ["meedyadl"],
-        "mimeType": "application/x-meedyadl+json",
+        "mimeType": "application/vnd.mwbmpartners.meedyadl.download+json",
         "name": "MeedyaDL Manifest",
         "role": "Editor"
       }

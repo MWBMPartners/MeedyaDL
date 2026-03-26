@@ -401,9 +401,9 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 fn write_manifest(
     album_dir: &str,
     urls: &[String],
-    codec: Option<&str>,
     album_metadata: Option<&crate::services::apple_music_api::AlbumMetadata>,
     settings: &crate::models::settings::AppSettings,
+    downloaded_at: &str,
 ) {
     use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
@@ -428,7 +428,9 @@ fn write_manifest(
         "unknown"
     };
 
-    // Build per-track metadata from AlbumMetadata (if available)
+    // Build per-track metadata from AlbumMetadata (if available).
+    // codec is intentionally null — the manifest is a metafile for
+    // re-downloading, not a prescription of quality/format settings.
     let tracks: Vec<ManifestTrack> = album_metadata
         .map(|meta| {
             meta.tracks
@@ -446,7 +448,7 @@ fn write_manifest(
                         disc: t.disc_number,
                         title: t.name.clone(),
                         url: track_url,
-                        codec: codec.map(|c| c.to_string()),
+                        codec: None,
                         isrc: t.isrc.clone(),
                     }
                 })
@@ -464,8 +466,8 @@ fn write_manifest(
         platform: platform.to_string(),
         url: url.clone(),
         storefront,
-        downloaded_at: chrono::Utc::now().to_rfc3339(),
-        codec: codec.map(|c| c.to_string()),
+        downloaded_at: downloaded_at.to_string(),
+        codec: None,
         tracks,
     };
 
@@ -2847,6 +2849,10 @@ pub fn process_queue(
 
         log::info!("Processing download {download_id}");
 
+        // Capture download start time for the manifest file. This is when
+        // the first file begins downloading, not when enrichment finishes.
+        let download_started_at = chrono::Utc::now().to_rfc3339();
+
         // Emit a clear separator in the activity log so users can easily
         // distinguish where one queue item ends and the next begins.
         let separator_url = urls.first().cloned().unwrap_or_default();
@@ -3617,6 +3623,7 @@ pub fn process_queue(
                         let enrich_shutdown = shutdown_clone.clone();
                         let enrich_native_priority = uses_native_priority;
                         let enrich_queue = queue_clone.clone();
+                        let enrich_started_at = download_started_at.clone();
                         tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
@@ -4355,9 +4362,9 @@ pub fn process_queue(
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
-                                enrich_codec_str.as_deref(),
                                 album_metadata.as_ref(),
                                 &enrich_settings,
+                                &enrich_started_at,
                             );
 
                             emit_download_log(
