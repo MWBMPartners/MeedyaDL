@@ -811,6 +811,99 @@ The `music_video_companion` setting (default: `false`) enables automatic downloa
 
 ---
 
+## Animated Cover Art (Motion Artwork)
+
+MeedyaDL downloads animated cover art (motion artwork) from Apple Music after album downloads complete. These are short looping HEVC H.265 videos that Apple displays on the "Now Playing" screen.
+
+### Output Files
+
+| File | Aspect Ratio | Max Resolution | Source API Field |
+|------|-------------|----------------|-----------------|
+| `FrontCover.mp4` | 1:1 (square) | 3840x3840 | `editorialVideo.motionDetailSquare.video` |
+| `PortraitCover.mp4` | 3:4 (portrait) | 2048x2732 | `editorialVideo.motionDetailTall.video` |
+
+Both are saved as sidecar files alongside downloaded audio in the album directory.
+
+### Authentication — No Wrapper Required
+
+Animated artwork uses the **Apple Music catalog API**, which authenticates via MusicKit Developer Tokens (ES256-signed JWTs). This is completely independent of the wrapper, which provides alternative Apple ID login for audio DRM decryption.
+
+**Two-tier credential resolution** (`resolve_musickit_developer_token()` in `apple_music_api.rs`):
+
+1. **User credentials (priority):** Team ID + Key ID (in `settings.json`) + private key (in OS keychain) → generates fresh 1-hour JWT
+2. **Embedded token (fallback):** Compile-time `MUSICKIT_DEVELOPER_TOKEN` env var → allows users without Apple Developer accounts to use the feature
+
+### API Flow
+
+```
+GET https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}
+    ?include=tracks,artists&extend=editorialVideo
+Authorization: Bearer {JWT}
+```
+
+The `editorialVideo` extension returns HLS M3U8 playlist URLs for square and portrait variants. FFmpeg downloads these streams:
+
+```bash
+ffmpeg -i {m3u8_url} -c copy -movflags +faststart -y -loglevel warning {output_path}
+```
+
+- `-c copy` — stream copy, no re-encoding (preserves original HEVC quality)
+- `-movflags +faststart` — moov atom at start for fast playback
+
+### File Hiding
+
+When `hide_animated_artwork` is `true` (default), downloaded files are hidden via OS-native mechanisms:
+
+| Platform | Mechanism | Original Filename Preserved |
+|----------|-----------|---------------------------|
+| macOS | `chflags hidden` | Yes |
+| Windows | `attrib +H` | Yes |
+| Linux | `.` prefix rename | No (becomes `.FrontCover.mp4`) |
+
+**Linux limitation:** Media players looking for `FrontCover.mp4` by exact name won't find `.FrontCover.mp4`.
+
+### Enrichment Pipeline Integration
+
+Animated artwork is **Step 3** (stage 8) in the enrichment pipeline. The `AlbumMetadata` response (with `extend=editorialVideo`) is fetched **once** in Step 1 and shared across metadata tagging, artwork download, and music video companion lookup — no duplicate API calls.
+
+Runs in a separate `tokio::spawn` task (non-blocking). Shutdown-aware (checked between enrichment stages).
+
+### Graceful Degradation
+
+The feature silently succeeds with no output (returns `Ok(empty_result())`) when:
+
+- Feature disabled in settings (`animated_artwork_enabled: false`)
+- No MusicKit credentials configured (and no embedded token)
+- URL is not an album (single track, playlist, music video)
+- Album has no animated artwork available (most older/lower-profile albums)
+- FFmpeg not installed
+
+Actual errors (API failures, network issues) are logged at `warn!` level.
+
+### Settings
+
+| Setting | Type | Default | Location |
+|---------|------|---------|----------|
+| `animated_artwork_enabled` | `bool` | `false` | Settings > Cover Art |
+| `hide_animated_artwork` | `bool` | `true` | Settings > Cover Art (conditional) |
+| `musickit_team_id` | `Option<String>` | `None` | Settings > Advanced > API Credentials |
+| `musickit_key_id` | `Option<String>` | `None` | Settings > Advanced > API Credentials |
+| Private key | OS keychain | — | Settings > Advanced > "Save to Keychain" |
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `src-tauri/src/services/animated_artwork_service.rs` | Main service: credential check, API query, HLS download, file hiding |
+| `src-tauri/src/services/apple_music_api.rs` | Shared: JWT generation, keychain access, catalog API client |
+| `src-tauri/src/services/download_queue.rs` | Enrichment integration (Step 3 of pipeline) |
+| `src-tauri/src/commands/artwork.rs` | IPC command: manual artwork download |
+| `src/components/settings/tabs/CoverArtTab.tsx` | UI: toggles and settings |
+| `src/components/settings/tabs/AdvancedTab.tsx` | UI: MusicKit credentials, "Test Credentials" button |
+| `help/animated-artwork.md` | User documentation: setup and troubleshooting |
+
+---
+
 ## Visual Template Builder
 
 The `TemplateBuilder` component provides an interactive chip/pill-based UI for building GAMDL file/folder naming templates, replacing plain text `<Input>` fields.
