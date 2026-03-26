@@ -149,6 +149,7 @@ Read showSetupWizard imperatively via getState() inside the async
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CLAUDE.md with manifest files, library URLs, codec suffix, queue clear, wrapper logging [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
