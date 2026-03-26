@@ -98,7 +98,7 @@ function getEntryCategories(entry: { download_id: string; line: string }): {
  * - Resumes catching up (no lines lost) on Resume click
  * - Stderr lines highlighted in warning colour
  * - Text is selectable and copyable
- * - Capped at 5000 entries (oldest trimmed) via activityStore
+ * - No entry cap — log grows unbounded within a session, resets on restart
  */
 export function ActivityLog() {
   const entries = useActivityStore((s) => s.entries);
