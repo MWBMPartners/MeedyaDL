@@ -3179,8 +3179,40 @@ pub fn process_queue(
                                 // Fall through to normal completion with IO warnings
                             }
 
-                            // Re-check output: partial-success or IO recovery may
-                            // have set output_path above.
+                            // General fallback: GAMDL 2.9.x with native
+                            // --song-codec-priority doesn't emit "Saved to:"
+                            // for album downloads. Scan the output directory
+                            // for audio files as a last resort before declaring
+                            // failure.
+                            if let Some(item) =
+                                q.items.iter_mut().find(|i| i.status.id == dl_id)
+                            {
+                                if item.status.output_path.is_none() {
+                                    if let Some(ref base_dir) =
+                                        item.merged_options.output_path.clone()
+                                    {
+                                        let base_path =
+                                            std::path::Path::new(base_dir);
+                                        if let Some(album_dir) =
+                                            find_album_directory(base_path)
+                                        {
+                                            item.status.output_path =
+                                                Some(album_dir);
+                                            item.status.output_is_directory =
+                                                true;
+                                            log::info!(
+                                                "Download {dl_id} recovered: \
+                                                 found album directory on disk \
+                                                 despite no 'Saved to:' output \
+                                                 from GAMDL"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Re-check output: partial-success, IO recovery,
+                            // or disk-scan fallback may have set output_path.
                             let has_output_now = q
                                 .items
                                 .iter()
