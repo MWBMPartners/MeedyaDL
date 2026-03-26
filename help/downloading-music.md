@@ -18,7 +18,7 @@ MeedyaDL supports downloading audio content from Apple Music by accepting URLs a
 
 ## Supported URL Types
 
-MeedyaDL auto-detects the content type from the URL path. The following URL types from `music.apple.com` are supported:
+MeedyaDL auto-detects the content type from the URL path. The following URL types from `music.apple.com` are supported (including `classical.apple.com` and `itunes.apple.com`):
 
 ### Songs
 
@@ -45,6 +45,12 @@ URLs containing `/artist/` download the artist's catalog. This can be a very lar
 By default, GAMDL downloads the artist's full catalog. You can narrow the scope using the **Artist Auto-Select** setting in Settings > Quality, which lets you choose specific content types (Main Albums, Singles & EPs, Music Videos, etc.). When multiple content types are selected, MeedyaDL creates a separate queue item for each type. For example, selecting "Main Albums" and "Singles & EPs" creates two queue entries — one downloading main albums and one downloading singles — so each is processed independently.
 
 **Example URL format:** `https://music.apple.com/us/artist/artist-name/1234567890`
+
+### Library URLs
+
+MeedyaDL also accepts personal library URLs from Apple Music. These are URLs that point to content in your own iCloud Music Library, using the path format `music.apple.com/library/...`. Library URLs work the same way as catalog URLs -- paste them into the download form and MeedyaDL will process them using your authenticated session. This is useful for downloading content that you have added to your personal library, including items that may have been removed from the public catalog but remain in your collection.
+
+**Example URL format:** `https://music.apple.com/library/albums/l.1234567890`
 
 ---
 
@@ -196,6 +202,47 @@ When a fallback occurs, the queue item displays a fallback indicator so you know
 ### Companion Downloads
 
 MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Quality controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
+
+---
+
+## Download Manifests (.meedyadl Files)
+
+After each album download completes, MeedyaDL saves a `.meedyadl` manifest file in the album's output folder. This manifest records the source URLs and per-track metadata for the download, providing a convenient way to re-download the same content later.
+
+### What the Manifest Contains
+
+The `.meedyadl` manifest is a JSON file that stores:
+
+- The original Apple Music URL used for the download
+- Per-track metadata (title, artist, codec, quality settings)
+- Any per-download overrides that were active at the time
+
+Because manifests capture the exact parameters of the original download, re-importing one reproduces the same result without needing to look up the URL or reconfigure settings.
+
+### Re-Downloading from a Manifest
+
+There are three ways to re-download content from a `.meedyadl` manifest:
+
+1. **Import button on the Download page** -- Click the **Import** button on the Download page and select a `.meedyadl` file from the native file picker. The items are added to the download queue using the manifest's stored URLs and your current device settings.
+
+2. **Drag and drop** -- Drag a `.meedyadl` file from your file manager and drop it on the MeedyaDL application window. The app detects the manifest, parses its contents, and adds the items to the queue automatically.
+
+3. **Queue Import** -- The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature.
+
+In all cases, the imported items use your current global settings as the base, with any per-download overrides from the manifest applied on top.
+
+### Manifest File Location
+
+Manifests are saved alongside the downloaded tracks in the album folder:
+
+```text
+Output Directory/
+  Artist Name/
+    Album Name/
+      01 Track Title.m4a
+      02 Track Title.m4a
+      Album Name.meedyadl   <- manifest file
+```
 
 ---
 
