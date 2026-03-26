@@ -127,6 +127,12 @@ enrich_single_file() now returns the effective SongCodec detected via
 npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
   via extglob quantifiers and method injection in POSIX character classes.
 
+- Resolve ESLint react-hooks/exhaustive-deps warning in App.tsx
+
+Read showSetupWizard imperatively via getState() inside the async
+  initialize() function instead of using the reactive selector. The
+  value is only needed once after all awaits complete.
+
 
 ### 📚 Documentation
 
@@ -141,6 +147,8 @@ npm audit fix: picomatch 4.0.3 → 4.0.4. Fixes high-severity ReDoS
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CLAUDE.md with manifest files, library URLs, codec suffix, queue clear, wrapper logging [skip ci]
 
 ### 🔄 CI/CD
 
