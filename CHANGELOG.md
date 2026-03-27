@@ -22,6 +22,7 @@ mp4decrypt (Bento4) was pinned to version 1.6.0-641 via a hardcoded
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.17.0] - 2026-03-27
 
