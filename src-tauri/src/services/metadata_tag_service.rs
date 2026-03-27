@@ -114,13 +114,25 @@ const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   processing of remaining files.
 pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result<usize, String> {
     // Codec-specific tags: ALAC, Atmos, AC3, Binaural, Downmix.
+    // For non-binaural/downmix codecs (AAC Legacy, AAC, etc.), we still need
+    // to clear any inherited isBinaural/isDownmix tags that GAMDL's
+    // --fetch-extra-tags may have written from the Apple Music API's audioTraits.
     let tag_writer: Box<dyn Fn(&mut Tag)> = match codec {
-        SongCodec::Alac => Box::new(write_lossless_tags),
-        SongCodec::Atmos => Box::new(write_atmos_tags),
-        SongCodec::Ac3 => Box::new(write_dolby_digital_tags),
+        SongCodec::Alac => Box::new(|tag: &mut Tag| {
+            write_lossless_tags(tag);
+            clear_binaural_downmix_tags(tag);
+        }),
+        SongCodec::Atmos => Box::new(|tag: &mut Tag| {
+            write_atmos_tags(tag);
+            clear_binaural_downmix_tags(tag);
+        }),
+        SongCodec::Ac3 => Box::new(|tag: &mut Tag| {
+            write_dolby_digital_tags(tag);
+            clear_binaural_downmix_tags(tag);
+        }),
         SongCodec::AacBinaural | SongCodec::AacHeBinaural => Box::new(write_binaural_tags),
         SongCodec::AacDownmix | SongCodec::AacHeDownmix => Box::new(write_downmix_tags),
-        _ => return Ok(0), // No custom tags for standard lossy codecs
+        _ => Box::new(clear_binaural_downmix_tags),
     };
 
     let path = Path::new(output_path);
