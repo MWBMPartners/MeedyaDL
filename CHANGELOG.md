@@ -33,6 +33,7 @@ Documents the full implementation: API field extraction, manifest
   storage, tag embedding, IPC command, frontend integration, detectable
   vs non-detectable changes, and key files reference.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.17.1] - 2026-03-27
 
