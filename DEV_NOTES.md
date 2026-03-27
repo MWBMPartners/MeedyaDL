@@ -1496,3 +1496,54 @@ All elements have descriptive IDs for manual editing or JavaScript access:
 ### File Size
 
 ~49 KB with two embedded fonts. The Orbitron variable font replaced 2 static weights, and Rajdhani uses a single weight — reduced from ~308 KB (4 separate static fonts) to ~49 KB.
+
+---
+
+## Smart Re-Download Detection (#263)
+
+When a user re-downloads an album they have previously downloaded, MeedyaDL can detect whether the content has changed since the last download using Apple Music's `lastModifiedDate` API field.
+
+### How It Works
+
+1. **Pre-download history check**: When the user submits a URL, `DownloadForm.tsx` calls the `check_redownload_status` IPC command. This queries `history_service` for a previous successful download of the same URL. If found, an info toast shows the album title and previous download date. The download proceeds regardless (non-blocking).
+
+2. **API field extraction**: During enrichment, `apple_music_api.rs` extracts the `lastModifiedDate` ISO 8601 timestamp from the album's `attributes` in the Apple Music catalog API response. This is stored on the `AlbumMetadata` struct.
+
+3. **Manifest storage**: When `write_manifest()` runs in `download_queue.rs`, the `lastModifiedDate` is persisted as `ManifestSource.last_modified_date` in the `.meedyadl` JSON manifest file. This allows future downloads to compare the stored date against a fresh API response.
+
+4. **Tag embedding**: The `lastModifiedDate` is also embedded as MP4 freeform atoms via `tags.toml`: `com.apple.iTunes:AlbumLastModified` and `MeedyaMeta:AppleLastModifiedDate`.
+
+### Setting
+
+| Setting | Type | Default | Location |
+|---------|------|---------|----------|
+| `smart_redownload_detection` | `bool` | `true` | Settings > General > Preferences |
+
+When disabled, the pre-download history check is skipped entirely.
+
+### What Changes Are Detectable
+
+- Metadata updates (title, artist, artwork, editorial notes, track listing)
+- Track additions or removals (deluxe editions, bonus tracks)
+- Remastering or re-releases (Apple updates `lastModifiedDate` when content changes)
+- Audio quality upgrades (Atmos, Lossless, Apple Digital Master certification)
+
+### What Changes Are NOT Detectable
+
+- Server-side audio re-encoding without metadata change (same `lastModifiedDate`)
+- Changes to availability or regional restrictions
+- DRM or delivery mechanism changes
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `src-tauri/src/commands/gamdl.rs` | `check_redownload_status` IPC command, `RedownloadInfo` struct |
+| `src-tauri/src/services/apple_music_api.rs` | `lastModifiedDate` extraction into `AlbumMetadata` |
+| `src-tauri/src/services/download_queue.rs` | `last_modified_date` passed to `write_manifest()` |
+| `src-tauri/src/models/manifest.rs` | `ManifestSource.last_modified_date` field |
+| `src-tauri/src/models/settings.rs` | `smart_redownload_detection` setting |
+| `src-tauri/tags.toml` | `[album.last_modified_date]` tag definition |
+| `src/components/download/DownloadForm.tsx` | Frontend integration (history check + info toast) |
+| `src/lib/tauri-commands.ts` | `checkRedownloadStatus()` IPC wrapper |
+| `src/components/settings/tabs/GeneralTab.tsx` | Settings toggle UI |
