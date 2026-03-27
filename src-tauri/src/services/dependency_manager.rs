@@ -577,7 +577,7 @@ const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "MediaInfo",
         id: "mediainfo",
-        required: false,
+        required: true,
         description: "Media file analysis for accurate codec detection",
     },
 ];
