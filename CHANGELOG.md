@@ -8,6 +8,37 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Activity log file logging, binaural/downmix companion tags, progress bar UX
+
+Four fixes:
+
+  1. Activity log entries (emit_download_log, emit_app_log) now also write
+     to the tracing file log via log::info!. Previously they only emitted
+     Tauri events to the frontend, making enrichment progress invisible in
+     the on-disk log file when the UI was unresponsive.
+
+  2. Companion downloads (apply_codec_metadata_tags) now clear inherited
+     isBinaural/isDownmix tags for all codecs that aren't binaural/downmix.
+     GAMDL's --fetch-extra-tags writes these from Apple Music API audioTraits
+     regardless of the actual downloaded codec. Previously only the primary
+     enrichment pipeline cleared them; companion files retained stale tags.
+
+  3. Queue-level progress bar now includes error and cancelled items in
+     both the total and completed counts, preventing it from appearing
+     stuck at 0% for single-item queues.
+
+  4. Progress bar text increased from 10px to 12px and bar height from
+     4px to 6px for better readability.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.16.1] - 2026-03-26
+
+### 🐛 Bug Fixes
+
 - Run lyrics conversion (TTML → LRC/SRT/VTT/ASS) on companion downloads
 
 Companion downloads inherited TTML as the lyrics format (forced by
