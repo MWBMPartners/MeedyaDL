@@ -2505,7 +2505,7 @@ fn spawn_companion_downloads(
             app,
             dl_id,
             &format!(
-                "Starting companion downloads (mode: {:?})",
+                "──── Companion downloads (mode: {:?}) ────",
                 companion_settings.companion_mode,
             ),
         );
@@ -3068,13 +3068,25 @@ pub fn process_queue(
 
         // Emit a clear separator in the activity log so users can easily
         // distinguish where one queue item ends and the next begins.
+        // Includes codec and quality info for debugging.
         let separator_url = urls.first().cloned().unwrap_or_default();
+        let separator_codec = options
+            .song_codec
+            .as_ref()
+            .map(|c| c.to_cli_string().to_string())
+            .unwrap_or_else(|| "default".to_string());
+        let separator_wrapper = if options.use_wrapper == Some(true) {
+            "wrapper"
+        } else {
+            "cookies"
+        };
         emit_download_log(
             &app,
             &download_id,
             &format!(
-                "════════════════════════════════════════\n\
-                 Starting download: {separator_url}"
+                "[MeedyaDL] ════════════════════════════════════════\n\
+                 Starting download: {separator_url}\n\
+                 Codec: {separator_codec} | Auth: {separator_wrapper}"
             ),
         );
 
@@ -3870,7 +3882,7 @@ pub fn process_queue(
                             &enrich_app,
                             &enrich_dl_id,
                             &format!(
-                                "Post-download enrichment starting (enhanced_lrc: {}, artwork: {}, acoustid: {}, replaygain: {}, music_video: {})",
+                                "──── Enrichment starting (lrc: {}, artwork: {}, acoustid: {}, replaygain: {}, video: {}) ────",
                                 if enrich_settings.enhanced_lrc { "on" } else { "off" },
                                 if enrich_settings.animated_artwork_enabled { "on" } else { "off" },
                                 if enrich_settings.acoustid_enabled { "on" } else { "off" },
@@ -5160,6 +5172,33 @@ async fn run_download_with_events(
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
+
+                    // Emit a clear per-track separator when GAMDL starts
+                    // downloading a new track. This makes it easy to identify
+                    // which track's [download] progress lines belong to which
+                    // song in the activity log.
+                    if let process::GamdlOutputEvent::TrackInfo {
+                        ref title,
+                        track_number,
+                        track_total,
+                        ..
+                    } = event
+                    {
+                        let track_label = match (track_number, track_total) {
+                            (Some(n), Some(t)) => format!("Track {n}/{t}"),
+                            (Some(n), None) => format!("Track {n}"),
+                            _ => "Track".to_string(),
+                        };
+                        let _ = app.emit(
+                            "activity-log",
+                            &ActivityLogEvent {
+                                download_id: download_id.clone(),
+                                stream: "internal",
+                                line: format!("──── {track_label}: {title} ────"),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
+                    }
 
                     // Update the queue item's progress
                     {
