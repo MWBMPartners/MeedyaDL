@@ -26,8 +26,26 @@ Improves activity log readability with three changes:
      "──── Enrichment starting (lrc: on, artwork: on, ...) ────"
 
 
+### 🐛 Bug Fixes
+
+- MediaInfo install via MeedyaDL-Tools mirror instead of upstream DMG
+
+The upstream macOS MediaInfo download is a .dmg containing a .pkg
+  installer, which our archive module cannot extract. Changed the
+  primary URL resolver to always fall through to the MeedyaDL-Tools
+  mirror, which hosts repackaged CLI binaries as tar.gz/zip.
+
+  Mirror assets uploaded:
+  - mediainfo-macos-aarch64.tar.gz (universal binary, arm64+x86_64)
+  - mediainfo-macos-x86_64.tar.gz (same universal binary)
+  - mediainfo-windows-x86_64.zip (MediaInfo.exe + LIBCURL.DLL)
+  - mediainfo-windows-aarch64.zip (MediaInfo.exe + LIBCURL.DLL)
+  - mediainfo-linux-x86_64.tar.gz (static CLI binary)
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.16.2] - 2026-03-27
