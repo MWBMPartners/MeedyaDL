@@ -6,6 +6,23 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Mark MediaInfo as required tool for automatic installation
+
+MediaInfo was marked as optional (required: false) so it was skipped
+  during setup wizard and "Check All". Since MeedyaDL actively uses
+  MediaInfo for codec detection in the enrichment pipeline, it should
+  be auto-installed alongside FFmpeg, mp4decrypt, N_m3u8DL-RE, and
+  MP4Box. Now 5 required tools instead of 4.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.18.0] - 2026-03-27
+
 ### ✨ Features
 
 - Smart re-download detection via Apple Music API lastModifiedDate (#263)
