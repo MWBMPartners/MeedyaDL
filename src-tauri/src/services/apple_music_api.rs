@@ -113,6 +113,11 @@ pub struct AlbumMetadata {
     pub track_count: Option<u32>,
     /// Apple's editorial summary (short description)
     pub editorial_notes: Option<String>,
+    /// ISO 8601 timestamp of the last metadata modification by Apple.
+    /// Used for smart re-download detection — comparing this against the
+    /// value stored in the .meedyadl manifest reveals whether the album
+    /// has changed since the user's last download.
+    pub last_modified_date: Option<String>,
     /// Per-track metadata for all tracks in the album
     pub tracks: Vec<TrackMetadata>,
     /// HLS M3U8 URL for square (1:1) animated artwork, if available
@@ -526,6 +531,13 @@ pub async fn fetch_album_metadata(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
+    // ISO 8601 timestamp of when Apple last modified this resource's metadata.
+    // Used for smart re-download detection (#263).
+    let last_modified_date = attributes
+        .get("lastModifiedDate")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
     let is_compilation = attributes.get("isCompilation").and_then(|v| v.as_bool());
 
     let is_single = attributes.get("isSingle").and_then(|v| v.as_bool());
@@ -585,6 +597,7 @@ pub async fn fetch_album_metadata(
         record_label,
         copyright,
         release_date: album_release_date,
+        last_modified_date,
         is_compilation,
         is_single,
         is_complete,
@@ -1220,6 +1233,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
             record_label: Some("Republic Records".to_string()),
             copyright: Some("℗ 2022 Republic Records".to_string()),
             release_date: Some("2022-10-21".to_string()),
+            last_modified_date: None, // Test fixture — not present in mock API response
             is_compilation: Some(false),
             is_single: Some(false),
             is_complete: Some(true),

@@ -596,6 +596,21 @@ export function importManifest(): Promise<string[]> {
   return invoke<string[]>('import_manifest');
 }
 
+/**
+ * Checks whether a URL was previously downloaded for smart re-download
+ * detection (#263). Returns metadata about the previous download if found.
+ *
+ * Rust handler: `check_redownload_status()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * @param url - The Apple Music URL to check
+ * @returns Previous download info if found, null if first download
+ */
+export function checkRedownloadStatus(
+  url: string
+): Promise<{ downloaded_at: string; title: string | null; album: string | null } | null> {
+  return invoke('check_redownload_status', { url });
+}
+
 // ============================================================
 // Settings Utility Commands
 // ============================================================

@@ -251,6 +251,15 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub desktop_notifications: bool,
 
+    /// Smart re-download detection using Apple Music API `lastModifiedDate`.
+    /// When enabled and a user queues a URL that was previously downloaded,
+    /// MeedyaDL compares the stored `lastModifiedDate` from the `.meedyadl`
+    /// manifest against the current API value. If unchanged, shows an info
+    /// toast suggesting the content hasn't changed. Users can still proceed.
+    /// Controlled in Settings > General > Preferences.
+    #[serde(default = "default_true")]
+    pub smart_redownload_detection: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -853,6 +862,7 @@ impl Default for AppSettings {
             // Desktop notifications enabled by default — OS-native alerts
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
+            smart_redownload_detection: true,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).

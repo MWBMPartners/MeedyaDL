@@ -313,8 +313,8 @@ mod tests {
     #[test]
     fn album_tags_count() {
         let registry = load_tag_registry();
-        // 16 album tags defined in tags.toml
-        assert_eq!(registry.album_tags.len(), 16);
+        // 17 album tags defined in tags.toml (16 original + lastModifiedDate)
+        assert_eq!(registry.album_tags.len(), 17);
     }
 
     #[test]
