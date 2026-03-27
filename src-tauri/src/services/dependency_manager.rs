@@ -772,30 +772,12 @@ fn get_mp4box_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFor
 /// - Linux: .deb packages via apt-get or mirror
 ///
 /// All platforms fall through to the mirror fallback in `download_tool_with_fallback()`.
-fn get_mediainfo_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
-    match (os, arch) {
-        ("macos", _) => Ok((
-            "https://mediaarea.net/download/binary/mediainfo/26.01/MediaInfo_CLI_26.01_Mac.dmg"
-                .to_string(),
-            archive::ArchiveFormat::TarGz, // Mirror repackages as tar.gz
-        )),
-        ("windows", "x86_64") => Ok((
-            "https://mediaarea.net/download/binary/mediainfo/26.01/MediaInfo_CLI_26.01_Windows_x64.zip"
-                .to_string(),
-            archive::ArchiveFormat::Zip,
-        )),
-        ("windows", "aarch64") => Ok((
-            "https://mediaarea.net/download/binary/mediainfo/26.01/MediaInfo_CLI_26.01_Windows_ARM64.zip"
-                .to_string(),
-            archive::ArchiveFormat::Zip,
-        )),
-        ("linux", _) => {
-            // Linux uses apt-get or .deb bundle from mirror.
-            // Primary URL is a placeholder — install_tool() will fall through to mirror.
-            Err("MediaInfo on Linux is installed via apt-get or .deb bundle from mirror".to_string())
-        }
-        _ => Err(format!("No pre-built MediaInfo available for {os}/{arch}")),
-    }
+fn get_mediainfo_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    // MediaInfo is distributed exclusively via the MeedyaDL-Tools mirror.
+    // The upstream .dmg (macOS) format isn't extractable by our archive module.
+    // Returning Err here causes download_tool_with_fallback() to fall through
+    // to the mirror, which hosts repackaged CLI binaries as tar.gz/zip.
+    Err("MediaInfo is installed from the MeedyaDL-Tools mirror".to_string())
 }
 
 /// Returns the path to a tool's installation directory.
