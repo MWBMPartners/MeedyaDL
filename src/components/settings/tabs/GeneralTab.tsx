@@ -381,6 +381,14 @@ export function GeneralTab() {
           onChange={(checked) => updateSettings({ desktop_notifications: checked })}
         />
 
+        {/* Smart re-download detection */}
+        <Toggle
+          label="Smart Re-Download Detection"
+          description="When re-downloading an album, check if it has changed since your last download using the Apple Music API. Shows an info message if the album is unchanged, but still allows you to proceed."
+          checked={settings.smart_redownload_detection}
+          onChange={(checked) => updateSettings({ smart_redownload_detection: checked })}
+        />
+
         {/* Auto-check for updates */}
         <Toggle
           label="Auto-Check for Updates"

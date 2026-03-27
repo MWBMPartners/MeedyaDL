@@ -1004,6 +1004,8 @@ pub fn run() {
             commands::gamdl::export_activity_log,
             // Manifest import
             commands::gamdl::import_manifest,
+            // Smart re-download detection (#263)
+            commands::gamdl::check_redownload_status,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,

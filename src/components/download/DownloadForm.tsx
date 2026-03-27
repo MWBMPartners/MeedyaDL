@@ -103,6 +103,7 @@ import {
   checkCookiesBeforeDownload,
   checkInternetBeforeDownload,
   checkOutputPathBeforeDownload,
+  checkRedownloadStatus,
   importManifest,
 } from '@/lib/tauri-commands';
 
@@ -239,6 +240,7 @@ export function DownloadForm() {
    * @see debugging.md -- "Key Zustand Lesson" on selector anti-patterns
    */
   const defaultSongCodec = useSettingsStore((s) => s.settings.default_song_codec);
+  const smartRedownloadDetection = useSettingsStore((s) => s.settings.smart_redownload_detection);
   /** Shows a toast notification (success/error) after submission. */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -415,6 +417,24 @@ export function DownloadForm() {
         // If the check itself fails (e.g., IPC error), proceed anyway —
         // the download will fail later with a more specific error.
         setCookieError(null);
+      }
+    }
+
+    // Smart re-download detection (#263): check if this URL was previously
+    // downloaded and inform the user. Non-blocking — download proceeds regardless.
+    if (smartRedownloadDetection && !isMultiUrl && urlInput.trim()) {
+      try {
+        const redownloadInfo = await checkRedownloadStatus(urlInput.trim());
+        if (redownloadInfo) {
+          const downloadDate = new Date(redownloadInfo.downloaded_at).toLocaleDateString();
+          const label = redownloadInfo.title ?? redownloadInfo.album ?? 'This album';
+          addToast(
+            `${label} was previously downloaded on ${downloadDate}. Downloading again.`,
+            'info'
+          );
+        }
+      } catch {
+        // Non-critical — proceed with download if check fails
       }
     }
 
