@@ -34,6 +34,7 @@ Four fixes:
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.16.1] - 2026-03-26
 
