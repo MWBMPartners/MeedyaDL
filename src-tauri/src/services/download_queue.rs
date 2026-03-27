@@ -470,6 +470,7 @@ fn write_manifest(
         storefront,
         downloaded_at: downloaded_at.to_string(),
         codec: None,
+        last_modified_date: album_metadata.and_then(|m| m.last_modified_date.clone()),
         tracks,
     };
 

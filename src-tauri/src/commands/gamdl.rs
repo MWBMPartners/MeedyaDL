@@ -963,3 +963,41 @@ pub async fn import_manifest(app: AppHandle) -> Result<Vec<String>, String> {
         None => Err("Import cancelled".to_string()),
     }
 }
+
+/// Checks whether a URL was previously downloaded and returns change
+/// detection metadata for smart re-download detection (#263).
+///
+/// Looks up the URL in download history. If found, returns the download
+/// date and title. The frontend uses this to inform the user before
+/// re-downloading. The actual `lastModifiedDate` comparison happens
+/// after the API metadata is fetched during enrichment.
+///
+/// # Returns
+/// * `Ok(Some(info))` - URL was previously downloaded; includes date + title
+/// * `Ok(None)` - URL not in download history (first download)
+/// * `Err` - History service error
+#[tauri::command]
+pub async fn check_redownload_status(
+    app: AppHandle,
+    url: String,
+) -> Result<Option<RedownloadInfo>, String> {
+    let history = crate::services::history_service::list_history(&app);
+    let previous = history.iter().find(|e| e.url == url && e.status == "success");
+
+    Ok(previous.map(|entry| RedownloadInfo {
+        downloaded_at: entry.completed_at.clone(),
+        title: entry.title.clone(),
+        album: entry.album.clone(),
+    }))
+}
+
+/// Information about a previous download of the same URL.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RedownloadInfo {
+    /// When the URL was last downloaded (ISO 8601).
+    pub downloaded_at: String,
+    /// Track/album title from the previous download.
+    pub title: Option<String>,
+    /// Album name from the previous download.
+    pub album: Option<String>,
+}
