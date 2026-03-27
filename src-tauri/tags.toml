@@ -209,6 +209,14 @@ atoms = [
     { namespace = "meedya", name = "MotionArtPortraitURL" },
 ]
 
+[album.last_modified_date]
+json_path = "attributes.lastModifiedDate"
+value_type = "string"
+atoms = [
+    { namespace = "itunes", name = "AlbumLastModified" },
+    { namespace = "meedya", name = "AppleLastModifiedDate" },
+]
+
 # ============================================================
 # Track-Scope Tags
 # ============================================================

@@ -54,6 +54,11 @@ pub struct ManifestSource {
     /// Primary audio codec used for this download (e.g., "alac", "atmos").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codec: Option<String>,
+    /// Apple Music API `lastModifiedDate` at the time of download.
+    /// Used for smart re-download detection (#263) — comparing this against
+    /// a fresh API response reveals if the album has changed.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_modified_date: Option<String>,
     /// Per-track metadata from the download.
     #[serde(default)]
     pub tracks: Vec<ManifestTrack>,
