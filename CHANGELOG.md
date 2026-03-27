@@ -6,6 +6,29 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Smart re-download detection via Apple Music API lastModifiedDate (#263)
+
+Detects whether an album has changed since the user's last download
+  by comparing the Apple Music API's lastModifiedDate timestamp against
+  the value stored in the .meedyadl manifest.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Add smart re-download detection to in-app help (#263)
+
+- downloading-music.md: new "Smart Re-Download Detection" section
+    covering feature overview, settings toggle, detectable changes,
+    and limitations
+  - faq.md: new Q&A entry cross-referencing the full help section
+
+- Update CLAUDE.md with smart re-download detection and recent fixes
+
+## [0.17.1] - 2026-03-27
+
 ### 🐛 Bug Fixes
 
 - Remove hardcoded mp4decrypt version URL, use MeedyaDL-Tools mirror
