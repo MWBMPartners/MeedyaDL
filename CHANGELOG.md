@@ -47,6 +47,7 @@ The upstream macOS MediaInfo download is a .dmg containing a .pkg
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.16.2] - 2026-03-27
 
