@@ -246,6 +246,27 @@ Output Directory/
 
 ---
 
+## Smart Re-Download Detection
+
+When you re-download an album you have previously downloaded, MeedyaDL checks the Apple Music API to determine whether the album has changed since your last download. If the album was previously downloaded, an info toast is shown with the date of the original download so you can decide whether to proceed.
+
+This feature is useful for keeping your library up to date without manually tracking changes. It is enabled by default and can be toggled in **Settings > General > Preferences**.
+
+### What Changes Are Detected
+
+Smart re-download detection compares the current Apple Music catalog metadata against what was recorded at the time of your original download. It can detect:
+
+- **Audio quality upgrades** -- such as an album gaining Dolby Atmos or Apple Lossless availability after initial release
+- **Tracks added** -- bonus tracks, deluxe edition expansions, or previously missing tracks restored to the catalog
+- **Metadata corrections** -- updated artist credits, corrected track titles, rewritten album descriptions, or genre reclassification
+- **Apple Digital Master certification** -- an album receiving the Apple Digital Master designation after your original download
+
+### Limitations
+
+Smart re-download detection relies on metadata changes exposed through the Apple Music API. It **cannot** detect silent audio remasters where the underlying audio files have been replaced but the catalog metadata remains unchanged. In those cases, re-downloading manually is the only way to obtain the updated audio.
+
+---
+
 ## Tips and Best Practices
 
 - **Check cookie validity before large batch downloads.** If your authentication cookie has expired mid-way through a large playlist or artist download, all remaining tracks will fail with an auth error. Verify your cookie is current before starting. See [Cookie Management](cookie-management.md).
