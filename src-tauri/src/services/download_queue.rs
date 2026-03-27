@@ -409,10 +409,12 @@ fn write_manifest(
 
     let dir = std::path::Path::new(album_dir);
     if !dir.exists() {
+        log::warn!("Manifest: album dir does not exist: {album_dir}");
         return;
     }
 
     let manifest_path = dir.join(".meedyadl");
+    log::info!("Writing manifest to: {}", manifest_path.display());
     let url = urls.first().cloned().unwrap_or_default();
     if url.is_empty() {
         return;

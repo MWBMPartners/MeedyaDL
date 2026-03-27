@@ -4,10 +4,12 @@
 // App-wide activity log emission helpers.
 // ==========================================
 //
-// Provides a shared `ActivityLogEvent` struct and two public helper functions
+// Provides a shared `ActivityLogEvent` struct and public helper functions
 // for emitting activity log events from anywhere in the Rust backend. These
 // events are received by the frontend via the "activity-log" Tauri event and
-// displayed in the Activity Log page.
+// displayed in the Activity Log page. All events are ALSO written to the
+// tracing file log (via `log::info!`) so enrichment progress is visible
+// in the on-disk log even when the frontend is unresponsive.
 //
 // Two emission patterns:
 //   - `emit_download_log(app, download_id, message)` — for download-specific messages
@@ -64,8 +66,10 @@ pub struct ActivityLogEvent {
 /// Emits an internal activity log event tied to a specific download.
 ///
 /// Used for enrichment progress, companion downloads, fallback decisions,
-/// and other per-download diagnostic messages.
+/// and other per-download diagnostic messages. Also writes to the tracing
+/// file log so enrichment progress is captured on disk.
 pub fn emit_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
+    log::info!("[{download_id}] {message}");
     let _ = app.emit(
         "activity-log",
         &ActivityLogEvent {
@@ -82,6 +86,7 @@ pub fn emit_download_log(app: &tauri::AppHandle, download_id: &str, message: &st
 /// Used for queue operations, update checks, dependency installs, cookie
 /// imports, settings changes, and app lifecycle events.
 pub fn emit_app_log(app: &tauri::AppHandle, message: &str) {
+    log::info!("[System] {message}");
     let _ = app.emit(
         "activity-log",
         &ActivityLogEvent {
@@ -100,8 +105,10 @@ pub fn emit_app_log(app: &tauri::AppHandle, message: &str) {
 /// data (URLs with query params, cookie paths, API responses, etc.).
 ///
 /// The message is prefixed with `[VERBOSE]` in the activity log to
-/// distinguish it from normal messages.
+/// distinguish it from normal messages. Always written to the tracing
+/// file log as `debug` regardless of the verbose setting.
 pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
+    log::debug!("[{download_id}] [VERBOSE] {message}");
     if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
         return;
     }
@@ -119,7 +126,9 @@ pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, mess
 /// Emits a verbose system-level activity log event.
 ///
 /// Only emits when `verbose_activity_log` is enabled in settings.
+/// Always written to the tracing file log as `debug`.
 pub fn emit_verbose_app_log(app: &tauri::AppHandle, message: &str) {
+    log::debug!("[System] [VERBOSE] {message}");
     if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
         return;
     }

@@ -104,9 +104,14 @@ export function GlobalProgressBar() {
           i.state === 'downloading' ||
           i.state === 'processing' ||
           i.state === 'queued' ||
-          i.state === 'complete'
+          i.state === 'complete' ||
+          i.state === 'error' ||
+          i.state === 'cancelled'
       ).length;
-      const completed = queueItems.filter((i) => i.state === 'complete').length;
+      // Count items that are done (complete, error, or cancelled)
+      const completed = queueItems.filter(
+        (i) => i.state === 'complete' || i.state === 'error' || i.state === 'cancelled'
+      ).length;
       const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
       const working =
         total > 0 && (active !== undefined || completed < total);
@@ -149,17 +154,17 @@ export function GlobalProgressBar() {
       <div className="flex items-center gap-2 mb-1">
         {/* Platform icon + track info (left) */}
         {PlatformIcon && <PlatformIcon />}
-        <span className="text-[10px] text-content-secondary truncate min-w-0 flex-1">
+        <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
         {/* Speed + ETA + percentage (right) */}
-        <span className="text-[10px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+        <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
           {speedEta ? `${speedEta} · ` : ''}
           {itemProgress !== null ? `${Math.round(itemProgress)}%` : 'Processing…'}
         </span>
       </div>
       <div
-        className="h-1 w-full rounded-full bg-surface-elevated overflow-hidden mb-1.5"
+        className="h-1.5 w-full rounded-full bg-surface-elevated overflow-hidden mb-1.5"
         role="progressbar"
         aria-valuenow={itemProgress ?? undefined}
         aria-valuemin={0}
@@ -183,15 +188,15 @@ export function GlobalProgressBar() {
 
       {/* Lower bar: queue-level progress */}
       <div className="flex items-center gap-2 mb-0.5">
-        <span className="text-[10px] text-content-tertiary truncate min-w-0 flex-1">
+        <span className="text-[12px] text-content-tertiary truncate min-w-0 flex-1">
           {completedItems} of {totalItems} complete
         </span>
-        <span className="text-[10px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+        <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
           {queueProgress}%
         </span>
       </div>
       <div
-        className="h-1 w-full rounded-full bg-surface-elevated overflow-hidden"
+        className="h-1.5 w-full rounded-full bg-surface-elevated overflow-hidden"
         role="progressbar"
         aria-valuenow={queueProgress}
         aria-valuemin={0}
