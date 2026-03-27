@@ -26,6 +26,13 @@ Detects whether an album has changed since the user's last download
   - faq.md: new Q&A entry cross-referencing the full help section
 
 - Update CLAUDE.md with smart re-download detection and recent fixes
+- Update CHANGELOG.md [skip ci]
+- Add smart re-download detection section to DEV_NOTES.md (#263)
+
+Documents the full implementation: API field extraction, manifest
+  storage, tag embedding, IPC command, frontend integration, detectable
+  vs non-detectable changes, and key files reference.
+
 
 ## [0.17.1] - 2026-03-27
 
