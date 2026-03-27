@@ -671,26 +671,13 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
 /// Bento4 provides pre-built binaries hosted at bok.net (the Bento4 author's site).
 /// The SDK ZIP contains multiple tools; we only need the mp4decrypt binary.
 /// Ref: <https://www.bento4.com>/
-fn get_mp4decrypt_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
-    // Map OS/arch to Bento4's platform suffix naming convention
-    let platform_suffix = match (os, arch) {
-        // macOS: universal build (works on both x86_64 and aarch64 natively)
-        ("macos", "x86_64" | "aarch64") => "universal-apple-macosx",
-        // Linux: x86_64 only (ARM64 users would need to compile from source)
-        // Naming convention changed at build 633: "linux-x86_64" → "x86_64-unknown-linux"
-        ("linux", "x86_64" | "aarch64") => "x86_64-unknown-linux",
-        // Windows: 64-bit only (32-bit builds dropped at build 633)
-        // Naming convention changed: "win32" → "x86_64-microsoft-win32"
-        ("windows", "x86_64" | "aarch64") => "x86_64-microsoft-win32",
-        _ => return Err(format!("No pre-built mp4decrypt available for {os}/{arch}")),
-    };
-
-    // Bento4 SDK version 1.6.0-641 (latest stable as of writing).
-    // The ZIP contains bin/{mp4decrypt, mp4info, mp4fragment, ...}.
-    Ok((
-        format!("https://www.bok.net/Bento4/binaries/Bento4-SDK-1-6-0-641.{platform_suffix}.zip"),
-        archive::ArchiveFormat::Zip,
-    ))
+fn get_mp4decrypt_url(_os: &str, _arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
+    // mp4decrypt (Bento4) is distributed exclusively via the MeedyaDL-Tools mirror.
+    // The upstream source (bok.net) uses hardcoded version-specific URLs with no
+    // "latest" tag or GitHub Releases API, so the URL would go stale on updates.
+    // Returning Err here causes download_tool_with_fallback() to fall through
+    // to the mirror, which hosts the extracted mp4decrypt binary directly.
+    Err("mp4decrypt is installed from the MeedyaDL-Tools mirror".to_string())
 }
 
 /// Returns the N_m3u8DL-RE download URL for the given platform.
