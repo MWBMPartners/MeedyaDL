@@ -6,6 +6,25 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Remove hardcoded mp4decrypt version URL, use MeedyaDL-Tools mirror
+
+mp4decrypt (Bento4) was pinned to version 1.6.0-641 via a hardcoded
+  bok.net URL. Bento4 has no GitHub Releases API or "latest" tag, so
+  the URL would go stale on future updates.
+
+  Changed to mirror-only distribution (same approach as MediaInfo and
+  MP4Box). The MeedyaDL-Tools mirror already has mp4decrypt assets for
+  all 3 platforms (macos-aarch64, linux-x86_64, windows-x86_64).
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.17.0] - 2026-03-27
+
 ### ✨ Features
 
 - Add per-track separators and enhanced download headers in activity log
