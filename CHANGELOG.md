@@ -6,6 +6,32 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add per-track separators and enhanced download headers in activity log
+
+Improves activity log readability with three changes:
+
+  1. Download start separator now includes codec and auth method:
+     "Starting download: {URL}" + "Codec: atmos | Auth: wrapper"
+
+  2. Per-track markers emitted when GAMDL starts each track:
+     "──── Track 1/28: The Virginia Company ────"
+     These appear as internal (accent-coloured) lines between the
+     noisy [download] HLS fragment progress, making it easy to
+     identify which track's progress lines belong to which song.
+
+  3. Companion and enrichment phase separators:
+     "──── Companion downloads (mode: Custom) ────"
+     "──── Enrichment starting (lrc: on, artwork: on, ...) ────"
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.16.2] - 2026-03-27
+
 ### 🐛 Bug Fixes
 
 - Activity log file logging, binaural/downmix companion tags, progress bar UX
