@@ -20,6 +20,7 @@ MediaInfo was marked as optional (required: false) so it was skipped
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.18.0] - 2026-03-27
 
