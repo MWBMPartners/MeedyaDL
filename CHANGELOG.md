@@ -130,9 +130,18 @@ Renamed ofscraper.svg → onlyfans.svg and updated engines.toml
   White areas are transparent; currentColor with varying opacity for
   theme adaptability.
 
+- Clean OnlyFans SVG — currentColor for themes, no fixed dimensions
+
+Stripped XML declaration, Illustrator metadata, and hardcoded hex
+  colours (#03A9F4, #0288D1). Replaced with currentColor + fill-opacity
+  (0.7 for the circular O, 0.9 for the wing sweep). viewBox preserved
+  from original (0 0 48 48), no fixed width/height so SVG dynamically
+  expands to fill the parent container.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
