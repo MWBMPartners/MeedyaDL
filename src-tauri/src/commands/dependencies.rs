@@ -277,9 +277,9 @@ pub async fn install_votify(app: AppHandle) -> Result<String, String> {
 ///
 /// **Frontend caller:** `checkOfscraperStatus()` in `src/lib/tauri-commands.ts`
 ///
-/// OF-Scraper is the OnlyFans download engine — optional, disabled by default.
+/// OF-Scraper is an optional download engine — disabled by default.
 /// Currently disabled in engines.toml (enabled = false); this command exists
-/// for future use when OnlyFans support is implemented.
+/// for future use.
 #[tauri::command]
 pub async fn check_ofscraper_status(app: AppHandle) -> Result<DependencyStatus, String> {
     let version =
@@ -300,7 +300,7 @@ pub async fn check_ofscraper_status(app: AppHandle) -> Result<DependencyStatus, 
 /// **Frontend caller:** `installOfscraper()` in `src/lib/tauri-commands.ts`
 ///
 /// Currently disabled in engines.toml (enabled = false); this command exists
-/// for future use when OnlyFans support is implemented.
+/// for future use.
 #[tauri::command]
 pub async fn install_ofscraper(app: AppHandle) -> Result<String, String> {
     log::info!("Installing OF-Scraper...");

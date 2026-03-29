@@ -1630,7 +1630,6 @@ Users can override the default priority per-platform in Settings. User overrides
 | votify | pip | Spotify |
 | yt-dlp | pip | YouTube, YouTube Music, BBC iPlayer (fallback) |
 | get_iplayer | system | BBC iPlayer (primary) |
-| OF-Scraper | pip | OnlyFans |
 
 ### Editing Guide
 
