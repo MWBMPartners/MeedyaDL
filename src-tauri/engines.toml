@@ -1,0 +1,158 @@
+# MeedyaDL Engine Registry
+# ========================
+#
+# Defines available download engines (external tools) and their platform
+# assignments with priority ordering. This file is the single source of
+# truth for which tool handles which service.
+#
+# Compiled into the binary via `include_str!("../../engines.toml")` and
+# parsed at runtime — no code changes needed to add engines or platforms.
+#
+# ## Structure
+#
+# [engines.<id>]           — Engine definition (one per external tool)
+#   name                   — Human-readable display name for the UI
+#   install_method         — How the tool is installed: "pip", "binary", "system"
+#   pip_package            — PyPI package name (if install_method = "pip")
+#   cli_command            — How to invoke the tool (e.g., "python -m gamdl")
+#   homepage               — Project homepage URL
+#   description            — Short description for the UI / help text
+#
+# [platforms.<id>]         — Platform definition (one per media service)
+#   name                   — Human-readable service name
+#   url_patterns           — URL hostname patterns for auto-detection
+#   engines                — Ordered list of engine IDs (first = primary, rest = fallback)
+#   content_types          — What this platform offers (for UI hints)
+#
+# ## Adding a New Engine
+#
+# 1. Add a new [engines.<id>] section below
+# 2. Add the engine ID to the relevant platform's `engines` list
+# 3. Implement the engine adapter in Rust (see services/ directory)
+#
+# ## Adding a New Platform
+#
+# 1. Add a new [platforms.<id>] section below
+# 2. List the engine(s) that support it in priority order
+# 3. Add URL patterns so the URL parser can auto-detect the service
+# 4. Implement the platform URL parser in the frontend (url-parser.ts)
+#
+# ## Changing Priority
+#
+# Reorder the `engines` array in any [platforms.*] section.
+# First entry = primary, subsequent entries = fallback in order.
+# Users can also override priority per-platform in Settings > Engines.
+
+# ============================================================
+# Engines (external download tools)
+# ============================================================
+
+[engines.gamdl]
+name = "GAMDL"
+install_method = "pip"
+pip_package = "gamdl"
+cli_command = "python -m gamdl"
+homepage = "https://github.com/glomatico/gamdl"
+description = "Apple Music downloader with lossless, Atmos, and lyrics support"
+
+[engines.votify]
+name = "votify"
+install_method = "pip"
+pip_package = "votify"
+cli_command = "python -m votify"
+homepage = "https://github.com/glomatico/votify"
+description = "Spotify downloader with Ogg Vorbis and lyrics support"
+
+[engines.ytdlp]
+name = "yt-dlp"
+install_method = "pip"
+pip_package = "yt-dlp"
+cli_command = "yt-dlp"
+homepage = "https://github.com/yt-dlp/yt-dlp"
+description = "General-purpose video/audio downloader supporting 1000+ sites"
+
+[engines.get_iplayer]
+name = "get_iplayer"
+install_method = "system"
+# No pip_package — installed via Homebrew (macOS), apt (Linux), or standalone (Windows)
+cli_command = "get_iplayer"
+homepage = "https://github.com/get-iplayer/get_iplayer"
+description = "BBC iPlayer specialist with PVR scheduling, series handling, and rich metadata"
+
+[engines.ofscraper]
+name = "OF-Scraper"
+install_method = "pip"
+pip_package = "ofscraper"
+cli_command = "python -m ofscraper"
+homepage = "https://github.com/datawhores/OF-Scraper"
+description = "OnlyFans content downloader with DRM support and subscription management"
+
+# ============================================================
+# Platforms (media services)
+# ============================================================
+#
+# `engines` is an ordered priority list:
+#   - First engine = primary (used by default)
+#   - Subsequent engines = fallback (tried in order if primary fails/missing)
+#
+# `url_patterns` are hostname patterns for auto-detection from pasted URLs.
+# Multiple patterns per platform support regional and legacy domains.
+
+[platforms.apple-music]
+name = "Apple Music"
+url_patterns = [
+    "music.apple.com",
+    "classical.apple.com",
+    "itunes.apple.com",
+]
+engines = ["gamdl"]
+content_types = ["music", "music-videos", "playlists"]
+
+[platforms.spotify]
+name = "Spotify"
+url_patterns = [
+    "open.spotify.com",
+]
+engines = ["votify"]
+content_types = ["music", "playlists", "podcasts"]
+
+[platforms.youtube]
+name = "YouTube"
+url_patterns = [
+    "youtube.com",
+    "youtu.be",
+    "www.youtube.com",
+    "m.youtube.com",
+]
+engines = ["ytdlp"]
+content_types = ["videos", "music", "playlists", "channels"]
+
+[platforms.youtube-music]
+name = "YouTube Music"
+url_patterns = [
+    "music.youtube.com",
+]
+engines = ["ytdlp"]
+content_types = ["music", "playlists", "albums"]
+
+[platforms.bbc-iplayer]
+name = "BBC iPlayer"
+url_patterns = [
+    "bbc.co.uk/iplayer",
+    "www.bbc.co.uk/iplayer",
+    "bbc.co.uk/sounds",
+    "www.bbc.co.uk/sounds",
+]
+# get_iplayer is primary: purpose-built for BBC with superior metadata,
+# series/episode handling, PVR scheduling, and subtitle support.
+# yt-dlp is fallback: works but treats BBC as a generic extractor.
+engines = ["get_iplayer", "ytdlp"]
+content_types = ["tv", "radio", "podcasts"]
+
+[platforms.onlyfans]
+name = "OnlyFans"
+url_patterns = [
+    "onlyfans.com",
+]
+engines = ["ofscraper"]
+content_types = ["photos", "videos", "audio", "messages"]
