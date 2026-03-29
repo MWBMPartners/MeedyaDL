@@ -45,8 +45,18 @@ Platform SVG icons now use fill="currentColor" instead of hardcoded
   step-by-step guide for adding new platform icons.
 
 
+### 🐛 Bug Fixes
+
+- Move CORE_COMPONENTS to module scope to resolve ESLint exhaustive-deps warnings
+
+Also adds BBC Sounds as a separate platform in engines.toml with its
+  own icon path, sharing the same engine priority as BBC iPlayer
+  (get_iplayer primary, yt-dlp fallback).
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
