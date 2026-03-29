@@ -23,6 +23,25 @@ New config-driven registry defining available download engines and
   Runtime parsing and Rust model will be implemented as part of #107
   (multi-service architecture).
 
+- Embed Votify and OF-Scraper as pip engines with required/enabled flags (#268)
+
+Adds engine lifecycle management for pip-based download engines:
+
+  1. engines.toml: Added `required` and `enabled` fields to both engines
+     and platforms. Votify is required+enabled, OF-Scraper is optional+
+     disabled (hidden until OnlyFans support is implemented). yt-dlp and
+     get_iplayer are also defined but disabled.
+
+  2. pip_engine_service.rs: Generic service for install/version-check/
+     uninstall of any pip package. Generalises the gamdl_service pattern
+     so new engines need zero new Rust service code.
+
+  3. IPC commands: check_votify_status, install_votify, check_ofscraper_status,
+     install_ofscraper — registered in lib.rs with TypeScript bindings.
+
+  4. Frontend: checkVotifyStatus(), installVotify(), checkOfscraperStatus(),
+     installOfscraper() in tauri-commands.ts.
+
 
 ### 📚 Documentation
 
@@ -44,6 +63,7 @@ Documents the engine registry file structure, priority system, and
   priority, and removing engines. Includes current registry table and
   implementation status tracking.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.18.1] - 2026-03-27
 
