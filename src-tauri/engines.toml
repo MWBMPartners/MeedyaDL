@@ -207,9 +207,10 @@ engines = ["get_iplayer", "ytdlp"]
 content_types = ["radio", "podcasts"]
 
 # Internal/future platform — not shown in public documentation.
-[platforms.ofscraper]
-name = "OF-Scraper"
+[platforms.onlyfans]
+name = "OnlyFans"
 enabled = false
+icon = "icons/platforms/onlyfans.svg"
 url_patterns = [
     "onlyfans.com",
 ]
