@@ -965,6 +965,7 @@ pub fn run() {
             // System information and platform detection commands
             commands::system::get_platform_info,
             commands::system::get_app_data_dir,
+            commands::system::get_platform_config,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
