@@ -138,9 +138,17 @@ Stripped XML declaration, Illustrator metadata, and hardcoded hex
   from original (0 0 48 48), no fixed width/height so SVG dynamically
   expands to fill the parent container.
 
+- Clean Apple Music SVG — currentColor for themes, no fixed dimensions
+
+Stripped XML declaration, Illustrator metadata, and hardcoded colours
+  (#F50057 red, #FFFFFF white). Rounded square background uses
+  currentColor at fill-opacity 0.25; music note uses currentColor at
+  fill-opacity 0.9. viewBox preserved (0 0 48 48), no fixed width/height.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
