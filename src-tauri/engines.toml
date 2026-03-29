@@ -124,10 +124,17 @@ description = "Subscription content downloader with DRM support"
 #
 # `enabled` controls whether the platform appears in the UI. Set to false
 # for platforms that are defined but not yet implemented.
+#
+# `icon` (optional) is a path to a local SVG/PNG icon in public/icons/platforms/.
+# If omitted or the file doesn't exist, the UI falls back to fetching the
+# favicon from the first url_pattern hostname (prefers PNG/SVG over ICO).
+# To add an icon: save a 16x16 or 24x24 SVG/PNG to public/icons/platforms/
+# and set the path here.
 
 [platforms.apple-music]
 name = "Apple Music"
 enabled = true
+icon = "icons/platforms/apple-music.svg"
 url_patterns = [
     "music.apple.com",
     "classical.apple.com",
@@ -139,6 +146,7 @@ content_types = ["music", "music-videos", "playlists"]
 [platforms.spotify]
 name = "Spotify"
 enabled = true
+icon = "icons/platforms/spotify.svg"
 url_patterns = [
     "open.spotify.com",
 ]
@@ -148,6 +156,7 @@ content_types = ["music", "playlists", "podcasts"]
 [platforms.youtube]
 name = "YouTube"
 enabled = false                   # Enable when YouTube support is implemented (#104)
+icon = "icons/platforms/youtube.svg"
 url_patterns = [
     "youtube.com",
     "youtu.be",
@@ -160,6 +169,7 @@ content_types = ["videos", "music", "playlists", "channels"]
 [platforms.youtube-music]
 name = "YouTube Music"
 enabled = false                   # Enable when YouTube Music support is implemented (#103)
+icon = "icons/platforms/youtube-music.svg"
 url_patterns = [
     "music.youtube.com",
 ]
@@ -169,6 +179,7 @@ content_types = ["music", "playlists", "albums"]
 [platforms.bbc-iplayer]
 name = "BBC iPlayer"
 enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
+icon = "icons/platforms/bbc-iplayer.svg"
 url_patterns = [
     "bbc.co.uk/iplayer",
     "www.bbc.co.uk/iplayer",
