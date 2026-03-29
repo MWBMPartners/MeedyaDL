@@ -147,6 +147,24 @@ pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
     Ok(version)
 }
 
+/// Upgrades any pip-based engine to the latest version.
+///
+/// **Frontend caller:** `upgradePipEngine(package)` in `src/lib/tauri-commands.ts`
+///
+/// Uses `pip install --upgrade` to update the package. Works for any
+/// pip engine: votify, yt-dlp, ofscraper, etc. GAMDL has its own
+/// upgrade path via `upgrade_gamdl()` with compatibility gating.
+#[tauri::command]
+pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
+    log::info!("Upgrading {package}...");
+    emit_app_log(&app, &format!("Upgrading {package}..."));
+    let version =
+        crate::services::pip_engine_service::install_pip_engine(&app, &package).await?;
+    log::info!("{package} upgraded to {version}");
+    emit_app_log(&app, &format!("{package} upgraded to v{version}"));
+    Ok(version)
+}
+
 /// Returns the update status for a specific component by name.
 ///
 /// **Frontend caller:** `checkComponentUpdate(name)` in `src/lib/tauri-commands.ts`
