@@ -1,17 +1,15 @@
 <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <!--
-    BBC Sounds icon (sound waves radiating from centre).
-    Inspired by the BBC Sounds visual identity (concentric arcs).
-    Uses currentColor for theme adaptability — inherits colour from parent
-    CSS context, so it works in light, dark, and colour-blind modes.
-    Rendered inline via PlatformIcon component (not as <img>).
+    BBC Sounds icon — based on the official BBC Sounds logo shape:
+    Two vertical rectangles (large right, medium centre) with a small
+    square on the left, representing a stylised speaker/sound source.
+    Black areas from the original are transparent; the orange fill
+    uses currentColor so it adapts to light/dark/colour-blind themes.
   -->
-  <!-- Centre dot -->
-  <circle cx="12" cy="12" r="2" fill="currentColor" fill-opacity="0.8"/>
-  <!-- Inner wave -->
-  <path d="M8.5 8.5a5 5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
-  <path d="M8.5 15.5a5 5 0 0 0 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
-  <!-- Outer wave -->
-  <path d="M5.5 5.5a9.2 9.2 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-  <path d="M5.5 18.5a9.2 9.2 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <!-- Small left square -->
+  <rect x="2" y="9" width="4.5" height="6" rx="0.5" fill="currentColor" fill-opacity="0.85"/>
+  <!-- Medium centre rectangle -->
+  <rect x="8" y="5.5" width="5" height="13" rx="0.8" fill="currentColor" fill-opacity="0.7"/>
+  <!-- Large right rectangle -->
+  <rect x="14.5" y="2" width="7" height="20" rx="1" fill="currentColor" fill-opacity="0.9"/>
 </svg>
