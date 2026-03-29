@@ -78,24 +78,31 @@ A common source of confusion:
 ### Normal Development Cycle
 
 1. **Write code** and commit using [Conventional Commits](https://www.conventionalcommits.org/):
-   - `feat: ...` — new features (bumps minor version)
-   - `fix: ...` — bug fixes (bumps patch version)
-   - `chore: ...` / `docs: ...` — no version bump, won't appear in changelog
 
-2. **Use `[skip ci]`** in commit messages during rapid development to conserve GitHub Actions minutes:
-   ```bash
-   git commit -m "feat: add queue persistence [skip ci]"
-   ```
+   | Type | Version Bump | Changelog | When to use |
+   |------|-------------|-----------|-------------|
+   | `feat:` | Minor (0.X.0) | Features | User-visible new functionality only |
+   | `fix:` | Patch (0.0.X) | Bug Fixes | Bug fixes and internal changes worth releasing |
+   | `refactor:` | None | Improvements | Internal restructuring, ships with next fix/feat |
+   | `perf:` | None | Improvements | Performance improvements |
+   | `test:` | None | Improvements | Test additions/changes |
+   | `chore:` | None | Hidden | Build, deps, infrastructure, config, icons |
+   | `docs:` | None | Hidden | Documentation only |
+   | `ci:` | None | Hidden | CI/CD workflow changes |
 
-3. **Push to main**. Two things happen automatically:
+   **Key rule:** `feat:` is ONLY for user-visible features. Internal work uses `fix:` (if it should trigger a patch release) or `chore:`/`refactor:` (if it can ship with the next release).
+
+   **Do NOT use `[skip ci]`** in commit messages unless explicitly instructed.
+
+2. **Push to main**. Two things happen automatically:
    - CI runs (verifies code is good)
    - Release Please creates/updates a Release PR (you can ignore it until ready)
 
-4. **When ready to release**: go to GitHub and **merge the Release PR**. This triggers the full build pipeline.
+3. **When ready to release**: go to GitHub and **merge the Release PR**. This triggers the full build pipeline.
 
-5. **Wait for builds** (~15-20 minutes). Check the Actions tab to monitor progress.
+4. **Wait for builds** (~15-20 minutes). Check the Actions tab to monitor progress.
 
-6. **Publish the draft release** on GitHub once all builds succeed.
+5. **Publish the draft release** on GitHub once all builds succeed.
 
 ### Manual Release Trigger
 
