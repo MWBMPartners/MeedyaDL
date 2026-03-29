@@ -1,13 +1,32 @@
 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <!--
-    OF-Scraper platform icon — padlock (subscription/gated content).
-    Generic enough to not reference a specific service by name.
-    Uses currentColor for theme adaptability.
+    OF-Scraper platform icon — based on the official logo shape:
+    Stylised letter with a circular base (open 'O') and a swept
+    wing/feather shape extending to the right. White areas from the
+    original are transparent; fill uses currentColor so it adapts
+    to light/dark/colour-blind themes.
   -->
-  <!-- Lock body -->
-  <rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor" fill-opacity="0.7"/>
-  <!-- Lock shackle -->
-  <path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-  <!-- Keyhole -->
-  <circle cx="12" cy="16" r="1.5" fill="currentColor" fill-opacity="0.3"/>
+  <!-- Circular base (open O shape) -->
+  <path
+    d="M10 21a9 9 0 1 1 4-17.1"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="4"
+    stroke-linecap="round"
+    opacity="0.7"
+  />
+  <!-- Inner cutout circle (transparent eye) -->
+  <circle cx="9" cy="12.5" r="2.5" fill="currentColor" fill-opacity="0.25"/>
+  <!-- Upper wing sweep -->
+  <path
+    d="M13 4c2 0 5 1.5 8 5-2-1-4.5-1.5-7-1L13 4z"
+    fill="currentColor"
+    fill-opacity="0.55"
+  />
+  <!-- Lower wing sweep -->
+  <path
+    d="M14 8c3-.3 5.5 0 8 3-3-.5-5.5 0-8 2l0-5z"
+    fill="currentColor"
+    fill-opacity="0.85"
+  />
 </svg>
