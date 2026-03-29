@@ -180,21 +180,41 @@ pub fn get_mediainfo_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     } else {
         "which"
     };
-    let output = std::process::Command::new(which_cmd)
+    if let Ok(output) = std::process::Command::new(which_cmd)
         .arg("mediainfo")
         .output()
-        .ok()?;
-    if output.status.success() {
-        let path_str = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()?
-            .trim()
-            .to_string();
-        if !path_str.is_empty() {
-            return Some(PathBuf::from(path_str));
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !path_str.is_empty() {
+                let p = PathBuf::from(&path_str);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
         }
     }
-    None
+
+    // Check common platform-specific installation locations
+    let extra_paths: Vec<PathBuf> = if cfg!(target_os = "macos") {
+        vec![
+            PathBuf::from("/opt/homebrew/bin/mediainfo"),
+            PathBuf::from("/usr/local/bin/mediainfo"),
+        ]
+    } else if cfg!(target_os = "linux") {
+        vec![
+            PathBuf::from("/usr/bin/mediainfo"),
+            PathBuf::from("/usr/local/bin/mediainfo"),
+        ]
+    } else {
+        vec![]
+    };
+    extra_paths.into_iter().find(|p| p.exists())
 }
 
 // ============================================================
