@@ -24,55 +24,101 @@ import { useMemo } from 'react';
 import { useDownloadStore } from '@/stores/downloadStore';
 
 /**
- * Detects the download platform from the first URL of a queue item.
- * Returns a platform key used to select the correct icon.
- * Extensible for future services (Spotify, YouTube, BBC iPlayer).
+ * Platform detection and icon configuration.
+ *
+ * Each entry maps URL hostnames to a platform ID, display name, and icon source.
+ * The icon path points to a local SVG/PNG in public/icons/platforms/. If the file
+ * doesn't exist, the component falls back to the service's favicon.
+ *
+ * To add a new platform: add an entry here with the URL patterns and icon path.
+ * This mirrors the platforms section of engines.toml but is frontend-only for
+ * performance (no IPC needed for progress bar rendering).
  */
-function detectPlatform(urls?: string[]): 'apple-music' | 'unknown' {
+const PLATFORM_CONFIG: {
+  id: string;
+  name: string;
+  icon: string;
+  faviconHost: string;
+  hostnames: string[];
+}[] = [
+  {
+    id: 'apple-music',
+    name: 'Apple Music',
+    icon: '/icons/platforms/apple-music.svg',
+    faviconHost: 'music.apple.com',
+    hostnames: ['music.apple.com', 'classical.apple.com', 'itunes.apple.com'],
+  },
+  {
+    id: 'spotify',
+    name: 'Spotify',
+    icon: '/icons/platforms/spotify.svg',
+    faviconHost: 'open.spotify.com',
+    hostnames: ['open.spotify.com'],
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    icon: '/icons/platforms/youtube.svg',
+    faviconHost: 'youtube.com',
+    hostnames: ['youtube.com', 'youtu.be', 'www.youtube.com', 'm.youtube.com'],
+  },
+  {
+    id: 'youtube-music',
+    name: 'YouTube Music',
+    icon: '/icons/platforms/youtube-music.svg',
+    faviconHost: 'music.youtube.com',
+    hostnames: ['music.youtube.com'],
+  },
+  {
+    id: 'bbc-iplayer',
+    name: 'BBC iPlayer',
+    icon: '/icons/platforms/bbc-iplayer.svg',
+    faviconHost: 'bbc.co.uk',
+    hostnames: ['bbc.co.uk', 'www.bbc.co.uk'],
+  },
+];
+
+/**
+ * Detects the download platform from the first URL of a queue item.
+ * Returns the platform config entry, or undefined for unrecognised URLs.
+ */
+function detectPlatform(urls?: string[]) {
   const raw = urls?.[0] ?? '';
   try {
     const { hostname } = new URL(raw);
-    if (
-      hostname === 'music.apple.com' ||
-      hostname === 'classical.apple.com' ||
-      hostname === 'itunes.apple.com'
-    ) {
-      return 'apple-music';
-    }
+    return PLATFORM_CONFIG.find((p) =>
+      p.hostnames.some((h) => hostname === h || hostname.endsWith('.' + h))
+    );
   } catch {
-    // Malformed URL — fall through to unknown
+    return undefined;
   }
-  return 'unknown';
 }
 
 /**
- * Inline SVG icon for Apple Music (music note).
- * 12x12px to match the 10px text size of the progress bar labels.
+ * Renders a platform icon for the progress bar. Tries the local SVG/PNG
+ * first (from public/icons/platforms/), then falls back to Google's favicon
+ * service which returns PNG favicons for any domain.
  */
-function AppleMusicIcon() {
+function PlatformIcon({ platform }: { platform: ReturnType<typeof detectPlatform> }) {
+  if (!platform) return null;
   return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    <img
+      src={platform.icon}
+      alt={platform.name}
+      width={14}
+      height={14}
       className="flex-shrink-0"
-      aria-label="Apple Music"
-    >
-      <path
-        d="M19.5 3.5L8.5 6v11a3 3 0 1 1-2-2.83V5l11-2.5v10.5a3 3 0 1 1-2-2.83V3.5Z"
-        fill="currentColor"
-        fillOpacity="0.5"
-      />
-    </svg>
+      onError={(e) => {
+        // Fallback: Google favicon service (returns PNG, better than raw ICO)
+        const img = e.currentTarget;
+        if (!img.dataset.fallback) {
+          img.dataset.fallback = '1';
+          img.src = `https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`;
+        }
+      }}
+    />
   );
 }
-
-/** Platform icon lookup — extensible for future services. */
-const PLATFORM_ICONS: Record<string, (() => React.JSX.Element) | undefined> = {
-  'apple-music': AppleMusicIcon,
-};
 
 /**
  * Renders two stacked progress bars that are always visible at the bottom
@@ -142,7 +188,6 @@ export function GlobalProgressBar() {
 
   /** Platform detection for the icon */
   const platform = detectPlatform(activeItem?.urls);
-  const PlatformIcon = PLATFORM_ICONS[platform];
 
   return (
     <div
@@ -153,7 +198,7 @@ export function GlobalProgressBar() {
       {/* Upper bar: per-item progress */}
       <div className="flex items-center gap-2 mb-1">
         {/* Platform icon + track info (left) */}
-        {PlatformIcon && <PlatformIcon />}
+        <PlatformIcon platform={platform} />
         <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
