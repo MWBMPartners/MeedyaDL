@@ -170,7 +170,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 │  engines.toml · codecs.toml · tags.toml │
 ├─────────────────────────────────────────┤
 │       Embedded Python + pip Engines     │  ← Download Engines
-│  GAMDL · votify · yt-dlp · OF-Scraper  │
+│      GAMDL · votify · yt-dlp · ...     │
 └─────────────────────────────────────────┘
 ```
 
@@ -180,7 +180,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 | **Framework** | Tauri 2.0 | Lightweight native shell, IPC, plugins |
 | **Backend** | Rust, Tokio, Reqwest | Async process management, downloads, credential storage |
 | **Registry** | TOML configs (engines, codecs, tags) | Declarative per-platform engine routing and metadata |
-| **Engines** | Python (standalone), GAMDL, votify, yt-dlp, OF-Scraper | Service-specific download and decryption |
+| **Engines** | Python (standalone), GAMDL, votify, yt-dlp | Service-specific download and decryption |
 
 ---
 
@@ -380,7 +380,6 @@ refactor(backend): simplify dependency management
 | M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
 | M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
 | M10 | v2.2.0 | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / yt-dlp | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
-| M11 | v2.3.0 | OnlyFans | [OF-Scraper](https://github.com/datawhores/OF-Scraper) | — | 🔲 Planned |
 
 Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. Engine priority per platform is defined in `engines.toml`. See [Project Plan](Project_Plan.md) for full milestone details.
 
@@ -420,7 +419,6 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 | [**votify**](https://github.com/glomatico/votify) | Spotify download engine |
 | [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) | YouTube / general-purpose download engine |
 | [**get_iplayer**](https://github.com/get-iplayer/get_iplayer) | BBC iPlayer specialist engine |
-| [**OF-Scraper**](https://github.com/datawhores/OF-Scraper) | OnlyFans download engine |
 | [**Tauri**](https://tauri.app/) | Lightweight, secure framework for building native apps with web tech |
 | [**python-build-standalone**](https://github.com/indygreg/python-build-standalone) | Portable, self-contained Python builds bundled with the app |
 | [**MediaInfo**](https://mediaarea.net/en/MediaInfo) | Accurate codec detection for enrichment pipeline |

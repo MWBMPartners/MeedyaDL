@@ -99,15 +99,17 @@ cli_command = "get_iplayer"
 homepage = "https://github.com/get-iplayer/get_iplayer"
 description = "BBC iPlayer specialist with PVR scheduling, series handling, and rich metadata"
 
+# OF-Scraper: internal/future engine — not shown in public documentation.
+# Kept here for infrastructure readiness; enabled = false hides it from users.
 [engines.ofscraper]
 name = "OF-Scraper"
 required = false
-enabled = false                   # Enable when OnlyFans support is implemented (future milestone)
+enabled = false
 install_method = "pip"
 pip_package = "ofscraper"
 cli_command = "python -m ofscraper"
 homepage = "https://github.com/datawhores/OF-Scraper"
-description = "OnlyFans content downloader with DRM support and subscription management"
+description = "Subscription content downloader with DRM support"
 
 # ============================================================
 # Platforms (media services)
@@ -179,9 +181,10 @@ url_patterns = [
 engines = ["get_iplayer", "ytdlp"]
 content_types = ["tv", "radio", "podcasts"]
 
-[platforms.onlyfans]
-name = "OnlyFans"
-enabled = false                   # Enable when OnlyFans support is implemented (future milestone)
+# Internal/future platform — not shown in public documentation.
+[platforms.ofscraper]
+name = "OF-Scraper"
+enabled = false
 url_patterns = [
     "onlyfans.com",
 ]
