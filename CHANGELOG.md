@@ -121,9 +121,19 @@ Circular open 'O' base with a swept wing/feather extending right,
   uses currentColor with varying opacity (0.25-0.85) for the multi-
   tone depth effect, adapting to light, dark, and colour-blind themes.
 
+- Rename ofscraper icon to onlyfans, redesign to match official logo
+
+Renamed ofscraper.svg → onlyfans.svg and updated engines.toml
+  platform ID to match. Completely redesigned the SVG to match the
+  official OnlyFans logo: open circular arc (thick C-shape), centre
+  dot, and two layered wing/feather curves sweeping from the opening.
+  White areas are transparent; currentColor with varying opacity for
+  theme adaptability.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
