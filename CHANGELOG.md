@@ -26,6 +26,19 @@ Extends the update checker to monitor all pip-based engines defined
   OF-Scraper are disabled in engines.toml and skipped automatically.
   GAMDL retains its own check with compatibility gating.
 
+- Aggregate engine updates into generic UI message, hide individual names
+
+Engine/component updates (votify, yt-dlp, etc.) are now shown as a
+  single "Component updates available" card instead of individual rows
+  with version details. This avoids revealing specific tool names to
+  end users and keeps the UI simple.
+
+  - UpdatesPage: core updates (MeedyaDL, GAMDL, Python) shown with full
+    detail; engine updates aggregated into one card with "Update All"
+  - UpdateBanner: engine updates shown as "Component updates are also
+    available" with a link to the Updates page
+  - No changelog/release body shown for engine updates (already None)
+
 
 ### 🐛 Bug Fixes
 
@@ -74,6 +87,7 @@ OnlyFans support remains as an internal/private roadmap item but should
   The engines.toml entry and Rust/TypeScript code remain (compiled into
   binary, hidden when enabled=false) for infrastructure readiness.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
