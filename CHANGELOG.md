@@ -21,6 +21,14 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Setup: Updated first-run to mention 5 required tools + MediaInfo
   - engines.toml: Added required/enabled fields per engine and platform
 
+- Update CHANGELOG.md [skip ci]
+- Update in-app help with MediaInfo, votify, smart re-download detection
+
+- index.md: Updated project description to mention multi-service plans
+  - getting-started.md: Added votify and MediaInfo to dependency lists
+  - downloading-music.md: Added smart re-download detection section
+  - faq.md: Added smart re-download detection Q&A entry
+
 
 ## [0.19.0] - 2026-03-29
 
