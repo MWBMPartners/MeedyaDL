@@ -125,12 +125,13 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
 
   if (!platform) return null;
 
-  // Inline SVG: inherits currentColor from parent for theme adaptability
+  // Inline SVG: inherits currentColor from parent for theme adaptability.
+  // The SVG has no fixed width/height — it expands to fill the container.
   if (svgHtml) {
     return (
       <span
-        className="flex-shrink-0 inline-flex text-content-secondary"
-        style={{ width: 14, height: 14 }}
+        className="flex-shrink-0 inline-flex items-center justify-center text-content-secondary [&>svg]:w-full [&>svg]:h-full"
+        style={{ width: 16, height: 16 }}
         aria-label={platform.name}
         dangerouslySetInnerHTML={{ __html: svgHtml }}
       />
@@ -143,8 +144,8 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
       <img
         src={`https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`}
         alt={platform.name}
-        width={14}
-        height={14}
+        width={16}
+        height={16}
         className="flex-shrink-0"
       />
     );
