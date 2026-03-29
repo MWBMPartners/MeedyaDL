@@ -43,6 +43,10 @@ function stripDownloadSection(body: string): string {
   return body.slice(0, match).trimEnd();
 }
 
+// Core components shown individually with full detail in the Updates page.
+// Engine updates (everything else) are aggregated into a single generic card.
+const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
+
 export function UpdatesPage() {
   const lastResult = useUpdateStore((s) => s.lastResult);
   const dismissed = useUpdateStore((s) => s.dismissed);
@@ -56,9 +60,6 @@ export function UpdatesPage() {
   const updateInstalled = useUpdateStore((s) => s.updateInstalled);
   const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
-
-  // Core components shown individually (MeedyaDL, GAMDL, Python Runtime)
-  const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
 
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
