@@ -6,6 +6,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Use /releases/tags/ for deterministic mirror asset resolution
+
+GitHub's /releases/latest endpoint returns the "most recently created"
+  release, which differs from the release explicitly tagged "latest" when
+  a repo has multiple releases. This caused MediaInfo macOS assets to not
+  be found — they existed on the 'latest' tagged release but the API was
+  returning a different release (2026-03-27) that lacked macOS assets.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -42,6 +53,7 @@ OnlyFans support remains as an internal/private roadmap item but should
   The engines.toml entry and Rust/TypeScript code remain (compiled into
   binary, hidden when enabled=false) for infrastructure readiness.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.19.0] - 2026-03-29
 
