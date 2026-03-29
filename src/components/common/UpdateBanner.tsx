@@ -73,6 +73,9 @@ import { Button } from './Button';
  * Returns null when `activeUpdates` is empty, so the banner takes up zero
  * space in the layout when there is nothing to show.
  */
+// Core components shown with full detail; engine updates shown generically.
+const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
+
 export function UpdateBanner() {
   /*
    * Zustand store subscriptions.
@@ -114,9 +117,6 @@ export function UpdateBanner() {
    * component even if it would normally be filtered out, so the "Restart
    * Now" button remains visible.
    */
-  // Core components shown with full detail; engine updates shown generically
-  const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
-
   const allUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
