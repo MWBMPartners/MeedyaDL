@@ -106,9 +106,18 @@ Removed hardcoded width="16" height="16" from all 7 platform SVGs —
   inline SVG expand to fill the 16x16 container. Bumped container
   from 14px to 16px for better visibility.
 
+- Update BBC iPlayer icon to match official logo shape
+
+Three angular segments: left vertical bar, top-right angled bar,
+  bottom-right angled bar — forming the stylised play/forward symbol
+  from the BBC iPlayer branding. Black background areas are transparent;
+  fill uses currentColor with varying opacity for depth and theme
+  adaptability across light, dark, and colour-blind modes.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
