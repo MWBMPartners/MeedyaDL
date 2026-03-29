@@ -1547,3 +1547,34 @@ When disabled, the pre-download history check is skipped entirely.
 | `src/components/download/DownloadForm.tsx` | Frontend integration (history check + info toast) |
 | `src/lib/tauri-commands.ts` | `checkRedownloadStatus()` IPC wrapper |
 | `src/components/settings/tabs/GeneralTab.tsx` | Settings toggle UI |
+
+---
+
+## MeedyaDL-v2 Branch Archive (PR #24, closed 2026-03-27)
+
+The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype for multi-service support. It diverged too far from `main` (~100+ commits behind) and was closed as unmergeable. The branch is **preserved** (not deleted) for reference.
+
+### Feature Status Mapping
+
+| v2 Feature | Status on `main` | Notes |
+|-----------|------------------|-------|
+| Multi-service URL parser (YouTube/Spotify/iPlayer) | Not on main | Tracked by #100–#104, #107. Key reference: commit `9bcf848` |
+| Smart Download cross-platform quality | Not on main | Tracked by #110. Reference: commit `fb887d98` |
+| Remote feature kill-switch / service status | Not on main | Tracked by #106 |
+| Stable rollback from pre-release | Not on main | New issue #267 created |
+| macOS codesign `--timestamp` wrapper | Reimplemented | release.yml Step 8.9 |
+| 7z GPAC extraction (CI fix) | Reimplemented | dependency_manager.rs |
+| i18n infrastructure | Reimplemented | #111 |
+| Update preferences (auto-check, pre-release toggles) | Reimplemented | update_check_interval_hours, checkPreReleases |
+| Bundled deps extraction on first launch | Superseded | Mirror-based tool management (MeedyaDL-Tools) |
+| Perl runtime + get_iplayer | Superseded | BBC iPlayer deferred to M10 (#102) |
+| aria2c / fpcalc bundling | Superseded | fpcalc replaced by embedded rusty-chromaprint |
+| Signed bundled deps for notarization | Not applicable | No bundled deps approach on main |
+
+### Recommendations for Future Multi-Service Work
+
+1. **Don't cherry-pick from `meedyadl-v2`** — the code targets a different architecture (bundled deps, different settings schema, different type definitions). Create fresh feature branches from current `main`.
+2. **The v2 URL parser pattern is useful reference** — `9bcf848` has the multi-service detection logic (Apple Music, YouTube, BBC iPlayer, Spotify) with content type classification. Adapt the pattern, don't copy the code.
+3. **The v2 `bundled-deps` approach is obsolete** — main uses mirror-based tool management via MeedyaDL-Tools repo. New service engines (yt-dlp, votify) should be installed via pip (like GAMDL) or downloaded from mirrors, not bundled in the installer.
+4. **The `DownloadOptions` refactor in v2** (commit `96266e3`) has a useful `service_id` field pattern for routing downloads to the correct engine. Worth adapting when implementing #107.
+5. **Start each service milestone on a fresh branch** — `feat/spotify` from `main` for M8, `feat/youtube` for M9, etc. Keep PRs focused and mergeable.
