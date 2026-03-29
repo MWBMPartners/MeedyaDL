@@ -64,6 +64,7 @@ Documents the engine registry file structure, priority system, and
   implementation status tracking.
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.18.1] - 2026-03-27
 
