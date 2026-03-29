@@ -114,9 +114,17 @@ Three angular segments: left vertical bar, top-right angled bar,
   fill uses currentColor with varying opacity for depth and theme
   adaptability across light, dark, and colour-blind modes.
 
+- Update OF-Scraper icon to match official logo shape
+
+Circular open 'O' base with a swept wing/feather extending right,
+  matching the official branding. White areas are transparent; fill
+  uses currentColor with varying opacity (0.25-0.85) for the multi-
+  tone depth effect, adapting to light, dark, and colour-blind themes.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
