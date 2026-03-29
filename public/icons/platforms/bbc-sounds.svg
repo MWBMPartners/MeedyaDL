@@ -1,0 +1,21 @@
+<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    BBC Sounds icon (headphones / audio waves).
+    Uses currentColor for theme adaptability — inherits colour from parent
+    CSS context, so it works in light, dark, and colour-blind modes.
+    Rendered inline via PlatformIcon component (not as <img>).
+  -->
+  <!-- Headphone band -->
+  <path
+    d="M3 18V12a9 9 0 1 1 18 0v6"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    fill="none"
+    opacity="0.7"
+  />
+  <!-- Left ear cup -->
+  <rect x="1" y="15" width="4" height="6" rx="1" fill="currentColor" fill-opacity="0.6"/>
+  <!-- Right ear cup -->
+  <rect x="19" y="15" width="4" height="6" rx="1" fill="currentColor" fill-opacity="0.6"/>
+</svg>
