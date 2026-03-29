@@ -167,6 +167,7 @@ find_system_tool() and get_mediainfo_path() now check platform-specific
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.20.0] - 2026-03-29
 
