@@ -111,6 +111,27 @@ export function getAppDataDir(): Promise<string> {
   return invoke<string>('get_app_data_dir');
 }
 
+/**
+ * Platform configuration entry from engines.toml.
+ */
+export interface FrontendPlatformConfig {
+  id: string;
+  name: string;
+  icon: string | null;
+  url_patterns: string[];
+  enabled: boolean;
+}
+
+/**
+ * Returns the platform configuration from engines.toml.
+ *
+ * Rust handler: `get_platform_config()` in `src-tauri/src/commands/system.rs`
+ * Returns: Array of platform entries for URL detection and icon rendering.
+ */
+export function getPlatformConfig(): Promise<FrontendPlatformConfig[]> {
+  return invoke<FrontendPlatformConfig[]>('get_platform_config');
+}
+
 // ============================================================
 // Dependency Management Commands
 // ============================================================

@@ -146,3 +146,65 @@ pub fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
         .map(std::string::ToString::to_string)
         .ok_or_else(|| "Failed to convert app data path to string".to_string())
 }
+
+/// Platform configuration entry from engines.toml for the frontend.
+///
+/// Contains only the fields the frontend needs for URL detection and
+/// icon rendering — not the full engine/install configuration.
+#[derive(serde::Serialize)]
+pub struct FrontendPlatformConfig {
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub url_patterns: Vec<String>,
+    pub enabled: bool,
+}
+
+/// Returns the platform configuration from engines.toml.
+///
+/// Parses the compiled-in engines.toml and returns all platform entries
+/// so the frontend can detect platforms from URLs and render icons
+/// without hardcoding the list.
+///
+/// **Frontend caller:** `getPlatformConfig()` in `src/lib/tauri-commands.ts`
+#[tauri::command]
+pub fn get_platform_config() -> Vec<FrontendPlatformConfig> {
+    let toml_str = include_str!("../../engines.toml");
+    let parsed: toml::Value = match toml::from_str(toml_str) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("Failed to parse engines.toml for platform config: {e}");
+            return vec![];
+        }
+    };
+
+    let Some(platforms) = parsed.get("platforms").and_then(|p| p.as_table()) else {
+        return vec![];
+    };
+
+    platforms
+        .iter()
+        .filter_map(|(id, def)| {
+            let name = def.get("name")?.as_str()?.to_string();
+            let enabled = def.get("enabled")?.as_bool().unwrap_or(false);
+            let icon = def
+                .get("icon")
+                .and_then(|v| v.as_str())
+                .map(std::string::ToString::to_string);
+            let url_patterns = def
+                .get("url_patterns")?
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(std::string::ToString::to_string))
+                .collect();
+
+            Some(FrontendPlatformConfig {
+                id: id.clone(),
+                name,
+                icon,
+                url_patterns,
+                enabled,
+            })
+        })
+        .collect()
+}

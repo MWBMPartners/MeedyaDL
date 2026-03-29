@@ -24,87 +24,58 @@ import { useMemo, useState, useEffect } from 'react';
 import { useDownloadStore } from '@/stores/downloadStore';
 
 /**
- * Platform detection and icon configuration.
- *
- * Each entry maps URL hostnames to a platform ID, display name, and icon source.
- * The icon path points to a local SVG/PNG in public/icons/platforms/. If the file
- * doesn't exist, the component falls back to the service's favicon.
- *
- * To add a new platform: add an entry here with the URL patterns and icon path.
- * This mirrors the platforms section of engines.toml but is frontend-only for
- * performance (no IPC needed for progress bar rendering).
+ * Platform detection config — loaded once from engines.toml via IPC.
+ * Each entry has URL patterns, an icon path, and a display name.
+ * Populated by loadPlatformConfig() on first use; empty until then.
  */
-const PLATFORM_CONFIG: {
+interface PlatformEntry {
   id: string;
   name: string;
   icon: string;
   faviconHost: string;
-  hostnames: string[];
-  pathContains?: string;
-}[] = [
-  {
-    id: 'apple-music',
-    name: 'Apple Music',
-    icon: '/icons/platforms/apple-music.svg',
-    faviconHost: 'music.apple.com',
-    hostnames: ['music.apple.com', 'classical.apple.com', 'itunes.apple.com'],
-  },
-  {
-    id: 'spotify',
-    name: 'Spotify',
-    icon: '/icons/platforms/spotify.svg',
-    faviconHost: 'open.spotify.com',
-    hostnames: ['open.spotify.com'],
-  },
-  {
-    id: 'youtube',
-    name: 'YouTube',
-    icon: '/icons/platforms/youtube.svg',
-    faviconHost: 'youtube.com',
-    hostnames: ['youtube.com', 'youtu.be', 'www.youtube.com', 'm.youtube.com'],
-  },
-  {
-    id: 'youtube-music',
-    name: 'YouTube Music',
-    icon: '/icons/platforms/youtube-music.svg',
-    faviconHost: 'music.youtube.com',
-    hostnames: ['music.youtube.com'],
-  },
-  {
-    id: 'bbc-sounds',
-    name: 'BBC Sounds',
-    icon: '/icons/platforms/bbc-sounds.svg',
-    faviconHost: 'bbc.co.uk',
-    hostnames: ['bbc.co.uk', 'www.bbc.co.uk'],
-    pathContains: '/sounds',
-  },
-  {
-    id: 'bbc-iplayer',
-    name: 'BBC iPlayer',
-    icon: '/icons/platforms/bbc-iplayer.svg',
-    faviconHost: 'bbc.co.uk',
-    hostnames: ['bbc.co.uk', 'www.bbc.co.uk'],
-    pathContains: '/iplayer',
-  },
-];
+  patterns: string[];
+}
+
+let platformConfig: PlatformEntry[] = [];
+let configLoaded = false;
+
+/**
+ * Loads platform config from engines.toml via IPC (one-time).
+ * Called lazily on first render of GlobalProgressBar.
+ */
+async function loadPlatformConfig() {
+  if (configLoaded) return;
+  configLoaded = true;
+  try {
+    const { getPlatformConfig } = await import('@/lib/tauri-commands');
+    const platforms = await getPlatformConfig();
+    platformConfig = platforms
+      .filter((p) => p.enabled)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        icon: p.icon ? `/${p.icon}` : '',
+        faviconHost: p.url_patterns[0]?.replace(/\/.*$/, '') ?? '',
+        patterns: p.url_patterns,
+      }));
+  } catch {
+    // IPC not ready yet — will retry on next render
+    configLoaded = false;
+  }
+}
 
 /**
  * Detects the download platform from the first URL of a queue item.
- * Returns the platform config entry, or undefined for unrecognised URLs.
+ * Matches against URL patterns from engines.toml (loaded via IPC).
  */
-function detectPlatform(urls?: string[]) {
+function detectPlatform(urls?: string[]): PlatformEntry | undefined {
   const raw = urls?.[0] ?? '';
   try {
-    const { hostname, pathname } = new URL(raw);
-    return PLATFORM_CONFIG.find((p) => {
-      const hostMatch = p.hostnames.some(
-        (h) => hostname === h || hostname.endsWith('.' + h)
-      );
-      if (!hostMatch) return false;
-      // If pathContains is set, the URL path must include it
-      if (p.pathContains) return pathname.includes(p.pathContains);
-      return true;
-    });
+    const parsed = new URL(raw);
+    const urlStr = parsed.hostname + parsed.pathname;
+    return platformConfig.find((p) =>
+      p.patterns.some((pattern) => urlStr.includes(pattern))
+    );
   } catch {
     return undefined;
   }
@@ -120,14 +91,17 @@ function detectPlatform(urls?: string[]) {
  */
 const svgCache = new Map<string, string>();
 
-function PlatformIcon({ platform }: { platform: ReturnType<typeof detectPlatform> }) {
+function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
   const [svgHtml, setSvgHtml] = useState<string | null>(
-    () => (platform ? svgCache.get(platform.icon) ?? null : null)
+    () => (platform?.icon ? svgCache.get(platform.icon) ?? null : null)
   );
   const [useFallback, setUseFallback] = useState(false);
 
   useEffect(() => {
-    if (!platform) return;
+    if (!platform || !platform.icon) {
+      if (platform) setUseFallback(true);
+      return;
+    }
     if (svgCache.has(platform.icon)) {
       setSvgHtml(svgCache.get(platform.icon)!);
       return;
@@ -194,6 +168,11 @@ function PlatformIcon({ platform }: { platform: ReturnType<typeof detectPlatform
  */
 export function GlobalProgressBar() {
   const queueItems = useDownloadStore((s) => s.queueItems);
+
+  // Load platform config from engines.toml via IPC (one-time)
+  useEffect(() => {
+    loadPlatformConfig();
+  }, []);
 
   /**
    * Derive the active item (currently downloading/processing) and
