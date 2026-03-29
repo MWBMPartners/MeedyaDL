@@ -258,21 +258,43 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
         .await
         .ok()?;
 
-    if !output.status.success() {
-        return None;
-    }
+    let path = if output.status.success() {
+        // Parse the first line of output as the binary path
+        let path_str = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let p = PathBuf::from(&path_str);
+        if p.exists() { Some(p) } else { None }
+    } else {
+        None
+    };
 
-    // Parse the first line of output as the binary path
-    let path_str = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .lines()
-        .next()?
-        .to_string();
-    let path = PathBuf::from(&path_str);
+    // If not on PATH, check common platform-specific installation locations.
+    // macOS: Homebrew paths, /usr/local/bin, and common app bundle locations.
+    let path = path.or_else(|| {
+        let extra_paths: Vec<PathBuf> = if cfg!(target_os = "macos") {
+            vec![
+                PathBuf::from("/usr/local/bin").join(&config.binary_name),
+                PathBuf::from("/opt/homebrew/bin").join(&config.binary_name),
+                // MediaInfo-specific: Homebrew installs as lowercase
+                PathBuf::from("/opt/homebrew/bin/mediainfo"),
+                PathBuf::from("/usr/local/bin/mediainfo"),
+            ]
+        } else if cfg!(target_os = "linux") {
+            vec![
+                PathBuf::from("/usr/bin").join(&config.binary_name),
+                PathBuf::from("/usr/local/bin").join(&config.binary_name),
+            ]
+        } else {
+            vec![]
+        };
+        extra_paths.into_iter().find(|p| p.exists())
+    });
 
-    if !path.exists() {
-        return None;
-    }
+    let path = path?;
 
     // Get the version using the tool's version flag
     let version_output = tokio::process::Command::new(&path)
