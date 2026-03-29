@@ -57,12 +57,25 @@ export function UpdatesPage() {
   const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
 
+  // Core components shown individually (MeedyaDL, GAMDL, Python Runtime)
+  const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
+
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
       (c) => c.update_available && c.is_compatible && !dismissed.includes(c.name)
     );
   }, [lastResult, dismissed]);
+
+  // Split into core updates (shown individually) and engine updates (aggregated)
+  const coreUpdates = useMemo(
+    () => activeUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
+    [activeUpdates]
+  );
+  const engineUpdateCount = useMemo(
+    () => activeUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name)).length,
+    [activeUpdates]
+  );
 
   // Current app version from the last check result
   const currentVersion = useMemo(() => {
@@ -146,10 +159,51 @@ export function UpdatesPage() {
               <ArrowUpCircle size={18} className="text-accent" />
               {activeUpdates.length === 1
                 ? 'Update Available'
-                : `${activeUpdates.length} Updates Available`}
+                : 'Updates Available'}
             </div>
 
-            {activeUpdates.map((update) => (
+            {/* Engine updates: show as a single aggregated card */}
+            {engineUpdateCount > 0 && (
+              <div className="rounded-platform border border-border-light bg-surface-secondary p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-content-primary">Component Updates</span>
+                    <span className="text-sm text-content-secondary">
+                      {engineUpdateCount} update{engineUpdateCount > 1 ? 's' : ''} available
+                    </span>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<RefreshCw size={12} />}
+                    onClick={() => {
+                      // Upgrade all engine updates silently
+                      const engines = activeUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name));
+                      Promise.all(
+                        engines.map((e) =>
+                          import('@/lib/tauri-commands').then(({ upgradePipEngine }) =>
+                            upgradePipEngine(e.name.toLowerCase())
+                          )
+                        )
+                      )
+                        .then(() => {
+                          addToast('Components updated successfully', 'success');
+                          checkForUpdates().catch(() => {});
+                        })
+                        .catch(() => addToast('Some component updates failed', 'error'));
+                    }}
+                  >
+                    Update All
+                  </Button>
+                </div>
+                <p className="text-sm text-content-secondary mt-2">
+                  Newer versions of internal components are available. Updating ensures the best compatibility and performance.
+                </p>
+              </div>
+            )}
+
+            {/* Core updates: show individually with full detail */}
+            {coreUpdates.map((update) => (
               <div
                 key={update.name}
                 className="rounded-platform border border-border-light bg-surface-secondary p-5"
