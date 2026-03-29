@@ -1,32 +1,19 @@
-<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
   <!--
-    OnlyFans icon — based on the official logo:
-    Open circular arc (thick C-shape opening at top-right), large
-    centre dot, and two layered wing/feather curves sweeping from
-    the opening to the upper-right. White background is transparent;
-    uses currentColor for light/dark/colour-blind theme adaptability.
+    OnlyFans icon — official logo shape (from Adobe Illustrator export).
+    Cleaned: removed XML declaration, Illustrator metadata, hardcoded colours.
+    Uses currentColor with fill-opacity for theme adaptability
+    (light, dark, colour-blind modes). No fixed width/height — expands
+    to fill parent container.
   -->
-  <!-- Open circular arc (thick C-shape) -->
-  <path
-    d="M15 4a9 9 0 1 0 0 16"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="3.8"
-    stroke-linecap="round"
-    opacity="0.6"
-  />
-  <!-- Centre dot -->
-  <circle cx="9.5" cy="12" r="2.8" fill="currentColor" fill-opacity="0.3"/>
-  <!-- Outer wing sweep (lighter, behind — curves from top of arc gap) -->
-  <path
-    d="M15 4 C17 3.5 20 5 22 8.5 Q19 6 16 7 Z"
-    fill="currentColor"
-    fill-opacity="0.45"
-  />
-  <!-- Inner wing sweep (darker, front — larger, sweeps down) -->
-  <path
-    d="M16 7 C14 9 14 11 15 13 Q18 9 22 8.5 C20 12 18 14.5 17 16 Q15.5 13 15 13 Z"
-    fill="currentColor"
-    fill-opacity="0.8"
-  />
+  <!-- Open circular 'O' with centre cutout -->
+  <path fill="currentColor" fill-opacity="0.7"
+    d="M16,9C7.168,9,0,16.168,0,25s7.168,16,16,16s16-7.168,16-16C32,16.168,24.832,9,16,9z
+       M16,29.8c-2.656,0-4.8-2.144-4.8-4.8c0-2.656,2.144-4.8,4.8-4.8c2.656,0,4.8,2.144,4.8,4.8
+       C20.8,27.656,18.656,29.8,16,29.8z"/>
+  <!-- Wing / feather sweep -->
+  <path fill="currentColor" fill-opacity="0.9"
+    d="M33.984,21c4.065,1.17,8.864,0,8.864,0c-1.392,6.08-5.808,9.888-12.176,10.352
+       C28.224,37.032,22.576,41,16,41l4.8-15.256C25.734,10.062,28.263,9,39.965,9L48,9
+       C46.656,14.92,42.024,19.443,33.984,21z"/>
 </svg>
