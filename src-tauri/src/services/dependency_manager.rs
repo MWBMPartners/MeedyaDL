@@ -327,40 +327,66 @@ async fn resolve_github_release_asset(
     tag: &str,
     asset_name_contains: &str,
 ) -> Result<(String, String), String> {
-    // Use the /releases/latest endpoint for "latest" tag,
-    // or /releases/tags/{tag} for specific tags.
-    let api_url = if tag == "latest" {
-        format!("https://api.github.com/repos/{repo}/releases/latest")
-    } else {
-        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
-    };
-
+    // Use /releases/tags/{tag} for deterministic resolution. The /releases/latest
+    // endpoint returns the "most recently created" release, which may differ from
+    // the release explicitly tagged "latest" when a repo has multiple releases.
+    // /tags/ ensures we always get the exact tag we asked for.
+    //
+    // Exception: upstream repos (non-mirror) that use "latest" as a convention
+    // for "newest release" without an actual "latest" tag need the /releases/latest
+    // endpoint. We detect this by trying /tags/ first and falling back.
     // A User-Agent header is required by the GitHub API (returns 403 without it).
     // 15-second timeout prevents indefinite stalls on unresponsive GitHub API.
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    // Try /releases/tags/{tag} first (deterministic, exact tag match).
+    // Fall back to /releases/latest if the tag doesn't exist as an explicit tag
+    // (e.g., upstream repos that use "latest" as a GitHub convention, not a git tag).
+    let tag_url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
     let response = client
-        .get(&api_url)
+        .get(&tag_url)
         .header("User-Agent", "MeedyaDL")
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed for {repo}: {e}"))?;
 
-    if !response.status().is_success() {
+    let release: serde_json::Value = if response.status().as_u16() == 404 && tag == "latest" {
+        // Tag "latest" doesn't exist as a git tag — fall back to /releases/latest
+        log::debug!("No 'latest' tag in {repo}, falling back to /releases/latest");
+        let fallback_url = format!("https://api.github.com/repos/{repo}/releases/latest");
+        let fallback_resp = client
+            .get(&fallback_url)
+            .header("User-Agent", "MeedyaDL")
+            .send()
+            .await
+            .map_err(|e| format!("GitHub API fallback request failed for {repo}: {e}"))?;
+        if !fallback_resp.status().is_success() {
+            return Err(format!(
+                "GitHub API returned HTTP {} for {}/releases/latest",
+                fallback_resp.status(),
+                repo
+            ));
+        }
+        fallback_resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?
+    } else if !response.status().is_success() {
         return Err(format!(
-            "GitHub API returned HTTP {} for {}/releases/{}",
+            "GitHub API returned HTTP {} for {}/releases/tags/{}",
             response.status(),
             repo,
             tag
         ));
-    }
-
-    let release: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?;
+    } else {
+        response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?
+    };
 
     let assets = release["assets"]
         .as_array()
