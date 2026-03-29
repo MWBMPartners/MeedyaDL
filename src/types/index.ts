@@ -544,6 +544,8 @@ export interface AppSettings {
   mp4box_path: string | null;
   /** Custom N_m3u8DL-RE binary path, or null to use bundled/PATH version */
   nm3u8dlre_path: string | null;
+  /** Custom MediaInfo CLI binary path, or null to use bundled/PATH version */
+  mediainfo_path: string | null;
   /** Which download tool to use by default */
   download_mode: DownloadMode;
   /** Which remux tool to use by default */

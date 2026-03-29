@@ -618,6 +618,11 @@ pub struct AppSettings {
     /// Custom N_m3u8DL-RE binary path. Alternative HLS downloader.
     pub nm3u8dlre_path: Option<String>,
 
+    /// Custom MediaInfo CLI binary path. Used for accurate codec
+    /// detection in the enrichment pipeline. `None` = use the managed
+    /// installation or system PATH.
+    pub mediainfo_path: Option<String>,
+
     // ================================================================
     // Advanced
     // ================================================================
@@ -995,6 +1000,7 @@ impl Default for AppSettings {
             mp4decrypt_path: None,
             mp4box_path: None,
             nm3u8dlre_path: None,
+            mediainfo_path: None,
 
             // --- Advanced ---
             // yt-dlp is the default downloader because it is installed as

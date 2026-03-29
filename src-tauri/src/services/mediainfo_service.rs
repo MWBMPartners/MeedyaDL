@@ -168,8 +168,23 @@ fn parse_mediainfo_json(json: &str) -> Option<MediaInfoResult> {
 
 /// Get the path to the MediaInfo binary if it's installed.
 ///
-/// Checks the managed tools directory first, then system PATH.
+/// Priority: (1) user-configured custom path from settings, (2) managed
+/// tools directory, (3) system PATH, (4) common platform install locations.
 pub fn get_mediainfo_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    // 1. Check user-configured custom path from settings
+    if let Ok(settings) = super::config_service::load_settings(app) {
+        if let Some(ref custom) = settings.mediainfo_path {
+            if !custom.is_empty() {
+                let p = PathBuf::from(custom);
+                if p.exists() {
+                    return Some(p);
+                }
+                log::warn!("Custom MediaInfo path does not exist: {custom}");
+            }
+        }
+    }
+
+    // 2. Check managed tools directory
     let managed = super::dependency_manager::get_tool_binary_path(app, "mediainfo");
     if managed.exists() {
         return Some(managed);
