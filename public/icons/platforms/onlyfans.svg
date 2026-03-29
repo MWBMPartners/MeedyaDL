@@ -1,0 +1,32 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    OnlyFans icon — based on the official logo:
+    Open circular arc (thick C-shape opening at top-right), large
+    centre dot, and two layered wing/feather curves sweeping from
+    the opening to the upper-right. White background is transparent;
+    uses currentColor for light/dark/colour-blind theme adaptability.
+  -->
+  <!-- Open circular arc (thick C-shape) -->
+  <path
+    d="M15 4a9 9 0 1 0 0 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="3.8"
+    stroke-linecap="round"
+    opacity="0.6"
+  />
+  <!-- Centre dot -->
+  <circle cx="9.5" cy="12" r="2.8" fill="currentColor" fill-opacity="0.3"/>
+  <!-- Outer wing sweep (lighter, behind — curves from top of arc gap) -->
+  <path
+    d="M15 4 C17 3.5 20 5 22 8.5 Q19 6 16 7 Z"
+    fill="currentColor"
+    fill-opacity="0.45"
+  />
+  <!-- Inner wing sweep (darker, front — larger, sweeps down) -->
+  <path
+    d="M16 7 C14 9 14 11 15 13 Q18 9 22 8.5 C20 12 18 14.5 17 16 Q15.5 13 15 13 Z"
+    fill="currentColor"
+    fill-opacity="0.8"
+  />
+</svg>
