@@ -71,6 +71,17 @@ Platform detection and icon rendering in GlobalProgressBar is now
   - bbc-sounds.svg (concentric sound waves, currentColor)
   - get_platform_config() Rust command + TypeScript binding
 
+- Add YouTube, YouTube Music, and OF-Scraper platform icons
+
+Prepared ahead of multi-service expansion:
+  - youtube.svg: rounded rectangle with play triangle
+  - youtube-music.svg: circle with record disc + play triangle
+  - ofscraper.svg: padlock (generic subscription content icon)
+
+  All use currentColor with fill-opacity for theme adaptability
+  (light, dark, colour-blind modes). Icons are referenced by
+  engines.toml and loaded dynamically via get_platform_config IPC.
+
 
 ### 🐛 Bug Fixes
 
@@ -90,6 +101,7 @@ Three vertical rectangles (small left, medium centre, large right)
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
