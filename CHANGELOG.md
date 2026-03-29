@@ -36,6 +36,14 @@ Documents the closed PR #24 (meedyadl-v2 branch), mapping each v2
   use mirror-based tool management instead of bundled deps.
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add engines.toml editing guide to DEV_NOTES.md (#268, #270)
+
+Documents the engine registry file structure, priority system, and
+  step-by-step guides for adding engines, adding platforms, changing
+  priority, and removing engines. Includes current registry table and
+  implementation status tracking.
+
 
 ## [0.18.1] - 2026-03-27
 
