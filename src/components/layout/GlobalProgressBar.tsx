@@ -19,7 +19,7 @@
  * @see useDownloadStore -- source of queue item state
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
 
@@ -95,29 +95,72 @@ function detectPlatform(urls?: string[]) {
 }
 
 /**
- * Renders a platform icon for the progress bar. Tries the local SVG/PNG
- * first (from public/icons/platforms/), then falls back to Google's favicon
- * service which returns PNG favicons for any domain.
+ * Renders a platform icon for the progress bar. Fetches the local SVG and
+ * renders it inline so `currentColor` inherits from the parent CSS context,
+ * automatically adapting to light, dark, and colour-blind themes.
+ *
+ * Falls back to Google Favicon API (PNG) if the local SVG can't be loaded.
+ * SVG content is cached in a module-level Map to avoid re-fetching.
  */
+const svgCache = new Map<string, string>();
+
 function PlatformIcon({ platform }: { platform: ReturnType<typeof detectPlatform> }) {
-  if (!platform) return null;
-  return (
-    <img
-      src={platform.icon}
-      alt={platform.name}
-      width={14}
-      height={14}
-      className="flex-shrink-0"
-      onError={(e) => {
-        // Fallback: Google favicon service (returns PNG, better than raw ICO)
-        const img = e.currentTarget;
-        if (!img.dataset.fallback) {
-          img.dataset.fallback = '1';
-          img.src = `https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`;
-        }
-      }}
-    />
+  const [svgHtml, setSvgHtml] = useState<string | null>(
+    () => (platform ? svgCache.get(platform.icon) ?? null : null)
   );
+  const [useFallback, setUseFallback] = useState(false);
+
+  useEffect(() => {
+    if (!platform) return;
+    if (svgCache.has(platform.icon)) {
+      setSvgHtml(svgCache.get(platform.icon)!);
+      return;
+    }
+    fetch(platform.icon)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then((text) => {
+        // Only accept SVG content (not HTML error pages)
+        if (text.includes('<svg')) {
+          svgCache.set(platform.icon, text);
+          setSvgHtml(text);
+        } else {
+          setUseFallback(true);
+        }
+      })
+      .catch(() => setUseFallback(true));
+  }, [platform]);
+
+  if (!platform) return null;
+
+  // Inline SVG: inherits currentColor from parent for theme adaptability
+  if (svgHtml) {
+    return (
+      <span
+        className="flex-shrink-0 inline-flex text-content-secondary"
+        style={{ width: 14, height: 14 }}
+        aria-label={platform.name}
+        dangerouslySetInnerHTML={{ __html: svgHtml }}
+      />
+    );
+  }
+
+  // Fallback: Google Favicon API (PNG, doesn't adapt to theme but works)
+  if (useFallback) {
+    return (
+      <img
+        src={`https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`}
+        alt={platform.name}
+        width={14}
+        height={14}
+        className="flex-shrink-0"
+      />
+    );
+  }
+
+  return null; // Loading
 }
 
 /**

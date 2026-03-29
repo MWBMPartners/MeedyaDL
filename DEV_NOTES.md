@@ -1671,3 +1671,55 @@ Remove its ID from the `engines` array. The engine definition can stay in `[engi
 - Engine selection/fallback logic: **Pending** (#270)
 - Frontend types + Settings UI: **Pending** (#270)
 - Per-engine adapters: **Pending** (one per milestone: #101, #102, #103, #104)
+
+---
+
+## Platform Icons (`public/icons/platforms/`)
+
+Each media service has a small icon displayed in the progress bar during downloads. Icons are stored as SVGs in `public/icons/platforms/` and referenced by the `icon` field in `engines.toml`.
+
+### Theme Adaptability
+
+Platform icons use `currentColor` instead of hardcoded fill colours. The `PlatformIcon` component in `GlobalProgressBar.tsx` fetches the SVG and renders it **inline** (not as `<img>`) so that `currentColor` inherits from the parent CSS context. This means icons automatically adapt to:
+
+- **Light mode** — inherits dark text colour
+- **Dark mode** — inherits light text colour
+- **Colour-blind modes** — inherits the theme's adjusted text colour
+- **High-contrast mode** — inherits the boosted contrast colour
+
+SVG content is cached in a module-level `Map` to avoid re-fetching on re-renders.
+
+### Fallback Chain
+
+1. **Local SVG** from `public/icons/platforms/{id}.svg` — rendered inline, theme-adaptive
+2. **Google Favicon API** — `https://www.google.com/s2/favicons?domain={host}&sz=32` returns a PNG. Not theme-adaptive but always available for any domain.
+
+### Adding a New Platform Icon
+
+1. Create a 16x16 SVG file at `public/icons/platforms/{platform-id}.svg`
+2. Use `fill="currentColor"` for all paths (NOT hardcoded hex colours)
+3. Use `fill-opacity` for visual weight variation (e.g., `0.7` for primary, `0.15` for backgrounds)
+4. Set the `icon` field in `engines.toml`: `icon = "icons/platforms/{id}.svg"`
+5. Add the platform to `PLATFORM_CONFIG` in `GlobalProgressBar.tsx`
+
+### SVG Template
+
+```xml
+<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    {Service Name} icon.
+    Uses currentColor for theme adaptability.
+  -->
+  <path d="..." fill="currentColor" fill-opacity="0.7"/>
+</svg>
+```
+
+### Current Icons
+
+| Platform | File | Status |
+|----------|------|--------|
+| Apple Music | `apple-music.svg` | Done (music note) |
+| Spotify | `spotify.svg` | Done (circle + waves) |
+| YouTube | `youtube.svg` | Pending (uses favicon fallback) |
+| YouTube Music | `youtube-music.svg` | Pending (uses favicon fallback) |
+| BBC iPlayer | `bbc-iplayer.svg` | Pending (uses favicon fallback) |
