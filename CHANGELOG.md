@@ -98,9 +98,18 @@ Three vertical rectangles (small left, medium centre, large right)
   areas are now transparent; fill uses currentColor so it adapts to
   light, dark, and colour-blind themes via fill-opacity layering.
 
+- Make platform icons dynamically expand to fill container
+
+Removed hardcoded width="16" height="16" from all 7 platform SVGs —
+  they now have only viewBox, so the parent container controls size.
+  PlatformIcon wrapper uses [&>svg]:w-full [&>svg]:h-full to make the
+  inline SVG expand to fill the 16x16 container. Bumped container
+  from 14px to 16px for better visibility.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
