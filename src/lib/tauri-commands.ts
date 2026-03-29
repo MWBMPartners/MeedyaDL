@@ -837,6 +837,16 @@ export function upgradeGamdl(): Promise<string> {
 }
 
 /**
+ * Upgrades any pip-based engine to the latest version.
+ *
+ * Rust handler: `upgrade_pip_engine()` in `src-tauri/src/commands/updates.rs`
+ * Works for votify, yt-dlp, ofscraper, etc. GAMDL has its own upgrade path.
+ */
+export function upgradePipEngine(packageName: string): Promise<string> {
+  return invoke<string>('upgrade_pip_engine', { package: packageName });
+}
+
+/**
  * Checks the update status of a specific component by name.
  *
  * Rust handler: `check_component_update()` in `src-tauri/src/commands/update.rs`

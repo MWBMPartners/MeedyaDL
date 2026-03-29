@@ -146,3 +146,45 @@ pub async fn uninstall_pip_engine(app: &AppHandle, package: &str) -> Result<(), 
     log::info!("{package} uninstalled successfully");
     Ok(())
 }
+
+/// Queries the PyPI JSON API for the latest version of a package.
+///
+/// Returns `Ok(Some(version))` if the package exists on PyPI,
+/// `Ok(None)` if the API call succeeds but the package is not found,
+/// `Err` on network/parsing failure.
+pub async fn check_latest_pypi_version(package: &str) -> Result<Option<String>, String> {
+    let url = format!("https://pypi.org/pypi/{package}/json");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("User-Agent", "MeedyaDL")
+        .send()
+        .await
+        .map_err(|e| format!("PyPI request failed for {package}: {e}"))?;
+
+    if response.status().as_u16() == 404 {
+        return Ok(None); // Package not found on PyPI
+    }
+    if !response.status().is_success() {
+        return Err(format!(
+            "PyPI returned HTTP {} for {package}",
+            response.status()
+        ));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse PyPI response for {package}: {e}"))?;
+
+    let version = json["info"]["version"]
+        .as_str()
+        .map(std::string::ToString::to_string);
+
+    Ok(version)
+}
