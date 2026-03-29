@@ -44,6 +44,13 @@ Platform SVG icons now use fill="currentColor" instead of hardcoded
   theme adaptability approach, fallback chain, SVG template, and
   step-by-step guide for adding new platform icons.
 
+- Add BBC Sounds platform icon and path-based platform detection
+
+Adds bbc-sounds.svg (headphones icon, currentColor for theme
+  adaptability). Platform detection now supports pathContains for
+  disambiguating services on the same host (e.g., bbc.co.uk/sounds
+  vs bbc.co.uk/iplayer).
+
 
 ### 🐛 Bug Fixes
 
@@ -56,6 +63,7 @@ Also adds BBC Sounds as a separate platform in engines.toml with its
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
