@@ -1,0 +1,11 @@
+<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    YouTube icon — rounded rectangle with play triangle.
+    Based on the official YouTube play button shape.
+    Uses currentColor for theme adaptability.
+  -->
+  <!-- Rounded screen / background -->
+  <rect x="1" y="4" width="22" height="16" rx="4" fill="currentColor" fill-opacity="0.2"/>
+  <!-- Play triangle -->
+  <path d="M10 8.5v7l5.5-3.5z" fill="currentColor" fill-opacity="0.85"/>
+</svg>

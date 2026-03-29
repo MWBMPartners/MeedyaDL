@@ -1,0 +1,13 @@
+<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    YouTube Music icon — circle with play triangle (distinct from YouTube).
+    Based on the official YouTube Music logo shape.
+    Uses currentColor for theme adaptability.
+  -->
+  <!-- Outer circle -->
+  <circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity="0.15"/>
+  <!-- Inner circle (record disc) -->
+  <circle cx="12" cy="12" r="6" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.4"/>
+  <!-- Play triangle -->
+  <path d="M10 8.5v7l5.5-3.5z" fill="currentColor" fill-opacity="0.8"/>
+</svg>
