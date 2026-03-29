@@ -192,6 +192,20 @@ url_patterns = [
 engines = ["get_iplayer", "ytdlp"]
 content_types = ["tv", "radio", "podcasts"]
 
+[platforms.bbc-sounds]
+name = "BBC Sounds"
+enabled = false                   # Enable when BBC Sounds support is implemented (#102)
+icon = "icons/platforms/bbc-sounds.svg"
+url_patterns = [
+    "bbc.co.uk/sounds",
+    "www.bbc.co.uk/sounds",
+]
+# get_iplayer is primary: purpose-built for BBC with superior metadata,
+# series/episode handling, PVR scheduling, and subtitle support.
+# yt-dlp is fallback: works but treats BBC as a generic extractor.
+engines = ["get_iplayer", "ytdlp"]
+content_types = ["radio", "podcasts"]
+
 # Internal/future platform — not shown in public documentation.
 [platforms.ofscraper]
 name = "OF-Scraper"
