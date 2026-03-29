@@ -1,0 +1,15 @@
+<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    BBC iPlayer icon (play button / TV screen).
+    Uses currentColor for theme adaptability — inherits colour from parent
+    CSS context, so it works in light, dark, and colour-blind modes.
+    Rendered inline via PlatformIcon component (not as <img>).
+  -->
+  <!-- TV screen outline -->
+  <rect x="2" y="3" width="20" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+  <!-- Play triangle -->
+  <path d="M10 8v8l6-4z" fill="currentColor" fill-opacity="0.7"/>
+  <!-- Stand -->
+  <line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <line x1="12" y1="18" x2="12" y2="21" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+</svg>
