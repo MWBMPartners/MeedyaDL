@@ -6,6 +6,27 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Auto-update checking for all enabled pip engines (#272)
+
+Extends the update checker to monitor all pip-based engines defined
+  in engines.toml, not just GAMDL. On each update check, parses
+  engines.toml for enabled engines with install_method="pip", queries
+  PyPI for the latest version, and compares against installed version.
+
+  New components:
+  - pip_engine_service::check_latest_pypi_version() — PyPI JSON API query
+  - update_checker::get_enabled_pip_engines() — engines.toml parser
+  - update_checker::check_pip_engine_update() — per-engine update check
+  - commands::updates::upgrade_pip_engine() — generic pip upgrade IPC
+  - upgradePipEngine() TypeScript binding
+
+  Currently checks: votify (enabled=true). yt-dlp, get_iplayer, and
+  OF-Scraper are disabled in engines.toml and skipped automatically.
+  GAMDL retains its own check with compatibility gating.
+
+
 ### 🐛 Bug Fixes
 
 - Use /releases/tags/ for deterministic mirror asset resolution
@@ -53,6 +74,7 @@ OnlyFans support remains as an internal/private roadmap item but should
   The engines.toml entry and Rust/TypeScript code remain (compiled into
   binary, hidden when enabled=false) for infrastructure readiness.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.19.0] - 2026-03-29
