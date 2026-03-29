@@ -185,6 +185,44 @@ export function installGamdl(): Promise<string> {
 }
 
 /**
+ * Returns the installation status of votify (Spotify engine).
+ *
+ * Rust handler: `check_votify_status()` in `src-tauri/src/commands/dependencies.rs`
+ */
+export function checkVotifyStatus(): Promise<DependencyStatus> {
+  return invoke<DependencyStatus>('check_votify_status');
+}
+
+/**
+ * Installs votify via pip into the managed Python environment.
+ *
+ * Rust handler: `install_votify()` in `src-tauri/src/commands/dependencies.rs`
+ */
+export function installVotify(): Promise<string> {
+  return invoke<string>('install_votify');
+}
+
+/**
+ * Returns the installation status of OF-Scraper (OnlyFans engine).
+ *
+ * Rust handler: `check_ofscraper_status()` in `src-tauri/src/commands/dependencies.rs`
+ * Note: Currently disabled in engines.toml (enabled = false).
+ */
+export function checkOfscraperStatus(): Promise<DependencyStatus> {
+  return invoke<DependencyStatus>('check_ofscraper_status');
+}
+
+/**
+ * Installs OF-Scraper via pip into the managed Python environment.
+ *
+ * Rust handler: `install_ofscraper()` in `src-tauri/src/commands/dependencies.rs`
+ * Note: Currently disabled in engines.toml (enabled = false).
+ */
+export function installOfscraper(): Promise<string> {
+  return invoke<string>('install_ofscraper');
+}
+
+/**
  * Returns the installation status of all external tool dependencies.
  *
  * Rust handler: `check_all_dependencies()` in `src-tauri/src/commands/dependency.rs`
