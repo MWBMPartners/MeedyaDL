@@ -6,6 +6,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Add meedyadl-v2 branch archive section to DEV_NOTES.md
+
+Documents the closed PR #24 (meedyadl-v2 branch), mapping each v2
+  feature to its status on main (reimplemented, superseded, or tracked
+  as open issue). Includes recommendations for future multi-service work:
+  use fresh feature branches, adapt v2 patterns don't copy code, and
+  use mirror-based tool management instead of bundled deps.
+
+
+## [0.18.1] - 2026-03-27
+
 ### 🐛 Bug Fixes
 
 - Mark MediaInfo as required tool for automatic installation
