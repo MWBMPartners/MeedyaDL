@@ -8,6 +8,36 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Config-driven platform icons in progress bar with favicon fallback
+
+Replaces the hardcoded Apple Music inline SVG with a data-driven
+  platform icon system:
+
+  1. engines.toml: Added `icon` field to each platform pointing to
+     local SVG/PNG in public/icons/platforms/. Documentation explains
+     how to add icons for new platforms.
+
+  2. GlobalProgressBar.tsx: PLATFORM_CONFIG array maps URL hostnames to
+     platform IDs, icon paths, and favicon fallback hosts. detectPlatform()
+     uses hostname matching. PlatformIcon component loads the local SVG
+     first, falls back to Google Favicon API (returns PNG) on error.
+
+  3. Platform icon assets: apple-music.svg and spotify.svg added to
+     public/icons/platforms/. Other platforms will use favicon fallback
+     until custom icons are created.
+
+  To add a new platform icon: save a 16x16 SVG/PNG to
+  public/icons/platforms/{id}.svg and set the path in engines.toml.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.20.0] - 2026-03-29
+
+### ✨ Features
+
 - Auto-update checking for all enabled pip engines (#272)
 
 Extends the update checker to monitor all pip-based engines defined
