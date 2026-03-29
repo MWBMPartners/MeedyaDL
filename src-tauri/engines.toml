@@ -12,6 +12,11 @@
 #
 # [engines.<id>]           — Engine definition (one per external tool)
 #   name                   — Human-readable display name for the UI
+#   required               — true = auto-installed during setup; false = optional
+#   enabled                — true = active and available; false = hidden from UI
+#                            Use enabled=false to define future engines without
+#                            exposing them to users (e.g., engines not yet
+#                            integrated into the download pipeline).
 #   install_method         — How the tool is installed: "pip", "binary", "system"
 #   pip_package            — PyPI package name (if install_method = "pip")
 #   cli_command            — How to invoke the tool (e.g., "python -m gamdl")
@@ -20,6 +25,9 @@
 #
 # [platforms.<id>]         — Platform definition (one per media service)
 #   name                   — Human-readable service name
+#   enabled                — true = platform available; false = hidden from UI
+#                            Disabled platforms are not shown in the URL parser
+#                            or settings. Enable when implementation is ready.
 #   url_patterns           — URL hostname patterns for auto-detection
 #   engines                — Ordered list of engine IDs (first = primary, rest = fallback)
 #   content_types          — What this platform offers (for UI hints)
@@ -27,15 +35,19 @@
 # ## Adding a New Engine
 #
 # 1. Add a new [engines.<id>] section below
-# 2. Add the engine ID to the relevant platform's `engines` list
-# 3. Implement the engine adapter in Rust (see services/ directory)
+# 2. Set enabled = false until the Rust adapter is implemented
+# 3. Add the engine ID to the relevant platform's `engines` list
+# 4. Implement the engine adapter in Rust (see services/ directory)
+# 5. Set enabled = true when ready for users
 #
 # ## Adding a New Platform
 #
 # 1. Add a new [platforms.<id>] section below
-# 2. List the engine(s) that support it in priority order
-# 3. Add URL patterns so the URL parser can auto-detect the service
-# 4. Implement the platform URL parser in the frontend (url-parser.ts)
+# 2. Set enabled = false until the platform is fully integrated
+# 3. List the engine(s) that support it in priority order
+# 4. Add URL patterns so the URL parser can auto-detect the service
+# 5. Implement the platform URL parser in the frontend (url-parser.ts)
+# 6. Set enabled = true when ready for users
 #
 # ## Changing Priority
 #
@@ -49,6 +61,8 @@
 
 [engines.gamdl]
 name = "GAMDL"
+required = true
+enabled = true
 install_method = "pip"
 pip_package = "gamdl"
 cli_command = "python -m gamdl"
@@ -57,6 +71,8 @@ description = "Apple Music downloader with lossless, Atmos, and lyrics support"
 
 [engines.votify]
 name = "votify"
+required = true
+enabled = true
 install_method = "pip"
 pip_package = "votify"
 cli_command = "python -m votify"
@@ -65,6 +81,8 @@ description = "Spotify downloader with Ogg Vorbis and lyrics support"
 
 [engines.ytdlp]
 name = "yt-dlp"
+required = true
+enabled = false                   # Enable when YouTube support is implemented (#103, #104)
 install_method = "pip"
 pip_package = "yt-dlp"
 cli_command = "yt-dlp"
@@ -73,6 +91,8 @@ description = "General-purpose video/audio downloader supporting 1000+ sites"
 
 [engines.get_iplayer]
 name = "get_iplayer"
+required = false
+enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
 install_method = "system"
 # No pip_package — installed via Homebrew (macOS), apt (Linux), or standalone (Windows)
 cli_command = "get_iplayer"
@@ -81,6 +101,8 @@ description = "BBC iPlayer specialist with PVR scheduling, series handling, and 
 
 [engines.ofscraper]
 name = "OF-Scraper"
+required = false
+enabled = false                   # Enable when OnlyFans support is implemented (future milestone)
 install_method = "pip"
 pip_package = "ofscraper"
 cli_command = "python -m ofscraper"
@@ -97,9 +119,13 @@ description = "OnlyFans content downloader with DRM support and subscription man
 #
 # `url_patterns` are hostname patterns for auto-detection from pasted URLs.
 # Multiple patterns per platform support regional and legacy domains.
+#
+# `enabled` controls whether the platform appears in the UI. Set to false
+# for platforms that are defined but not yet implemented.
 
 [platforms.apple-music]
 name = "Apple Music"
+enabled = true
 url_patterns = [
     "music.apple.com",
     "classical.apple.com",
@@ -110,6 +136,7 @@ content_types = ["music", "music-videos", "playlists"]
 
 [platforms.spotify]
 name = "Spotify"
+enabled = true
 url_patterns = [
     "open.spotify.com",
 ]
@@ -118,6 +145,7 @@ content_types = ["music", "playlists", "podcasts"]
 
 [platforms.youtube]
 name = "YouTube"
+enabled = false                   # Enable when YouTube support is implemented (#104)
 url_patterns = [
     "youtube.com",
     "youtu.be",
@@ -129,6 +157,7 @@ content_types = ["videos", "music", "playlists", "channels"]
 
 [platforms.youtube-music]
 name = "YouTube Music"
+enabled = false                   # Enable when YouTube Music support is implemented (#103)
 url_patterns = [
     "music.youtube.com",
 ]
@@ -137,6 +166,7 @@ content_types = ["music", "playlists", "albums"]
 
 [platforms.bbc-iplayer]
 name = "BBC iPlayer"
+enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
 url_patterns = [
     "bbc.co.uk/iplayer",
     "www.bbc.co.uk/iplayer",
@@ -151,6 +181,7 @@ content_types = ["tv", "radio", "podcasts"]
 
 [platforms.onlyfans]
 name = "OnlyFans"
+enabled = false                   # Enable when OnlyFans support is implemented (future milestone)
 url_patterns = [
     "onlyfans.com",
 ]
