@@ -6,6 +6,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Add SVG logo+logotype to README, update roadmap and architecture
+
+- Logo: Added animated SVG logo (logo.svg) and logotype (logotype.svg)
+    to the README header for crisp rendering at any resolution
+  - Roadmap: Added M11 (OnlyFans/OF-Scraper), engine priority system
+    (#268), smart re-download detection, MediaInfo, stable rollback (#267)
+  - Architecture: Updated diagram to show engine registry layer and all
+    5 download engines (GAMDL, votify, yt-dlp, get_iplayer, OF-Scraper)
+  - Credits: Added votify, yt-dlp, get_iplayer, OF-Scraper, MediaInfo
+  - Setup: Updated first-run to mention 5 required tools + MediaInfo
+  - engines.toml: Added required/enabled fields per engine and platform
+
+
+## [0.19.0] - 2026-03-29
+
 ### ✨ Features
 
 - Add engines.toml for per-platform engine priority registry (#268)
