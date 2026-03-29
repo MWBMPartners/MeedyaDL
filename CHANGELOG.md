@@ -6,6 +6,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Add engines.toml for per-platform engine priority registry (#268)
+
+New config-driven registry defining available download engines and
+  their per-platform priority ordering. Follows the same pattern as
+  codecs.toml and tags.toml — compiled into binary via include_str!,
+  editable without code changes.
+
+  Defines 5 engines (GAMDL, votify, yt-dlp, get_iplayer, OF-Scraper)
+  and 6 platforms (Apple Music, Spotify, YouTube, YouTube Music,
+  BBC iPlayer, OnlyFans). BBC iPlayer uses get_iplayer as primary
+  with yt-dlp as fallback.
+
+  Runtime parsing and Rust model will be implemented as part of #107
+  (multi-service architecture).
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -17,6 +35,7 @@ Documents the closed PR #24 (meedyadl-v2 branch), mapping each v2
   use fresh feature branches, adapt v2 patterns don't copy code, and
   use mirror-based tool management instead of bundled deps.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.18.1] - 2026-03-27
 
