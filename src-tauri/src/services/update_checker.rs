@@ -371,6 +371,20 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
         Err(e) => errors.push(format!("Python check failed: {e}")),
     }
 
+    // Check all enabled pip-based engines from engines.toml for updates.
+    // Skips GAMDL (already checked above) and disabled engines.
+    for (name, package) in get_enabled_pip_engines() {
+        // Skip GAMDL — already checked with its own compatibility gate
+        if package == "gamdl" {
+            continue;
+        }
+
+        match check_pip_engine_update(app, &name, &package).await {
+            Ok(update) => components.push(update),
+            Err(e) => errors.push(format!("{name} check failed: {e}")),
+        }
+    }
+
     // Aggregate: an update is "available" only if it's both newer AND compatible.
     // This prevents the UI from showing incompatible GAMDL versions as available.
     let has_updates = components
@@ -794,6 +808,89 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         ),
         release_body: None,
         // Python updates are local version comparisons, not GitHub Releases
+        is_prerelease: false,
+        tag_name: None,
+    })
+}
+
+// ============================================================
+// Pip engine update checking (engines.toml-driven)
+// ============================================================
+
+/// Parses `engines.toml` and returns (display_name, pip_package) pairs for
+/// all engines that are `enabled = true` AND `install_method = "pip"`.
+fn get_enabled_pip_engines() -> Vec<(String, String)> {
+    let toml_str = include_str!("../../engines.toml");
+    let parsed: toml::Value = match toml::from_str(toml_str) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("Failed to parse engines.toml: {e}");
+            return vec![];
+        }
+    };
+
+    let Some(engines) = parsed.get("engines").and_then(|e| e.as_table()) else {
+        return vec![];
+    };
+
+    engines
+        .iter()
+        .filter_map(|(_id, def)| {
+            let enabled = def.get("enabled")?.as_bool().unwrap_or(false);
+            let method = def.get("install_method")?.as_str().unwrap_or("");
+            if !enabled || method != "pip" {
+                return None;
+            }
+            let name = def.get("name")?.as_str()?.to_string();
+            let package = def.get("pip_package")?.as_str()?.to_string();
+            Some((name, package))
+        })
+        .collect()
+}
+
+/// Checks for updates to a pip-based engine by comparing the installed
+/// version against the latest version on PyPI.
+///
+/// Follows the same pattern as `check_gamdl_update()` but works for any
+/// pip package. The `required` flag from engines.toml determines whether
+/// a missing engine counts as "update available" (required=true) or is
+/// simply reported as "not installed" (required=false).
+async fn check_pip_engine_update(
+    app: &AppHandle,
+    display_name: &str,
+    pip_package: &str,
+) -> Result<ComponentUpdate, String> {
+    // Get installed version via pip show
+    let installed = super::pip_engine_service::get_pip_engine_version(app, pip_package).await?;
+
+    // Get latest version from PyPI
+    let latest = super::pip_engine_service::check_latest_pypi_version(pip_package).await?;
+
+    let update_available = match (&installed, &latest) {
+        (Some(current), Some(newest)) => is_newer(current, newest),
+        (None, Some(_)) => true, // Not installed but available
+        _ => false,
+    };
+
+    let description = match (&installed, &latest) {
+        (Some(_), Some(newest)) if update_available => {
+            Some(format!("Version {newest} available on PyPI"))
+        }
+        (None, Some(newest)) => Some(format!("Not installed (latest: {newest})"))  ,
+        _ => None,
+    };
+
+    let release_url = Some(format!("https://pypi.org/project/{pip_package}/"));
+
+    Ok(ComponentUpdate {
+        name: display_name.to_string(),
+        current_version: installed,
+        latest_version: latest,
+        update_available,
+        is_compatible: true, // Pip engines don't have compatibility gates (unlike GAMDL)
+        description,
+        release_url,
+        release_body: None,
         is_prerelease: false,
         tag_name: None,
     })
