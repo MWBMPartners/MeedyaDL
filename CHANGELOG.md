@@ -6,6 +6,42 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Add custom MediaInfo path setting with priority resolution
+
+Adds mediainfo_path to AppSettings, matching the existing pattern for
+  ffmpeg_path, mp4decrypt_path, etc. Resolution priority in
+  get_mediainfo_path():
+
+  1. User-configured custom path (Settings > Tools)
+  2. Managed tools directory (auto-installed)
+  3. System PATH (via which/where)
+  4. Common platform locations (/opt/homebrew/bin, /usr/local/bin)
+
+  If the custom path is set but doesn't exist, logs a warning and
+  falls through to the next source.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Configure changelog sections and document commit conventions
+
+- release-please-config.json: Added changelog-sections mapping so
+    refactor/perf/test appear under "Improvements" and chore/docs/ci
+    are hidden from the changelog.
+  - README.md: Updated commit convention section with version bump
+    table and guidance on when to use each prefix.
+  - DEV_NOTES.md: Same table, removed obsolete [skip ci] guidance,
+    fixed ordered list numbering.
+
+
+## [0.21.0] - 2026-03-29
+
 ### ✨ Features
 
 - Config-driven platform icons in progress bar with favicon fallback
