@@ -1578,3 +1578,97 @@ The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype f
 3. **The v2 `bundled-deps` approach is obsolete** — main uses mirror-based tool management via MeedyaDL-Tools repo. New service engines (yt-dlp, votify) should be installed via pip (like GAMDL) or downloaded from mirrors, not bundled in the installer.
 4. **The `DownloadOptions` refactor in v2** (commit `96266e3`) has a useful `service_id` field pattern for routing downloads to the correct engine. Worth adapting when implementing #107.
 5. **Start each service milestone on a fresh branch** — `feat/spotify` from `main` for M8, `feat/youtube` for M9, etc. Keep PRs focused and mergeable.
+
+---
+
+## Engine Registry (`engines.toml`) — #268, #270
+
+Defines available download engines (external tools) and their per-platform priority ordering. Located at `src-tauri/engines.toml`, compiled into the binary via `include_str!` — same pattern as `codecs.toml` and `tags.toml`.
+
+### File Structure
+
+The file has two sections:
+
+**`[engines.<id>]`** — one entry per external tool:
+
+```toml
+[engines.get_iplayer]
+name = "get_iplayer"              # Display name in UI
+install_method = "system"         # "pip" | "binary" | "system"
+# pip_package = "..."             # PyPI name (omit for non-pip tools)
+cli_command = "get_iplayer"       # How MeedyaDL invokes the tool
+homepage = "https://github.com/get-iplayer/get_iplayer"
+description = "BBC iPlayer specialist with PVR scheduling and rich metadata"
+```
+
+**`[platforms.<id>]`** — one entry per media service:
+
+```toml
+[platforms.bbc-iplayer]
+name = "BBC iPlayer"
+url_patterns = ["bbc.co.uk/iplayer", "bbc.co.uk/sounds"]
+engines = ["get_iplayer", "ytdlp"]   # priority order: first = primary
+content_types = ["tv", "radio", "podcasts"]
+```
+
+### How Priority Works
+
+The `engines` array in each platform section is an **ordered priority list**:
+
+1. First entry = **primary engine** (used by default)
+2. Subsequent entries = **fallback engines** (tried in order if primary fails or isn't installed)
+
+Example: BBC iPlayer uses `get_iplayer` as primary because it's purpose-built for BBC content. If get_iplayer isn't installed, MeedyaDL falls back to `yt-dlp`.
+
+Users can override the default priority per-platform in Settings. User overrides are stored in `AppSettings.engine_priority_overrides` and take precedence over the TOML defaults.
+
+### Current Registry
+
+| Engine | Install | Platforms |
+|--------|---------|-----------|
+| GAMDL | pip | Apple Music |
+| votify | pip | Spotify |
+| yt-dlp | pip | YouTube, YouTube Music, BBC iPlayer (fallback) |
+| get_iplayer | system | BBC iPlayer (primary) |
+| OF-Scraper | pip | OnlyFans |
+
+### Editing Guide
+
+#### Adding a new engine
+
+1. Add a `[engines.<id>]` section with all required fields
+2. Add the engine ID to every platform's `engines` list where it applies
+3. Position it in the `engines` array according to desired priority
+4. Implement the engine adapter in Rust (`services/<engine>_service.rs`)
+
+#### Adding a new platform
+
+1. Add a `[platforms.<id>]` section
+2. List `url_patterns` — hostnames the URL parser uses for auto-detection
+3. List `engines` in priority order (at least one engine required)
+4. List `content_types` for UI display hints
+5. Add URL parsing support in the frontend (`src/lib/url-parser.ts`)
+
+#### Changing engine priority for a platform
+
+Edit the `engines` array order. Example — to make yt-dlp primary for BBC iPlayer:
+
+```toml
+# Before (get_iplayer primary):
+engines = ["get_iplayer", "ytdlp"]
+
+# After (yt-dlp primary):
+engines = ["ytdlp", "get_iplayer"]
+```
+
+#### Removing an engine from a platform
+
+Remove its ID from the `engines` array. The engine definition can stay in `[engines.*]` — unused engines are simply not offered for that platform.
+
+### Implementation Status
+
+- `engines.toml` file: **Done** (commit `f20fe9b`)
+- Rust parser (`engine_registry.rs`): **Pending** (#270)
+- Engine selection/fallback logic: **Pending** (#270)
+- Frontend types + Settings UI: **Pending** (#270)
+- Per-engine adapters: **Pending** (one per milestone: #101, #102, #103, #104)
