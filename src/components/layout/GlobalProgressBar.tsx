@@ -40,6 +40,7 @@ const PLATFORM_CONFIG: {
   icon: string;
   faviconHost: string;
   hostnames: string[];
+  pathContains?: string;
 }[] = [
   {
     id: 'apple-music',
@@ -70,11 +71,20 @@ const PLATFORM_CONFIG: {
     hostnames: ['music.youtube.com'],
   },
   {
+    id: 'bbc-sounds',
+    name: 'BBC Sounds',
+    icon: '/icons/platforms/bbc-sounds.svg',
+    faviconHost: 'bbc.co.uk',
+    hostnames: ['bbc.co.uk', 'www.bbc.co.uk'],
+    pathContains: '/sounds',
+  },
+  {
     id: 'bbc-iplayer',
     name: 'BBC iPlayer',
     icon: '/icons/platforms/bbc-iplayer.svg',
     faviconHost: 'bbc.co.uk',
     hostnames: ['bbc.co.uk', 'www.bbc.co.uk'],
+    pathContains: '/iplayer',
   },
 ];
 
@@ -85,10 +95,16 @@ const PLATFORM_CONFIG: {
 function detectPlatform(urls?: string[]) {
   const raw = urls?.[0] ?? '';
   try {
-    const { hostname } = new URL(raw);
-    return PLATFORM_CONFIG.find((p) =>
-      p.hostnames.some((h) => hostname === h || hostname.endsWith('.' + h))
-    );
+    const { hostname, pathname } = new URL(raw);
+    return PLATFORM_CONFIG.find((p) => {
+      const hostMatch = p.hostnames.some(
+        (h) => hostname === h || hostname.endsWith('.' + h)
+      );
+      if (!hostMatch) return false;
+      // If pathContains is set, the URL path must include it
+      if (p.pathContains) return pathname.includes(p.pathContains);
+      return true;
+    });
   } catch {
     return undefined;
   }
