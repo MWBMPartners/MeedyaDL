@@ -1,15 +1,15 @@
 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <!--
-    BBC iPlayer icon (play button / TV screen).
-    Uses currentColor for theme adaptability — inherits colour from parent
-    CSS context, so it works in light, dark, and colour-blind modes.
-    Rendered inline via PlatformIcon component (not as <img>).
+    BBC iPlayer icon — based on the official iPlayer logo shape:
+    Three angular segments forming a stylised play/forward symbol.
+    Left vertical bar, top-right angled bar, bottom-right angled bar.
+    Black areas from the original are transparent; fill uses
+    currentColor so it adapts to light/dark/colour-blind themes.
   -->
-  <!-- TV screen outline -->
-  <rect x="2" y="3" width="20" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
-  <!-- Play triangle -->
-  <path d="M10 8v8l6-4z" fill="currentColor" fill-opacity="0.7"/>
-  <!-- Stand -->
-  <line x1="8" y1="21" x2="16" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
-  <line x1="12" y1="18" x2="12" y2="21" stroke="currentColor" stroke-width="1.5" opacity="0.4"/>
+  <!-- Left vertical bar -->
+  <rect x="4" y="4" width="4" height="16" rx="0.5" fill="currentColor" fill-opacity="0.8"/>
+  <!-- Top-right angled bar -->
+  <polygon points="10,3 20,9.5 16,12.5 10,9" fill="currentColor" fill-opacity="0.65"/>
+  <!-- Bottom-right angled bar -->
+  <polygon points="10,15 16,11.5 20,14.5 10,21" fill="currentColor" fill-opacity="0.9"/>
 </svg>
