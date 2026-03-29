@@ -203,7 +203,7 @@ export function installVotify(): Promise<string> {
 }
 
 /**
- * Returns the installation status of OF-Scraper (OnlyFans engine).
+ * Returns the installation status of OF-Scraper (optional engine, disabled by default).
  *
  * Rust handler: `check_ofscraper_status()` in `src-tauri/src/commands/dependencies.rs`
  * Note: Currently disabled in engines.toml (enabled = false).
