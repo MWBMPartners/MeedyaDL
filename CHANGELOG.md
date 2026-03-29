@@ -29,9 +29,25 @@ Replaces the hardcoded Apple Music inline SVG with a data-driven
   To add a new platform icon: save a 16x16 SVG/PNG to
   public/icons/platforms/{id}.svg and set the path in engines.toml.
 
+- Theme-adaptive platform icons using currentColor + inline SVG rendering
+
+Platform SVG icons now use fill="currentColor" instead of hardcoded
+  colours. PlatformIcon component fetches the SVG and renders it inline
+  (not as <img>) so currentColor inherits from the parent CSS context,
+  automatically adapting to light, dark, and colour-blind themes.
+
+  SVG content is cached in a module-level Map to avoid re-fetching.
+  Fallback: Google Favicon API (PNG) when local SVG unavailable.
+
+  Updated apple-music.svg and spotify.svg to use currentColor.
+  Added platform icon documentation to DEV_NOTES.md covering the
+  theme adaptability approach, fallback chain, SVG template, and
+  step-by-step guide for adding new platform icons.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.20.0] - 2026-03-29
