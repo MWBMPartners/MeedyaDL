@@ -80,9 +80,17 @@ Also adds BBC Sounds as a separate platform in engines.toml with its
   own icon path, sharing the same engine priority as BBC iPlayer
   (get_iplayer primary, yt-dlp fallback).
 
+- Update BBC Sounds icon to match official logo shape
+
+Three vertical rectangles (small left, medium centre, large right)
+  matching the BBC Sounds speaker/equaliser branding. Black background
+  areas are now transparent; fill uses currentColor so it adapts to
+  light, dark, and colour-blind themes via fill-opacity layering.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
