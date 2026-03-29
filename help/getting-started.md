@@ -28,7 +28,7 @@ Additional requirements:
 
 ### Required Software
 
-MeedyaDL has **no special software prerequisites**. All dependencies -- including Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box -- are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
+MeedyaDL has **no special software prerequisites**. All dependencies -- including Python, GAMDL, votify, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo -- are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
 
 The only things you need before using MeedyaDL are:
 
@@ -94,7 +94,7 @@ The first time you launch MeedyaDL, a setup wizard will guide you through the in
 1. **Welcome** -- Introduction and overview of the setup process.
 2. **Python Installation** -- The application downloads and installs a sandboxed Python environment into its data directory.
 3. **GAMDL Installation** -- The GAMDL command-line tool is downloaded and configured automatically.
-4. **Dependency Installation** -- Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box. All dependencies are placed in the application's sandboxed data directory and do not affect your system.
+4. **Dependency Installation** -- Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. All dependencies are placed in the application's sandboxed data directory and do not affect your system.
 5. **Cookie Import** -- You will be prompted to import your Apple Music cookies (see below).
 6. **Complete** -- Setup is finished and MeedyaDL is ready to use.
 
