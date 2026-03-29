@@ -143,6 +143,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   mp4decrypt_path: null, // Bento4 mp4decrypt for DRM decryption
   mp4box_path: null, // GPAC MP4Box for container manipulation
   nm3u8dlre_path: null, // N_m3u8DL-RE for HLS/DASH stream downloading
+  mediainfo_path: null, // MediaInfo CLI for accurate codec detection
   download_mode: 'ytdlp', // Stream download backend: yt-dlp (default) or N_m3u8DL-RE
   remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
   use_wrapper: false, // Whether to use a remote account wrapper service
