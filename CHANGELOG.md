@@ -29,6 +29,19 @@ This changelog is automatically generated from [conventional commits](https://ww
   - downloading-music.md: Added smart re-download detection section
   - faq.md: Added smart re-download detection Q&A entry
 
+- Update CHANGELOG.md [skip ci]
+- Remove OnlyFans/OF-Scraper references from all public documentation
+
+OnlyFans support remains as an internal/private roadmap item but should
+  not appear in public-facing documentation due to the platform's
+  controversial nature.
+
+  Removed from: README.md (roadmap, architecture, credits), DEV_NOTES.md
+  (engine table), and code comments (dependencies.rs, tauri-commands.ts).
+
+  The engines.toml entry and Rust/TypeScript code remain (compiled into
+  binary, hidden when enabled=false) for infrastructure readiness.
+
 
 ## [0.19.0] - 2026-03-29
 
