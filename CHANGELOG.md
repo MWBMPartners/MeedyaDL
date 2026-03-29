@@ -145,9 +145,15 @@ Stripped XML declaration, Illustrator metadata, and hardcoded colours
   currentColor at fill-opacity 0.25; music note uses currentColor at
   fill-opacity 0.9. viewBox preserved (0 0 48 48), no fixed width/height.
 
+- Check common install locations beyond PATH for system tools
+
+find_system_tool() and get_mediainfo_path() now check platform-specific
+  locations when a tool isn't on the shell PATH:
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
