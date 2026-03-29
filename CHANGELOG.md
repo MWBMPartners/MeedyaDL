@@ -51,6 +51,26 @@ Adds bbc-sounds.svg (headphones icon, currentColor for theme
   disambiguating services on the same host (e.g., bbc.co.uk/sounds
   vs bbc.co.uk/iplayer).
 
+- Dynamic platform config from engines.toml, BBC iPlayer + Sounds icons
+
+Platform detection and icon rendering in GlobalProgressBar is now
+  fully driven by engines.toml — no more hardcoded PLATFORM_CONFIG
+  array. The component loads platform config once via the new
+  get_platform_config IPC command, which parses the compiled-in
+  engines.toml and returns enabled platforms with URL patterns and
+  icon paths.
+
+  Adding a new platform with its icon now requires ONLY:
+  1. Add the [platforms.*] entry to engines.toml
+  2. Drop an SVG into public/icons/platforms/
+
+  No GlobalProgressBar.tsx changes needed.
+
+  Also adds:
+  - bbc-iplayer.svg (TV screen with play button, currentColor)
+  - bbc-sounds.svg (concentric sound waves, currentColor)
+  - get_platform_config() Rust command + TypeScript binding
+
 
 ### 🐛 Bug Fixes
 
@@ -63,6 +83,7 @@ Also adds BBC Sounds as a separate platform in engines.toml with its
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
