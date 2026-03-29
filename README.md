@@ -317,20 +317,30 @@ Contributions are welcome! Please follow these guidelines:
 
 ### Commit Convention
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/) enforced by [commitlint](https://commitlint.js.org/):
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for automated version bumps and changelog generation:
 
 ```text
 type(scope): description
 
 # Examples:
-
-feat(download): add fallback quality chain support
-fix(settings): resolve cookie validation edge case
-docs(readme): update installation instructions
-refactor(backend): simplify dependency management
+feat(download): add fallback quality chain support   # → minor bump, in changelog
+fix(settings): resolve cookie validation edge case   # → patch bump, in changelog
+refactor(backend): simplify dependency management    # → no bump, in changelog as "Improvements"
+chore(deps): update dependencies                     # → no bump, hidden from changelog
 ```
 
-**Allowed types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+| Type | Version Bump | Changelog |
+|------|-------------|-----------|
+| `feat` | Minor (0.**X**.0) | Features |
+| `fix` | Patch (0.0.**X**) | Bug Fixes |
+| `refactor` | None | Improvements |
+| `perf` | None | Improvements |
+| `test` | None | Improvements |
+| `chore` | None | Hidden |
+| `docs` | None | Hidden |
+| `ci` | None | Hidden |
+
+**Important:** Use `feat:` only for **user-visible** new functionality. Internal infrastructure, tooling, and config changes should use `chore:` or `refactor:` to avoid unnecessary version bumps.
 
 ### Development Workflow
 
