@@ -1,21 +1,17 @@
 <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <!--
-    BBC Sounds icon (headphones / audio waves).
+    BBC Sounds icon (sound waves radiating from centre).
+    Inspired by the BBC Sounds visual identity (concentric arcs).
     Uses currentColor for theme adaptability — inherits colour from parent
     CSS context, so it works in light, dark, and colour-blind modes.
     Rendered inline via PlatformIcon component (not as <img>).
   -->
-  <!-- Headphone band -->
-  <path
-    d="M3 18V12a9 9 0 1 1 18 0v6"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    fill="none"
-    opacity="0.7"
-  />
-  <!-- Left ear cup -->
-  <rect x="1" y="15" width="4" height="6" rx="1" fill="currentColor" fill-opacity="0.6"/>
-  <!-- Right ear cup -->
-  <rect x="19" y="15" width="4" height="6" rx="1" fill="currentColor" fill-opacity="0.6"/>
+  <!-- Centre dot -->
+  <circle cx="12" cy="12" r="2" fill="currentColor" fill-opacity="0.8"/>
+  <!-- Inner wave -->
+  <path d="M8.5 8.5a5 5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <path d="M8.5 15.5a5 5 0 0 0 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+  <!-- Outer wave -->
+  <path d="M5.5 5.5a9.2 9.2 0 0 1 13 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+  <path d="M5.5 18.5a9.2 9.2 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
 </svg>
