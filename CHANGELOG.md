@@ -17,9 +17,23 @@ The ReplayGain settings section now includes an info box explaining
   and clipping prevention descriptions are also improved with practical
   context (Spotify comparison, modern pop/EDM note).
 
+- Replace source file references with proper ACKNOWLEDGEMENTS.md
+
+The Help > About > Open Source Acknowledgements section was directing
+  users to "see the project's Cargo.toml and package.json" — source
+  files that users should never need to access.
+
+  Created ACKNOWLEDGEMENTS.md with a comprehensive categorised list of
+  all dependencies (engines, framework, tools, Rust crates, frontend
+  packages, Tauri plugins) with their licence types.
+
+  Updated HelpViewer to show a complete inline list and reference the
+  ACKNOWLEDGEMENTS file instead of source code files.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
