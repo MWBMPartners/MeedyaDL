@@ -32,9 +32,30 @@ Two fixes in get_tool_version():
   Combined stdout+stderr before parsing so tools that output to either
   stream are handled consistently.
 
+- Stream companion download output to activity log, add per-file progress (#294)
+
+Three major improvements to download visibility:
+
+  1. Companion downloads now stream stdout/stderr line-by-line to the
+     activity log in real-time, same as the primary download. Previously
+     used wait_with_output() which swallowed all output until completion,
+     leaving minutes of silent activity. Users can now see per-track
+     [Track N/M] and [download] progress for companions.
+
+  2. Companion GAMDL CLI args are now logged (verbose level) so users
+     can verify the codec being requested (e.g., --song-codec-priority alac).
+
+  3. ReplayGain and AcoustID now emit per-file progress to the activity
+     log: "ReplayGain: analysing file N/M — filename.m4a" and
+     "AcoustID: fingerprinting file N/M — filename.m4a".
+
+  Partially addresses #294. Remaining: progress bar tracking for
+  companions/enrichment, completion timing.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
