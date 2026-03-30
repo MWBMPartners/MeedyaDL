@@ -27,9 +27,10 @@ describe('parseTemplate', () => {
     expect(parseTemplate('{track:02d}')).toEqual([{ type: 'variable', value: 'track:02d' }]);
   });
 
-  it('parses literal text', () => {
+  it('parses literal text and splits known separators', () => {
     expect(parseTemplate('Compilations/')).toEqual([
-      { type: 'literal', value: 'Compilations/' },
+      { type: 'literal', value: 'Compilations' },
+      { type: 'literal', value: '/' },
     ]);
   });
 
@@ -53,7 +54,8 @@ describe('parseTemplate', () => {
 
   it('parses leading literal text with variable', () => {
     expect(parseTemplate('Compilations/{album}')).toEqual([
-      { type: 'literal', value: 'Compilations/' },
+      { type: 'literal', value: 'Compilations' },
+      { type: 'literal', value: '/' },
       { type: 'variable', value: 'album' },
     ]);
   });
@@ -62,9 +64,11 @@ describe('parseTemplate', () => {
     expect(parseTemplate('')).toEqual([]);
   });
 
-  it('parses pure literal without variables', () => {
+  it('parses pure literal and splits known separators', () => {
     expect(parseTemplate('Unknown Album')).toEqual([
-      { type: 'literal', value: 'Unknown Album' },
+      { type: 'literal', value: 'Unknown' },
+      { type: 'literal', value: ' ' },
+      { type: 'literal', value: 'Album' },
     ]);
   });
 
@@ -76,10 +80,31 @@ describe('parseTemplate', () => {
 
   it('handles multiple path segments', () => {
     expect(parseTemplate('Playlists/{playlist_artist}/{playlist_title}')).toEqual([
-      { type: 'literal', value: 'Playlists/' },
+      { type: 'literal', value: 'Playlists' },
+      { type: 'literal', value: '/' },
       { type: 'variable', value: 'playlist_artist' },
       { type: 'literal', value: '/' },
       { type: 'variable', value: 'playlist_title' },
+    ]);
+  });
+
+  it('splits dash separator into separate chips', () => {
+    // " - " is a COMMON_LITERAL — must render as its own chip
+    expect(parseTemplate('{track:02d} - {title}')).toEqual([
+      { type: 'variable', value: 'track:02d' },
+      { type: 'literal', value: ' - ' },
+      { type: 'variable', value: 'title' },
+    ]);
+  });
+
+  it('allows multiple adjacent separators', () => {
+    // Users should be able to add " - " next to other literals
+    expect(parseTemplate('{disc} - {track:02d} - {title}')).toEqual([
+      { type: 'variable', value: 'disc' },
+      { type: 'literal', value: ' - ' },
+      { type: 'variable', value: 'track:02d' },
+      { type: 'literal', value: ' - ' },
+      { type: 'variable', value: 'title' },
     ]);
   });
 
