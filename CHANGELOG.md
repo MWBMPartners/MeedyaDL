@@ -30,9 +30,20 @@ The Help > About > Open Source Acknowledgements section was directing
   Updated HelpViewer to show a complete inline list and reference the
   ACKNOWLEDGEMENTS file instead of source code files.
 
+- ACKNOWLEDGEMENTS.md lists only enabled/shipping dependencies
+
+Removed votify, yt-dlp, get_iplayer from both ACKNOWLEDGEMENTS.md and
+  HelpViewer — they are defined in engines.toml but not yet enabled.
+  Only GAMDL ships as the active download engine.
+
+  Added maintenance comment at top of ACKNOWLEDGEMENTS.md: file must be
+  reviewed when engines are enabled/disabled in engines.toml or deps
+  change in Cargo.toml/package.json.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
