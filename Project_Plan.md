@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v0.22.7** (2026-03-01) — All 6 phases complete + post-release features <!-- x-release-please-version -->
+**v0.22.7** (2026-03-30) — All 6 phases complete + post-release features <!-- x-release-please-version -->
 
 ---
 
@@ -324,6 +324,10 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Crash report improvements** - `delete_all_crash_reports` command and "Clear All" UI button in Settings > Advanced > Crash Reporting
 - ✅ **Monthly Dependency Report CI workflow** - Automated monthly dependency audit reporting
 - ✅ **Frontend stability fixes** - Tooltip and CookiesTab setTimeout cleanup on unmount, flaky Windows test fix, npm audit vulnerability fixes (flatted, undici)
+- ✅ **Comprehensive progress tracking** (#294) - Companion downloads stream stdout/stderr line-by-line with real-time speed/ETA/percentage in the global progress bar. Queue items stay in Processing state until all companion AND enrichment JoinHandles resolve. Processing labels display current activity ("Enriching metadata tags...", "Converting lyrics..."). Queue-level bar counts Processing items as done (partial credit). Desktop notifications deferred until all background work completes. ReplayGain/AcoustID emit per-file progress.
+- ✅ **Engine registry** - `engines.toml` declarative engine registry compiled into binary. Defines platforms, engines, URL patterns, install methods, icons. Platform icons rendered inline (SVG with `currentColor`) for theme adaptability.
+- ✅ **CodeQL CI fix** - Added `actions: read` permission to CodeQL workflow to resolve "Resource not accessible by integration" errors on release-please PR branches.
+- ✅ **README corrections** - Fixed org URLs (`MeedyaDL/MeedyaDL` → `MWBMPartners/MeedyaDL`), removed screenshots placeholder, PNG logo with dark/light mode support.
 
 ---
 

@@ -1810,3 +1810,62 @@ SVG content is cached in a module-level `Map` to avoid re-fetching on re-renders
 | YouTube | `youtube.svg` | Pending (uses favicon fallback) |
 | YouTube Music | `youtube-music.svg` | Pending (uses favicon fallback) |
 | BBC iPlayer | `bbc-iplayer.svg` | Pending (uses favicon fallback) |
+
+---
+
+## Progress Tracking Architecture (#294)
+
+The download progress system tracks ALL activity — primary downloads, companion downloads, enrichment, and post-processing — through a unified event and state model.
+
+### Queue Item State Machine
+
+```text
+Queued → Downloading → Processing → Complete
+                  ↓           ↓
+                Error      Error/Cancelled
+```
+
+- **Downloading**: Primary GAMDL download is active. Speed/ETA/percentage shown.
+- **Processing**: Post-download work (enrichment + companions). Item stays in this state until ALL background tasks finish (JoinHandle tracking).
+- **Complete**: Only set by the completion task after enrichment AND companion JoinHandles resolve.
+
+### Event Flow
+
+1. **Primary download** emits `gamdl-output` events → `handleProgressEvent()` sets state to `downloading`, updates speed/ETA/progress.
+2. **Processing step** event → sets state to `processing`, clears speed/ETA.
+3. **Companion downloads** emit `gamdl-output` events → update speed/ETA/progress on the item but do NOT change state back to `downloading` (preserves `processing` state stability).
+4. **Enrichment stages** set `processing_label` (e.g., "Enriching metadata tags...", "Converting lyrics...") but don't emit speed/ETA.
+5. **Completion task** awaits all JoinHandles → sets state to `complete`, sends desktop notification.
+
+### Key Design Decisions
+
+- **State stability**: `download_progress` and `track_info` events check `item.state !== 'processing'` before transitioning to `downloading`. This prevents the queue-level progress bar from oscillating between "done" and "not done" during companion downloads.
+- **Speed/ETA clearing**: `processing_step` events clear `speed` and `eta` to prevent stale companion data lingering during enrichment.
+- **Partial credit**: Queue-level bar counts `processing`, `error`, and `cancelled` items alongside `complete` in the "done" tally, so the queue bar advances after the primary download succeeds.
+- **Determinate vs indeterminate**: GlobalProgressBar shows determinate progress (percentage) during `processing` if `speed` data exists (companion downloading); otherwise shows indeterminate animation (enrichment).
+
+### Processing Labels
+
+The `processing_label` field on `QueueItemStatus` is set at enrichment stage boundaries:
+
+| Stage | Label |
+|-------|-------|
+| Metadata tagging | "Enriching metadata tags..." |
+| Enhanced LRC | "Converting lyrics..." |
+| Animated artwork | "Downloading animated artwork..." |
+| AcoustID | "Fingerprinting audio..." |
+| ReplayGain | "Analysing loudness..." |
+| Companions | "Companion: {codec} {track}/{total}" |
+
+### Per-File Progress
+
+- **ReplayGain**: Emits "analysing file N/M — filename.m4a" per file
+- **AcoustID**: Emits "fingerprinting file N/M — filename.m4a" per file
+- **Companion stdout**: Streamed line-by-line via `AsyncBufReadExt`; each line parsed by `parse_gamdl_output()` and emitted as `gamdl-output` event
+
+### Files
+
+- `src-tauri/src/services/download_queue.rs` — state management, JoinHandle tracking, companion stdout streaming
+- `src-tauri/src/models/download.rs` — `processing_label: Option<String>` on `QueueItemStatus`
+- `src/stores/downloadStore.ts` — event handling with state stability guards
+- `src/components/layout/GlobalProgressBar.tsx` — dual bar rendering with companion speed/ETA support
