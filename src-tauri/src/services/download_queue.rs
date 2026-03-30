@@ -4419,11 +4419,17 @@ pub fn process_queue(
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
-                                    "Analysing loudness (ReplayGain EBU R128)...",
+                                    &format!(
+                                        "Analysing loudness (ReplayGain, ref={:.1} LUFS, clipping prevention={})...",
+                                        enrich_settings.replaygain_reference_level,
+                                        if enrich_settings.replaygain_prevent_clipping { "on" } else { "off" }
+                                    ),
                                 );
                                 match super::replaygain_service::process_replaygain_for_directory(
                                     &enrich_app,
                                     &album_dir,
+                                    enrich_settings.replaygain_reference_level,
+                                    enrich_settings.replaygain_prevent_clipping,
                                 )
                                 .await
                                 {
