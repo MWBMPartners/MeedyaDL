@@ -64,7 +64,7 @@ import { exportSettings, importSettings } from '@/lib/tauri-commands';
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Input, Button, SettingsSection } from '@/components/common';
+import { Toggle, FilePickerButton, Select, Button, SettingsSection } from '@/components/common';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Download, RefreshCw, Upload } from 'lucide-react';
@@ -349,13 +349,71 @@ export function GeneralTab() {
         />
 
         {/* Apple Music storefront region */}
-        <Input
-          label="Storefront"
-          description="Apple Music storefront region code (e.g., gb, us, jp). Leave blank to auto-detect from metadata language."
-          placeholder="Auto-detect"
-          value={settings.storefront}
-          onChange={(e) => updateSettings({ storefront: e.target.value.toLowerCase().trim() })}
-        />
+        <div>
+          <label className="block text-sm font-medium text-content-primary mb-1">
+            Storefront
+          </label>
+          <select
+            className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
+            value={settings.storefront}
+            onChange={(e) => updateSettings({ storefront: e.target.value })}
+          >
+            <option value="">Auto-detect</option>
+            <option disabled>──────────</option>
+            <option value="au">Australia</option>
+            <option value="at">Austria</option>
+            <option value="be">Belgium</option>
+            <option value="br">Brazil</option>
+            <option value="ca">Canada</option>
+            <option value="cn">China</option>
+            <option value="co">Colombia</option>
+            <option value="cz">Czech Republic</option>
+            <option value="dk">Denmark</option>
+            <option value="eg">Egypt</option>
+            <option value="fi">Finland</option>
+            <option value="fr">France</option>
+            <option value="de">Germany</option>
+            <option value="gr">Greece</option>
+            <option value="hk">Hong Kong</option>
+            <option value="hu">Hungary</option>
+            <option value="in">India</option>
+            <option value="id">Indonesia</option>
+            <option value="ie">Ireland</option>
+            <option value="il">Israel</option>
+            <option value="it">Italy</option>
+            <option value="jp">Japan</option>
+            <option value="ke">Kenya</option>
+            <option value="kr">Korea, South</option>
+            <option value="my">Malaysia</option>
+            <option value="mx">Mexico</option>
+            <option value="nl">Netherlands</option>
+            <option value="nz">New Zealand</option>
+            <option value="ng">Nigeria</option>
+            <option value="no">Norway</option>
+            <option value="pk">Pakistan</option>
+            <option value="ph">Philippines</option>
+            <option value="pl">Poland</option>
+            <option value="pt">Portugal</option>
+            <option value="ro">Romania</option>
+            <option value="ru">Russia</option>
+            <option value="sa">Saudi Arabia</option>
+            <option value="sg">Singapore</option>
+            <option value="za">South Africa</option>
+            <option value="es">Spain</option>
+            <option value="se">Sweden</option>
+            <option value="ch">Switzerland</option>
+            <option value="tw">Taiwan</option>
+            <option value="th">Thailand</option>
+            <option value="tr">Turkey</option>
+            <option value="ae">United Arab Emirates</option>
+            <option value="gb">United Kingdom</option>
+            <option value="us">United States</option>
+            <option value="vn">Vietnam</option>
+          </select>
+          <p className="text-xs text-content-tertiary mt-1">
+            Apple Music storefront region. Leave as &quot;Auto-detect&quot; to derive from metadata language setting.
+          </p>
+        </div>
 
         {/* Overwrite existing files */}
         <Toggle
