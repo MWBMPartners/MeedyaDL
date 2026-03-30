@@ -875,17 +875,35 @@ Licensed under the MIT License. See the LICENSE file in the project root for the
 <details>
 <summary><strong>Open Source Acknowledgements</strong></summary>
 
-MeedyaDL is built on top of many open-source projects. Key dependencies include:
+MeedyaDL is built on top of many open-source projects. We are grateful to the developers and maintainers of these libraries and tools.
 
+**Download Engines:**
 - **GAMDL** (MIT) — Apple Music download engine
+- **votify** (MIT) — Spotify download engine
+- **yt-dlp** (Unlicense) — General-purpose video/audio downloader
+
+**Application Framework:**
 - **Tauri** (MIT/Apache-2.0) — Desktop application framework
 - **React** (MIT) — UI component library
-- **FFmpeg** (LGPL/GPL) — Media processing toolkit
-- **mp4decrypt** (MIT) — MP4 decryption utility
-- **N_m3u8DL-RE** (MIT) — HLS/DASH stream downloader
-- **MP4Box/GPAC** (LGPL) — Media container toolkit
+- **Zustand** (MIT) — State management
+- **Tailwind CSS** (MIT) — CSS framework
 
-See the project's \`Cargo.toml\` and \`package.json\` for the complete dependency list.
+**External Tools:**
+- **FFmpeg** (LGPL/GPL) — Audio/video processing and remuxing
+- **mp4decrypt / Bento4** (MIT) — MP4 DRM decryption
+- **N_m3u8DL-RE** (MIT) — HLS/DASH stream downloader
+- **MP4Box / GPAC** (LGPL) — Media container toolkit
+- **MediaInfo** (BSD-2-Clause) — Media file analysis and codec detection
+
+**Key Libraries:**
+- **Tokio** (MIT) — Rust async runtime
+- **Reqwest** (MIT) — HTTP client
+- **mp4ameta** (MIT) — M4A metadata reading/writing
+- **roxmltree** (MIT) — XML parsing for TTML lyrics
+- **rusty-chromaprint** (MIT) — Audio fingerprinting
+- **i18next** (MIT) — Internationalisation
+
+For the full list of all dependencies and their licences, see the ACKNOWLEDGEMENTS file included with this application.
 
 </details>
 
