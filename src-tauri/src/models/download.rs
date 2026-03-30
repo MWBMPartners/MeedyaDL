@@ -214,6 +214,13 @@ pub struct QueueItemStatus {
     /// Parsed from GAMDL/yt-dlp stdout. `None` when ETA is not available.
     pub eta: Option<String>,
 
+    /// Human-readable label describing what's currently happening during
+    /// the Processing state. Updated by enrichment stages and companion
+    /// downloads so the UI can show specific activity instead of generic
+    /// "Processing..." (e.g., "Enriching metadata...", "Companion: ALAC 5/28",
+    /// "ReplayGain 12/28"). `None` outside of Processing state.
+    pub processing_label: Option<String>,
+
     /// Error message if the download failed (`state == Error`). Contains
     /// the stderr output or exception message from the GAMDL subprocess.
     /// `None` in all non-error states.
@@ -419,6 +426,7 @@ mod tests {
             completed_tracks: Some(5),
             speed: Some("2.5 MB/s".to_string()),
             eta: Some("00:45".to_string()),
+            processing_label: None,
             error: None,
             output_path: None,
             codec_used: Some("alac".to_string()),
@@ -463,6 +471,7 @@ mod tests {
             completed_tracks: None,
             speed: None,
             eta: None,
+            processing_label: None,
             error: Some("Network timeout after 30 seconds".to_string()),
             output_path: None,
             codec_used: None,
@@ -500,6 +509,7 @@ mod tests {
             completed_tracks: Some(1),
             speed: None,
             eta: None,
+            processing_label: None,
             error: None,
             output_path: Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()),
             codec_used: Some("aac".to_string()),
