@@ -18,6 +18,7 @@ licenceLink() now splits "MIT / Apache-2.0" into two separate
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.4] - 2026-03-30
 
