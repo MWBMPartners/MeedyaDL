@@ -8,6 +8,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Keep queue item in Processing state until companions finish (#294)
+
+Previously, the queue item was marked Complete immediately after the
+  primary GAMDL download finished, even though enrichment and companion
+  downloads were still running in background tasks. The progress bar
+  showed the item as complete while files were actively being downloaded.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.6] - 2026-03-30
+
+### 🐛 Bug Fixes
+
 - Inject width/height/display into SVG for platform icon rendering
 
 The inline SVG loaded via fetch + dangerouslySetInnerHTML wasn't
