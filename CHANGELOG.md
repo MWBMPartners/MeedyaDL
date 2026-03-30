@@ -8,6 +8,62 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- ReplayGain album gain, configurable reference level, clipping prevention (#282)
+
+Three enhancements to ReplayGain analysis:
+
+  1. Album gain: After analysing all tracks individually, computes
+     album-level integrated loudness (average in linear power domain)
+     and highest true peak. Writes 4 tags per file: replaygain_track_gain,
+     replaygain_track_peak, replaygain_album_gain, replaygain_album_peak.
+
+  2. Configurable reference level: New setting replaygain_reference_level
+     (default -18.0 LUFS / EBU R128). Dropdown options: -18 LUFS (music),
+     -14 LUFS (Spotify), -23 LUFS (broadcast), -16 LUFS (Apple Music).
+
+  3. Clipping prevention: New setting replaygain_prevent_clipping (default
+     true). Limits gain so peak × gain never exceeds 0 dBFS, preventing
+     digital distortion on loudly mastered tracks.
+
+  Settings UI: reference level dropdown and clipping toggle appear
+  conditionally when ReplayGain is enabled.
+
+- Graceful fallback when settings.json parsing fails (#283)
+
+When serde_json fails to parse settings.json (e.g., a field type changed
+  between app versions), the app now falls back to defaults instead of
+  returning an error to the frontend. Previously, a parse error left the
+  frontend store with its initialisation defaults, making it appear as if
+  all settings were reset.
+
+  The settings file is preserved on disk — only the in-memory state uses
+  defaults for the incompatible fields. The error is logged at ERROR level
+  with the specific parse failure and file path for debugging.
+
+- Replace Storefront freetext with country dropdown (#285)
+
+Replaced the freetext input with a <select> dropdown listing ~45
+  Apple Music storefronts by country name. "Auto-detect" is the default
+  (derives from metadata language). The disabled separator line prevents
+  accidental empty selection. Backend stores the 2-letter ISO code.
+
+  Prevents invalid storefront codes from being entered manually.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update help docs with ReplayGain album gain, reference level, and clipping options
+
+Updated lyrics-and-metadata.md ReplayGain section to document all 4
+  tags (track gain/peak + album gain/peak), configurable reference level
+  options, and clipping prevention setting.
+
+
+## [0.22.2] - 2026-03-30
+
+### 🐛 Bug Fixes
+
 - Allow multiple adjacent separators in template builder
 
 The template parser now splits literal text by known separator tokens
