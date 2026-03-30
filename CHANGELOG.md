@@ -9,9 +9,18 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 🐛 Bug Fixes
 
 - Update engine requirements and enable status for votify and get_iplayer
+- Clarify ReplayGain settings with album gain explanation and improved descriptions
+
+The ReplayGain settings section now includes an info box explaining
+  what's written to each file (track gain for shuffle, album gain for
+  album listening, peak values for clipping prevention). Reference level
+  and clipping prevention descriptions are also improved with practical
+  context (Spotify comparison, modern pop/EDM note).
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.22.3] - 2026-03-30
