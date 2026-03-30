@@ -6,6 +6,27 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Add offline installer option to release workflow (#280)
+
+New workflow_dispatch input `bundle_engines` (default: false) controls
+  whether the release build pre-bundles all engines and tools for a
+  zero-setup offline installer (~300MB vs ~30MB tiny installer).
+
+  When bundle_engines=true, Step 8.5 in release.yml:
+  1. Parses engines.toml for bundled+enabled pip engines → pip install
+  2. Parses engines.toml for bundled+enabled binary engines → mirror download
+  3. Downloads binary tools (FFmpeg, mp4decrypt, etc.) from MeedyaDL-Tools mirror
+  4. Writes manifest.json with offline_installer=true
+
+
+## [0.22.1] - 2026-03-30
+
 ### 🐛 Bug Fixes
 
 - Add MediaInfo custom path input to Settings > Tools
