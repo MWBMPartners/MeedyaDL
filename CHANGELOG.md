@@ -25,6 +25,7 @@ Added MediaInfo to TOOL_PATH_KEYS and TOOL_PATH_DESCRIPTIONS in
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -50,6 +51,16 @@ Each engine now has an explicit `bundled` field:
   Updated DEV_NOTES.md with bundled vs external documentation, current
   registry table with bundled/custom-path columns, and CI packaging
   guidance for reading engines.toml during release builds.
+
+- Make get_iplayer bundled via MeedyaDL-Tools mirror (not user-installed)
+
+get_iplayer is Perl-based (not pip), but pre-built binaries already
+  exist in the MeedyaDL-Tools mirror for all platforms. Changed from
+  bundled=false/install_method=system to bundled=true/install_method=binary
+  so it's downloaded from the mirror during setup — same as FFmpeg,
+  mp4decrypt, MediaInfo.
+
+  All engines are now bundled. No external/user-installed engines remain.
 
 
 ## [0.22.0] - 2026-03-30
