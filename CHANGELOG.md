@@ -45,9 +45,17 @@ New processing_label field on QueueItemStatus carries what's happening
   stage entry. GlobalProgressBar displays processing_label with priority
   over current_track.
 
+- Defer desktop notification until all background work completes (#294)
+
+Desktop notification "Download Complete" was firing immediately after
+  the primary GAMDL download, before enrichment and companions finished.
+  Moved send_desktop_notification() to the completion task that awaits
+  both enrichment and companion handles.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
