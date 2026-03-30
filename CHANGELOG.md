@@ -78,9 +78,23 @@ Replaced SVG logo and logotype with PNGs using GitHub's <picture>
   - logo.png / logo-dark.png (static icon, renders correctly)
   - logotype.png / logotype-dark.png (static wordmark, no JS needed)
 
+- Show companion download speed/ETA in progress bar (#294)
+
+Companion downloads now display speed, ETA, and percentage in the global
+  progress bar instead of showing a generic indeterminate "Processing..."
+  animation. The download store no longer regresses item state from
+  'processing' to 'downloading' during companion events, preventing the
+  queue bar from oscillating. Speed/ETA are cleared on processing_step
+  transitions to avoid stale data during enrichment.
+
+  Also fixes: CodeQL CI failures by adding actions:read permission,
+  README org URLs (MeedyaDL → MWBMPartners), screenshots placeholder
+  removal.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
