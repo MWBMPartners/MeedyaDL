@@ -105,7 +105,14 @@ pub async fn process_replaygain_for_directory(
     // Phase 1: Analyse all tracks individually
     let mut track_results: Vec<(PathBuf, ReplayGainResult)> = Vec::new();
 
-    for file_path in &m4a_files {
+    let total_files = m4a_files.len();
+    for (idx, file_path) in m4a_files.iter().enumerate() {
+        log::info!(
+            "ReplayGain: analysing file {}/{} — {}",
+            idx + 1,
+            total_files,
+            file_path.file_name().unwrap_or_default().to_string_lossy()
+        );
         match analyse_track_loudness(&ffmpeg_path, file_path).await {
             Ok(mut result) => {
                 // Calculate track gain from the reference level

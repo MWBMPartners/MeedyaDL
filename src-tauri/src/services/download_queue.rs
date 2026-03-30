@@ -2585,64 +2585,127 @@ fn spawn_companion_downloads(
                         }
                     };
 
-                    // Pipe stdout/stderr for the companion process.
-                    // We don't parse progress events (fire-and-forget),
-                    // but we capture output for error diagnosis.
+                    // Log the GAMDL CLI args so users can verify the codec request
+                    emit_verbose_download_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        &format!(
+                            "Companion GAMDL args: --song-codec-priority {}",
+                            codec.to_cli_string()
+                        ),
+                    );
+
+                    // Pipe stdout/stderr and stream line-by-line to the activity log.
+                    // This gives users real-time visibility into companion downloads
+                    // (per-track progress, [download] fragments, errors).
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
                     match cmd.spawn() {
-                        Ok(child) => {
-                            match child.wait_with_output().await {
-                                Ok(output) if output.status.success() => {
-                                    log::info!(
-                                        "Companion tier {} ({}) downloaded \
-                                         for {}",
-                                        tier_idx,
-                                        codec.to_cli_string(),
-                                        comp_dl_id
-                                    );
+                        Ok(mut child) => {
+                            // Stream stdout to activity log line-by-line
+                            let stdout = child.stdout.take();
+                            let stderr = child.stderr.take();
+                            let stream_app = comp_app.clone();
+                            let stream_dl_id = comp_dl_id.clone();
+                            let stream_codec = codec.to_cli_string().to_string();
+
+                            // Spawn stdout reader
+                            let stdout_task = if let Some(out) = stdout {
+                                let app = stream_app.clone();
+                                let dl_id = stream_dl_id.clone();
+                                Some(tokio::spawn(async move {
+                                    use tokio::io::AsyncBufReadExt;
+                                    let reader = tokio::io::BufReader::new(out);
+                                    let mut lines = reader.lines();
+                                    while let Ok(Some(line)) = lines.next_line().await {
+                                        let clean = crate::utils::process::strip_ansi_codes(&line);
+                                        if !clean.trim().is_empty() {
+                                            let _ = app.emit(
+                                                "activity-log",
+                                                &crate::utils::activity_log::ActivityLogEvent {
+                                                    download_id: dl_id.clone(),
+                                                    stream: "stdout",
+                                                    line: clean,
+                                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                }))
+                            } else {
+                                None
+                            };
+
+                            // Collect stderr for error diagnosis
+                            let stderr_task = if let Some(err) = stderr {
+                                let app = stream_app.clone();
+                                let dl_id = stream_dl_id.clone();
+                                Some(tokio::spawn(async move {
+                                    use tokio::io::AsyncBufReadExt;
+                                    let reader = tokio::io::BufReader::new(err);
+                                    let mut lines = reader.lines();
+                                    let mut last_line = String::new();
+                                    while let Ok(Some(line)) = lines.next_line().await {
+                                        let clean = crate::utils::process::strip_ansi_codes(&line);
+                                        if !clean.trim().is_empty() {
+                                            last_line = clean.clone();
+                                            let _ = app.emit(
+                                                "activity-log",
+                                                &crate::utils::activity_log::ActivityLogEvent {
+                                                    download_id: dl_id.clone(),
+                                                    stream: "stderr",
+                                                    line: clean,
+                                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                    last_line
+                                }))
+                            } else {
+                                None
+                            };
+
+                            // Wait for the process to complete
+                            let status = child.wait().await;
+
+                            // Wait for stream readers to finish
+                            if let Some(t) = stdout_task { let _ = t.await; }
+                            let last_err = if let Some(t) = stderr_task {
+                                t.await.unwrap_or_default()
+                            } else {
+                                String::new()
+                            };
+
+                            match status {
+                                Ok(s) if s.success() => {
                                     emit_download_log(
                                         &comp_app,
                                         &comp_dl_id,
                                         &format!(
                                             "Companion download complete (tier {}, codec: {})",
-                                            tier_idx,
-                                            codec.to_cli_string(),
+                                            tier_idx, stream_codec,
                                         ),
                                     );
                                     let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
-                                    // Apply custom metadata tags for specialist
-                                    // companion codecs (e.g., isLossless=Y for
-                                    // ALAC). Only ALAC and Atmos have custom
-                                    // tags; lossy codecs return immediately.
                                     if let Some(ref output_dir) = opts.output_path {
                                         match super::metadata_tag_service::apply_codec_metadata_tags(
                                             output_dir, codec,
                                         ) {
                                             Ok(count) if count > 0 => {
                                                 log::info!(
-                                                    "Tagged {} companion file(s) \
-                                                     with {} metadata for {}",
-                                                    count,
-                                                    codec.to_cli_string(),
-                                                    comp_dl_id
+                                                    "Tagged {} companion file(s) with {} metadata for {}",
+                                                    count, stream_codec, comp_dl_id
                                                 );
                                             }
                                             Ok(_) => {}
                                             Err(e) => {
-                                                log::debug!(
-                                                    "Companion metadata tagging \
-                                                     failed for {comp_dl_id}: {e}"
-                                                );
+                                                log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
                                             }
                                         }
 
-                                        // Run lyrics conversion for companion downloads.
-                                        // Companions inherit the TTML lyrics format (forced by
-                                        // Enhanced LRC), so TTML sidecars are downloaded but never
-                                        // converted unless we do it here.
                                         run_companion_lyrics_conversion(
                                             &comp_app,
                                             &comp_dl_id,
@@ -2651,35 +2714,21 @@ fn spawn_companion_downloads(
                                     }
 
                                     tier_succeeded = true;
-                                    break; // This tier done, move to next
+                                    break;
                                 }
-                                Ok(output) => {
-                                    // Non-zero exit: codec may be
-                                    // unavailable for this content
-                                    let stderr = String::from_utf8_lossy(&output.stderr);
-                                    let last_err = stderr.lines().last().unwrap_or("unknown error");
-                                    log::debug!(
-                                        "Companion tier {} ({}) failed \
-                                         for {}: {}",
-                                        tier_idx,
-                                        codec.to_cli_string(),
-                                        comp_dl_id,
-                                        last_err
-                                    );
+                                Ok(_) => {
                                     emit_download_log(
                                         &comp_app,
                                         &comp_dl_id,
                                         &format!(
                                             "Companion tier {}: {} failed — {}",
-                                            tier_idx,
-                                            codec.to_cli_string(),
-                                            last_err
+                                            tier_idx, stream_codec,
+                                            if last_err.is_empty() { "unknown error" } else { &last_err }
                                         ),
                                     );
-                                    // Continue to next codec in tier
                                 }
                                 Err(e) => {
-                                    log::debug!("Companion process error: {e}");
+                                    log::debug!("Companion process wait error: {e}");
                                 }
                             }
                         }
