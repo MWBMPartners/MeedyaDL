@@ -15,7 +15,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 
 | Project | License | Description |
 |---------|---------|-------------|
-| [FFmpeg](https://ffmpeg.org/) | [LGPL / GPL](https://www.gnu.org/licenses/gpl-3.0.en.html) | Audio/video processing and remuxing |
+| [FFmpeg](https://ffmpeg.org/) | [LGPL](https://www.gnu.org/licenses/lgpl-3.0.en.html) / [GPL](https://www.gnu.org/licenses/gpl-3.0.en.html) | Audio/video processing and remuxing |
 | [mp4decrypt (Bento4)](https://www.bento4.com/) | [MIT](https://opensource.org/licenses/MIT) | MP4 DRM decryption |
 | [N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE) | [MIT](https://opensource.org/licenses/MIT) | HLS/DASH stream downloader |
 | [MP4Box (GPAC)](https://gpac.io/) | [LGPL-2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html) | MP4 container muxing/remuxing |
@@ -26,39 +26,39 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 
 | Crate | License |
 |-------|--------|
-| [tauri](https://github.com/tauri-apps/tauri) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [serde](https://github.com/serde-rs/serde) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [serde_json](https://github.com/serde-rs/json) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [tauri](https://github.com/tauri-apps/tauri) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [serde](https://github.com/serde-rs/serde) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [serde_json](https://github.com/serde-rs/json) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [tokio](https://github.com/tokio-rs/tokio) | [MIT](https://opensource.org/licenses/MIT) |
-| [reqwest](https://github.com/seanmonstar/reqwest) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [reqwest](https://github.com/seanmonstar/reqwest) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [zip](https://github.com/zip-rs/zip2) | [MIT](https://opensource.org/licenses/MIT) |
-| [flate2](https://github.com/rust-lang/flate2-rs) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [tar](https://github.com/alexcrichton/tar-rs) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [sha2](https://github.com/RustCrypto/hashes) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [flate2](https://github.com/rust-lang/flate2-rs) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [tar](https://github.com/alexcrichton/tar-rs) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [sha2](https://github.com/RustCrypto/hashes) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [configparser](https://github.com/QEDK/configparser-rs) | [MIT](https://opensource.org/licenses/MIT) |
-| [toml](https://github.com/toml-rs/toml) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [keyring](https://github.com/hwchen/keyring-rs) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [uuid](https://github.com/uuid-rs/uuid) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [chrono](https://github.com/chronotope/chrono) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [log](https://github.com/rust-lang/log) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [toml](https://github.com/toml-rs/toml) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [keyring](https://github.com/hwchen/keyring-rs) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [uuid](https://github.com/uuid-rs/uuid) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [chrono](https://github.com/chronotope/chrono) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [log](https://github.com/rust-lang/log) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [tracing](https://github.com/tokio-rs/tracing) | [MIT](https://opensource.org/licenses/MIT) |
 | [tracing-subscriber](https://github.com/tokio-rs/tracing) | [MIT](https://opensource.org/licenses/MIT) |
 | [tracing-appender](https://github.com/tokio-rs/tracing) | [MIT](https://opensource.org/licenses/MIT) |
 | [sentry](https://github.com/getsentry/sentry-rust) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [sentry-tracing](https://github.com/getsentry/sentry-rust) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
-| [thiserror](https://github.com/dtolnay/thiserror) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [dirs](https://github.com/dirs-dev/dirs-rs) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [regex](https://github.com/rust-lang/regex) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [thiserror](https://github.com/dtolnay/thiserror) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [dirs](https://github.com/dirs-dev/dirs-rs) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [regex](https://github.com/rust-lang/regex) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [jsonwebtoken](https://github.com/Keats/jsonwebtoken) | [MIT](https://opensource.org/licenses/MIT) |
 | [rookie](https://github.com/nicedude/rookie) | [MIT](https://opensource.org/licenses/MIT) |
-| [cookie](https://github.com/SergioBenitez/cookie-rs) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [url](https://github.com/servo/rust-url) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [sys-locale](https://github.com/1Password/sys-locale) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [mp4ameta](https://github.com/Saecki/rust-mp4ameta) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [cookie](https://github.com/SergioBenitez/cookie-rs) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [url](https://github.com/servo/rust-url) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [sys-locale](https://github.com/1Password/sys-locale) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [mp4ameta](https://github.com/Saecki/rust-mp4ameta) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [rusty-chromaprint](https://github.com/nicedude/rusty-chromaprint) | [MIT](https://opensource.org/licenses/MIT) |
 | [symphonia](https://github.com/pdeljanov/Symphonia) | [MPL-2.0](https://www.mozilla.org/en-US/MPL/2.0/) |
-| [base64](https://github.com/marshallpierce/rust-base64) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| [roxmltree](https://github.com/RazrFalcon/roxmltree) | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| [base64](https://github.com/marshallpierce/rust-base64) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [roxmltree](https://github.com/RazrFalcon/roxmltree) | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 
 ## Frontend Dependencies
 
@@ -80,15 +80,15 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 
 | Plugin | License |
 |--------|--------|
-| tauri-plugin-shell | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-dialog | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-fs | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-store | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-process | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-os | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-updater | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-notification | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
-| tauri-plugin-deep-link | [MIT / Apache-2.0](https://opensource.org/licenses/MIT) |
+| tauri-plugin-shell | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-dialog | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-fs | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-store | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-process | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-os | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-updater | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-notification | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| tauri-plugin-deep-link | [MIT](https://opensource.org/licenses/MIT) / [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 
 ---
 
