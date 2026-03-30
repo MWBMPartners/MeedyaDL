@@ -74,6 +74,7 @@ const TOOL_PATH_KEYS: Record<string, string> = {
   mp4decrypt: 'mp4decrypt_path',
   'N_m3u8DL-RE': 'nm3u8dlre_path',
   MP4Box: 'mp4box_path',
+  MediaInfo: 'mediainfo_path',
 };
 
 /**
@@ -84,6 +85,7 @@ const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
   mp4decrypt: 'Decrypting DRM-protected streams (Bento4 toolkit).',
   'N_m3u8DL-RE': 'HLS/DASH stream downloader. Used when download mode is set to N_m3u8DL-RE.',
   MP4Box: 'MP4 muxing and remuxing (GPAC toolkit). Used when remux mode is set to MP4Box.',
+  MediaInfo: 'Accurate codec detection for the enrichment pipeline. Identifies Dolby Atmos, AC-3, ALAC, and AAC variants.',
 };
 
 /**
