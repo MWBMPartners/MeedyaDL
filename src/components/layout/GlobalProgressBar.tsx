@@ -198,9 +198,15 @@ export function GlobalProgressBar() {
           i.state === 'error' ||
           i.state === 'cancelled'
       ).length;
-      // Count items that are done (complete, error, or cancelled)
+      // Count items that are done for queue-level progress.
+      // 'processing' counts as done — the user's files are downloaded,
+      // enrichment/companions are background bonus processing.
       const completed = queueItems.filter(
-        (i) => i.state === 'complete' || i.state === 'error' || i.state === 'cancelled'
+        (i) =>
+          i.state === 'complete' ||
+          i.state === 'processing' ||
+          i.state === 'error' ||
+          i.state === 'cancelled'
       ).length;
       const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
       const working =
