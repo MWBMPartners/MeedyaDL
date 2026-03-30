@@ -15,9 +15,24 @@ Previously, the queue item was marked Complete immediately after the
   downloads were still running in background tasks. The progress bar
   showed the item as complete while files were actively being downloaded.
 
+- Track enrichment JoinHandle, emit companion progress events (#294)
+
+Two remaining fixes for comprehensive progress tracking:
+
+  1. Enrichment tokio::spawn now returns a JoinHandle that the completion
+     task awaits alongside the companion handle. Previously enrichment
+     was fire-and-forget — the item could mark Complete before enrichment
+     finished writing tags/lyrics.
+
+  2. Companion stdout reader now parses GAMDL output lines and emits
+     gamdl-output progress events (same as the primary download). This
+     means the per-item progress bar can show companion download progress
+     as a percentage instead of an indeterminate "Processing..." bar.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.22.6] - 2026-03-30
