@@ -28,12 +28,6 @@
 
 ---
 
-## 📸 Screenshots
-
-> Screenshots coming soon. Run the app locally with `cargo tauri dev` to see the UI.
-
----
-
 ## ✨ Features
 
 ### 🎶 Music Downloads
@@ -196,7 +190,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Installation
 
-1. **Download** the latest release for your platform from the [Releases](https://github.com/MeedyaDL/MeedyaDL/releases) page.
+1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page.
 2. **Install** using your platform's standard method:
    - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
    - **Windows**: Run the `.exe` installer
@@ -245,7 +239,7 @@ sudo apt-get install -y \
 
 # Clone the repository
 
-git clone https://github.com/MeedyaDL/MeedyaDL.git
+git clone https://github.com/MWBMPartners/MeedyaDL.git
 cd MeedyaDL
 
 # Install frontend dependencies
