@@ -520,6 +520,10 @@ export interface AppSettings {
   acoustid_api_key: string;
   /** Enable ReplayGain loudness analysis for downloaded tracks (opt-in) */
   replaygain_enabled: boolean;
+  /** ReplayGain reference loudness level in LUFS (default: -18.0) */
+  replaygain_reference_level: number;
+  /** Prevent digital clipping by limiting ReplayGain gain */
+  replaygain_prevent_clipping: boolean;
   /** Template for album folder naming */
   album_folder_template: string;
   /** Template for compilation album folder naming */

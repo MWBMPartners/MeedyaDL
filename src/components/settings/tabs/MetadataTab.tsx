@@ -106,10 +106,42 @@ export function MetadataTab() {
       <SettingsSection title="ReplayGain Analysis">
           <Toggle
             label="Enable ReplayGain Analysis"
-            description="Analyse audio loudness and embed non-destructive ReplayGain metadata for volume normalisation. Uses FFmpeg (already installed). Analyses each file individually."
+            description="Analyse audio loudness and embed non-destructive ReplayGain metadata for volume normalisation. Calculates both per-track and per-album gain. Uses FFmpeg (already installed)."
             checked={settings.replaygain_enabled}
             onChange={(checked) => updateSettings({ replaygain_enabled: checked })}
           />
+
+          {settings.replaygain_enabled && (
+            <>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-content-primary mb-1">
+                  Reference Level
+                </label>
+                <select
+                  className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
+                  value={settings.replaygain_reference_level}
+                  onChange={(e) =>
+                    updateSettings({ replaygain_reference_level: parseFloat(e.target.value) })
+                  }
+                >
+                  <option value={-18}>-18.0 LUFS (EBU R128 — recommended for music)</option>
+                  <option value={-14}>-14.0 LUFS (Spotify / YouTube style — louder)</option>
+                  <option value={-23}>-23.0 LUFS (EBU R128 broadcast — conservative)</option>
+                  <option value={-16}>-16.0 LUFS (Apple Music / iTunes)</option>
+                </select>
+                <p className="text-xs text-content-tertiary mt-1">
+                  Target loudness level. Players adjust volume so all tracks reach this level. Lower values = quieter target with more headroom.
+                </p>
+              </div>
+
+              <Toggle
+                label="Prevent Clipping"
+                description="Limit gain so peak × gain never exceeds 0 dBFS. Prevents digital distortion on tracks that are already mastered near maximum loudness."
+                checked={settings.replaygain_prevent_clipping}
+                onChange={(checked) => updateSettings({ replaygain_prevent_clipping: checked })}
+              />
+            </>
+          )}
       </SettingsSection>
 
     </div>
