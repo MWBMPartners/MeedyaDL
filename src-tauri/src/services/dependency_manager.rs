@@ -161,9 +161,13 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
             Some(caps.get(1)?.as_str().to_string())
         }
         "mp4decrypt" => {
-            // mp4decrypt: "mp4decrypt version 1.6.0.641"
-            let re = regex::Regex::new(r"(\d+\.\d+\.\d+)").ok()?;
-            Some(re.find(first_line)?.as_str().to_string())
+            // mp4decrypt has no --version flag. When run with no args, outputs:
+            //   MP4 Decrypter - Version 1.4
+            //   (Bento4 Version 1.6.0.0)
+            // Extract the Bento4 version from the full output.
+            let re = regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").ok()?;
+            let caps = re.captures(output)?;
+            Some(caps.get(1)?.as_str().to_string())
         }
         "nm3u8dlre" => {
             // N_m3u8DL-RE: "N_m3u8DL-RE version 0.5.1-beta" or just "v0.5.1-beta"
@@ -1866,41 +1870,52 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
 pub async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String, String> {
     // Different tools use different version flags:
     // - FFmpeg and MP4Box use single-dash "-version" (non-standard but that's how they work)
+    // - mp4decrypt has no version flag — running it with no args prints usage to stderr
     // - Most other tools use double-dash "--version" (GNU convention)
     let version_flag = match tool_id {
-        // Both FFmpeg and MP4Box use single-dash "-version" (non-standard)
         "ffmpeg" | "mp4box" => "-version",
-        _ => "--version", // Standard GNU-style flag
+        "mp4decrypt" => "", // No version flag — run with no args, parse stderr
+        _ => "--version",
     };
 
     // Run the binary with the version flag and capture output.
-    // This serves as both a version check and a basic health check
-    // (verifying the binary is executable and not corrupt).
-    let output = tokio::process::Command::new(binary_path)
-        .arg(version_flag)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run {tool_id} --version: {e}"))?;
-
-    // Extract the first line of stdout as the version string.
-    // Most tools output their version on the first line of stdout.
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let first_line = stdout.lines().next().unwrap_or("").trim().to_string();
-
-    if first_line.is_empty() {
-        // Some tools output version info to stderr (e.g., FFmpeg logs to stderr).
-        // Fall back to the first line of stderr.
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let first_err_line = stderr
-            .lines()
-            .next()
-            .unwrap_or("unknown")
-            .trim()
-            .to_string();
-        Ok(first_err_line)
+    let output = if version_flag.is_empty() {
+        // mp4decrypt: run with no arguments, version info is in the error output
+        tokio::process::Command::new(binary_path)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run {tool_id}: {e}"))?
     } else {
-        Ok(first_line)
+        tokio::process::Command::new(binary_path)
+            .arg(version_flag)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run {tool_id} {version_flag}: {e}"))?
+    };
+
+    // Combine stdout and stderr (some tools output to stderr)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = if stdout.trim().is_empty() {
+        stderr.to_string()
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
+
+    // Use the structured version parser which handles each tool's quirks
+    // (mp4decrypt error output, MediaInfo multi-line, FFmpeg prefixes, etc.)
+    if let Some(version) = extract_version_from_output(&combined, tool_id) {
+        return Ok(version);
     }
+
+    // Fallback: return the first non-empty line as-is
+    let first_line = combined
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("unknown")
+        .trim()
+        .to_string();
+    Ok(first_line)
 }
 
 /// Checks whether a tool is installed and returns its status.
