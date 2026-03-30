@@ -75,6 +75,7 @@ Items in Processing state (enrichment + companions running) now count
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.6] - 2026-03-30
 
