@@ -6,8 +6,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Allow multiple adjacent separators in template builder
+
+The template parser now splits literal text by known separator tokens
+  (from COMMON_LITERALS: " - ", "/", " ", "-", "_") so each renders as
+  its own chip in the TemplateBuilder UI. Previously, the round-trip
+  parse→serialize→re-parse collapsed adjacent literals into one segment,
+  making it impossible to use multi-character separators like " - ".
+
+  Known tokens are matched longest-first to avoid partial matches
+  (e.g., " - " matches before " " or "-"). Unknown text between tokens
+  is preserved as-is.
+
+  Added 2 new tests: dash separator splitting, multiple adjacent separators.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
