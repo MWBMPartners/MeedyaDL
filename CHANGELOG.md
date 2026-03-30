@@ -59,6 +59,7 @@ Updated lyrics-and-metadata.md ReplayGain section to document all 4
   tags (track gain/peak + album gain/peak), configurable reference level
   options, and clipping prevention setting.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.2] - 2026-03-30
 
