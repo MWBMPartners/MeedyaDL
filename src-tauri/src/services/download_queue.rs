@@ -3881,7 +3881,7 @@ pub fn process_queue(
 
                     // Build a display name for the notification body. Prefer the
                     // track name from the queue item, fall back to the URL basename.
-                    let notification_name = history_track_name.clone().unwrap_or_else(|| {
+                    let _notification_name = history_track_name.clone().unwrap_or_else(|| {
                         urls.first()
                             .and_then(|u| u.rsplit('/').next())
                             .unwrap_or("Download")
@@ -3912,15 +3912,9 @@ pub fn process_queue(
                     save_queue_to_disk(&app_clone, &queue_clone).await;
 
                     // Notify frontend of successful completion
-                    let _ = app_clone.emit("download-complete", &dl_id);
-
-                    // Send a native OS desktop notification if the window is
-                    // not focused, so the user knows their download finished.
-                    send_desktop_notification(
-                        &app_clone,
-                        "Download Complete",
-                        &format!("{notification_name} downloaded successfully"),
-                    );
+                    // NOTE: download-complete event and desktop notification are
+                    // deferred to the completion task (after enrichment + companions
+                    // finish) so they don't fire prematurely.
 
                     // === Unified post-download enrichment (background, fire-and-forget) ===
                     // After a successful download, run all post-processing in a single
@@ -4783,6 +4777,13 @@ pub fn process_queue(
                                 "All downloads and processing complete",
                             );
                             let _ = completion_app.emit("download-complete", &completion_dl_id);
+
+                            // Desktop notification fires AFTER all work finishes
+                            send_desktop_notification(
+                                &completion_app,
+                                "Download Complete",
+                                "All downloads and processing complete",
+                            );
                         });
                     }
                 }
