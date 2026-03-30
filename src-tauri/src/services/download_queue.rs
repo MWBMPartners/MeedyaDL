@@ -2633,15 +2633,24 @@ fn spawn_companion_downloads(
                                     while let Ok(Some(line)) = lines.next_line().await {
                                         let clean = crate::utils::process::strip_ansi_codes(&line);
                                         if !clean.trim().is_empty() {
+                                            // Emit to activity log
                                             let _ = app.emit(
                                                 "activity-log",
                                                 &crate::utils::activity_log::ActivityLogEvent {
                                                     download_id: dl_id.clone(),
                                                     stream: "stdout",
-                                                    line: clean,
+                                                    line: clean.clone(),
                                                     timestamp: chrono::Utc::now().to_rfc3339(),
                                                 },
                                             );
+
+                                            // Parse for progress events so the progress bar updates
+                                            let event = crate::utils::process::parse_gamdl_output(&clean);
+                                            let progress = gamdl_service::GamdlProgress {
+                                                download_id: dl_id.clone(),
+                                                event,
+                                            };
+                                            let _ = app.emit("gamdl-output", &progress);
                                         }
                                     }
                                 }))
@@ -3919,7 +3928,7 @@ pub fn process_queue(
                     // This runs in a separate tokio task so it doesn't block the queue
                     // from processing the next download. Failures are logged but never
                     // propagate to the user or affect the download status.
-                    if let Some(output_dir) = output_path_for_artwork.clone() {
+                    let enrichment_handle = if let Some(output_dir) = output_path_for_artwork.clone() {
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
                         let enrich_dl_id = dl_id.clone();
@@ -3928,7 +3937,7 @@ pub fn process_queue(
                         let enrich_native_priority = uses_native_priority;
                         let enrich_queue = queue_clone.clone();
                         let enrich_started_at = download_started_at.clone();
-                        tokio::spawn(async move {
+                        Some(tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
                             // For albums, output_path is already the directory.
@@ -4682,8 +4691,10 @@ pub fn process_queue(
                                 &enrich_dl_id,
                                 "Post-download enrichment complete",
                             );
-                        });
-                    }
+                        }))
+                    } else {
+                        None
+                    };
 
                     // Spawn companion downloads (codec + lyrics) as background tasks.
                     // When native priority was used, GAMDL may have silently fallen
@@ -4725,6 +4736,10 @@ pub fn process_queue(
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
                         tokio::spawn(async move {
+                            // Wait for enrichment to finish
+                            if let Some(handle) = enrichment_handle {
+                                let _ = handle.await;
+                            }
                             // Wait for companion downloads to finish
                             if let Some(handle) = companion_handle {
                                 let _ = handle.await;
