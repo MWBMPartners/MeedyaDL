@@ -1629,14 +1629,42 @@ Example: BBC iPlayer uses `get_iplayer` as primary because it's purpose-built fo
 
 Users can override the default priority per-platform in Settings. User overrides are stored in `AppSettings.engine_priority_overrides` and take precedence over the TOML defaults.
 
+### Bundled vs External Engines
+
+Each engine has a `bundled` field that determines how it's distributed:
+
+**Bundled engines (`bundled = true`):**
+- Installed via `pip install` into the managed Python environment during setup
+- Packaged with MeedyaDL during CI release builds (release.yml reads this field)
+- No custom path setting in Settings > Tools — always uses the managed version
+- Updated via the in-app update checker (PyPI version comparison)
+- Must not be installed separately by the user
+
+**External engines (`bundled = false`):**
+- Installed by the user via system package manager (Homebrew, apt, etc.)
+- User can set a custom binary path in Settings > Tools
+- Auto-detected from system PATH and common install locations at runtime
+- Not packaged in the MeedyaDL installer
+
 ### Current Registry
 
-| Engine | Install | Platforms |
-|--------|---------|-----------|
-| GAMDL | pip | Apple Music |
-| votify | pip | Spotify |
-| yt-dlp | pip | YouTube, YouTube Music, BBC iPlayer (fallback) |
-| get_iplayer | system | BBC iPlayer (primary) |
+| Engine | Bundled | Install | Platforms | Custom path |
+|--------|---------|---------|-----------|-------------|
+| GAMDL | Yes | pip | Apple Music | No |
+| votify | Yes | pip | Spotify | No |
+| yt-dlp | Yes | pip | YouTube, YouTube Music, BBC iPlayer (fallback) | No |
+| get_iplayer | No | system | BBC iPlayer (primary) | Yes |
+
+### CI Packaging
+
+The release CI workflow (`release.yml`) should read `engines.toml` to determine which engines to pre-install. For each engine where `bundled = true` AND `enabled = true`:
+
+```bash
+# In the release build step, after Python is set up:
+python -m pip install gamdl votify  # All bundled+enabled engines
+```
+
+When a new bundled engine is enabled (e.g., yt-dlp for YouTube support), adding `enabled = true` in `engines.toml` is the signal for CI to include it in the pip install step. No workflow YAML changes needed — the workflow can parse `engines.toml` to build the install list dynamically.
 
 ### Editing Guide
 
