@@ -29,9 +29,26 @@ Two remaining fixes for comprehensive progress tracking:
      means the per-item progress bar can show companion download progress
      as a percentage instead of an indeterminate "Processing..." bar.
 
+- Processing label shows current activity in progress bar (#294)
+
+New processing_label field on QueueItemStatus carries what's happening
+  during the Processing state. The progress bar and queue item card show
+  the label instead of generic "Processing...":
+
+  - "Enriching metadata tags..."
+  - "Converting lyrics (Enhanced LRC)..."
+  - "Downloading animated artwork..."
+  - "AcoustID fingerprinting..."
+  - "ReplayGain loudness analysis..."
+
+  The enrichment task sets the label via set_processing_label() at each
+  stage entry. GlobalProgressBar displays processing_label with priority
+  over current_track.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
