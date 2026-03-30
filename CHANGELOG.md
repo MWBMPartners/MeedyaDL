@@ -18,9 +18,24 @@ Added MediaInfo to TOOL_PATH_KEYS and TOOL_PATH_DESCRIPTIONS in
   Also created #278 for setup wizard custom path fallback when tool
   install fails (future enhancement).
 
+- Setup wizard installs all bundled pip engines (GAMDL + votify)
+
+The GAMDL setup step now calls installBundledEngines() which installs
+  GAMDL first, then votify (and any future bundled+enabled pip engines).
+  Previously only GAMDL was installed during setup; votify was left for
+  the user to install manually or via Settings > Tools.
+
+  GamdlStep UI text updated to "Download Engines" to reflect it handles
+  multiple engines. votify install failure is non-fatal (logged but
+  doesn't block the wizard).
+
+  Binary engines (get_iplayer, MediaInfo) are handled by the existing
+  Tools step which downloads from the MeedyaDL-Tools mirror.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
