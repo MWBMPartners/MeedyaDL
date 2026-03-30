@@ -4,6 +4,48 @@ Important notes for development, releasing, and CI/CD workflows.
 
 ---
 
+## Package Manifests
+
+MeedyaDL has two package manifests that define dependencies for different layers:
+
+### `src-tauri/Cargo.toml` — Rust Backend Dependencies
+
+Defines all Rust crates used by the Tauri backend. These are compiled into the native binary. Key categories:
+
+- **Tauri framework & plugins** — application shell, IPC, native capabilities
+- **Serialisation** (serde, serde_json) — JSON for IPC and file persistence
+- **Async runtime** (tokio) — concurrent I/O for downloads and subprocess management
+- **HTTP client** (reqwest) — downloading tools, querying APIs
+- **Cryptography** (sha2, jsonwebtoken) — checksum verification, MusicKit JWT signing
+- **Audio** (mp4ameta, rusty-chromaprint, symphonia) — metadata tagging, fingerprinting
+- **Logging** (tracing, sentry) — structured diagnostics, optional error tracking
+
+Version bumped automatically by release-please. Do not edit the version manually.
+
+### `package.json` — Frontend Dependencies
+
+Defines npm packages used by the React/TypeScript frontend. Key categories:
+
+- **UI framework** (react, react-dom, zustand) — component rendering, state management
+- **Styling** (tailwindcss, postcss) — utility-first CSS
+- **Content** (react-markdown, rehype-sanitize, remark-gfm) — help page rendering
+- **Internationalisation** (i18next, react-i18next) — translation system
+- **Build tools** (vite, typescript, vitest) — in devDependencies, not shipped
+
+Version bumped automatically by release-please. Do not edit the version manually.
+
+### `ACKNOWLEDGEMENTS.md` — Auto-Generated
+
+Lists all currently enabled/shipping dependencies with licence links. Generated from both manifests plus `engines.toml`:
+
+```bash
+node scripts/generate-acknowledgements.mjs
+```
+
+Run this whenever engines are enabled/disabled or dependencies change.
+
+---
+
 ## Release Workflow
 
 ### There Are 4 Separate Workflows — Don't Confuse Them
