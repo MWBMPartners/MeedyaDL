@@ -963,6 +963,14 @@ impl DownloadQueue {
         }
     }
 
+    /// Marks a download as in post-processing (enrichment, companions, etc.).
+    /// The item stays in this state until all background tasks finish.
+    pub fn set_processing(&mut self, download_id: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.state = DownloadState::Processing;
+        }
+    }
+
     /// Marks a download as complete.
     pub fn set_complete(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
@@ -2468,6 +2476,8 @@ async fn detect_actual_primary_codec(
 /// This is called after any terminal download outcome (success or final
 /// failure), but NOT after fallback/network retries (where the download
 /// will be re-attempted and companions will fire on the final outcome).
+/// Spawns companion downloads and returns a JoinHandle that resolves when
+/// all companion tiers have completed. Returns None if no companions are needed.
 fn spawn_companion_downloads(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -2476,7 +2486,7 @@ fn spawn_companion_downloads(
     companion_base_options: &GamdlOptions,
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
-) {
+) -> Option<tokio::task::JoinHandle<()>> {
     let companion_settings = load_settings_for_queue(app);
     let mut companion_tiers = plan_companions(
         &companion_settings.companion_mode,
@@ -2495,7 +2505,9 @@ fn spawn_companion_downloads(
         }
     }
 
-    if !companion_tiers.is_empty() {
+    let codec_handle = if companion_tiers.is_empty() {
+        None
+    } else {
         let comp_app = app.clone();
         let comp_urls = urls.to_vec();
         let comp_base_opts = companion_base_options.clone();
@@ -2528,7 +2540,7 @@ fn spawn_companion_downloads(
             );
         }
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // Process each companion tier sequentially
             for (tier_idx, tier) in companion_tiers.iter().enumerate() {
                 // Check for app shutdown between tiers
@@ -2748,7 +2760,8 @@ fn spawn_companion_downloads(
                 }
             }
         });
-    }
+        Some(handle)
+    };
 
     /// Runs lyrics format conversion on a companion download's output directory.
     ///
@@ -2960,6 +2973,10 @@ fn spawn_companion_downloads(
             }
         });
     }
+
+    // Return the codec companion handle if it exists.
+    // (Lyrics companions are fire-and-forget — they're fast and non-critical.)
+    codec_handle
 }
 
 // ============================================================
@@ -3779,7 +3796,7 @@ pub fn process_queue(
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
                                 // format was unavailable.
-                                spawn_companion_downloads(
+                                let _ = spawn_companion_downloads(
                                     &app_clone,
                                     &dl_id,
                                     &urls,
@@ -3795,10 +3812,10 @@ pub fn process_queue(
                             }
                         }
 
-                        // Mark as complete and attach any non-fatal warnings.
-                        // Reached when has_output=true (normal) or IO error
-                        // recovery set output_path from config.
-                        q.set_complete(&dl_id);
+                        // Mark as processing (enrichment + companions still running).
+                        // The item stays in Processing state until all background
+                        // tasks complete, keeping the progress bar active.
+                        q.set_processing(&dl_id);
                         let mut all_warnings = warnings.clone();
                         if warnings.iter().any(|w| process::is_io_error(w)) {
                             all_warnings.push(
@@ -4689,7 +4706,7 @@ pub fn process_queue(
 
                     // When native priority was used, force all companions to
                     // use suffixed filenames (primary has clean filenames).
-                    spawn_companion_downloads(
+                    let companion_handle = spawn_companion_downloads(
                         &app_clone,
                         &dl_id,
                         &urls,
@@ -4698,6 +4715,36 @@ pub fn process_queue(
                         &shutdown_clone,
                         uses_native_priority,
                     );
+
+                    // Spawn a completion task that waits for ALL background work
+                    // (enrichment + companions) before marking the item as Complete.
+                    // This keeps the item in Processing state and the progress bar
+                    // active until everything finishes.
+                    {
+                        let completion_app = app_clone.clone();
+                        let completion_dl_id = dl_id.clone();
+                        let completion_queue = queue_clone.clone();
+                        tokio::spawn(async move {
+                            // Wait for companion downloads to finish
+                            if let Some(handle) = companion_handle {
+                                let _ = handle.await;
+                            }
+
+                            // Mark as complete now that all background work is done
+                            {
+                                let mut q = completion_queue.lock().await;
+                                q.set_complete(&completion_dl_id);
+                                drop(q);
+                            }
+                            save_queue_to_disk(&completion_app, &completion_queue).await;
+                            emit_download_log(
+                                &completion_app,
+                                &completion_dl_id,
+                                "All downloads and processing complete",
+                            );
+                            let _ = completion_app.emit("download-complete", &completion_dl_id);
+                        });
+                    }
                 }
                 Err(error_msg) => {
                     // === Cancellation short-circuit ===
@@ -5024,7 +5071,7 @@ pub fn process_queue(
                         // is network-related (network is down, so companions would
                         // also fail and just waste time + clutter the Activity Log).
                         if error_category != "network" {
-                            spawn_companion_downloads(
+                            let _ = spawn_companion_downloads(
                                 &app_clone,
                                 &dl_id,
                                 &urls,
