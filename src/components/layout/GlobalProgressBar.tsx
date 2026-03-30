@@ -114,8 +114,13 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
       .then((text) => {
         // Only accept SVG content (not HTML error pages)
         if (text.includes('<svg')) {
-          svgCache.set(platform.icon, text);
-          setSvgHtml(text);
+          // Inject width/height/style into the SVG root element so it fills the container
+          const sized = text.replace(
+            '<svg',
+            '<svg width="100%" height="100%" style="display:block"'
+          );
+          svgCache.set(platform.icon, sized);
+          setSvgHtml(sized);
         } else {
           setUseFallback(true);
         }
