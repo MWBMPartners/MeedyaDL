@@ -58,6 +58,7 @@ Three major improvements to download visibility:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.5] - 2026-03-30
 
