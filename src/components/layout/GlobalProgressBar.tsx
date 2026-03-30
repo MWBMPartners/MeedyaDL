@@ -114,13 +114,33 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
       .then((text) => {
         // Only accept SVG content (not HTML error pages)
         if (text.includes('<svg')) {
-          // Inject width/height/style into the SVG root element so it fills the container
-          const sized = text.replace(
-            '<svg',
-            '<svg width="100%" height="100%" style="display:block"'
-          );
-          svgCache.set(platform.icon, sized);
-          setSvgHtml(sized);
+          // Defence-in-depth: parse the SVG via DOMParser and strip
+          // <script> elements + event handler attributes before inline
+          // rendering. Tauri's CSP already blocks inline scripts, but
+          // this prevents any bypass via onload/onerror/xlink:href.
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, 'image/svg+xml');
+          const svgEl = doc.querySelector('svg');
+          if (!svgEl) {
+            setUseFallback(true);
+            return;
+          }
+          // Remove script elements and event handler attributes
+          doc.querySelectorAll('script').forEach((s) => s.remove());
+          doc.querySelectorAll('*').forEach((el) => {
+            for (const attr of [...el.attributes]) {
+              if (attr.name.startsWith('on')) {
+                el.removeAttribute(attr.name);
+              }
+            }
+          });
+          // Inject sizing attributes for container fill
+          svgEl.setAttribute('width', '100%');
+          svgEl.setAttribute('height', '100%');
+          svgEl.setAttribute('style', 'display:block');
+          const sanitized = svgEl.outerHTML;
+          svgCache.set(platform.icon, sanitized);
+          setSvgHtml(sanitized);
         } else {
           setUseFallback(true);
         }
