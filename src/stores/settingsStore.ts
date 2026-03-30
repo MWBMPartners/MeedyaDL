@@ -129,6 +129,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   acoustid_enabled: false, // AcoustID fingerprinting (embedded Chromaprint)
   acoustid_api_key: '', // AcoustID application API key (user-provided)
   replaygain_enabled: false, // ReplayGain loudness analysis (uses FFmpeg)
+  replaygain_reference_level: -18.0, // EBU R128 default (-18 LUFS)
+  replaygain_prevent_clipping: true, // Limit gain to prevent clipping
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
