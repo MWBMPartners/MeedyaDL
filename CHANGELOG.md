@@ -8,6 +8,23 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Inject width/height/display into SVG for platform icon rendering
+
+The inline SVG loaded via fetch + dangerouslySetInnerHTML wasn't
+  displaying correctly — the <span> container showed but the SVG inside
+  had no explicit dimensions. Now injects width="100%" height="100%"
+  style="display:block" into the SVG root element before caching, so
+  it fills the 16x16 container reliably.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.5] - 2026-03-30
+
+### 🐛 Bug Fixes
+
 - Link each licence individually in dual-licence entries
 
 licenceLink() now splits "MIT / Apache-2.0" into two separate
