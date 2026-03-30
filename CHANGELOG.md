@@ -8,6 +8,21 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Link each licence individually in dual-licence entries
+
+licenceLink() now splits "MIT / Apache-2.0" into two separate
+  hyperlinks: [MIT](url) / [Apache-2.0](url). Previously both pointed
+  to the MIT licence URL.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.4] - 2026-03-30
+
+### 🐛 Bug Fixes
+
 - Update engine requirements and enable status for votify and get_iplayer
 - Clarify ReplayGain settings with album gain explanation and improved descriptions
 
