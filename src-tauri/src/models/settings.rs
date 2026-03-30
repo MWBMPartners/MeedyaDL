@@ -45,6 +45,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_replaygain_reference() -> f64 {
+    -18.0
+}
+
 /// Companion download mode configuration.
 ///
 /// Controls whether `MeedyaDL` automatically downloads additional format
@@ -557,6 +561,16 @@ pub struct AppSettings {
     #[serde(default)]
     pub replaygain_enabled: bool,
 
+    /// `ReplayGain` reference loudness level in LUFS. Default: -18.0 (EBU R128).
+    /// Common alternatives: -14.0 (Spotify-style), -23.0 (broadcast).
+    #[serde(default = "default_replaygain_reference")]
+    pub replaygain_reference_level: f64,
+
+    /// When true, limits `ReplayGain` gain so that peak × gain never exceeds 1.0,
+    /// preventing digital clipping on tracks that are already near 0 dBFS.
+    #[serde(default = "default_true")]
+    pub replaygain_prevent_clipping: bool,
+
     // ================================================================
     // File/Folder Templates
     // ================================================================
@@ -981,6 +995,8 @@ impl Default for AppSettings {
             acoustid_enabled: false,
             acoustid_api_key: String::new(),
             replaygain_enabled: false,
+            replaygain_reference_level: default_replaygain_reference(),
+            replaygain_prevent_clipping: true,
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization.
