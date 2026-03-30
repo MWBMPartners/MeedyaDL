@@ -17,6 +17,13 @@
 #                            Use enabled=false to define future engines without
 #                            exposing them to users (e.g., engines not yet
 #                            integrated into the download pipeline).
+#   bundled                — true = core engine, installed via pip into the managed
+#                            Python environment and packaged with MeedyaDL. No custom
+#                            path override allowed — the managed version is authoritative.
+#                            false = external tool, supports custom path override in
+#                            Settings > Tools. Users can point to their own installation.
+#                            The release CI workflow reads this field to determine which
+#                            engines to pre-install during packaging.
 #   install_method         — How the tool is installed: "pip", "binary", "system"
 #   pip_package            — PyPI package name (if install_method = "pip")
 #   cli_command            — How to invoke the tool (e.g., "python -m gamdl")
@@ -32,13 +39,36 @@
 #   engines                — Ordered list of engine IDs (first = primary, rest = fallback)
 #   content_types          — What this platform offers (for UI hints)
 #
+# `icon` (optional) is a path to a local SVG/PNG icon in public/icons/platforms/.
+# If omitted or the file doesn't exist, the UI falls back to fetching the
+# favicon from the first url_pattern hostname (prefers PNG/SVG over ICO).
+# To add an icon: save a 16x16 or 24x24 SVG/PNG to public/icons/platforms/
+# and set the path here.
+#
+# ## Bundled vs External Engines
+#
+# Bundled engines (bundled = true):
+#   - Installed via `pip install` into the managed Python environment
+#   - Packaged with MeedyaDL during CI release builds
+#   - No custom path setting — always uses the managed version
+#   - Updated via the in-app update checker (PyPI version comparison)
+#   - Examples: GAMDL, votify, yt-dlp, OF-Scraper
+#
+# External engines (bundled = false):
+#   - Installed via system package manager, Homebrew, or manual download
+#   - User can set a custom binary path in Settings > Tools
+#   - Detected from system PATH and common install locations
+#   - Examples: get_iplayer (Perl-based, no pip package)
+#
 # ## Adding a New Engine
 #
 # 1. Add a new [engines.<id>] section below
 # 2. Set enabled = false until the Rust adapter is implemented
-# 3. Add the engine ID to the relevant platform's `engines` list
-# 4. Implement the engine adapter in Rust (see services/ directory)
-# 5. Set enabled = true when ready for users
+# 3. Set bundled = true if it's a pip package that should ship with MeedyaDL
+# 4. Add the engine ID to the relevant platform's `engines` list
+# 5. Implement the engine adapter in Rust (see services/ directory)
+# 6. Set enabled = true when ready for users
+# 7. If bundled = true, add to the release CI pip install step
 #
 # ## Adding a New Platform
 #
@@ -63,6 +93,7 @@
 name = "GAMDL"
 required = true
 enabled = true
+bundled = true                    # Core engine — pip installed into managed Python env
 install_method = "pip"
 pip_package = "gamdl"
 cli_command = "python -m gamdl"
@@ -73,6 +104,7 @@ description = "Apple Music downloader with lossless, Atmos, and lyrics support"
 name = "votify"
 required = true
 enabled = true
+bundled = true                    # Core engine — pip installed into managed Python env
 install_method = "pip"
 pip_package = "votify"
 cli_command = "python -m votify"
@@ -83,6 +115,7 @@ description = "Spotify downloader with Ogg Vorbis and lyrics support"
 name = "yt-dlp"
 required = true
 enabled = false                   # Enable when YouTube support is implemented (#103, #104)
+bundled = true                    # Core engine — pip installed into managed Python env
 install_method = "pip"
 pip_package = "yt-dlp"
 cli_command = "yt-dlp"
@@ -93,6 +126,7 @@ description = "General-purpose video/audio downloader supporting 1000+ sites"
 name = "get_iplayer"
 required = false
 enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
+bundled = false                   # External tool — user installs via Homebrew/apt/standalone
 install_method = "system"
 # No pip_package — installed via Homebrew (macOS), apt (Linux), or standalone (Windows)
 cli_command = "get_iplayer"
@@ -105,6 +139,7 @@ description = "BBC iPlayer specialist with PVR scheduling, series handling, and 
 name = "OF-Scraper"
 required = false
 enabled = false
+bundled = true                    # Core engine — pip installed into managed Python env
 install_method = "pip"
 pip_package = "ofscraper"
 cli_command = "python -m ofscraper"
@@ -124,12 +159,6 @@ description = "Subscription content downloader with DRM support"
 #
 # `enabled` controls whether the platform appears in the UI. Set to false
 # for platforms that are defined but not yet implemented.
-#
-# `icon` (optional) is a path to a local SVG/PNG icon in public/icons/platforms/.
-# If omitted or the file doesn't exist, the UI falls back to fetching the
-# favicon from the first url_pattern hostname (prefers PNG/SVG over ICO).
-# To add an icon: save a 16x16 or 24x24 SVG/PNG to public/icons/platforms/
-# and set the path here.
 
 [platforms.apple-music]
 name = "Apple Music"
@@ -183,26 +212,21 @@ icon = "icons/platforms/bbc-iplayer.svg"
 url_patterns = [
     "bbc.co.uk/iplayer",
     "www.bbc.co.uk/iplayer",
-    "bbc.co.uk/sounds",
-    "www.bbc.co.uk/sounds",
 ]
 # get_iplayer is primary: purpose-built for BBC with superior metadata,
 # series/episode handling, PVR scheduling, and subtitle support.
 # yt-dlp is fallback: works but treats BBC as a generic extractor.
 engines = ["get_iplayer", "ytdlp"]
-content_types = ["tv", "radio", "podcasts"]
+content_types = ["tv", "radio"]
 
 [platforms.bbc-sounds]
 name = "BBC Sounds"
-enabled = false                   # Enable when BBC Sounds support is implemented (#102)
+enabled = false
 icon = "icons/platforms/bbc-sounds.svg"
 url_patterns = [
     "bbc.co.uk/sounds",
     "www.bbc.co.uk/sounds",
 ]
-# get_iplayer is primary: purpose-built for BBC with superior metadata,
-# series/episode handling, PVR scheduling, and subtitle support.
-# yt-dlp is fallback: works but treats BBC as a generic extractor.
 engines = ["get_iplayer", "ytdlp"]
 content_types = ["radio", "podcasts"]
 
