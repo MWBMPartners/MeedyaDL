@@ -9,6 +9,18 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Update CodeQL actions from v3 to v4 (SHA-pinned)
+
+CodeQL Action v3 is deprecated in December 2026 and uses Node.js 20
+  (also deprecated). v4 uses Node.js 22 and resolves both warnings.
+
+  Pinned to immutable SHA d4b3ca9fa7f69d38bfcd667bdc45bc373d16277e
+  per supply chain hardening convention.
+
 
 ## [0.22.0] - 2026-03-30
 
