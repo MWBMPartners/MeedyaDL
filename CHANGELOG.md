@@ -52,9 +52,25 @@ Desktop notification "Download Complete" was firing immediately after
   Moved send_desktop_notification() to the completion task that awaits
   both enrichment and companion handles.
 
+- Queue-level progress counts 'processing' items as done (#294)
+
+Items in Processing state (enrichment + companions running) now count
+  as "done" in the queue-level progress bar. Previously the bar sat at
+  0% during the entire post-download phase (~20 min for 28-track albums
+  with companion tiers).
+
+  The user's files are downloaded when state=processing — enrichment
+  and companions are bonus background processing that shouldn't hold
+  back the queue progress indicator.
+
+  Also confirmed: companion speed/ETA already works via gamdl-output
+  events emitted in commit fde8ac1. No additional changes needed for
+  item 4 (companion speed/ETA display).
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
