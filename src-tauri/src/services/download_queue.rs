@@ -720,6 +720,7 @@ impl DownloadQueue {
                 completed_tracks: None,
                 speed: None,
                 eta: None,
+                processing_label: None,
                 error: None,
                 output_path: None,
                 codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -968,6 +969,14 @@ impl DownloadQueue {
     pub fn set_processing(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.state = DownloadState::Processing;
+        }
+    }
+
+    /// Updates the processing label for a download item.
+    /// Shows what's currently happening during Processing state.
+    pub fn set_processing_label(&mut self, download_id: &str, label: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_label = Some(label.to_string());
         }
     }
 
@@ -1350,6 +1359,7 @@ impl DownloadQueue {
                     completed_tracks: None,
                     speed: None,
                     eta: None,
+                    processing_label: None,
                     error,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -3951,6 +3961,16 @@ pub fn process_queue(
                                 )
                             };
 
+                            // Helper: update the processing label in the queue item
+                            // so the progress bar shows what's happening.
+                            let label_queue = enrich_queue.clone();
+                            let label_dl_id = enrich_dl_id.clone();
+                            let set_label = move |label: &str| {
+                                if let Ok(mut q) = label_queue.try_lock() {
+                                    q.set_processing_label(&label_dl_id, label);
+                                }
+                            };
+
                             // Log enrichment settings summary so users can see
                             // which steps will run in the Activity Log.
                             let enrich_settings = load_settings_for_queue(&enrich_app);
@@ -3967,6 +3987,7 @@ pub fn process_queue(
                             ),
                         );
 
+                            set_label("Enriching metadata tags...");
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
                             // source tags, channel detection, API metadata). Returns the
@@ -4068,6 +4089,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("Converting lyrics (Enhanced LRC)...");
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
@@ -4329,6 +4351,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("Downloading animated artwork...");
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
                             // duplicate API call. Falls back to a fresh API call
@@ -4427,6 +4450,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("AcoustID fingerprinting...");
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
                             // embedded rusty-chromaprint library and looks up AcoustID
@@ -4487,6 +4511,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("ReplayGain loudness analysis...");
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                             // When enabled, analyses each file's loudness via FFmpeg's
                             // ebur128 filter and writes non-destructive ReplayGain tags.
