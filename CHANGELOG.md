@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Update engine requirements and enable status for votify and get_iplayer
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.3] - 2026-03-30
+
+### 🐛 Bug Fixes
+
 - ReplayGain album gain, configurable reference level, clipping prevention (#282)
 
 Three enhancements to ReplayGain analysis:
