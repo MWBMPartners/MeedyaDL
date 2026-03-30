@@ -55,16 +55,17 @@
 #   - Examples: GAMDL, votify, yt-dlp, OF-Scraper
 #
 # External engines (bundled = false):
-#   - Installed via system package manager, Homebrew, or manual download
+#   - Not packaged with MeedyaDL
 #   - User can set a custom binary path in Settings > Tools
 #   - Detected from system PATH and common install locations
-#   - Examples: get_iplayer (Perl-based, no pip package)
+#   - Currently no engines use this — all are bundled via pip or mirror
 #
 # ## Adding a New Engine
 #
 # 1. Add a new [engines.<id>] section below
 # 2. Set enabled = false until the Rust adapter is implemented
-# 3. Set bundled = true if it's a pip package that should ship with MeedyaDL
+# 3. Set bundled = true (pip engines use install_method="pip", binary
+#    engines use install_method="binary" and are hosted on MeedyaDL-Tools mirror)
 # 4. Add the engine ID to the relevant platform's `engines` list
 # 5. Implement the engine adapter in Rust (see services/ directory)
 # 6. Set enabled = true when ready for users
@@ -126,9 +127,8 @@ description = "General-purpose video/audio downloader supporting 1000+ sites"
 name = "get_iplayer"
 required = false
 enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
-bundled = false                   # External tool — user installs via Homebrew/apt/standalone
-install_method = "system"
-# No pip_package — installed via Homebrew (macOS), apt (Linux), or standalone (Windows)
+bundled = true                    # Bundled via MeedyaDL-Tools mirror (not pip — Perl-based)
+install_method = "binary"         # Downloaded from mirror, same as FFmpeg/mp4decrypt/MediaInfo
 cli_command = "get_iplayer"
 homepage = "https://github.com/get-iplayer/get_iplayer"
 description = "BBC iPlayer specialist with PVR scheduling, series handling, and rich metadata"
