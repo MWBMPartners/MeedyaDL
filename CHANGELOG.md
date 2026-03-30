@@ -67,9 +67,21 @@ Items in Processing state (enrichment + companions running) now count
   events emitted in commit fde8ac1. No additional changes needed for
   item 4 (companion speed/ETA display).
 
+- Use PNG logo+logotype in README with dark/light mode support
+
+Replaced SVG logo and logotype with PNGs using GitHub's <picture>
+  element for dark/light mode detection. The SVG logotype relied on
+  JavaScript for dynamic text scaling which GitHub strips out, making
+  it render incorrectly.
+
+  Now uses:
+  - logo.png / logo-dark.png (static icon, renders correctly)
+  - logotype.png / logotype-dark.png (static wordmark, no JS needed)
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
