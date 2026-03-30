@@ -6,6 +6,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update all documentation for #294 progress tracking and security hardening
+
+Update CLAUDE.md, DEV_NOTES.md, Project_Plan.md, and in-app help with
+  companion progress tracking architecture, processing labels, and
+  CodeQL CI fix details. Add SVG sanitization (DOMParser + event handler
+  stripping) to GlobalProgressBar's inline SVG rendering for
+  defence-in-depth against potential XSS via tampered platform icons.
+
+
+## [0.22.7] - 2026-03-30
+
 ### 🐛 Bug Fixes
 
 - Keep queue item in Processing state until companions finish (#294)
