@@ -1,3 +1,12 @@
+<!-- MAINTENANCE NOTE:
+     This file lists only dependencies that are currently ENABLED and shipping
+     with MeedyaDL. Review and update this file whenever:
+     - An engine is enabled/disabled in engines.toml
+     - A Rust crate is added/removed in Cargo.toml
+     - An npm package is added/removed in package.json
+     - An external tool is added/removed from the dependency manager
+-->
+
 # Open Source Acknowledgements
 
 MeedyaDL is built on top of many open-source projects. We are grateful to the developers and maintainers of these libraries and tools.
@@ -7,9 +16,6 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | Project | License | Description |
 |---------|---------|-------------|
 | [GAMDL](https://github.com/glomatico/gamdl) | MIT | Apple Music download engine |
-| [votify](https://github.com/glomatico/votify) | MIT | Spotify download engine |
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense | General-purpose video/audio downloader |
-| [get_iplayer](https://github.com/get-iplayer/get_iplayer) | GPL-3.0 | BBC iPlayer download tool |
 
 ## Application Framework
 
@@ -76,4 +82,4 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 
 ---
 
-This list covers the primary dependencies used by MeedyaDL. For the complete list including transitive dependencies, see the project's source repository.
+This list covers the primary dependencies currently enabled and shipping with MeedyaDL.

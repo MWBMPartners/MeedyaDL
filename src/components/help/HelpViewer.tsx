@@ -879,8 +879,6 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 
 **Download Engines:**
 - **GAMDL** (MIT) — Apple Music download engine
-- **votify** (MIT) — Spotify download engine
-- **yt-dlp** (Unlicense) — General-purpose video/audio downloader
 
 **Application Framework:**
 - **Tauri** (MIT/Apache-2.0) — Desktop application framework
