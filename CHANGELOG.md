@@ -27,6 +27,7 @@ Adds mediainfo_path to AppSettings, matching the existing pattern for
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
