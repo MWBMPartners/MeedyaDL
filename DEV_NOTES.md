@@ -1653,7 +1653,7 @@ Each engine has a `bundled` field that determines how it's distributed:
 | GAMDL | Yes | pip | Apple Music | No |
 | votify | Yes | pip | Spotify | No |
 | yt-dlp | Yes | pip | YouTube, YouTube Music, BBC iPlayer (fallback) | No |
-| get_iplayer | No | system | BBC iPlayer (primary) | Yes |
+| get_iplayer | Yes | binary (mirror) | BBC iPlayer (primary) | No |
 
 ### CI Packaging
 
