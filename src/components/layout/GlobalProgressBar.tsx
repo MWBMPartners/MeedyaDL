@@ -222,8 +222,12 @@ export function GlobalProgressBar() {
   const itemProgress =
     activeItem?.state === 'processing' ? null : (activeItem?.progress ?? 0);
 
-  /** Label for the per-item bar */
-  const itemLabel = activeItem?.current_track ?? activeItem?.urls?.[0] ?? '';
+  /** Label for the per-item bar — shows processing label during enrichment/companions */
+  const itemLabel =
+    activeItem?.processing_label ??
+    activeItem?.current_track ??
+    activeItem?.urls?.[0] ??
+    '';
 
   /** Speed and ETA suffix */
   const speedEta = [activeItem?.speed, activeItem?.eta]

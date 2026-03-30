@@ -671,6 +671,8 @@ export interface QueueItemStatus {
   speed: string | null;
   /** Estimated time remaining string (e.g., "00:45"), or null */
   eta: string | null;
+  /** Processing activity label (e.g., "Enriching metadata...", "Companion: ALAC 5/28") */
+  processing_label: string | null;
   /** Error message if state is 'error', otherwise null */
   error: string | null;
   /** Output directory where files were saved, or null if not complete */
