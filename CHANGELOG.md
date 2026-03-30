@@ -102,6 +102,7 @@ Companion downloads now display speed, ETA, and percentage in the global
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.6] - 2026-03-30
 
