@@ -47,6 +47,25 @@ Removed votify, yt-dlp, get_iplayer from both ACKNOWLEDGEMENTS.md and
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Auto-generate ACKNOWLEDGEMENTS.md with licence hyperlinks
+
+New script scripts/generate-acknowledgements.mjs dynamically generates
+  ACKNOWLEDGEMENTS.md from three source files:
+  - engines.toml (only enabled engines)
+  - Cargo.toml (Rust dependencies)
+  - package.json (frontend dependencies)
+
+  Each licence name is hyperlinked to the official licence text (e.g.,
+  MIT links to opensource.org/licenses/MIT). Links open in the system
+  browser when clicked in the HelpViewer.
+
+  Also added Package Manifests section to DEV_NOTES.md explaining
+  what Cargo.toml and package.json are used for.
+
 
 ## [0.22.3] - 2026-03-30
 
