@@ -23,22 +23,29 @@ const ROOT = join(__dirname, '..');
 
 // ── Licence URL mapping ──
 // Official licence text URLs for hyperlinking in the acknowledgements.
+// Individual licence → official text URL
 const LICENCE_URLS = {
   'MIT': 'https://opensource.org/licenses/MIT',
-  'MIT / Apache-2.0': 'https://opensource.org/licenses/MIT',
   'Apache-2.0': 'https://www.apache.org/licenses/LICENSE-2.0',
   'ISC': 'https://opensource.org/licenses/ISC',
   'MPL-2.0': 'https://www.mozilla.org/en-US/MPL/2.0/',
-  'LGPL / GPL': 'https://www.gnu.org/licenses/gpl-3.0.en.html',
+  'LGPL': 'https://www.gnu.org/licenses/lgpl-3.0.en.html',
+  'GPL': 'https://www.gnu.org/licenses/gpl-3.0.en.html',
   'LGPL-2.1': 'https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html',
   'BSD-2-Clause': 'https://opensource.org/licenses/BSD-2-Clause',
   'Unlicense': 'https://unlicense.org/',
   'GPL-3.0': 'https://www.gnu.org/licenses/gpl-3.0.en.html',
 };
 
+// Splits dual-licence strings (e.g., "MIT / Apache-2.0") and links each individually
 function licenceLink(licence) {
-  const url = LICENCE_URLS[licence];
-  return url ? `[${licence}](${url})` : licence;
+  return licence
+    .split(/\s*\/\s*/)
+    .map((part) => {
+      const url = LICENCE_URLS[part.trim()];
+      return url ? `[${part.trim()}](${url})` : part.trim();
+    })
+    .join(' / ');
 }
 
 // ── Parse engines.toml for enabled engines ──
