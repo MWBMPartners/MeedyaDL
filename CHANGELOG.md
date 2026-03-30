@@ -24,6 +24,7 @@ Added MediaInfo to TOOL_PATH_KEYS and TOOL_PATH_DESCRIPTIONS in
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -34,6 +35,21 @@ CodeQL Action v3 is deprecated in December 2026 and uses Node.js 20
 
   Pinned to immutable SHA d4b3ca9fa7f69d38bfcd667bdc45bc373d16277e
   per supply chain hardening convention.
+
+
+### 🧹 Maintenance
+
+- Add bundled field to engines.toml for core vs external distinction
+
+Each engine now has an explicit `bundled` field:
+  - bundled=true: core engine, pip-installed into managed Python env,
+    packaged with MeedyaDL, no custom path override allowed
+  - bundled=false: external tool, user-installed, supports custom path
+    in Settings > Tools
+
+  Updated DEV_NOTES.md with bundled vs external documentation, current
+  registry table with bundled/custom-path columns, and CI packaging
+  guidance for reading engines.toml during release builds.
 
 
 ## [0.22.0] - 2026-03-30
