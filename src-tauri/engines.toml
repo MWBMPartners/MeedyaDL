@@ -104,7 +104,7 @@ description = "Apple Music downloader with lossless, Atmos, and lyrics support"
 [engines.votify]
 name = "votify"
 required = true
-enabled = true
+enabled = false
 bundled = true                    # Core engine — pip installed into managed Python env
 install_method = "pip"
 pip_package = "votify"
@@ -125,7 +125,7 @@ description = "General-purpose video/audio downloader supporting 1000+ sites"
 
 [engines.get_iplayer]
 name = "get_iplayer"
-required = false
+required = true
 enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
 bundled = true                    # Bundled via MeedyaDL-Tools mirror (not pip — Perl-based)
 install_method = "binary"         # Downloaded from mirror, same as FFmpeg/mp4decrypt/MediaInfo
