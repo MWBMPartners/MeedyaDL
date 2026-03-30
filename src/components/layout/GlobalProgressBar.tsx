@@ -224,9 +224,16 @@ export function GlobalProgressBar() {
   /* Hide entirely when nothing is happening */
   if (!hasWork) return null;
 
-  /** Per-item progress value: null = indeterminate (processing state) */
+  /**
+   * Per-item progress value.
+   * During processing: use actual progress if available (companion downloads
+   * update progress while item stays in 'processing' state), otherwise null
+   * for indeterminate animation (enrichment stages without progress data).
+   */
   const itemProgress =
-    activeItem?.state === 'processing' ? null : (activeItem?.progress ?? 0);
+    activeItem?.state === 'processing'
+      ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
+      : (activeItem?.progress ?? 0);
 
   /** Label for the per-item bar — shows processing label during enrichment/companions */
   const itemLabel =
