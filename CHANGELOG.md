@@ -6,8 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Add MediaInfo custom path input to Settings > Tools
+
+Added MediaInfo to TOOL_PATH_KEYS and TOOL_PATH_DESCRIPTIONS in
+  ToolsTab.tsx. The expand/chevron pattern and FilePickerButton
+  automatically render for MediaInfo — same UX as FFmpeg, mp4decrypt,
+  N_m3u8DL-RE, and MP4Box.
+
+  Also created #278 for setup wizard custom path fallback when tool
+  install fails (future enhancement).
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
