@@ -162,7 +162,51 @@ export function parseTemplate(template: string): TemplateSegment[] {
     segments.push({ type: 'literal', value: literal });
   }
 
-  return segments;
+  // Split compound literals into known separator tokens so they render
+  // as individual chips in the TemplateBuilder UI. Without this, the
+  // parser merges adjacent literals (e.g., " - " is one chip instead
+  // of space + dash + space), making it impossible to add multi-character
+  // separators because the round-trip parse→serialize→re-parse collapses them.
+  //
+  // Known tokens are checked longest-first to avoid partial matches
+  // (e.g., " - " must match before " " or "-").
+  const KNOWN_TOKENS = COMMON_LITERALS.map((l) => l.value).sort(
+    (a, b) => b.length - a.length,
+  );
+
+  const splitSegments: TemplateSegment[] = [];
+  for (const seg of segments) {
+    if (seg.type !== 'literal') {
+      splitSegments.push(seg);
+      continue;
+    }
+    // Split this literal by known tokens, preserving order
+    let remaining = seg.value;
+    while (remaining.length > 0) {
+      const match = KNOWN_TOKENS.find((t) => remaining.startsWith(t));
+      if (match) {
+        splitSegments.push({ type: 'literal', value: match });
+        remaining = remaining.slice(match.length);
+      } else {
+        // No known token matches — consume one character as a literal
+        // and try again (accumulate unknown chars into one segment)
+        let unknownEnd = 1;
+        while (
+          unknownEnd < remaining.length &&
+          !KNOWN_TOKENS.some((t) => remaining.slice(unknownEnd).startsWith(t))
+        ) {
+          unknownEnd++;
+        }
+        splitSegments.push({
+          type: 'literal',
+          value: remaining.slice(0, unknownEnd),
+        });
+        remaining = remaining.slice(unknownEnd);
+      }
+    }
+  }
+
+  return splitSegments;
 }
 
 // ============================================================
