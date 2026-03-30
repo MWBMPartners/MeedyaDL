@@ -16,9 +16,26 @@ The inline SVG loaded via fetch + dangerouslySetInnerHTML wasn't
   style="display:block" into the SVG root element before caching, so
   it fills the 16x16 container reliably.
 
+- Mp4decrypt and MediaInfo version display in Component Library (#296)
+
+Two fixes in get_tool_version():
+
+  1. mp4decrypt: Has no --version flag. Now runs with no args and parses
+     "Bento4 Version X.Y.Z" from the usage output. Previously showed
+     "ERROR: missing output filename".
+
+  2. All tools: get_tool_version() now uses extract_version_from_output()
+     (the structured parser) instead of returning raw first-line output.
+     This fixes MediaInfo showing "MediaInfo Command line," (line 1)
+     instead of "26.01" (parsed from line 2's "MediaInfoLib - v26.01").
+
+  Combined stdout+stderr before parsing so tools that output to either
+  stream are handled consistently.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.22.5] - 2026-03-30
