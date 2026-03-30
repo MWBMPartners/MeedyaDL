@@ -106,14 +106,23 @@ export function MetadataTab() {
       <SettingsSection title="ReplayGain Analysis">
           <Toggle
             label="Enable ReplayGain Analysis"
-            description="Analyse audio loudness and embed non-destructive ReplayGain metadata for volume normalisation. Calculates both per-track and per-album gain. Uses FFmpeg (already installed)."
+            description="Analyse audio loudness using FFmpeg and embed non-destructive ReplayGain metadata. Compatible players (foobar2000, VLC, Kodi, AIMP, Poweramp) use these tags to normalise volume without altering the audio."
             checked={settings.replaygain_enabled}
             onChange={(checked) => updateSettings({ replaygain_enabled: checked })}
           />
 
           {settings.replaygain_enabled && (
             <>
-              <div className="mt-4">
+              <p className="text-xs text-content-secondary mt-2 mb-3 p-3 rounded-platform bg-surface-elevated border border-border-light">
+                <strong>What&apos;s written to each file:</strong><br />
+                <span className="text-content-tertiary">
+                  <strong>Track gain</strong> — per-song loudness adjustment (used in shuffle mode).<br />
+                  <strong>Album gain</strong> — average loudness across the album (used when listening to an album in order — preserves the intended dynamic range between quiet and loud tracks).<br />
+                  <strong>Peak values</strong> — true peak for both track and album (used by players to prevent clipping).
+                </span>
+              </p>
+
+              <div>
                 <label className="block text-sm font-medium text-content-primary mb-1">
                   Reference Level
                 </label>
@@ -130,13 +139,13 @@ export function MetadataTab() {
                   <option value={-16}>-16.0 LUFS (Apple Music / iTunes)</option>
                 </select>
                 <p className="text-xs text-content-tertiary mt-1">
-                  Target loudness level. Players adjust volume so all tracks reach this level. Lower values = quieter target with more headroom.
+                  Target loudness. All tracks are adjusted to match this level. Most music players default to -18 LUFS (EBU R128). Choose -14 LUFS for louder playback similar to Spotify, or -23 LUFS for conservative broadcast levels.
                 </p>
               </div>
 
               <Toggle
                 label="Prevent Clipping"
-                description="Limit gain so peak × gain never exceeds 0 dBFS. Prevents digital distortion on tracks that are already mastered near maximum loudness."
+                description="Limit gain so that the loudest peak in each track never exceeds 0 dBFS after the gain adjustment. Recommended for tracks mastered at high loudness (modern pop, EDM). Disabling allows more precise loudness matching but risks distortion on some tracks."
                 checked={settings.replaygain_prevent_clipping}
                 onChange={(checked) => updateSettings({ replaygain_prevent_clipping: checked })}
               />
