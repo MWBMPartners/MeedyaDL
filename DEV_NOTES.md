@@ -1655,16 +1655,26 @@ Each engine has a `bundled` field that determines how it's distributed:
 | yt-dlp | Yes | pip | YouTube, YouTube Music, BBC iPlayer (fallback) | No |
 | get_iplayer | Yes | binary (mirror) | BBC iPlayer (primary) | No |
 
-### CI Packaging
+### CI Packaging — Tiny vs Offline Installers
 
-The release CI workflow (`release.yml`) should read `engines.toml` to determine which engines to pre-install. For each engine where `bundled = true` AND `enabled = true`:
+MeedyaDL supports two installer types, controlled by a `workflow_dispatch` input:
 
-```bash
-# In the release build step, after Python is set up:
-python -m pip install gamdl votify  # All bundled+enabled engines
-```
+**Tiny installer (default):**
+- App binary only (~30MB)
+- Engines and tools downloaded on first launch via setup wizard
+- Produced by every tag-push release and the default manual trigger
 
-When a new bundled engine is enabled (e.g., yt-dlp for YouTube support), adding `enabled = true` in `engines.toml` is the signal for CI to include it in the pip install step. No workflow YAML changes needed — the workflow can parse `engines.toml` to build the install list dynamically.
+**Offline installer (manual trigger):**
+- App + Python + pip engines + all binary tools (~300MB)
+- Zero-setup: everything pre-bundled, no downloads on first launch
+- Triggered manually: `gh workflow run "Release" -f tag=vX.X.X -f bundle_engines=true`
+- Step 8.5 in `release.yml` reads `engines.toml` to determine what to install:
+  - `bundled=true, enabled=true, install_method=pip` → `pip install` into bundled-deps
+  - `bundled=true, enabled=true, install_method=binary` → download from MeedyaDL-Tools mirror
+- Binary tools (FFmpeg, mp4decrypt, etc.) also downloaded from mirror
+- Writes `manifest.json` with `offline_installer: true` so setup wizard skips downloading
+
+When a new engine is enabled in `engines.toml`, both installer types pick it up automatically — no workflow YAML changes needed.
 
 ### Editing Guide
 
