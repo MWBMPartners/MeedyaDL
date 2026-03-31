@@ -313,6 +313,7 @@ When enabled, you will see:
 - **Suffix decisions**: Why files get or don't get codec suffixes (e.g., native priority uses clean filenames)
 - **JWT claims**: Team ID, Key ID, and token expiry used for Apple Music API authentication
 - **API parse results**: Album name, track count, artwork availability, UPC
+- **API response dump**: The raw Apple Music API response is saved as `<AlbumName>-applemusic-data.json` in the album output directory. Useful for verifying API integration after endpoint changes.
 
 This is the recommended first step for troubleshooting metadata, codec tagging, or API issues.
 

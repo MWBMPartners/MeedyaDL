@@ -4075,6 +4075,55 @@ pub fn process_queue(
                                 None
                             };
 
+                            // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
+                            // When verbose logging is enabled, write the raw Apple Music API
+                            // response to a JSON file in the album output directory. This lets
+                            // developers confirm the API integration is returning correct data
+                            // (e.g., after endpoint changes like amp-api → api.music.apple.com).
+                            // File is named `<AlbumName>-applemusic-data.json` in the album dir.
+                            if crate::utils::activity_log::is_verbose_logging() {
+                                if let Some(ref metadata) = album_metadata {
+                                    let album_name = metadata
+                                        .album_name
+                                        .as_deref()
+                                        .unwrap_or("Unknown Album");
+                                    // Sanitize album name for filesystem safety: strip characters
+                                    // that are illegal or problematic on macOS/Windows/Linux.
+                                    let safe_name: String = album_name
+                                        .chars()
+                                        .map(|c| match c {
+                                            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                                            _ => c,
+                                        })
+                                        .collect();
+                                    let json_filename = format!("{safe_name}-applemusic-data.json");
+                                    let json_path = std::path::Path::new(&album_dir).join(&json_filename);
+                                    match serde_json::to_string_pretty(&metadata.raw_json) {
+                                        Ok(json_str) => {
+                                            if let Err(e) = std::fs::write(&json_path, &json_str) {
+                                                log::debug!(
+                                                    "Failed to write API response JSON for {enrich_dl_id}: {e}"
+                                                );
+                                            } else {
+                                                emit_verbose_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!(
+                                                        "Apple Music API response saved to: {}",
+                                                        json_path.display()
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Failed to serialize API response for {enrich_dl_id}: {e}"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
                             // Yield to the async runtime between enrichment steps so UI
                             // events (sidebar clicks, activity log updates) can be processed.
                             tokio::task::yield_now().await;
