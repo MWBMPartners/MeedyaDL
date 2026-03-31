@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Fix Apple Music API auth and add word-level lyrics fetching (#300)
+
+- Fix API endpoint from amp-api.music.apple.com to api.music.apple.com for MusicKit JWT auth (Resolves #299)
+  - Add direct syllable-lyrics fetching via /syllable-lyrics endpoint with dual auth (MusicKit JWT + Music-User-Token) (Resolves #298)
+  - Remove unnecessary Origin header from API requests
+  - New enrichment Step 1b: automatically upgrades TTML to word-level timing when available
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -17,6 +27,7 @@ Update CLAUDE.md, DEV_NOTES.md, Project_Plan.md, and in-app help with
   stripping) to GlobalProgressBar's inline SVG rendering for
   defence-in-depth against potential XSS via tampered platform icons.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.7] - 2026-03-30
 
