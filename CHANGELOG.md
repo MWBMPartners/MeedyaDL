@@ -6,6 +6,781 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update all documentation for #294 progress tracking and security hardening
+
+Update CLAUDE.md, DEV_NOTES.md, Project_Plan.md, and in-app help with
+  companion progress tracking architecture, processing labels, and
+  CodeQL CI fix details. Add SVG sanitization (DOMParser + event handler
+  stripping) to GlobalProgressBar's inline SVG rendering for
+  defence-in-depth against potential XSS via tampered platform icons.
+
+
+## [0.22.7] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Keep queue item in Processing state until companions finish (#294)
+
+Previously, the queue item was marked Complete immediately after the
+  primary GAMDL download finished, even though enrichment and companion
+  downloads were still running in background tasks. The progress bar
+  showed the item as complete while files were actively being downloaded.
+
+- Track enrichment JoinHandle, emit companion progress events (#294)
+
+Two remaining fixes for comprehensive progress tracking:
+
+  1. Enrichment tokio::spawn now returns a JoinHandle that the completion
+     task awaits alongside the companion handle. Previously enrichment
+     was fire-and-forget — the item could mark Complete before enrichment
+     finished writing tags/lyrics.
+
+  2. Companion stdout reader now parses GAMDL output lines and emits
+     gamdl-output progress events (same as the primary download). This
+     means the per-item progress bar can show companion download progress
+     as a percentage instead of an indeterminate "Processing..." bar.
+
+- Processing label shows current activity in progress bar (#294)
+
+New processing_label field on QueueItemStatus carries what's happening
+  during the Processing state. The progress bar and queue item card show
+  the label instead of generic "Processing...":
+
+  - "Enriching metadata tags..."
+  - "Converting lyrics (Enhanced LRC)..."
+  - "Downloading animated artwork..."
+  - "AcoustID fingerprinting..."
+  - "ReplayGain loudness analysis..."
+
+  The enrichment task sets the label via set_processing_label() at each
+  stage entry. GlobalProgressBar displays processing_label with priority
+  over current_track.
+
+- Defer desktop notification until all background work completes (#294)
+
+Desktop notification "Download Complete" was firing immediately after
+  the primary GAMDL download, before enrichment and companions finished.
+  Moved send_desktop_notification() to the completion task that awaits
+  both enrichment and companion handles.
+
+- Queue-level progress counts 'processing' items as done (#294)
+
+Items in Processing state (enrichment + companions running) now count
+  as "done" in the queue-level progress bar. Previously the bar sat at
+  0% during the entire post-download phase (~20 min for 28-track albums
+  with companion tiers).
+
+  The user's files are downloaded when state=processing — enrichment
+  and companions are bonus background processing that shouldn't hold
+  back the queue progress indicator.
+
+  Also confirmed: companion speed/ETA already works via gamdl-output
+  events emitted in commit fde8ac1. No additional changes needed for
+  item 4 (companion speed/ETA display).
+
+- Use PNG logo+logotype in README with dark/light mode support
+
+Replaced SVG logo and logotype with PNGs using GitHub's <picture>
+  element for dark/light mode detection. The SVG logotype relied on
+  JavaScript for dynamic text scaling which GitHub strips out, making
+  it render incorrectly.
+
+  Now uses:
+  - logo.png / logo-dark.png (static icon, renders correctly)
+  - logotype.png / logotype-dark.png (static wordmark, no JS needed)
+
+- Show companion download speed/ETA in progress bar (#294)
+
+Companion downloads now display speed, ETA, and percentage in the global
+  progress bar instead of showing a generic indeterminate "Processing..."
+  animation. The download store no longer regresses item state from
+  'processing' to 'downloading' during companion events, preventing the
+  queue bar from oscillating. Speed/ETA are cleared on processing_step
+  transitions to avoid stale data during enrichment.
+
+  Also fixes: CodeQL CI failures by adding actions:read permission,
+  README org URLs (MeedyaDL → MWBMPartners), screenshots placeholder
+  removal.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.6] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Inject width/height/display into SVG for platform icon rendering
+
+The inline SVG loaded via fetch + dangerouslySetInnerHTML wasn't
+  displaying correctly — the <span> container showed but the SVG inside
+  had no explicit dimensions. Now injects width="100%" height="100%"
+  style="display:block" into the SVG root element before caching, so
+  it fills the 16x16 container reliably.
+
+- Mp4decrypt and MediaInfo version display in Component Library (#296)
+
+Two fixes in get_tool_version():
+
+  1. mp4decrypt: Has no --version flag. Now runs with no args and parses
+     "Bento4 Version X.Y.Z" from the usage output. Previously showed
+     "ERROR: missing output filename".
+
+  2. All tools: get_tool_version() now uses extract_version_from_output()
+     (the structured parser) instead of returning raw first-line output.
+     This fixes MediaInfo showing "MediaInfo Command line," (line 1)
+     instead of "26.01" (parsed from line 2's "MediaInfoLib - v26.01").
+
+  Combined stdout+stderr before parsing so tools that output to either
+  stream are handled consistently.
+
+- Stream companion download output to activity log, add per-file progress (#294)
+
+Three major improvements to download visibility:
+
+  1. Companion downloads now stream stdout/stderr line-by-line to the
+     activity log in real-time, same as the primary download. Previously
+     used wait_with_output() which swallowed all output until completion,
+     leaving minutes of silent activity. Users can now see per-track
+     [Track N/M] and [download] progress for companions.
+
+  2. Companion GAMDL CLI args are now logged (verbose level) so users
+     can verify the codec being requested (e.g., --song-codec-priority alac).
+
+  3. ReplayGain and AcoustID now emit per-file progress to the activity
+     log: "ReplayGain: analysing file N/M — filename.m4a" and
+     "AcoustID: fingerprinting file N/M — filename.m4a".
+
+  Partially addresses #294. Remaining: progress bar tracking for
+  companions/enrichment, completion timing.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.5] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Link each licence individually in dual-licence entries
+
+licenceLink() now splits "MIT / Apache-2.0" into two separate
+  hyperlinks: [MIT](url) / [Apache-2.0](url). Previously both pointed
+  to the MIT licence URL.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.4] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Update engine requirements and enable status for votify and get_iplayer
+- Clarify ReplayGain settings with album gain explanation and improved descriptions
+
+The ReplayGain settings section now includes an info box explaining
+  what's written to each file (track gain for shuffle, album gain for
+  album listening, peak values for clipping prevention). Reference level
+  and clipping prevention descriptions are also improved with practical
+  context (Spotify comparison, modern pop/EDM note).
+
+- Replace source file references with proper ACKNOWLEDGEMENTS.md
+
+The Help > About > Open Source Acknowledgements section was directing
+  users to "see the project's Cargo.toml and package.json" — source
+  files that users should never need to access.
+
+  Created ACKNOWLEDGEMENTS.md with a comprehensive categorised list of
+  all dependencies (engines, framework, tools, Rust crates, frontend
+  packages, Tauri plugins) with their licence types.
+
+  Updated HelpViewer to show a complete inline list and reference the
+  ACKNOWLEDGEMENTS file instead of source code files.
+
+- ACKNOWLEDGEMENTS.md lists only enabled/shipping dependencies
+
+Removed votify, yt-dlp, get_iplayer from both ACKNOWLEDGEMENTS.md and
+  HelpViewer — they are defined in engines.toml but not yet enabled.
+  Only GAMDL ships as the active download engine.
+
+  Added maintenance comment at top of ACKNOWLEDGEMENTS.md: file must be
+  reviewed when engines are enabled/disabled in engines.toml or deps
+  change in Cargo.toml/package.json.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Auto-generate ACKNOWLEDGEMENTS.md with licence hyperlinks
+
+New script scripts/generate-acknowledgements.mjs dynamically generates
+  ACKNOWLEDGEMENTS.md from three source files:
+  - engines.toml (only enabled engines)
+  - Cargo.toml (Rust dependencies)
+  - package.json (frontend dependencies)
+
+  Each licence name is hyperlinked to the official licence text (e.g.,
+  MIT links to opensource.org/licenses/MIT). Links open in the system
+  browser when clicked in the HelpViewer.
+
+  Also added Package Manifests section to DEV_NOTES.md explaining
+  what Cargo.toml and package.json are used for.
+
+
+## [0.22.3] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- ReplayGain album gain, configurable reference level, clipping prevention (#282)
+
+Three enhancements to ReplayGain analysis:
+
+  1. Album gain: After analysing all tracks individually, computes
+     album-level integrated loudness (average in linear power domain)
+     and highest true peak. Writes 4 tags per file: replaygain_track_gain,
+     replaygain_track_peak, replaygain_album_gain, replaygain_album_peak.
+
+  2. Configurable reference level: New setting replaygain_reference_level
+     (default -18.0 LUFS / EBU R128). Dropdown options: -18 LUFS (music),
+     -14 LUFS (Spotify), -23 LUFS (broadcast), -16 LUFS (Apple Music).
+
+  3. Clipping prevention: New setting replaygain_prevent_clipping (default
+     true). Limits gain so peak × gain never exceeds 0 dBFS, preventing
+     digital distortion on loudly mastered tracks.
+
+  Settings UI: reference level dropdown and clipping toggle appear
+  conditionally when ReplayGain is enabled.
+
+- Graceful fallback when settings.json parsing fails (#283)
+
+When serde_json fails to parse settings.json (e.g., a field type changed
+  between app versions), the app now falls back to defaults instead of
+  returning an error to the frontend. Previously, a parse error left the
+  frontend store with its initialisation defaults, making it appear as if
+  all settings were reset.
+
+  The settings file is preserved on disk — only the in-memory state uses
+  defaults for the incompatible fields. The error is logged at ERROR level
+  with the specific parse failure and file path for debugging.
+
+- Replace Storefront freetext with country dropdown (#285)
+
+Replaced the freetext input with a <select> dropdown listing ~45
+  Apple Music storefronts by country name. "Auto-detect" is the default
+  (derives from metadata language). The disabled separator line prevents
+  accidental empty selection. Backend stores the 2-letter ISO code.
+
+  Prevents invalid storefront codes from being entered manually.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update help docs with ReplayGain album gain, reference level, and clipping options
+
+Updated lyrics-and-metadata.md ReplayGain section to document all 4
+  tags (track gain/peak + album gain/peak), configurable reference level
+  options, and clipping prevention setting.
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.22.2] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Allow multiple adjacent separators in template builder
+
+The template parser now splits literal text by known separator tokens
+  (from COMMON_LITERALS: " - ", "/", " ", "-", "_") so each renders as
+  its own chip in the TemplateBuilder UI. Previously, the round-trip
+  parse→serialize→re-parse collapsed adjacent literals into one segment,
+  making it impossible to use multi-character separators like " - ".
+
+  Known tokens are matched longest-first to avoid partial matches
+  (e.g., " - " matches before " " or "-"). Unknown text between tokens
+  is preserved as-is.
+
+  Added 2 new tests: dash separator splitting, multiple adjacent separators.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Add offline installer option to release workflow (#280)
+
+New workflow_dispatch input `bundle_engines` (default: false) controls
+  whether the release build pre-bundles all engines and tools for a
+  zero-setup offline installer (~300MB vs ~30MB tiny installer).
+
+  When bundle_engines=true, Step 8.5 in release.yml:
+  1. Parses engines.toml for bundled+enabled pip engines → pip install
+  2. Parses engines.toml for bundled+enabled binary engines → mirror download
+  3. Downloads binary tools (FFmpeg, mp4decrypt, etc.) from MeedyaDL-Tools mirror
+  4. Writes manifest.json with offline_installer=true
+
+
+## [0.22.1] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Add MediaInfo custom path input to Settings > Tools
+
+Added MediaInfo to TOOL_PATH_KEYS and TOOL_PATH_DESCRIPTIONS in
+  ToolsTab.tsx. The expand/chevron pattern and FilePickerButton
+  automatically render for MediaInfo — same UX as FFmpeg, mp4decrypt,
+  N_m3u8DL-RE, and MP4Box.
+
+  Also created #278 for setup wizard custom path fallback when tool
+  install fails (future enhancement).
+
+- Setup wizard installs all bundled pip engines (GAMDL + votify)
+
+The GAMDL setup step now calls installBundledEngines() which installs
+  GAMDL first, then votify (and any future bundled+enabled pip engines).
+  Previously only GAMDL was installed during setup; votify was left for
+  the user to install manually or via Settings > Tools.
+
+  GamdlStep UI text updated to "Download Engines" to reflect it handles
+  multiple engines. votify install failure is non-fatal (logged but
+  doesn't block the wizard).
+
+  Binary engines (get_iplayer, MediaInfo) are handled by the existing
+  Tools step which downloads from the MeedyaDL-Tools mirror.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Update CodeQL actions from v3 to v4 (SHA-pinned)
+
+CodeQL Action v3 is deprecated in December 2026 and uses Node.js 20
+  (also deprecated). v4 uses Node.js 22 and resolves both warnings.
+
+  Pinned to immutable SHA d4b3ca9fa7f69d38bfcd667bdc45bc373d16277e
+  per supply chain hardening convention.
+
+
+### 🧹 Maintenance
+
+- Add bundled field to engines.toml for core vs external distinction
+
+Each engine now has an explicit `bundled` field:
+  - bundled=true: core engine, pip-installed into managed Python env,
+    packaged with MeedyaDL, no custom path override allowed
+  - bundled=false: external tool, user-installed, supports custom path
+    in Settings > Tools
+
+  Updated DEV_NOTES.md with bundled vs external documentation, current
+  registry table with bundled/custom-path columns, and CI packaging
+  guidance for reading engines.toml during release builds.
+
+- Make get_iplayer bundled via MeedyaDL-Tools mirror (not user-installed)
+
+get_iplayer is Perl-based (not pip), but pre-built binaries already
+  exist in the MeedyaDL-Tools mirror for all platforms. Changed from
+  bundled=false/install_method=system to bundled=true/install_method=binary
+  so it's downloaded from the mirror during setup — same as FFmpeg,
+  mp4decrypt, MediaInfo.
+
+  All engines are now bundled. No external/user-installed engines remain.
+
+
+## [0.22.0] - 2026-03-30
+
+### 🐛 Bug Fixes
+
+- Add custom MediaInfo path setting with priority resolution
+
+Adds mediainfo_path to AppSettings, matching the existing pattern for
+  ffmpeg_path, mp4decrypt_path, etc. Resolution priority in
+  get_mediainfo_path():
+
+  1. User-configured custom path (Settings > Tools)
+  2. Managed tools directory (auto-installed)
+  3. System PATH (via which/where)
+  4. Common platform locations (/opt/homebrew/bin, /usr/local/bin)
+
+  If the custom path is set but doesn't exist, logs a warning and
+  falls through to the next source.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Configure changelog sections and document commit conventions
+
+- release-please-config.json: Added changelog-sections mapping so
+    refactor/perf/test appear under "Improvements" and chore/docs/ci
+    are hidden from the changelog.
+  - README.md: Updated commit convention section with version bump
+    table and guidance on when to use each prefix.
+  - DEV_NOTES.md: Same table, removed obsolete [skip ci] guidance,
+    fixed ordered list numbering.
+
+
+## [0.21.0] - 2026-03-29
+
+### ✨ Features
+
+- Config-driven platform icons in progress bar with favicon fallback
+
+Replaces the hardcoded Apple Music inline SVG with a data-driven
+  platform icon system:
+
+  1. engines.toml: Added `icon` field to each platform pointing to
+     local SVG/PNG in public/icons/platforms/. Documentation explains
+     how to add icons for new platforms.
+
+  2. GlobalProgressBar.tsx: PLATFORM_CONFIG array maps URL hostnames to
+     platform IDs, icon paths, and favicon fallback hosts. detectPlatform()
+     uses hostname matching. PlatformIcon component loads the local SVG
+     first, falls back to Google Favicon API (returns PNG) on error.
+
+  3. Platform icon assets: apple-music.svg and spotify.svg added to
+     public/icons/platforms/. Other platforms will use favicon fallback
+     until custom icons are created.
+
+  To add a new platform icon: save a 16x16 SVG/PNG to
+  public/icons/platforms/{id}.svg and set the path in engines.toml.
+
+- Theme-adaptive platform icons using currentColor + inline SVG rendering
+
+Platform SVG icons now use fill="currentColor" instead of hardcoded
+  colours. PlatformIcon component fetches the SVG and renders it inline
+  (not as <img>) so currentColor inherits from the parent CSS context,
+  automatically adapting to light, dark, and colour-blind themes.
+
+  SVG content is cached in a module-level Map to avoid re-fetching.
+  Fallback: Google Favicon API (PNG) when local SVG unavailable.
+
+  Updated apple-music.svg and spotify.svg to use currentColor.
+  Added platform icon documentation to DEV_NOTES.md covering the
+  theme adaptability approach, fallback chain, SVG template, and
+  step-by-step guide for adding new platform icons.
+
+- Add BBC Sounds platform icon and path-based platform detection
+
+Adds bbc-sounds.svg (headphones icon, currentColor for theme
+  adaptability). Platform detection now supports pathContains for
+  disambiguating services on the same host (e.g., bbc.co.uk/sounds
+  vs bbc.co.uk/iplayer).
+
+- Dynamic platform config from engines.toml, BBC iPlayer + Sounds icons
+
+Platform detection and icon rendering in GlobalProgressBar is now
+  fully driven by engines.toml — no more hardcoded PLATFORM_CONFIG
+  array. The component loads platform config once via the new
+  get_platform_config IPC command, which parses the compiled-in
+  engines.toml and returns enabled platforms with URL patterns and
+  icon paths.
+
+  Adding a new platform with its icon now requires ONLY:
+  1. Add the [platforms.*] entry to engines.toml
+  2. Drop an SVG into public/icons/platforms/
+
+  No GlobalProgressBar.tsx changes needed.
+
+  Also adds:
+  - bbc-iplayer.svg (TV screen with play button, currentColor)
+  - bbc-sounds.svg (concentric sound waves, currentColor)
+  - get_platform_config() Rust command + TypeScript binding
+
+- Add YouTube, YouTube Music, and OF-Scraper platform icons
+
+Prepared ahead of multi-service expansion:
+  - youtube.svg: rounded rectangle with play triangle
+  - youtube-music.svg: circle with record disc + play triangle
+  - ofscraper.svg: padlock (generic subscription content icon)
+
+  All use currentColor with fill-opacity for theme adaptability
+  (light, dark, colour-blind modes). Icons are referenced by
+  engines.toml and loaded dynamically via get_platform_config IPC.
+
+
+### 🐛 Bug Fixes
+
+- Move CORE_COMPONENTS to module scope to resolve ESLint exhaustive-deps warnings
+
+Also adds BBC Sounds as a separate platform in engines.toml with its
+  own icon path, sharing the same engine priority as BBC iPlayer
+  (get_iplayer primary, yt-dlp fallback).
+
+- Update BBC Sounds icon to match official logo shape
+
+Three vertical rectangles (small left, medium centre, large right)
+  matching the BBC Sounds speaker/equaliser branding. Black background
+  areas are now transparent; fill uses currentColor so it adapts to
+  light, dark, and colour-blind themes via fill-opacity layering.
+
+- Make platform icons dynamically expand to fill container
+
+Removed hardcoded width="16" height="16" from all 7 platform SVGs —
+  they now have only viewBox, so the parent container controls size.
+  PlatformIcon wrapper uses [&>svg]:w-full [&>svg]:h-full to make the
+  inline SVG expand to fill the 16x16 container. Bumped container
+  from 14px to 16px for better visibility.
+
+- Update BBC iPlayer icon to match official logo shape
+
+Three angular segments: left vertical bar, top-right angled bar,
+  bottom-right angled bar — forming the stylised play/forward symbol
+  from the BBC iPlayer branding. Black background areas are transparent;
+  fill uses currentColor with varying opacity for depth and theme
+  adaptability across light, dark, and colour-blind modes.
+
+- Update OF-Scraper icon to match official logo shape
+
+Circular open 'O' base with a swept wing/feather extending right,
+  matching the official branding. White areas are transparent; fill
+  uses currentColor with varying opacity (0.25-0.85) for the multi-
+  tone depth effect, adapting to light, dark, and colour-blind themes.
+
+- Rename ofscraper icon to onlyfans, redesign to match official logo
+
+Renamed ofscraper.svg → onlyfans.svg and updated engines.toml
+  platform ID to match. Completely redesigned the SVG to match the
+  official OnlyFans logo: open circular arc (thick C-shape), centre
+  dot, and two layered wing/feather curves sweeping from the opening.
+  White areas are transparent; currentColor with varying opacity for
+  theme adaptability.
+
+- Clean OnlyFans SVG — currentColor for themes, no fixed dimensions
+
+Stripped XML declaration, Illustrator metadata, and hardcoded hex
+  colours (#03A9F4, #0288D1). Replaced with currentColor + fill-opacity
+  (0.7 for the circular O, 0.9 for the wing sweep). viewBox preserved
+  from original (0 0 48 48), no fixed width/height so SVG dynamically
+  expands to fill the parent container.
+
+- Clean Apple Music SVG — currentColor for themes, no fixed dimensions
+
+Stripped XML declaration, Illustrator metadata, and hardcoded colours
+  (#F50057 red, #FFFFFF white). Rounded square background uses
+  currentColor at fill-opacity 0.25; music note uses currentColor at
+  fill-opacity 0.9. viewBox preserved (0 0 48 48), no fixed width/height.
+
+- Check common install locations beyond PATH for system tools
+
+find_system_tool() and get_mediainfo_path() now check platform-specific
+  locations when a tool isn't on the shell PATH:
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.20.0] - 2026-03-29
+
+### ✨ Features
+
+- Auto-update checking for all enabled pip engines (#272)
+
+Extends the update checker to monitor all pip-based engines defined
+  in engines.toml, not just GAMDL. On each update check, parses
+  engines.toml for enabled engines with install_method="pip", queries
+  PyPI for the latest version, and compares against installed version.
+
+  New components:
+  - pip_engine_service::check_latest_pypi_version() — PyPI JSON API query
+  - update_checker::get_enabled_pip_engines() — engines.toml parser
+  - update_checker::check_pip_engine_update() — per-engine update check
+  - commands::updates::upgrade_pip_engine() — generic pip upgrade IPC
+  - upgradePipEngine() TypeScript binding
+
+  Currently checks: votify (enabled=true). yt-dlp, get_iplayer, and
+  OF-Scraper are disabled in engines.toml and skipped automatically.
+  GAMDL retains its own check with compatibility gating.
+
+- Aggregate engine updates into generic UI message, hide individual names
+
+Engine/component updates (votify, yt-dlp, etc.) are now shown as a
+  single "Component updates available" card instead of individual rows
+  with version details. This avoids revealing specific tool names to
+  end users and keeps the UI simple.
+
+  - UpdatesPage: core updates (MeedyaDL, GAMDL, Python) shown with full
+    detail; engine updates aggregated into one card with "Update All"
+  - UpdateBanner: engine updates shown as "Component updates are also
+    available" with a link to the Updates page
+  - No changelog/release body shown for engine updates (already None)
+
+
+### 🐛 Bug Fixes
+
+- Use /releases/tags/ for deterministic mirror asset resolution
+
+GitHub's /releases/latest endpoint returns the "most recently created"
+  release, which differs from the release explicitly tagged "latest" when
+  a repo has multiple releases. This caused MediaInfo macOS assets to not
+  be found — they existed on the 'latest' tagged release but the API was
+  returning a different release (2026-03-27) that lacked macOS assets.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Add SVG logo+logotype to README, update roadmap and architecture
+
+- Logo: Added animated SVG logo (logo.svg) and logotype (logotype.svg)
+    to the README header for crisp rendering at any resolution
+  - Roadmap: Added M11 (OnlyFans/OF-Scraper), engine priority system
+    (#268), smart re-download detection, MediaInfo, stable rollback (#267)
+  - Architecture: Updated diagram to show engine registry layer and all
+    5 download engines (GAMDL, votify, yt-dlp, get_iplayer, OF-Scraper)
+  - Credits: Added votify, yt-dlp, get_iplayer, OF-Scraper, MediaInfo
+  - Setup: Updated first-run to mention 5 required tools + MediaInfo
+  - engines.toml: Added required/enabled fields per engine and platform
+
+- Update CHANGELOG.md [skip ci]
+- Update in-app help with MediaInfo, votify, smart re-download detection
+
+- index.md: Updated project description to mention multi-service plans
+  - getting-started.md: Added votify and MediaInfo to dependency lists
+  - downloading-music.md: Added smart re-download detection section
+  - faq.md: Added smart re-download detection Q&A entry
+
+- Update CHANGELOG.md [skip ci]
+- Remove OnlyFans/OF-Scraper references from all public documentation
+
+OnlyFans support remains as an internal/private roadmap item but should
+  not appear in public-facing documentation due to the platform's
+  controversial nature.
+
+  Removed from: README.md (roadmap, architecture, credits), DEV_NOTES.md
+  (engine table), and code comments (dependencies.rs, tauri-commands.ts).
+
+  The engines.toml entry and Rust/TypeScript code remain (compiled into
+  binary, hidden when enabled=false) for infrastructure readiness.
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.19.0] - 2026-03-29
+
+### ✨ Features
+
+- Add engines.toml for per-platform engine priority registry (#268)
+
+New config-driven registry defining available download engines and
+  their per-platform priority ordering. Follows the same pattern as
+  codecs.toml and tags.toml — compiled into binary via include_str!,
+  editable without code changes.
+
+  Defines 5 engines (GAMDL, votify, yt-dlp, get_iplayer, OF-Scraper)
+  and 6 platforms (Apple Music, Spotify, YouTube, YouTube Music,
+  BBC iPlayer, OnlyFans). BBC iPlayer uses get_iplayer as primary
+  with yt-dlp as fallback.
+
+  Runtime parsing and Rust model will be implemented as part of #107
+  (multi-service architecture).
+
+- Embed Votify and OF-Scraper as pip engines with required/enabled flags (#268)
+
+Adds engine lifecycle management for pip-based download engines:
+
+  1. engines.toml: Added `required` and `enabled` fields to both engines
+     and platforms. Votify is required+enabled, OF-Scraper is optional+
+     disabled (hidden until OnlyFans support is implemented). yt-dlp and
+     get_iplayer are also defined but disabled.
+
+  2. pip_engine_service.rs: Generic service for install/version-check/
+     uninstall of any pip package. Generalises the gamdl_service pattern
+     so new engines need zero new Rust service code.
+
+  3. IPC commands: check_votify_status, install_votify, check_ofscraper_status,
+     install_ofscraper — registered in lib.rs with TypeScript bindings.
+
+  4. Frontend: checkVotifyStatus(), installVotify(), checkOfscraperStatus(),
+     installOfscraper() in tauri-commands.ts.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Add meedyadl-v2 branch archive section to DEV_NOTES.md
+
+Documents the closed PR #24 (meedyadl-v2 branch), mapping each v2
+  feature to its status on main (reimplemented, superseded, or tracked
+  as open issue). Includes recommendations for future multi-service work:
+  use fresh feature branches, adapt v2 patterns don't copy code, and
+  use mirror-based tool management instead of bundled deps.
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add engines.toml editing guide to DEV_NOTES.md (#268, #270)
+
+Documents the engine registry file structure, priority system, and
+  step-by-step guides for adding engines, adding platforms, changing
+  priority, and removing engines. Includes current registry table and
+  implementation status tracking.
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.18.1] - 2026-03-27
+
 ### 🐛 Bug Fixes
 
 - Mark MediaInfo as required tool for automatic installation

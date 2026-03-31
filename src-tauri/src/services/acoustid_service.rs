@@ -127,7 +127,14 @@ pub async fn process_acoustid_for_directory(
 
     let mut tagged_count = 0;
 
+    let total_files = m4a_files.len();
     for (i, file_path) in m4a_files.iter().enumerate() {
+        log::info!(
+            "AcoustID: fingerprinting file {}/{} — {}",
+            i + 1,
+            total_files,
+            file_path.file_name().unwrap_or_default().to_string_lossy()
+        );
         // Rate limit: wait before each API call (skip first iteration)
         if i > 0 {
             sleep(API_RATE_LIMIT_DELAY).await;

@@ -4,6 +4,48 @@ Important notes for development, releasing, and CI/CD workflows.
 
 ---
 
+## Package Manifests
+
+MeedyaDL has two package manifests that define dependencies for different layers:
+
+### `src-tauri/Cargo.toml` — Rust Backend Dependencies
+
+Defines all Rust crates used by the Tauri backend. These are compiled into the native binary. Key categories:
+
+- **Tauri framework & plugins** — application shell, IPC, native capabilities
+- **Serialisation** (serde, serde_json) — JSON for IPC and file persistence
+- **Async runtime** (tokio) — concurrent I/O for downloads and subprocess management
+- **HTTP client** (reqwest) — downloading tools, querying APIs
+- **Cryptography** (sha2, jsonwebtoken) — checksum verification, MusicKit JWT signing
+- **Audio** (mp4ameta, rusty-chromaprint, symphonia) — metadata tagging, fingerprinting
+- **Logging** (tracing, sentry) — structured diagnostics, optional error tracking
+
+Version bumped automatically by release-please. Do not edit the version manually.
+
+### `package.json` — Frontend Dependencies
+
+Defines npm packages used by the React/TypeScript frontend. Key categories:
+
+- **UI framework** (react, react-dom, zustand) — component rendering, state management
+- **Styling** (tailwindcss, postcss) — utility-first CSS
+- **Content** (react-markdown, rehype-sanitize, remark-gfm) — help page rendering
+- **Internationalisation** (i18next, react-i18next) — translation system
+- **Build tools** (vite, typescript, vitest) — in devDependencies, not shipped
+
+Version bumped automatically by release-please. Do not edit the version manually.
+
+### `ACKNOWLEDGEMENTS.md` — Auto-Generated
+
+Lists all currently enabled/shipping dependencies with licence links. Generated from both manifests plus `engines.toml`:
+
+```bash
+node scripts/generate-acknowledgements.mjs
+```
+
+Run this whenever engines are enabled/disabled or dependencies change.
+
+---
+
 ## Release Workflow
 
 ### There Are 4 Separate Workflows — Don't Confuse Them
@@ -78,24 +120,31 @@ A common source of confusion:
 ### Normal Development Cycle
 
 1. **Write code** and commit using [Conventional Commits](https://www.conventionalcommits.org/):
-   - `feat: ...` — new features (bumps minor version)
-   - `fix: ...` — bug fixes (bumps patch version)
-   - `chore: ...` / `docs: ...` — no version bump, won't appear in changelog
 
-2. **Use `[skip ci]`** in commit messages during rapid development to conserve GitHub Actions minutes:
-   ```bash
-   git commit -m "feat: add queue persistence [skip ci]"
-   ```
+   | Type | Version Bump | Changelog | When to use |
+   |------|-------------|-----------|-------------|
+   | `feat:` | Minor (0.X.0) | Features | User-visible new functionality only |
+   | `fix:` | Patch (0.0.X) | Bug Fixes | Bug fixes and internal changes worth releasing |
+   | `refactor:` | None | Improvements | Internal restructuring, ships with next fix/feat |
+   | `perf:` | None | Improvements | Performance improvements |
+   | `test:` | None | Improvements | Test additions/changes |
+   | `chore:` | None | Hidden | Build, deps, infrastructure, config, icons |
+   | `docs:` | None | Hidden | Documentation only |
+   | `ci:` | None | Hidden | CI/CD workflow changes |
 
-3. **Push to main**. Two things happen automatically:
+   **Key rule:** `feat:` is ONLY for user-visible features. Internal work uses `fix:` (if it should trigger a patch release) or `chore:`/`refactor:` (if it can ship with the next release).
+
+   **Do NOT use `[skip ci]`** in commit messages unless explicitly instructed.
+
+2. **Push to main**. Two things happen automatically:
    - CI runs (verifies code is good)
    - Release Please creates/updates a Release PR (you can ignore it until ready)
 
-4. **When ready to release**: go to GitHub and **merge the Release PR**. This triggers the full build pipeline.
+3. **When ready to release**: go to GitHub and **merge the Release PR**. This triggers the full build pipeline.
 
-5. **Wait for builds** (~15-20 minutes). Check the Actions tab to monitor progress.
+4. **Wait for builds** (~15-20 minutes). Check the Actions tab to monitor progress.
 
-6. **Publish the draft release** on GitHub once all builds succeed.
+5. **Publish the draft release** on GitHub once all builds succeed.
 
 ### Manual Release Trigger
 
@@ -1547,3 +1596,276 @@ When disabled, the pre-download history check is skipped entirely.
 | `src/components/download/DownloadForm.tsx` | Frontend integration (history check + info toast) |
 | `src/lib/tauri-commands.ts` | `checkRedownloadStatus()` IPC wrapper |
 | `src/components/settings/tabs/GeneralTab.tsx` | Settings toggle UI |
+
+---
+
+## MeedyaDL-v2 Branch Archive (PR #24, closed 2026-03-27)
+
+The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype for multi-service support. It diverged too far from `main` (~100+ commits behind) and was closed as unmergeable. The branch is **preserved** (not deleted) for reference.
+
+### Feature Status Mapping
+
+| v2 Feature | Status on `main` | Notes |
+|-----------|------------------|-------|
+| Multi-service URL parser (YouTube/Spotify/iPlayer) | Not on main | Tracked by #100–#104, #107. Key reference: commit `9bcf848` |
+| Smart Download cross-platform quality | Not on main | Tracked by #110. Reference: commit `fb887d98` |
+| Remote feature kill-switch / service status | Not on main | Tracked by #106 |
+| Stable rollback from pre-release | Not on main | New issue #267 created |
+| macOS codesign `--timestamp` wrapper | Reimplemented | release.yml Step 8.9 |
+| 7z GPAC extraction (CI fix) | Reimplemented | dependency_manager.rs |
+| i18n infrastructure | Reimplemented | #111 |
+| Update preferences (auto-check, pre-release toggles) | Reimplemented | update_check_interval_hours, checkPreReleases |
+| Bundled deps extraction on first launch | Superseded | Mirror-based tool management (MeedyaDL-Tools) |
+| Perl runtime + get_iplayer | Superseded | BBC iPlayer deferred to M10 (#102) |
+| aria2c / fpcalc bundling | Superseded | fpcalc replaced by embedded rusty-chromaprint |
+| Signed bundled deps for notarization | Not applicable | No bundled deps approach on main |
+
+### Recommendations for Future Multi-Service Work
+
+1. **Don't cherry-pick from `meedyadl-v2`** — the code targets a different architecture (bundled deps, different settings schema, different type definitions). Create fresh feature branches from current `main`.
+2. **The v2 URL parser pattern is useful reference** — `9bcf848` has the multi-service detection logic (Apple Music, YouTube, BBC iPlayer, Spotify) with content type classification. Adapt the pattern, don't copy the code.
+3. **The v2 `bundled-deps` approach is obsolete** — main uses mirror-based tool management via MeedyaDL-Tools repo. New service engines (yt-dlp, votify) should be installed via pip (like GAMDL) or downloaded from mirrors, not bundled in the installer.
+4. **The `DownloadOptions` refactor in v2** (commit `96266e3`) has a useful `service_id` field pattern for routing downloads to the correct engine. Worth adapting when implementing #107.
+5. **Start each service milestone on a fresh branch** — `feat/spotify` from `main` for M8, `feat/youtube` for M9, etc. Keep PRs focused and mergeable.
+
+---
+
+## Engine Registry (`engines.toml`) — #268, #270
+
+Defines available download engines (external tools) and their per-platform priority ordering. Located at `src-tauri/engines.toml`, compiled into the binary via `include_str!` — same pattern as `codecs.toml` and `tags.toml`.
+
+### File Structure
+
+The file has two sections:
+
+**`[engines.<id>]`** — one entry per external tool:
+
+```toml
+[engines.get_iplayer]
+name = "get_iplayer"              # Display name in UI
+install_method = "system"         # "pip" | "binary" | "system"
+# pip_package = "..."             # PyPI name (omit for non-pip tools)
+cli_command = "get_iplayer"       # How MeedyaDL invokes the tool
+homepage = "https://github.com/get-iplayer/get_iplayer"
+description = "BBC iPlayer specialist with PVR scheduling and rich metadata"
+```
+
+**`[platforms.<id>]`** — one entry per media service:
+
+```toml
+[platforms.bbc-iplayer]
+name = "BBC iPlayer"
+url_patterns = ["bbc.co.uk/iplayer", "bbc.co.uk/sounds"]
+engines = ["get_iplayer", "ytdlp"]   # priority order: first = primary
+content_types = ["tv", "radio", "podcasts"]
+```
+
+### How Priority Works
+
+The `engines` array in each platform section is an **ordered priority list**:
+
+1. First entry = **primary engine** (used by default)
+2. Subsequent entries = **fallback engines** (tried in order if primary fails or isn't installed)
+
+Example: BBC iPlayer uses `get_iplayer` as primary because it's purpose-built for BBC content. If get_iplayer isn't installed, MeedyaDL falls back to `yt-dlp`.
+
+Users can override the default priority per-platform in Settings. User overrides are stored in `AppSettings.engine_priority_overrides` and take precedence over the TOML defaults.
+
+### Bundled vs External Engines
+
+Each engine has a `bundled` field that determines how it's distributed:
+
+**Bundled engines (`bundled = true`):**
+- Installed via `pip install` into the managed Python environment during setup
+- Packaged with MeedyaDL during CI release builds (release.yml reads this field)
+- No custom path setting in Settings > Tools — always uses the managed version
+- Updated via the in-app update checker (PyPI version comparison)
+- Must not be installed separately by the user
+
+**External engines (`bundled = false`):**
+- Installed by the user via system package manager (Homebrew, apt, etc.)
+- User can set a custom binary path in Settings > Tools
+- Auto-detected from system PATH and common install locations at runtime
+- Not packaged in the MeedyaDL installer
+
+### Current Registry
+
+| Engine | Bundled | Install | Platforms | Custom path |
+|--------|---------|---------|-----------|-------------|
+| GAMDL | Yes | pip | Apple Music | No |
+| votify | Yes | pip | Spotify | No |
+| yt-dlp | Yes | pip | YouTube, YouTube Music, BBC iPlayer (fallback) | No |
+| get_iplayer | Yes | binary (mirror) | BBC iPlayer (primary) | No |
+
+### CI Packaging — Tiny vs Offline Installers
+
+MeedyaDL supports two installer types, controlled by a `workflow_dispatch` input:
+
+**Tiny installer (default):**
+- App binary only (~30MB)
+- Engines and tools downloaded on first launch via setup wizard
+- Produced by every tag-push release and the default manual trigger
+
+**Offline installer (manual trigger):**
+- App + Python + pip engines + all binary tools (~300MB)
+- Zero-setup: everything pre-bundled, no downloads on first launch
+- Triggered manually: `gh workflow run "Release" -f tag=vX.X.X -f bundle_engines=true`
+- Step 8.5 in `release.yml` reads `engines.toml` to determine what to install:
+  - `bundled=true, enabled=true, install_method=pip` → `pip install` into bundled-deps
+  - `bundled=true, enabled=true, install_method=binary` → download from MeedyaDL-Tools mirror
+- Binary tools (FFmpeg, mp4decrypt, etc.) also downloaded from mirror
+- Writes `manifest.json` with `offline_installer: true` so setup wizard skips downloading
+
+When a new engine is enabled in `engines.toml`, both installer types pick it up automatically — no workflow YAML changes needed.
+
+### Editing Guide
+
+#### Adding a new engine
+
+1. Add a `[engines.<id>]` section with all required fields
+2. Add the engine ID to every platform's `engines` list where it applies
+3. Position it in the `engines` array according to desired priority
+4. Implement the engine adapter in Rust (`services/<engine>_service.rs`)
+
+#### Adding a new platform
+
+1. Add a `[platforms.<id>]` section
+2. List `url_patterns` — hostnames the URL parser uses for auto-detection
+3. List `engines` in priority order (at least one engine required)
+4. List `content_types` for UI display hints
+5. Add URL parsing support in the frontend (`src/lib/url-parser.ts`)
+
+#### Changing engine priority for a platform
+
+Edit the `engines` array order. Example — to make yt-dlp primary for BBC iPlayer:
+
+```toml
+# Before (get_iplayer primary):
+engines = ["get_iplayer", "ytdlp"]
+
+# After (yt-dlp primary):
+engines = ["ytdlp", "get_iplayer"]
+```
+
+#### Removing an engine from a platform
+
+Remove its ID from the `engines` array. The engine definition can stay in `[engines.*]` — unused engines are simply not offered for that platform.
+
+### Implementation Status
+
+- `engines.toml` file: **Done** (commit `f20fe9b`)
+- Rust parser (`engine_registry.rs`): **Pending** (#270)
+- Engine selection/fallback logic: **Pending** (#270)
+- Frontend types + Settings UI: **Pending** (#270)
+- Per-engine adapters: **Pending** (one per milestone: #101, #102, #103, #104)
+
+---
+
+## Platform Icons (`public/icons/platforms/`)
+
+Each media service has a small icon displayed in the progress bar during downloads. Icons are stored as SVGs in `public/icons/platforms/` and referenced by the `icon` field in `engines.toml`.
+
+### Theme Adaptability
+
+Platform icons use `currentColor` instead of hardcoded fill colours. The `PlatformIcon` component in `GlobalProgressBar.tsx` fetches the SVG and renders it **inline** (not as `<img>`) so that `currentColor` inherits from the parent CSS context. This means icons automatically adapt to:
+
+- **Light mode** — inherits dark text colour
+- **Dark mode** — inherits light text colour
+- **Colour-blind modes** — inherits the theme's adjusted text colour
+- **High-contrast mode** — inherits the boosted contrast colour
+
+SVG content is cached in a module-level `Map` to avoid re-fetching on re-renders.
+
+### Fallback Chain
+
+1. **Local SVG** from `public/icons/platforms/{id}.svg` — rendered inline, theme-adaptive
+2. **Google Favicon API** — `https://www.google.com/s2/favicons?domain={host}&sz=32` returns a PNG. Not theme-adaptive but always available for any domain.
+
+### Adding a New Platform Icon
+
+1. Create a 16x16 SVG file at `public/icons/platforms/{platform-id}.svg`
+2. Use `fill="currentColor"` for all paths (NOT hardcoded hex colours)
+3. Use `fill-opacity` for visual weight variation (e.g., `0.7` for primary, `0.15` for backgrounds)
+4. Set the `icon` field in `engines.toml`: `icon = "icons/platforms/{id}.svg"`
+5. Add the platform to `PLATFORM_CONFIG` in `GlobalProgressBar.tsx`
+
+### SVG Template
+
+```xml
+<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    {Service Name} icon.
+    Uses currentColor for theme adaptability.
+  -->
+  <path d="..." fill="currentColor" fill-opacity="0.7"/>
+</svg>
+```
+
+### Current Icons
+
+| Platform | File | Status |
+|----------|------|--------|
+| Apple Music | `apple-music.svg` | Done (music note) |
+| Spotify | `spotify.svg` | Done (circle + waves) |
+| YouTube | `youtube.svg` | Pending (uses favicon fallback) |
+| YouTube Music | `youtube-music.svg` | Pending (uses favicon fallback) |
+| BBC iPlayer | `bbc-iplayer.svg` | Pending (uses favicon fallback) |
+
+---
+
+## Progress Tracking Architecture (#294)
+
+The download progress system tracks ALL activity — primary downloads, companion downloads, enrichment, and post-processing — through a unified event and state model.
+
+### Queue Item State Machine
+
+```text
+Queued → Downloading → Processing → Complete
+                  ↓           ↓
+                Error      Error/Cancelled
+```
+
+- **Downloading**: Primary GAMDL download is active. Speed/ETA/percentage shown.
+- **Processing**: Post-download work (enrichment + companions). Item stays in this state until ALL background tasks finish (JoinHandle tracking).
+- **Complete**: Only set by the completion task after enrichment AND companion JoinHandles resolve.
+
+### Event Flow
+
+1. **Primary download** emits `gamdl-output` events → `handleProgressEvent()` sets state to `downloading`, updates speed/ETA/progress.
+2. **Processing step** event → sets state to `processing`, clears speed/ETA.
+3. **Companion downloads** emit `gamdl-output` events → update speed/ETA/progress on the item but do NOT change state back to `downloading` (preserves `processing` state stability).
+4. **Enrichment stages** set `processing_label` (e.g., "Enriching metadata tags...", "Converting lyrics...") but don't emit speed/ETA.
+5. **Completion task** awaits all JoinHandles → sets state to `complete`, sends desktop notification.
+
+### Key Design Decisions
+
+- **State stability**: `download_progress` and `track_info` events check `item.state !== 'processing'` before transitioning to `downloading`. This prevents the queue-level progress bar from oscillating between "done" and "not done" during companion downloads.
+- **Speed/ETA clearing**: `processing_step` events clear `speed` and `eta` to prevent stale companion data lingering during enrichment.
+- **Partial credit**: Queue-level bar counts `processing`, `error`, and `cancelled` items alongside `complete` in the "done" tally, so the queue bar advances after the primary download succeeds.
+- **Determinate vs indeterminate**: GlobalProgressBar shows determinate progress (percentage) during `processing` if `speed` data exists (companion downloading); otherwise shows indeterminate animation (enrichment).
+
+### Processing Labels
+
+The `processing_label` field on `QueueItemStatus` is set at enrichment stage boundaries:
+
+| Stage | Label |
+|-------|-------|
+| Metadata tagging | "Enriching metadata tags..." |
+| Enhanced LRC | "Converting lyrics..." |
+| Animated artwork | "Downloading animated artwork..." |
+| AcoustID | "Fingerprinting audio..." |
+| ReplayGain | "Analysing loudness..." |
+| Companions | "Companion: {codec} {track}/{total}" |
+
+### Per-File Progress
+
+- **ReplayGain**: Emits "analysing file N/M — filename.m4a" per file
+- **AcoustID**: Emits "fingerprinting file N/M — filename.m4a" per file
+- **Companion stdout**: Streamed line-by-line via `AsyncBufReadExt`; each line parsed by `parse_gamdl_output()` and emitted as `gamdl-output` event
+
+### Files
+
+- `src-tauri/src/services/download_queue.rs` — state management, JoinHandle tracking, companion stdout streaming
+- `src-tauri/src/models/download.rs` — `processing_label: Option<String>` on `QueueItemStatus`
+- `src/stores/downloadStore.ts` — event handling with state stability guards
+- `src/components/layout/GlobalProgressBar.tsx` — dual bar rendering with companion speed/ETA support

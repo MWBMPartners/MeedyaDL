@@ -1,0 +1,15 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    BBC Sounds icon — based on the official BBC Sounds logo shape:
+    Two vertical rectangles (large right, medium centre) with a small
+    square on the left, representing a stylised speaker/sound source.
+    Black areas from the original are transparent; the orange fill
+    uses currentColor so it adapts to light/dark/colour-blind themes.
+  -->
+  <!-- Small left square -->
+  <rect x="2" y="9" width="4.5" height="6" rx="0.5" fill="currentColor" fill-opacity="0.85"/>
+  <!-- Medium centre rectangle -->
+  <rect x="8" y="5.5" width="5" height="13" rx="0.8" fill="currentColor" fill-opacity="0.7"/>
+  <!-- Large right rectangle -->
+  <rect x="14.5" y="2" width="7" height="20" rx="1" fill="currentColor" fill-opacity="0.9"/>
+</svg>

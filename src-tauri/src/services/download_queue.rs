@@ -720,6 +720,7 @@ impl DownloadQueue {
                 completed_tracks: None,
                 speed: None,
                 eta: None,
+                processing_label: None,
                 error: None,
                 output_path: None,
                 codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -960,6 +961,22 @@ impl DownloadQueue {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
+        }
+    }
+
+    /// Marks a download as in post-processing (enrichment, companions, etc.).
+    /// The item stays in this state until all background tasks finish.
+    pub fn set_processing(&mut self, download_id: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.state = DownloadState::Processing;
+        }
+    }
+
+    /// Updates the processing label for a download item.
+    /// Shows what's currently happening during Processing state.
+    pub fn set_processing_label(&mut self, download_id: &str, label: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_label = Some(label.to_string());
         }
     }
 
@@ -1342,6 +1359,7 @@ impl DownloadQueue {
                     completed_tracks: None,
                     speed: None,
                     eta: None,
+                    processing_label: None,
                     error,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -2468,6 +2486,8 @@ async fn detect_actual_primary_codec(
 /// This is called after any terminal download outcome (success or final
 /// failure), but NOT after fallback/network retries (where the download
 /// will be re-attempted and companions will fire on the final outcome).
+/// Spawns companion downloads and returns a JoinHandle that resolves when
+/// all companion tiers have completed. Returns None if no companions are needed.
 fn spawn_companion_downloads(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -2476,7 +2496,7 @@ fn spawn_companion_downloads(
     companion_base_options: &GamdlOptions,
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
-) {
+) -> Option<tokio::task::JoinHandle<()>> {
     let companion_settings = load_settings_for_queue(app);
     let mut companion_tiers = plan_companions(
         &companion_settings.companion_mode,
@@ -2495,7 +2515,9 @@ fn spawn_companion_downloads(
         }
     }
 
-    if !companion_tiers.is_empty() {
+    let codec_handle = if companion_tiers.is_empty() {
+        None
+    } else {
         let comp_app = app.clone();
         let comp_urls = urls.to_vec();
         let comp_base_opts = companion_base_options.clone();
@@ -2528,7 +2550,7 @@ fn spawn_companion_downloads(
             );
         }
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             // Process each companion tier sequentially
             for (tier_idx, tier) in companion_tiers.iter().enumerate() {
                 // Check for app shutdown between tiers
@@ -2585,64 +2607,136 @@ fn spawn_companion_downloads(
                         }
                     };
 
-                    // Pipe stdout/stderr for the companion process.
-                    // We don't parse progress events (fire-and-forget),
-                    // but we capture output for error diagnosis.
+                    // Log the GAMDL CLI args so users can verify the codec request
+                    emit_verbose_download_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        &format!(
+                            "Companion GAMDL args: --song-codec-priority {}",
+                            codec.to_cli_string()
+                        ),
+                    );
+
+                    // Pipe stdout/stderr and stream line-by-line to the activity log.
+                    // This gives users real-time visibility into companion downloads
+                    // (per-track progress, [download] fragments, errors).
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
                     match cmd.spawn() {
-                        Ok(child) => {
-                            match child.wait_with_output().await {
-                                Ok(output) if output.status.success() => {
-                                    log::info!(
-                                        "Companion tier {} ({}) downloaded \
-                                         for {}",
-                                        tier_idx,
-                                        codec.to_cli_string(),
-                                        comp_dl_id
-                                    );
+                        Ok(mut child) => {
+                            // Stream stdout to activity log line-by-line
+                            let stdout = child.stdout.take();
+                            let stderr = child.stderr.take();
+                            let stream_app = comp_app.clone();
+                            let stream_dl_id = comp_dl_id.clone();
+                            let stream_codec = codec.to_cli_string().to_string();
+
+                            // Spawn stdout reader
+                            let stdout_task = if let Some(out) = stdout {
+                                let app = stream_app.clone();
+                                let dl_id = stream_dl_id.clone();
+                                Some(tokio::spawn(async move {
+                                    use tokio::io::AsyncBufReadExt;
+                                    let reader = tokio::io::BufReader::new(out);
+                                    let mut lines = reader.lines();
+                                    while let Ok(Some(line)) = lines.next_line().await {
+                                        let clean = crate::utils::process::strip_ansi_codes(&line);
+                                        if !clean.trim().is_empty() {
+                                            // Emit to activity log
+                                            let _ = app.emit(
+                                                "activity-log",
+                                                &crate::utils::activity_log::ActivityLogEvent {
+                                                    download_id: dl_id.clone(),
+                                                    stream: "stdout",
+                                                    line: clean.clone(),
+                                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                                },
+                                            );
+
+                                            // Parse for progress events so the progress bar updates
+                                            let event = crate::utils::process::parse_gamdl_output(&clean);
+                                            let progress = gamdl_service::GamdlProgress {
+                                                download_id: dl_id.clone(),
+                                                event,
+                                            };
+                                            let _ = app.emit("gamdl-output", &progress);
+                                        }
+                                    }
+                                }))
+                            } else {
+                                None
+                            };
+
+                            // Collect stderr for error diagnosis
+                            let stderr_task = if let Some(err) = stderr {
+                                let app = stream_app.clone();
+                                let dl_id = stream_dl_id.clone();
+                                Some(tokio::spawn(async move {
+                                    use tokio::io::AsyncBufReadExt;
+                                    let reader = tokio::io::BufReader::new(err);
+                                    let mut lines = reader.lines();
+                                    let mut last_line = String::new();
+                                    while let Ok(Some(line)) = lines.next_line().await {
+                                        let clean = crate::utils::process::strip_ansi_codes(&line);
+                                        if !clean.trim().is_empty() {
+                                            last_line = clean.clone();
+                                            let _ = app.emit(
+                                                "activity-log",
+                                                &crate::utils::activity_log::ActivityLogEvent {
+                                                    download_id: dl_id.clone(),
+                                                    stream: "stderr",
+                                                    line: clean,
+                                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                                },
+                                            );
+                                        }
+                                    }
+                                    last_line
+                                }))
+                            } else {
+                                None
+                            };
+
+                            // Wait for the process to complete
+                            let status = child.wait().await;
+
+                            // Wait for stream readers to finish
+                            if let Some(t) = stdout_task { let _ = t.await; }
+                            let last_err = if let Some(t) = stderr_task {
+                                t.await.unwrap_or_default()
+                            } else {
+                                String::new()
+                            };
+
+                            match status {
+                                Ok(s) if s.success() => {
                                     emit_download_log(
                                         &comp_app,
                                         &comp_dl_id,
                                         &format!(
                                             "Companion download complete (tier {}, codec: {})",
-                                            tier_idx,
-                                            codec.to_cli_string(),
+                                            tier_idx, stream_codec,
                                         ),
                                     );
                                     let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
-                                    // Apply custom metadata tags for specialist
-                                    // companion codecs (e.g., isLossless=Y for
-                                    // ALAC). Only ALAC and Atmos have custom
-                                    // tags; lossy codecs return immediately.
                                     if let Some(ref output_dir) = opts.output_path {
                                         match super::metadata_tag_service::apply_codec_metadata_tags(
                                             output_dir, codec,
                                         ) {
                                             Ok(count) if count > 0 => {
                                                 log::info!(
-                                                    "Tagged {} companion file(s) \
-                                                     with {} metadata for {}",
-                                                    count,
-                                                    codec.to_cli_string(),
-                                                    comp_dl_id
+                                                    "Tagged {} companion file(s) with {} metadata for {}",
+                                                    count, stream_codec, comp_dl_id
                                                 );
                                             }
                                             Ok(_) => {}
                                             Err(e) => {
-                                                log::debug!(
-                                                    "Companion metadata tagging \
-                                                     failed for {comp_dl_id}: {e}"
-                                                );
+                                                log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
                                             }
                                         }
 
-                                        // Run lyrics conversion for companion downloads.
-                                        // Companions inherit the TTML lyrics format (forced by
-                                        // Enhanced LRC), so TTML sidecars are downloaded but never
-                                        // converted unless we do it here.
                                         run_companion_lyrics_conversion(
                                             &comp_app,
                                             &comp_dl_id,
@@ -2651,35 +2745,21 @@ fn spawn_companion_downloads(
                                     }
 
                                     tier_succeeded = true;
-                                    break; // This tier done, move to next
+                                    break;
                                 }
-                                Ok(output) => {
-                                    // Non-zero exit: codec may be
-                                    // unavailable for this content
-                                    let stderr = String::from_utf8_lossy(&output.stderr);
-                                    let last_err = stderr.lines().last().unwrap_or("unknown error");
-                                    log::debug!(
-                                        "Companion tier {} ({}) failed \
-                                         for {}: {}",
-                                        tier_idx,
-                                        codec.to_cli_string(),
-                                        comp_dl_id,
-                                        last_err
-                                    );
+                                Ok(_) => {
                                     emit_download_log(
                                         &comp_app,
                                         &comp_dl_id,
                                         &format!(
                                             "Companion tier {}: {} failed — {}",
-                                            tier_idx,
-                                            codec.to_cli_string(),
-                                            last_err
+                                            tier_idx, stream_codec,
+                                            if last_err.is_empty() { "unknown error" } else { &last_err }
                                         ),
                                     );
-                                    // Continue to next codec in tier
                                 }
                                 Err(e) => {
-                                    log::debug!("Companion process error: {e}");
+                                    log::debug!("Companion process wait error: {e}");
                                 }
                             }
                         }
@@ -2699,7 +2779,8 @@ fn spawn_companion_downloads(
                 }
             }
         });
-    }
+        Some(handle)
+    };
 
     /// Runs lyrics format conversion on a companion download's output directory.
     ///
@@ -2911,6 +2992,10 @@ fn spawn_companion_downloads(
             }
         });
     }
+
+    // Return the codec companion handle if it exists.
+    // (Lyrics companions are fire-and-forget — they're fast and non-critical.)
+    codec_handle
 }
 
 // ============================================================
@@ -3730,7 +3815,7 @@ pub fn process_queue(
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
                                 // format was unavailable.
-                                spawn_companion_downloads(
+                                let _ = spawn_companion_downloads(
                                     &app_clone,
                                     &dl_id,
                                     &urls,
@@ -3746,10 +3831,10 @@ pub fn process_queue(
                             }
                         }
 
-                        // Mark as complete and attach any non-fatal warnings.
-                        // Reached when has_output=true (normal) or IO error
-                        // recovery set output_path from config.
-                        q.set_complete(&dl_id);
+                        // Mark as processing (enrichment + companions still running).
+                        // The item stays in Processing state until all background
+                        // tasks complete, keeping the progress bar active.
+                        q.set_processing(&dl_id);
                         let mut all_warnings = warnings.clone();
                         if warnings.iter().any(|w| process::is_io_error(w)) {
                             all_warnings.push(
@@ -3796,7 +3881,7 @@ pub fn process_queue(
 
                     // Build a display name for the notification body. Prefer the
                     // track name from the queue item, fall back to the URL basename.
-                    let notification_name = history_track_name.clone().unwrap_or_else(|| {
+                    let _notification_name = history_track_name.clone().unwrap_or_else(|| {
                         urls.first()
                             .and_then(|u| u.rsplit('/').next())
                             .unwrap_or("Download")
@@ -3827,15 +3912,9 @@ pub fn process_queue(
                     save_queue_to_disk(&app_clone, &queue_clone).await;
 
                     // Notify frontend of successful completion
-                    let _ = app_clone.emit("download-complete", &dl_id);
-
-                    // Send a native OS desktop notification if the window is
-                    // not focused, so the user knows their download finished.
-                    send_desktop_notification(
-                        &app_clone,
-                        "Download Complete",
-                        &format!("{notification_name} downloaded successfully"),
-                    );
+                    // NOTE: download-complete event and desktop notification are
+                    // deferred to the completion task (after enrichment + companions
+                    // finish) so they don't fire prematurely.
 
                     // === Unified post-download enrichment (background, fire-and-forget) ===
                     // After a successful download, run all post-processing in a single
@@ -3853,7 +3932,7 @@ pub fn process_queue(
                     // This runs in a separate tokio task so it doesn't block the queue
                     // from processing the next download. Failures are logged but never
                     // propagate to the user or affect the download status.
-                    if let Some(output_dir) = output_path_for_artwork.clone() {
+                    let enrichment_handle = if let Some(output_dir) = output_path_for_artwork.clone() {
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
                         let enrich_dl_id = dl_id.clone();
@@ -3862,7 +3941,7 @@ pub fn process_queue(
                         let enrich_native_priority = uses_native_priority;
                         let enrich_queue = queue_clone.clone();
                         let enrich_started_at = download_started_at.clone();
-                        tokio::spawn(async move {
+                        Some(tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
                             // For albums, output_path is already the directory.
@@ -3874,6 +3953,16 @@ pub fn process_queue(
                                     || output_dir.clone(),
                                     |p| p.to_string_lossy().to_string(),
                                 )
+                            };
+
+                            // Helper: update the processing label in the queue item
+                            // so the progress bar shows what's happening.
+                            let label_queue = enrich_queue.clone();
+                            let label_dl_id = enrich_dl_id.clone();
+                            let set_label = move |label: &str| {
+                                if let Ok(mut q) = label_queue.try_lock() {
+                                    q.set_processing_label(&label_dl_id, label);
+                                }
                             };
 
                             // Log enrichment settings summary so users can see
@@ -3892,6 +3981,7 @@ pub fn process_queue(
                             ),
                         );
 
+                            set_label("Enriching metadata tags...");
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
                             // source tags, channel detection, API metadata). Returns the
@@ -4176,6 +4266,7 @@ pub fn process_queue(
                                 }
                             }
 
+                            set_label("Converting lyrics (Enhanced LRC)...");
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
@@ -4437,6 +4528,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("Downloading animated artwork...");
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
                             // duplicate API call. Falls back to a fresh API call
@@ -4535,6 +4627,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("AcoustID fingerprinting...");
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
                             // embedded rusty-chromaprint library and looks up AcoustID
@@ -4595,6 +4688,7 @@ pub fn process_queue(
                                 return;
                             }
 
+                            set_label("ReplayGain loudness analysis...");
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                             // When enabled, analyses each file's loudness via FFmpeg's
                             // ebur128 filter and writes non-destructive ReplayGain tags.
@@ -4602,11 +4696,17 @@ pub fn process_queue(
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
-                                    "Analysing loudness (ReplayGain EBU R128)...",
+                                    &format!(
+                                        "Analysing loudness (ReplayGain, ref={:.1} LUFS, clipping prevention={})...",
+                                        enrich_settings.replaygain_reference_level,
+                                        if enrich_settings.replaygain_prevent_clipping { "on" } else { "off" }
+                                    ),
                                 );
                                 match super::replaygain_service::process_replaygain_for_directory(
                                     &enrich_app,
                                     &album_dir,
+                                    enrich_settings.replaygain_reference_level,
+                                    enrich_settings.replaygain_prevent_clipping,
                                 )
                                 .await
                                 {
@@ -4793,8 +4893,10 @@ pub fn process_queue(
                                 &enrich_dl_id,
                                 "Post-download enrichment complete",
                             );
-                        });
-                    }
+                        }))
+                    } else {
+                        None
+                    };
 
                     // Spawn companion downloads (codec + lyrics) as background tasks.
                     // When native priority was used, GAMDL may have silently fallen
@@ -4817,7 +4919,7 @@ pub fn process_queue(
 
                     // When native priority was used, force all companions to
                     // use suffixed filenames (primary has clean filenames).
-                    spawn_companion_downloads(
+                    let companion_handle = spawn_companion_downloads(
                         &app_clone,
                         &dl_id,
                         &urls,
@@ -4826,6 +4928,47 @@ pub fn process_queue(
                         &shutdown_clone,
                         uses_native_priority,
                     );
+
+                    // Spawn a completion task that waits for ALL background work
+                    // (enrichment + companions) before marking the item as Complete.
+                    // This keeps the item in Processing state and the progress bar
+                    // active until everything finishes.
+                    {
+                        let completion_app = app_clone.clone();
+                        let completion_dl_id = dl_id.clone();
+                        let completion_queue = queue_clone.clone();
+                        tokio::spawn(async move {
+                            // Wait for enrichment to finish
+                            if let Some(handle) = enrichment_handle {
+                                let _ = handle.await;
+                            }
+                            // Wait for companion downloads to finish
+                            if let Some(handle) = companion_handle {
+                                let _ = handle.await;
+                            }
+
+                            // Mark as complete now that all background work is done
+                            {
+                                let mut q = completion_queue.lock().await;
+                                q.set_complete(&completion_dl_id);
+                                drop(q);
+                            }
+                            save_queue_to_disk(&completion_app, &completion_queue).await;
+                            emit_download_log(
+                                &completion_app,
+                                &completion_dl_id,
+                                "All downloads and processing complete",
+                            );
+                            let _ = completion_app.emit("download-complete", &completion_dl_id);
+
+                            // Desktop notification fires AFTER all work finishes
+                            send_desktop_notification(
+                                &completion_app,
+                                "Download Complete",
+                                "All downloads and processing complete",
+                            );
+                        });
+                    }
                 }
                 Err(error_msg) => {
                     // === Cancellation short-circuit ===
@@ -5152,7 +5295,7 @@ pub fn process_queue(
                         // is network-related (network is down, so companions would
                         // also fail and just waste time + clutter the Activity Log).
                         if error_category != "network" {
-                            spawn_companion_downloads(
+                            let _ = spawn_companion_downloads(
                                 &app_clone,
                                 &dl_id,
                                 &urls,

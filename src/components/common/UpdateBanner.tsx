@@ -73,6 +73,9 @@ import { Button } from './Button';
  * Returns null when `activeUpdates` is empty, so the banner takes up zero
  * space in the layout when there is nothing to show.
  */
+// Core components shown with full detail; engine updates shown generically.
+const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
+
 export function UpdateBanner() {
   /*
    * Zustand store subscriptions.
@@ -114,15 +117,25 @@ export function UpdateBanner() {
    * component even if it would normally be filtered out, so the "Restart
    * Now" button remains visible.
    */
-  const activeUpdates = useMemo(() => {
+  const allUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
       (c) => c.update_available && c.is_compatible && !dismissed.includes(c.name)
     );
   }, [lastResult, dismissed]);
 
+  // Only show core updates individually in the banner
+  const activeUpdates = useMemo(
+    () => allUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
+    [allUpdates]
+  );
+  const hasEngineUpdates = useMemo(
+    () => allUpdates.some((c) => !CORE_COMPONENTS.includes(c.name)),
+    [allUpdates]
+  );
+
   /* Early return -- render nothing when there are no active updates */
-  if (activeUpdates.length === 0) return null;
+  if (allUpdates.length === 0) return null;
 
   /**
    * Handles the GAMDL in-app upgrade flow.
@@ -364,6 +377,20 @@ export function UpdateBanner() {
               )}
             </div>
           ))}
+
+          {/* Generic message for engine/component updates (no individual names shown) */}
+          {hasEngineUpdates && (
+            <div className="text-xs text-content-secondary mt-1">
+              Component updates are also available.{' '}
+              <button
+                type="button"
+                onClick={() => setPage('updates')}
+                className="text-accent hover:underline"
+              >
+                View Details
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

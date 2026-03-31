@@ -238,6 +238,80 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
     Ok(version)
 }
 
+/// Checks whether votify is installed in the managed Python environment.
+///
+/// **Frontend caller:** `checkVotifyStatus()` in `src/lib/tauri-commands.ts`
+///
+/// votify is the Spotify download engine — required for Spotify support.
+/// Uses the generic pip engine service for version detection.
+#[tauri::command]
+pub async fn check_votify_status(app: AppHandle) -> Result<DependencyStatus, String> {
+    let version =
+        crate::services::pip_engine_service::get_pip_engine_version(&app, "votify").await?;
+
+    Ok(DependencyStatus {
+        name: "votify".to_string(),
+        required: true,
+        installed: version.is_some(),
+        version,
+        path: None,
+        source: None,
+    })
+}
+
+/// Installs votify via pip into the managed Python environment.
+///
+/// **Frontend caller:** `installVotify()` in `src/lib/tauri-commands.ts`
+#[tauri::command]
+pub async fn install_votify(app: AppHandle) -> Result<String, String> {
+    log::info!("Installing votify...");
+    emit_app_log(&app, "Installing votify...");
+    let version =
+        crate::services::pip_engine_service::install_pip_engine(&app, "votify").await?;
+    log::info!("votify v{version} installed");
+    emit_app_log(&app, &format!("votify v{version} installed"));
+    Ok(version)
+}
+
+/// Checks whether OF-Scraper is installed in the managed Python environment.
+///
+/// **Frontend caller:** `checkOfscraperStatus()` in `src/lib/tauri-commands.ts`
+///
+/// OF-Scraper is an optional download engine — disabled by default.
+/// Currently disabled in engines.toml (enabled = false); this command exists
+/// for future use.
+#[tauri::command]
+pub async fn check_ofscraper_status(app: AppHandle) -> Result<DependencyStatus, String> {
+    let version =
+        crate::services::pip_engine_service::get_pip_engine_version(&app, "ofscraper").await?;
+
+    Ok(DependencyStatus {
+        name: "OF-Scraper".to_string(),
+        required: false,
+        installed: version.is_some(),
+        version,
+        path: None,
+        source: None,
+    })
+}
+
+/// Installs OF-Scraper via pip into the managed Python environment.
+///
+/// **Frontend caller:** `installOfscraper()` in `src/lib/tauri-commands.ts`
+///
+/// Currently disabled in engines.toml (enabled = false); this command exists
+/// for future use.
+#[tauri::command]
+pub async fn install_ofscraper(app: AppHandle) -> Result<String, String> {
+    log::info!("Installing OF-Scraper...");
+    emit_app_log(&app, "Installing OF-Scraper...");
+    let version =
+        crate::services::pip_engine_service::install_pip_engine(&app, "ofscraper").await?;
+    log::info!("OF-Scraper v{version} installed");
+    emit_app_log(&app, &format!("OF-Scraper v{version} installed"));
+    Ok(version)
+}
+
 /// Checks the installation status of all external tool dependencies.
 ///
 /// **Frontend caller:** `checkAllDependencies()` in `src/lib/tauri-commands.ts`

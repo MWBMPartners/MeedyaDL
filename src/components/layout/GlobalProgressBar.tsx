@@ -19,60 +19,165 @@
  * @see useDownloadStore -- source of queue item state
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
 
 /**
- * Detects the download platform from the first URL of a queue item.
- * Returns a platform key used to select the correct icon.
- * Extensible for future services (Spotify, YouTube, BBC iPlayer).
+ * Platform detection config — loaded once from engines.toml via IPC.
+ * Each entry has URL patterns, an icon path, and a display name.
+ * Populated by loadPlatformConfig() on first use; empty until then.
  */
-function detectPlatform(urls?: string[]): 'apple-music' | 'unknown' {
-  const raw = urls?.[0] ?? '';
+interface PlatformEntry {
+  id: string;
+  name: string;
+  icon: string;
+  faviconHost: string;
+  patterns: string[];
+}
+
+let platformConfig: PlatformEntry[] = [];
+let configLoaded = false;
+
+/**
+ * Loads platform config from engines.toml via IPC (one-time).
+ * Called lazily on first render of GlobalProgressBar.
+ */
+async function loadPlatformConfig() {
+  if (configLoaded) return;
+  configLoaded = true;
   try {
-    const { hostname } = new URL(raw);
-    if (
-      hostname === 'music.apple.com' ||
-      hostname === 'classical.apple.com' ||
-      hostname === 'itunes.apple.com'
-    ) {
-      return 'apple-music';
-    }
+    const { getPlatformConfig } = await import('@/lib/tauri-commands');
+    const platforms = await getPlatformConfig();
+    platformConfig = platforms
+      .filter((p) => p.enabled)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        icon: p.icon ? `/${p.icon}` : '',
+        faviconHost: p.url_patterns[0]?.replace(/\/.*$/, '') ?? '',
+        patterns: p.url_patterns,
+      }));
   } catch {
-    // Malformed URL — fall through to unknown
+    // IPC not ready yet — will retry on next render
+    configLoaded = false;
   }
-  return 'unknown';
 }
 
 /**
- * Inline SVG icon for Apple Music (music note).
- * 12x12px to match the 10px text size of the progress bar labels.
+ * Detects the download platform from the first URL of a queue item.
+ * Matches against URL patterns from engines.toml (loaded via IPC).
  */
-function AppleMusicIcon() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="flex-shrink-0"
-      aria-label="Apple Music"
-    >
-      <path
-        d="M19.5 3.5L8.5 6v11a3 3 0 1 1-2-2.83V5l11-2.5v10.5a3 3 0 1 1-2-2.83V3.5Z"
-        fill="currentColor"
-        fillOpacity="0.5"
-      />
-    </svg>
-  );
+function detectPlatform(urls?: string[]): PlatformEntry | undefined {
+  const raw = urls?.[0] ?? '';
+  try {
+    const parsed = new URL(raw);
+    const urlStr = parsed.hostname + parsed.pathname;
+    return platformConfig.find((p) =>
+      p.patterns.some((pattern) => urlStr.includes(pattern))
+    );
+  } catch {
+    return undefined;
+  }
 }
 
-/** Platform icon lookup — extensible for future services. */
-const PLATFORM_ICONS: Record<string, (() => React.JSX.Element) | undefined> = {
-  'apple-music': AppleMusicIcon,
-};
+/**
+ * Renders a platform icon for the progress bar. Fetches the local SVG and
+ * renders it inline so `currentColor` inherits from the parent CSS context,
+ * automatically adapting to light, dark, and colour-blind themes.
+ *
+ * Falls back to Google Favicon API (PNG) if the local SVG can't be loaded.
+ * SVG content is cached in a module-level Map to avoid re-fetching.
+ */
+const svgCache = new Map<string, string>();
+
+function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
+  const [svgHtml, setSvgHtml] = useState<string | null>(
+    () => (platform?.icon ? svgCache.get(platform.icon) ?? null : null)
+  );
+  const [useFallback, setUseFallback] = useState(false);
+
+  useEffect(() => {
+    if (!platform || !platform.icon) {
+      if (platform) setUseFallback(true);
+      return;
+    }
+    if (svgCache.has(platform.icon)) {
+      setSvgHtml(svgCache.get(platform.icon)!);
+      return;
+    }
+    fetch(platform.icon)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then((text) => {
+        // Only accept SVG content (not HTML error pages)
+        if (text.includes('<svg')) {
+          // Defence-in-depth: parse the SVG via DOMParser and strip
+          // <script> elements + event handler attributes before inline
+          // rendering. Tauri's CSP already blocks inline scripts, but
+          // this prevents any bypass via onload/onerror/xlink:href.
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, 'image/svg+xml');
+          const svgEl = doc.querySelector('svg');
+          if (!svgEl) {
+            setUseFallback(true);
+            return;
+          }
+          // Remove script elements and event handler attributes
+          doc.querySelectorAll('script').forEach((s) => s.remove());
+          doc.querySelectorAll('*').forEach((el) => {
+            for (const attr of [...el.attributes]) {
+              if (attr.name.startsWith('on')) {
+                el.removeAttribute(attr.name);
+              }
+            }
+          });
+          // Inject sizing attributes for container fill
+          svgEl.setAttribute('width', '100%');
+          svgEl.setAttribute('height', '100%');
+          svgEl.setAttribute('style', 'display:block');
+          const sanitized = svgEl.outerHTML;
+          svgCache.set(platform.icon, sanitized);
+          setSvgHtml(sanitized);
+        } else {
+          setUseFallback(true);
+        }
+      })
+      .catch(() => setUseFallback(true));
+  }, [platform]);
+
+  if (!platform) return null;
+
+  // Inline SVG: inherits currentColor from parent for theme adaptability.
+  // The SVG has no fixed width/height — it expands to fill the container.
+  if (svgHtml) {
+    return (
+      <span
+        className="flex-shrink-0 inline-flex items-center justify-center text-content-secondary [&>svg]:w-full [&>svg]:h-full"
+        style={{ width: 16, height: 16 }}
+        aria-label={platform.name}
+        dangerouslySetInnerHTML={{ __html: svgHtml }}
+      />
+    );
+  }
+
+  // Fallback: Google Favicon API (PNG, doesn't adapt to theme but works)
+  if (useFallback) {
+    return (
+      <img
+        src={`https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`}
+        alt={platform.name}
+        width={16}
+        height={16}
+        className="flex-shrink-0"
+      />
+    );
+  }
+
+  return null; // Loading
+}
 
 /**
  * Renders two stacked progress bars that are always visible at the bottom
@@ -89,6 +194,11 @@ const PLATFORM_ICONS: Record<string, (() => React.JSX.Element) | undefined> = {
  */
 export function GlobalProgressBar() {
   const queueItems = useDownloadStore((s) => s.queueItems);
+
+  // Load platform config from engines.toml via IPC (one-time)
+  useEffect(() => {
+    loadPlatformConfig();
+  }, []);
 
   /**
    * Derive the active item (currently downloading/processing) and
@@ -108,9 +218,15 @@ export function GlobalProgressBar() {
           i.state === 'error' ||
           i.state === 'cancelled'
       ).length;
-      // Count items that are done (complete, error, or cancelled)
+      // Count items that are done for queue-level progress.
+      // 'processing' counts as done — the user's files are downloaded,
+      // enrichment/companions are background bonus processing.
       const completed = queueItems.filter(
-        (i) => i.state === 'complete' || i.state === 'error' || i.state === 'cancelled'
+        (i) =>
+          i.state === 'complete' ||
+          i.state === 'processing' ||
+          i.state === 'error' ||
+          i.state === 'cancelled'
       ).length;
       const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
       const working =
@@ -128,12 +244,23 @@ export function GlobalProgressBar() {
   /* Hide entirely when nothing is happening */
   if (!hasWork) return null;
 
-  /** Per-item progress value: null = indeterminate (processing state) */
+  /**
+   * Per-item progress value.
+   * During processing: use actual progress if available (companion downloads
+   * update progress while item stays in 'processing' state), otherwise null
+   * for indeterminate animation (enrichment stages without progress data).
+   */
   const itemProgress =
-    activeItem?.state === 'processing' ? null : (activeItem?.progress ?? 0);
+    activeItem?.state === 'processing'
+      ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
+      : (activeItem?.progress ?? 0);
 
-  /** Label for the per-item bar */
-  const itemLabel = activeItem?.current_track ?? activeItem?.urls?.[0] ?? '';
+  /** Label for the per-item bar — shows processing label during enrichment/companions */
+  const itemLabel =
+    activeItem?.processing_label ??
+    activeItem?.current_track ??
+    activeItem?.urls?.[0] ??
+    '';
 
   /** Speed and ETA suffix */
   const speedEta = [activeItem?.speed, activeItem?.eta]
@@ -142,7 +269,6 @@ export function GlobalProgressBar() {
 
   /** Platform detection for the icon */
   const platform = detectPlatform(activeItem?.urls);
-  const PlatformIcon = PLATFORM_ICONS[platform];
 
   return (
     <div
@@ -153,7 +279,7 @@ export function GlobalProgressBar() {
       {/* Upper bar: per-item progress */}
       <div className="flex items-center gap-2 mb-1">
         {/* Platform icon + track info (left) */}
-        {PlatformIcon && <PlatformIcon />}
+        <PlatformIcon platform={platform} />
         <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>

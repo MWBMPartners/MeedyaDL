@@ -163,6 +163,12 @@ interface DependencyState {
   installGamdl: () => Promise<string>;
 
   /**
+   * Install all bundled pip engines (GAMDL + votify + future engines).
+   * Called by the setup wizard GamdlStep.
+   */
+  installBundledEngines: () => Promise<string>;
+
+  /**
    * Install a specific external tool by name (e.g., 'ffmpeg', 'mp4decrypt').
    * IPC call: `commands.installDependency(name)` -> Rust `install_dependency`
    * After installation, re-checks ALL tool statuses to refresh the full list.
@@ -333,6 +339,39 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
       const gamdl = await commands.checkGamdlStatus();
       set({ gamdl, isInstalling: false, installingName: null });
       return version;
+    } catch (e) {
+      const msg = String(e);
+      set({ error: msg, isInstalling: false, installingName: null });
+      throw new Error(msg);
+    }
+  },
+
+  /**
+   * Install all bundled pip engines (GAMDL + votify + any future enabled engines).
+   * Called by the setup wizard to ensure all core engines are installed in one step.
+   *
+   * Installs sequentially: GAMDL first (primary), then additional engines.
+   * IPC calls: installGamdl() + installVotify()
+   */
+  installBundledEngines: async () => {
+    set({ isInstalling: true, installingName: 'GAMDL', error: null });
+    try {
+      // Install GAMDL (primary engine, required)
+      const gamdlVersion = await commands.installGamdl();
+      const gamdl = await commands.checkGamdlStatus();
+      set({ gamdl, installingName: 'votify' });
+
+      // Install votify (Spotify engine, required, enabled)
+      try {
+        await commands.installVotify();
+      } catch {
+        // Non-fatal — votify is required but Spotify support isn't active yet.
+        // Log but don't block the setup wizard.
+        console.warn('votify installation failed (non-fatal)');
+      }
+
+      set({ isInstalling: false, installingName: null });
+      return gamdlVersion;
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isInstalling: false, installingName: null });
