@@ -111,6 +111,27 @@ export function getAppDataDir(): Promise<string> {
   return invoke<string>('get_app_data_dir');
 }
 
+/**
+ * Platform configuration entry from engines.toml.
+ */
+export interface FrontendPlatformConfig {
+  id: string;
+  name: string;
+  icon: string | null;
+  url_patterns: string[];
+  enabled: boolean;
+}
+
+/**
+ * Returns the platform configuration from engines.toml.
+ *
+ * Rust handler: `get_platform_config()` in `src-tauri/src/commands/system.rs`
+ * Returns: Array of platform entries for URL detection and icon rendering.
+ */
+export function getPlatformConfig(): Promise<FrontendPlatformConfig[]> {
+  return invoke<FrontendPlatformConfig[]>('get_platform_config');
+}
+
 // ============================================================
 // Dependency Management Commands
 // ============================================================
@@ -182,6 +203,44 @@ export function checkGamdlStatus(): Promise<DependencyStatus> {
  */
 export function installGamdl(): Promise<string> {
   return invoke<string>('install_gamdl');
+}
+
+/**
+ * Returns the installation status of votify (Spotify engine).
+ *
+ * Rust handler: `check_votify_status()` in `src-tauri/src/commands/dependencies.rs`
+ */
+export function checkVotifyStatus(): Promise<DependencyStatus> {
+  return invoke<DependencyStatus>('check_votify_status');
+}
+
+/**
+ * Installs votify via pip into the managed Python environment.
+ *
+ * Rust handler: `install_votify()` in `src-tauri/src/commands/dependencies.rs`
+ */
+export function installVotify(): Promise<string> {
+  return invoke<string>('install_votify');
+}
+
+/**
+ * Returns the installation status of OF-Scraper (optional engine, disabled by default).
+ *
+ * Rust handler: `check_ofscraper_status()` in `src-tauri/src/commands/dependencies.rs`
+ * Note: Currently disabled in engines.toml (enabled = false).
+ */
+export function checkOfscraperStatus(): Promise<DependencyStatus> {
+  return invoke<DependencyStatus>('check_ofscraper_status');
+}
+
+/**
+ * Installs OF-Scraper via pip into the managed Python environment.
+ *
+ * Rust handler: `install_ofscraper()` in `src-tauri/src/commands/dependencies.rs`
+ * Note: Currently disabled in engines.toml (enabled = false).
+ */
+export function installOfscraper(): Promise<string> {
+  return invoke<string>('install_ofscraper');
 }
 
 /**
@@ -796,6 +855,16 @@ export function checkAllUpdates(): Promise<UpdateCheckResult> {
  */
 export function upgradeGamdl(): Promise<string> {
   return invoke<string>('upgrade_gamdl');
+}
+
+/**
+ * Upgrades any pip-based engine to the latest version.
+ *
+ * Rust handler: `upgrade_pip_engine()` in `src-tauri/src/commands/updates.rs`
+ * Works for votify, yt-dlp, ofscraper, etc. GAMDL has its own upgrade path.
+ */
+export function upgradePipEngine(packageName: string): Promise<string> {
+  return invoke<string>('upgrade_pip_engine', { package: packageName });
 }
 
 /**

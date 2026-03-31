@@ -590,12 +590,20 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             item.progress = progress.event.percent;
             item.speed = progress.event.speed || null;
             item.eta = progress.event.eta || null;
-            item.state = 'downloading'; // Transition to 'downloading' state
+            // During companion downloads the item is in 'processing' state.
+            // Don't regress to 'downloading' — that would cause the queue bar
+            // to lose partial credit and oscillate between done/not-done.
+            if (item.state !== 'processing') {
+              item.state = 'downloading';
+            }
             break;
           case 'track_info':
             // Update the currently-downloading track name for display.
             item.current_track = progress.event.title || null;
-            item.state = 'downloading';
+            // Keep 'processing' state stable during companion downloads.
+            if (item.state !== 'processing') {
+              item.state = 'downloading';
+            }
             // Compute approximate progress from track counts (GAMDL 2.9.x).
             // When [Track N/M] format is available, use (N-1)/M as the
             // percentage (N-1 because track N is starting, not finished).
@@ -607,7 +615,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             break;
           case 'processing_step':
             // Transition to 'processing' (post-download remuxing/tagging).
+            // Clear speed/ETA so the progress bar shows indeterminate state
+            // instead of stale companion download speed data.
             item.state = 'processing';
+            item.speed = null;
+            item.eta = null;
             break;
           case 'complete':
             // Mark as complete with 100% progress and record output path.

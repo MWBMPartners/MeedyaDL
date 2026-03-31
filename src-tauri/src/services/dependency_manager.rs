@@ -161,9 +161,13 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
             Some(caps.get(1)?.as_str().to_string())
         }
         "mp4decrypt" => {
-            // mp4decrypt: "mp4decrypt version 1.6.0.641"
-            let re = regex::Regex::new(r"(\d+\.\d+\.\d+)").ok()?;
-            Some(re.find(first_line)?.as_str().to_string())
+            // mp4decrypt has no --version flag. When run with no args, outputs:
+            //   MP4 Decrypter - Version 1.4
+            //   (Bento4 Version 1.6.0.0)
+            // Extract the Bento4 version from the full output.
+            let re = regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").ok()?;
+            let caps = re.captures(output)?;
+            Some(caps.get(1)?.as_str().to_string())
         }
         "nm3u8dlre" => {
             // N_m3u8DL-RE: "N_m3u8DL-RE version 0.5.1-beta" or just "v0.5.1-beta"
@@ -258,21 +262,43 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
         .await
         .ok()?;
 
-    if !output.status.success() {
-        return None;
-    }
+    let path = if output.status.success() {
+        // Parse the first line of output as the binary path
+        let path_str = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let p = PathBuf::from(&path_str);
+        if p.exists() { Some(p) } else { None }
+    } else {
+        None
+    };
 
-    // Parse the first line of output as the binary path
-    let path_str = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .lines()
-        .next()?
-        .to_string();
-    let path = PathBuf::from(&path_str);
+    // If not on PATH, check common platform-specific installation locations.
+    // macOS: Homebrew paths, /usr/local/bin, and common app bundle locations.
+    let path = path.or_else(|| {
+        let extra_paths: Vec<PathBuf> = if cfg!(target_os = "macos") {
+            vec![
+                PathBuf::from("/usr/local/bin").join(&config.binary_name),
+                PathBuf::from("/opt/homebrew/bin").join(&config.binary_name),
+                // MediaInfo-specific: Homebrew installs as lowercase
+                PathBuf::from("/opt/homebrew/bin/mediainfo"),
+                PathBuf::from("/usr/local/bin/mediainfo"),
+            ]
+        } else if cfg!(target_os = "linux") {
+            vec![
+                PathBuf::from("/usr/bin").join(&config.binary_name),
+                PathBuf::from("/usr/local/bin").join(&config.binary_name),
+            ]
+        } else {
+            vec![]
+        };
+        extra_paths.into_iter().find(|p| p.exists())
+    });
 
-    if !path.exists() {
-        return None;
-    }
+    let path = path?;
 
     // Get the version using the tool's version flag
     let version_output = tokio::process::Command::new(&path)
@@ -327,40 +353,66 @@ async fn resolve_github_release_asset(
     tag: &str,
     asset_name_contains: &str,
 ) -> Result<(String, String), String> {
-    // Use the /releases/latest endpoint for "latest" tag,
-    // or /releases/tags/{tag} for specific tags.
-    let api_url = if tag == "latest" {
-        format!("https://api.github.com/repos/{repo}/releases/latest")
-    } else {
-        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
-    };
-
+    // Use /releases/tags/{tag} for deterministic resolution. The /releases/latest
+    // endpoint returns the "most recently created" release, which may differ from
+    // the release explicitly tagged "latest" when a repo has multiple releases.
+    // /tags/ ensures we always get the exact tag we asked for.
+    //
+    // Exception: upstream repos (non-mirror) that use "latest" as a convention
+    // for "newest release" without an actual "latest" tag need the /releases/latest
+    // endpoint. We detect this by trying /tags/ first and falling back.
     // A User-Agent header is required by the GitHub API (returns 403 without it).
     // 15-second timeout prevents indefinite stalls on unresponsive GitHub API.
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    // Try /releases/tags/{tag} first (deterministic, exact tag match).
+    // Fall back to /releases/latest if the tag doesn't exist as an explicit tag
+    // (e.g., upstream repos that use "latest" as a GitHub convention, not a git tag).
+    let tag_url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
     let response = client
-        .get(&api_url)
+        .get(&tag_url)
         .header("User-Agent", "MeedyaDL")
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed for {repo}: {e}"))?;
 
-    if !response.status().is_success() {
+    let release: serde_json::Value = if response.status().as_u16() == 404 && tag == "latest" {
+        // Tag "latest" doesn't exist as a git tag — fall back to /releases/latest
+        log::debug!("No 'latest' tag in {repo}, falling back to /releases/latest");
+        let fallback_url = format!("https://api.github.com/repos/{repo}/releases/latest");
+        let fallback_resp = client
+            .get(&fallback_url)
+            .header("User-Agent", "MeedyaDL")
+            .send()
+            .await
+            .map_err(|e| format!("GitHub API fallback request failed for {repo}: {e}"))?;
+        if !fallback_resp.status().is_success() {
+            return Err(format!(
+                "GitHub API returned HTTP {} for {}/releases/latest",
+                fallback_resp.status(),
+                repo
+            ));
+        }
+        fallback_resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?
+    } else if !response.status().is_success() {
         return Err(format!(
-            "GitHub API returned HTTP {} for {}/releases/{}",
+            "GitHub API returned HTTP {} for {}/releases/tags/{}",
             response.status(),
             repo,
             tag
         ));
-    }
-
-    let release: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?;
+    } else {
+        response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse GitHub release JSON from {repo}: {e}"))?
+    };
 
     let assets = release["assets"]
         .as_array()
@@ -1818,41 +1870,52 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
 pub async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<String, String> {
     // Different tools use different version flags:
     // - FFmpeg and MP4Box use single-dash "-version" (non-standard but that's how they work)
+    // - mp4decrypt has no version flag — running it with no args prints usage to stderr
     // - Most other tools use double-dash "--version" (GNU convention)
     let version_flag = match tool_id {
-        // Both FFmpeg and MP4Box use single-dash "-version" (non-standard)
         "ffmpeg" | "mp4box" => "-version",
-        _ => "--version", // Standard GNU-style flag
+        "mp4decrypt" => "", // No version flag — run with no args, parse stderr
+        _ => "--version",
     };
 
     // Run the binary with the version flag and capture output.
-    // This serves as both a version check and a basic health check
-    // (verifying the binary is executable and not corrupt).
-    let output = tokio::process::Command::new(binary_path)
-        .arg(version_flag)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run {tool_id} --version: {e}"))?;
-
-    // Extract the first line of stdout as the version string.
-    // Most tools output their version on the first line of stdout.
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let first_line = stdout.lines().next().unwrap_or("").trim().to_string();
-
-    if first_line.is_empty() {
-        // Some tools output version info to stderr (e.g., FFmpeg logs to stderr).
-        // Fall back to the first line of stderr.
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let first_err_line = stderr
-            .lines()
-            .next()
-            .unwrap_or("unknown")
-            .trim()
-            .to_string();
-        Ok(first_err_line)
+    let output = if version_flag.is_empty() {
+        // mp4decrypt: run with no arguments, version info is in the error output
+        tokio::process::Command::new(binary_path)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run {tool_id}: {e}"))?
     } else {
-        Ok(first_line)
+        tokio::process::Command::new(binary_path)
+            .arg(version_flag)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run {tool_id} {version_flag}: {e}"))?
+    };
+
+    // Combine stdout and stderr (some tools output to stderr)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = if stdout.trim().is_empty() {
+        stderr.to_string()
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
+
+    // Use the structured version parser which handles each tool's quirks
+    // (mp4decrypt error output, MediaInfo multi-line, FFmpeg prefixes, etc.)
+    if let Some(version) = extract_version_from_output(&combined, tool_id) {
+        return Ok(version);
     }
+
+    // Fallback: return the first non-empty line as-is
+    let first_line = combined
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("unknown")
+        .trim()
+        .to_string();
+    Ok(first_line)
 }
 
 /// Checks whether a tool is installed and returns its status.

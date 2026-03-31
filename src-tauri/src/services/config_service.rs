@@ -103,9 +103,25 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // - Missing fields: filled with #[serde(default)] values
         // - Extra fields: silently ignored (forward compatibility)
         // - Type mismatches: returns a descriptive parse error
+        //
+        // If parsing fails (e.g., a field type changed between versions),
+        // fall back to defaults rather than returning an error. This prevents
+        // settings from appearing "reset" to the user — they get defaults
+        // for the broken field(s) while other fields are preserved by serde(default).
         // Ref: https://docs.rs/serde_json/latest/serde_json/fn.from_str.html
-        serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse settings file: {e}"))?
+        match serde_json::from_str(&contents) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                log::error!(
+                    "Settings file corrupted or incompatible — using defaults. \
+                     Error: {e}. File: {}. This typically happens when a field type \
+                     changed between app versions. The settings file is preserved on \
+                     disk; only the in-memory state uses defaults.",
+                    settings_path.display()
+                );
+                AppSettings::default()
+            }
+        }
     } else {
         // First run: no settings file exists yet. Return the default settings
         // which are defined via #[derive(Default)] on AppSettings.
