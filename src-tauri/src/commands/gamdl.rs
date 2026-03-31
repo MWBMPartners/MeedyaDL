@@ -991,6 +991,61 @@ pub async fn check_redownload_status(
     }))
 }
 
+/// Fetches syllable-level (word-by-word) TTML lyrics for a single song from
+/// the Apple Music API.
+///
+/// **Frontend caller:** `fetchSyllableLyrics(storefront, songId)` in `src/lib/tauri-commands.ts`
+///
+/// Requires MusicKit credentials (Team ID, Key ID, private key) and a valid
+/// `media-user-token` cookie for subscriber authentication. Returns the raw
+/// TTML XML string if available, or `None` if the song has no syllable-level
+/// lyrics.
+///
+/// # Arguments
+/// * `app` - Tauri `AppHandle` for settings and keychain access.
+/// * `storefront` - Apple Music storefront code (e.g., "us", "gb").
+/// * `song_id` - Numeric Apple Music song ID.
+///
+/// # Returns
+/// * `Ok(Some(String))` - TTML XML lyrics content.
+/// * `Ok(None)` - No syllable-level lyrics available for this song.
+/// * `Err(String)` - Credentials missing, expired cookies, or API error.
+#[tauri::command]
+pub async fn fetch_syllable_lyrics(
+    app: AppHandle,
+    storefront: String,
+    song_id: String,
+) -> Result<Option<String>, String> {
+    use crate::services::{apple_music_api, config_service};
+
+    // Resolve MusicKit credentials and generate JWT
+    let settings = config_service::load_settings(&app).unwrap_or_default();
+    let private_key = apple_music_api::get_private_key_from_keychain()
+        .map_err(|e| format!("Keychain error: {e}"))?;
+    let jwt = apple_music_api::resolve_musickit_developer_token(
+        settings.musickit_team_id.as_deref(),
+        settings.musickit_key_id.as_deref(),
+        private_key.as_deref(),
+    )
+    .map_err(|e| format!("JWT error: {e}"))?
+    .ok_or(
+        "MusicKit credentials not configured. Set up Team ID, Key ID, and private key in Settings > Advanced > API Credentials."
+    )?;
+
+    // Extract media-user-token from cookies file
+    let cookies_path = settings.cookies_path.as_deref().ok_or(
+        "Apple Music cookies not configured. Import cookies from your browser in Settings > Authentication.",
+    )?;
+    let music_user_token = apple_music_api::extract_media_user_token(cookies_path)
+        .map_err(|e| format!("Cookie error: {e}"))?
+        .ok_or(
+            "Apple Music subscriber token not found or expired. Re-import cookies from your browser in Settings > Authentication."
+        )?;
+
+    // Fetch syllable lyrics from the Apple Music API
+    apple_music_api::fetch_syllable_lyrics(&jwt, &storefront, &song_id, &music_user_token).await
+}
+
 /// Information about a previous download of the same URL.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RedownloadInfo {
