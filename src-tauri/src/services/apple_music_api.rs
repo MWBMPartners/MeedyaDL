@@ -27,8 +27,8 @@
 //
 // ## Authentication
 //
-// The Apple Music catalog API requires a MusicKit Developer Token (JWT)
-// signed with an ES256 private key. Credentials:
+// The Apple Music catalog API (api.music.apple.com) requires a MusicKit
+// Developer Token (JWT) signed with an ES256 private key. Credentials:
 //   - Team ID + Key ID: stored in AppSettings (non-sensitive)
 //   - Private key (.p8 PEM): stored in OS keychain under "musickit_private_key"
 //
@@ -429,7 +429,7 @@ pub async fn fetch_album_metadata(
 ) -> Result<Option<AlbumMetadata>, String> {
     // Enriched API call: include tracks and artists, extend with editorialVideo
     let url = format!(
-        "https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo"
+        "https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo"
     );
 
     log::debug!("Querying Apple Music API for album metadata: {url}");
@@ -442,7 +442,6 @@ pub async fn fetch_album_metadata(
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
         .header("User-Agent", "meedyadl")
-        .header("Origin", "https://music.apple.com")
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -838,7 +837,7 @@ pub async fn fetch_music_video_relations(
     for chunk in song_ids.chunks(100) {
         let ids_param = chunk.join(",");
         let url = format!(
-            "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs?ids={ids_param}&relate=music-videos"
+            "https://api.music.apple.com/v1/catalog/{storefront}/songs?ids={ids_param}&relate=music-videos"
         );
 
         log::debug!(
@@ -850,7 +849,6 @@ pub async fn fetch_music_video_relations(
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
             .header("User-Agent", "meedyadl")
-            .header("Origin", "https://music.apple.com")
             .send()
             .await
             .map_err(|e| format!("Music video relation lookup failed: {e}"))?;
