@@ -18,6 +18,10 @@ Adds direct syllable-lyrics fetching via the Apple Music MusicKit API
   Requires both MusicKit developer credentials and an active Apple Music
   subscription (Music-User-Token extracted from imported browser cookies).
 
+- Syllable-lyrics follow-up enhancements (#307)
+
+- Add 7 unit tests for extract_media_user_token() cookie parsing\n- Add activity log entries when cookies are expired or missing\n- Add progress bar label for credential skip path\n- Deduplicate media-user-token cookie name constant across modules\n- Add fetch_syllable_lyrics IPC command for standalone lyrics fetching\n\nResolves #306
+
 
 ### 🐛 Bug Fixes
 
@@ -34,6 +38,7 @@ Adds direct syllable-lyrics fetching via the Apple Music MusicKit API
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
