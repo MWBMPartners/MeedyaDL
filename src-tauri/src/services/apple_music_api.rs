@@ -1090,6 +1090,11 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
     let content = std::fs::read_to_string(cookies_path)
         .map_err(|e| format!("Failed to read cookies file: {e}"))?;
 
+    let now_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
     // Netscape cookie format: domain \t flag \t path \t secure \t expires \t name \t value
     for line in content.lines() {
         let line = line.trim();
@@ -1099,9 +1104,20 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
         let fields: Vec<&str> = line.split('\t').collect();
         if fields.len() >= 7 && fields[5] == "media-user-token" {
             let value = fields[6].trim();
-            if !value.is_empty() {
-                return Ok(Some(value.to_string()));
+            if value.is_empty() {
+                continue;
             }
+            // Check cookie expiry (field 4). A value of 0 means session cookie (no expiry).
+            if let Ok(expires) = fields[4].parse::<u64>() {
+                if expires > 0 && expires < now_epoch {
+                    log::warn!(
+                        "media-user-token cookie has expired (expired {} seconds ago). Re-import cookies from your browser.",
+                        now_epoch - expires
+                    );
+                    return Ok(None);
+                }
+            }
+            return Ok(Some(value.to_string()));
         }
     }
 
