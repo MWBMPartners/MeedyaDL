@@ -3240,6 +3240,7 @@ Update CLAUDE.md, DEV_NOTES.md, Project_Plan.md, and in-app help with
 Add blank lines after headings (MD022) and before lists (MD032).
   Add spaces to table separator rows for consistent padded style (MD060).
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
