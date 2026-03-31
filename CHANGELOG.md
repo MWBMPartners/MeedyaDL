@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Update logo sources for better color scheme support in README.md
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.24.0] - 2026-03-31
+
 ### ✨ Features
 
 - Fetch word-level lyrics directly from Apple Music API
