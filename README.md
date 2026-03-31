@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logo.png">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/icon-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logo.svg">
     <img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="96">
   </picture>
   <br>
