@@ -351,10 +351,10 @@ pub fn has_embedded_musickit_token() -> bool {
 mod tests {
     #[test]
     fn musickit_id_normalization_logic() {
-        let team = " REDACTED0001 ".trim().to_ascii_uppercase();
-        let key = " REDACTED0002 ".trim().to_ascii_uppercase();
-        assert_eq!(team, "REDACTED0001");
-        assert_eq!(key, "REDACTED0002");
+        let team = " ab12cd34ef ".trim().to_ascii_uppercase();
+        let key = " 99zz88yy77 ".trim().to_ascii_uppercase();
+        assert_eq!(team, "AB12CD34EF");
+        assert_eq!(key, "99ZZ88YY77");
         assert_eq!(team.len(), 10);
         assert_eq!(key.len(), 10);
     }
