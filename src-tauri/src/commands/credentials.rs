@@ -279,14 +279,16 @@ pub async fn validate_musickit_credentials(
     let mut network_errors: Vec<String> = Vec::new();
 
     for url in test_urls {
-        match client
+        let mut req = client
             .get(url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
-            .header("Origin", "https://music.apple.com")
-            .send()
-            .await
-        {
+            .header("User-Agent", "meedyadl");
+        // amp-api is Apple's web player API and expects an Origin header;
+        // the official MusicKit API (api.music.apple.com) does not need it.
+        if url.contains("amp-api") {
+            req = req.header("Origin", "https://music.apple.com");
+        }
+        match req.send().await {
             Ok(resp) => {
                 statuses.push((url.to_string(), resp.status().as_u16()));
             }
