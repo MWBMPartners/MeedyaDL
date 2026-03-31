@@ -1068,6 +1068,138 @@ pub async fn fetch_album_metadata_with_fallback(
     Ok(None)
 }
 
+// ============================================================
+// Syllable-Level Lyrics (Word-by-Word TTML)
+// ============================================================
+
+/// Extract the `media-user-token` value from an Apple Music Netscape cookies file.
+///
+/// The `/syllable-lyrics` endpoint requires subscriber authentication via a
+/// `Music-User-Token` header in addition to the MusicKit Developer Token JWT.
+/// This token is stored as the `media-user-token` cookie by Apple Music's web
+/// client after the user signs in.
+///
+/// # Arguments
+/// * `cookies_path` - Path to the Netscape-format cookies.txt file
+///
+/// # Returns
+/// * `Ok(Some(String))` - Token value found
+/// * `Ok(None)` - Cookies file exists but no `media-user-token` cookie present
+/// * `Err(String)` - File read error
+pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, String> {
+    let content = std::fs::read_to_string(cookies_path)
+        .map_err(|e| format!("Failed to read cookies file: {e}"))?;
+
+    // Netscape cookie format: domain \t flag \t path \t secure \t expires \t name \t value
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() >= 7 && fields[5] == "media-user-token" {
+            let value = fields[6].trim();
+            if !value.is_empty() {
+                return Ok(Some(value.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Fetch word-level (syllable) TTML lyrics for a song from Apple Music.
+///
+/// Calls the `/syllable-lyrics` endpoint which returns TTML with
+/// `itunes:timing="Word"` and per-word `<span begin="" end="">` elements,
+/// providing word-by-word timing data for Enhanced LRC generation.
+///
+/// This endpoint requires **both** a MusicKit Developer Token (JWT) and a
+/// `Music-User-Token` from an authenticated Apple Music subscriber session.
+///
+/// # Arguments
+/// * `jwt` - MusicKit Developer Token (ES256-signed JWT)
+/// * `storefront` - Two-letter country code (e.g., "us", "gb")
+/// * `song_id` - Apple Music numeric song ID
+/// * `music_user_token` - Subscriber token from `media-user-token` cookie
+///
+/// # Returns
+/// * `Ok(Some(String))` - Raw TTML XML with word-level timing
+/// * `Ok(None)` - No syllable-lyrics available for this track
+/// * `Err(String)` - API or network error
+pub async fn fetch_syllable_lyrics(
+    jwt: &str,
+    storefront: &str,
+    song_id: &str,
+    music_user_token: &str,
+) -> Result<Option<String>, String> {
+    let url = format!(
+        "https://api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics"
+    );
+
+    log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {jwt}"))
+        .header("Music-User-Token", music_user_token)
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+        .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
+
+    match response.status().as_u16() {
+        200 => {}
+        404 => {
+            log::debug!("No syllable-lyrics available for song {song_id}");
+            return Ok(None);
+        }
+        401 => {
+            return Err(
+                "Syllable-lyrics auth failed (HTTP 401) — Music-User-Token may be expired. Re-import cookies from your browser.".to_string(),
+            );
+        }
+        403 => {
+            return Err(
+                "Syllable-lyrics forbidden (HTTP 403) — an active Apple Music subscription is required.".to_string(),
+            );
+        }
+        status => {
+            return Err(format!(
+                "Syllable-lyrics API returned HTTP {status} for song {song_id}"
+            ));
+        }
+    }
+
+    // The response is a JSON envelope containing TTML content.
+    // Extract the TTML string from data[0].attributes.ttml
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse syllable-lyrics response: {e}"))?;
+
+    let ttml = json
+        .get("data")
+        .and_then(|d| d.get(0))
+        .and_then(|d| d.get("attributes"))
+        .and_then(|a| a.get("ttml"))
+        .and_then(|t| t.as_str())
+        .map(String::from);
+
+    if ttml.is_some() {
+        log::debug!("Syllable-lyrics TTML fetched for song {song_id}");
+    } else {
+        log::debug!("Syllable-lyrics response for song {song_id} contained no TTML data");
+    }
+
+    Ok(ttml)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

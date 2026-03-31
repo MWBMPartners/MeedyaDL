@@ -3993,6 +3993,189 @@ pub fn process_queue(
                                 return;
                             }
 
+                            // --- Step 1b: Syllable-lyrics fetch (word-level TTML) ---
+                            // When Enhanced LRC is enabled and album metadata is available,
+                            // check if GAMDL's TTML files have word-level timing. If not,
+                            // fetch syllable-lyrics directly from Apple Music API and write
+                            // upgraded TTML sidecars before the Enhanced LRC conversion step.
+                            if enrich_settings.enhanced_lrc {
+                                if let Some(ref metadata) = album_metadata {
+                                    // Resolve JWT for API calls
+                                    let private_key = super::apple_music_api::get_private_key_from_keychain()
+                                        .ok()
+                                        .flatten();
+                                    let jwt = super::apple_music_api::resolve_musickit_developer_token(
+                                        enrich_settings.musickit_team_id.as_deref(),
+                                        enrich_settings.musickit_key_id.as_deref(),
+                                        private_key.as_deref(),
+                                    )
+                                    .ok()
+                                    .flatten();
+
+                                    // Extract Music-User-Token from cookies for subscriber-only endpoint
+                                    let music_user_token = enrich_settings
+                                        .cookies_path
+                                        .as_deref()
+                                        .and_then(|p| {
+                                            super::apple_music_api::extract_media_user_token(p)
+                                                .ok()
+                                                .flatten()
+                                        });
+
+                                    if let (Some(jwt), Some(token)) = (jwt, music_user_token) {
+                                        // Scan existing TTML files to find which tracks lack word-level timing
+                                        let dir_for_scan = album_dir.clone();
+                                        let tracks_needing_upgrade: Vec<_> = metadata.tracks.iter()
+                                            .filter(|t| t.has_lyrics == Some(true))
+                                            .filter(|t| {
+                                                // Check if a TTML file exists and already has word-level timing
+                                                let ttml_path = std::path::Path::new(&dir_for_scan);
+                                                let pattern = format!("{:02} ", t.track_number);
+                                                if let Ok(entries) = std::fs::read_dir(ttml_path) {
+                                                    for entry in entries.flatten() {
+                                                        let path = entry.path();
+                                                        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttml")) {
+                                                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                                                if name.starts_with(&pattern) {
+                                                                    // Read the file and check for word-level timing
+                                                                    if let Ok(content) = std::fs::read_to_string(&path) {
+                                                                        if content.contains("itunes:timing=\"Word\"")
+                                                                            || content.contains("itunes:timing='Word'")
+                                                                        {
+                                                                            return false; // Already has word-level timing
+                                                                        }
+                                                                    }
+                                                                    return true; // TTML exists but no word-level timing
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                true // No TTML file found at all
+                                            })
+                                            .collect();
+
+                                        if !tracks_needing_upgrade.is_empty() {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!(
+                                                    "Fetching word-level lyrics from Apple Music API for {} track(s)...",
+                                                    tracks_needing_upgrade.len()
+                                                ),
+                                            );
+
+                                            let mut upgraded = 0u32;
+                                            for track in &tracks_needing_upgrade {
+                                                if enrich_shutdown.is_triggered() {
+                                                    break;
+                                                }
+                                                match super::apple_music_api::fetch_syllable_lyrics(
+                                                    &jwt,
+                                                    &enrich_settings.storefront,
+                                                    &track.song_id,
+                                                    &token,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(Some(ttml_xml)) => {
+                                                        // Find the matching TTML file to overwrite, or create one
+                                                        let pattern = format!("{:02} ", track.track_number);
+                                                        let mut written = false;
+                                                        if let Ok(entries) = std::fs::read_dir(&album_dir) {
+                                                            for entry in entries.flatten() {
+                                                                let path = entry.path();
+                                                                if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttml")) {
+                                                                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                                                        if name.starts_with(&pattern) {
+                                                                            if let Err(e) = std::fs::write(&path, &ttml_xml) {
+                                                                                log::debug!("Failed to write TTML for track {}: {e}", track.song_id);
+                                                                            } else {
+                                                                                upgraded += 1;
+                                                                                written = true;
+                                                                            }
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        // If no existing TTML file, try to find a matching audio file and create one
+                                                        if !written {
+                                                            if let Ok(entries) = std::fs::read_dir(&album_dir) {
+                                                                for entry in entries.flatten() {
+                                                                    let path = entry.path();
+                                                                    if path.extension().is_some_and(|e| {
+                                                                        let e = e.to_ascii_lowercase();
+                                                                        e == "m4a" || e == "m4v" || e == "mp4"
+                                                                    }) {
+                                                                        if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
+                                                                            if name.starts_with(&pattern) {
+                                                                                let ttml_path = path.with_extension("ttml");
+                                                                                if let Err(e) = std::fs::write(&ttml_path, &ttml_xml) {
+                                                                                    log::debug!("Failed to create TTML for track {}: {e}", track.song_id);
+                                                                                } else {
+                                                                                    upgraded += 1;
+                                                                                }
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    Ok(None) => {
+                                                        log::debug!(
+                                                            "No syllable-lyrics available for track {} (song {})",
+                                                            track.track_number,
+                                                            track.song_id
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        log::debug!(
+                                                            "Syllable-lyrics fetch failed for track {} (song {}): {e}",
+                                                            track.track_number,
+                                                            track.song_id
+                                                        );
+                                                        // Auth errors affect all tracks — stop early
+                                                        if e.contains("401") || e.contains("403") {
+                                                            emit_download_log(
+                                                                &enrich_app,
+                                                                &enrich_dl_id,
+                                                                &format!("Word-level lyrics fetch stopped: {e}"),
+                                                            );
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if upgraded > 0 {
+                                                log::info!(
+                                                    "Word-level lyrics fetched for {upgraded} track(s) for {enrich_dl_id}"
+                                                );
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("Word-level lyrics fetched from Apple Music API for {upgraded} track(s)"),
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        log::debug!(
+                                            "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
+                                        );
+                                    }
+                                }
+
+                                tokio::task::yield_now().await;
+                                if enrich_shutdown.is_triggered() {
+                                    log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                    return;
+                                }
+                            }
+
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
