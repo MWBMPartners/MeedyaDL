@@ -885,7 +885,7 @@ Animated artwork uses the **Apple Music catalog API**, which authenticates via M
 ### API Flow
 
 ```
-GET https://amp-api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}
+GET https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}
     ?include=tracks,artists&extend=editorialVideo
 Authorization: Bearer {JWT}
 ```
