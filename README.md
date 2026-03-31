@@ -2,14 +2,20 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="assets/brand/logo.png">
-    <img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="80">
+    <img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="96">
+  </picture>
+  <br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logotype-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logotype.png">
+    <img src="assets/brand/logotype.png" alt="MeedyaDL" height="36">
   </picture>
 </p>
 <p align="center">
   <strong>A multiplatform media downloader</strong>
 </p>
 <p align="center">
-  Download songs, albums, playlists, music videos, and more from your favourite media services with ease.
+  Download songs, albums, playlists, music videos, and more from Apple Music, Spotify, and other services.
 </p>
 
 <p align="center">
@@ -19,12 +25,6 @@
   <a href="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/codeql.yml"><img src="https://github.com/MWBMPartners/MeedyaDL/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   <img src="https://img.shields.io/badge/Platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
 </p>
-
----
-
-## 📸 Screenshots
-
-> Screenshots coming soon. Run the app locally with `cargo tauri dev` to see the UI.
 
 ---
 
@@ -168,7 +168,11 @@ MeedyaDL is built with a modern, performance-first tech stack:
 │            Rust Backend (Tokio)         │  ← Native Layer
 │  Commands · Models · Services · Utils   │
 ├─────────────────────────────────────────┤
-│    Embedded Python + GAMDL (pip pkg)    │  ← Download Engine
+│          Engine Registry (TOML)         │  ← Per-platform routing
+│  engines.toml · codecs.toml · tags.toml │
+├─────────────────────────────────────────┤
+│       Embedded Python + pip Engines     │  ← Download Engines
+│      GAMDL · votify · yt-dlp · ...     │
 └─────────────────────────────────────────┘
 ```
 
@@ -177,7 +181,8 @@ MeedyaDL is built with a modern, performance-first tech stack:
 | **Frontend** | React 19, TypeScript, Tailwind CSS v4, Zustand | Reactive UI with platform-adaptive themes |
 | **Framework** | Tauri 2.0 | Lightweight native shell, IPC, plugins |
 | **Backend** | Rust, Tokio, Reqwest | Async process management, downloads, credential storage |
-| **Engine** | Python (standalone), GAMDL | Apple Music interaction and decryption |
+| **Registry** | TOML configs (engines, codecs, tags) | Declarative per-platform engine routing and metadata |
+| **Engines** | Python (standalone), GAMDL, votify, yt-dlp | Service-specific download and decryption |
 
 ---
 
@@ -185,7 +190,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Installation
 
-1. **Download** the latest release for your platform from the [Releases](https://github.com/MeedyaDL/MeedyaDL/releases) page.
+1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page.
 2. **Install** using your platform's standard method:
    - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
    - **Windows**: Run the `.exe` installer
@@ -196,7 +201,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 On first launch, the setup wizard will guide you through:
 
-1. 📦 **Dependency installation** — automatically downloads and installs a standalone Python, GAMDL, and external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box). If compatible versions are already installed on your system, those are used instead of downloading fresh copies.
+1. 📦 **Dependency installation** — automatically downloads and installs a standalone Python, GAMDL, votify, and external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo). If compatible versions are already installed on your system, those are used instead of downloading fresh copies.
 2. 🍪 **Cookie configuration** — import your Apple Music cookies for authentication
 3. 📂 **Output directory** — choose where downloaded music will be saved
 4. 🎚️ **Quality preferences** — select your preferred audio codec and fallback chain
@@ -234,7 +239,7 @@ sudo apt-get install -y \
 
 # Clone the repository
 
-git clone https://github.com/MeedyaDL/MeedyaDL.git
+git clone https://github.com/MWBMPartners/MeedyaDL.git
 cd MeedyaDL
 
 # Install frontend dependencies
@@ -314,20 +319,30 @@ Contributions are welcome! Please follow these guidelines:
 
 ### Commit Convention
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/) enforced by [commitlint](https://commitlint.js.org/):
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for automated version bumps and changelog generation:
 
 ```text
 type(scope): description
 
 # Examples:
-
-feat(download): add fallback quality chain support
-fix(settings): resolve cookie validation edge case
-docs(readme): update installation instructions
-refactor(backend): simplify dependency management
+feat(download): add fallback quality chain support   # → minor bump, in changelog
+fix(settings): resolve cookie validation edge case   # → patch bump, in changelog
+refactor(backend): simplify dependency management    # → no bump, in changelog as "Improvements"
+chore(deps): update dependencies                     # → no bump, hidden from changelog
 ```
 
-**Allowed types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+| Type | Version Bump | Changelog |
+|------|-------------|-----------|
+| `feat` | Minor (0.**X**.0) | Features |
+| `fix` | Patch (0.0.**X**) | Bug Fixes |
+| `refactor` | None | Improvements |
+| `perf` | None | Improvements |
+| `test` | None | Improvements |
+| `chore` | None | Hidden |
+| `docs` | None | Hidden |
+| `ci` | None | Hidden |
+
+**Important:** Use `feat:` only for **user-visible** new functionality. Internal infrastructure, tooling, and config changes should use `chore:` or `refactor:` to avoid unnecessary version bumps.
 
 ### Development Workflow
 
@@ -341,7 +356,7 @@ refactor(backend): simplify dependency management
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v0.18.1) <!-- x-release-please-version -->
+### v1.x — Current (v0.22.7) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
@@ -363,17 +378,22 @@ refactor(backend): simplify dependency management
 - ✅ Updates page with rendered release notes
 - ✅ In-app help viewer with 12 topics and search
 - ✅ i18n infrastructure (i18next, OS language detection, English)
+- ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
+- ✅ Per-track activity log separators with codec and auth info
+- ✅ MediaInfo CLI integration for accurate Atmos/AC3 codec detection
+- ✅ Engine registry (`engines.toml`) for per-platform tool priority and fallback
 
 ### v2.x — Multi-Service Expansion
 
 | Milestone | Version | Service | Engine | Issue | Status |
 | --- | --- | --- | --- | --- | --- |
 | — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | 🔲 Prerequisite |
+| — | v2.0.0 | Engine priority system | — | [#268](https://github.com/MWBMPartners/MeedyaDL/issues/268) | 🔲 Prerequisite |
 | M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
 | M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
-| M10 | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
+| M10 | v2.2.0 | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / yt-dlp | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
 
-Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. See [Project Plan](Project_Plan.md) for full milestone details.
+Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. Engine priority per platform is defined in `engines.toml`. See [Project Plan](Project_Plan.md) for full milestone details.
 
 ### v3.x — Advanced Features
 
@@ -381,6 +401,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 - 🔮 **YouTube Music** ([#103](https://github.com/MWBMPartners/MeedyaDL/issues/103)) via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features beyond yt-dlp
 - 🔮 **Full i18n** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — complete translations for German, French, and additional languages
 - 🔮 **Enhanced MusicKit Integration** ([#108](https://github.com/MWBMPartners/MeedyaDL/issues/108)) — server-side token generation to remove Apple Developer credential requirement
+- 🔮 **Stable rollback** ([#267](https://github.com/MWBMPartners/MeedyaDL/issues/267)) — option to roll back from pre-release to latest stable version
 
 ### Future
 
@@ -406,9 +427,13 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 | Project | Role |
 |---------|------|
-| [**GAMDL**](https://github.com/glomatico/gamdl) | The core Apple Music download engine this GUI wraps |
+| [**GAMDL**](https://github.com/glomatico/gamdl) | Apple Music download engine |
+| [**votify**](https://github.com/glomatico/votify) | Spotify download engine |
+| [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) | YouTube / general-purpose download engine |
+| [**get_iplayer**](https://github.com/get-iplayer/get_iplayer) | BBC iPlayer specialist engine |
 | [**Tauri**](https://tauri.app/) | Lightweight, secure framework for building native apps with web tech |
 | [**python-build-standalone**](https://github.com/indygreg/python-build-standalone) | Portable, self-contained Python builds bundled with the app |
+| [**MediaInfo**](https://mediaarea.net/en/MediaInfo) | Accurate codec detection for enrichment pipeline |
 | [**React**](https://react.dev/) | Frontend UI library |
 | [**Zustand**](https://github.com/pmndrs/zustand) | Lightweight state management |
 | [**Tailwind CSS**](https://tailwindcss.com/) | Utility-first CSS framework |

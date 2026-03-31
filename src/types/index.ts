@@ -520,6 +520,10 @@ export interface AppSettings {
   acoustid_api_key: string;
   /** Enable ReplayGain loudness analysis for downloaded tracks (opt-in) */
   replaygain_enabled: boolean;
+  /** ReplayGain reference loudness level in LUFS (default: -18.0) */
+  replaygain_reference_level: number;
+  /** Prevent digital clipping by limiting ReplayGain gain */
+  replaygain_prevent_clipping: boolean;
   /** Template for album folder naming */
   album_folder_template: string;
   /** Template for compilation album folder naming */
@@ -544,6 +548,8 @@ export interface AppSettings {
   mp4box_path: string | null;
   /** Custom N_m3u8DL-RE binary path, or null to use bundled/PATH version */
   nm3u8dlre_path: string | null;
+  /** Custom MediaInfo CLI binary path, or null to use bundled/PATH version */
+  mediainfo_path: string | null;
   /** Which download tool to use by default */
   download_mode: DownloadMode;
   /** Which remux tool to use by default */
@@ -665,6 +671,8 @@ export interface QueueItemStatus {
   speed: string | null;
   /** Estimated time remaining string (e.g., "00:45"), or null */
   eta: string | null;
+  /** Processing activity label (e.g., "Enriching metadata...", "Companion: ALAC 5/28") */
+  processing_label: string | null;
   /** Error message if state is 'error', otherwise null */
   error: string | null;
   /** Output directory where files were saved, or null if not complete */

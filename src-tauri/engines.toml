@@ -1,0 +1,242 @@
+# MeedyaDL Engine Registry
+# ========================
+#
+# Defines available download engines (external tools) and their platform
+# assignments with priority ordering. This file is the single source of
+# truth for which tool handles which service.
+#
+# Compiled into the binary via `include_str!("../../engines.toml")` and
+# parsed at runtime — no code changes needed to add engines or platforms.
+#
+# ## Structure
+#
+# [engines.<id>]           — Engine definition (one per external tool)
+#   name                   — Human-readable display name for the UI
+#   required               — true = auto-installed during setup; false = optional
+#   enabled                — true = active and available; false = hidden from UI
+#                            Use enabled=false to define future engines without
+#                            exposing them to users (e.g., engines not yet
+#                            integrated into the download pipeline).
+#   bundled                — true = core engine, installed via pip into the managed
+#                            Python environment and packaged with MeedyaDL. No custom
+#                            path override allowed — the managed version is authoritative.
+#                            false = external tool, supports custom path override in
+#                            Settings > Tools. Users can point to their own installation.
+#                            The release CI workflow reads this field to determine which
+#                            engines to pre-install during packaging.
+#   install_method         — How the tool is installed: "pip", "binary", "system"
+#   pip_package            — PyPI package name (if install_method = "pip")
+#   cli_command            — How to invoke the tool (e.g., "python -m gamdl")
+#   homepage               — Project homepage URL
+#   description            — Short description for the UI / help text
+#
+# [platforms.<id>]         — Platform definition (one per media service)
+#   name                   — Human-readable service name
+#   enabled                — true = platform available; false = hidden from UI
+#                            Disabled platforms are not shown in the URL parser
+#                            or settings. Enable when implementation is ready.
+#   url_patterns           — URL hostname patterns for auto-detection
+#   engines                — Ordered list of engine IDs (first = primary, rest = fallback)
+#   content_types          — What this platform offers (for UI hints)
+#
+# `icon` (optional) is a path to a local SVG/PNG icon in public/icons/platforms/.
+# If omitted or the file doesn't exist, the UI falls back to fetching the
+# favicon from the first url_pattern hostname (prefers PNG/SVG over ICO).
+# To add an icon: save a 16x16 or 24x24 SVG/PNG to public/icons/platforms/
+# and set the path here.
+#
+# ## Bundled vs External Engines
+#
+# Bundled engines (bundled = true):
+#   - Installed via `pip install` into the managed Python environment
+#   - Packaged with MeedyaDL during CI release builds
+#   - No custom path setting — always uses the managed version
+#   - Updated via the in-app update checker (PyPI version comparison)
+#   - Examples: GAMDL, votify, yt-dlp, OF-Scraper
+#
+# External engines (bundled = false):
+#   - Not packaged with MeedyaDL
+#   - User can set a custom binary path in Settings > Tools
+#   - Detected from system PATH and common install locations
+#   - Currently no engines use this — all are bundled via pip or mirror
+#
+# ## Adding a New Engine
+#
+# 1. Add a new [engines.<id>] section below
+# 2. Set enabled = false until the Rust adapter is implemented
+# 3. Set bundled = true (pip engines use install_method="pip", binary
+#    engines use install_method="binary" and are hosted on MeedyaDL-Tools mirror)
+# 4. Add the engine ID to the relevant platform's `engines` list
+# 5. Implement the engine adapter in Rust (see services/ directory)
+# 6. Set enabled = true when ready for users
+# 7. If bundled = true, add to the release CI pip install step
+#
+# ## Adding a New Platform
+#
+# 1. Add a new [platforms.<id>] section below
+# 2. Set enabled = false until the platform is fully integrated
+# 3. List the engine(s) that support it in priority order
+# 4. Add URL patterns so the URL parser can auto-detect the service
+# 5. Implement the platform URL parser in the frontend (url-parser.ts)
+# 6. Set enabled = true when ready for users
+#
+# ## Changing Priority
+#
+# Reorder the `engines` array in any [platforms.*] section.
+# First entry = primary, subsequent entries = fallback in order.
+# Users can also override priority per-platform in Settings > Engines.
+
+# ============================================================
+# Engines (external download tools)
+# ============================================================
+
+[engines.gamdl]
+name = "GAMDL"
+required = true
+enabled = true
+bundled = true                    # Core engine — pip installed into managed Python env
+install_method = "pip"
+pip_package = "gamdl"
+cli_command = "python -m gamdl"
+homepage = "https://github.com/glomatico/gamdl"
+description = "Apple Music downloader with lossless, Atmos, and lyrics support"
+
+[engines.votify]
+name = "votify"
+required = true
+enabled = false
+bundled = true                    # Core engine — pip installed into managed Python env
+install_method = "pip"
+pip_package = "votify"
+cli_command = "python -m votify"
+homepage = "https://github.com/glomatico/votify"
+description = "Spotify downloader with Ogg Vorbis and lyrics support"
+
+[engines.ytdlp]
+name = "yt-dlp"
+required = true
+enabled = false                   # Enable when YouTube support is implemented (#103, #104)
+bundled = true                    # Core engine — pip installed into managed Python env
+install_method = "pip"
+pip_package = "yt-dlp"
+cli_command = "yt-dlp"
+homepage = "https://github.com/yt-dlp/yt-dlp"
+description = "General-purpose video/audio downloader supporting 1000+ sites"
+
+[engines.get_iplayer]
+name = "get_iplayer"
+required = true
+enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
+bundled = true                    # Bundled via MeedyaDL-Tools mirror (not pip — Perl-based)
+install_method = "binary"         # Downloaded from mirror, same as FFmpeg/mp4decrypt/MediaInfo
+cli_command = "get_iplayer"
+homepage = "https://github.com/get-iplayer/get_iplayer"
+description = "BBC iPlayer specialist with PVR scheduling, series handling, and rich metadata"
+
+# OF-Scraper: internal/future engine — not shown in public documentation.
+# Kept here for infrastructure readiness; enabled = false hides it from users.
+[engines.ofscraper]
+name = "OF-Scraper"
+required = false
+enabled = false
+bundled = true                    # Core engine — pip installed into managed Python env
+install_method = "pip"
+pip_package = "ofscraper"
+cli_command = "python -m ofscraper"
+homepage = "https://github.com/datawhores/OF-Scraper"
+description = "Subscription content downloader with DRM support"
+
+# ============================================================
+# Platforms (media services)
+# ============================================================
+#
+# `engines` is an ordered priority list:
+#   - First engine = primary (used by default)
+#   - Subsequent engines = fallback (tried in order if primary fails/missing)
+#
+# `url_patterns` are hostname patterns for auto-detection from pasted URLs.
+# Multiple patterns per platform support regional and legacy domains.
+#
+# `enabled` controls whether the platform appears in the UI. Set to false
+# for platforms that are defined but not yet implemented.
+
+[platforms.apple-music]
+name = "Apple Music"
+enabled = true
+icon = "icons/platforms/apple-music.svg"
+url_patterns = [
+    "music.apple.com",
+    "classical.apple.com",
+    "itunes.apple.com",
+]
+engines = ["gamdl"]
+content_types = ["music", "music-videos", "playlists"]
+
+[platforms.spotify]
+name = "Spotify"
+enabled = true
+icon = "icons/platforms/spotify.svg"
+url_patterns = [
+    "open.spotify.com",
+]
+engines = ["votify"]
+content_types = ["music", "playlists", "podcasts"]
+
+[platforms.youtube]
+name = "YouTube"
+enabled = false                   # Enable when YouTube support is implemented (#104)
+icon = "icons/platforms/youtube.svg"
+url_patterns = [
+    "youtube.com",
+    "youtu.be",
+    "www.youtube.com",
+    "m.youtube.com",
+]
+engines = ["ytdlp"]
+content_types = ["videos", "music", "playlists", "channels"]
+
+[platforms.youtube-music]
+name = "YouTube Music"
+enabled = false                   # Enable when YouTube Music support is implemented (#103)
+icon = "icons/platforms/youtube-music.svg"
+url_patterns = [
+    "music.youtube.com",
+]
+engines = ["ytdlp"]
+content_types = ["music", "playlists", "albums"]
+
+[platforms.bbc-iplayer]
+name = "BBC iPlayer"
+enabled = false                   # Enable when BBC iPlayer support is implemented (#102)
+icon = "icons/platforms/bbc-iplayer.svg"
+url_patterns = [
+    "bbc.co.uk/iplayer",
+    "www.bbc.co.uk/iplayer",
+]
+# get_iplayer is primary: purpose-built for BBC with superior metadata,
+# series/episode handling, PVR scheduling, and subtitle support.
+# yt-dlp is fallback: works but treats BBC as a generic extractor.
+engines = ["get_iplayer", "ytdlp"]
+content_types = ["tv", "radio"]
+
+[platforms.bbc-sounds]
+name = "BBC Sounds"
+enabled = false
+icon = "icons/platforms/bbc-sounds.svg"
+url_patterns = [
+    "bbc.co.uk/sounds",
+    "www.bbc.co.uk/sounds",
+]
+engines = ["get_iplayer", "ytdlp"]
+content_types = ["radio", "podcasts"]
+
+# Internal/future platform — not shown in public documentation.
+[platforms.onlyfans]
+name = "OnlyFans"
+enabled = false
+icon = "icons/platforms/onlyfans.svg"
+url_patterns = [
+    "onlyfans.com",
+]
+engines = ["ofscraper"]
+content_types = ["photos", "videos", "audio", "messages"]
