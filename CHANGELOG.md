@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.23.0] - 2026-03-31
+
 ### ✨ Features
 
 - Fix Apple Music API auth and add word-level lyrics fetching (#300)
