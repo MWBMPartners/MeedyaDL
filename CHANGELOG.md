@@ -6,8 +6,35 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Fetch word-level lyrics directly from Apple Music API
+
+Adds direct syllable-lyrics fetching via the Apple Music MusicKit API
+  (/syllable-lyrics endpoint) to obtain word-by-word TTML timing data.
+  When GAMDL's TTML files lack word-level timing, the enrichment pipeline
+  now fetches upgraded TTML directly before Enhanced LRC conversion.
+
+  Requires both MusicKit developer credentials and an active Apple Music
+  subscription (Music-User-Token extracted from imported browser cookies).
+
+
+### 🐛 Bug Fixes
+
+- Correct Apple Music API endpoint for MusicKit authentication
+- Polish Apple Music API and syllable-lyrics implementation
+
+- Add set_label() for syllable-lyrics enrichment step (UI progress)
+  - Add 200ms rate limiting between syllable-lyrics API requests
+  - Add cookie expiry validation in extract_media_user_token()
+  - Fix Origin header in credentials validation (only for amp-api host)
+  - Update stale amp-api references in Cargo.toml and DEV_NOTES.md
+  - Update CLAUDE.md with syllable-lyrics documentation
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
