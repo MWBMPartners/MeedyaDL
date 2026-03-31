@@ -50,8 +50,9 @@ use crate::services::dependency_manager;
 /// Apple iTunes freeform atom namespace (standard for `ReplayGain` in M4A files).
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
-/// `ReplayGain` reference level in LUFS (EBU R128 standard).
-const REFERENCE_LEVEL: f64 = -18.0;
+/// Default `ReplayGain` reference level in LUFS (EBU R128 standard).
+/// Used when the user hasn't configured a custom level.
+pub const DEFAULT_REFERENCE_LEVEL: f64 = -18.0;
 
 // ============================================================
 // Public Types
@@ -74,16 +75,16 @@ pub struct ReplayGainResult {
 
 /// Process all M4A files in the output directory for `ReplayGain` analysis.
 ///
-/// For each file: analyses loudness using `FFmpeg`'s ebur128 filter, calculates
-/// the `ReplayGain` adjustment, and writes the gain and peak tags.
+/// Analyses every track individually for track gain, then computes album-level
+/// gain from the collective loudness measurements. Writes 4 tags per file:
+/// `replaygain_track_gain`, `replaygain_track_peak`, `replaygain_album_gain`,
+/// `replaygain_album_peak`.
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for tool path resolution
 /// * `output_path` - Download output path (file or album directory)
-///
-/// # Errors
-///
-/// Returns `Err(String)` if `FFmpeg` is not installed or the output path is invalid.
+/// * `reference_level` - Target loudness in LUFS (e.g., -18.0 for EBU R128)
+/// * `prevent_clipping` - When true, limits gain so peak × gain never exceeds 1.0
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
@@ -91,6 +92,8 @@ pub struct ReplayGainResult {
 pub async fn process_replaygain_for_directory(
     app: &AppHandle,
     output_path: &str,
+    reference_level: f64,
+    prevent_clipping: bool,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
@@ -99,30 +102,118 @@ pub async fn process_replaygain_for_directory(
         return Ok(0);
     }
 
-    let mut tagged_count = 0;
+    // Phase 1: Analyse all tracks individually
+    let mut track_results: Vec<(PathBuf, ReplayGainResult)> = Vec::new();
 
-    for file_path in &m4a_files {
-        match analyse_and_tag(&ffmpeg_path, file_path).await {
-            Ok(result) => {
+    let total_files = m4a_files.len();
+    for (idx, file_path) in m4a_files.iter().enumerate() {
+        log::info!(
+            "ReplayGain: analysing file {}/{} — {}",
+            idx + 1,
+            total_files,
+            file_path.file_name().unwrap_or_default().to_string_lossy()
+        );
+        match analyse_track_loudness(&ffmpeg_path, file_path).await {
+            Ok(mut result) => {
+                // Calculate track gain from the reference level
+                result.gain_db = reference_level - result.integrated_loudness;
+
+                // Clipping prevention: limit gain so peak × gain_linear ≤ 1.0
+                if prevent_clipping && result.true_peak > 0.0 {
+                    let max_gain_db = -20.0 * result.true_peak.log10();
+                    if result.gain_db > max_gain_db {
+                        log::debug!(
+                            "ReplayGain clipping prevention: {} clamped from {:.2} to {:.2} dB",
+                            file_path.display(),
+                            result.gain_db,
+                            max_gain_db
+                        );
+                        result.gain_db = max_gain_db;
+                    }
+                }
+
+                track_results.push((file_path.clone(), result));
+            }
+            Err(e) => {
+                log::debug!("ReplayGain analysis failed for {}: {}", file_path.display(), e);
+            }
+        }
+    }
+
+    if track_results.is_empty() {
+        return Ok(0);
+    }
+
+    // Phase 2: Compute album-level gain
+    // Album integrated loudness = average of all track loudness values (in linear power domain)
+    // Formula: -0.691 + 10*log10(mean(10^((Li+0.691)/10))) for each track loudness Li
+    // Simplified: average the linear power, convert back to LUFS
+    let album_loudness = {
+        let sum: f64 = track_results
+            .iter()
+            .map(|(_, r)| 10.0_f64.powf(r.integrated_loudness / 10.0))
+            .sum();
+        let mean = sum / track_results.len() as f64;
+        10.0 * mean.log10()
+    };
+    let mut album_gain_db = reference_level - album_loudness;
+
+    // Album peak = highest true peak across all tracks
+    let album_peak = track_results
+        .iter()
+        .map(|(_, r)| r.true_peak)
+        .fold(0.0_f64, f64::max);
+
+    // Clipping prevention for album gain
+    if prevent_clipping && album_peak > 0.0 {
+        let max_album_gain = -20.0 * album_peak.log10();
+        if album_gain_db > max_album_gain {
+            album_gain_db = max_album_gain;
+        }
+    }
+
+    log::info!(
+        "ReplayGain album: {:.2} dB gain, {:.6} peak ({} tracks, ref={:.1} LUFS)",
+        album_gain_db,
+        album_peak,
+        track_results.len(),
+        reference_level
+    );
+
+    // Phase 3: Write all 4 tags to each file
+    let mut tagged_count = 0;
+    for (file_path, result) in &track_results {
+        match write_replaygain_tags(
+            file_path,
+            result.gain_db,
+            result.true_peak,
+            album_gain_db,
+            album_peak,
+        )
+        .await
+        {
+            Ok(()) => {
                 log::debug!(
-                    "ReplayGain: {} → gain={:.2} dB, peak={:.6}",
+                    "ReplayGain: {} → track={:.2} dB, album={:.2} dB",
                     file_path.display(),
                     result.gain_db,
-                    result.true_peak
+                    album_gain_db
                 );
                 tagged_count += 1;
             }
             Err(e) => {
-                log::debug!("ReplayGain failed for {}: {}", file_path.display(), e);
+                log::debug!("ReplayGain tagging failed for {}: {}", file_path.display(), e);
             }
         }
     }
 
     if tagged_count > 0 {
         log::info!(
-            "Analysed {} of {} file(s) for ReplayGain",
+            "Analysed {} of {} file(s) for ReplayGain (ref={:.1} LUFS, clipping_prevention={})",
             tagged_count,
-            m4a_files.len()
+            m4a_files.len(),
+            reference_level,
+            prevent_clipping
         );
     }
 
@@ -133,36 +224,41 @@ pub async fn process_replaygain_for_directory(
 // Internal: Per-File Analysis and Tagging
 // ============================================================
 
-/// Analyse a single file's loudness and write `ReplayGain` tags.
+/// Write all 4 `ReplayGain` tags (track + album) to a single M4A file.
 ///
-/// The FFmpeg analysis is properly async (subprocess with `.await`). The
-/// subsequent `Tag::read/write` is blocking file I/O, so it is offloaded
+/// The `Tag::read/write` is blocking file I/O, so it is offloaded
 /// to `spawn_blocking` to prevent starving the tokio runtime on slow
 /// filesystems (FUSE mounts, NFS, cloud storage).
-async fn analyse_and_tag(ffmpeg_path: &Path, file_path: &Path) -> Result<ReplayGainResult, String> {
-    // Analyse loudness (async — FFmpeg subprocess with .await)
-    let result = analyse_track_loudness(ffmpeg_path, file_path).await?;
-
-    // Write ReplayGain tags on a blocking thread to avoid starving the
-    // async runtime. Tag::read_from_path / Tag::write_to_path are sync
-    // I/O that can block for seconds on slow FUSE mounts.
+async fn write_replaygain_tags(
+    file_path: &Path,
+    track_gain_db: f64,
+    track_peak: f64,
+    album_gain_db: f64,
+    album_peak: f64,
+) -> Result<(), String> {
     let tag_path = file_path.to_path_buf();
-    let gain_db = result.gain_db;
-    let true_peak = result.true_peak;
     tokio::task::spawn_blocking(move || {
         let mut tag =
             Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
-        // replaygain_track_gain — e.g., "-4.20 dB"
+        // Track-level tags
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_gain"),
-            Data::Utf8(format!("{gain_db:.2} dB")),
+            Data::Utf8(format!("{track_gain_db:.2} dB")),
         );
-
-        // replaygain_track_peak — e.g., "0.933254" (linear scale)
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_peak"),
-            Data::Utf8(format!("{true_peak:.6}")),
+            Data::Utf8(format!("{track_peak:.6}")),
+        );
+
+        // Album-level tags
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_gain"),
+            Data::Utf8(format!("{album_gain_db:.2} dB")),
+        );
+        tag.set_data(
+            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_peak"),
+            Data::Utf8(format!("{album_peak:.6}")),
         );
 
         tag.write_to_path(&tag_path)
@@ -173,7 +269,7 @@ async fn analyse_and_tag(ffmpeg_path: &Path, file_path: &Path) -> Result<ReplayG
     .await
     .map_err(|e| format!("ReplayGain tag task panicked: {e}"))??;
 
-    Ok(result)
+    Ok(())
 }
 
 // ============================================================
@@ -248,13 +344,12 @@ fn parse_ebur128_output(stderr: &str) -> Result<ReplayGainResult, String> {
     // Convert peak from dBFS to linear scale: 10^(dBFS/20)
     let true_peak = 10.0_f64.powf(peak_dbfs / 20.0);
 
-    // Calculate ReplayGain: reference_level - integrated_loudness
-    let gain_db = REFERENCE_LEVEL - integrated_loudness;
-
+    // gain_db is calculated by the caller with the user's reference level.
+    // Return raw measurements only.
     Ok(ReplayGainResult {
         integrated_loudness,
         true_peak,
-        gain_db,
+        gain_db: 0.0, // Placeholder — caller sets this from reference_level
     })
 }
 
@@ -375,9 +470,12 @@ mod tests {
     #[test]
     fn calculate_gain_correctly() {
         let result = parse_ebur128_output(SAMPLE_EBUR128_OUTPUT).unwrap();
+        // gain_db is now calculated by the caller, not the parser.
+        // Verify the caller's formula: reference_level - integrated_loudness
+        let gain = DEFAULT_REFERENCE_LEVEL - result.integrated_loudness;
         // Reference: -18.0 LUFS, integrated: -14.2 LUFS
         // Gain = -18.0 - (-14.2) = -3.8 dB
-        assert!((result.gain_db - (-3.8)).abs() < 0.01);
+        assert!((gain - (-3.8)).abs() < 0.01);
     }
 
     #[test]
@@ -394,8 +492,9 @@ mod tests {
 ";
         let result = parse_ebur128_output(output).unwrap();
         assert!((result.integrated_loudness - (-24.5)).abs() < 0.01);
-        // Gain = -18.0 - (-24.5) = 6.5 dB (positive = turn up)
-        assert!((result.gain_db - 6.5).abs() < 0.01);
+        // Gain calculated by caller: -18.0 - (-24.5) = 6.5 dB (positive = turn up)
+        let gain = DEFAULT_REFERENCE_LEVEL - result.integrated_loudness;
+        assert!((gain - 6.5).abs() < 0.01);
     }
 
     #[test]

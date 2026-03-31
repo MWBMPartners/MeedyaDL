@@ -168,8 +168,23 @@ fn parse_mediainfo_json(json: &str) -> Option<MediaInfoResult> {
 
 /// Get the path to the MediaInfo binary if it's installed.
 ///
-/// Checks the managed tools directory first, then system PATH.
+/// Priority: (1) user-configured custom path from settings, (2) managed
+/// tools directory, (3) system PATH, (4) common platform install locations.
 pub fn get_mediainfo_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    // 1. Check user-configured custom path from settings
+    if let Ok(settings) = super::config_service::load_settings(app) {
+        if let Some(ref custom) = settings.mediainfo_path {
+            if !custom.is_empty() {
+                let p = PathBuf::from(custom);
+                if p.exists() {
+                    return Some(p);
+                }
+                log::warn!("Custom MediaInfo path does not exist: {custom}");
+            }
+        }
+    }
+
+    // 2. Check managed tools directory
     let managed = super::dependency_manager::get_tool_binary_path(app, "mediainfo");
     if managed.exists() {
         return Some(managed);
@@ -180,21 +195,41 @@ pub fn get_mediainfo_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     } else {
         "which"
     };
-    let output = std::process::Command::new(which_cmd)
+    if let Ok(output) = std::process::Command::new(which_cmd)
         .arg("mediainfo")
         .output()
-        .ok()?;
-    if output.status.success() {
-        let path_str = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()?
-            .trim()
-            .to_string();
-        if !path_str.is_empty() {
-            return Some(PathBuf::from(path_str));
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !path_str.is_empty() {
+                let p = PathBuf::from(&path_str);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
         }
     }
-    None
+
+    // Check common platform-specific installation locations
+    let extra_paths: Vec<PathBuf> = if cfg!(target_os = "macos") {
+        vec![
+            PathBuf::from("/opt/homebrew/bin/mediainfo"),
+            PathBuf::from("/usr/local/bin/mediainfo"),
+        ]
+    } else if cfg!(target_os = "linux") {
+        vec![
+            PathBuf::from("/usr/bin/mediainfo"),
+            PathBuf::from("/usr/local/bin/mediainfo"),
+        ]
+    } else {
+        vec![]
+    };
+    extra_paths.into_iter().find(|p| p.exists())
 }
 
 // ============================================================

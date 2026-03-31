@@ -45,6 +45,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_replaygain_reference() -> f64 {
+    -18.0
+}
+
 /// Companion download mode configuration.
 ///
 /// Controls whether `MeedyaDL` automatically downloads additional format
@@ -557,6 +561,16 @@ pub struct AppSettings {
     #[serde(default)]
     pub replaygain_enabled: bool,
 
+    /// `ReplayGain` reference loudness level in LUFS. Default: -18.0 (EBU R128).
+    /// Common alternatives: -14.0 (Spotify-style), -23.0 (broadcast).
+    #[serde(default = "default_replaygain_reference")]
+    pub replaygain_reference_level: f64,
+
+    /// When true, limits `ReplayGain` gain so that peak × gain never exceeds 1.0,
+    /// preventing digital clipping on tracks that are already near 0 dBFS.
+    #[serde(default = "default_true")]
+    pub replaygain_prevent_clipping: bool,
+
     // ================================================================
     // File/Folder Templates
     // ================================================================
@@ -617,6 +631,11 @@ pub struct AppSettings {
 
     /// Custom N_m3u8DL-RE binary path. Alternative HLS downloader.
     pub nm3u8dlre_path: Option<String>,
+
+    /// Custom MediaInfo CLI binary path. Used for accurate codec
+    /// detection in the enrichment pipeline. `None` = use the managed
+    /// installation or system PATH.
+    pub mediainfo_path: Option<String>,
 
     // ================================================================
     // Advanced
@@ -976,6 +995,8 @@ impl Default for AppSettings {
             acoustid_enabled: false,
             acoustid_api_key: String::new(),
             replaygain_enabled: false,
+            replaygain_reference_level: default_replaygain_reference(),
+            replaygain_prevent_clipping: true,
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization.
@@ -995,6 +1016,7 @@ impl Default for AppSettings {
             mp4decrypt_path: None,
             mp4box_path: None,
             nm3u8dlre_path: None,
+            mediainfo_path: None,
 
             // --- Advanced ---
             // yt-dlp is the default downloader because it is installed as

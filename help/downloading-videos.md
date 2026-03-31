@@ -160,7 +160,8 @@ MeedyaDL can automatically download music videos as companions when downloading 
 
 ### Notes
 
-- Music video companions are downloaded in the background (fire-and-forget). They do not affect the primary download status.
+- Music video companions run in the background while the queue item is in "Processing" state. The global progress bar shows companion download speed, ETA, and percentage in real time. The queue-level progress bar counts the item as done once the primary download finishes (partial credit).
+- Desktop notifications for "download complete" are deferred until all companion downloads and enrichment stages finish.
 - If a track does not have a music video on Apple Music, it is silently skipped.
 - Duplicate music videos (e.g., the same video linked from multiple tracks) are automatically deduplicated.
 - The video quality settings in **Settings > Quality > Video Quality** (resolution, codec priority, remux format) apply to companion music videos.

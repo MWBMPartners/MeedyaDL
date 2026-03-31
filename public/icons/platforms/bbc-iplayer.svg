@@ -1,0 +1,15 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    BBC iPlayer icon — based on the official iPlayer logo shape:
+    Three angular segments forming a stylised play/forward symbol.
+    Left vertical bar, top-right angled bar, bottom-right angled bar.
+    Black areas from the original are transparent; fill uses
+    currentColor so it adapts to light/dark/colour-blind themes.
+  -->
+  <!-- Left vertical bar -->
+  <rect x="4" y="4" width="4" height="16" rx="0.5" fill="currentColor" fill-opacity="0.8"/>
+  <!-- Top-right angled bar -->
+  <polygon points="10,3 20,9.5 16,12.5 10,9" fill="currentColor" fill-opacity="0.65"/>
+  <!-- Bottom-right angled bar -->
+  <polygon points="10,15 16,11.5 20,14.5 10,21" fill="currentColor" fill-opacity="0.9"/>
+</svg>

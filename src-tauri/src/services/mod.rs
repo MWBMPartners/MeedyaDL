@@ -273,6 +273,16 @@ pub mod history_service;
 /// unknown fields for human review. Does NOT auto-embed unknown fields.
 pub mod api_audit_service;
 
+/// Generic pip-based engine management service.
+///
+/// Provides install, version-check, and uninstall functions for any Python
+/// package that MeedyaDL manages as a download engine. Generalises the
+/// pattern from `gamdl_service.rs` so new pip-based engines (votify,
+/// ofscraper, yt-dlp) can be managed with zero new service code.
+///
+/// Used by: `commands/dependencies` (IPC handlers for engine install/check)
+pub mod pip_engine_service;
+
 /// End-to-end integration tests for the enrichment pipeline services.
 ///
 /// Tests the subtitle/lyrics services with actual files on disk: creates

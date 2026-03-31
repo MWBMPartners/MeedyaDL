@@ -80,6 +80,10 @@ on:
       tag:
         description: 'Git tag to build and release (e.g., v0.3.1)'
         required: true
+      bundle_engines:
+        description: 'Bundle engines (offline installer) — include Python, GAMDL, votify, and all tools (~300MB). Default: false (tiny installer, engines downloaded on first launch).'
+        type: boolean
+        default: false
 
 jobs:
   # ============================================================
@@ -345,6 +349,144 @@ jobs:
       # 'npm ci' ensures a clean, reproducible install from package-lock.json.
       - name: Install npm dependencies
         run: npm ci
+
+      # Step 8.5: Pre-bundle engines for offline installer (optional).
+      # When bundle_engines is true (manual workflow_dispatch only), downloads
+      # Python, pip engines (GAMDL, votify), and binary tools (FFmpeg, mp4decrypt,
+      # N_m3u8DL-RE, MP4Box, MediaInfo) into src-tauri/bundled-deps/.
+      # The setup wizard detects these on first launch and skips downloading.
+      #
+      # Reads engines.toml to determine which pip packages to install
+      # (bundled=true AND enabled=true). Binary tools are downloaded from
+      # the MeedyaDL-Tools mirror.
+      #
+      # Skipped for tag-push triggers (always tiny installer).
+      # Only activated via: gh workflow run "Release" -f tag=vX.X.X -f bundle_engines=true
+      - name: Pre-bundle engines (offline installer)
+        if: inputs.bundle_engines == true
+        env:
+          BUNDLE_ENGINES: ${{ inputs.bundle_engines }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::Pre-bundle engines for offline installer"
+
+          DEPS_DIR="src-tauri/bundled-deps"
+          mkdir -p "$DEPS_DIR/tools"
+
+          # --- Determine platform ---
+          case "$RUNNER_OS" in
+            macOS)   MIRROR_OS="macos"; MIRROR_ARCH="aarch64"; EXT="tar.gz" ;;
+            Windows) MIRROR_OS="windows"; MIRROR_ARCH="x86_64"; EXT="zip" ;;
+            Linux)   MIRROR_OS="linux"; MIRROR_ARCH="x86_64"; EXT="tar.gz" ;;
+          esac
+
+          # Override arch for Windows ARM64 and Linux ARM builds
+          if [[ "${{ matrix.settings.rust_target }}" == *"aarch64"* && "$RUNNER_OS" != "macOS" ]]; then
+            MIRROR_ARCH="aarch64"
+          fi
+          if [[ "${{ matrix.settings.rust_target }}" == *"armv7"* ]]; then
+            MIRROR_ARCH="armhf"
+            # ARMv7 tools may use tar.gz even on Linux
+          fi
+
+          echo "Platform: ${MIRROR_OS}-${MIRROR_ARCH} (.${EXT})"
+
+          # --- Install pip engines ---
+          # Parse engines.toml for bundled+enabled pip packages.
+          # Uses Python (available on all runners) to parse TOML.
+          PIP_PACKAGES=$(python3 -c "
+          import tomllib, sys
+          with open('src-tauri/engines.toml', 'rb') as f:
+              data = tomllib.load(f)
+          pkgs = [
+              e.get('pip_package', '')
+              for e in data.get('engines', {}).values()
+              if e.get('bundled') and e.get('enabled') and e.get('install_method') == 'pip' and e.get('pip_package')
+          ]
+          print(' '.join(pkgs))
+          ")
+
+          if [ -n "$PIP_PACKAGES" ]; then
+            echo "Installing pip engines: $PIP_PACKAGES"
+            # Use the runner's system Python to bootstrap pip install into bundled-deps
+            # The actual managed Python is downloaded at app runtime; these packages
+            # are placed so the setup wizard can detect them.
+            python3 -m pip install --target="$DEPS_DIR/pip-packages" $PIP_PACKAGES
+            echo "Pip engines installed to $DEPS_DIR/pip-packages/"
+          fi
+
+          # --- Download binary tools from MeedyaDL-Tools mirror ---
+          MIRROR_REPO="MeedyaDL/MeedyaDL-Tools"
+          TOOLS=("ffmpeg" "mp4decrypt" "nm3u8dlre" "mp4box" "mediainfo")
+
+          # Also download binary engines (bundled=true, install_method=binary)
+          BINARY_ENGINES=$(python3 -c "
+          import tomllib
+          with open('src-tauri/engines.toml', 'rb') as f:
+              data = tomllib.load(f)
+          ids = [
+              eid for eid, e in data.get('engines', {}).items()
+              if e.get('bundled') and e.get('enabled') and e.get('install_method') == 'binary'
+          ]
+          print(' '.join(ids))
+          ")
+
+          for engine_id in $BINARY_ENGINES; do
+            TOOLS+=("$engine_id")
+          done
+
+          # Fetch asset list from mirror
+          ASSETS_JSON=$(curl -s -H "User-Agent: MeedyaDL-CI" \
+            "https://api.github.com/repos/${MIRROR_REPO}/releases/tags/latest")
+
+          for tool in "${TOOLS[@]}"; do
+            ASSET_PREFIX="${tool}-${MIRROR_OS}-${MIRROR_ARCH}"
+            ASSET_URL=$(echo "$ASSETS_JSON" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for asset in data.get('assets', []):
+              if asset['name'].startswith('${ASSET_PREFIX}'):
+                  print(asset['browser_download_url'])
+                  break
+          " || true)
+
+            if [ -n "$ASSET_URL" ]; then
+              echo "Downloading $tool from mirror: $ASSET_URL"
+              TOOL_DIR="$DEPS_DIR/tools/$tool"
+              mkdir -p "$TOOL_DIR"
+              curl -sL "$ASSET_URL" -o "/tmp/${tool}.${EXT}"
+              if [ "$EXT" = "zip" ]; then
+                unzip -qo "/tmp/${tool}.${EXT}" -d "$TOOL_DIR"
+              else
+                tar -xzf "/tmp/${tool}.${EXT}" -C "$TOOL_DIR"
+              fi
+              rm -f "/tmp/${tool}.${EXT}"
+              echo "  → $tool extracted to $TOOL_DIR"
+            else
+              echo "::warning::No mirror asset found for ${ASSET_PREFIX} — will download at runtime"
+            fi
+          done
+
+          # --- Write manifest ---
+          python3 -c "
+          import json, datetime
+          manifest = {
+              'bundled_at': datetime.datetime.utcnow().isoformat() + 'Z',
+              'target_os': '${MIRROR_OS}',
+              'target_arch': '${MIRROR_ARCH}',
+              'pip_packages': '${PIP_PACKAGES}'.split(),
+              'tools': [t for t in '${TOOLS[*]}'.split() if t],
+              'offline_installer': True
+          }
+          with open('src-tauri/bundled-deps/manifest.json', 'w') as f:
+              json.dump(manifest, f, indent=2)
+          print(json.dumps(manifest, indent=2))
+          "
+
+          echo "::endgroup::"
+          echo "✅ Offline installer bundle ready"
+          du -sh "$DEPS_DIR"
 
       # Step 8.9: Fix macOS codesign secure timestamp.
       # Tauri's tauri-macos-sign crate omits --timestamp from the codesign command,

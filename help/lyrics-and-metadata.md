@@ -310,12 +310,19 @@ Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints usin
 
 #### ReplayGain Tags (Opt-In)
 
-Enable in **Settings > Metadata**. Uses FFmpeg (already installed) to analyse audio loudness via the EBU R128 standard. Tags enable volume normalisation in compatible media players (foobar2000, Kodi, VLC, etc.) without altering the audio data.
+Enable in **Settings > Metadata > ReplayGain Analysis**. Uses FFmpeg (already installed) to analyse audio loudness via the EBU R128 standard. Calculates both **per-track** and **per-album** gain so players can normalise in either mode (per-track for shuffle, per-album for album listening). Tags enable volume normalisation in compatible media players (foobar2000, Kodi, VLC, AIMP, Poweramp, etc.) without altering the audio data.
 
-| Tag (Namespace:Name) | Value |
-| -------------------- | ----- |
-| `com.apple.iTunes:replaygain_track_gain` | e.g., `-4.20 dB` |
-| `com.apple.iTunes:replaygain_track_peak` | e.g., `0.933254` (linear scale) |
+| Tag (Namespace:Name) | Scope | Value |
+| -------------------- | ----- | ----- |
+| `com.apple.iTunes:replaygain_track_gain` | Per-track | e.g., `-4.20 dB` |
+| `com.apple.iTunes:replaygain_track_peak` | Per-track | e.g., `0.933254` (linear scale) |
+| `com.apple.iTunes:replaygain_album_gain` | Per-album | e.g., `-3.10 dB` (average of all tracks) |
+| `com.apple.iTunes:replaygain_album_peak` | Per-album | e.g., `0.987654` (highest peak in album) |
+
+**Configuration options** (Settings > Metadata > ReplayGain Analysis):
+
+- **Reference Level** — target loudness. Options: -18 LUFS (EBU R128, default), -14 LUFS (Spotify/YouTube), -23 LUFS (broadcast), -16 LUFS (Apple Music/iTunes)
+- **Prevent Clipping** — limits gain so peak × gain never exceeds 0 dBFS. Enabled by default. Prevents digital distortion on tracks mastered near maximum loudness
 
 **Technical details:**
 

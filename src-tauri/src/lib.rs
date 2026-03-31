@@ -965,11 +965,16 @@ pub fn run() {
             // System information and platform detection commands
             commands::system::get_platform_info,
             commands::system::get_app_data_dir,
+            commands::system::get_platform_config,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
             commands::dependencies::check_gamdl_status,
             commands::dependencies::install_gamdl,
+            commands::dependencies::check_votify_status,
+            commands::dependencies::install_votify,
+            commands::dependencies::check_ofscraper_status,
+            commands::dependencies::install_ofscraper,
             commands::dependencies::check_all_dependencies,
             commands::dependencies::install_dependency,
             commands::dependencies::get_component_versions,
@@ -1015,6 +1020,7 @@ pub fn run() {
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,
+            commands::updates::upgrade_pip_engine,
             commands::updates::check_component_update,
             commands::updates::download_and_install_app_update,
             // Cookie management commands (browser detection, auto-import)

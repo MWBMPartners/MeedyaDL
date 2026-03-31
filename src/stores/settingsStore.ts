@@ -129,6 +129,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   acoustid_enabled: false, // AcoustID fingerprinting (embedded Chromaprint)
   acoustid_api_key: '', // AcoustID application API key (user-provided)
   replaygain_enabled: false, // ReplayGain loudness analysis (uses FFmpeg)
+  replaygain_reference_level: -18.0, // EBU R128 default (-18 LUFS)
+  replaygain_prevent_clipping: true, // Limit gain to prevent clipping
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
@@ -143,6 +145,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   mp4decrypt_path: null, // Bento4 mp4decrypt for DRM decryption
   mp4box_path: null, // GPAC MP4Box for container manipulation
   nm3u8dlre_path: null, // N_m3u8DL-RE for HLS/DASH stream downloading
+  mediainfo_path: null, // MediaInfo CLI for accurate codec detection
   download_mode: 'ytdlp', // Stream download backend: yt-dlp (default) or N_m3u8DL-RE
   remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
   use_wrapper: false, // Whether to use a remote account wrapper service
