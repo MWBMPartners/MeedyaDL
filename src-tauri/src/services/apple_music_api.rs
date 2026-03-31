@@ -52,6 +52,11 @@ use serde::{Deserialize, Serialize};
 /// be extracted from binaries and should be scoped/rotated operationally.
 const EMBEDDED_MUSICKIT_DEVELOPER_TOKEN: Option<&str> = option_env!("MUSICKIT_DEVELOPER_TOKEN");
 
+/// The cookie name used by Apple Music's web client to store the subscriber
+/// authentication token. Shared across modules that need to detect or extract
+/// this cookie (login window webview, Netscape cookie file parsing).
+pub const MEDIA_USER_TOKEN_COOKIE_NAME: &str = "media-user-token";
+
 // ============================================================
 // Public Types
 // ============================================================
@@ -1102,7 +1107,7 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
             continue;
         }
         let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() >= 7 && fields[5] == "media-user-token" {
+        if fields.len() >= 7 && fields[5] == MEDIA_USER_TOKEN_COOKIE_NAME {
             let value = fields[6].trim();
             if value.is_empty() {
                 continue;
@@ -1759,5 +1764,115 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
         let sf = resolve_storefront_sync();
         assert_eq!(sf.len(), 2);
         assert!(sf.chars().all(|c| c.is_ascii_lowercase()));
+    }
+
+    // ----------------------------------------------------------
+    // extract_media_user_token tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn extract_token_from_valid_cookies_file() {
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_valid");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             .apple.com\tTRUE\t/\tTRUE\t0\tmedia-user-token\tABCDEF123456\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), Some("ABCDEF123456".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_returns_none_when_missing() {
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             .apple.com\tTRUE\t/\tTRUE\t0\tother-cookie\tvalue123\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_returns_none_for_expired_cookie() {
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_expired");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        // Expiry in the past (epoch 1000)
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             .apple.com\tTRUE\t/\tTRUE\t1000\tmedia-user-token\tEXPIRED_TOKEN\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_accepts_session_cookie_zero_expiry() {
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_session");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        // Expiry of 0 = session cookie, should be accepted
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             .apple.com\tTRUE\t/\tTRUE\t0\tmedia-user-token\tSESSION_TOKEN\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), Some("SESSION_TOKEN".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_skips_empty_value() {
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_empty");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             .apple.com\tTRUE\t/\tTRUE\t0\tmedia-user-token\t\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_errors_on_missing_file() {
+        let result = extract_media_user_token("/nonexistent/path/cookies.txt");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_token_skips_comments_and_blank_lines() {
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_comments");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             # This is a comment\n\
+             \n\
+             .apple.com\tTRUE\t/\tTRUE\t0\tmedia-user-token\tTOKEN_AFTER_COMMENTS\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), Some("TOKEN_AFTER_COMMENTS".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

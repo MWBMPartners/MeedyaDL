@@ -4102,15 +4102,25 @@ pub fn process_queue(
                                     .ok()
                                     .flatten();
 
-                                    // Extract Music-User-Token from cookies for subscriber-only endpoint
-                                    let music_user_token = enrich_settings
-                                        .cookies_path
-                                        .as_deref()
-                                        .and_then(|p| {
-                                            super::apple_music_api::extract_media_user_token(p)
-                                                .ok()
-                                                .flatten()
-                                        });
+                                    // Extract Music-User-Token from cookies for subscriber-only endpoint.
+                                    // Emit to activity log if the token is expired so the user knows
+                                    // to re-import cookies (instead of a silent skip or HTTP 401).
+                                    let music_user_token = if let Some(p) = enrich_settings.cookies_path.as_deref() {
+                                        match super::apple_music_api::extract_media_user_token(p) {
+                                            Ok(Some(token)) => Some(token),
+                                            Ok(None) => {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    "Word-level lyrics skipped: Apple Music cookies expired or missing. Re-import from your browser.",
+                                                );
+                                                None
+                                            }
+                                            Err(_) => None,
+                                        }
+                                    } else {
+                                        None
+                                    };
 
                                     if let (Some(jwt), Some(token)) = (jwt, music_user_token) {
                                         // Scan existing TTML files to find which tracks lack word-level timing
@@ -4257,6 +4267,7 @@ pub fn process_queue(
                                             }
                                         }
                                     } else {
+                                        set_label("Skipping word-level lyrics (no credentials)");
                                         log::debug!(
                                             "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
                                         );
