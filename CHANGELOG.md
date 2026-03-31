@@ -42,6 +42,7 @@ Adds direct syllable-lyrics fetching via the Apple Music MusicKit API
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.23.0] - 2026-03-31
 
