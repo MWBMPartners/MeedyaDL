@@ -4146,6 +4146,7 @@ pub fn process_queue(
                                             .collect();
 
                                         if !tracks_needing_upgrade.is_empty() {
+                                            set_label("Fetching word-level lyrics...");
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
@@ -4239,6 +4240,9 @@ pub fn process_queue(
                                                         }
                                                     }
                                                 }
+                                                // Rate-limit: small delay between API requests to
+                                                // avoid hitting Apple Music API rate limits.
+                                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                                             }
 
                                             if upgraded > 0 {
