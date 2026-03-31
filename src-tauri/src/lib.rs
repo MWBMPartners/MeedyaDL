@@ -1011,6 +1011,8 @@ pub fn run() {
             commands::gamdl::import_manifest,
             // Smart re-download detection (#263)
             commands::gamdl::check_redownload_status,
+            // Syllable-level lyrics fetch (#306)
+            commands::gamdl::fetch_syllable_lyrics,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,

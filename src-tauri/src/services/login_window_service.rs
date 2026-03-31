@@ -83,8 +83,8 @@ const LOGIN_WINDOW_LABEL: &str = "apple-login";
 const APPLE_MUSIC_URL: &str = "https://music.apple.com";
 
 /// The cookie name that indicates a successful Apple Music login.
-/// This is Apple's primary authentication token for Apple Music.
-const AUTH_COOKIE_NAME: &str = "media-user-token";
+/// Reuses the shared constant from `apple_music_api` to avoid duplication.
+const AUTH_COOKIE_NAME: &str = super::apple_music_api::MEDIA_USER_TOKEN_COOKIE_NAME;
 
 /// Apple Music domains to filter cookies for (same as `cookie_service`).
 /// Only cookies matching these domains are saved to the cookies file.
