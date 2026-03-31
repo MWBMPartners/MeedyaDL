@@ -57,6 +57,38 @@ const EMBEDDED_MUSICKIT_DEVELOPER_TOKEN: Option<&str> = option_env!("MUSICKIT_DE
 /// this cookie (login window webview, Netscape cookie file parsing).
 pub const MEDIA_USER_TOKEN_COOKIE_NAME: &str = "media-user-token";
 
+/// Keychain account name for the web player developer token extracted from
+/// the Apple Music login window WebView.
+const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
+
+/// Keychain service name (shared with `credentials.rs`).
+const SERVICE_NAME: &str = "io.github.meedyadl";
+
+/// Identifies which mechanism provided the MusicKit developer token.
+///
+/// Used by callers of `resolve_premium_feature_token()` for diagnostic
+/// logging. The variant names intentionally avoid revealing implementation
+/// details in public-facing output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenSource {
+    /// User-provided Team ID + Key ID + .p8 private key → self-generated JWT.
+    UserCredentials,
+    /// Compile-time embedded developer token from CI secret.
+    EmbeddedBuildToken,
+    /// Token extracted from the Apple Music web player login window.
+    WebPlayerExtracted,
+}
+
+impl std::fmt::Display for TokenSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UserCredentials => write!(f, "user credentials"),
+            Self::EmbeddedBuildToken => write!(f, "embedded token"),
+            Self::WebPlayerExtracted => write!(f, "web session"),
+        }
+    }
+}
+
 // ============================================================
 // Public Types
 // ============================================================
@@ -386,7 +418,6 @@ pub fn has_embedded_musickit_developer_token() -> bool {
 /// * `Ok(None)` - No key stored (user hasn't configured it yet)
 /// * `Err(String)` - Keychain access error (locked, permission denied, etc.)
 pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
-    const SERVICE_NAME: &str = "io.github.meedyadl";
     const KEY_NAME: &str = "musickit_private_key";
 
     let entry = keyring::Entry::new(SERVICE_NAME, KEY_NAME)
@@ -396,6 +427,131 @@ pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
         Ok(password) => Ok(Some(password)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(format!("Failed to retrieve MusicKit private key: {e}")),
+    }
+}
+
+/// Retrieve the web player developer token from the OS keychain.
+///
+/// This token is extracted opportunistically from the Apple Music login
+/// window WebView during cookie import. It serves as a last-resort fallback
+/// for premium API features (syllable-lyrics, animated artwork, music video
+/// relations) when the user has not configured their own MusicKit credentials.
+///
+/// # Returns
+/// * `Ok(Some(String))` - Web player token found in keychain
+/// * `Ok(None)` - No token stored (user hasn't logged in via the login window,
+///   or the token was cleared)
+/// * `Err(String)` - Keychain access error
+pub fn get_webplayer_token_from_keychain() -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, WEBPLAYER_TOKEN_KEYCHAIN_KEY)
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+
+    match entry.get_password() {
+        Ok(token) if token.trim().is_empty() => Ok(None),
+        Ok(token) => Ok(Some(token)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Failed to retrieve web player token: {e}")),
+    }
+}
+
+/// Store a web player developer token in the OS keychain.
+///
+/// Called by the login window service after successfully extracting the token
+/// from the Apple Music web player. Overwrites any previously stored token.
+///
+/// # Security Note
+/// The token value is never logged — only the key name for auditability.
+pub fn store_webplayer_token_in_keychain(token: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, WEBPLAYER_TOKEN_KEYCHAIN_KEY)
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+
+    entry
+        .set_password(token)
+        .map_err(|e| format!("Failed to store web player token: {e}"))?;
+
+    log::info!("Web player developer token stored securely");
+    Ok(())
+}
+
+/// Delete the web player developer token from the OS keychain.
+///
+/// Idempotent — returns `Ok(())` even if no token was stored.
+pub fn clear_webplayer_token_from_keychain() -> Result<(), String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, WEBPLAYER_TOKEN_KEYCHAIN_KEY)
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+
+    match entry.delete_credential() {
+        Ok(()) => {
+            log::info!("Web player developer token cleared");
+            Ok(())
+        }
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("Failed to delete web player token: {e}")),
+    }
+}
+
+/// Returns true when a web player developer token is stored in the keychain.
+#[must_use]
+pub fn has_webplayer_token() -> bool {
+    get_webplayer_token_from_keychain()
+        .ok()
+        .flatten()
+        .is_some()
+}
+
+/// Resolve a MusicKit developer token for premium API features only.
+///
+/// This is the **extended** resolver used exclusively for:
+/// - Syllable-lyrics API (`/syllable-lyrics`)
+/// - Animated album artwork download
+/// - Music video relation lookups
+///
+/// Unlike `resolve_musickit_developer_token()`, this adds a third fallback
+/// tier: the web player token extracted from the login window. General
+/// catalog API calls (`fetch_album_metadata`, etc.) should continue to use
+/// `resolve_musickit_developer_token()` — they must NOT use the web player
+/// token.
+///
+/// # Priority
+/// 1. User-provided Team ID + Key ID + private key → self-generated JWT
+/// 2. Compile-time embedded `MUSICKIT_DEVELOPER_TOKEN`
+/// 3. Web player token from OS keychain (last resort)
+/// 4. `None` (premium features unavailable)
+///
+/// Returns an error only if user credentials are present but invalid.
+pub fn resolve_premium_feature_token(
+    team_id: Option<&str>,
+    key_id: Option<&str>,
+    private_key_pem: Option<&str>,
+) -> Result<Option<(String, TokenSource)>, String> {
+    let team = team_id.map(str::trim).filter(|s| !s.is_empty());
+    let key = key_id.map(str::trim).filter(|s| !s.is_empty());
+    let private_key = private_key_pem.map(str::trim).filter(|s| !s.is_empty());
+
+    // Priority 1: User-provided MusicKit credentials
+    if let (Some(team), Some(key), Some(pk)) = (team, key, private_key) {
+        let jwt = generate_musickit_jwt(team, key, pk)?;
+        return Ok(Some((jwt, TokenSource::UserCredentials)));
+    }
+
+    // Priority 2: Compile-time embedded developer token
+    if let Some(token) = EMBEDDED_MUSICKIT_DEVELOPER_TOKEN
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(Some((token.to_string(), TokenSource::EmbeddedBuildToken)));
+    }
+
+    // Priority 3: Web player token from keychain (last resort)
+    match get_webplayer_token_from_keychain() {
+        Ok(Some(token)) => Ok(Some((token, TokenSource::WebPlayerExtracted))),
+        Ok(None) => Ok(None),
+        Err(e) => {
+            // Keychain errors for the fallback path are non-fatal — log and
+            // continue as if no token is available.
+            log::warn!("Web player token keychain error (non-fatal): {e}");
+            Ok(None)
+        }
     }
 }
 

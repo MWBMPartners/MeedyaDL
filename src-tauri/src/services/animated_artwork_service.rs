@@ -157,20 +157,22 @@ pub async fn process_album_artwork(
         }
     };
 
-    // --- Step 3: Resolve MusicKit developer token (user creds or embedded fallback) ---
-    let jwt = match apple_music_api::resolve_musickit_developer_token(
+    // --- Step 3: Resolve MusicKit developer token (premium feature resolver with web player fallback) ---
+    let (jwt, token_source) = match apple_music_api::resolve_premium_feature_token(
         team_id,
         key_id,
         private_key.as_deref(),
     )? {
-        Some(token) => token,
+        Some(pair) => pair,
         None => {
             log::debug!(
-                "MusicKit credentials not configured and no embedded token found, skipping animated artwork"
+                "No MusicKit token available (user creds / embedded / web player), skipping animated artwork"
             );
             return Ok(empty_result());
         }
     };
+
+    log::debug!("Animated artwork: using MusicKit token from {token_source}");
 
     // --- Step 4: Query Apple Music API for album metadata (includes artwork URLs) ---
     let metadata = apple_music_api::fetch_album_metadata_with_fallback(

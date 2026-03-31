@@ -8,6 +8,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Improved MusicKit API fallback for lyrics and animated artwork access
+- Internal developer access mode with hidden activation gesture
+### ✨ Features
+
 - Initialize GAMDL GUI application with Tauri and React
 
 - Add Tauri configuration file for application settings and build options.

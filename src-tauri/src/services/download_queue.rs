@@ -1979,16 +1979,16 @@ async fn spawn_music_video_companion_inner(
         &format!("Looking up music videos for {} track(s)...", song_ids.len()),
     );
 
-    // Resolve MusicKit token for API call (user credentials or embedded fallback).
-    let jwt = match super::apple_music_api::resolve_musickit_developer_token(
+    // Resolve MusicKit token for API call (premium feature resolver with web player fallback).
+    let (jwt, token_source) = match super::apple_music_api::resolve_premium_feature_token(
         team_id,
         key_id,
         private_key.as_deref(),
     ) {
-        Ok(Some(token)) => token,
+        Ok(Some(pair)) => pair,
         Ok(None) => {
             log::debug!(
-                "Music video companion skipped for {dl_id}: no MusicKit credentials or embedded token"
+                "Music video companion skipped for {dl_id}: no MusicKit token available"
             );
             return;
         }
@@ -1998,6 +1998,8 @@ async fn spawn_music_video_companion_inner(
             return;
         }
     };
+
+    log::debug!("Music video companion: using MusicKit token from {token_source}");
 
     // Fetch music video relationships
     let relations =
@@ -4139,17 +4141,21 @@ pub fn process_queue(
                             // upgraded TTML sidecars before the Enhanced LRC conversion step.
                             if enrich_settings.enhanced_lrc {
                                 if let Some(ref metadata) = album_metadata {
-                                    // Resolve JWT for API calls
+                                    // Resolve JWT for API calls (premium feature resolver with web player fallback).
                                     let private_key = super::apple_music_api::get_private_key_from_keychain()
                                         .ok()
                                         .flatten();
-                                    let jwt = super::apple_music_api::resolve_musickit_developer_token(
+                                    let jwt_pair = super::apple_music_api::resolve_premium_feature_token(
                                         enrich_settings.musickit_team_id.as_deref(),
                                         enrich_settings.musickit_key_id.as_deref(),
                                         private_key.as_deref(),
                                     )
                                     .ok()
                                     .flatten();
+                                    if let Some((_, ref src)) = jwt_pair {
+                                        log::debug!("Syllable-lyrics: using MusicKit token from {src}");
+                                    }
+                                    let jwt = jwt_pair.map(|(t, _)| t);
 
                                     // Extract Music-User-Token from cookies for subscriber-only endpoint.
                                     // Emit to activity log if the token is expired so the user knows

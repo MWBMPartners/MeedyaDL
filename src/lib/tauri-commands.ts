@@ -815,6 +815,60 @@ export function hasEmbeddedMusicKitToken(): Promise<boolean> {
 }
 
 // ============================================================
+// Web Player Token Commands
+// ============================================================
+
+/**
+ * Returns true if a web player developer token is stored in the OS keychain.
+ *
+ * Rust handler: `has_webplayer_token()` in `src-tauri/src/commands/credentials.rs`
+ */
+export function hasWebplayerToken(): Promise<boolean> {
+  return invoke<boolean>('has_webplayer_token');
+}
+
+/**
+ * Deletes the web player developer token from the OS keychain.
+ *
+ * Rust handler: `clear_webplayer_token()` in `src-tauri/src/commands/credentials.rs`
+ */
+export function clearWebplayerToken(): Promise<void> {
+  return invoke<void>('clear_webplayer_token');
+}
+
+// ============================================================
+// Developer Access Commands
+// ============================================================
+
+/**
+ * Checks whether developer access is currently active.
+ *
+ * Rust handler: `check_dev_access()` in `src-tauri/src/commands/credentials.rs`
+ */
+export function checkDevAccess(): Promise<boolean> {
+  return invoke<boolean>('check_dev_access');
+}
+
+/**
+ * Activates developer access after validating the passphrase.
+ * Returns true on success, false on incorrect passphrase.
+ *
+ * Rust handler: `activate_dev_access()` in `src-tauri/src/commands/credentials.rs`
+ */
+export function activateDevAccess(passphrase: string): Promise<boolean> {
+  return invoke<boolean>('activate_dev_access', { passphrase });
+}
+
+/**
+ * Deactivates developer access.
+ *
+ * Rust handler: `deactivate_dev_access()` in `src-tauri/src/commands/credentials.rs`
+ */
+export function deactivateDevAccess(): Promise<void> {
+  return invoke<void>('deactivate_dev_access');
+}
+
+// ============================================================
 // Update Commands
 // ============================================================
 

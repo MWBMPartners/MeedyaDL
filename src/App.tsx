@@ -42,7 +42,7 @@
  * @see {@link https://react.dev/reference/react/useEffect}
  * @see {@link https://react.dev/reference/react/useState}
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Tauri app info API for retrieving the current app version at runtime.
@@ -85,6 +85,8 @@ import { useTheme } from './hooks/useTheme';
  * @see ./hooks/useKeyboardShortcuts.ts for shortcut definitions
  */
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useKonamiCode } from './hooks/useKonamiCode';
+import { activateDevAccess } from './lib/tauri-commands';
 
 /* ─── Zustand Stores ─────────────────────────────────────────────────── */
 /*
@@ -155,6 +157,7 @@ import { LoadingSpinner } from './components/common';
  * version launch. Warns about instability and offers stable release install.
  * @see ./components/common/PrereleaseNoticeModal.tsx
  */
+import { Modal } from './components/common/Modal';
 import PrereleaseNoticeModal from './components/common/PrereleaseNoticeModal';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
@@ -244,6 +247,26 @@ function App() {
    * @see ./hooks/useKeyboardShortcuts.ts
    */
   useKeyboardShortcuts();
+
+  /*
+   * ─── Developer Access (Konami Code) ────────────────────────────────
+   * Hidden gesture: ↑↑↓↓←→←→BA triggers a passphrase prompt.
+   * On correct passphrase, developer features are unlocked.
+   */
+  const [showDevPrompt, setShowDevPrompt] = useState(false);
+  const [devPassphrase, setDevPassphrase] = useState('');
+  const handleKonami = useCallback(() => setShowDevPrompt(true), []);
+  useKonamiCode(handleKonami);
+
+  const handleDevSubmit = useCallback(async () => {
+    const ok = await activateDevAccess(devPassphrase);
+    setShowDevPrompt(false);
+    setDevPassphrase('');
+    if (ok) {
+      // Reload settings to pick up dev_access_enabled change.
+      useSettingsStore.getState().loadSettings();
+    }
+  }, [devPassphrase]);
 
   /*
    * ─── Local State ───────────────────────────────────────────────────
@@ -967,6 +990,30 @@ function App() {
        * main application. Uses the Modal component so it doesn't block the UI
        * and can be dismissed independently. */}
       <PrereleaseNoticeModal />
+      {/* Developer access passphrase prompt (triggered by Konami code) */}
+      <Modal
+        open={showDevPrompt}
+        onClose={() => { setShowDevPrompt(false); setDevPassphrase(''); }}
+        title="Developer Access"
+        maxWidth="max-w-sm"
+      >
+        <form onSubmit={(e) => { e.preventDefault(); handleDevSubmit(); }}>
+          <input
+            type="password"
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            placeholder="Passphrase"
+            value={devPassphrase}
+            onChange={(e) => setDevPassphrase(e.target.value)}
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="mt-3 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Activate
+          </button>
+        </form>
+      </Modal>
     </>
   );
 }

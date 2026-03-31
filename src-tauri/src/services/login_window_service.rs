@@ -225,6 +225,11 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
                                         AUTH_COOKIE_CHECK_RETRIES + 1
                                     );
 
+                                    // Opportunistically extract the web player developer
+                                    // token before closing the window. Best-effort — failures
+                                    // are logged but do not affect the cookie import flow.
+                                    extract_webplayer_token(&app_handle);
+
                                     // Wait briefly before closing the login window,
                                     // giving the user a moment to see the logged-in page.
                                     tokio::time::sleep(std::time::Duration::from_millis(
@@ -333,6 +338,10 @@ pub async fn extract_login_cookies(app: &AppHandle) -> Result<CookieImportResult
         "Extracted {} total cookies from login webview",
         cookies.len()
     );
+
+    // Opportunistically extract the web player developer token.
+    // Best-effort — failures are logged but do not affect cookie import.
+    extract_webplayer_token(app);
 
     // Filter, convert, save, and return the result.
     save_cookies_from_webview(app, &cookies)
@@ -716,6 +725,91 @@ fn format_netscape_line(cookie: &cookie::Cookie) -> String {
     let value = cookie.value();
 
     format!("{domain}\t{subdomain_flag}\t{path}\t{secure}\t{expires}\t{name}\t{value}")
+}
+
+// ============================================================
+// Web Player Developer Token Extraction
+// ============================================================
+
+/// Name of the temporary cookie used to shuttle the developer token from
+/// the WebView JS context to the Rust backend.
+const DEVTOKEN_TRANSPORT_COOKIE: &str = "meedyadl_devtoken";
+
+/// JavaScript snippet injected into the login WebView to extract the
+/// Apple Music web player developer token. Stores the token in a
+/// temporary cookie (60s TTL) for readback by the Rust side.
+/// Wrapped in try/catch so it fails silently if MusicKit is not loaded.
+const DEVTOKEN_EXTRACT_JS: &str = r#"
+try {
+    var t = MusicKit.getInstance().developerToken;
+    if (t && t.length > 0) {
+        document.cookie = 'meedyadl_devtoken=' + t + '; path=/; max-age=60; SameSite=Lax';
+    }
+} catch(e) {}
+"#;
+
+/// JavaScript snippet to clean up the transport cookie after readback.
+const DEVTOKEN_CLEANUP_JS: &str =
+    "try { document.cookie = 'meedyadl_devtoken=; path=/; max-age=0'; } catch(e) {}";
+
+/// Attempts to extract the web player developer token from the login window
+/// WebView and store it in the OS keychain.
+///
+/// This is called opportunistically after successful cookie detection. The
+/// flow is:
+/// 1. Inject JS to read `MusicKit.getInstance().developerToken` and store
+///    it in a temporary cookie
+/// 2. Read the cookie back via `cookies_for_url()`
+/// 3. Store the token in the OS keychain
+/// 4. Clean up the temporary cookie
+///
+/// Failures are logged but never propagated — this is a best-effort
+/// enhancement that must not disrupt the primary cookie import flow.
+fn extract_webplayer_token(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) else {
+        return;
+    };
+
+    // Step 1: Inject JS to extract the developer token into a temp cookie.
+    if let Err(e) = window.eval(DEVTOKEN_EXTRACT_JS) {
+        log::debug!("Developer token JS injection failed (non-fatal): {e}");
+        return;
+    }
+
+    // Brief delay for the JS to execute and cookie to be set.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // Step 2: Read back the temp cookie.
+    let Ok(url) = Url::parse(APPLE_MUSIC_URL) else {
+        return;
+    };
+
+    let Ok(cookies) = window.cookies_for_url(url) else {
+        log::debug!("Failed to read cookies for developer token extraction");
+        return;
+    };
+
+    let token = cookies
+        .iter()
+        .find(|c| c.name() == DEVTOKEN_TRANSPORT_COOKIE)
+        .map(|c| c.value().to_string());
+
+    // Step 3: Store in keychain if found.
+    if let Some(ref token) = token {
+        if !token.is_empty() {
+            match super::apple_music_api::store_webplayer_token_in_keychain(token) {
+                Ok(()) => {
+                    log::info!("Web player developer token extracted and stored");
+                }
+                Err(e) => {
+                    log::warn!("Failed to store web player developer token: {e}");
+                }
+            }
+        }
+    }
+
+    // Step 4: Clean up the transport cookie.
+    let _ = window.eval(DEVTOKEN_CLEANUP_JS);
 }
 
 // ============================================================

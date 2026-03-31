@@ -102,6 +102,9 @@ import {
   hasEmbeddedMusicKitToken,
   hasEmbeddedAcoustidKey,
   auditApiFields,
+  hasWebplayerToken,
+  clearWebplayerToken,
+  deactivateDevAccess,
 } from '@/lib/tauri-commands';
 
 // Crash report list sub-component with GitHub reporting functionality.
@@ -713,6 +716,96 @@ export function AdvancedTab() {
           )}
         </div>
       </SettingsSection>
+
+      {/* ── Developer Tools (hidden unless dev access is active) ──── */}
+      {settings.dev_access_enabled && (
+        <DevToolsSection />
+      )}
     </div>
+  );
+}
+
+/**
+ * DevToolsSection -- Internal developer tools panel.
+ *
+ * Only rendered when `dev_access_enabled` is true (activated via Konami code).
+ * Shows token status, web player token management, and a deactivate button.
+ */
+function DevToolsSection() {
+  const settings = useSettingsStore((s) => s.settings);
+  const loadSettings = useSettingsStore((s) => s.loadSettings);
+
+  const [webplayerStatus, setWebplayerStatus] = useState<boolean | null>(null);
+  const [embeddedStatus, setEmbeddedStatus] = useState<boolean | null>(null);
+
+  // Check token status on mount.
+  useEffect(() => {
+    hasWebplayerToken().then(setWebplayerStatus).catch(() => setWebplayerStatus(false));
+    hasEmbeddedMusicKitToken().then(setEmbeddedStatus).catch(() => setEmbeddedStatus(false));
+  }, []);
+
+  const hasUserCreds =
+    !!settings.musickit_team_id?.trim() && !!settings.musickit_key_id?.trim();
+
+  const handleClearWebplayerToken = async () => {
+    await clearWebplayerToken();
+    setWebplayerStatus(false);
+  };
+
+  const handleDeactivate = async () => {
+    await deactivateDevAccess();
+    loadSettings();
+  };
+
+  return (
+    <SettingsSection
+      title="Developer Tools"
+      description="Internal diagnostics and token management."
+    >
+      <div className="space-y-4">
+        {/* Token resolution hierarchy status */}
+        <div>
+          <h4 className="text-sm font-medium mb-2">MusicKit Token Resolution</h4>
+          <div className="space-y-1 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={hasUserCreds ? 'text-green-500' : 'text-gray-400'}>
+                {hasUserCreds ? '\u2713' : '\u2717'}
+              </span>
+              <span>Priority 1: User credentials (Team ID + Key ID + .p8)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={embeddedStatus ? 'text-green-500' : 'text-gray-400'}>
+                {embeddedStatus ? '\u2713' : '\u2717'}
+              </span>
+              <span>Priority 2: Embedded build token</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={webplayerStatus ? 'text-green-500' : 'text-gray-400'}>
+                {webplayerStatus ? '\u2713' : '\u2717'}
+              </span>
+              <span>Priority 3: Web session token</span>
+              {webplayerStatus && (
+                <button
+                  type="button"
+                  onClick={handleClearWebplayerToken}
+                  className="ml-2 text-xs text-red-400 hover:text-red-300 underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Deactivate */}
+        <button
+          type="button"
+          onClick={handleDeactivate}
+          className="rounded border border-red-500 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+        >
+          Deactivate Developer Access
+        </button>
+      </div>
+    </SettingsSection>
   );
 }
