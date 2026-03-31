@@ -26,6 +26,7 @@
 ## ✨ Features
 
 ### 🎶 Music Downloads
+
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music. Non-geographic URLs (without a storefront code) are auto-detected and normalized
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
 - **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions. **Music video companions** — optionally download the music video for each track alongside audio (requires MusicKit credentials)
@@ -52,6 +53,7 @@
 - **API field audit tool** — developer diagnostic in Settings > Metadata that compares real API responses against known tag definitions, surfacing new fields for review
 
 ### 🔐 Authentication & Security
+
 - **Browser cookie auto-import** — detect installed browsers and import Apple Music cookies automatically
 - **Built-in Apple Music login** — sign in directly within the app to extract cookies (no browser extension needed)
 - **Cookie file import** — manual Netscape-format cookie import with domain/expiry validation
@@ -60,11 +62,13 @@
 - **Secure credential storage** via OS-native keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 
 ### 🖥️ Platform-Adaptive UI
+
 - **macOS** — Liquid Glass-inspired design with native vibrancy
 - **Windows** — Fluent Design System with Mica/Acrylic effects
 - **Linux** — Adwaita-inspired styling for GNOME integration
 
 ### ⚙️ Quality of Life
+
 - **Auto-update checking** — stay on the latest version with full release notes in the Updates page
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
 - **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
@@ -88,7 +92,7 @@
 ## 💻 Supported Platforms
 
 | Platform | Architecture | Format | Notes |
-|----------|-------------|--------|-------|
+| -------- | ------------ | ------ | ----- |
 | 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | Requires macOS 13.3 (Ventura) or later |
 | 🪟 **Windows** | x64 (64-bit) | `.exe` (NSIS) | Also works on ARM64 via emulation |
 | 🪟 **Windows** | ARM64 | `.exe` (NSIS) | Native ARM64 build |
@@ -172,7 +176,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 ```
 
 | Layer | Technology | Purpose |
-|-------|-----------|---------|
+| ----- | ---------- | ------- |
 | **Frontend** | React 19, TypeScript, Tailwind CSS v4, Zustand | Reactive UI with platform-adaptive themes |
 | **Framework** | Tauri 2.0 | Lightweight native shell, IPC, plugins |
 | **Backend** | Rust, Tokio, Reqwest | Async process management, downloads, credential storage |
@@ -210,7 +214,7 @@ On first launch, the setup wizard will guide you through:
 ### Prerequisites
 
 | Tool | Version | Notes |
-|------|---------|-------|
+| ---- | ------- | ----- |
 | **Node.js** | LTS (20+) | Frontend build toolchain |
 | **npm** | 10+ | Comes with Node.js |
 | **Rust** | Stable (1.77+) | Backend compilation |
@@ -270,6 +274,7 @@ npm run tauri dev
 ```
 
 This launches:
+
 - **Vite dev server** on `http://localhost:1420` with HMR
 - **Tauri native window** that loads the dev server
 - **Rust backend** with debug logging (set `RUST_LOG=debug` for verbose output)
@@ -277,7 +282,7 @@ This launches:
 ### Available Scripts
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `npm run dev` | Start Vite dev server only |
 | `npm run build` | Build frontend (TypeScript + Vite) |
 | `npm run tauri dev` | Full dev mode (frontend + backend) |
@@ -327,7 +332,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 ```
 
 | Type | Version Bump | Changelog |
-|------|-------------|-----------|
+| ---- | ------------ | --------- |
 | `feat` | Minor (0.**X**.0) | Features |
 | `fix` | Patch (0.0.**X**) | Bug Fixes |
 | `refactor` | None | Improvements |
@@ -421,7 +426,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 ## 🙏 Credits & Acknowledgements
 
 | Project | Role |
-|---------|------|
+| ------- | ---- |
 | [**GAMDL**](https://github.com/glomatico/gamdl) | Apple Music download engine |
 | [**votify**](https://github.com/glomatico/votify) | Spotify download engine |
 | [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) | YouTube / general-purpose download engine |
