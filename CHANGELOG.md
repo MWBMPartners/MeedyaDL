@@ -28,6 +28,7 @@ Update CLAUDE.md, DEV_NOTES.md, Project_Plan.md, and in-app help with
   defence-in-depth against potential XSS via tampered platform icons.
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.22.7] - 2026-03-30
 
