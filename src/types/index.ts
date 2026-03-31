@@ -570,6 +570,8 @@ export interface AppSettings {
   sentry_enabled: boolean;
   /** When true, emits detailed [VERBOSE] messages to Activity Log (may expose sensitive data). */
   verbose_activity_log: boolean;
+  /** Internal developer access mode. Unlocks enhanced features. Not visible in normal Settings UI. */
+  dev_access_enabled: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */
   last_seen_version: string;
   /** Whether the setup wizard has been completed at least once */

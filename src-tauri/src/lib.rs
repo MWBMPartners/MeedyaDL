@@ -1019,6 +1019,11 @@ pub fn run() {
             commands::credentials::delete_credential,
             commands::credentials::validate_musickit_credentials,
             commands::credentials::has_embedded_musickit_token,
+            commands::credentials::has_webplayer_token,
+            commands::credentials::clear_webplayer_token,
+            commands::credentials::check_dev_access,
+            commands::credentials::activate_dev_access,
+            commands::credentials::deactivate_dev_access,
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,

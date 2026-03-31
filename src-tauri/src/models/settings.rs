@@ -743,6 +743,16 @@ pub struct AppSettings {
     pub verbose_activity_log: bool,
 
     // ================================================================
+    // Internal / Developer
+    // ================================================================
+    /// Internal developer access mode. When enabled, unlocks enhanced
+    /// features such as token status dashboard, debug diagnostics, and
+    /// experimental capabilities. Not visible in the normal Settings UI —
+    /// activated via a hidden gesture or keychain sentinel value.
+    #[serde(default)]
+    pub dev_access_enabled: bool,
+
+    // ================================================================
     // Application State
     // ================================================================
     /// The last app version the user launched. Compared against the current
@@ -1054,6 +1064,10 @@ impl Default for AppSettings {
             sentry_enabled: false,
             // Verbose activity log disabled by default — may expose sensitive data.
             verbose_activity_log: false,
+
+            // --- Internal / Developer ---
+            // Developer access is disabled by default; activated via hidden gesture.
+            dev_access_enabled: false,
 
             // --- Application state ---
             // No previous version on first run; populated by load_settings().

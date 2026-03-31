@@ -347,6 +347,128 @@ pub fn has_embedded_musickit_token() -> bool {
     crate::services::apple_music_api::has_embedded_musickit_developer_token()
 }
 
+/// Returns true if a web player developer token is stored in the OS keychain.
+///
+/// **Frontend caller:** `hasWebplayerToken()` in `src/lib/tauri-commands.ts`
+///
+/// The web player token is extracted opportunistically from the Apple Music
+/// login window during cookie import. It serves as a last-resort fallback for
+/// premium API features when the user has no MusicKit credentials.
+#[tauri::command]
+pub fn has_webplayer_token() -> bool {
+    crate::services::apple_music_api::has_webplayer_token()
+}
+
+/// Deletes the web player developer token from the OS keychain.
+///
+/// **Frontend caller:** `clearWebplayerToken()` in `src/lib/tauri-commands.ts`
+///
+/// Idempotent — returns `Ok(())` even if no token was stored.
+#[tauri::command]
+pub async fn clear_webplayer_token() -> Result<(), String> {
+    crate::services::apple_music_api::clear_webplayer_token_from_keychain()
+}
+
+// ============================================================
+// Developer Access
+// ============================================================
+
+/// SHA-256 hash of the developer access passphrase.
+/// The plaintext passphrase never appears in the binary.
+/// Production builds set `DEV_ACCESS_HASH` via CI secret; local dev builds
+/// use the fallback hash (SHA-256 of empty string — effectively disabled).
+const DEV_ACCESS_HASH: &str = match option_env!("DEV_ACCESS_HASH") {
+    Some(h) => h,
+    None => "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+};
+
+/// Keychain account name for the developer access sentinel.
+const DEV_ACCESS_KEYCHAIN_KEY: &str = "dev_access_token";
+
+/// Sentinel value stored in keychain when dev access is active.
+const DEV_ACCESS_SENTINEL: &str = "meedya-dev-active";
+
+/// Checks whether developer access is currently active.
+///
+/// **Frontend caller:** `checkDevAccess()` in `src/lib/tauri-commands.ts`
+///
+/// Checks both the OS keychain sentinel and the `dev_access_enabled`
+/// settings field. Either being active is sufficient.
+#[tauri::command]
+pub fn check_dev_access(app: tauri::AppHandle) -> bool {
+    // Fast path: check settings first (in-memory, no keychain I/O)
+    if let Ok(settings) = crate::services::config_service::load_settings(&app) {
+        if settings.dev_access_enabled {
+            return true;
+        }
+    }
+
+    // Slow path: check keychain sentinel
+    let Ok(entry) = keyring::Entry::new(SERVICE_NAME, DEV_ACCESS_KEYCHAIN_KEY) else {
+        return false;
+    };
+    matches!(entry.get_password(), Ok(val) if val == DEV_ACCESS_SENTINEL)
+}
+
+/// Activates developer access after validating the passphrase.
+///
+/// **Frontend caller:** `activateDevAccess(passphrase)` in `src/lib/tauri-commands.ts`
+///
+/// The passphrase is hashed (SHA-256) and compared against the compile-time
+/// embedded hash. On success, stores a keychain sentinel and enables
+/// `dev_access_enabled` in settings. Returns whether activation succeeded.
+///
+/// On failure, returns `false` silently (no error hint to prevent brute-forcing).
+#[tauri::command]
+pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> bool {
+    use sha2::{Digest, Sha256};
+
+    // Hash the provided passphrase and compare against the embedded hash.
+    let hash = format!("{:x}", Sha256::digest(passphrase.as_bytes()));
+    if hash != DEV_ACCESS_HASH {
+        return false;
+    }
+
+    // Store keychain sentinel
+    if let Ok(entry) = keyring::Entry::new(SERVICE_NAME, DEV_ACCESS_KEYCHAIN_KEY) {
+        let _ = entry.set_password(DEV_ACCESS_SENTINEL);
+    }
+
+    // Enable in settings
+    if let Ok(mut settings) = crate::services::config_service::load_settings(&app) {
+        settings.dev_access_enabled = true;
+        let _ = crate::services::config_service::save_settings(&app, &settings);
+    }
+
+    log::info!("Developer access activated");
+    true
+}
+
+/// Deactivates developer access.
+///
+/// **Frontend caller:** `deactivateDevAccess()` in `src/lib/tauri-commands.ts`
+///
+/// Removes the keychain sentinel and disables `dev_access_enabled` in settings.
+#[tauri::command]
+pub async fn deactivate_dev_access(app: tauri::AppHandle) -> Result<(), String> {
+    // Remove keychain sentinel
+    if let Ok(entry) = keyring::Entry::new(SERVICE_NAME, DEV_ACCESS_KEYCHAIN_KEY) {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(format!("Failed to remove dev access sentinel: {e}")),
+        }
+    }
+
+    // Disable in settings
+    if let Ok(mut settings) = crate::services::config_service::load_settings(&app) {
+        settings.dev_access_enabled = false;
+        let _ = crate::services::config_service::save_settings(&app, &settings);
+    }
+
+    log::info!("Developer access deactivated");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
