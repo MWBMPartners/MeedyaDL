@@ -1,10 +1,10 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/icon-dark.png"><source media="(prefers-color-scheme: light)" srcset="assets/brand/logo.svg"><img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="96">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo.svg"><img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="96">
   </picture>
   <br>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logotype-dark.png"><source media="(prefers-color-scheme: light)" srcset="assets/brand/logotype.png"><img src="assets/brand/logotype.png" alt="MeedyaDL" height="96">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logotype.png"><img src="assets/brand/logotype.png" alt="MeedyaDL" height="96">
   </picture>
 </p>
 <p align="center">
