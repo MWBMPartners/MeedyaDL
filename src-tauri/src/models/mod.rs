@@ -25,7 +25,7 @@
 //   +-- settings.rs      -- AppSettings, QualityPreference, OutputFormat
 //   +-- gamdl_options.rs -- GamdlOptions (maps to GAMDL CLI flags)
 //   +-- dependency.rs    -- DependencyInfo, DependencyStatus
-//   +-- music_service.rs -- MusicService trait, service identifiers
+//   +-- media_service.rs -- MediaService trait, service identifiers
 //
 // Reference: https://serde.rs/
 // Reference: https://v2.tauri.app/develop/calling-rust/#returning-data
@@ -58,12 +58,12 @@ pub mod gamdl_options;
 /// dependency checking and installation commands.
 pub mod dependency;
 
-/// Music service trait and extensibility types (GAMDL, gytmdl, votify).
+/// Media service trait and extensibility types (GAMDL, votify, yt-dlp).
 ///
-/// Defines the `MusicService` trait for abstracting over different music
+/// Defines the `MediaService` trait for abstracting over different media
 /// download backends, and concrete identifiers for each supported service.
 /// This enables future extensibility beyond Apple Music (GAMDL).
-pub mod music_service;
+pub mod media_service;
 
 /// Crash report data model.
 ///

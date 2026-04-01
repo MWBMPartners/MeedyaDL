@@ -741,7 +741,7 @@ MeedyaDL/
 
 │       │   ├── dependency.rs   #    Dependency status tracking
 
-│       │   ├── music_service.rs#    Service trait (extensibility)
+│       │   ├── media_service.rs#    Service trait (extensibility)
 
 │       │   └── crash_report.rs #    Crash report data model
 

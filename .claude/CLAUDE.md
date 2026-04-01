@@ -52,8 +52,8 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 ```
 src-tauri/src/          # Rust backend
   commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials [includes validate_musickit_credentials, has_webplayer_token, clear_webplayer_token, check_dev_access, activate_dev_access, deactivate_dev_access], updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url], api_audit, history)
-  models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report, codec_registry, tag_registry, manifest)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required tools], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service, webvtt_service, rich_srt_service, musicbrainz_service, history_service, health_check_service, api_audit_service, ass_subtitle_service, mediainfo_service, pip_engine_service, integration_tests)
+  models/               # Data structures (download, settings, gamdl_options, dependency, media_service, crash_report, codec_registry, tag_registry, manifest)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required tools], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service, webvtt_service, rich_srt_service, musicbrainz_service, history_service, health_check_service, api_audit_service, ass_subtitle_service, mediainfo_service, pip_engine_service, engine_registry, engine_runner, integration_tests)
   utils/                # Platform, archive, process, activity_log utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings [includes CrashReportSection, CrashReportDialog, DevToolsSection], setup, help, updates)
@@ -170,7 +170,7 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 | M10 | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Reuses yt-dlp from M9; region-restricted (UK VPN may be required) |
 
 Architectural changes planned across milestones:
-- **Rename `MusicService` → `MediaService`** (trait, enum, types) since BBC iPlayer and YouTube aren't music-only
+- **`MediaService` trait** (renamed from `MusicService` in #314) since BBC iPlayer and YouTube aren't music-only
 - **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine
 - **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service)
 - **Shared dependency management** — yt-dlp installed once, shared by YouTube and BBC iPlayer
