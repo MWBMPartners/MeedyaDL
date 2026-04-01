@@ -20,6 +20,7 @@ The pre-release update check only fetched 5 releases (per_page=5), then
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.26.0] - 2026-04-01
 
