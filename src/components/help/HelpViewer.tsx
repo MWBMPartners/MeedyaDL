@@ -906,7 +906,7 @@ For the full list of all dependencies and their licences, see the ACKNOWLEDGEMEN
 </details>
 
 <details>
-<summary><strong>Component Library</strong></summary>
+<summary><strong>Dependencies</strong></summary>
 
 {{COMPONENT_VERSIONS}}
 
