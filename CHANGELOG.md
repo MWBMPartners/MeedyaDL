@@ -22,13 +22,18 @@ This changelog is automatically generated from [conventional commits](https://ww
   - parse_apple_music_url() now recognises artist URLs, returning a
     ParsedAppleMusicUrl with artist_id field.
 
-- ReplayGain: expand format support from M4A-only to all MP4-family containers (M4A, M4V, MP4, M4P, M4B) via mp4ameta, plus FLAC/OGG/OGA/Opus (Vorbis Comments) and MP3 (ID3v2 TXXX frames) via new lofty crate. Prepares for future platform integrations.
+- Expand ReplayGain to MP4-family, FLAC, MP3, OGG/Opus (#325, #326, #327, #328)
 
-### 🐛 Bug Fixes
+ReplayGain analysis was limited to .m4a files only. Now supports:
 
-- Fix consecutive separator chips collapsing in template builder. Space + Hyphen + Space now survives the serialize→re-parse roundtrip as three individual chips instead of collapsing into one "Dash Separator" chip.
+  - MP4-family (M4A, M4V, MP4, M4P, M4B): iTunes freeform atoms via mp4ameta
+  - FLAC, OGG, OGA, Opus: Vorbis Comments via lofty crate
+  - MP3: ID3v2 TXXX frames via lofty crate
 
-- Fix multi-version changelog aggregation: always fetch full release list (per_page=20) instead of reusing the initial 5-release fetch.
+  FFmpeg's ebur128 filter already handled all these inputs; only the file
+  collection and tag writing needed expansion. Format-aware dispatch via
+  AudioFormat enum routes to mp4ameta or lofty as appropriate.
+
 
 ### 🐛 Bug Fixes
 
@@ -46,6 +51,7 @@ The parser's longest-first token matching greedily consumed " - " as a
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
