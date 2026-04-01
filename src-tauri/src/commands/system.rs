@@ -209,6 +209,19 @@ pub fn get_platform_config() -> Vec<FrontendPlatformConfig> {
         .collect()
 }
 
+/// Returns the full engine and platform configuration from engines.toml.
+///
+/// Loads the compiled-in engines.toml via the EngineRegistry and returns
+/// all engines and platforms so the frontend can display engine info,
+/// resolve which engine handles a given platform, and show dependency status.
+///
+/// **Frontend caller:** `getEngineConfig()` in `src/lib/tauri-commands.ts`
+#[tauri::command]
+pub fn get_engine_config() -> crate::services::engine_registry::EngineConfig {
+    let registry = crate::services::engine_registry::EngineRegistry::load();
+    crate::services::engine_registry::EngineConfig::from(&registry)
+}
+
 /// Detects which media service a URL belongs to.
 ///
 /// Uses `MediaServiceId::from_url()` to match the URL against known service
