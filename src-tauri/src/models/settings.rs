@@ -237,6 +237,13 @@ pub struct PerServiceSettings {
     /// YouTube/YouTube Music-specific settings (stub).
     #[serde(default)]
     pub youtube: YouTubeSettings,
+    /// User-overridden engine priority per platform.
+    /// Keys are platform IDs (e.g., "bbc-iplayer"), values are ordered
+    /// engine IDs (first = primary). When empty, the default order from
+    /// engines.toml is used. Only needed for platforms with multiple
+    /// engines (e.g., BBC iPlayer: get_iplayer → yt-dlp).
+    #[serde(default)]
+    pub engine_priority: HashMap<String, Vec<String>>,
 }
 
 /// Complete application settings, persisted as `{app_data}/settings.json`.
