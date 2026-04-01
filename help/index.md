@@ -31,6 +31,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 
 ### Reference
 
+- [:globe_with_meridians: Supported Services](supported-services.md) -- Apple Music, Spotify, YouTube, BBC iPlayer — what's available and what's coming.
 - [:keyboard: Keyboard Shortcuts](keyboard-shortcuts.md) -- Navigation and action shortcuts for power users.
 
 ### Support
@@ -50,7 +51,7 @@ If you are new to MeedyaDL, we recommend starting with the [Getting Started](get
 
 ## About MeedyaDL
 
-MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It currently supports Apple Music via GAMDL, with planned support for Spotify, YouTube, BBC iPlayer, and more.
+MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It supports multiple media services through a plugin-based engine architecture: Apple Music (via GAMDL), with Spotify (via Votify), YouTube (via yt-dlp), and BBC iPlayer (via get_iplayer/yt-dlp) planned for future releases.
 
 - **License:** MIT
 - **Author:** MeedyaDL
