@@ -584,6 +584,43 @@ export interface AppSettings {
   high_contrast: boolean;
   /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
   colour_blind_mode: string;
+  /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
+  service_settings?: PerServiceSettings;
+}
+
+/**
+ * Per-service settings container.
+ * Each service has its own configuration nested under its key.
+ */
+export interface PerServiceSettings {
+  /** Apple Music-specific settings */
+  'apple-music'?: AppleMusicServiceSettings;
+  /** Spotify-specific settings (stub) */
+  spotify?: SpotifyServiceSettings;
+  /** YouTube/YouTube Music-specific settings (stub) */
+  youtube?: YouTubeServiceSettings;
+}
+
+/** Apple Music-specific service settings */
+export interface AppleMusicServiceSettings {
+  storefront: string;
+  cookies_path: string | null;
+  musickit_team_id: string | null;
+  musickit_key_id: string | null;
+  animated_artwork_enabled: boolean;
+  hide_animated_artwork: boolean;
+  enhanced_lrc: boolean;
+  content_advisory_in_filenames: boolean;
+}
+
+/** Spotify-specific service settings (stub for M8) */
+export interface SpotifyServiceSettings {
+  cookies_path: string | null;
+}
+
+/** YouTube/YouTube Music service settings (stub for M9) */
+export interface YouTubeServiceSettings {
+  cookies_path: string | null;
 }
 
 // ============================================================
