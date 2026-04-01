@@ -36,7 +36,7 @@
  * Type imports for the return types of parser functions.
  * @see src/types/index.ts for AppleMusicContentType and ParsedUrl definitions
  */
-import type { AppleMusicContentType, ParsedUrl } from '@/types';
+import type { AppleMusicContentType, MediaServiceId, ParsedUrl } from '@/types';
 
 /**
  * Parses an Apple Music URL and detects its content type.
@@ -223,4 +223,101 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
     default:
       return 'Unknown';
   }
+}
+
+// ============================================================
+// Multi-Service URL Detection
+// ============================================================
+
+/**
+ * Domain-to-service mapping for client-side URL detection.
+ * Order matters: more specific domains must come before broader ones
+ * (e.g., music.youtube.com before youtube.com).
+ */
+const SERVICE_DOMAINS: Array<{ service: MediaServiceId; domains: string[] }> = [
+  { service: 'apple-music', domains: ['music.apple.com', 'classical.apple.com', 'itunes.apple.com'] },
+  { service: 'youtube-music', domains: ['music.youtube.com'] },
+  { service: 'youtube', domains: ['youtube.com', 'youtu.be'] },
+  { service: 'spotify', domains: ['open.spotify.com'] },
+  { service: 'bbc-iplayer', domains: ['bbc.co.uk/iplayer', 'bbc.co.uk/sounds'] },
+];
+
+/**
+ * Detects which media service a URL belongs to.
+ *
+ * Checks the URL against known service domains. Returns the service ID
+ * if recognised, or `null` if the URL doesn't match any supported service.
+ * This is a pure client-side check — no IPC call needed.
+ *
+ * @param url - The URL string to check
+ * @returns The detected MediaServiceId, or null if unrecognised
+ */
+export function detectService(url: string): MediaServiceId | null {
+  const lower = url.toLowerCase();
+  for (const { service, domains } of SERVICE_DOMAINS) {
+    for (const domain of domains) {
+      if (lower.includes(domain)) {
+        return service;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks whether a URL belongs to any supported media service.
+ *
+ * @param url - The URL string to validate
+ * @returns true if the URL matches a known service domain
+ */
+export function isSupportedUrl(url: string): boolean {
+  return detectService(url) !== null;
+}
+
+/**
+ * Result type for the generic multi-service URL parser.
+ */
+export interface ParsedMediaUrl {
+  /** The trimmed URL string */
+  url: string;
+  /** The detected service, or null if unrecognised */
+  service: MediaServiceId | null;
+  /** Content type (Apple Music only; null for other services) */
+  contentType: AppleMusicContentType | null;
+  /** Whether the URL is a valid supported service URL */
+  isValid: boolean;
+}
+
+/**
+ * Generic multi-service URL parser.
+ *
+ * Detects which service a URL belongs to and, for Apple Music URLs,
+ * also detects the content type (song, album, playlist, etc.).
+ * For other services, content type detection will be added as those
+ * services are implemented.
+ *
+ * @param url - The URL string to parse
+ * @returns ParsedMediaUrl with service detection and validity
+ */
+export function parseMediaUrl(url: string): ParsedMediaUrl {
+  const trimmed = url.trim();
+  const service = detectService(trimmed);
+
+  if (!service) {
+    return { url: trimmed, service: null, contentType: null, isValid: false };
+  }
+
+  // For Apple Music, also detect content type
+  if (service === 'apple-music') {
+    const contentType = detectContentType(trimmed);
+    return {
+      url: trimmed,
+      service,
+      contentType,
+      isValid: contentType !== 'unknown',
+    };
+  }
+
+  // For other services, URL is valid if the domain matches
+  return { url: trimmed, service, contentType: null, isValid: true };
 }

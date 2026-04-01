@@ -966,6 +966,8 @@ pub fn run() {
             commands::system::get_platform_info,
             commands::system::get_app_data_dir,
             commands::system::get_platform_config,
+            // Multi-service URL detection (#315)
+            commands::system::detect_service,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,

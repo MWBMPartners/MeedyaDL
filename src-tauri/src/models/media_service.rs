@@ -70,15 +70,21 @@ pub enum MediaServiceId {
     /// CLI tool: `gamdl` (`PyPI`: <https://pypi.org/project/gamdl/>).
     AppleMusic,
 
-    /// `YouTube` Music -- planned for Phase 6+, will use the gytmdl CLI tool.
+    /// YouTube Music -- will use the gytmdl CLI tool.
     /// CLI tool: `gytmdl` (`PyPI`: <https://pypi.org/project/gytmdl/>).
-    /// Not yet implemented; included here to define the interface contract.
     YouTubeMusic,
 
-    /// Spotify -- planned for Phase 6+, will use the votify CLI tool.
+    /// YouTube (generic) -- will use yt-dlp.
+    /// CLI tool: `yt-dlp` (`PyPI`: <https://pypi.org/project/yt-dlp/>).
+    YouTube,
+
+    /// Spotify -- will use the votify CLI tool.
     /// CLI tool: `votify` (`PyPI`: <https://pypi.org/project/votify/>).
-    /// Not yet implemented; included here to define the interface contract.
     Spotify,
+
+    /// BBC iPlayer -- will use get_iplayer with yt-dlp fallback.
+    /// Region-restricted to the UK.
+    BbcIPlayer,
 }
 
 impl MediaServiceId {
@@ -91,7 +97,9 @@ impl MediaServiceId {
         match self {
             Self::AppleMusic => "Apple Music",
             Self::YouTubeMusic => "YouTube Music",
+            Self::YouTube => "YouTube",
             Self::Spotify => "Spotify",
+            Self::BbcIPlayer => "BBC iPlayer",
         }
     }
 
@@ -105,9 +113,12 @@ impl MediaServiceId {
     #[must_use]
     pub const fn url_domains(&self) -> &'static [&'static str] {
         match self {
-            Self::AppleMusic => &["music.apple.com"],
+            Self::AppleMusic => &["music.apple.com", "classical.apple.com", "itunes.apple.com"],
+            // YouTube Music must be checked before YouTube (more specific domain first)
             Self::YouTubeMusic => &["music.youtube.com"],
+            Self::YouTube => &["youtube.com", "youtu.be"],
             Self::Spotify => &["open.spotify.com"],
+            Self::BbcIPlayer => &["bbc.co.uk/iplayer", "bbc.co.uk/sounds"],
         }
     }
 
@@ -121,6 +132,7 @@ impl MediaServiceId {
         match self {
             Self::AppleMusic => "gamdl",
             Self::YouTubeMusic => "gytmdl",
+            Self::YouTube | Self::BbcIPlayer => "yt-dlp",
             Self::Spotify => "votify",
         }
     }
@@ -151,7 +163,9 @@ impl MediaServiceId {
         let url_lower = url.to_lowercase();
         // Iterate over all known services. The order does not matter
         // because each service has unique, non-overlapping domains.
-        for service in [Self::AppleMusic, Self::YouTubeMusic, Self::Spotify] {
+        // Order matters: YouTubeMusic must come before YouTube since
+        // music.youtube.com contains "youtube.com".
+        for service in [Self::AppleMusic, Self::YouTubeMusic, Self::YouTube, Self::Spotify, Self::BbcIPlayer] {
             // Check each domain pattern for this service.
             for domain in service.url_domains() {
                 if url_lower.contains(domain) {
@@ -399,18 +413,48 @@ mod tests {
     /// and returns `None` for unrecognised domains.
     #[test]
     fn test_service_id_from_url() {
+        // Apple Music (all three domains)
         assert_eq!(
             MediaServiceId::from_url("https://music.apple.com/us/album/test/123"),
             Some(MediaServiceId::AppleMusic)
         );
         assert_eq!(
+            MediaServiceId::from_url("https://classical.apple.com/us/album/test/123"),
+            Some(MediaServiceId::AppleMusic)
+        );
+        assert_eq!(
+            MediaServiceId::from_url("https://itunes.apple.com/us/album/test/123"),
+            Some(MediaServiceId::AppleMusic)
+        );
+        // YouTube Music (must be detected before generic YouTube)
+        assert_eq!(
             MediaServiceId::from_url("https://music.youtube.com/watch?v=abc"),
             Some(MediaServiceId::YouTubeMusic)
         );
+        // YouTube (generic)
+        assert_eq!(
+            MediaServiceId::from_url("https://www.youtube.com/watch?v=abc"),
+            Some(MediaServiceId::YouTube)
+        );
+        assert_eq!(
+            MediaServiceId::from_url("https://youtu.be/abc"),
+            Some(MediaServiceId::YouTube)
+        );
+        // Spotify
         assert_eq!(
             MediaServiceId::from_url("https://open.spotify.com/track/abc"),
             Some(MediaServiceId::Spotify)
         );
+        // BBC iPlayer
+        assert_eq!(
+            MediaServiceId::from_url("https://www.bbc.co.uk/iplayer/episode/b0000001"),
+            Some(MediaServiceId::BbcIPlayer)
+        );
+        assert_eq!(
+            MediaServiceId::from_url("https://www.bbc.co.uk/sounds/play/m001234"),
+            Some(MediaServiceId::BbcIPlayer)
+        );
+        // Unknown
         assert_eq!(MediaServiceId::from_url("https://example.com/music"), None);
     }
 
@@ -420,7 +464,9 @@ mod tests {
     fn test_service_display_name() {
         assert_eq!(MediaServiceId::AppleMusic.display_name(), "Apple Music");
         assert_eq!(MediaServiceId::YouTubeMusic.display_name(), "YouTube Music");
+        assert_eq!(MediaServiceId::YouTube.display_name(), "YouTube");
         assert_eq!(MediaServiceId::Spotify.display_name(), "Spotify");
+        assert_eq!(MediaServiceId::BbcIPlayer.display_name(), "BBC iPlayer");
     }
 
     /// Verifies that `pip_package()` returns the correct PyPI package
@@ -430,6 +476,8 @@ mod tests {
     fn test_service_pip_package() {
         assert_eq!(MediaServiceId::AppleMusic.pip_package(), "gamdl");
         assert_eq!(MediaServiceId::YouTubeMusic.pip_package(), "gytmdl");
+        assert_eq!(MediaServiceId::YouTube.pip_package(), "yt-dlp");
         assert_eq!(MediaServiceId::Spotify.pip_package(), "votify");
+        assert_eq!(MediaServiceId::BbcIPlayer.pip_package(), "yt-dlp");
     }
 }

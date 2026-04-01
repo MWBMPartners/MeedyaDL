@@ -1236,7 +1236,7 @@ export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cooki
  * Used by the DownloadForm to determine which URL patterns and options
  * are applicable for a given download.
  */
-export type MediaServiceId = 'apple-music' | 'youtube-music' | 'spotify';
+export type MediaServiceId = 'apple-music' | 'youtube-music' | 'youtube' | 'spotify' | 'bbc-iplayer';
 
 /**
  * Display labels for music services, shown in UI dropdowns and badges.
@@ -1250,7 +1250,9 @@ export type MediaServiceId = 'apple-music' | 'youtube-music' | 'spotify';
 export const MEDIA_SERVICE_LABELS: Record<MediaServiceId, string> = {
   'apple-music': 'Apple Music',
   'youtube-music': 'YouTube Music',
+  youtube: 'YouTube',
   spotify: 'Spotify',
+  'bbc-iplayer': 'BBC iPlayer',
 };
 
 /**
