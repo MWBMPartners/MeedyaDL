@@ -55,6 +55,7 @@ The MeedyaDL version was shown both at the top of the About page and
   get_component_versions(). Renamed the section to "Dependencies" since
   it lists external tools, not a component library.
 
+- Add new dependencies for data-encoding, lofty, lofty_attr, ogg_pager, and paste
 
 ### 📚 Documentation
 
@@ -62,6 +63,8 @@ The MeedyaDL version was shown both at the top of the About page and
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add missing activity store to CLAUDE.md stores listing
 
 ## [0.26.2] - 2026-04-01
 
