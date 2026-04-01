@@ -9,6 +9,7 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 - **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS v4 + Zustand state management
 - **Backend**: Rust (Tauri 2.0) with IPC command handlers
 - **GAMDL Integration**: CLI subprocess calls (`python -m gamdl ...`) - never imported as a Python library
+- **Multi-service architecture** (#107): Service-agnostic download pipeline with pluggable engines. `MediaServiceId` enum (Apple Music, YouTube Music, YouTube, Spotify, BBC iPlayer) detected from URLs. `engines.toml` defines engine metadata and per-platform engine chains (compiled into binary via `include_str!()`). `EngineRegistry` in `engine_registry.rs` provides runtime query layer (`resolve_engine()`, `resolve_engine_chain()`, `detect_platform()`). `EngineCommandBuilder` trait + `run_engine()` in `engine_runner.rs` abstract subprocess spawning with dual event emission ("engine-output" + legacy "gamdl-output"). Download queue items carry `service` and `engine` fields; enrichment pipeline guarded behind `is_apple_music` check. `PerServiceSettings` in `settings.rs` nests per-service config (Apple Music, Spotify stub, YouTube stub) with `engine_priority` overrides per platform. Engine fallback via `try_engine_fallback()` for platforms with multiple engines (e.g., BBC iPlayer: get_iplayer → yt-dlp). Frontend: `detectService()` and `parseMediaUrl()` in `url-parser.ts`, `getEngineConfig()` IPC, TypeScript types for all service settings.
 - **Dependencies**: Self-contained in app data dir (Python via python-build-standalone, GAMDL via pip, tools)
 - **Theming**: Platform-adaptive CSS custom properties (macOS/Windows/Linux themes)
 - **Error Handling**: ErrorBoundary in main.tsx catches React crashes; unhandled rejection handler logs async errors. All frontend errors are persisted to Rust crash reports via `log_frontend_error` IPC command.
@@ -79,6 +80,7 @@ assets/brand/           # Brand assets: SVGs, animated PNGs, icons (ICO/ICNS/PNG
 - **Phase 4**: Download system - Queue manager, fallback quality chain, progress tracking, retry/clear
 - **Phase 5**: Advanced features - Cookie import, auto-updates, help search, system tray, service architecture
 - **Phase 6**: Polish & release - Icons, CI fixes, testing, docs, release workflow, release-please integration
+- **Phase 7** (#107): Multi-service architecture foundation — MediaServiceId enum, EngineRegistry, EngineCommandBuilder trait, service-aware queue, per-service settings, engine fallback, help docs
 
 ## Conventions
 
@@ -169,11 +171,19 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 | M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | pip install, shared with BBC iPlayer; video-first service with format selection |
 | M10 | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Reuses yt-dlp from M9; region-restricted (UK VPN may be required) |
 
-Architectural changes planned across milestones:
-- **`MediaService` trait** (renamed from `MusicService` in #314) since BBC iPlayer and YouTube aren't music-only
-- **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine
-- **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service)
+Architecture foundation completed (#107, issues #314-#321):
+- **`MediaServiceId` enum** (renamed from `MusicServiceId` in #314) with 5 services: AppleMusic, YouTubeMusic, YouTube, Spotify, BbcIPlayer
+- **`EngineRegistry`** in `engine_registry.rs` — runtime query layer for `engines.toml` with `resolve_engine()`, `resolve_engine_chain()`, `detect_platform()`
+- **`EngineCommandBuilder` trait** + `run_engine()` in `engine_runner.rs` — service-agnostic subprocess spawning with stub builders for Votify, yt-dlp, get_iplayer
+- **Service-aware URL parser** (`detectService()`, `parseMediaUrl()` in `url-parser.ts`) detects service from URL and routes to correct engine
+- **Service-aware download queue** — `QueueItem` carries `service`/`engine` fields; Apple Music enrichment guarded behind service check
+- **`PerServiceSettings`** in `settings.rs` — nested per-service config with `engine_priority` overrides per platform
+- **Engine fallback** via `try_engine_fallback()` for multi-engine platforms (e.g., BBC iPlayer: get_iplayer → yt-dlp)
+- **`get_engine_config` IPC command** exposes full engine/platform config to frontend
+
+Remaining per-milestone work:
 - **Shared dependency management** — yt-dlp installed once, shared by YouTube and BBC iPlayer
+- **Per-service settings UI tabs** — currently infrastructure only, needs React Settings page integration
 
 ### Future Ideas
 
