@@ -6,6 +6,23 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Always fetch full release list for multi-version changelog aggregation
+
+The pre-release update check only fetched 5 releases (per_page=5), then
+  reused that short list for changelog aggregation. When the user was more
+  than ~4 versions behind, intermediate release notes were silently dropped.
+  Now aggregate_intermediate_release_notes always fetches per_page=20
+  independently, ensuring all intermediate changelogs are shown.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.26.0] - 2026-04-01
+
 ### ✨ Features
 
 - Add new Dolby SVG icons for audio formats
