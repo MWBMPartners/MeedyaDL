@@ -48,9 +48,17 @@ The parser's longest-first token matching greedily consumed " - " as a
   The "Dash Separator" menu shortcut still works — it adds " - " which
   re-parses into three atomic chips (Space, Hyphen, Space).
 
+- Rename "Component Library" to "Dependencies" and remove duplicate MeedyaDL entry in Help > About
+
+The MeedyaDL version was shown both at the top of the About page and
+  again in the component list. Removed the duplicate entry from
+  get_component_versions(). Renamed the section to "Dependencies" since
+  it lists external tools, not a component library.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
