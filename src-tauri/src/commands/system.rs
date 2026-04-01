@@ -208,3 +208,15 @@ pub fn get_platform_config() -> Vec<FrontendPlatformConfig> {
         })
         .collect()
 }
+
+/// Detects which media service a URL belongs to.
+///
+/// Uses `MediaServiceId::from_url()` to match the URL against known service
+/// domains. Returns the service ID string if recognised, or `None` if the
+/// URL doesn't match any supported service.
+///
+/// **Frontend caller:** `detectService(url)` in `src/lib/tauri-commands.ts`
+#[tauri::command]
+pub fn detect_service(url: String) -> Option<crate::models::media_service::MediaServiceId> {
+    crate::models::media_service::MediaServiceId::from_url(&url)
+}
