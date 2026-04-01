@@ -8,8 +8,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- Improved MusicKit API fallback for lyrics and animated artwork access
-- Internal developer access mode with hidden activation gesture
+- Add new Dolby SVG icons for audio formats
+- Add premium feature token fallback and internal dev access mode (#312)
+
+Introduces a 3-tier MusicKit token resolution for premium API features
+  (syllable-lyrics, animated artwork, music video relations): user credentials
+  → embedded build token → web session token. The web session token is
+  extracted opportunistically from the login window during cookie import.
+
+  Adds an internal developer access mode gated by a hidden activation gesture
+  and SHA-256 passphrase validation, with a Developer Tools section in
+  Settings > Advanced showing token status and management controls.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md to include new line for improved MusicKit API fallback
+- Add pip_engine_service and integration_tests to services in CLAUDE.md
+
+## [0.25.0] - 2026-03-31
 
 ### ✨ Features
 
