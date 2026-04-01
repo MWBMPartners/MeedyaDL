@@ -510,6 +510,8 @@ export interface AppSettings {
   animated_artwork_enabled: boolean;
   /** Whether to set the OS "hidden" attribute on animated artwork files */
   hide_animated_artwork: boolean;
+  /** Download artist promotional video (editorial motion art) to the artist folder */
+  artist_promo_video_enabled: boolean;
   /** Apple MusicKit Team ID for API authentication (10-char, e.g. "ABCDE12345") */
   musickit_team_id: string | null;
   /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */
@@ -524,6 +526,8 @@ export interface AppSettings {
   replaygain_reference_level: number;
   /** Prevent digital clipping by limiting ReplayGain gain */
   replaygain_prevent_clipping: boolean;
+  /** Compute and write album-level ReplayGain tags (album gain + album peak) */
+  replaygain_album_gain: boolean;
   /** Template for album folder naming */
   album_folder_template: string;
   /** Template for compilation album folder naming */

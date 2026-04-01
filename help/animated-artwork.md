@@ -143,19 +143,32 @@ The artwork download runs in the background and does **not** block your download
 
 ---
 
+## Artist Promo Video
+
+Some artists on Apple Music have an animated background video on their artist page (sometimes called "editorial video" or "artist highlight"). When **"Download Artist Promo Video"** is enabled in Settings > Cover Art, MeedyaDL will:
+
+1. Look up the artist's Apple Music page for a promotional video
+2. If available, download it as `ArtistCover.mp4` to the **artist folder** (the parent of the album directory)
+3. Skip the download if `ArtistCover.mp4` already exists (idempotent -- won't re-download for every album by the same artist)
+
+> **Note:** Not all artists have a promo video. This feature requires MusicKit credentials (same as animated artwork). The file is hidden automatically if "Hide Animated Artwork Files" is enabled.
+
+---
+
 ## Output Files
 
 The animated artwork files are placed alongside the album's audio files. For example:
 
 ```
 Taylor Swift/
+  ArtistCover.mp4           <-- Artist promo video (in the artist folder)
   Midnights/
     01 Lavender Haze.m4a
     02 Maroon.m4a
     03 Anti-Hero.m4a
     ...
-    FrontCover.mp4        <-- Square animated cover
-    PortraitCover.mp4     <-- Portrait animated cover
+    FrontCover.mp4          <-- Square animated cover
+    PortraitCover.mp4       <-- Portrait animated cover
 ```
 
 ---

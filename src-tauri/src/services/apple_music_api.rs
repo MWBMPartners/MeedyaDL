@@ -103,12 +103,14 @@ impl std::fmt::Display for TokenSource {
 pub struct ParsedAppleMusicUrl {
     /// Two-letter country code (e.g., "us", "gb", "jp")
     pub storefront: String,
-    /// Content type from the URL path (e.g., "album", "song", "music-video")
+    /// Content type from the URL path (e.g., "album", "song", "music-video", "artist")
     pub content_type: String,
     /// Numeric album identifier (e.g., "1649434004")
     pub album_id: String,
     /// Optional song ID from `?i=` query parameter (single-track URLs)
     pub song_id: Option<String>,
+    /// Optional artist ID for artist URLs (e.g., "368433979")
+    pub artist_id: Option<String>,
 }
 
 /// Complete metadata for an Apple Music album and its tracks.
@@ -277,12 +279,19 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             .expect("Invalid music-video regex")
     });
 
+    // Match artist URLs: /storefront/artist/slug/artist_id
+    static ARTIST_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/artist/[^/]+/(\d+)")
+            .expect("Invalid artist regex")
+    });
+
     if let Some(caps) = ALBUM_RE.captures(url) {
         return Some(ParsedAppleMusicUrl {
             storefront: caps[1].to_string(),
             content_type: "album".to_string(),
             album_id: caps[2].to_string(),
             song_id: caps.get(3).map(|m| m.as_str().to_string()),
+            artist_id: None,
         });
     }
 
@@ -292,6 +301,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             content_type: "song".to_string(),
             album_id: String::new(),
             song_id: Some(caps[2].to_string()),
+            artist_id: None,
         });
     }
 
@@ -301,6 +311,17 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             content_type: "music-video".to_string(),
             album_id: caps[2].to_string(),
             song_id: None,
+            artist_id: None,
+        });
+    }
+
+    if let Some(caps) = ARTIST_RE.captures(url) {
+        return Some(ParsedAppleMusicUrl {
+            storefront: caps[1].to_string(),
+            content_type: "artist".to_string(),
+            album_id: String::new(),
+            song_id: None,
+            artist_id: Some(caps[2].to_string()),
         });
     }
 
@@ -1377,6 +1398,145 @@ pub async fn fetch_syllable_lyrics(
     Ok(ttml)
 }
 
+// ============================================================
+// Artist Promo Video
+// ============================================================
+
+/// Metadata for an Apple Music artist's promotional video.
+///
+/// These are the animated backgrounds displayed on Apple Music artist pages,
+/// served as HLS streams. Not all artists have promo videos.
+#[derive(Debug, Clone)]
+pub struct ArtistPromoVideo {
+    /// Artist display name
+    pub artist_name: String,
+    /// HLS M3U8 URL for the promo video
+    pub video_url: String,
+}
+
+/// Fetch the promotional video URL for an Apple Music artist.
+///
+/// Queries the Apple Music API for the artist's `editorialVideo` field,
+/// which contains the animated background shown on the artist's page.
+///
+/// # Arguments
+/// * `jwt` - MusicKit Developer Token (signed JWT)
+/// * `storefront` - Two-letter country code (e.g., "us", "gb")
+/// * `artist_id` - Numeric artist identifier (e.g., "368433979")
+///
+/// # Returns
+/// * `Ok(Some(ArtistPromoVideo))` - Artist has a promo video
+/// * `Ok(None)` - Artist found but has no promo video
+/// * `Err(String)` - API request or parsing failure
+pub async fn fetch_artist_promo_video(
+    jwt: &str,
+    storefront: &str,
+    artist_id: &str,
+) -> Result<Option<ArtistPromoVideo>, String> {
+    let url = format!(
+        "https://api.music.apple.com/v1/catalog/{storefront}/artists/{artist_id}?extend=editorialVideo"
+    );
+
+    log::debug!("Querying Apple Music API for artist promo video: {url}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {jwt}"))
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+        .map_err(|e| format!("Apple Music API request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        if status == 404 {
+            log::debug!("Artist {artist_id} not found (storefront: {storefront})");
+            return Ok(None);
+        }
+        return Err(format!(
+            "Apple Music API returned HTTP {status} for artist {artist_id}"
+        ));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse artist API response: {e}"))?;
+
+    // Extract the first artist from the response: data[0].attributes
+    let artist_data = match json.get("data").and_then(|d| d.get(0)) {
+        Some(data) => data,
+        None => {
+            log::debug!("No artist data in API response for {artist_id}");
+            return Ok(None);
+        }
+    };
+
+    let attributes = match artist_data.get("attributes") {
+        Some(attrs) => attrs,
+        None => return Ok(None),
+    };
+
+    let artist_name = attributes
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown Artist")
+        .to_string();
+
+    // Extract promo video URL from editorialVideo.
+    // The API may use different keys for artist videos:
+    // - motionArtistWide16x9 — wide landscape format (most common for artist pages)
+    // - motionArtistFullscreen16x9 — fullscreen variant
+    // - motionDetailSquare — square format (same as album artwork)
+    // - motionDetailTall — tall/portrait format
+    // Try each in priority order.
+    let editorial_video = match attributes.get("editorialVideo") {
+        Some(ev) => ev,
+        None => {
+            log::debug!("No editorialVideo for artist {artist_name} ({artist_id})");
+            return Ok(None);
+        }
+    };
+
+    // Priority order: wide 16:9 → fullscreen 16:9 → square → tall
+    let video_keys = [
+        "motionArtistWide16x9",
+        "motionArtistFullscreen16x9",
+        "motionDetailSquare",
+        "motionDetailTall",
+    ];
+
+    let video_url = video_keys.iter().find_map(|key| {
+        editorial_video
+            .get(*key)
+            .and_then(|m| m.get("video"))
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string)
+    });
+
+    match video_url {
+        Some(url) => {
+            log::info!(
+                "Found promo video for artist {artist_name} ({artist_id})"
+            );
+            Ok(Some(ArtistPromoVideo {
+                artist_name,
+                video_url: url,
+            }))
+        }
+        None => {
+            log::debug!(
+                "editorialVideo present but no video URL found for artist {artist_name} ({artist_id})"
+            );
+            Ok(None)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1450,10 +1610,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_artist_url_returns_none() {
+    fn parse_artist_url() {
         let url = "https://music.apple.com/us/artist/taylor-swift/159260351";
-        let result = parse_apple_music_url(url);
-        assert!(result.is_none());
+        let result = parse_apple_music_url(url).unwrap();
+        assert_eq!(result.content_type, "artist");
+        assert_eq!(result.storefront, "us");
+        assert_eq!(result.artist_id, Some("159260351".to_string()));
+        assert!(result.album_id.is_empty());
+    }
+
+    #[test]
+    fn parse_artist_url_gb_storefront() {
+        let url = "https://music.apple.com/gb/artist/zedd/368433979";
+        let result = parse_apple_music_url(url).unwrap();
+        assert_eq!(result.content_type, "artist");
+        assert_eq!(result.storefront, "gb");
+        assert_eq!(result.artist_id, Some("368433979".to_string()));
     }
 
     #[test]

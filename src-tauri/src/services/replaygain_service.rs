@@ -75,16 +75,18 @@ pub struct ReplayGainResult {
 
 /// Process all M4A files in the output directory for `ReplayGain` analysis.
 ///
-/// Analyses every track individually for track gain, then computes album-level
-/// gain from the collective loudness measurements. Writes 4 tags per file:
+/// Analyses every track individually for track gain, then optionally computes
+/// album-level gain from the collective loudness measurements. When
+/// `include_album_gain` is true, writes 4 tags per file:
 /// `replaygain_track_gain`, `replaygain_track_peak`, `replaygain_album_gain`,
-/// `replaygain_album_peak`.
+/// `replaygain_album_peak`. When false, only writes the 2 track-level tags.
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for tool path resolution
 /// * `output_path` - Download output path (file or album directory)
 /// * `reference_level` - Target loudness in LUFS (e.g., -18.0 for EBU R128)
 /// * `prevent_clipping` - When true, limits gain so peak × gain never exceeds 1.0
+/// * `include_album_gain` - When true, computes and writes album-level gain tags
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
@@ -94,6 +96,7 @@ pub async fn process_replaygain_for_directory(
     output_path: &str,
     reference_level: f64,
     prevent_clipping: bool,
+    include_album_gain: bool,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
@@ -144,43 +147,50 @@ pub async fn process_replaygain_for_directory(
         return Ok(0);
     }
 
-    // Phase 2: Compute album-level gain
+    // Phase 2: Compute album-level gain (when enabled)
     // Album integrated loudness = average of all track loudness values (in linear power domain)
     // Formula: -0.691 + 10*log10(mean(10^((Li+0.691)/10))) for each track loudness Li
     // Simplified: average the linear power, convert back to LUFS
-    let album_loudness = {
-        let sum: f64 = track_results
+    let (album_gain_db, album_peak) = if include_album_gain {
+        let album_loudness = {
+            let sum: f64 = track_results
+                .iter()
+                .map(|(_, r)| 10.0_f64.powf(r.integrated_loudness / 10.0))
+                .sum();
+            let mean = sum / track_results.len() as f64;
+            10.0 * mean.log10()
+        };
+        let mut gain = reference_level - album_loudness;
+
+        // Album peak = highest true peak across all tracks
+        let peak = track_results
             .iter()
-            .map(|(_, r)| 10.0_f64.powf(r.integrated_loudness / 10.0))
-            .sum();
-        let mean = sum / track_results.len() as f64;
-        10.0 * mean.log10()
-    };
-    let mut album_gain_db = reference_level - album_loudness;
+            .map(|(_, r)| r.true_peak)
+            .fold(0.0_f64, f64::max);
 
-    // Album peak = highest true peak across all tracks
-    let album_peak = track_results
-        .iter()
-        .map(|(_, r)| r.true_peak)
-        .fold(0.0_f64, f64::max);
-
-    // Clipping prevention for album gain
-    if prevent_clipping && album_peak > 0.0 {
-        let max_album_gain = -20.0 * album_peak.log10();
-        if album_gain_db > max_album_gain {
-            album_gain_db = max_album_gain;
+        // Clipping prevention for album gain
+        if prevent_clipping && peak > 0.0 {
+            let max_album_gain = -20.0 * peak.log10();
+            if gain > max_album_gain {
+                gain = max_album_gain;
+            }
         }
-    }
 
-    log::info!(
-        "ReplayGain album: {:.2} dB gain, {:.6} peak ({} tracks, ref={:.1} LUFS)",
-        album_gain_db,
-        album_peak,
-        track_results.len(),
-        reference_level
-    );
+        log::info!(
+            "ReplayGain album: {:.2} dB gain, {:.6} peak ({} tracks, ref={:.1} LUFS)",
+            gain,
+            peak,
+            track_results.len(),
+            reference_level
+        );
 
-    // Phase 3: Write all 4 tags to each file
+        (Some(gain), Some(peak))
+    } else {
+        log::info!("ReplayGain album gain disabled — writing track-level tags only");
+        (None, None)
+    };
+
+    // Phase 3: Write tags to each file (4 tags when album gain enabled, 2 when not)
     let mut tagged_count = 0;
     for (file_path, result) in &track_results {
         match write_replaygain_tags(
@@ -193,12 +203,20 @@ pub async fn process_replaygain_for_directory(
         .await
         {
             Ok(()) => {
-                log::debug!(
-                    "ReplayGain: {} → track={:.2} dB, album={:.2} dB",
-                    file_path.display(),
-                    result.gain_db,
-                    album_gain_db
-                );
+                if let Some(ag) = album_gain_db {
+                    log::debug!(
+                        "ReplayGain: {} → track={:.2} dB, album={:.2} dB",
+                        file_path.display(),
+                        result.gain_db,
+                        ag
+                    );
+                } else {
+                    log::debug!(
+                        "ReplayGain: {} → track={:.2} dB",
+                        file_path.display(),
+                        result.gain_db,
+                    );
+                }
                 tagged_count += 1;
             }
             Err(e) => {
@@ -209,11 +227,12 @@ pub async fn process_replaygain_for_directory(
 
     if tagged_count > 0 {
         log::info!(
-            "Analysed {} of {} file(s) for ReplayGain (ref={:.1} LUFS, clipping_prevention={})",
+            "Analysed {} of {} file(s) for ReplayGain (ref={:.1} LUFS, clipping_prevention={}, album_gain={})",
             tagged_count,
             m4a_files.len(),
             reference_level,
-            prevent_clipping
+            prevent_clipping,
+            include_album_gain
         );
     }
 
@@ -224,7 +243,11 @@ pub async fn process_replaygain_for_directory(
 // Internal: Per-File Analysis and Tagging
 // ============================================================
 
-/// Write all 4 `ReplayGain` tags (track + album) to a single M4A file.
+/// Write `ReplayGain` tags to a single M4A file.
+///
+/// Always writes track-level tags (`replaygain_track_gain`, `replaygain_track_peak`).
+/// Album-level tags (`replaygain_album_gain`, `replaygain_album_peak`) are only
+/// written when the album gain values are provided (`Some`).
 ///
 /// The `Tag::read/write` is blocking file I/O, so it is offloaded
 /// to `spawn_blocking` to prevent starving the tokio runtime on slow
@@ -233,15 +256,15 @@ async fn write_replaygain_tags(
     file_path: &Path,
     track_gain_db: f64,
     track_peak: f64,
-    album_gain_db: f64,
-    album_peak: f64,
+    album_gain_db: Option<f64>,
+    album_peak: Option<f64>,
 ) -> Result<(), String> {
     let tag_path = file_path.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut tag =
             Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
-        // Track-level tags
+        // Track-level tags (always written)
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_gain"),
             Data::Utf8(format!("{track_gain_db:.2} dB")),
@@ -251,15 +274,17 @@ async fn write_replaygain_tags(
             Data::Utf8(format!("{track_peak:.6}")),
         );
 
-        // Album-level tags
-        tag.set_data(
-            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_gain"),
-            Data::Utf8(format!("{album_gain_db:.2} dB")),
-        );
-        tag.set_data(
-            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_peak"),
-            Data::Utf8(format!("{album_peak:.6}")),
-        );
+        // Album-level tags (only when album gain is enabled)
+        if let (Some(ag), Some(ap)) = (album_gain_db, album_peak) {
+            tag.set_data(
+                FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_gain"),
+                Data::Utf8(format!("{ag:.2} dB")),
+            );
+            tag.set_data(
+                FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_peak"),
+                Data::Utf8(format!("{ap:.6}")),
+            );
+        }
 
         tag.write_to_path(&tag_path)
             .map_err(|e| format!("Failed to write M4A: {e}"))?;

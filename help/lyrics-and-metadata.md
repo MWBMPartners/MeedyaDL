@@ -323,6 +323,7 @@ Enable in **Settings > Metadata > ReplayGain Analysis**. Uses FFmpeg (already in
 
 - **Reference Level** — target loudness. Options: -18 LUFS (EBU R128, default), -14 LUFS (Spotify/YouTube), -23 LUFS (broadcast), -16 LUFS (Apple Music/iTunes)
 - **Prevent Clipping** — limits gain so peak × gain never exceeds 0 dBFS. Enabled by default. Prevents digital distortion on tracks mastered near maximum loudness
+- **Include Album Gain** — when enabled (default), computes and writes album-level tags (`replaygain_album_gain`, `replaygain_album_peak`) alongside track tags. Album gain preserves the intended dynamic range when listening to a full album in order. When disabled, only per-track tags are written (better for shuffle-only listening)
 
 **Technical details:**
 

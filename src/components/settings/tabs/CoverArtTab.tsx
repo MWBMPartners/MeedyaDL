@@ -165,6 +165,16 @@ export function CoverArtTab() {
             />
           )}
 
+          {/* Artist promo video toggle (only shown when animated artwork is enabled) */}
+          {settings.animated_artwork_enabled && (
+            <Toggle
+              label="Download Artist Promo Video"
+              description="Download the animated background video from the artist's Apple Music page and save it as ArtistCover.mp4 in the artist folder. Not all artists have a promo video. Skipped automatically if already downloaded."
+              checked={settings.artist_promo_video_enabled}
+              onChange={(checked) => updateSettings({ artist_promo_video_enabled: checked })}
+            />
+          )}
+
           {/* MusicKit credentials note (credentials are in Settings > Advanced) */}
           {settings.animated_artwork_enabled && (
             <p className="text-xs text-content-secondary">
