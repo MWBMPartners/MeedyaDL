@@ -71,6 +71,7 @@ Transitive dependency from lofty (ReplayGain tagging). Archived by
 - Update CHANGELOG.md [skip ci]
 - Add missing activity store to CLAUDE.md stores listing
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.26.2] - 2026-04-01
 
