@@ -1236,18 +1236,18 @@ export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cooki
  * Used by the DownloadForm to determine which URL patterns and options
  * are applicable for a given download.
  */
-export type MusicServiceId = 'apple-music' | 'youtube-music' | 'spotify';
+export type MediaServiceId = 'apple-music' | 'youtube-music' | 'spotify';
 
 /**
  * Display labels for music services, shown in UI dropdowns and badges.
  *
- * Uses `Record<MusicServiceId, string>` for compile-time exhaustiveness
- * checking -- adding a new MusicServiceId variant will cause a TypeScript
+ * Uses `Record<MediaServiceId, string>` for compile-time exhaustiveness
+ * checking -- adding a new MediaServiceId variant will cause a TypeScript
  * error until a label is added here.
  *
  * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type}
  */
-export const MUSIC_SERVICE_LABELS: Record<MusicServiceId, string> = {
+export const MEDIA_SERVICE_LABELS: Record<MediaServiceId, string> = {
   'apple-music': 'Apple Music',
   'youtube-music': 'YouTube Music',
   spotify: 'Spotify',

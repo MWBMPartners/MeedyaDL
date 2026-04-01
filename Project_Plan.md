@@ -349,7 +349,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 | — | TBD | Native SwiftUI (macOS) | — | [#109](https://github.com/MWBMPartners/MeedyaDL/issues/109) | 🔮 Future |
 | — | TBD | Anonymous crash relay | PHP | [#44](https://github.com/MWBMPartners/MeedyaDL/issues/44) | 🔮 Future |
 
-The architecture is designed with a `MusicService` trait pattern (`src-tauri/src/models/music_service.rs`) to support adding new platforms without restructuring the codebase. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime.
+The architecture is designed with a `MediaService` trait pattern (`src-tauri/src/models/media_service.rs`) to support adding new platforms without restructuring the codebase. Each service follows the same subprocess pattern: a Python CLI tool installed via pip into the portable Python runtime.
 
 ---
 
@@ -361,10 +361,10 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 #### Spotify Architecture Changes
 
-- Add `Spotify` variant to `MusicServiceId` enum
+- Add `Spotify` variant to `MediaServiceId` enum
 - Update `url_domains()` to match `open.spotify.com`
 - Update `pip_package()` to return `"votify"`
-- Generalise download queue to route by `MusicServiceId` (currently hardcoded for GAMDL)
+- Generalise download queue to route by `MediaServiceId` (currently hardcoded for GAMDL)
 
 #### Spotify Backend
 
@@ -408,7 +408,7 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 #### YouTube Architecture Changes
 
-- Add `YouTube` variant to `MusicServiceId` enum (or introduce a broader `MediaServiceId`)
+- Add `YouTube` variant to `MediaServiceId` enum (or introduce a broader `MediaServiceId`)
 - Update `url_domains()` to match `youtube.com`, `youtu.be`, `music.youtube.com`
 - yt-dlp is not a pip package in the same pattern as GAMDL/votify — it's a standalone binary (or pip-installable). Decide: pip install or binary download via dependency manager
 - Extend download queue to handle video-only, audio-only, and video+audio downloads
@@ -459,10 +459,10 @@ BBC iPlayer integration for downloading TV programmes, films, and radio shows. R
 
 #### BBC iPlayer Architecture Changes
 
-- Add `BbcIPlayer` variant to `MusicServiceId` (or broader `MediaServiceId` if refactored in Milestone 9)
+- Add `BbcIPlayer` variant to `MediaServiceId` (or broader `MediaServiceId` if refactored in Milestone 9)
 - Update `url_domains()` to match `bbc.co.uk/iplayer`, `bbc.co.uk/sounds`
 - Extend content type detection for TV-specific models (series, episodes, categories)
-- Consider renaming `MusicService` trait to `MediaService` to reflect non-music services
+- ~~Consider renaming `MusicService` trait to `MediaService`~~ Done in #314
 
 #### BBC iPlayer Backend
 
@@ -506,7 +506,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 - 🔲 **Multi-service download queue** — generalise `download_queue.rs` to dispatch to the correct CLI tool based on detected service
 - 🔲 **Service registry** — dynamic service registration in `lib.rs` setup instead of hardcoded GAMDL references
 - 🔲 **Per-service settings** — migrate flat `AppSettings` to `Vec<ServiceConfig>` for per-service output paths, auth, and quality defaults
-- 🔲 **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services
+- ✅ **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services (#314)
 - 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M9) and BBC iPlayer (M10); install once, share across services
 - 🔲 **Service-aware fallback chains** — each service defines its own quality fallback chain based on available codecs
 - 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)

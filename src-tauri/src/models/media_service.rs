@@ -1,11 +1,11 @@
 // Copyright (c) 2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Music service trait definition.
-// Defines the abstract interface that all music download services must
+// Media service trait definition.
+// Defines the abstract interface that all media download services must
 // implement. Currently only GAMDL (Apple Music) is supported, but this
-// trait establishes the pattern for future services like gytmdl (YouTube Music)
-// and votify (Spotify).
+// trait establishes the pattern for future services like votify (Spotify),
+// yt-dlp (YouTube), and get_iplayer (BBC iPlayer).
 //
 // This file is part of Phase 5's extensibility architecture. The trait is
 // not yet used at runtime -- it serves as the design contract for Phase 6+
@@ -15,15 +15,15 @@
 //
 // The design follows the Strategy pattern via Rust traits:
 //
-// 1. `MusicServiceId` -- an enum identifying each service. URL detection
+// 1. `MediaServiceId` -- an enum identifying each service. URL detection
 //    and service routing use this enum.
 // 2. `ServiceCapabilities` -- a struct describing what each service
 //    supports. The frontend queries this to enable/disable UI elements.
 // 3. `ServiceConfig` -- per-service configuration persisted in settings.
-// 4. `MusicService` trait -- the abstract interface that service
+// 4. `MediaService` trait -- the abstract interface that service
 //    implementations must satisfy. Each implementation wraps a CLI tool.
 //
-// To add a new service, follow the steps documented on the `MusicService`
+// To add a new service, follow the steps documented on the `MediaService`
 // trait definition below.
 //
 // ## References
@@ -61,10 +61,10 @@ use std::path::PathBuf;
 /// 1. Add a new variant to this enum.
 /// 2. Add entries in `display_name()`, `url_domains()`, and `pip_package()`.
 /// 3. Update `from_url()` to iterate over the new variant.
-/// 4. Implement the `MusicService` trait for a new struct.
+/// 4. Implement the `MediaService` trait for a new struct.
 /// 5. Register the implementation in the command dispatcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum MusicServiceId {
+pub enum MediaServiceId {
     /// Apple Music -- supported via the GAMDL CLI tool.
     /// This is the only service currently implemented at runtime.
     /// CLI tool: `gamdl` (`PyPI`: <https://pypi.org/project/gamdl/>).
@@ -81,7 +81,7 @@ pub enum MusicServiceId {
     Spotify,
 }
 
-impl MusicServiceId {
+impl MediaServiceId {
     /// Returns the human-readable display name for the service.
     ///
     /// Used in the React frontend's sidebar, status messages, and error
@@ -133,7 +133,7 @@ impl MusicServiceId {
     ///
     /// ## Algorithm
     ///
-    /// Iterates over every `MusicServiceId` variant and checks each
+    /// Iterates over every `MediaServiceId` variant and checks each
     /// variant's `url_domains()` against the input URL. The first match
     /// wins. This is O(services * `domains_per_service`), which is trivial
     /// given the small number of services.
@@ -141,9 +141,9 @@ impl MusicServiceId {
     /// ## Example
     ///
     /// ```rust
-    /// use meedyadl::models::music_service::MusicServiceId;
-    /// let id = MusicServiceId::from_url("https://music.apple.com/us/album/test/123");
-    /// assert_eq!(id, Some(MusicServiceId::AppleMusic));
+    /// use meedyadl::models::media_service::MediaServiceId;
+    /// let id = MediaServiceId::from_url("https://music.apple.com/us/album/test/123");
+    /// assert_eq!(id, Some(MediaServiceId::AppleMusic));
     /// ```
     #[must_use]
     pub fn from_url(url: &str) -> Option<Self> {
@@ -252,7 +252,7 @@ pub struct ServiceConfig {
     /// Which service this config applies to. Used as the lookup key
     /// when the download manager needs to find the config for a
     /// given service.
-    pub service_id: MusicServiceId,
+    pub service_id: MediaServiceId,
 
     /// Whether this service is enabled by the user. Disabled services
     /// are hidden from the sidebar and their URLs are rejected by the
@@ -302,8 +302,8 @@ pub struct ServiceConfig {
 /// 1. Create a new module: `services/<name>_service.rs`.
 /// 2. Define a struct (e.g., `GytmdlService`) that holds any
 ///    service-specific state (CLI path, config, etc.).
-/// 3. Implement `MusicService` for that struct.
-/// 4. Add a variant to `MusicServiceId` and update its methods.
+/// 3. Implement `MediaService` for that struct.
+/// 4. Add a variant to `MediaServiceId` and update its methods.
 /// 5. Register the new service in the Tauri app builder (see `main.rs`).
 /// 6. Add a sidebar entry in the React frontend's navigation component.
 ///
@@ -313,7 +313,7 @@ pub struct ServiceConfig {
 /// (`Pin<Box<dyn Future<...> + Send + '_>>`) instead of `async fn`
 /// because Rust's native async trait methods (stabilized in Rust 1.75)
 /// are not yet object-safe in all scenarios we need. Specifically, we
-/// need `dyn MusicService` trait objects for the service registry, and
+/// need `dyn MediaService` trait objects for the service registry, and
 /// `async fn` in traits requires `impl Trait` return types that are
 /// not object-safe. The `async_trait` crate is an alternative, but we
 /// avoid the macro dependency by using explicit boxing.
@@ -323,17 +323,17 @@ pub struct ServiceConfig {
 /// - Rust traits: <https://doc.rust-lang.org/book/ch10-02-traits.html>
 /// - Object safety: <https://doc.rust-lang.org/reference/items/traits.html#object-safety>
 /// - Pin and boxing futures: <https://doc.rust-lang.org/std/pin/struct.Pin.html>
-pub trait MusicService: Send + Sync {
+pub trait MediaService: Send + Sync {
     /// Returns the unique identifier for this service.
     ///
     /// Used by the download manager to route URLs to the correct service
     /// and by the frontend to look up service-specific configuration.
-    fn id(&self) -> MusicServiceId;
+    fn id(&self) -> MediaServiceId;
 
     /// Returns the human-readable display name for this service.
     ///
     /// Shown in the UI sidebar, status bar, and error messages.
-    /// Typically delegates to `MusicServiceId::display_name()`.
+    /// Typically delegates to `MediaServiceId::display_name()`.
     fn display_name(&self) -> &str;
 
     /// Returns the capability descriptor for this service.
@@ -359,7 +359,7 @@ pub trait MusicService: Send + Sync {
     /// virtual environment.
     ///
     /// Implementation should run `pip install <package>` (where
-    /// `<package>` comes from `MusicServiceId::pip_package()`) and
+    /// `<package>` comes from `MediaServiceId::pip_package()`) and
     /// return the installed version string on success, or an error
     /// message on failure.
     ///
@@ -385,7 +385,7 @@ pub trait MusicService: Send + Sync {
 // Tests
 // ============================================================
 
-/// Unit tests for `MusicServiceId` methods.
+/// Unit tests for `MediaServiceId` methods.
 ///
 /// These tests verify URL detection, display names, and pip package
 /// names for all service variants. They run as part of `cargo test`
@@ -400,27 +400,27 @@ mod tests {
     #[test]
     fn test_service_id_from_url() {
         assert_eq!(
-            MusicServiceId::from_url("https://music.apple.com/us/album/test/123"),
-            Some(MusicServiceId::AppleMusic)
+            MediaServiceId::from_url("https://music.apple.com/us/album/test/123"),
+            Some(MediaServiceId::AppleMusic)
         );
         assert_eq!(
-            MusicServiceId::from_url("https://music.youtube.com/watch?v=abc"),
-            Some(MusicServiceId::YouTubeMusic)
+            MediaServiceId::from_url("https://music.youtube.com/watch?v=abc"),
+            Some(MediaServiceId::YouTubeMusic)
         );
         assert_eq!(
-            MusicServiceId::from_url("https://open.spotify.com/track/abc"),
-            Some(MusicServiceId::Spotify)
+            MediaServiceId::from_url("https://open.spotify.com/track/abc"),
+            Some(MediaServiceId::Spotify)
         );
-        assert_eq!(MusicServiceId::from_url("https://example.com/music"), None);
+        assert_eq!(MediaServiceId::from_url("https://example.com/music"), None);
     }
 
     /// Verifies that `display_name()` returns the expected user-facing
     /// strings for each service variant.
     #[test]
     fn test_service_display_name() {
-        assert_eq!(MusicServiceId::AppleMusic.display_name(), "Apple Music");
-        assert_eq!(MusicServiceId::YouTubeMusic.display_name(), "YouTube Music");
-        assert_eq!(MusicServiceId::Spotify.display_name(), "Spotify");
+        assert_eq!(MediaServiceId::AppleMusic.display_name(), "Apple Music");
+        assert_eq!(MediaServiceId::YouTubeMusic.display_name(), "YouTube Music");
+        assert_eq!(MediaServiceId::Spotify.display_name(), "Spotify");
     }
 
     /// Verifies that `pip_package()` returns the correct PyPI package
@@ -428,8 +428,8 @@ mod tests {
     /// the right package.
     #[test]
     fn test_service_pip_package() {
-        assert_eq!(MusicServiceId::AppleMusic.pip_package(), "gamdl");
-        assert_eq!(MusicServiceId::YouTubeMusic.pip_package(), "gytmdl");
-        assert_eq!(MusicServiceId::Spotify.pip_package(), "votify");
+        assert_eq!(MediaServiceId::AppleMusic.pip_package(), "gamdl");
+        assert_eq!(MediaServiceId::YouTubeMusic.pip_package(), "gytmdl");
+        assert_eq!(MediaServiceId::Spotify.pip_package(), "votify");
     }
 }
