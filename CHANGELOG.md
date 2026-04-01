@@ -56,6 +56,11 @@ The MeedyaDL version was shown both at the top of the About page and
   it lists external tools, not a component library.
 
 - Add new dependencies for data-encoding, lofty, lofty_attr, ogg_pager, and paste
+- Ignore RUSTSEC-2024-0436 (paste) unmaintained advisory in cargo-deny
+
+Transitive dependency from lofty (ReplayGain tagging). Archived by
+  dtolnay — no security vulnerability, just unmaintained status.
+
 
 ### 📚 Documentation
 
@@ -65,6 +70,7 @@ The MeedyaDL version was shown both at the top of the About page and
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Add missing activity store to CLAUDE.md stores listing
+- Update CHANGELOG.md [skip ci]
 
 ## [0.26.2] - 2026-04-01
 
