@@ -291,6 +291,17 @@ pub mod pip_engine_service;
 /// correct content. Covers Rich SRT, WebVTT, Enhanced LRC, and ASS
 /// generation, including Unicode filename handling and source priority.
 ///
+/// Engine runner — service-agnostic subprocess spawning and streaming.
+///
+/// Provides a generic `run_engine()` function and `EngineCommandBuilder`
+/// trait for running download engine subprocesses with consistent I/O
+/// streaming, progress event emission, and error handling. Engine-specific
+/// command builders (GAMDL, Votify, yt-dlp, get_iplayer) implement the
+/// trait; the runner handles the common subprocess lifecycle.
+///
+/// Used by: `download_queue` (subprocess execution), `gamdl_service` (GAMDL adapter)
+pub mod engine_runner;
+
 /// Engine registry — runtime query layer for `engines.toml`.
 ///
 /// Provides typed access to engine and platform configuration compiled
