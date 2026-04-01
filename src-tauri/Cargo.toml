@@ -444,6 +444,14 @@ sys-locale = "0.3"
 # @see https://docs.rs/mp4ameta/ -- mp4ameta API reference
 mp4ameta = "0.13"
 
+# lofty -- Format-agnostic audio metadata reader/writer.
+# Used for ReplayGain tag writing on non-MP4 formats (FLAC, MP3, OGG, Opus).
+# Supports Vorbis Comments (FLAC/OGG/Opus) and ID3v2 TXXX frames (MP3).
+# MP4-family tagging continues to use mp4ameta for consistency with the
+# existing metadata enrichment pipeline.
+# @see https://docs.rs/lofty/ -- lofty API reference
+lofty = "0.22"
+
 # ---- Audio Fingerprinting (Chromaprint) ----
 
 # rusty-chromaprint -- Pure Rust port of the Chromaprint audio fingerprinting

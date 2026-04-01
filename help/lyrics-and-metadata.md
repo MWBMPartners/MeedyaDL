@@ -312,6 +312,8 @@ Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints usin
 
 Enable in **Settings > Metadata > ReplayGain Analysis**. Uses FFmpeg (already installed) to analyse audio loudness via the EBU R128 standard. Calculates both **per-track** and **per-album** gain so players can normalise in either mode (per-track for shuffle, per-album for album listening). Tags enable volume normalisation in compatible media players (foobar2000, Kodi, VLC, AIMP, Poweramp, etc.) without altering the audio data.
 
+**Supported formats:** M4A, M4V, MP4, M4P, M4B (iTunes freeform atoms via mp4ameta), FLAC, OGG, OGA, Opus (Vorbis Comments via lofty), and MP3 (ID3v2 TXXX frames via lofty).
+
 | Tag (Namespace:Name) | Scope | Value |
 | -------------------- | ----- | ----- |
 | `com.apple.iTunes:replaygain_track_gain` | Per-track | e.g., `-4.20 dB` |
