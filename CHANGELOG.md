@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Use PNG fallback for logotype in light mode README header
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.26.1] - 2026-04-01
+
+### 🐛 Bug Fixes
+
 - Always fetch full release list for multi-version changelog aggregation
 
 The pre-release update check only fetched 5 releases (per_page=5), then
