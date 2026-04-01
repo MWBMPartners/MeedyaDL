@@ -420,15 +420,9 @@ fn write_manifest(
         return;
     }
 
-    // Determine platform from the URL domain
-    let platform = if url.contains("music.apple.com")
-        || url.contains("classical.apple.com")
-        || url.contains("itunes.apple.com")
-    {
-        "apple-music"
-    } else {
-        "unknown"
-    };
+    // Determine platform from the URL domain using the MediaServiceId enum
+    let platform = crate::models::media_service::MediaServiceId::from_url(url)
+        .map_or_else(|| "unknown".to_string(), |svc| svc.to_string());
 
     // Build per-track metadata from AlbumMetadata (if available).
     // codec is intentionally null — the manifest is a metafile for
@@ -577,6 +571,10 @@ pub struct PersistedQueueItem {
     /// Preserved so the failure reason is visible after app restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The detected media service (e.g., "apple-music"). Added in multi-service
+    /// architecture; older persisted items will have `None` (backwards compat).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
 }
 
 /// Top-level schema for a `.meedyadl` export file (JSON content inside).
@@ -709,10 +707,25 @@ impl DownloadQueue {
         // while keeping the global output path from settings.
         let merged_options = merge_options(request.options.as_ref(), settings);
 
+        // Detect which media service this URL belongs to (Apple Music, Spotify, etc.)
+        // and resolve the primary download engine from the engine registry.
+        let first_url = request.urls.first().map(String::as_str).unwrap_or("");
+        let detected_service = crate::models::media_service::MediaServiceId::from_url(first_url);
+        let service_str = detected_service.as_ref().map(std::string::ToString::to_string);
+
+        // Resolve the primary engine for this service via the engine registry
+        let engine_str = detected_service.as_ref().and_then(|svc| {
+            let registry = crate::services::engine_registry::EngineRegistry::load();
+            let platform_id = svc.to_string();
+            registry.resolve_engine(&platform_id).map(|e| e.id.clone())
+        });
+
         let item = QueueItem {
             status: QueueItemStatus {
                 id: download_id.clone(),
                 urls: request.urls.clone(),
+                service: service_str,
+                engine: engine_str,
                 state: DownloadState::Queued,
                 progress: 0.0,
                 current_track: None,
@@ -1130,7 +1143,7 @@ impl DownloadQueue {
     /// When an item is selected, it transitions from Queued -> Downloading
     /// and the active count is incremented. The caller (`process_queue`) must
     /// eventually call `on_task_finished()` when the download completes.
-    pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions)> {
+    pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions, Option<String>)> {
         // Check if we're at the concurrent download limit
         if self.active_count >= self.max_concurrent {
             return None;
@@ -1145,11 +1158,13 @@ impl DownloadQueue {
         item.status.state = DownloadState::Downloading;
         self.active_count += 1;
 
-        // Return the data needed to start the download
+        // Return the data needed to start the download, including the
+        // detected service ID for service-aware routing (#318).
         Some((
             item.status.id.clone(),
             item.status.urls.clone(),
             item.merged_options.clone(),
+            item.status.service.clone(),
         ))
     }
 
@@ -1315,6 +1330,7 @@ impl DownloadQueue {
                 request: item.request.clone(),
                 created_at: item.status.created_at.clone(),
                 error: item.status.error.clone(),
+                service: item.status.service.clone(),
             })
             .collect()
     }
@@ -1348,10 +1364,25 @@ impl DownloadQueue {
                 (DownloadState::Queued, None)
             };
 
+            // Restore or re-detect service/engine from persisted data.
+            // Older persisted items may not have the service field, so
+            // fall back to URL-based detection for backwards compatibility.
+            let service_str = p.service.or_else(|| {
+                let url = p.request.urls.first()?;
+                crate::models::media_service::MediaServiceId::from_url(url)
+                    .map(|svc| svc.to_string())
+            });
+            let engine_str = service_str.as_ref().and_then(|svc_id| {
+                let registry = crate::services::engine_registry::EngineRegistry::load();
+                registry.resolve_engine(svc_id).map(|e| e.id.clone())
+            });
+
             let item = QueueItem {
                 status: QueueItemStatus {
                     id: p.id.clone(),
                     urls: p.request.urls.clone(),
+                    service: service_str,
+                    engine: engine_str,
                     state,
                     progress: 0.0,
                     current_track: None,
@@ -3144,9 +3175,14 @@ pub fn process_queue(
         };
 
         // If no items are pending (queue empty or max concurrent reached), exit.
-        let Some((download_id, urls, mut options)) = pending else {
+        let Some((download_id, urls, mut options, item_service)) = pending else {
             return;
         };
+
+        // Determine if this is an Apple Music download for service-aware routing.
+        // Used to guard Apple Music-specific enrichment and companion features.
+        let is_apple_music = item_service.as_deref() == Some("apple-music")
+            || item_service.is_none(); // Legacy items default to Apple Music
 
         log::info!("Processing download {download_id}");
 
@@ -3941,6 +3977,7 @@ pub fn process_queue(
                         let enrich_codec_str = completed_codec.clone();
                         let enrich_shutdown = shutdown_clone.clone();
                         let enrich_native_priority = uses_native_priority;
+                        let enrich_is_apple_music = is_apple_music;
                         let enrich_queue = queue_clone.clone();
                         let enrich_started_at = download_started_at.clone();
                         Some(tokio::spawn(async move {
@@ -3966,6 +4003,25 @@ pub fn process_queue(
                                     q.set_processing_label(&label_dl_id, label);
                                 }
                             };
+
+                            // Guard: skip Apple Music-specific enrichment for
+                            // non-Apple Music services. The entire enrichment
+                            // pipeline (metadata tags, lyrics, artwork, AcoustID,
+                            // ReplayGain, music video companions) is currently
+                            // Apple Music-specific. Other services will get their
+                            // own enrichment pipelines when implemented.
+                            if !enrich_is_apple_music {
+                                log::info!(
+                                    "Skipping enrichment for non-Apple Music download {}",
+                                    enrich_dl_id,
+                                );
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Enrichment skipped (not an Apple Music download)",
+                                );
+                                return;
+                            }
 
                             // Log enrichment settings summary so users can see
                             // which steps will run in the Activity Log.
@@ -6344,7 +6400,7 @@ mod tests {
         let _id = enqueue_one(&mut queue);
 
         // Move to Downloading state via next_pending
-        let (dl_id, _, _) = queue.next_pending().expect("Should have a pending item");
+        let (dl_id, _, _, _) = queue.next_pending().expect("Should have a pending item");
         assert_eq!(queue.active_count, 1);
 
         let result = queue.cancel(&dl_id);
@@ -6553,7 +6609,7 @@ mod tests {
         let request = test_request_with_codec_override(SongCodec::AacHe);
         let _id = queue.enqueue(request, &settings);
 
-        let (_, _, options) = queue.next_pending().expect("Should return pending item");
+        let (_, _, options, _) = queue.next_pending().expect("Should return pending item");
         assert_eq!(
             options.song_codec,
             Some(SongCodec::AacHe),
@@ -7345,7 +7401,7 @@ mod tests {
         assert_eq!(queue.get_status()[0].state, DownloadState::Queued);
 
         // Step 2: Start downloading
-        let (dl_id, _, _) = queue.next_pending().unwrap();
+        let (dl_id, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(dl_id, id);
         assert_eq!(queue.get_status()[0].state, DownloadState::Downloading);
         assert_eq!(queue.active_count, 1);
@@ -7467,7 +7523,7 @@ mod tests {
         let ids = enqueue_n(&mut queue, 3);
 
         // Start first item
-        let (id1, _, _) = queue.next_pending().unwrap();
+        let (id1, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(id1, ids[0]);
 
         // Can't start second while first is running
@@ -7478,7 +7534,7 @@ mod tests {
         queue.on_task_finished();
 
         // Now second can start
-        let (id2, _, _) = queue.next_pending().unwrap();
+        let (id2, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(id2, ids[1]);
 
         // Finish second
@@ -7486,7 +7542,7 @@ mod tests {
         queue.on_task_finished();
 
         // Third can start
-        let (id3, _, _) = queue.next_pending().unwrap();
+        let (id3, _, _, _) = queue.next_pending().unwrap();
         assert_eq!(id3, ids[2]);
     }
 

@@ -181,6 +181,18 @@ pub struct QueueItemStatus {
     /// multiple. Displayed in the queue UI as the item's title/subtitle.
     pub urls: Vec<String>,
 
+    /// The detected media service for this download (e.g., "apple-music",
+    /// "spotify", "youtube"). Detected at enqueue time from the URL domain.
+    /// `None` for items queued before multi-service support was added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+
+    /// The download engine used for this item (e.g., "gamdl", "votify",
+    /// "ytdlp"). Resolved at enqueue time via the engine registry.
+    /// `None` for items queued before multi-service support was added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+
     /// Current state in the download state machine. See `DownloadState`
     /// for the full list of states and allowed transitions.
     pub state: DownloadState,
