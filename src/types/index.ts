@@ -599,6 +599,10 @@ export interface PerServiceSettings {
   spotify?: SpotifyServiceSettings;
   /** YouTube/YouTube Music-specific settings (stub) */
   youtube?: YouTubeServiceSettings;
+  /** User-overridden engine priority per platform. Keys are platform IDs
+   * (e.g., "bbc-iplayer"), values are ordered engine IDs. When empty,
+   * the default order from engines.toml is used. */
+  engine_priority?: Record<string, string[]>;
 }
 
 /** Apple Music-specific service settings */

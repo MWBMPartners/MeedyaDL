@@ -543,6 +543,10 @@ struct QueueItem {
     /// Number of network retry attempts remaining before giving up.
     /// Decremented by `try_network_retry()` on network-related errors.
     pub network_retries_left: u32,
+    /// Index into the engine chain for this platform (from engines.toml).
+    /// 0 = primary engine, 1 = first fallback engine, etc.
+    /// Incremented by `try_engine_fallback()` on tool errors (#320).
+    pub engine_fallback_index: usize,
 }
 
 // ============================================================
@@ -750,6 +754,7 @@ impl DownloadQueue {
             merged_options,
             fallback_index: 0,
             network_retries_left: self.max_network_retries,
+            engine_fallback_index: 0,
         };
 
         log::info!(
@@ -1093,6 +1098,65 @@ impl DownloadQueue {
             // All codecs in the fallback chain have been tried and failed.
             // The download will remain in the Error state.
             log::info!("Download {download_id} exhausted all fallback codecs");
+            None
+        }
+    }
+
+    /// Attempts to fall back to the next engine in the platform's engine chain.
+    ///
+    /// When the primary engine fails with a **tool error** (binary missing,
+    /// crash, unsupported format), the download queue can try the next engine
+    /// in the platform's priority order (defined in engines.toml).
+    ///
+    /// **Network and auth errors skip engine fallback** — if the network is
+    /// down or credentials are invalid, a different engine won't help.
+    ///
+    /// # Returns
+    /// `Some((engine_id, fallback_index, chain_len))` if another engine is
+    /// available. Returns `None` if all engines have been tried or the
+    /// platform has no fallback engines.
+    pub fn try_engine_fallback(
+        &mut self,
+        download_id: &str,
+    ) -> Option<(String, usize, usize)> {
+        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
+
+        // Resolve the engine chain for this item's service
+        let service_id = item.status.service.as_deref()?;
+        let registry = crate::services::engine_registry::EngineRegistry::load();
+        let chain = registry.resolve_engine_chain(service_id);
+
+        if chain.len() <= 1 {
+            // Single engine or unknown platform — no fallback possible
+            return None;
+        }
+
+        // Advance to the next engine in the chain
+        item.engine_fallback_index += 1;
+
+        if item.engine_fallback_index < chain.len() {
+            let next_engine = &chain[item.engine_fallback_index];
+            let next_engine_id = next_engine.id.clone();
+
+            // Update the queue item's engine field
+            item.status.engine = Some(next_engine_id.clone());
+            // Reset the item to Queued so process_queue() will start it again
+            item.status.state = DownloadState::Queued;
+            item.status.error = None;
+            item.status.progress = 0.0;
+
+            let chain_len = chain.len();
+            log::info!(
+                "Download {} engine fallback: trying {} (fallback {} of {})",
+                download_id,
+                next_engine_id,
+                item.engine_fallback_index,
+                chain_len.saturating_sub(1),
+            );
+
+            Some((next_engine_id, item.engine_fallback_index, chain_len))
+        } else {
+            log::info!("Download {download_id} exhausted all engine fallbacks");
             None
         }
     }
