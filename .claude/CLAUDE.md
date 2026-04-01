@@ -58,7 +58,7 @@ src-tauri/src/          # Rust backend
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings [includes CrashReportSection, CrashReportDialog, DevToolsSection], setup, help, updates)
   hooks/                # React hooks (usePlatform, useTheme, useKeyboardShortcuts, useKonamiCode)
-  stores/               # Zustand state stores (ui, settings, download, dependency, setup, update)
+  stores/               # Zustand state stores (ui, settings, download, activity, dependency, setup, update)
   lib/                  # Utilities (tauri-commands, url-parser, quality-chains, i18n, template-parser)
   types/                # TypeScript type definitions mirroring Rust models (includes codec-registry.ts)
   styles/themes/        # Platform CSS (base, macos, windows, linux, a11y-high-contrast, a11y-colour-blind)
