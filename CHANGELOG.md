@@ -8,9 +8,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
-- ReplayGain album gain toggle: new "Include Album Gain" setting (Settings > Metadata) controls whether album-level ReplayGain tags are written alongside track tags. Default: on. When disabled, only per-track gain tags are written (useful for shuffle-only listeners).
-- Artist promo video download: new "Download Artist Promo Video" setting (Settings > Cover Art) downloads the animated background video from Apple Music artist pages and saves it as `ArtistCover.mp4` in the artist folder. Requires MusicKit credentials. Skipped automatically if already downloaded. Not all artists have a promo video.
-- Artist URL parsing: `parse_apple_music_url()` now recognises artist URLs (`/artist/slug/id`), returning a `ParsedAppleMusicUrl` with `artist_id` field.
+- Add ReplayGain album gain toggle and artist promo video download (#325)
+
+- ReplayGain: new "Include Album Gain" setting (Settings > Metadata)
+    controls whether album-level tags are written alongside track tags.
+    Default: on. When disabled, only per-track gain is written.
+
+  - Artist promo video: new "Download Artist Promo Video" setting
+    (Settings > Cover Art) downloads the animated background from Apple
+    Music artist pages as ArtistCover.mp4 to the artist folder. Requires
+    MusicKit credentials. Idempotent (skips if file already exists).
+
+  - parse_apple_music_url() now recognises artist URLs, returning a
+    ParsedAppleMusicUrl with artist_id field.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.26.2] - 2026-04-01
 
 ### 🐛 Bug Fixes
 
