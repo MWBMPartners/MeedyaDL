@@ -72,6 +72,9 @@ ignore = [
     "RUSTSEC-2025-0081", # unic-char-property — unmaintained
     "RUSTSEC-2025-0098", # unic-ucd-version — unmaintained
     "RUSTSEC-2025-0100", # unic-ucd-ident — unmaintained
+
+    # paste — unmaintained (transitive dependency from lofty, used for ReplayGain tagging)
+    "RUSTSEC-2024-0436", # paste — unmaintained (archived by dtolnay, no security issue)
 ]
 
 # ============================================================
