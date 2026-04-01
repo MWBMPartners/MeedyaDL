@@ -91,10 +91,27 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
 export const COMMON_LITERALS = [
   { value: '/', label: 'Path Separator (/)' },
   { value: ' ', label: 'Space' },
-  { value: ' - ', label: 'Dash Separator ( - )' },
+  { value: ' - ', label: 'Dash Separator ( - )', compound: true },
   { value: '-', label: 'Hyphen (-)' },
   { value: '_', label: 'Underscore (_)' },
 ];
+
+/**
+ * Atomic tokens for the parser's literal-splitting pass.
+ *
+ * Excludes compound literals like `" - "` (Dash Separator) because they
+ * create a serialize→re-parse ambiguity: when a user builds Space + Hyphen
+ * + Space as three individual chips, the serialized string `" - "` would
+ * be greedily matched back as one compound token, collapsing three chips
+ * into one. By only matching atomic single-character tokens, the parser
+ * preserves individual chip boundaries through the roundtrip.
+ *
+ * Compound literals still work as UI shortcuts — clicking "Dash Separator"
+ * adds `" - "` which re-parses into three atomic chips (`" "`, `"-"`, `" "`).
+ */
+const ATOMIC_TOKENS = COMMON_LITERALS.filter((l) => !('compound' in l && l.compound)).map(
+  (l) => l.value,
+);
 
 /** Sample metadata values used for the live preview. */
 export const SAMPLE_METADATA: Record<string, string> = {
@@ -162,17 +179,15 @@ export function parseTemplate(template: string): TemplateSegment[] {
     segments.push({ type: 'literal', value: literal });
   }
 
-  // Split compound literals into known separator tokens so they render
-  // as individual chips in the TemplateBuilder UI. Without this, the
-  // parser merges adjacent literals (e.g., " - " is one chip instead
-  // of space + dash + space), making it impossible to add multi-character
-  // separators because the round-trip parse→serialize→re-parse collapses them.
+  // Split compound literals into atomic separator tokens so they render
+  // as individual chips in the TemplateBuilder UI. Uses ATOMIC_TOKENS
+  // (single-character separators only) to avoid greedy matching that
+  // collapses individually-added chips (e.g., Space + Hyphen + Space
+  // serializes as " - " which must NOT be consumed as one chip).
   //
-  // Known tokens are checked longest-first to avoid partial matches
-  // (e.g., " - " must match before " " or "-").
-  const KNOWN_TOKENS = COMMON_LITERALS.map((l) => l.value).sort(
-    (a, b) => b.length - a.length,
-  );
+  // Sorted longest-first for consistency (though all atomic tokens are
+  // currently single characters).
+  const sortedTokens = [...ATOMIC_TOKENS].sort((a, b) => b.length - a.length);
 
   const splitSegments: TemplateSegment[] = [];
   for (const seg of segments) {
@@ -180,20 +195,19 @@ export function parseTemplate(template: string): TemplateSegment[] {
       splitSegments.push(seg);
       continue;
     }
-    // Split this literal by known tokens, preserving order
+    // Split this literal by atomic tokens, preserving order
     let remaining = seg.value;
     while (remaining.length > 0) {
-      const match = KNOWN_TOKENS.find((t) => remaining.startsWith(t));
+      const match = sortedTokens.find((t) => remaining.startsWith(t));
       if (match) {
         splitSegments.push({ type: 'literal', value: match });
         remaining = remaining.slice(match.length);
       } else {
-        // No known token matches — consume one character as a literal
-        // and try again (accumulate unknown chars into one segment)
+        // No known token matches — consume characters until next known token
         let unknownEnd = 1;
         while (
           unknownEnd < remaining.length &&
-          !KNOWN_TOKENS.some((t) => remaining.slice(unknownEnd).startsWith(t))
+          !sortedTokens.some((t) => remaining.slice(unknownEnd).startsWith(t))
         ) {
           unknownEnd++;
         }
