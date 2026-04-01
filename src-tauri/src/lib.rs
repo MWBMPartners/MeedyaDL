@@ -966,6 +966,8 @@ pub fn run() {
             commands::system::get_platform_info,
             commands::system::get_app_data_dir,
             commands::system::get_platform_config,
+            // Engine registry — full engine/platform config (#316)
+            commands::system::get_engine_config,
             // Multi-service URL detection (#315)
             commands::system::detect_service,
             // Dependency management commands (Python, GAMDL, tools)

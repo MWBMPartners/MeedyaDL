@@ -291,6 +291,15 @@ pub mod pip_engine_service;
 /// correct content. Covers Rich SRT, WebVTT, Enhanced LRC, and ASS
 /// generation, including Unicode filename handling and source priority.
 ///
+/// Engine registry — runtime query layer for `engines.toml`.
+///
+/// Provides typed access to engine and platform configuration compiled
+/// into the binary. The download queue, dependency manager, and frontend
+/// all query this registry instead of hardcoding engine knowledge.
+///
+/// Used by: `commands/system` (IPC), `download_queue` (engine resolution)
+pub mod engine_registry;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;
