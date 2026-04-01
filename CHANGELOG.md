@@ -22,6 +22,13 @@ This changelog is automatically generated from [conventional commits](https://ww
   - parse_apple_music_url() now recognises artist URLs, returning a
     ParsedAppleMusicUrl with artist_id field.
 
+- ReplayGain: expand format support from M4A-only to all MP4-family containers (M4A, M4V, MP4, M4P, M4B) via mp4ameta, plus FLAC/OGG/OGA/Opus (Vorbis Comments) and MP3 (ID3v2 TXXX frames) via new lofty crate. Prepares for future platform integrations.
+
+### 🐛 Bug Fixes
+
+- Fix consecutive separator chips collapsing in template builder. Space + Hyphen + Space now survives the serialize→re-parse roundtrip as three individual chips instead of collapsing into one "Dash Separator" chip.
+
+- Fix multi-version changelog aggregation: always fetch full release list (per_page=20) instead of reusing the initial 5-release fetch.
 
 ### 🐛 Bug Fixes
 
