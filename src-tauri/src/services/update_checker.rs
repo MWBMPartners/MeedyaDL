@@ -527,7 +527,7 @@ async fn check_app_update(
 
     // Extract the release object: either the single response (stable mode)
     // or the first item from the array (pre-release mode, newest first).
-    let (release, all_releases) = if is_list {
+    let release = if is_list {
         let releases = json
             .as_array()
             .ok_or("GitHub API returned unexpected format (expected array)")?;
@@ -546,12 +546,10 @@ async fn check_app_update(
             });
         }
         // Index 0 is the newest release (may be a pre-release).
-        // Keep the full array for multi-version release note aggregation.
-        (&releases[0], Some(releases.as_slice()))
+        &releases[0]
     } else {
         // Stable mode: response is a single release object.
-        // We may need to fetch intermediate releases separately.
-        (&json, None)
+        &json
     };
 
     // Delegate to the response parser to extract fields and build the ComponentUpdate.
@@ -563,7 +561,6 @@ async fn check_app_update(
         let combined_body = aggregate_intermediate_release_notes(
             &client,
             &current_version,
-            all_releases,
             check_pre_releases,
         )
         .await;
@@ -674,8 +671,6 @@ fn parse_release_from_response(
 /// # Arguments
 /// * `client` - Pre-configured HTTP client (reused from the initial API call)
 /// * `current_version` - The running app version (bare semver, e.g., "0.13.0")
-/// * `existing_releases` - If the caller already fetched a release array (pre-release mode),
-///   pass it here to avoid a redundant API call. `None` in stable mode.
 /// * `check_pre_releases` - Whether pre-releases should be included
 ///
 /// # Returns
@@ -684,31 +679,23 @@ fn parse_release_from_response(
 async fn aggregate_intermediate_release_notes(
     client: &reqwest::Client,
     current_version: &str,
-    existing_releases: Option<&[serde_json::Value]>,
     check_pre_releases: bool,
 ) -> Option<String> {
-    // Fetch the release list if we don't already have it (stable mode only fetches /latest).
-    // Request up to 20 releases — enough to cover any reasonable version gap.
-    let owned_releases: Vec<serde_json::Value>;
-    let releases = if let Some(existing) = existing_releases {
-        existing
-    } else {
-        // Fetch the full release list. Pre-release filtering is handled below
-        // in the .filter() call, not by the GitHub API endpoint.
-        let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20";
-        let response = client
-            .get(url)
-            .header("User-Agent", "meedyadl")
-            .header("Accept", "application/vnd.github.v3+json")
-            .send()
-            .await
-            .ok()?;
-        if !response.status().is_success() {
-            return None;
-        }
-        owned_releases = response.json::<Vec<serde_json::Value>>().await.ok()?;
-        &owned_releases
-    };
+    // Always fetch the full release list (up to 20) for aggregation.
+    // The initial update check may only fetch 5 releases (per_page=5 in pre-release mode),
+    // which is insufficient when the user is many versions behind.
+    let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20";
+    let response = client
+        .get(url)
+        .header("User-Agent", "meedyadl")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let releases: Vec<serde_json::Value> = response.json().await.ok()?;
 
     // Filter to releases that are newer than current_version, ordered newest-first
     // (GitHub API returns them in reverse chronological order).
