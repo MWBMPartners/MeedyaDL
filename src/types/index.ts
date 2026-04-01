@@ -657,8 +657,12 @@ export type DownloadState =
 export interface QueueItemStatus {
   /** Unique identifier for this download (UUID v4) */
   id: string;
-  /** The Apple Music URL(s) being downloaded */
+  /** The URL(s) being downloaded */
   urls: string[];
+  /** Detected media service (e.g., "apple-music", "spotify"), or null for legacy items */
+  service?: string | null;
+  /** Download engine used (e.g., "gamdl", "votify"), or null for legacy items */
+  engine?: string | null;
   /** Current state in the download lifecycle */
   state: DownloadState;
   /** Download progress as a percentage (0-100) */
