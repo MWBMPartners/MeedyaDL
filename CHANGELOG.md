@@ -26,6 +26,7 @@ Introduces a 3-tier MusicKit token resolution for premium API features
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md to include new line for improved MusicKit API fallback
 - Add pip_engine_service and integration_tests to services in CLAUDE.md
+- Update CHANGELOG.md [skip ci]
 
 ## [0.25.0] - 2026-03-31
 
