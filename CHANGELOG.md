@@ -23,8 +23,23 @@ This changelog is automatically generated from [conventional commits](https://ww
     ParsedAppleMusicUrl with artist_id field.
 
 
+### 🐛 Bug Fixes
+
+- Prevent consecutive separator chips from collapsing in template builder
+
+The parser's longest-first token matching greedily consumed " - " as a
+  single compound token, so when a user built Space + Hyphen + Space as
+  three individual chips, the serialize→re-parse roundtrip collapsed them
+  into one "Dash Separator" chip. Now the parser only splits on atomic
+  (single-character) tokens, preserving individual chip boundaries.
+
+  The "Dash Separator" menu shortcut still works — it adds " - " which
+  re-parses into three atomic chips (Space, Hyphen, Space).
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.26.2] - 2026-04-01
