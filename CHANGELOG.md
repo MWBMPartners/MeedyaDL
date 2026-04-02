@@ -24,6 +24,7 @@ Monitor the system clipboard while MeedyaDL is open. When a supported
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.27.0] - 2026-04-01
 
