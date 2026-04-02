@@ -120,6 +120,10 @@ Both buttons are in the queue header. If you want to keep failed items visible f
 
 When you re-download an album you have previously downloaded, MeedyaDL automatically checks the Apple Music API to see if the album has changed since your last download. If the album was previously downloaded, an info toast shows the date of the original download. The feature detects audio quality upgrades (such as Atmos or Lossless becoming available), tracks being added, metadata corrections, and Apple Digital Master certification. It cannot detect silent audio remasters where the audio files change but the catalog metadata stays the same. This feature is enabled by default and can be toggled in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#smart-re-download-detection) for full details.
 
+### What is clipboard monitoring?
+
+When clipboard monitoring is enabled, MeedyaDL watches your system clipboard for supported URLs (e.g., Apple Music). If you copy an Apple Music URL from a browser or messaging app, a toast notification appears offering to download it. This is a convenience feature -- it only checks for URL patterns and never stores clipboard contents. Enabled by default; toggle in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#clipboard-monitoring) for details.
+
 ### Does MeedyaDL support library URLs?
 
 Yes. MeedyaDL accepts personal library URLs that use the `music.apple.com/library/...` path format. These point to content in your own iCloud Music Library. Paste them into the download form the same way you would paste a catalog URL. This is useful for downloading content you have added to your library, including items that may have been removed from the public Apple Music catalog. See [Downloading Music](downloading-music.md#library-urls) for details.

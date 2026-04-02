@@ -380,6 +380,17 @@ regex = "1"
 # @see https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 
+# ---- Clipboard Access ----
+
+# arboard -- Cross-platform clipboard access library.
+# Used by the clipboard monitoring feature to read text from the system
+# clipboard at a configurable interval. When the user copies a supported
+# URL (e.g., Apple Music), the frontend detects it and offers to download.
+# Platform backends: macOS (NSPasteboard), Windows (Win32 clipboard API),
+# Linux (X11/Wayland selection).
+# @see https://docs.rs/arboard/ -- arboard crate documentation
+arboard = "3"
+
 # ---- Browser Cookie Extraction ----
 
 # rookie -- Cross-platform browser cookie extraction library.

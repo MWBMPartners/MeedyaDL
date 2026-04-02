@@ -1054,6 +1054,8 @@ pub fn run() {
             commands::history::search_history,
             // API field audit command (diagnostic tool)
             commands::api_audit::audit_api_fields,
+            // Clipboard monitoring command
+            commands::clipboard::read_clipboard,
         ]);
 
     // ---------------------------------------------------------------

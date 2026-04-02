@@ -51,13 +51,13 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 
 ```
 src-tauri/src/          # Rust backend
-  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials [includes validate_musickit_credentials, has_webplayer_token, clear_webplayer_token, check_dev_access, activate_dev_access, deactivate_dev_access], updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url], api_audit, history)
+  commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials [includes validate_musickit_credentials, has_webplayer_token, clear_webplayer_token, check_dev_access, activate_dev_access, deactivate_dev_access], updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url], api_audit, history, clipboard)
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report, codec_registry, tag_registry, manifest)
-  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required tools], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service, webvtt_service, rich_srt_service, musicbrainz_service, history_service, health_check_service, api_audit_service, ass_subtitle_service, mediainfo_service, pip_engine_service, integration_tests)
+  services/             # Business logic (python_manager, gamdl_service, dependency_manager [4 required tools], config_service, download_queue, update_checker, cookie_service, login_window_service, animated_artwork_service, apple_music_api, metadata_tag_service, acoustid_service, replaygain_service, enhanced_lyrics_service, crash_report_service, webvtt_service, rich_srt_service, musicbrainz_service, history_service, health_check_service, api_audit_service, ass_subtitle_service, mediainfo_service, pip_engine_service, clipboard_service, integration_tests)
   utils/                # Platform, archive, process, activity_log utilities
 src/                    # React frontend
   components/           # UI components (common, layout, download, settings [includes CrashReportSection, CrashReportDialog, DevToolsSection], setup, help, updates)
-  hooks/                # React hooks (usePlatform, useTheme, useKeyboardShortcuts, useKonamiCode)
+  hooks/                # React hooks (usePlatform, useTheme, useKeyboardShortcuts, useKonamiCode, useClipboardMonitor)
   stores/               # Zustand state stores (ui, settings, download, activity, dependency, setup, update)
   lib/                  # Utilities (tauri-commands, url-parser, quality-chains, i18n, template-parser)
   types/                # TypeScript type definitions mirroring Rust models (includes codec-registry.ts)
@@ -112,6 +112,7 @@ assets/brand/           # Brand assets: SVGs, animated PNGs, icons (ICO/ICNS/PNG
 - **Duplicate URL detection**: `normalize_url_for_dedup()` and `has_duplicate_urls()` in `download_queue.rs`. Warning toast on duplicate, download still allowed.
 - **Native desktop notifications**: `tauri-plugin-notification`. Triggers on download complete/error and queue complete. `desktop_notifications` setting (default: `true`).
 - **Deep links**: `meedyadl://` custom URL scheme via `tauri-plugin-deep-link`. Parses Apple Music URLs and navigates to Download page.
+- **Clipboard monitoring**: `useClipboardMonitor.ts` hook polls system clipboard every 2 seconds via `clipboard_service.rs` (uses `arboard` crate). When a supported URL (Apple Music) is detected, shows an actionable toast with a "Download" button that navigates to the Download page with the URL pre-filled. Session-scoped deduplication (same URL won't re-prompt). Privacy-first: only checks for URL patterns, never stores clipboard contents. `clipboard_monitoring` setting (default: `true`), toggle in Settings > General > Preferences. IPC command: `read_clipboard` in `commands/clipboard.rs`.
 - **Keyboard shortcuts**: `useKeyboardShortcuts.ts` hook. Cmd/Ctrl+D (download), Cmd+, (settings), Cmd+Q (queue).
 - **Settings sidebar categories**: Settings page sidebar grouped into sections (General, Download, Authentication, System) with headers.
 - **Accessibility**: High-contrast mode (`high_contrast` setting, `a11y-high-contrast.css`), colour blindness themes (`colour_blind_mode`: normal/deuteranopia/protanopia/tritanopia, `a11y-colour-blind.css`), `prefers-reduced-motion` media query, WCAG 2.4.1 skip navigation link. `.hintrc` suppresses Edge DevTools false positives.

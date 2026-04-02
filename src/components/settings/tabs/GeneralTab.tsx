@@ -447,6 +447,14 @@ export function GeneralTab() {
           onChange={(checked) => updateSettings({ smart_redownload_detection: checked })}
         />
 
+        {/* Clipboard monitoring */}
+        <Toggle
+          label="Clipboard Monitoring"
+          description="Detect supported URLs (e.g., Apple Music) copied to the clipboard and offer to download them. Only checks for URL patterns — clipboard contents are never stored."
+          checked={settings.clipboard_monitoring}
+          onChange={(checked) => updateSettings({ clipboard_monitoring: checked })}
+        />
+
         {/* Auto-check for updates */}
         <Toggle
           label="Auto-Check for Updates"
