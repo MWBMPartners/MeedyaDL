@@ -49,7 +49,7 @@ A multiplatform media downloader desktop application built with **Tauri 2.0 + Re
 
 ## Key Directories
 
-```
+```text
 src-tauri/src/          # Rust backend
   commands/             # IPC command handlers (system, dependencies, settings, gamdl, credentials [includes validate_musickit_credentials, has_webplayer_token, clear_webplayer_token, check_dev_access, activate_dev_access, deactivate_dev_access], updates, cookies, login_window, artwork, crash_reports [includes get_github_issue_url], api_audit, history, clipboard)
   models/               # Data structures (download, settings, gamdl_options, dependency, music_service, crash_report, codec_registry, tag_registry, manifest)
@@ -165,13 +165,14 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 
 ## Planned Service Integrations
 
-| Milestone | Version | Service | Engine | Key Notes |
-|-----------|---------|---------|--------|-----------|
-| M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support |
-| M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | pip install, shared with BBC iPlayer; video-first service with format selection |
-| M10 | v2.2.0 | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Reuses yt-dlp from M9; region-restricted (UK VPN may be required) |
+| Milestone | Version | Service     | Engine                                                             | Key Notes                                                                       |
+| --------- | ------- | ----------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| M8        | v2.0.0  | Spotify     | [votify](https://github.com/glomatico/votify)                      | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support         |
+| M9        | v2.1.0  | YouTube     | [yt-dlp](https://github.com/yt-dlp/yt-dlp)                        | pip install, shared with BBC iPlayer; video-first service with format selection  |
+| M10       | v2.2.0  | BBC iPlayer | yt-dlp / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | Reuses yt-dlp from M9; region-restricted (UK VPN may be required)               |
 
 Architectural changes planned across milestones:
+
 - **Rename `MusicService` → `MediaService`** (trait, enum, types) since BBC iPlayer and YouTube aren't music-only
 - **Service-aware URL parser** that detects which service a URL belongs to and routes to the correct engine
 - **Per-service settings tabs** in the Settings page (separate credentials, quality, paths per service)
