@@ -1289,3 +1289,20 @@ export function searchHistory(query: string): Promise<import('@/types').HistoryE
 export function auditApiFields(albumUrl: string): Promise<import('@/types').ApiAuditResult> {
   return invoke<import('@/types').ApiAuditResult>('audit_api_fields', { albumUrl });
 }
+
+// ================================================================
+// Clipboard Monitoring
+// ================================================================
+
+/**
+ * Read the current text content from the system clipboard.
+ *
+ * Returns the clipboard text if present, or `null` if the clipboard is
+ * empty or contains non-text data. Used by the clipboard monitoring hook
+ * to detect supported URLs copied by the user.
+ *
+ * IPC target: `read_clipboard` → `commands::clipboard::read_clipboard`
+ */
+export function readClipboard(): Promise<string | null> {
+  return invoke<string | null>('read_clipboard');
+}

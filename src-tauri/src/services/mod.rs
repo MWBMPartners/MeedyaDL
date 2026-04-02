@@ -283,6 +283,15 @@ pub mod api_audit_service;
 /// Used by: `commands/dependencies` (IPC handlers for engine install/check)
 pub mod pip_engine_service;
 
+/// Clipboard monitoring service.
+///
+/// Reads text from the system clipboard for the clipboard monitoring
+/// feature. The frontend polls this service to detect when the user
+/// copies a supported URL (e.g., Apple Music) to the clipboard.
+///
+/// Used by: `commands/clipboard` (IPC handler)
+pub mod clipboard_service;
+
 /// End-to-end integration tests for the enrichment pipeline services.
 ///
 /// Tests the subtitle/lyrics services with actual files on disk: creates

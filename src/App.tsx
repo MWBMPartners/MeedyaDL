@@ -86,6 +86,7 @@ import { useTheme } from './hooks/useTheme';
  */
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useKonamiCode } from './hooks/useKonamiCode';
+import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { activateDevAccess } from './lib/tauri-commands';
 
 /* ─── Zustand Stores ─────────────────────────────────────────────────── */
@@ -338,6 +339,17 @@ function App() {
   const handleDownloadError = useDownloadStore((s) => s.handleDownloadError);
   const handleDownloadCancelled = useDownloadStore((s) => s.handleDownloadCancelled);
   const refreshQueue = useDownloadStore((s) => s.refreshQueue);
+
+  /*
+   * ─── Clipboard Monitor ─────────────────────────────────────────────
+   *
+   * Polls the system clipboard for supported URLs (e.g., Apple Music)
+   * and shows an actionable toast when one is detected. Controlled by
+   * the `clipboard_monitoring` setting (default: enabled).
+   *
+   * @see ./hooks/useClipboardMonitor.ts
+   */
+  useClipboardMonitor(isReady);
 
   /*
    * ─── Effect 1: Platform Theme Application ──────────────────────────

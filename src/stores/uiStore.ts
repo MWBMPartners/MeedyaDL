@@ -158,8 +158,9 @@ interface UiState {
    * @param type     -- Severity level ('success' | 'error' | 'warning' | 'info')
    * @param duration -- Auto-dismiss delay in ms; 0 means persistent (default: 5000)
    * @param key      -- Optional deduplication key (e.g. 'preflight:Wrapper')
+   * @param action   -- Optional action button (label + onClick callback)
    */
-  addToast: (message: string, type: ToastType, duration?: number, key?: string) => void;
+  addToast: (message: string, type: ToastType, duration?: number, key?: string, action?: { label: string; onClick: () => void }) => void;
 
   /**
    * Remove a specific toast from the stack by its unique ID.
@@ -255,7 +256,7 @@ export const useUiStore = create<UiState>((set) => ({
    * it uses the updater-function form of `set()` to safely read the latest toast
    * array (avoiding stale closures over the `toasts` array).
    */
-  addToast: (message, type, duration = 5000, key?) => {
+  addToast: (message, type, duration = 5000, key?, action?) => {
     // Generate a collision-resistant unique ID for this toast.
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -270,7 +271,7 @@ export const useUiStore = create<UiState>((set) => ({
       const filtered = key ? state.toasts.filter((t) => t.key !== key) : state.toasts;
 
       return {
-        toasts: [...filtered, { id, message, type, duration, key }],
+        toasts: [...filtered, { id, message, type, duration, key, action }],
       };
     });
 

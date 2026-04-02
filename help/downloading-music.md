@@ -267,6 +267,24 @@ Smart re-download detection relies on metadata changes exposed through the Apple
 
 ---
 
+## Clipboard Monitoring
+
+MeedyaDL can watch your system clipboard for supported URLs while the app is open. When you copy an Apple Music URL from a browser, messaging app, or any other source, MeedyaDL detects it and shows a toast notification asking if you want to download that content.
+
+Click **Download** on the toast to navigate to the Download page with the URL pre-filled. Dismiss the toast if you do not want to download.
+
+### Privacy
+
+Clipboard monitoring only checks for URL patterns -- it never stores or logs clipboard contents. The check runs every 2 seconds and only triggers on Apple Music URLs (music.apple.com, classical.apple.com, itunes.apple.com). Non-URL clipboard content is immediately discarded.
+
+### Configuration
+
+Clipboard monitoring is enabled by default. To disable it, go to **Settings > General > Preferences** and toggle **Clipboard Monitoring** off.
+
+The same URL will not trigger a second prompt within the same app session, even if it remains on the clipboard.
+
+---
+
 ## Tips and Best Practices
 
 - **Check cookie validity before large batch downloads.** If your authentication cookie has expired mid-way through a large playlist or artist download, all remaining tracks will fail with an auth error. Verify your cookie is current before starting. See [Cookie Management](cookie-management.md).

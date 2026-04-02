@@ -128,8 +128,21 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
        */}
       <Icon size={18} className={`flex-shrink-0 mt-0.5 ${ICON_COLORS[toast.type]}`} />
 
-      {/* Message text -- flex-1 allows it to fill the remaining horizontal space */}
-      <p className="flex-1 text-sm text-content-primary">{toast.message}</p>
+      {/* Message text and optional action button */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-content-primary">{toast.message}</p>
+        {toast.action && (
+          <button
+            onClick={() => {
+              toast.action!.onClick();
+              onDismiss(toast.id);
+            }}
+            className="mt-1.5 text-xs font-medium text-accent-primary hover:text-accent-hover transition-colors"
+          >
+            {toast.action.label}
+          </button>
+        )}
+      </div>
 
       {/*
        * Manual dismiss button.

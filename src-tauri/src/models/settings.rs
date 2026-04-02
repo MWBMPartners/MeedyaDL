@@ -264,6 +264,15 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub smart_redownload_detection: bool,
 
+    /// Clipboard monitoring for supported URLs.
+    /// When enabled, MeedyaDL periodically reads the system clipboard and
+    /// prompts the user when a supported URL (e.g., Apple Music) is detected.
+    /// Privacy-first: only checks for URL patterns, never stores clipboard
+    /// contents. Default: `true`.
+    /// Controlled in Settings > General > Preferences.
+    #[serde(default = "default_true")]
+    pub clipboard_monitoring: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -908,6 +917,7 @@ impl Default for AppSettings {
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
             smart_redownload_detection: true,
+            clipboard_monitoring: true,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).

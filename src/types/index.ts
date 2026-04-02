@@ -446,6 +446,10 @@ export interface AppSettings {
    * When enabled, compares stored manifest data against fresh API response
    * to detect if an album has changed since the user's last download. */
   smart_redownload_detection: boolean;
+  /** Clipboard monitoring for supported URLs.
+   * When enabled, MeedyaDL periodically reads the system clipboard and
+   * prompts the user when a supported URL (e.g., Apple Music) is detected. */
+  clipboard_monitoring: boolean;
   /** Default audio codec for song downloads */
   default_song_codec: SongCodec;
   /** Default maximum video resolution */
@@ -1209,6 +1213,15 @@ export interface Toast {
    * Example: `"preflight:Wrapper"` for wrapper health check warnings.
    */
   key?: string;
+  /**
+   * Optional action button rendered alongside the toast message.
+   * Clicking the action dismisses the toast and invokes the callback.
+   * Used by clipboard monitoring to offer a "Download" action.
+   */
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 /**
