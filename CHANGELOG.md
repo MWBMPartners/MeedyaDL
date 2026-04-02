@@ -10,15 +10,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Clipboard monitoring for supported URLs (#330)
 
-  MeedyaDL now monitors the system clipboard while the app is open.
-  When a supported URL (Apple Music) is copied, an actionable toast
-  appears offering to download the content. Click "Download" to
-  navigate to the Download page with the URL pre-filled.
+Monitor the system clipboard while MeedyaDL is open. When a supported
+  URL (Apple Music) is copied, an actionable toast prompts the user to
+  download. Privacy-first: only checks URL patterns, never stores
+  clipboard contents. Session-scoped deduplication prevents re-prompting.
 
-  - Privacy-first: only checks for URL patterns, never stores clipboard contents
-  - Session-scoped deduplication — the same URL won't re-prompt
-  - Toggle in Settings > General > Preferences (enabled by default)
-  - Cross-platform via `arboard` crate (macOS/Windows/Linux)
+  - Backend: clipboard_service.rs via arboard crate, read_clipboard IPC
+  - Frontend: useClipboardMonitor hook (2s poll), toast action buttons
+  - Setting: clipboard_monitoring (default true), toggle in General tab
+  - Docs: CLAUDE.md, CHANGELOG, help/downloading-music, help/faq, help/getting-started
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.27.0] - 2026-04-01
+
+### ✨ Features
 
 - Add ReplayGain album gain toggle and artist promo video download (#325)
 
