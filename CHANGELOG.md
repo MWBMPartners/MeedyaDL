@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.28.0] - 2026-04-02
+
 ### ✨ Features
 
 - Clipboard monitoring for supported URLs (#330)
