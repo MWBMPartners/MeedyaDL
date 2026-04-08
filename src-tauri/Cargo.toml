@@ -34,7 +34,7 @@
 # name -- The crate name. Used as the binary name and in `cargo build` output.
 name = "meedyadl"
 # version -- Semantic version. Should stay in sync with tauri.conf.json "version" and package.json.
-version = "0.26.1"
+version = "0.28.0"
 # description -- Short description shown on crates.io and in `cargo search` results.
 description = "A multiplatform media downloader"
 # authors -- Package authors. Used in bundle metadata (installers, About dialogs).
@@ -380,6 +380,17 @@ regex = "1"
 # @see https://developer.apple.com/documentation/applemusicapi/generating_developer_tokens
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 
+# ---- Clipboard Access ----
+
+# arboard -- Cross-platform clipboard access library.
+# Used by the clipboard monitoring feature to read text from the system
+# clipboard at a configurable interval. When the user copies a supported
+# URL (e.g., Apple Music), the frontend detects it and offers to download.
+# Platform backends: macOS (NSPasteboard), Windows (Win32 clipboard API),
+# Linux (X11/Wayland selection).
+# @see https://docs.rs/arboard/ -- arboard crate documentation
+arboard = "3"
+
 # ---- Browser Cookie Extraction ----
 
 # rookie -- Cross-platform browser cookie extraction library.
@@ -443,6 +454,14 @@ sys-locale = "0.3"
 # audio stream data, so it is safe for both ALAC and EC-3 (Atmos) payloads.
 # @see https://docs.rs/mp4ameta/ -- mp4ameta API reference
 mp4ameta = "0.13"
+
+# lofty -- Format-agnostic audio metadata reader/writer.
+# Used for ReplayGain tag writing on non-MP4 formats (FLAC, MP3, OGG, Opus).
+# Supports Vorbis Comments (FLAC/OGG/Opus) and ID3v2 TXXX frames (MP3).
+# MP4-family tagging continues to use mp4ameta for consistency with the
+# existing metadata enrichment pipeline.
+# @see https://docs.rs/lofty/ -- lofty API reference
+lofty = "0.22"
 
 # ---- Audio Fingerprinting (Chromaprint) ----
 

@@ -6,6 +6,117 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Updated internal docs
+- Update CHANGELOG.md [skip ci]
+
+## [0.28.0] - 2026-04-02
+
+### ✨ Features
+
+- Clipboard monitoring for supported URLs (#330)
+
+Monitor the system clipboard while MeedyaDL is open. When a supported
+  URL (Apple Music) is copied, an actionable toast prompts the user to
+  download. Privacy-first: only checks URL patterns, never stores
+  clipboard contents. Session-scoped deduplication prevents re-prompting.
+
+  - Backend: clipboard_service.rs via arboard crate, read_clipboard IPC
+  - Frontend: useClipboardMonitor hook (2s poll), toast action buttons
+  - Setting: clipboard_monitoring (default true), toggle in General tab
+  - Docs: CLAUDE.md, CHANGELOG, help/downloading-music, help/faq, help/getting-started
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.27.0] - 2026-04-01
+
+### ✨ Features
+
+- Add ReplayGain album gain toggle and artist promo video download (#325)
+
+- ReplayGain: new "Include Album Gain" setting (Settings > Metadata)
+    controls whether album-level tags are written alongside track tags.
+    Default: on. When disabled, only per-track gain is written.
+
+  - Artist promo video: new "Download Artist Promo Video" setting
+    (Settings > Cover Art) downloads the animated background from Apple
+    Music artist pages as ArtistCover.mp4 to the artist folder. Requires
+    MusicKit credentials. Idempotent (skips if file already exists).
+
+  - parse_apple_music_url() now recognises artist URLs, returning a
+    ParsedAppleMusicUrl with artist_id field.
+
+- Expand ReplayGain to MP4-family, FLAC, MP3, OGG/Opus (#325, #326, #327, #328)
+
+ReplayGain analysis was limited to .m4a files only. Now supports:
+
+  - MP4-family (M4A, M4V, MP4, M4P, M4B): iTunes freeform atoms via mp4ameta
+  - FLAC, OGG, OGA, Opus: Vorbis Comments via lofty crate
+  - MP3: ID3v2 TXXX frames via lofty crate
+
+  FFmpeg's ebur128 filter already handled all these inputs; only the file
+  collection and tag writing needed expansion. Format-aware dispatch via
+  AudioFormat enum routes to mp4ameta or lofty as appropriate.
+
+
+### 🐛 Bug Fixes
+
+- Prevent consecutive separator chips from collapsing in template builder
+
+The parser's longest-first token matching greedily consumed " - " as a
+  single compound token, so when a user built Space + Hyphen + Space as
+  three individual chips, the serialize→re-parse roundtrip collapsed them
+  into one "Dash Separator" chip. Now the parser only splits on atomic
+  (single-character) tokens, preserving individual chip boundaries.
+
+  The "Dash Separator" menu shortcut still works — it adds " - " which
+  re-parses into three atomic chips (Space, Hyphen, Space).
+
+- Rename "Component Library" to "Dependencies" and remove duplicate MeedyaDL entry in Help > About
+
+The MeedyaDL version was shown both at the top of the About page and
+  again in the component list. Removed the duplicate entry from
+  get_component_versions(). Renamed the section to "Dependencies" since
+  it lists external tools, not a component library.
+
+- Add new dependencies for data-encoding, lofty, lofty_attr, ogg_pager, and paste
+- Ignore RUSTSEC-2024-0436 (paste) unmaintained advisory in cargo-deny
+
+Transitive dependency from lofty (ReplayGain tagging). Archived by
+  dtolnay — no security vulnerability, just unmaintained status.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add missing activity store to CLAUDE.md stores listing
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.26.2] - 2026-04-01
+
+### 🐛 Bug Fixes
+
+- Use PNG fallback for logotype in light mode README header
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.26.1] - 2026-04-01
+
 ### 🐛 Bug Fixes
 
 - Always fetch full release list for multi-version changelog aggregation

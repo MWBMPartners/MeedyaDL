@@ -4094,9 +4094,10 @@ pub fn process_queue(
                             &enrich_app,
                             &enrich_dl_id,
                             &format!(
-                                "──── Enrichment starting (lrc: {}, artwork: {}, acoustid: {}, replaygain: {}, video: {}) ────",
+                                "──── Enrichment starting (lrc: {}, artwork: {}, artist_promo: {}, acoustid: {}, replaygain: {}, video: {}) ────",
                                 if enrich_settings.enhanced_lrc { "on" } else { "off" },
                                 if enrich_settings.animated_artwork_enabled { "on" } else { "off" },
+                                if enrich_settings.artist_promo_video_enabled { "on" } else { "off" },
                                 if enrich_settings.acoustid_enabled { "on" } else { "off" },
                                 if enrich_settings.replaygain_enabled { "on" } else { "off" },
                                 if enrich_settings.music_video_companion { "on" } else { "off" },
@@ -4817,6 +4818,72 @@ pub fn process_queue(
                                 return;
                             }
 
+                            // --- Step 3b: Artist promo video download (opt-in) ---
+                            // Downloads the artist's animated background video from Apple Music
+                            // and saves it as ArtistCover.mp4 in the artist folder (parent of
+                            // the album directory). Uses the artist_id from album metadata.
+                            if enrich_settings.artist_promo_video_enabled {
+                                // Extract artist ID and storefront from album metadata or URL
+                                let artist_id = album_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.artist_id.clone());
+                                let storefront = enrich_urls
+                                    .iter()
+                                    .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                    .map(|p| p.storefront)
+                                    .unwrap_or_else(|| enrich_settings.storefront.clone());
+
+                                if let Some(aid) = artist_id {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "Downloading artist promo video...",
+                                    );
+                                    match super::animated_artwork_service::download_artist_promo_video(
+                                        &enrich_app,
+                                        &aid,
+                                        &storefront,
+                                        &album_dir,
+                                    )
+                                    .await
+                                    {
+                                        Ok(true) => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "Artist promo video downloaded",
+                                            );
+                                        }
+                                        Ok(false) => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "No artist promo video available (or already downloaded)",
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Artist promo video failed for {enrich_dl_id}: {e}"
+                                            );
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!("Artist promo video skipped: {e}"),
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    log::debug!(
+                                        "No artist_id available for {enrich_dl_id}, skipping artist promo video"
+                                    );
+                                }
+                            }
+
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
                             set_label("AcoustID fingerprinting...");
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
@@ -4887,9 +4954,10 @@ pub fn process_queue(
                                     &enrich_app,
                                     &enrich_dl_id,
                                     &format!(
-                                        "Analysing loudness (ReplayGain, ref={:.1} LUFS, clipping prevention={})...",
+                                        "Analysing loudness (ReplayGain, ref={:.1} LUFS, clipping prevention={}, album gain={})...",
                                         enrich_settings.replaygain_reference_level,
-                                        if enrich_settings.replaygain_prevent_clipping { "on" } else { "off" }
+                                        if enrich_settings.replaygain_prevent_clipping { "on" } else { "off" },
+                                        if enrich_settings.replaygain_album_gain { "on" } else { "off" }
                                     ),
                                 );
                                 match super::replaygain_service::process_replaygain_for_directory(
@@ -4897,6 +4965,7 @@ pub fn process_queue(
                                     &album_dir,
                                     enrich_settings.replaygain_reference_level,
                                     enrich_settings.replaygain_prevent_clipping,
+                                    enrich_settings.replaygain_album_gain,
                                 )
                                 .await
                                 {
@@ -5971,6 +6040,14 @@ fn settings_snapshot_for_context(app: &AppHandle) -> std::collections::HashMap<S
     m.insert(
         "setting.replaygain".to_string(),
         s.replaygain_enabled.to_string(),
+    );
+    m.insert(
+        "setting.replaygain_album_gain".to_string(),
+        s.replaygain_album_gain.to_string(),
+    );
+    m.insert(
+        "setting.artist_promo_video".to_string(),
+        s.artist_promo_video_enabled.to_string(),
     );
     m.insert(
         "setting.musicbrainz".to_string(),

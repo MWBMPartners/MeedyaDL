@@ -74,6 +74,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   auto_start_queue: true, // Start processing immediately when items are enqueued
   desktop_notifications: true, // OS-native notifications for download events when window not focused
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
+  clipboard_monitoring: true, // Monitor clipboard for supported URLs
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless
   default_video_resolution: '2160p', // Preferred video quality: 4K
   default_video_codec_priority: 'h265,h264', // Try H.265 first, fall back to H.264
@@ -123,6 +124,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: false, // Disabled by default; needs Apple Developer setup
   hide_animated_artwork: true, // Hide artwork files from default file browser views
+  artist_promo_video_enabled: false, // Download artist promo video to artist folder
   musickit_team_id: null, // Apple Developer Team ID (10-char)
   musickit_key_id: null, // MusicKit private key identifier (10-char)
   // Metadata enrichment (opt-in post-download processing)
@@ -131,6 +133,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   replaygain_enabled: false, // ReplayGain loudness analysis (uses FFmpeg)
   replaygain_reference_level: -18.0, // EBU R128 default (-18 LUFS)
   replaygain_prevent_clipping: true, // Limit gain to prevent clipping
+  replaygain_album_gain: true, // Write album-level ReplayGain tags
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',

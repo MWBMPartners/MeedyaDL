@@ -363,6 +363,15 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub smart_redownload_detection: bool,
 
+    /// Clipboard monitoring for supported URLs.
+    /// When enabled, MeedyaDL periodically reads the system clipboard and
+    /// prompts the user when a supported URL (e.g., Apple Music) is detected.
+    /// Privacy-first: only checks for URL patterns, never stores clipboard
+    /// contents. Default: `true`.
+    /// Controlled in Settings > General > Preferences.
+    #[serde(default = "default_true")]
+    pub clipboard_monitoring: bool,
+
     // ================================================================
     // Audio Quality Defaults
     // ================================================================
@@ -615,6 +624,14 @@ pub struct AppSettings {
     ///   cross-compatible hiding mechanism on Linux.
     pub hide_animated_artwork: bool,
 
+    /// When enabled, downloads the artist's promotional video (editorial
+    /// motion art) from Apple Music and saves it as `ArtistCover.mp4` in
+    /// the artist folder (parent of the album directory). These are the
+    /// animated backgrounds shown on Apple Music artist pages. Requires
+    /// valid `MusicKit` credentials. Default: `false`.
+    #[serde(default)]
+    pub artist_promo_video_enabled: bool,
+
     /// Apple `MusicKit` Team ID for API authentication. This is the
     /// 10-character team identifier from the Apple Developer portal
     /// (e.g., `"ABCDE12345"`). Required when `animated_artwork_enabled`
@@ -669,6 +686,14 @@ pub struct AppSettings {
     /// preventing digital clipping on tracks that are already near 0 dBFS.
     #[serde(default = "default_true")]
     pub replaygain_prevent_clipping: bool,
+
+    /// When true, computes and writes album-level `ReplayGain` tags
+    /// (`replaygain_album_gain`, `replaygain_album_peak`) alongside track
+    /// tags. Album gain preserves the intended dynamic range between quiet
+    /// and loud tracks when listening to a full album in order. When false,
+    /// only track-level `ReplayGain` tags are written. Default: true.
+    #[serde(default = "default_true")]
+    pub replaygain_album_gain: bool,
 
     // ================================================================
     // File/Folder Templates
@@ -1004,6 +1029,7 @@ impl Default for AppSettings {
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
             smart_redownload_detection: true,
+            clipboard_monitoring: true,
 
             // --- Audio quality ---
             // Default to the highest-quality codec (lossless ALAC).
@@ -1107,6 +1133,7 @@ impl Default for AppSettings {
             // Hide animated artwork files by default to keep album folders clean.
             // Files remain accessible by name for media players and scripts.
             hide_animated_artwork: true,
+            artist_promo_video_enabled: false,
             musickit_team_id: None,
             musickit_key_id: None,
 
@@ -1119,6 +1146,7 @@ impl Default for AppSettings {
             replaygain_enabled: false,
             replaygain_reference_level: default_replaygain_reference(),
             replaygain_prevent_clipping: true,
+            replaygain_album_gain: true,
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization.
