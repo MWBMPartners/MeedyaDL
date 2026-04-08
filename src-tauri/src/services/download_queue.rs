@@ -6683,7 +6683,7 @@ mod tests {
         let result = queue.next_pending();
         assert!(result.is_some(), "Should return Some for non-empty queue");
 
-        let (dl_id, urls, _options) = result.unwrap();
+        let (dl_id, urls, _options, _service) = result.unwrap();
         assert_eq!(dl_id, ids[0], "Should return the first queued item");
         assert_eq!(urls.len(), 1, "Should include the URLs from the request");
         assert_eq!(
@@ -6736,7 +6736,7 @@ mod tests {
         // next_pending should skip ids[0] and ids[1], returning ids[2]
         let result = queue.next_pending();
         assert!(result.is_some());
-        let (dl_id, _, _) = result.unwrap();
+        let (dl_id, _, _, _) = result.unwrap();
         assert_eq!(
             dl_id, ids[2],
             "Should return the first Queued item, skipping terminal items"
@@ -6819,7 +6819,7 @@ mod tests {
             second.is_some(),
             "Should be able to start next item after finishing"
         );
-        let (dl_id, _, _) = second.unwrap();
+        let (dl_id, _, _, _) = second.unwrap();
         assert_eq!(dl_id, ids[1]);
     }
 
