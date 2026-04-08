@@ -421,7 +421,7 @@ fn write_manifest(
     }
 
     // Determine platform from the URL domain using the MediaServiceId enum
-    let platform = crate::models::media_service::MediaServiceId::from_url(url)
+    let platform = crate::models::media_service::MediaServiceId::from_url(&url)
         .map_or_else(|| "unknown".to_string(), |svc| svc.to_string());
 
     // Build per-track metadata from AlbumMetadata (if available).
@@ -1470,6 +1470,7 @@ impl DownloadQueue {
                 request: p.request,
                 merged_options,
                 fallback_index: 0,
+                engine_fallback_index: 0,
                 network_retries_left: self.max_network_retries,
             };
             self.items.push_back(item);
