@@ -45,6 +45,7 @@ npm audit fix resolves:
 - Updated internal docs
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
