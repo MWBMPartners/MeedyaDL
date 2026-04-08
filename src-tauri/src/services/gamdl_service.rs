@@ -45,13 +45,7 @@
 // - PyPI JSON API (version check): https://pypi.org/pypi/{package}/json
 
 use serde::Serialize;
-// Emitter trait provides the `app.emit()` method for sending events to the frontend.
-// Ref: https://v2.tauri.app/develop/calling-rust/#events
-use tauri::{AppHandle, Emitter};
-// AsyncBufReadExt provides the `.lines()` method for async line-by-line reading of process output.
-// BufReader wraps the raw stdout/stderr ChildStdout/ChildStderr for buffered reading.
-// Ref: https://docs.rs/tokio/latest/tokio/io/trait.AsyncBufReadExt.html
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tauri::AppHandle;
 // Tokio's Command is the async equivalent of std::process::Command.
 // It spawns child processes on the Tokio runtime without blocking the executor.
 // Ref: https://docs.rs/tokio/latest/tokio/process/struct.Command.html
@@ -249,113 +243,13 @@ pub async fn run_gamdl(
 
     // Build the command with all arguments (python -m gamdl {urls} {--options}).
     // See build_gamdl_command() below for the full argument construction logic.
-    let mut cmd = build_gamdl_command(app, urls, options)?;
+    let cmd = build_gamdl_command(app, urls, options)?;
 
-    // Configure the process to pipe stdout and stderr for real-time parsing.
-    // Piped streams allow us to read output line-by-line as it's produced,
-    // rather than waiting for the process to exit.
-    // Ref: https://docs.rs/tokio/latest/tokio/process/struct.Command.html#method.stdout
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
-
-    // Spawn the GAMDL subprocess.
-    // The child process runs independently; we read its output via the piped handles.
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to start GAMDL process: {e}"))?;
-
-    // Clone the download_id and app handle for use in the spawned reader tasks.
-    // Each reader task needs its own owned copies since they run independently.
-    let download_id_clone = download_id.to_string();
-    let app_clone = app.clone();
-
-    // Take ownership of the stdout/stderr handles
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Failed to capture GAMDL stdout".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Failed to capture GAMDL stderr".to_string())?;
-
-    // Spawn a tokio task to read stdout line-by-line and emit parsed events.
-    // Each line from GAMDL's output is parsed by process::parse_gamdl_output()
-    // into a structured GamdlOutputEvent enum variant (DownloadProgress, TrackInfo, etc.).
-    // The parsed event is then emitted to the frontend via Tauri's event system.
-    // Ref: https://docs.rs/tokio/latest/tokio/fn.spawn.html
-    let stdout_task = {
-        let download_id = download_id_clone.clone();
-        let app = app_clone.clone();
-        tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            // Read lines until EOF (process exit or pipe close)
-            while let Ok(Some(line)) = lines.next_line().await {
-                // Parse the raw output line into a structured event.
-                // The parser uses regex patterns to identify progress bars,
-                // track info, errors, and other GAMDL output formats.
-                let event = process::parse_gamdl_output(&line);
-                log::debug!("[gamdl stdout] {line}");
-
-                // Emit the parsed event to the frontend as a "gamdl-output" event.
-                // The frontend's React useEffect listener receives this and updates
-                // the download progress card in the queue UI.
-                let progress = GamdlProgress {
-                    download_id: download_id.clone(),
-                    event,
-                };
-                let _ = app.emit("gamdl-output", &progress);
-            }
-        })
-    };
-
-    // Spawn a separate task for stderr reading, identical in structure to stdout.
-    // GAMDL uses stderr for progress bars (tqdm) and error messages, so we parse
-    // it the same way. Both streams are read concurrently to avoid deadlocks
-    // that would occur if one pipe's buffer filled while we only read the other.
-    let stderr_task = {
-        let download_id = download_id_clone;
-        let app = app_clone;
-        tokio::spawn(async move {
-            let reader = BufReader::new(stderr);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let event = process::parse_gamdl_output(&line);
-                log::debug!("[gamdl stderr] {line}");
-
-                let progress = GamdlProgress {
-                    download_id: download_id.clone(),
-                    event,
-                };
-                let _ = app.emit("gamdl-output", &progress);
-            }
-        })
-    };
-
-    // Wait for the GAMDL process to exit. This is a non-blocking await
-    // that yields the current task until the child process terminates.
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| format!("Failed to wait for GAMDL process: {e}"))?;
-
-    // Wait for the stdout/stderr reader tasks to finish draining all remaining output.
-    // This ensures we don't miss any final output lines emitted just before process exit.
-    // The `let _ = ...` pattern discards JoinError which would only occur if the task panicked.
-    let _ = stdout_task.await;
-    let _ = stderr_task.await;
-
-    // Check the exit status: GAMDL returns 0 on success, non-zero on failure.
-    // Individual track failures may still result in a 0 exit code if the overall
-    // batch had some successes — check per-track events for detailed status.
-    if status.success() {
-        log::info!("GAMDL download {download_id} completed successfully");
-        Ok(())
-    } else {
-        let code = status.code().unwrap_or(-1);
-        Err(format!("GAMDL process exited with code {code}"))
-    }
+    // Delegate to the generic engine runner for subprocess lifecycle management
+    // (piped stdio, concurrent stdout/stderr streaming, event emission, exit status).
+    // The runner emits both "engine-output" (new generic) and "gamdl-output" (legacy)
+    // events for backwards compatibility.
+    super::engine_runner::run_engine(app, download_id, "gamdl", cmd).await
 }
 
 /// Public entry point for `build_gamdl_command`, used by `download_queue`.

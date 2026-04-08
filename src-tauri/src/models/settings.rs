@@ -31,6 +31,8 @@
 // - serde derive macros: <https://docs.rs/serde/latest/serde/>
 // - Tauri app data directory: <https://v2.tauri.app/reference/javascript/api/namespacepath/>
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::gamdl_options::{
@@ -145,6 +147,103 @@ impl Default for CompanionMode {
     fn default() -> Self {
         Self::AtmosToLossless
     }
+}
+
+// ============================================================
+// Per-service settings (#319)
+// ============================================================
+
+/// Per-service settings for Apple Music downloads.
+///
+/// These fields are Apple Music-specific and will eventually be
+/// the sole location for Apple Music configuration. During the
+/// migration period, the top-level `AppSettings` flat fields
+/// are still read by existing code; these nested fields are
+/// available for new code to adopt incrementally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppleMusicSettings {
+    /// Apple Music storefront code (e.g., "gb", "us").
+    /// Auto-detected from language region code when empty.
+    pub storefront: String,
+    /// Path to Netscape cookies.txt file for Apple Music auth.
+    pub cookies_path: Option<String>,
+    /// Apple Developer Team ID for MusicKit API (10-char).
+    pub musickit_team_id: Option<String>,
+    /// Apple MusicKit Key ID (10-char).
+    pub musickit_key_id: Option<String>,
+    /// Download animated motion artwork from Apple Music.
+    pub animated_artwork_enabled: bool,
+    /// Hide animated artwork files from OS file browsers.
+    pub hide_animated_artwork: bool,
+    /// Convert TTML lyrics to Enhanced LRC with word-by-word sync.
+    pub enhanced_lrc: bool,
+    /// Append [Explicit]/[Clean] suffixes to filenames.
+    pub content_advisory_in_filenames: bool,
+}
+
+impl Default for AppleMusicSettings {
+    fn default() -> Self {
+        Self {
+            storefront: String::new(),
+            cookies_path: None,
+            musickit_team_id: None,
+            musickit_key_id: None,
+            animated_artwork_enabled: false,
+            hide_animated_artwork: true,
+            enhanced_lrc: true,
+            content_advisory_in_filenames: true,
+        }
+    }
+}
+
+/// Per-service settings for Spotify downloads (stub).
+///
+/// Will be populated in milestone M8 (v2.0.0) when Votify
+/// integration is implemented.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SpotifySettings {
+    /// Spotify cookies path (for premium auth).
+    pub cookies_path: Option<String>,
+}
+
+/// Per-service settings for YouTube/YouTube Music downloads (stub).
+///
+/// Will be populated in milestone M9 (v2.1.0) when yt-dlp
+/// integration is implemented.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct YouTubeSettings {
+    /// YouTube cookies path (for age-restricted/member content).
+    pub cookies_path: Option<String>,
+}
+
+/// Per-service settings container, keyed by service ID string.
+///
+/// Wraps service-specific settings in a flat map for JSON
+/// serialization: `{ "apple-music": { ... }, "spotify": { ... } }`.
+/// Uses `#[serde(default)]` for backwards compatibility — older
+/// `settings.json` files without this field will get empty defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PerServiceSettings {
+    /// Apple Music-specific settings.
+    #[serde(rename = "apple-music", default)]
+    pub apple_music: AppleMusicSettings,
+    /// Spotify-specific settings (stub).
+    #[serde(default)]
+    pub spotify: SpotifySettings,
+    /// YouTube/YouTube Music-specific settings (stub).
+    #[serde(default)]
+    pub youtube: YouTubeSettings,
+    /// User-overridden engine priority per platform.
+    /// Keys are platform IDs (e.g., "bbc-iplayer"), values are ordered
+    /// engine IDs (first = primary). When empty, the default order from
+    /// engines.toml is used. Only needed for platforms with multiple
+    /// engines (e.g., BBC iPlayer: get_iplayer → yt-dlp).
+    #[serde(default)]
+    pub engine_priority: HashMap<String, Vec<String>>,
 }
 
 /// Complete application settings, persisted as `{app_data}/settings.json`.
@@ -798,6 +897,19 @@ pub struct AppSettings {
     pub setup_completed: bool,
 
     // ================================================================
+    // Per-Service Settings (#319)
+    // ================================================================
+    // Service-specific configuration nested under a single field.
+    // During the migration period, existing flat fields (storefront,
+    // cookies_path, musickit_*, etc.) are still the primary source.
+    // New code should read from service_settings where possible.
+    /// Per-service settings (Apple Music, Spotify, YouTube).
+    /// Backwards-compatible: missing from older settings.json files,
+    /// defaults to empty service settings.
+    #[serde(default)]
+    pub service_settings: PerServiceSettings,
+
+    // ================================================================
     // UI State
     // ================================================================
     // These fields persist UI layout preferences across sessions. They
@@ -1102,6 +1214,10 @@ impl Default for AppSettings {
             last_seen_version: String::new(),
             // Setup wizard has not been completed yet on a fresh install.
             setup_completed: false,
+
+            // --- Per-service settings ---
+            // Default service settings (all services use their own defaults).
+            service_settings: PerServiceSettings::default(),
 
             // --- UI state ---
             // Sidebar expanded by default for discoverability.

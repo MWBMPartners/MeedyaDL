@@ -132,6 +132,53 @@ export function getPlatformConfig(): Promise<FrontendPlatformConfig[]> {
   return invoke<FrontendPlatformConfig[]>('get_platform_config');
 }
 
+/**
+ * A download engine definition from engines.toml.
+ */
+export interface EngineDefinition {
+  id: string;
+  name: string;
+  required: boolean;
+  enabled: boolean;
+  bundled: boolean;
+  install_method: string;
+  pip_package: string | null;
+  cli_command: string;
+  homepage: string;
+  description: string;
+}
+
+/**
+ * A platform (media service) definition from engines.toml.
+ */
+export interface PlatformDefinition {
+  id: string;
+  name: string;
+  enabled: boolean;
+  icon: string | null;
+  url_patterns: string[];
+  engines: string[];
+  content_types: string[];
+}
+
+/**
+ * Full engine and platform configuration from engines.toml.
+ */
+export interface EngineConfig {
+  engines: EngineDefinition[];
+  platforms: PlatformDefinition[];
+}
+
+/**
+ * Returns the full engine and platform configuration from engines.toml.
+ *
+ * Rust handler: `get_engine_config()` in `src-tauri/src/commands/system.rs`
+ * Returns: EngineConfig with all engines and platforms.
+ */
+export function getEngineConfig(): Promise<EngineConfig> {
+  return invoke<EngineConfig>('get_engine_config');
+}
+
 // ============================================================
 // Dependency Management Commands
 // ============================================================

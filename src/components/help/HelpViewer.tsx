@@ -119,6 +119,7 @@ import {
   FileText, // "About" topic
   ShieldAlert, // "Disclaimer" topic
   Keyboard, // "Keyboard Shortcuts" topic
+  Globe, // "Supported Services" topic
   Search, // Search icon in the sidebar search bar
   X, // Clear search button icon
 } from 'lucide-react';
@@ -948,6 +949,99 @@ When a modal dialog is open (e.g., Crash Report, file picker):
 - **Tab** moves focus forward through interactive elements.
 - **Shift + Tab** moves focus backward.
 - **Skip to main content** link appears on first Tab press (top-left corner).`,
+  },
+  {
+    id: 'supported-services',
+    label: 'Supported Services',
+    icon: Globe,
+    content: `# Supported Services
+
+MeedyaDL supports downloading from multiple media services. Each service uses a dedicated download engine.
+
+## Apple Music
+
+**Engine:** [GAMDL](https://github.com/glomatico/gamdl) (installed via pip)
+
+Apple Music is the primary and most feature-rich service in MeedyaDL. It supports:
+
+- Songs, albums, playlists, music videos, and artist pages
+- Lossless (ALAC), Dolby Atmos, and AAC audio codecs
+- Enhanced LRC lyrics with word-by-word synchronization
+- Animated artwork download
+- Content advisory suffixes ([Explicit]/[Clean])
+- Smart re-download detection
+- Companion downloads (e.g., download both Atmos and Lossless versions)
+
+**Authentication:** Requires Apple Music cookies (imported from your browser or via the built-in login window).
+
+**Accepted URLs:**
+- \`https://music.apple.com/{region}/album/...\`
+- \`https://music.apple.com/{region}/playlist/...\`
+- \`https://music.apple.com/{region}/artist/...\`
+- \`https://classical.apple.com/...\` (Apple Music Classical)
+- \`https://itunes.apple.com/...\` (legacy)
+
+---
+
+## Spotify (Planned - v2.0.0)
+
+**Engine:** [Votify](https://github.com/glomatico/votify) (installed via pip)
+
+Spotify support will include:
+
+- Songs, albums, and playlists
+- Ogg Vorbis audio format
+- Lyrics download
+
+**Authentication:** Will require Spotify Premium cookies.
+
+**Accepted URLs:**
+- \`https://open.spotify.com/track/...\`
+- \`https://open.spotify.com/album/...\`
+- \`https://open.spotify.com/playlist/...\`
+
+---
+
+## YouTube / YouTube Music (Planned - v2.1.0)
+
+**Engine:** [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed via pip)
+
+YouTube support will include:
+
+- Videos, playlists, and channels
+- Multiple video resolutions (up to 4K)
+- Audio-only extraction
+- Subtitle download
+
+**Accepted URLs:**
+- \`https://youtube.com/watch?v=...\`
+- \`https://youtu.be/...\`
+- \`https://music.youtube.com/watch?v=...\`
+
+---
+
+## BBC iPlayer (Planned - v2.2.0)
+
+**Engines:** [get_iplayer](https://github.com/get-iplayer/get_iplayer) (primary) / [yt-dlp](https://github.com/yt-dlp/yt-dlp) (fallback)
+
+BBC iPlayer is the first service with **engine fallback**: if get_iplayer fails, MeedyaDL automatically tries yt-dlp.
+
+- TV programmes and radio shows
+- Region-restricted (UK VPN may be required)
+
+**Accepted URLs:**
+- \`https://bbc.co.uk/iplayer/...\`
+- \`https://bbc.co.uk/sounds/...\`
+
+---
+
+## Engine Fallback System
+
+Some services support multiple download engines. When the primary engine fails with a tool error (binary missing, crash, or unsupported format), MeedyaDL automatically tries the next engine in the priority order.
+
+**Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
+
+The engine priority for each service is defined in \`engines.toml\` and can be customised in Settings.`,
   },
 ];
 
