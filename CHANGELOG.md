@@ -6,6 +6,86 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Upgrade Vite to 8.x and @vitejs/plugin-react to v6 (#340)
+
+- Vite 7.3.x → 8.0.7 (Rolldown-based bundler, 10-30x faster builds)
+  - @vitejs/plugin-react 5.x → 6.0.1 (Oxc-based, Babel-free)
+  - Renamed build.rollupOptions → build.rolldownOptions (deprecated shim)
+  - Added INEFFECTIVE_DYNAMIC_IMPORT to warning suppression filter
+    (Rolldown's equivalent of Rollup's MIXED_IMPORTS)
+  - Updated comments to reflect Oxc/Rolldown internals
+  - 0 npm audit vulnerabilities
+  - All 268 frontend tests pass, lint clean, type-check clean
+
+- Upgrade i18next 25→26 and react-i18next 16→17 (#343)
+
+Drop-in upgrade — no deprecated API usage in our codebase.
+  Build, type-check, and all 268 tests pass.
+
+- Upgrade jsdom 28→29 (Vitest test environment) (#345)
+
+New CSSOM implementation; no impact on React component tests.
+  5 packages removed (old CSS deps). All 268 tests pass.
+
+- Upgrade ESLint 9→10 and fix preserve-caught-error lint violations (#342, #348)
+
+- ESLint 9.39.4 → 10.2.0, @eslint/js 9.39.4 → 10.0.1
+  - eslint-plugin-react-hooks updated for ESLint 10 compatibility
+  - @testing-library/dom added (was missing from dependency tree)
+  - Fixed 10 preserve-caught-error violations: added { cause: e } to
+    all throw new Error() calls in catch blocks across 4 store files
+  - Bumped tsconfig target/lib ES2021 → ES2022 (ErrorOptions.cause
+    requires ES2022 types; Safari 16.4 and Chrome 111 both support it)
+
+  All checks pass: lint clean, type-check clean, 268 tests, 0 vulnerabilities.
+
+- Upgrade lucide-react 0.577→1.x (#344)
+
+Upgrades lucide-react from 0.577.0 to ^1 (1.7.0). Audited all 53
+  unique icon imports across the codebase — zero brand icons found,
+  no breaking changes. Icons now set aria-hidden by default.
+
+- Upgrade TypeScript 5→6 (#341)
+
+Upgrades TypeScript from 5.9.3 to 6.0.2. Zero code changes required —
+  the codebase already follows TS6 conventions (strict mode, ESNext
+  module, bundler resolution, no enums/namespaces/decorators). All checks
+  pass: type-check clean, ESLint clean, Vite build succeeds, 268 tests
+  pass, 0 vulnerabilities.
+
+
+### 🐛 Bug Fixes
+
+- Add .npmrc with legacy-peer-deps for CI compatibility
+
+eslint-plugin-react-hooks@7.0.1 declares peerDependencies.eslint
+  "^9.0.0" which conflicts with ESLint 10. npm ci in CI fails without
+  legacy-peer-deps=true. The next stable release of the plugin will
+  add ESLint 10 support, at which point this file can be removed.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Cargo update for patch-level Rust dependency updates (#347)
+
+Updates 9 transitive dependencies to latest compatible versions:
+  - async-signal 0.2.13→0.2.14, cc 1.2.58→1.2.59
+  - fastrand 2.3.0→2.4.1, indexmap 2.13.0→2.13.1
+  - muda 0.17.1→0.17.2, notify-rust 4.12.0→4.14.0
+  - semver 1.0.27→1.0.28, toml_edit 0.25.10→0.25.11
+  - writeable 0.6.2→0.6.3
+
+  All 670 tests pass. No breaking changes.
+
+
+## [0.28.1] - 2026-04-08
+
 ### 🐛 Bug Fixes
 
 - Update Vite to patch 3 high-severity vulnerabilities
