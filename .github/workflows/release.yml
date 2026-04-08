@@ -785,6 +785,109 @@ jobs:
             echo "name=$REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
+      # Rebuild latest.json from release assets to fix the race condition
+      # where parallel tauri-action builds overwrite each other's entries.
+      # Each platform build uploads its own latest.json with only its entry,
+      # and the last build to finish wins — losing all other platforms.
+      # This step reconstructs the complete manifest after all builds finish.
+      - name: Rebuild updater manifest (latest.json)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+          VERSION="${TAG#v}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Download the current latest.json to preserve notes and pub_date
+          gh release download "$TAG" --repo "$REPO" --pattern "latest.json" --dir /tmp/updater --clobber 2>/dev/null || true
+
+          # Extract existing notes and pub_date (fall back to now if missing)
+          if [ -f /tmp/updater/latest.json ]; then
+            NOTES=$(jq -r '.notes // ""' /tmp/updater/latest.json)
+            PUB_DATE=$(jq -r '.pub_date // ""' /tmp/updater/latest.json)
+          fi
+          : "${NOTES:=See CHANGELOG.md for details.}"
+          : "${PUB_DATE:=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")}"
+
+          # List all release assets to determine which platforms built successfully
+          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+
+          # Start building the platforms JSON object
+          PLATFORMS="{}"
+
+          # Helper: download a .sig file content from the release
+          download_sig() {
+            local sig_name="$1"
+            if echo "$ASSETS" | grep -qF "$sig_name"; then
+              gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 2>/dev/null
+              if [ -f "/tmp/updater/$sig_name" ]; then
+                cat "/tmp/updater/$sig_name"
+                return 0
+              fi
+            fi
+            return 1
+          }
+
+          # macOS ARM64 (darwin-aarch64)
+          MAC_SIG_FILE="MeedyaDL_aarch64.app.tar.gz.sig"
+          MAC_URL="${BASE}/MeedyaDL_aarch64.app.tar.gz"
+          if SIG=$(download_sig "$MAC_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$MAC_URL" \
+              '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
+            echo "Added darwin-aarch64 to latest.json"
+          fi
+
+          # Windows x64 (windows-x86_64 + windows-x86_64-nsis)
+          WIN_X64_SIG_FILE="MeedyaDL_${VERSION}_x64-setup.exe.sig"
+          WIN_X64_URL="${BASE}/MeedyaDL_${VERSION}_x64-setup.exe"
+          if SIG=$(download_sig "$WIN_X64_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$WIN_X64_URL" \
+              '. + {"windows-x86_64": {"signature": $sig, "url": $url}, "windows-x86_64-nsis": {"signature": $sig, "url": $url}}')
+            echo "Added windows-x86_64 to latest.json"
+          fi
+
+          # Windows ARM64 (windows-aarch64 + windows-aarch64-nsis)
+          WIN_ARM_SIG_FILE="MeedyaDL_${VERSION}_arm64-setup.exe.sig"
+          WIN_ARM_URL="${BASE}/MeedyaDL_${VERSION}_arm64-setup.exe"
+          if SIG=$(download_sig "$WIN_ARM_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$WIN_ARM_URL" \
+              '. + {"windows-aarch64": {"signature": $sig, "url": $url}, "windows-aarch64-nsis": {"signature": $sig, "url": $url}}')
+            echo "Added windows-aarch64 to latest.json"
+          fi
+
+          # Linux x64 (linux-x86_64) — uses AppImage for updater
+          LINUX_X64_SIG_FILE="MeedyaDL_${VERSION}_amd64.AppImage.sig"
+          LINUX_X64_URL="${BASE}/MeedyaDL_${VERSION}_amd64.AppImage"
+          if SIG=$(download_sig "$LINUX_X64_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_URL" \
+              '. + {"linux-x86_64": {"signature": $sig, "url": $url}}')
+            echo "Added linux-x86_64 to latest.json"
+          fi
+
+          # Build the final latest.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' \
+            > /tmp/updater/latest.json
+
+          # Count platforms for logging
+          PLATFORM_COUNT=$(jq '.platforms | length' /tmp/updater/latest.json)
+          echo "Rebuilt latest.json with ${PLATFORM_COUNT} platform(s)"
+          jq '.platforms | keys' /tmp/updater/latest.json
+
+          # Upload the rebuilt manifest (overwrite the incomplete one)
+          if [ "$PLATFORM_COUNT" -gt 0 ]; then
+            gh release upload "$TAG" /tmp/updater/latest.json --repo "$REPO" --clobber
+            echo "Uploaded rebuilt latest.json"
+          else
+            echo "WARNING: No platform signatures found — skipping latest.json upload"
+          fi
+
       - name: Append download guide to release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

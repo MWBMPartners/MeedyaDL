@@ -103,6 +103,7 @@ export function UpdateBanner() {
   const isDownloadingUpdate = useUpdateStore((s) => s.isDownloadingUpdate);
   const downloadProgress = useUpdateStore((s) => s.downloadProgress);
   const updateInstalled = useUpdateStore((s) => s.updateInstalled);
+  const downloadError = useUpdateStore((s) => s.downloadError);
   const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
   const setPage = useUiStore((s) => s.setPage);
@@ -162,8 +163,9 @@ export function UpdateBanner() {
     try {
       await downloadAndInstallAppUpdate(tag);
       addToast('Update installed! Restart to apply.', 'success');
-    } catch {
-      addToast('Failed to download and install update', 'error');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      addToast(message || 'Failed to download and install update', 'error');
     }
   };
 
@@ -315,14 +317,27 @@ export function UpdateBanner() {
                         </div>
                       ) : (
                         update.tag_name && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            icon={<Download size={12} />}
-                            onClick={() => handleDownloadAndInstall(update.tag_name!)}
-                          >
-                            Download &amp; Install
-                          </Button>
+                          <>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              icon={<Download size={12} />}
+                              onClick={() => handleDownloadAndInstall(update.tag_name!)}
+                            >
+                              {downloadError ? 'Retry' : 'Download & Install'}
+                            </Button>
+                            {/* Manual download fallback after an update failure */}
+                            {downloadError && update.release_url && (
+                              <button
+                                type="button"
+                                onClick={() => handleViewRelease(update.release_url!)}
+                                className="text-[11px] text-accent hover:underline cursor-pointer"
+                                title="Download the update manually from GitHub"
+                              >
+                                Download Manually
+                              </button>
+                            )}
+                          </>
                         )
                       )}
                     </>
