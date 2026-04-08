@@ -6,6 +6,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Add workflow to fix updater manifest for existing releases
+
+Adds a `workflow_dispatch` workflow that rebuilds the `latest.json`
+  updater manifest for any existing GitHub Release. This fixes the race
+  condition where parallel platform builds each overwrite `latest.json`,
+  causing the last platform to win and missing earlier platforms.
+
+  Triggered manually via Actions UI with a release tag input.
+
+
+## [0.29.0] - 2026-04-08
+
 ### ✨ Features
 
 - Upgrade Vite to 8.x and @vitejs/plugin-react to v6 (#340)
