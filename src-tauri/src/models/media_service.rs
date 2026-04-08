@@ -184,25 +184,6 @@ impl MediaServiceId {
     }
 }
 
-/// Display implementation for `MediaServiceId`.
-///
-/// Returns the kebab-case platform ID string that matches the engine
-/// registry keys in `engines.toml` (e.g., `"apple-music"`, `"spotify"`).
-/// This is used throughout the codebase when a platform ID string is
-/// needed for engine resolution, manifest metadata, and queue persistence.
-impl std::fmt::Display for MediaServiceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let id = match self {
-            Self::AppleMusic => "apple-music",
-            Self::YouTubeMusic => "youtube-music",
-            Self::YouTube => "youtube",
-            Self::Spotify => "spotify",
-            Self::BbcIPlayer => "bbc-iplayer",
-        };
-        write!(f, "{id}")
-    }
-}
-
 // ============================================================
 // Service Capabilities
 // ============================================================
