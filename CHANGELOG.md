@@ -37,6 +37,7 @@ Root cause: The `latest.json` updater manifest was missing the
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
