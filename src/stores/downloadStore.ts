@@ -399,7 +399,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isSubmitting: false });
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   },
 
@@ -767,7 +767,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isSubmitting: false });
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   },
 }));
