@@ -6,12 +6,54 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Update Vite to patch 3 high-severity vulnerabilities
+
+npm audit fix resolves:
+  - GHSA-4w7w-66w2-5vf9 (Path Traversal in Optimized Deps .map Handling)
+  - GHSA-v2wj-q39q-566r (server.fs.deny bypassed with queries)
+  - GHSA-p9ff-h696-f583 (Arbitrary File Read via Dev Server WebSocket)
+
+- Add Display impl for MediaServiceId and missing QueueItem field
+
+- Implement std::fmt::Display for MediaServiceId (delegates to
+    display_name()), enabling .to_string() calls in queue restoration
+  - Add missing engine_fallback_index: 0 to QueueItem initializer in
+    restore_items()
+
+  Fixes Backend CI compilation errors on all 3 platforms.
+
+- Resolve remaining Backend CI compilation errors in tests
+
+- download.rs: add missing service/engine fields to 3 test QueueItemStatus
+    initializers (required since #318 added these fields)
+  - download_queue.rs: update 3 tuple destructurings from 3-element to
+    4-element to match next_pending() return type change from #318
+  - engine_runner.rs: remove tauri::test::mock_builder() call that requires
+    the "test" Cargo feature flag not enabled in Cargo.toml
+  - media_service.rs: use kebab-case platform IDs in Display impl to match
+    engines.toml keys used by resolve_engine()
+
+  All 670 tests pass locally (668 unit + 2 doc-tests).
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Updated internal docs
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Remove duplicate Display impl and update generated schemas
+
+Linter added a second Display impl for MediaServiceId with kebab-case
+  IDs; removed it in favour of the original display_name()-based impl.
+  Includes auto-generated Tauri schema updates.
+
 
 ## [0.28.0] - 2026-04-02
 
@@ -106,14 +148,112 @@ Transitive dependency from lofty (ReplayGain tagging). Archived by
 
 ## [0.26.2] - 2026-04-01
 
+### ✨ Features
+
+- Multi-service URL parser with YouTube, Spotify, BBC iPlayer detection (#315)
+
+Add YouTube, YouTube Music, Spotify, and BBC iPlayer variants to
+  MediaServiceId with domain detection. Add generic parseMediaUrl() and
+  detectService() to frontend url-parser.ts. Add detect_service IPC command.
+  Existing Apple Music parsing preserved as-is.
+
+- Service registry and engine resolver from engines.toml (#316)
+
+Add EngineRegistry service that provides typed runtime access to the
+  compiled-in engines.toml configuration. Includes engine/platform lookup,
+  URL-based platform detection, and engine chain resolution (primary +
+  fallbacks). Exposed via get_engine_config IPC command with TypeScript
+  types in tauri-commands.ts.
+
+- Service-aware download queue with service/engine fields (#318)
+
+Add service and engine fields to QueueItemStatus and PersistedQueueItem.
+  Detect media service at enqueue time via MediaServiceId::from_url() and
+  resolve the primary engine via EngineRegistry. Guard Apple Music-specific
+  enrichment pipeline behind service check so non-Apple Music downloads
+  skip API metadata, lyrics, artwork, and companion downloads. Replace
+  hardcoded music.apple.com domain checks with MediaServiceId for manifest
+  platform detection. Backwards-compatible via serde(default) for legacy
+  persisted queue items.
+
+- Per-service settings infrastructure (#319)
+
+Add PerServiceSettings container with typed structs for Apple Music,
+  Spotify (stub), and YouTube (stub) service-specific configuration.
+  Nest under AppSettings.service_settings with serde(default) for
+  backwards compatibility with existing settings.json files. Apple Music
+  settings mirror existing flat fields (storefront, cookies_path,
+  musickit_*, animated_artwork, enhanced_lrc, content_advisory). Existing
+  flat fields preserved during migration period. TypeScript types added
+  for all service settings interfaces.
+
+- Per-platform engine priority and fallback (#320)
+
+Add try_engine_fallback() to download queue that advances through
+  the engine chain (from engines.toml) when a tool error occurs.
+  Network and auth errors skip engine fallback. Add engine_fallback_index
+  to QueueItem for tracking position in the chain. Add engine_priority
+  HashMap to PerServiceSettings for user-overridden engine ordering
+  per platform (defaults to engines.toml order when empty).
+
+
 ### 🐛 Bug Fixes
+
+- Prioritise Sound & Video category in Linux desktop entry
+
+Remove Utility category from .desktop file so MeedyaDL appears under
+  "Sound & Video" rather than "Internet" or "Accessories" on Linux DEs
+  like Raspberry Pi OS (LXDE). AudioVideo remains the primary category
+  with Network as secondary.
+
+- Restore Utility category in Linux desktop entry
+
+Restore Utility category — MeedyaDL is a download utility focused on
+  audio/video. Keep AudioVideo as the primary category so it appears
+  under "Sound & Video" on Raspberry Pi OS and similar DEs.
 
 - Use PNG fallback for logotype in light mode README header
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Per-service help documentation and UI polish (#321)
+
+Add "Supported Services" help topic covering Apple Music, Spotify,
+  YouTube, YouTube Music, and BBC iPlayer with engine information,
+  accepted URL formats, authentication requirements, and the engine
+  fallback system. Update help index with new topic reference and
+  multi-service architecture description.
+
+- Update CLAUDE.md with multi-service architecture context
+
+Add comprehensive multi-service architecture documentation to CLAUDE.md:
+  - New architecture bullet covering EngineRegistry, EngineCommandBuilder,
+    service-aware queue, PerServiceSettings, and engine fallback
+  - Updated Key Directories with engine_registry and engine_runner services
+  - Phase 7 added to Implementation Phases for #107
+  - Planned Service Integrations updated to reflect completed architecture
+    foundation (#314-#321) vs remaining per-milestone work
+
 - Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- Rename MusicService → MediaService across codebase (#314)
+
+Pure rename — no behaviour change. Renames MusicServiceId to MediaServiceId,
+  MusicService trait to MediaService, and music_service.rs to media_service.rs
+  across Rust, TypeScript, and documentation.
+
+- Abstract subprocess spawning with EngineCommandBuilder trait (#317)
+
+Create engine_runner.rs with generic run_engine() function and
+  EngineCommandBuilder trait for service-agnostic subprocess spawning.
+  Refactor gamdl_service::run_gamdl() to delegate to the engine runner.
+  Add stub command builders for Votify, yt-dlp, and get_iplayer with
+  factory function get_command_builder(). Emits both "engine-output"
+  (new) and "gamdl-output" (legacy) events for backwards compatibility.
+
 
 ## [0.26.1] - 2026-04-01
 
