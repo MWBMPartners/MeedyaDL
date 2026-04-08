@@ -58,6 +58,7 @@ export function UpdatesPage() {
   const isDownloadingUpdate = useUpdateStore((s) => s.isDownloadingUpdate);
   const downloadProgress = useUpdateStore((s) => s.downloadProgress);
   const updateInstalled = useUpdateStore((s) => s.updateInstalled);
+  const downloadError = useUpdateStore((s) => s.downloadError);
   const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
 
@@ -98,8 +99,9 @@ export function UpdatesPage() {
     try {
       await downloadAndInstallAppUpdate(tag);
       addToast('Update installed! Restart to apply.', 'success');
-    } catch {
-      addToast('Failed to download and install update', 'error');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      addToast(message || 'Failed to download and install update', 'error');
     }
   };
 
@@ -278,7 +280,7 @@ export function UpdatesPage() {
                               icon={<Download size={12} />}
                               onClick={() => handleDownloadAndInstall(update.tag_name!)}
                             >
-                              Download &amp; Install
+                              {downloadError ? 'Retry Download' : 'Download & Install'}
                             </Button>
                           )
                         )}
@@ -310,6 +312,22 @@ export function UpdatesPage() {
                     This is a pre-release version and may contain bugs or incomplete features. Not
                     recommended for production use.
                   </p>
+                )}
+
+                {/* Download error with manual fallback */}
+                {update.name === 'MeedyaDL' && downloadError && !updateInstalled && (
+                  <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3 mb-3">
+                    <p className="text-xs text-status-error mb-2">{downloadError}</p>
+                    {update.release_url && (
+                      <button
+                        type="button"
+                        onClick={() => handleViewRelease(update.release_url!)}
+                        className="text-xs text-accent hover:underline cursor-pointer"
+                      >
+                        Download manually from GitHub
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {/* Full release notes (markdown) for MeedyaDL */}

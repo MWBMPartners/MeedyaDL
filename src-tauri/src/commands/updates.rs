@@ -158,8 +158,7 @@ pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
 pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
     log::info!("Upgrading {package}...");
     emit_app_log(&app, &format!("Upgrading {package}..."));
-    let version =
-        crate::services::pip_engine_service::install_pip_engine(&app, &package).await?;
+    let version = crate::services::pip_engine_service::install_pip_engine(&app, &package).await?;
     log::info!("{package} upgraded to {version}");
     emit_app_log(&app, &format!("{package} upgraded to v{version}"));
     Ok(version)
@@ -267,6 +266,49 @@ pub async fn download_and_install_app_update(
     log::info!("Downloading app update from tag: {tag}");
     emit_app_log(&app, &format!("Downloading app update {tag}..."));
 
+    // macOS pre-flight: verify the app directory is writable before attempting
+    // the update. The Tauri updater replaces the .app bundle in-place, which
+    // fails silently with a generic error when the directory is read-only
+    // (e.g., running from a mounted DMG, or /Applications without write access).
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            // On macOS, the executable is at MeedyaDL.app/Contents/MacOS/MeedyaDL.
+            // The updater replaces the entire .app bundle, so we need write access
+            // to the directory containing the .app (typically /Applications/).
+            if let Some(app_dir) = exe_path
+                .parent() // MacOS/
+                .and_then(|p| p.parent()) // Contents/
+                .and_then(|p| p.parent()) // MeedyaDL.app/
+                .and_then(|p| p.parent())
+            // /Applications/ (or wherever the .app lives)
+            {
+                let metadata = std::fs::metadata(app_dir);
+                let is_writable = metadata
+                    .as_ref()
+                    .map(|m| !m.permissions().readonly())
+                    .unwrap_or(false);
+
+                if !is_writable {
+                    let msg = format!(
+                        "Cannot update: the app directory \"{}\" is not writable. \
+                         If you are running MeedyaDL from a disk image (.dmg), \
+                         drag it to your Applications folder first and relaunch.",
+                        app_dir.display()
+                    );
+                    log::warn!("{msg}");
+                    emit_app_log(&app, &msg);
+                    return Err(msg);
+                }
+
+                log::debug!(
+                    "Pre-flight: app directory is writable ({})",
+                    app_dir.display()
+                );
+            }
+        }
+    }
+
     // Construct the endpoint URL for the specific release tag.
     // Each GitHub Release contains a `latest.json` manifest that describes
     // the available update binaries and their signatures for each platform.
@@ -288,13 +330,21 @@ pub async fn download_and_install_app_update(
 
     // Check if an update is available at the specified endpoint.
     // This downloads and parses the `latest.json` manifest.
-    let update: Option<tauri_plugin_updater::Update> = updater
-        .check()
-        .await
-        .map_err(|e| format!("Failed to check for update: {e}"))?;
+    let update: Option<tauri_plugin_updater::Update> = updater.check().await.map_err(|e| {
+        let msg = format!("Failed to check for update: {e}");
+        log::error!("{msg}");
+        emit_app_log(&app, &msg);
+        categorize_update_error(&e.to_string())
+    })?;
 
     let Some(update) = update else {
-        return Err("No update found at the specified release tag".to_string());
+        let msg = format!(
+            "No update found for this platform at tag {tag}. \
+             The release may not include a build for your system yet."
+        );
+        log::warn!("{msg}");
+        emit_app_log(&app, &msg);
+        return Err(msg);
     };
 
     log::info!(
@@ -332,7 +382,12 @@ pub async fn download_and_install_app_update(
             },
         )
         .await
-        .map_err(|e| format!("Failed to download and install update: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("Failed to download and install update: {e}");
+            log::error!("{msg}");
+            emit_app_log(&app, &msg);
+            categorize_update_error(&e.to_string())
+        })?;
 
     log::info!("App update installed successfully. Restart required.");
     emit_app_log(&app, "App update installed — restart required");
@@ -344,4 +399,44 @@ pub async fn download_and_install_app_update(
     );
 
     Ok("Update installed successfully. Restart the application to apply.".to_string())
+}
+
+/// Categorizes an update error into a user-friendly message with actionable guidance.
+///
+/// The Tauri updater plugin can fail for many reasons — network issues, signature
+/// mismatches, filesystem permissions, etc. Raw error messages from reqwest or
+/// the OS are often cryptic. This function inspects the error text and returns
+/// a clearer message that helps the user understand what went wrong and what to do.
+fn categorize_update_error(error: &str) -> String {
+    let lower = error.to_lowercase();
+
+    if lower.contains("permission denied") || lower.contains("read-only") || lower.contains("eperm")
+    {
+        "Update failed: permission denied. Try moving MeedyaDL to your Applications folder, \
+         or check that you have write access to the app directory."
+            .to_string()
+    } else if lower.contains("network")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("connection")
+        || lower.contains("dns")
+        || lower.contains("could not resolve")
+    {
+        format!(
+            "Update failed: network error ({error}). Check your internet connection and try again."
+        )
+    } else if lower.contains("signature") || lower.contains("verify") {
+        format!(
+            "Update failed: signature verification error ({error}). \
+             The update file may be corrupted. Try again, or download manually from the release page."
+        )
+    } else if lower.contains("no such file") || lower.contains("not found") || lower.contains("404")
+    {
+        format!(
+            "Update failed: release assets not found ({error}). \
+             The build for your platform may not be ready yet. Try again later."
+        )
+    } else {
+        format!("Update failed: {error}")
+    }
 }
