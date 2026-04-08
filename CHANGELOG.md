@@ -69,6 +69,7 @@ eslint-plugin-react-hooks@7.0.1 declares peerDependencies.eslint
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
