@@ -6,11 +6,49 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Resolve macOS update download failure
+
+Root cause: The `latest.json` updater manifest was missing the
+  `darwin-aarch64` platform entry due to a race condition in the
+  release workflow. When parallel platform builds each upload their
+  own `latest.json` via tauri-action, the last build to finish
+  overwrites all previous entries. For v0.29.0, the Windows build
+  finished last, leaving only `windows-x86_64` entries.
+
+- Resolve npm audit high-severity vulnerability in basic-ftp
+
+Updates basic-ftp 5.2.0 → 5.2.1 to fix FTP Command Injection via
+  CRLF (GHSA-chqc-8p9q-pq6q). Transitive dependency via puppeteer →
+  proxy-agent → get-uri. Fixes CI Frontend job failure on npm audit.
+
+- Resolve macOS update download failure (#355)
+
+Root cause: The `latest.json` updater manifest was missing the
+  `darwin-aarch64` platform entry due to a race condition in the release
+  workflow. When parallel platform builds each upload their own
+  `latest.json` via tauri-action, the last build to finish overwrites all
+  previous entries. For v0.29.0, the Windows build finished last, leaving
+  only `windows-x86_64` entries.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
+
+- Add workflow to fix updater manifest for existing releases
+
+Adds a `workflow_dispatch` workflow that rebuilds the `latest.json`
+  updater manifest for any existing GitHub Release. This fixes the race
+  condition where parallel platform builds each overwrite `latest.json`,
+  causing the last platform to win and missing earlier platforms.
+
+  Triggered manually via Actions UI with a release tag input.
 
 - Add workflow to fix updater manifest for existing releases
 
