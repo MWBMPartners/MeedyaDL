@@ -7,9 +7,9 @@
  *
  * This file configures Vite as the frontend build tool and dev server for the
  * Tauri 2.0 desktop application. Vite handles:
- *   - TypeScript/JSX transpilation via the React plugin (uses esbuild under the hood)
+ *   - TypeScript/JSX transpilation via the React plugin (uses Oxc in v6+)
  *   - Hot Module Replacement (HMR) during development via React Fast Refresh
- *   - Production bundling with Rollup (tree-shaking, code-splitting, minification)
+ *   - Production bundling with Rolldown (tree-shaking, code-splitting, minification)
  *   - Dev server that Tauri's WebView connects to during development
  *
  * Related config files:
@@ -51,7 +51,7 @@ export default defineConfig({
    * plugins -- Array of Vite plugins to apply during build and dev.
    *
    * @vitejs/plugin-react enables:
-   *   - JSX/TSX transformation using esbuild (fast compilation)
+   *   - JSX/TSX transformation using Oxc (fast compilation, Babel-free in v6+)
    *   - React Fast Refresh for instant HMR without losing component state
    *   - Automatic JSX runtime (no need to `import React from 'react'`)
    *
@@ -119,9 +119,9 @@ export default defineConfig({
    */
   build: {
     /**
-     * target -- Browser compatibility target for esbuild output.
+     * target -- Browser compatibility target for the bundler output.
      *
-     * Controls which JavaScript syntax features esbuild will downlevel:
+     * Controls which JavaScript syntax features will be downleveled:
      *   - 'safari16.4': Ensures compatibility with WebKit on macOS 13.3+ and Linux.
      *     Required by Tailwind CSS v4 which uses modern CSS features (oklch, @property).
      *   - 'chrome111': Ensures compatibility with Edge WebView2 on Windows.
@@ -203,7 +203,7 @@ export default defineConfig({
      */
     chunkSizeWarningLimit: 700,
 
-    rollupOptions: {
+    rolldownOptions: {
       onwarn(warning, warn) {
         // Suppress the "dynamically imported by X but also statically imported by Y"
         // warning for uiStore.ts. The dynamic imports in main.tsx's global error
@@ -211,6 +211,7 @@ export default defineConfig({
         // bootstrap, while other components statically import the same store.
         if (
           warning.code === 'MIXED_IMPORTS' ||
+          warning.code === 'INEFFECTIVE_DYNAMIC_IMPORT' ||
           (warning.message?.includes('is dynamically imported') &&
             warning.message?.includes('uiStore'))
         ) {
