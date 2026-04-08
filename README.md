@@ -3,7 +3,7 @@
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo.svg"><img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="96">
   </picture>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logotype.svg"><img src="assets/brand/logotype.svg" alt="MeedyaDL" height="96">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logotype.svg"><img src="assets/brand/logotype.png" alt="MeedyaDL" height="96">
   </picture>
 </p>
 <p align="center">
@@ -356,7 +356,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v0.26.1) <!-- x-release-please-version -->
+### v1.x — Current (v0.28.0) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry

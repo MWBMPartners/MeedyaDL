@@ -312,6 +312,8 @@ Enable in **Settings > Metadata**. Generates Chromaprint audio fingerprints usin
 
 Enable in **Settings > Metadata > ReplayGain Analysis**. Uses FFmpeg (already installed) to analyse audio loudness via the EBU R128 standard. Calculates both **per-track** and **per-album** gain so players can normalise in either mode (per-track for shuffle, per-album for album listening). Tags enable volume normalisation in compatible media players (foobar2000, Kodi, VLC, AIMP, Poweramp, etc.) without altering the audio data.
 
+**Supported formats:** M4A, M4V, MP4, M4P, M4B (iTunes freeform atoms via mp4ameta), FLAC, OGG, OGA, Opus (Vorbis Comments via lofty), and MP3 (ID3v2 TXXX frames via lofty).
+
 | Tag (Namespace:Name) | Scope | Value |
 | -------------------- | ----- | ----- |
 | `com.apple.iTunes:replaygain_track_gain` | Per-track | e.g., `-4.20 dB` |
@@ -323,6 +325,7 @@ Enable in **Settings > Metadata > ReplayGain Analysis**. Uses FFmpeg (already in
 
 - **Reference Level** — target loudness. Options: -18 LUFS (EBU R128, default), -14 LUFS (Spotify/YouTube), -23 LUFS (broadcast), -16 LUFS (Apple Music/iTunes)
 - **Prevent Clipping** — limits gain so peak × gain never exceeds 0 dBFS. Enabled by default. Prevents digital distortion on tracks mastered near maximum loudness
+- **Include Album Gain** — when enabled (default), computes and writes album-level tags (`replaygain_album_gain`, `replaygain_album_peak`) alongside track tags. Album gain preserves the intended dynamic range when listening to a full album in order. When disabled, only per-track tags are written (better for shuffle-only listening)
 
 **Technical details:**
 

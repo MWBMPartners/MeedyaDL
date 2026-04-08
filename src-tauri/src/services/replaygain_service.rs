@@ -75,16 +75,18 @@ pub struct ReplayGainResult {
 
 /// Process all M4A files in the output directory for `ReplayGain` analysis.
 ///
-/// Analyses every track individually for track gain, then computes album-level
-/// gain from the collective loudness measurements. Writes 4 tags per file:
+/// Analyses every track individually for track gain, then optionally computes
+/// album-level gain from the collective loudness measurements. When
+/// `include_album_gain` is true, writes 4 tags per file:
 /// `replaygain_track_gain`, `replaygain_track_peak`, `replaygain_album_gain`,
-/// `replaygain_album_peak`.
+/// `replaygain_album_peak`. When false, only writes the 2 track-level tags.
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for tool path resolution
 /// * `output_path` - Download output path (file or album directory)
 /// * `reference_level` - Target loudness in LUFS (e.g., -18.0 for EBU R128)
 /// * `prevent_clipping` - When true, limits gain so peak × gain never exceeds 1.0
+/// * `include_album_gain` - When true, computes and writes album-level gain tags
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
@@ -94,19 +96,20 @@ pub async fn process_replaygain_for_directory(
     output_path: &str,
     reference_level: f64,
     prevent_clipping: bool,
+    include_album_gain: bool,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
-    let m4a_files = collect_m4a_files(output_path);
-    if m4a_files.is_empty() {
+    let audio_files = collect_audio_files(output_path);
+    if audio_files.is_empty() {
         return Ok(0);
     }
 
     // Phase 1: Analyse all tracks individually
     let mut track_results: Vec<(PathBuf, ReplayGainResult)> = Vec::new();
 
-    let total_files = m4a_files.len();
-    for (idx, file_path) in m4a_files.iter().enumerate() {
+    let total_files = audio_files.len();
+    for (idx, file_path) in audio_files.iter().enumerate() {
         log::info!(
             "ReplayGain: analysing file {}/{} — {}",
             idx + 1,
@@ -144,43 +147,50 @@ pub async fn process_replaygain_for_directory(
         return Ok(0);
     }
 
-    // Phase 2: Compute album-level gain
+    // Phase 2: Compute album-level gain (when enabled)
     // Album integrated loudness = average of all track loudness values (in linear power domain)
     // Formula: -0.691 + 10*log10(mean(10^((Li+0.691)/10))) for each track loudness Li
     // Simplified: average the linear power, convert back to LUFS
-    let album_loudness = {
-        let sum: f64 = track_results
+    let (album_gain_db, album_peak) = if include_album_gain {
+        let album_loudness = {
+            let sum: f64 = track_results
+                .iter()
+                .map(|(_, r)| 10.0_f64.powf(r.integrated_loudness / 10.0))
+                .sum();
+            let mean = sum / track_results.len() as f64;
+            10.0 * mean.log10()
+        };
+        let mut gain = reference_level - album_loudness;
+
+        // Album peak = highest true peak across all tracks
+        let peak = track_results
             .iter()
-            .map(|(_, r)| 10.0_f64.powf(r.integrated_loudness / 10.0))
-            .sum();
-        let mean = sum / track_results.len() as f64;
-        10.0 * mean.log10()
-    };
-    let mut album_gain_db = reference_level - album_loudness;
+            .map(|(_, r)| r.true_peak)
+            .fold(0.0_f64, f64::max);
 
-    // Album peak = highest true peak across all tracks
-    let album_peak = track_results
-        .iter()
-        .map(|(_, r)| r.true_peak)
-        .fold(0.0_f64, f64::max);
-
-    // Clipping prevention for album gain
-    if prevent_clipping && album_peak > 0.0 {
-        let max_album_gain = -20.0 * album_peak.log10();
-        if album_gain_db > max_album_gain {
-            album_gain_db = max_album_gain;
+        // Clipping prevention for album gain
+        if prevent_clipping && peak > 0.0 {
+            let max_album_gain = -20.0 * peak.log10();
+            if gain > max_album_gain {
+                gain = max_album_gain;
+            }
         }
-    }
 
-    log::info!(
-        "ReplayGain album: {:.2} dB gain, {:.6} peak ({} tracks, ref={:.1} LUFS)",
-        album_gain_db,
-        album_peak,
-        track_results.len(),
-        reference_level
-    );
+        log::info!(
+            "ReplayGain album: {:.2} dB gain, {:.6} peak ({} tracks, ref={:.1} LUFS)",
+            gain,
+            peak,
+            track_results.len(),
+            reference_level
+        );
 
-    // Phase 3: Write all 4 tags to each file
+        (Some(gain), Some(peak))
+    } else {
+        log::info!("ReplayGain album gain disabled — writing track-level tags only");
+        (None, None)
+    };
+
+    // Phase 3: Write tags to each file (4 tags when album gain enabled, 2 when not)
     let mut tagged_count = 0;
     for (file_path, result) in &track_results {
         match write_replaygain_tags(
@@ -193,12 +203,20 @@ pub async fn process_replaygain_for_directory(
         .await
         {
             Ok(()) => {
-                log::debug!(
-                    "ReplayGain: {} → track={:.2} dB, album={:.2} dB",
-                    file_path.display(),
-                    result.gain_db,
-                    album_gain_db
-                );
+                if let Some(ag) = album_gain_db {
+                    log::debug!(
+                        "ReplayGain: {} → track={:.2} dB, album={:.2} dB",
+                        file_path.display(),
+                        result.gain_db,
+                        ag
+                    );
+                } else {
+                    log::debug!(
+                        "ReplayGain: {} → track={:.2} dB",
+                        file_path.display(),
+                        result.gain_db,
+                    );
+                }
                 tagged_count += 1;
             }
             Err(e) => {
@@ -209,11 +227,12 @@ pub async fn process_replaygain_for_directory(
 
     if tagged_count > 0 {
         log::info!(
-            "Analysed {} of {} file(s) for ReplayGain (ref={:.1} LUFS, clipping_prevention={})",
+            "Analysed {} of {} file(s) for ReplayGain (ref={:.1} LUFS, clipping_prevention={}, album_gain={})",
             tagged_count,
-            m4a_files.len(),
+            audio_files.len(),
             reference_level,
-            prevent_clipping
+            prevent_clipping,
+            include_album_gain
         );
     }
 
@@ -224,24 +243,66 @@ pub async fn process_replaygain_for_directory(
 // Internal: Per-File Analysis and Tagging
 // ============================================================
 
-/// Write all 4 `ReplayGain` tags (track + album) to a single M4A file.
+/// Write `ReplayGain` tags to a single audio file.
 ///
-/// The `Tag::read/write` is blocking file I/O, so it is offloaded
-/// to `spawn_blocking` to prevent starving the tokio runtime on slow
-/// filesystems (FUSE mounts, NFS, cloud storage).
+/// Dispatches to the appropriate tagging mechanism based on file format:
+/// - **MP4-family** (M4A, M4V, MP4, M4P, M4B): iTunes freeform atoms via `mp4ameta`
+/// - **Vorbis Comment** (FLAC, OGG, OGA, Opus): Standard ReplayGain Vorbis Comment fields via `lofty`
+/// - **ID3v2** (MP3): TXXX user-defined text frames via `lofty`
+///
+/// Always writes track-level tags. Album-level tags are only written
+/// when the album gain values are provided (`Some`).
+///
+/// Blocking file I/O is offloaded to `spawn_blocking` to prevent starving
+/// the tokio runtime on slow filesystems (FUSE mounts, NFS, cloud storage).
 async fn write_replaygain_tags(
     file_path: &Path,
     track_gain_db: f64,
     track_peak: f64,
-    album_gain_db: f64,
-    album_peak: f64,
+    album_gain_db: Option<f64>,
+    album_peak: Option<f64>,
+) -> Result<(), String> {
+    let format = detect_format(file_path).ok_or_else(|| {
+        format!(
+            "Unsupported format for ReplayGain tagging: {}",
+            file_path.display()
+        )
+    })?;
+
+    match format {
+        AudioFormat::Mp4 => {
+            write_replaygain_mp4(file_path, track_gain_db, track_peak, album_gain_db, album_peak)
+                .await
+        }
+        AudioFormat::VorbisComment | AudioFormat::Id3v2 => {
+            write_replaygain_lofty(
+                file_path,
+                track_gain_db,
+                track_peak,
+                album_gain_db,
+                album_peak,
+            )
+            .await
+        }
+    }
+}
+
+/// Write `ReplayGain` tags to an MP4-family file via `mp4ameta`.
+///
+/// Uses iTunes freeform atoms under the `com.apple.iTunes` namespace,
+/// the de facto standard for ReplayGain in MP4/M4A containers.
+async fn write_replaygain_mp4(
+    file_path: &Path,
+    track_gain_db: f64,
+    track_peak: f64,
+    album_gain_db: Option<f64>,
+    album_peak: Option<f64>,
 ) -> Result<(), String> {
     let tag_path = file_path.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut tag =
-            Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
+            Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read MP4: {e}"))?;
 
-        // Track-level tags
         tag.set_data(
             FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_track_gain"),
             Data::Utf8(format!("{track_gain_db:.2} dB")),
@@ -251,23 +312,82 @@ async fn write_replaygain_tags(
             Data::Utf8(format!("{track_peak:.6}")),
         );
 
-        // Album-level tags
-        tag.set_data(
-            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_gain"),
-            Data::Utf8(format!("{album_gain_db:.2} dB")),
-        );
-        tag.set_data(
-            FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_peak"),
-            Data::Utf8(format!("{album_peak:.6}")),
-        );
+        if let (Some(ag), Some(ap)) = (album_gain_db, album_peak) {
+            tag.set_data(
+                FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_gain"),
+                Data::Utf8(format!("{ag:.2} dB")),
+            );
+            tag.set_data(
+                FreeformIdent::new_static(ITUNES_NAMESPACE, "replaygain_album_peak"),
+                Data::Utf8(format!("{ap:.6}")),
+            );
+        }
 
         tag.write_to_path(&tag_path)
-            .map_err(|e| format!("Failed to write M4A: {e}"))?;
+            .map_err(|e| format!("Failed to write MP4: {e}"))?;
 
         Ok::<(), String>(())
     })
     .await
-    .map_err(|e| format!("ReplayGain tag task panicked: {e}"))??;
+    .map_err(|e| format!("ReplayGain MP4 tag task panicked: {e}"))??;
+
+    Ok(())
+}
+
+/// Write `ReplayGain` tags to FLAC/OGG/Opus/MP3 files via `lofty`.
+///
+/// - FLAC/OGG/Opus: Vorbis Comment fields (the ReplayGain specification's native format)
+/// - MP3: ID3v2 TXXX user-defined text frames
+///
+/// Uses uppercase key names (`REPLAYGAIN_TRACK_GAIN`) per the ReplayGain spec.
+/// `lofty` automatically selects the correct tag type based on the file format.
+async fn write_replaygain_lofty(
+    file_path: &Path,
+    track_gain_db: f64,
+    track_peak: f64,
+    album_gain_db: Option<f64>,
+    album_peak: Option<f64>,
+) -> Result<(), String> {
+    let tag_path = file_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        use lofty::config::WriteOptions;
+        use lofty::prelude::*;
+
+        let mut tagged_file = lofty::read_from_path(&tag_path)
+            .map_err(|e| format!("Failed to read {}: {e}", tag_path.display()))?;
+
+        // Get or create the primary tag for this format.
+        // lofty picks the correct tag type: VorbisComments for FLAC/OGG, ID3v2 for MP3.
+        let tag = match tagged_file.primary_tag_mut() {
+            Some(t) => t,
+            None => {
+                // No existing tag — insert a new primary tag
+                let tag_type = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(lofty::tag::Tag::new(tag_type));
+                tagged_file
+                    .primary_tag_mut()
+                    .ok_or_else(|| "Failed to create primary tag".to_string())?
+            }
+        };
+
+        // Write track-level tags
+        tag.insert_text(ItemKey::ReplayGainTrackGain, format!("{track_gain_db:.2} dB"));
+        tag.insert_text(ItemKey::ReplayGainTrackPeak, format!("{track_peak:.6}"));
+
+        // Write album-level tags (when enabled)
+        if let (Some(ag), Some(ap)) = (album_gain_db, album_peak) {
+            tag.insert_text(ItemKey::ReplayGainAlbumGain, format!("{ag:.2} dB"));
+            tag.insert_text(ItemKey::ReplayGainAlbumPeak, format!("{ap:.6}"));
+        }
+
+        tagged_file
+            .save_to_path(&tag_path, WriteOptions::default())
+            .map_err(|e| format!("Failed to write {}: {e}", tag_path.display()))?;
+
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("ReplayGain lofty tag task panicked: {e}"))??;
 
     Ok(())
 }
@@ -386,24 +506,66 @@ fn parse_dbfs_value(text: &str, key: &str) -> Option<f64> {
 // Internal: File Collection
 // ============================================================
 
-/// Collect all M4A file paths from the output path.
-fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
+/// Audio format families for `ReplayGain` tag writing.
+///
+/// Each family uses a different tagging mechanism:
+/// - `Mp4`: iTunes freeform atoms via `mp4ameta` (M4A, M4V, MP4, M4P, M4B)
+/// - `VorbisComment`: Vorbis Comment fields via `lofty` (FLAC, OGG, OGA, Opus)
+/// - `Id3v2`: TXXX user-defined text frames via `lofty` (MP3)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioFormat {
+    Mp4,
+    VorbisComment,
+    Id3v2,
+}
+
+/// All file extensions supported for `ReplayGain` analysis and tagging.
+///
+/// The second element indicates which tagging mechanism to use.
+const SUPPORTED_EXTENSIONS: &[(&str, AudioFormat)] = &[
+    // MP4-family (Apple Music: audio + video)
+    ("m4a", AudioFormat::Mp4),
+    ("m4v", AudioFormat::Mp4),
+    ("mp4", AudioFormat::Mp4),
+    ("m4p", AudioFormat::Mp4),
+    ("m4b", AudioFormat::Mp4),
+    // FLAC (future: Spotify/YouTube)
+    ("flac", AudioFormat::VorbisComment),
+    // OGG Vorbis / Opus (future: Spotify via votify, YouTube via yt-dlp)
+    ("ogg", AudioFormat::VorbisComment),
+    ("oga", AudioFormat::VorbisComment),
+    ("opus", AudioFormat::VorbisComment),
+    // MP3 (future: YouTube via yt-dlp)
+    ("mp3", AudioFormat::Id3v2),
+];
+
+/// Determine the audio format of a file by its extension.
+fn detect_format(path: &Path) -> Option<AudioFormat> {
+    let ext = path.extension()?.to_str()?;
+    SUPPORTED_EXTENSIONS
+        .iter()
+        .find(|(e, _)| e.eq_ignore_ascii_case(ext))
+        .map(|(_, fmt)| *fmt)
+}
+
+/// Collect all supported audio/video file paths from the output path.
+fn collect_audio_files(output_path: &str) -> Vec<PathBuf> {
     let path = Path::new(output_path);
     let mut files = Vec::new();
 
     if path.is_file() {
-        if is_m4a(path) {
+        if detect_format(path).is_some() {
             files.push(path.to_path_buf());
         }
     } else if path.is_dir() {
-        collect_m4a_recursive(path, &mut files);
+        collect_audio_recursive(path, &mut files);
     }
 
     files
 }
 
-/// Recursively collect M4A file paths from a directory tree.
-fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
+/// Recursively collect supported audio/video file paths from a directory tree.
+fn collect_audio_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -411,18 +573,11 @@ fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_m4a_recursive(&path, files);
-        } else if is_m4a(&path) {
+            collect_audio_recursive(&path, files);
+        } else if detect_format(&path).is_some() {
             files.push(path);
         }
     }
-}
-
-/// Checks whether a file path has an `.m4a` extension (case-insensitive).
-fn is_m4a(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("m4a"))
 }
 
 // ============================================================
@@ -552,5 +707,44 @@ mod tests {
     fn peak_format_linear() {
         let peak = 0.933254_f64;
         assert_eq!(format!("{:.6}", peak), "0.933254");
+    }
+
+    // ----------------------------------------------------------
+    // Format detection tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn detect_mp4_family() {
+        assert_eq!(detect_format(Path::new("track.m4a")), Some(AudioFormat::Mp4));
+        assert_eq!(detect_format(Path::new("video.m4v")), Some(AudioFormat::Mp4));
+        assert_eq!(detect_format(Path::new("video.mp4")), Some(AudioFormat::Mp4));
+        assert_eq!(detect_format(Path::new("book.m4b")), Some(AudioFormat::Mp4));
+        assert_eq!(detect_format(Path::new("drm.m4p")), Some(AudioFormat::Mp4));
+        // Case-insensitive
+        assert_eq!(detect_format(Path::new("TRACK.M4A")), Some(AudioFormat::Mp4));
+        assert_eq!(detect_format(Path::new("video.MP4")), Some(AudioFormat::Mp4));
+    }
+
+    #[test]
+    fn detect_vorbis_comment_formats() {
+        assert_eq!(detect_format(Path::new("track.flac")), Some(AudioFormat::VorbisComment));
+        assert_eq!(detect_format(Path::new("track.ogg")), Some(AudioFormat::VorbisComment));
+        assert_eq!(detect_format(Path::new("track.oga")), Some(AudioFormat::VorbisComment));
+        assert_eq!(detect_format(Path::new("track.opus")), Some(AudioFormat::VorbisComment));
+        assert_eq!(detect_format(Path::new("TRACK.FLAC")), Some(AudioFormat::VorbisComment));
+    }
+
+    #[test]
+    fn detect_id3v2_formats() {
+        assert_eq!(detect_format(Path::new("track.mp3")), Some(AudioFormat::Id3v2));
+        assert_eq!(detect_format(Path::new("TRACK.MP3")), Some(AudioFormat::Id3v2));
+    }
+
+    #[test]
+    fn detect_unsupported_returns_none() {
+        assert_eq!(detect_format(Path::new("readme.txt")), None);
+        assert_eq!(detect_format(Path::new("image.png")), None);
+        assert_eq!(detect_format(Path::new("video.mkv")), None);
+        assert_eq!(detect_format(Path::new("video.webm")), None);
     }
 }

@@ -88,22 +88,29 @@ describe('parseTemplate', () => {
     ]);
   });
 
-  it('splits dash separator into separate chips', () => {
-    // " - " is a COMMON_LITERAL — must render as its own chip
+  it('splits dash separator into atomic chips', () => {
+    // " - " is split into 3 atomic chips (space, hyphen, space) to prevent
+    // roundtrip ambiguity when users build separators from individual chips
     expect(parseTemplate('{track:02d} - {title}')).toEqual([
       { type: 'variable', value: 'track:02d' },
-      { type: 'literal', value: ' - ' },
+      { type: 'literal', value: ' ' },
+      { type: 'literal', value: '-' },
+      { type: 'literal', value: ' ' },
       { type: 'variable', value: 'title' },
     ]);
   });
 
-  it('allows multiple adjacent separators', () => {
-    // Users should be able to add " - " next to other literals
+  it('preserves multiple adjacent separators through roundtrip', () => {
+    // Space + Hyphen + Space must survive serialize→re-parse as 3 chips
     expect(parseTemplate('{disc} - {track:02d} - {title}')).toEqual([
       { type: 'variable', value: 'disc' },
-      { type: 'literal', value: ' - ' },
+      { type: 'literal', value: ' ' },
+      { type: 'literal', value: '-' },
+      { type: 'literal', value: ' ' },
       { type: 'variable', value: 'track:02d' },
-      { type: 'literal', value: ' - ' },
+      { type: 'literal', value: ' ' },
+      { type: 'literal', value: '-' },
+      { type: 'literal', value: ' ' },
       { type: 'variable', value: 'title' },
     ]);
   });

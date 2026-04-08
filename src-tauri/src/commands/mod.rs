@@ -108,6 +108,12 @@ pub mod crash_reports;
 /// `services::history_service`.
 pub mod history;
 
+/// Clipboard IPC command for the clipboard monitoring feature.
+///
+/// Provides `read_clipboard` to read the current clipboard text.
+/// The frontend polls this command to detect supported URLs.
+pub mod clipboard;
+
 /// API field audit command — diagnostic tool for discovering new API fields.
 ///
 /// Provides `audit_api_fields` which fetches an Apple Music album and diffs

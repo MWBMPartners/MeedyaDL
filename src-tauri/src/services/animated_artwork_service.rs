@@ -439,6 +439,122 @@ pub async fn hide_file(file_path: &Path) -> Result<(), String> {
 }
 
 // ============================================================
+// Artist Promo Video Download
+// ============================================================
+
+/// Download an artist's promotional video to the artist folder.
+///
+/// Queries the Apple Music API for the artist's `editorialVideo` and
+/// downloads the HLS stream as `ArtistCover.mp4` to the artist directory
+/// (the parent of the album directory).
+///
+/// # Arguments
+/// * `app` - Tauri `AppHandle` for tool paths and settings
+/// * `artist_id` - Apple Music artist ID (e.g., "368433979")
+/// * `storefront` - Two-letter country code (e.g., "gb")
+/// * `album_dir` - Path to the album output directory. The artist folder
+///   is derived as its parent (e.g., `/Music/Zedd/Album Name` → `/Music/Zedd/`).
+///
+/// # Returns
+/// * `Ok(true)` - Promo video downloaded successfully
+/// * `Ok(false)` - No promo video available, or already exists, or skipped
+/// * `Err(String)` - API or download failure
+pub async fn download_artist_promo_video(
+    app: &AppHandle,
+    artist_id: &str,
+    storefront: &str,
+    album_dir: &str,
+) -> Result<bool, String> {
+    // Derive the artist directory (parent of the album directory).
+    // GAMDL's default template is `{album_artist}/{album}`, so the parent
+    // of the album dir is the artist folder.
+    let album_path = Path::new(album_dir);
+    let artist_dir = match album_path.parent() {
+        Some(p) if p.exists() => p,
+        _ => {
+            log::debug!(
+                "Cannot derive artist directory from album dir: {album_dir}"
+            );
+            return Ok(false);
+        }
+    };
+
+    let dest = artist_dir.join("ArtistCover.mp4");
+
+    // Skip if the promo video already exists (idempotent — don't re-download
+    // on every album download from the same artist).
+    if dest.exists() {
+        log::debug!(
+            "Artist promo video already exists at {}, skipping",
+            dest.display()
+        );
+        return Ok(false);
+    }
+
+    // Resolve MusicKit developer token (premium feature resolver with web player fallback)
+    let settings = config_service::load_settings(app).unwrap_or_default();
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
+    let private_key = match apple_music_api::get_private_key_from_keychain() {
+        Ok(Some(key)) => Some(key),
+        Ok(None) => None,
+        Err(e) => {
+            log::warn!("Failed to read MusicKit private key from keychain: {e}");
+            None
+        }
+    };
+
+    let (jwt, token_source) = match apple_music_api::resolve_premium_feature_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    )? {
+        Some(pair) => pair,
+        None => {
+            log::debug!("No MusicKit token available, skipping artist promo video");
+            return Ok(false);
+        }
+    };
+
+    log::debug!("Artist promo video: using MusicKit token from {token_source}");
+
+    // Fetch artist promo video metadata from the API
+    let promo = match apple_music_api::fetch_artist_promo_video(
+        &jwt,
+        storefront,
+        artist_id,
+    )
+    .await?
+    {
+        Some(p) => p,
+        None => return Ok(false),
+    };
+
+    // Download the HLS stream to ArtistCover.mp4
+    log::info!(
+        "Downloading promo video for {} to {}",
+        promo.artist_name,
+        dest.display()
+    );
+    download_hls_to_mp4(app, &promo.video_url, &dest).await?;
+
+    log::info!(
+        "Artist promo video downloaded: {} → {}",
+        promo.artist_name,
+        dest.display()
+    );
+
+    // Hide the file if the user wants animated artwork hidden
+    if settings.hide_animated_artwork {
+        if let Err(e) = hide_file(&dest).await {
+            log::debug!("Failed to hide ArtistCover.mp4: {e}");
+        }
+    }
+
+    Ok(true)
+}
+
+// ============================================================
 // Unit Tests
 // ============================================================
 

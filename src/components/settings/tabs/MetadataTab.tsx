@@ -149,6 +149,13 @@ export function MetadataTab() {
                 checked={settings.replaygain_prevent_clipping}
                 onChange={(checked) => updateSettings({ replaygain_prevent_clipping: checked })}
               />
+
+              <Toggle
+                label="Include Album Gain"
+                description="Compute and write album-level ReplayGain tags alongside track tags. Album gain preserves the intended dynamic range between quiet and loud tracks when listening to an album in order. When disabled, only per-track gain tags are written (better for shuffle-only listeners)."
+                checked={settings.replaygain_album_gain}
+                onChange={(checked) => updateSettings({ replaygain_album_gain: checked })}
+              />
             </>
           )}
       </SettingsSection>

@@ -484,13 +484,6 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
         });
     }
 
-    // MeedyaDL itself
-    versions.push(ComponentVersion {
-        name: "MeedyaDL".to_string(),
-        version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        installed: true,
-    });
-
     Ok(versions)
 }
 
