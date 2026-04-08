@@ -592,6 +592,47 @@ export interface AppSettings {
   high_contrast: boolean;
   /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
   colour_blind_mode: string;
+  /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
+  service_settings?: PerServiceSettings;
+}
+
+/**
+ * Per-service settings container.
+ * Each service has its own configuration nested under its key.
+ */
+export interface PerServiceSettings {
+  /** Apple Music-specific settings */
+  'apple-music'?: AppleMusicServiceSettings;
+  /** Spotify-specific settings (stub) */
+  spotify?: SpotifyServiceSettings;
+  /** YouTube/YouTube Music-specific settings (stub) */
+  youtube?: YouTubeServiceSettings;
+  /** User-overridden engine priority per platform. Keys are platform IDs
+   * (e.g., "bbc-iplayer"), values are ordered engine IDs. When empty,
+   * the default order from engines.toml is used. */
+  engine_priority?: Record<string, string[]>;
+}
+
+/** Apple Music-specific service settings */
+export interface AppleMusicServiceSettings {
+  storefront: string;
+  cookies_path: string | null;
+  musickit_team_id: string | null;
+  musickit_key_id: string | null;
+  animated_artwork_enabled: boolean;
+  hide_animated_artwork: boolean;
+  enhanced_lrc: boolean;
+  content_advisory_in_filenames: boolean;
+}
+
+/** Spotify-specific service settings (stub for M8) */
+export interface SpotifyServiceSettings {
+  cookies_path: string | null;
+}
+
+/** YouTube/YouTube Music service settings (stub for M9) */
+export interface YouTubeServiceSettings {
+  cookies_path: string | null;
 }
 
 // ============================================================
@@ -665,8 +706,12 @@ export type DownloadState =
 export interface QueueItemStatus {
   /** Unique identifier for this download (UUID v4) */
   id: string;
-  /** The Apple Music URL(s) being downloaded */
+  /** The URL(s) being downloaded */
   urls: string[];
+  /** Detected media service (e.g., "apple-music", "spotify"), or null for legacy items */
+  service?: string | null;
+  /** Download engine used (e.g., "gamdl", "votify"), or null for legacy items */
+  engine?: string | null;
   /** Current state in the download lifecycle */
   state: DownloadState;
   /** Download progress as a percentage (0-100) */
@@ -1253,21 +1298,23 @@ export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cooki
  * Used by the DownloadForm to determine which URL patterns and options
  * are applicable for a given download.
  */
-export type MusicServiceId = 'apple-music' | 'youtube-music' | 'spotify';
+export type MediaServiceId = 'apple-music' | 'youtube-music' | 'youtube' | 'spotify' | 'bbc-iplayer';
 
 /**
  * Display labels for music services, shown in UI dropdowns and badges.
  *
- * Uses `Record<MusicServiceId, string>` for compile-time exhaustiveness
- * checking -- adding a new MusicServiceId variant will cause a TypeScript
+ * Uses `Record<MediaServiceId, string>` for compile-time exhaustiveness
+ * checking -- adding a new MediaServiceId variant will cause a TypeScript
  * error until a label is added here.
  *
  * @see {@link https://www.typescriptlang.org/docs/handbook/utility-types.html#recordkeys-type}
  */
-export const MUSIC_SERVICE_LABELS: Record<MusicServiceId, string> = {
+export const MEDIA_SERVICE_LABELS: Record<MediaServiceId, string> = {
   'apple-music': 'Apple Music',
   'youtube-music': 'YouTube Music',
+  youtube: 'YouTube',
   spotify: 'Spotify',
+  'bbc-iplayer': 'BBC iPlayer',
 };
 
 /**

@@ -181,6 +181,18 @@ pub struct QueueItemStatus {
     /// multiple. Displayed in the queue UI as the item's title/subtitle.
     pub urls: Vec<String>,
 
+    /// The detected media service for this download (e.g., "apple-music",
+    /// "spotify", "youtube"). Detected at enqueue time from the URL domain.
+    /// `None` for items queued before multi-service support was added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+
+    /// The download engine used for this item (e.g., "gamdl", "votify",
+    /// "ytdlp"). Resolved at enqueue time via the engine registry.
+    /// `None` for items queued before multi-service support was added.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+
     /// Current state in the download state machine. See `DownloadState`
     /// for the full list of states and allowed transitions.
     pub state: DownloadState,
@@ -419,6 +431,8 @@ mod tests {
         let status = QueueItemStatus {
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            service: Some("apple-music".to_string()),
+            engine: Some("gamdl".to_string()),
             state: DownloadState::Downloading,
             progress: 42.5,
             current_track: Some("Track Name".to_string()),
@@ -464,6 +478,8 @@ mod tests {
         let status = QueueItemStatus {
             id: "error-item-id".to_string(),
             urls: vec!["https://music.apple.com/us/album/fail/999".to_string()],
+            service: Some("apple-music".to_string()),
+            engine: Some("gamdl".to_string()),
             state: DownloadState::Error,
             progress: 0.0,
             current_track: None,
@@ -502,6 +518,8 @@ mod tests {
         let status = QueueItemStatus {
             id: "complete-item-id".to_string(),
             urls: vec!["https://music.apple.com/us/album/done/555".to_string()],
+            service: Some("apple-music".to_string()),
+            engine: Some("gamdl".to_string()),
             state: DownloadState::Complete,
             progress: 100.0,
             current_track: None,
