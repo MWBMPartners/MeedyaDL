@@ -431,6 +431,8 @@ mod tests {
         let status = QueueItemStatus {
             id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            service: Some("apple-music".to_string()),
+            engine: Some("gamdl".to_string()),
             state: DownloadState::Downloading,
             progress: 42.5,
             current_track: Some("Track Name".to_string()),
@@ -476,6 +478,8 @@ mod tests {
         let status = QueueItemStatus {
             id: "error-item-id".to_string(),
             urls: vec!["https://music.apple.com/us/album/fail/999".to_string()],
+            service: Some("apple-music".to_string()),
+            engine: Some("gamdl".to_string()),
             state: DownloadState::Error,
             progress: 0.0,
             current_track: None,
@@ -514,6 +518,8 @@ mod tests {
         let status = QueueItemStatus {
             id: "complete-item-id".to_string(),
             urls: vec!["https://music.apple.com/us/album/done/555".to_string()],
+            service: Some("apple-music".to_string()),
+            engine: Some("gamdl".to_string()),
             state: DownloadState::Complete,
             progress: 100.0,
             current_track: None,

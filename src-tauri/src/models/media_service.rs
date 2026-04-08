@@ -87,9 +87,22 @@ pub enum MediaServiceId {
     BbcIPlayer,
 }
 
+/// Formats the service ID as a kebab-case platform identifier string
+/// matching the keys in `engines.toml` (e.g., `"apple-music"`, `"spotify"`).
+///
+/// This is used throughout the codebase for engine registry lookups,
+/// manifest metadata, queue persistence, and service-aware routing.
+/// For human-readable names, use `display_name()` instead.
 impl std::fmt::Display for MediaServiceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.display_name())
+        let id = match self {
+            Self::AppleMusic => "apple-music",
+            Self::YouTubeMusic => "youtube-music",
+            Self::YouTube => "youtube",
+            Self::Spotify => "spotify",
+            Self::BbcIPlayer => "bbc-iplayer",
+        };
+        write!(f, "{id}")
     }
 }
 

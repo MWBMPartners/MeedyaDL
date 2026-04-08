@@ -367,11 +367,11 @@ mod tests {
 
     #[test]
     fn test_stub_builders_return_error() {
-        // Stub builders should return clear "not implemented" errors
-        let app = tauri::test::mock_builder().build(tauri::generate_context!());
-        // We can't easily test with a real AppHandle in unit tests,
-        // so we just verify the trait implementations exist and the
-        // factory function returns the right types.
+        // Stub builders should return clear "not implemented" errors.
+        // We can't easily test with a real AppHandle in unit tests
+        // (tauri::test requires the "test" feature), so we just verify
+        // the trait implementations exist and the factory function
+        // returns the right types.
         let votify = get_command_builder("votify").unwrap();
         assert_eq!(votify.engine_id(), "votify");
     }
