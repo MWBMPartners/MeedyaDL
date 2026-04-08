@@ -284,7 +284,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message, isChecking: false });
       // Re-throw so the calling component can show a toast or take action.
-      throw new Error(message);
+      throw new Error(message, { cause: e });
     }
   },
 
@@ -312,7 +312,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message, isUpgrading: false });
-      throw new Error(message);
+      throw new Error(message, { cause: e });
     }
   },
 
@@ -359,7 +359,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message, isDownloadingUpdate: false, downloadProgress: null });
-      throw new Error(message);
+      throw new Error(message, { cause: e });
     } finally {
       // Always clean up the event listener
       unlisten();

@@ -325,7 +325,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // Store the error for reactive UI display.
       set({ error: message });
       // Re-throw so callers can chain their own error handling.
-      throw new Error(message);
+      throw new Error(message, { cause: e });
     }
   },
 

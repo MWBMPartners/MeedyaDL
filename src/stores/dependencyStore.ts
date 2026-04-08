@@ -315,7 +315,7 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
       // Store the error for UI display and clear installation flags.
       set({ error: msg, isInstalling: false, installingName: null });
       // Re-throw so the calling component (e.g., SetupWizard) can handle the failure.
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   },
 
@@ -342,7 +342,7 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isInstalling: false, installingName: null });
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   },
 
@@ -375,7 +375,7 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isInstalling: false, installingName: null });
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   },
 
@@ -405,7 +405,7 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
     } catch (e) {
       const msg = String(e);
       set({ error: msg, isInstalling: false, installingName: null });
-      throw new Error(msg);
+      throw new Error(msg, { cause: e });
     }
   },
 
