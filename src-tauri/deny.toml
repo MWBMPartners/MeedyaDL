@@ -179,5 +179,9 @@ unknown-registry = "deny"
 unknown-git = "deny"
 # Allow crates from the official registry
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# Allow git dependencies from GitHub (some Tauri plugins use git refs)
-allow-git = []
+
+# Allow all git dependencies from the MWBMPartners GitHub organisation.
+# This covers MeedyaSuite-core (and any future internal crates) regardless
+# of branch, tag, or rev qualifiers in the Cargo.toml git URL.
+[sources.allow-org]
+github = ["MWBMPartners"]
