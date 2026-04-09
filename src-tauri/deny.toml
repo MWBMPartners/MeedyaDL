@@ -180,4 +180,6 @@ unknown-git = "deny"
 # Allow crates from the official registry
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # Allow git dependencies from GitHub (some Tauri plugins use git refs)
-allow-git = []
+allow-git = [
+    "https://github.com/MWBMPartners/MeedyaSuite-core", # meedya-core, meedya-codecs, meedya-metadata, meedya-fingerprint
+]
