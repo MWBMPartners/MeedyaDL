@@ -622,23 +622,18 @@ jobs:
       # @see https://github.com/tauri-apps/tauri-action -- Action documentation
       #
       # Build and publish: For most platforms, tauri-action handles the full
-      # build + release upload pipeline. ARMv7 is excluded because tauri-action
-      # skips the build entirely when includeRelease=false + includeUpdaterJson=false,
-      # and it can't match 'armhf' filenames when they are true. ARMv7 is built
-      # manually in the next steps instead.
+      # build + release upload pipeline. ARMv7 and macOS are excluded:
+      #   - ARMv7: tauri-action skips the build entirely when includeRelease=false
+      #     + includeUpdaterJson=false, and it can't match 'armhf' filenames.
+      #   - macOS: built manually with notarization retry logic (see Step 10a)
+      #     because Apple's notarization service occasionally returns HTTP 503
+      #     "Slow Down" rate-limiting errors that fail the entire build.
+      # Both are built and uploaded manually in subsequent steps.
       - name: Build and publish
-        if: matrix.settings.cross_arch != 'armhf'
+        if: matrix.settings.cross_arch != 'armhf' && runner.os != 'macOS'
         uses: tauri-apps/tauri-action@73fb865345c54760d875b94642314f8c0c894afa # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code-signing + notarization (read from GitHub Actions secrets).
-          # These are consumed by tauri-action only on macOS builds.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Tauri updater signing key — generates .sig signature files alongside
           # each build artifact and includes them in the latest.json manifest.
           # Required for the in-app auto-update system to verify downloads.
@@ -698,6 +693,117 @@ jobs:
           # the release on GitHub after publishing.
           prerelease: true
           args: ${{ matrix.settings.args }}
+
+      # Step 10a: Build macOS with notarization retry.
+      # Apple's notarization service occasionally returns HTTP 503 "Slow Down"
+      # rate-limiting errors. Since tauri-action wraps the entire build + notarize
+      # pipeline in a single step with no retry capability, we handle the macOS
+      # build manually with retry logic. Up to 3 attempts with exponential backoff
+      # (30s, 60s). Only notarization failures (503/serviceUnavailable) trigger
+      # a retry — compilation or signing errors fail immediately.
+      # See: https://github.com/MWBMPartners/MeedyaDL/issues/361
+      - name: Build macOS with notarization retry
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
+        shell: bash
+        run: |
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          BACKOFF=30
+
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "::group::Build attempt $ATTEMPT of $MAX_ATTEMPTS"
+
+            # Capture both stdout and stderr, and the exit code
+            BUILD_LOG=$(mktemp)
+            set +e
+            npx tauri build ${{ matrix.settings.args }} 2>&1 | tee "$BUILD_LOG"
+            EXIT_CODE=${PIPESTATUS[0]}
+            set -e
+
+            echo "::endgroup::"
+
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "Build succeeded on attempt $ATTEMPT"
+              rm -f "$BUILD_LOG"
+              break
+            fi
+
+            # Check if the failure is a transient notarization error (503 / SlowDown)
+            if grep -qiE "503|SlowDown|serviceUnavailable|Slow Down|reduce your request rate" "$BUILD_LOG"; then
+              echo "::warning::Apple notarization returned 503 (attempt $ATTEMPT of $MAX_ATTEMPTS)"
+              rm -f "$BUILD_LOG"
+
+              if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                echo "Retrying in ${BACKOFF}s..."
+                sleep $BACKOFF
+                BACKOFF=$((BACKOFF * 2))
+                ATTEMPT=$((ATTEMPT + 1))
+              else
+                echo "::error::Apple notarization failed after $MAX_ATTEMPTS attempts"
+                exit 1
+              fi
+            else
+              # Non-notarization failure (compilation, signing, etc.) — fail immediately
+              echo "::error::Build failed with a non-transient error (not retrying)"
+              rm -f "$BUILD_LOG"
+              exit $EXIT_CODE
+            fi
+          done
+
+      # Step 10a.1: Upload macOS artifacts to the GitHub release.
+      # Since macOS is built manually (not via tauri-action), we need to upload
+      # the artifacts ourselves. This mirrors the ARMv7 manual upload pattern.
+      - name: Upload macOS artifacts
+        if: runner.os == 'macOS'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          VERSION="${{ steps.version.outputs.number }}"
+          BUNDLE_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle"
+
+          # Ensure the draft release exists (another build may not have created it yet)
+          if ! gh release view "$TAG" &>/dev/null; then
+            gh release create "$TAG" --draft --prerelease --title "$TAG" --notes "Release in progress..."
+          fi
+
+          # Upload .dmg
+          DMG_FILE="$BUNDLE_DIR/dmg/MeedyaDL_${VERSION}_aarch64.dmg"
+          if [ -f "$DMG_FILE" ]; then
+            gh release upload "$TAG" "$DMG_FILE" --clobber
+            echo "Uploaded $DMG_FILE"
+          else
+            echo "::warning::DMG not found at $DMG_FILE"
+          fi
+
+          # Upload .app.tar.gz (updater artifact)
+          APP_TAR="$BUNDLE_DIR/macos/MeedyaDL_aarch64.app.tar.gz"
+          if [ -f "$APP_TAR" ]; then
+            gh release upload "$TAG" "$APP_TAR" --clobber
+            echo "Uploaded $APP_TAR"
+          else
+            echo "::warning::app.tar.gz not found at $APP_TAR"
+          fi
+
+          # Upload .app.tar.gz.sig (updater signature)
+          APP_SIG="$BUNDLE_DIR/macos/MeedyaDL_aarch64.app.tar.gz.sig"
+          if [ -f "$APP_SIG" ]; then
+            gh release upload "$TAG" "$APP_SIG" --clobber
+            echo "Uploaded $APP_SIG"
+          else
+            echo "::warning::app.tar.gz.sig not found at $APP_SIG"
+          fi
 
       # Step 10b: Build ARMv7 manually.
       # tauri-action is skipped for ARMv7 because:
