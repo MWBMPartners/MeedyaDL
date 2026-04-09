@@ -46,6 +46,7 @@ Apple's notarization service occasionally returns HTTP 503 "Slow Down"
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.29.1] - 2026-04-08
 
