@@ -574,73 +574,68 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   handleProgressEvent: (progress) => {
     set((state) => {
-      // Step 1: Shallow-copy the array to avoid mutating existing state.
-      const items = [...state.queueItems];
-      // Step 2: Find the queue item matching this event's download ID.
-      const idx = items.findIndex((i) => i.id === progress.download_id);
+      // Use map() to produce a new array, returning the same reference
+      // for non-matching items to minimise GC pressure from frequent
+      // progress events.
+      const items = state.queueItems.map((item) => {
+        if (item.id !== progress.download_id) return item;
 
-      if (idx >= 0) {
-        // Step 3: Shallow-copy the target item for immutable update.
-        const item = { ...items[idx] };
+        // Shallow-copy only the target item for immutable update.
+        const updated = { ...item };
 
-        // Step 4: Update fields based on the event discriminator.
         switch (progress.event.type) {
           case 'download_progress':
             // Update progress percentage, download speed, and ETA.
-            item.progress = progress.event.percent;
-            item.speed = progress.event.speed || null;
-            item.eta = progress.event.eta || null;
+            updated.progress = progress.event.percent;
+            updated.speed = progress.event.speed || null;
+            updated.eta = progress.event.eta || null;
             // During companion downloads the item is in 'processing' state.
             // Don't regress to 'downloading' — that would cause the queue bar
             // to lose partial credit and oscillate between done/not-done.
-            if (item.state !== 'processing') {
-              item.state = 'downloading';
+            if (updated.state !== 'processing') {
+              updated.state = 'downloading';
             }
             break;
           case 'track_info':
             // Update the currently-downloading track name for display.
-            item.current_track = progress.event.title || null;
+            updated.current_track = progress.event.title || null;
             // Keep 'processing' state stable during companion downloads.
-            if (item.state !== 'processing') {
-              item.state = 'downloading';
+            if (updated.state !== 'processing') {
+              updated.state = 'downloading';
             }
             // Compute approximate progress from track counts (GAMDL 2.9.x).
             // When [Track N/M] format is available, use (N-1)/M as the
             // percentage (N-1 because track N is starting, not finished).
             if (progress.event.track_number != null && progress.event.track_total != null && progress.event.track_total > 0) {
-              item.progress = Math.round(((progress.event.track_number - 1) / progress.event.track_total) * 100);
-              item.total_tracks = progress.event.track_total;
-              item.completed_tracks = progress.event.track_number - 1;
+              updated.progress = Math.round(((progress.event.track_number - 1) / progress.event.track_total) * 100);
+              updated.total_tracks = progress.event.track_total;
+              updated.completed_tracks = progress.event.track_number - 1;
             }
             break;
           case 'processing_step':
             // Transition to 'processing' (post-download remuxing/tagging).
             // Clear speed/ETA so the progress bar shows indeterminate state
             // instead of stale companion download speed data.
-            item.state = 'processing';
-            item.speed = null;
-            item.eta = null;
+            updated.state = 'processing';
+            updated.speed = null;
+            updated.eta = null;
             break;
           case 'complete':
             // Mark as complete with 100% progress and record output path.
-            item.state = 'complete';
-            item.progress = 100;
-            item.output_path = progress.event.path || null;
+            updated.state = 'complete';
+            updated.progress = 100;
+            updated.output_path = progress.event.path || null;
             break;
           case 'error':
             // Mark as error and store the error message for display.
-            item.state = 'error';
-            item.error = progress.event.message || null;
+            updated.state = 'error';
+            updated.error = progress.event.message || null;
             break;
         }
 
-        // Step 5: Replace the old item with the updated copy.
-        items[idx] = item;
-      }
-      // If no matching item found (idx < 0), return unchanged array.
-      // This can happen if the event arrives after the item was cleared.
+        return updated;
+      });
 
-      // Step 6: Return the new array as the next state.
       return { queueItems: items };
     });
   },

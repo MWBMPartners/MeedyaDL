@@ -910,12 +910,31 @@ function App() {
    */
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    const addEntry = useActivityStore.getState().addEntry;
+    const { addEntries } = useActivityStore.getState();
+
+    // RAF-batched accumulator: collect incoming events and flush them
+    // in a single addEntries() call per animation frame. This collapses
+    // hundreds of per-line Zustand updates into ~60/s, dramatically
+    // reducing GC pressure and React re-renders.
+    let buffer: ActivityLogEntry[] = [];
+    let rafId: number | null = null;
+
+    const flush = () => {
+      rafId = null;
+      if (buffer.length > 0) {
+        const batch = buffer;
+        buffer = [];
+        addEntries(batch);
+      }
+    };
 
     const setup = async () => {
       try {
         unlisten = await listen<ActivityLogEntry>('activity-log', (event) => {
-          addEntry(event.payload);
+          buffer.push(event.payload);
+          if (rafId === null) {
+            rafId = requestAnimationFrame(flush);
+          }
         });
       } catch {
         /* Tauri API unavailable in test/browser environment */
@@ -923,7 +942,15 @@ function App() {
     };
 
     setup();
-    return () => unlisten?.();
+    return () => {
+      unlisten?.();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      // Flush remaining buffered entries on cleanup
+      if (buffer.length > 0) {
+        useActivityStore.getState().addEntries(buffer);
+        buffer = [];
+      }
+    };
   }, []);
 
   /*
