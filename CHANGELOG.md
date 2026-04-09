@@ -27,6 +27,7 @@ The MeedyaSuite-core integration (d802870) added git dependencies for
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### ⚡ Performance
 
