@@ -5728,7 +5728,18 @@ async fn run_download_with_events(
                 // Without this split, all \r-separated progress updates
                 // concatenate into one massive line (~127KB for albums).
                 let segments: Vec<&str> = raw_line.split('\r').collect();
-                for segment in &segments {
+
+                // For \r-separated progress lines (e.g., yt-dlp), only
+                // emit the LAST non-empty segment to activity-log since
+                // earlier segments are overwritten in a real terminal.
+                // This reduces activity-log event volume by 5-10x during
+                // downloads. All segments are still parsed for gamdl-output
+                // progress tracking.
+                let last_segment_idx = segments
+                    .iter()
+                    .rposition(|s| !s.trim().is_empty());
+
+                for (idx, segment) in segments.iter().enumerate() {
                     let segment = segment.trim();
                     if segment.is_empty() {
                         continue;
@@ -5740,22 +5751,24 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stdout] {clean_line}");
 
-                    // Deduplicate: only emit to Activity Log if this line
-                    // hasn't already been emitted by the other reader.
-                    let is_new = {
-                        let mut set = seen.lock().await;
-                        set.insert(clean_line.clone())
-                    };
-                    if is_new {
-                        let _ = app.emit(
-                            "activity-log",
-                            &ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "stdout",
-                                line: clean_line.clone(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            },
-                        );
+                    // Only emit to activity-log for the last \r segment
+                    // (the final visible state in a terminal).
+                    if Some(idx) == last_segment_idx {
+                        let is_new = {
+                            let mut set = seen.lock().await;
+                            set.insert(clean_line.clone())
+                        };
+                        if is_new {
+                            let _ = app.emit(
+                                "activity-log",
+                                &ActivityLogEvent {
+                                    download_id: download_id.clone(),
+                                    stream: "stdout",
+                                    line: clean_line.clone(),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                },
+                            );
+                        }
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -5824,7 +5837,13 @@ async fn run_download_with_events(
             while let Ok(Some(raw_line)) = lines.next_line().await {
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
-                for segment in &segments {
+
+                // Only emit last \r segment to activity-log (same as stdout)
+                let last_segment_idx = segments
+                    .iter()
+                    .rposition(|s| !s.trim().is_empty());
+
+                for (idx, segment) in segments.iter().enumerate() {
                     let segment = segment.trim();
                     if segment.is_empty() {
                         continue;
@@ -5834,22 +5853,23 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stderr] {clean_line}");
 
-                    // Deduplicate: only emit to Activity Log if this line
-                    // hasn't already been emitted by the stdout reader.
-                    let is_new = {
-                        let mut set = seen.lock().await;
-                        set.insert(clean_line.clone())
-                    };
-                    if is_new {
-                        let _ = app.emit(
-                            "activity-log",
-                            &ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "stderr",
-                                line: clean_line.clone(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            },
-                        );
+                    // Only emit to activity-log for the last \r segment
+                    if Some(idx) == last_segment_idx {
+                        let is_new = {
+                            let mut set = seen.lock().await;
+                            set.insert(clean_line.clone())
+                        };
+                        if is_new {
+                            let _ = app.emit(
+                                "activity-log",
+                                &ActivityLogEvent {
+                                    download_id: download_id.clone(),
+                                    stream: "stderr",
+                                    line: clean_line.clone(),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                },
+                            );
+                        }
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);

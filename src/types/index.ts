@@ -1060,6 +1060,9 @@ export interface ActivityLogEntry {
   line: string;
   /** ISO 8601 timestamp when the line was captured */
   timestamp: string;
+  /** Auto-incrementing ID assigned by the activity store for stable React keys.
+   * Not present in the Rust-emitted payload — assigned on ingestion. */
+  _id?: number;
 }
 
 /**
