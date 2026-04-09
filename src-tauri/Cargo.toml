@@ -66,6 +66,11 @@ tauri-build = { version = "2", features = [] }
 # @see https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html
 [dependencies]
 
+# ---- MeedyaSuite-core ----
+# Shared core library providing metadata providers, codec detection, and fingerprinting.
+# @see https://github.com/MWBMPartners/MeedyaSuite-core
+meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "claude/interesting-mirzakhani", features = ["full"] }
+
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.
 # Each plugin must also be registered in the Tauri app builder (main.rs) and may

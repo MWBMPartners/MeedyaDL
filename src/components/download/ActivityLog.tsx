@@ -24,8 +24,12 @@
 // - Filters are combined: an entry must pass BOTH the search query AND have
 //   at least one of its matching categories enabled.
 // - The filtered count is shown in the subtitle alongside the total count.
+//
+// Virtualized rendering via @tanstack/react-virtual to keep DOM node count
+// low (~150 nodes) regardless of total entry count, preventing memory bloat.
 
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { useActivityStore } from '@/stores/activityStore';
 import { Button, Input } from '@/components/common';
@@ -93,12 +97,13 @@ function getEntryCategories(entry: { download_id: string; line: string }): {
  * Features:
  * - Search bar for case-insensitive text filtering on message content
  * - Category filter toggles: System, Download, Verbose
+ * - Virtualized rendering -- only visible rows are in the DOM
  * - Auto-scrolls to bottom as new lines arrive
  * - Pauses auto-scroll when user scrolls up or clicks Pause
  * - Resumes catching up (no lines lost) on Resume click
  * - Stderr lines highlighted in warning colour
  * - Text is selectable and copyable
- * - No entry cap — log grows unbounded within a session, resets on restart
+ * - Capped at 10,000 entries -- oldest trimmed when exceeded
  */
 export function ActivityLog() {
   const entries = useActivityStore((s) => s.entries);
@@ -163,19 +168,25 @@ export function ActivityLog() {
     });
   }, [entries, searchQuery, showSystem, showDownload, showVerbose]);
 
+  /** Virtualizer for efficient rendering of large entry lists. */
+  const virtualizer = useVirtualizer({
+    count: filteredEntries.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 24, // text-xs with leading-relaxed baseline
+    overscan: 50, // render 50 extra rows above/below viewport
+  });
+
   /**
    * Auto-scroll to bottom when new filtered entries arrive, unless paused.
-   * Uses requestAnimationFrame for smooth scroll behaviour.
+   * Uses the virtualizer's scrollToIndex for accurate positioning with
+   * dynamic row heights.
    */
   useEffect(() => {
     if (paused || userScrolledRef.current) return;
-    const el = scrollRef.current;
-    if (el) {
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
+    if (filteredEntries.length > 0) {
+      virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
     }
-  }, [filteredEntries.length, paused]);
+  }, [filteredEntries.length, paused, virtualizer]);
 
   /**
    * Detect user scroll-up to auto-pause. If the user scrolls away from
@@ -217,11 +228,8 @@ export function ActivityLog() {
       userScrolledRef.current = false;
       setPaused(false);
       // Immediately scroll to bottom on resume
-      const el = scrollRef.current;
-      if (el) {
-        requestAnimationFrame(() => {
-          el.scrollTop = el.scrollHeight;
-        });
+      if (filteredEntries.length > 0) {
+        virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
       }
     } else {
       setPaused(true);
@@ -359,7 +367,7 @@ export function ActivityLog() {
         </div>
       </div>
 
-      {/* Scrollable log container */}
+      {/* Scrollable log container -- virtualized for performance */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -378,42 +386,62 @@ export function ActivityLog() {
             No entries match the current search or filter criteria.
           </p>
         ) : (
-          filteredEntries.map((entry, i) => (
-            <div
-              key={i}
-              className={`group relative whitespace-pre-wrap break-all pr-6 ${
-                entry.stream === 'internal'
-                  ? 'text-accent-primary'
-                  : entry.stream === 'stderr'
-                    ? 'text-status-warning'
-                    : 'text-content-primary'
-              }`}
-            >
-              <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
-              {entry.download_id === 'system' ? (
-                <span className="text-status-info font-medium">[System] </span>
-              ) : (
-                <>
-                  <span className="text-accent">[{shortId(entry.download_id)}] </span>
-                  {entry.stream === 'internal' && (
-                    <span className="text-accent-primary font-medium">[MeedyaDL] </span>
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const entry = filteredEntries[virtualRow.index];
+              return (
+                <div
+                  key={entry._id ?? virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                  className={`group relative whitespace-pre-wrap break-all pr-6 ${
+                    entry.stream === 'internal'
+                      ? 'text-accent-primary'
+                      : entry.stream === 'stderr'
+                        ? 'text-status-warning'
+                        : 'text-content-primary'
+                  }`}
+                >
+                  <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
+                  {entry.download_id === 'system' ? (
+                    <span className="text-status-info font-medium">[System] </span>
+                  ) : (
+                    <>
+                      <span className="text-accent">[{shortId(entry.download_id)}] </span>
+                      {entry.stream === 'internal' && (
+                        <span className="text-accent-primary font-medium">[MeedyaDL] </span>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-              {entry.line}
-              <button
-                type="button"
-                className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5"
-                title="Copy to clipboard"
-                aria-label="Copy log entry"
-                onClick={() => {
-                  navigator.clipboard.writeText(entry.line);
-                }}
-              >
-                <Copy size={10} />
-              </button>
-            </div>
-          ))
+                  {entry.line}
+                  <button
+                    type="button"
+                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5"
+                    title="Copy to clipboard"
+                    aria-label="Copy log entry"
+                    onClick={() => {
+                      navigator.clipboard.writeText(entry.line);
+                    }}
+                  >
+                    <Copy size={10} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
