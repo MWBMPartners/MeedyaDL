@@ -6,6 +6,79 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Integrate MeedyaSuite-core for tag registry (phase 1)
+
+Replace the custom tag registry implementation (~425 lines) with
+  meedya-core's shared tag_registry module. This is the first phase of
+  the MeedyaSuite-core integration.
+
+
+### 🐛 Bug Fixes
+
+- **(ci)** Allow MeedyaSuite-core git source in cargo-deny
+
+The MeedyaSuite-core integration (d802870) added git dependencies for
+  meedya-core, meedya-codecs, meedya-metadata, and meedya-fingerprint.
+  These were blocked by cargo-deny's source allowlist.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### ⚡ Performance
+
+- Fix activity log memory leak causing 14+ GB WebView RAM usage
+
+The WebView process grew to 14+ GB during download sessions due to
+  unbounded activity log accumulation, non-virtualized DOM rendering,
+  and high-frequency event emission from the Rust backend.
+
+- Fix activity log memory leak (14+ GB → <500 MB) (#364)
+
+## Summary
+
+  - **RAF-batched event listener** in `App.tsx` — collapses hundreds of
+  per-line Zustand updates into ~60/s via `requestAnimationFrame`
+  buffering
+  - **Capped activity store** at 10,000 entries with batch `addEntries()`
+  method and auto-incrementing `_id` for stable React keys
+  - **Virtualized ActivityLog** with `@tanstack/react-virtual` — DOM nodes
+  drop from ~37,500 to ~150 regardless of entry count
+  - **Backend `\r` segment coalescing** in `download_queue.rs` — only
+  emits the last progress segment to `activity-log` (5-10x event
+  reduction)
+  - **Download store optimisation** — `map()` pattern instead of
+  spread+findIndex+splice for lower GC pressure
+
+  ## Context
+
+  During multi-item download sessions, the `tauri://localhost` WebView
+  process grew to 14+ GB RAM and the app froze. Root causes: unbounded
+  activity log array with O(n) spread-copy on every entry, all 7,500+
+  entries rendered as real DOM nodes without virtualization, and
+  ~20,000-40,000 events emitted per album download from the Rust backend.
+
+  ## Test plan
+
+  - [x] `npm run type-check` passes
+  - [x] `npm run test` passes (272/272 tests, including updated
+  activityStore tests)
+  - [x] `cargo check` passes
+  - [ ] Manual test: queue 3+ albums, watch Activity Monitor — WebView
+  memory should stay under ~500 MB
+  - [ ] Verify activity log auto-scrolls, search/filter, export, and
+  pause/resume work
+  - [ ] Verify log entries are trimmed at cap (queue enough downloads to
+  exceed 10,000 lines)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [0.29.2] - 2026-04-09
+
 ### 🐛 Bug Fixes
 
 - **(ci)** Add macOS notarization retry logic to release workflow
