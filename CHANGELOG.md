@@ -45,6 +45,22 @@ Add shortcut field to NavItem interface. Sidebar buttons now show
   - Queue: increase icon to 40px, add descriptive text about clipboard monitoring
   - Both now match History page's empty state pattern (icon + primary + secondary text)
 
+- Contextual error recovery guidance in download failures (#390)
+
+Add error_guidance() helper in utils/process.rs that maps error
+  categories to actionable user suggestions:
+  - auth → refresh cookies or check wrapper
+  - network → check internet, auto-retry will resume
+  - io → check output directory access and disk space
+  - codec → try different quality setting
+  - not_found → content may be removed or URL incorrect
+  - rate_limit → wait and retry
+  - tool → check Settings > Tools
+
+  Guidance is emitted as a 💡 activity log entry after each terminal
+  failure, and included in the download-error event payload for
+  frontend display.
+
 
 ### 🐛 Bug Fixes
 
@@ -93,6 +109,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
