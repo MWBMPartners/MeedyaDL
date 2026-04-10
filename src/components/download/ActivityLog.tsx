@@ -407,7 +407,7 @@ export function ActivityLog() {
                     width: '100%',
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
-                  className={`group relative whitespace-pre-wrap break-all pr-6 ${
+                  className={`group relative whitespace-pre-wrap break-all pr-6 py-[1px] font-mono text-xs leading-relaxed ${
                     entry.stream === 'internal'
                       ? 'text-accent-primary'
                       : entry.stream === 'stderr'
