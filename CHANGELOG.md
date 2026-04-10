@@ -39,6 +39,19 @@ Document the recovery procedure if the Tauri updater signing key is
   and pip verification (#397) in DEV_NOTES.md.
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Comprehensive third-party licence viewer (#399)
+
+Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
+  - 4 download engines with licences
+  - 6 external tools with licences
+  - 36 direct Rust crates with versions, licences, descriptions
+  - 9 Tauri plugins
+  - 14 direct npm packages
+  - Licence compliance statement referencing cargo-deny
+
+  Already referenced in Help > About > Open Source Acknowledgements.
+
 
 ### Legal
 
