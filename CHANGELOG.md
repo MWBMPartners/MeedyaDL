@@ -22,6 +22,16 @@ Activity log task markers:
   - Now uses same resolution logic as merge_options(): empty → {OS temp}/MeedyaDL
 
 
+### 🐛 Bug Fixes
+
+- Toast notification text overflow with long paths (#384)
+
+Add break-words + overflow-hidden to toast message text, and
+  overflow-hidden to the toast container element. Long file paths
+  without natural break points (e.g., /Users/.../Library/...) now
+  wrap within the toast bounds instead of leaking outside.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -52,6 +62,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### Legal
