@@ -240,6 +240,17 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add npm script for Rust API documentation generation (#413)
+
+Add `npm run docs:rust` which runs `cargo doc --no-deps --open`
+  in the src-tauri directory. Generates and opens rustdoc in the
+  browser. All public functions already have doc comments per
+  project convention.
+
+  Partial fix for #413 — CI artifact generation and GitHub Pages
+  hosting are planned follow-ups.
+
 
 ### Legal
 
