@@ -527,6 +527,7 @@ tauri-plugin-deep-link = "2"
 # handles natively.
 # @see https://docs.rs/roxmltree/ -- roxmltree API reference
 roxmltree = "0.21"
+fs2 = "0.4.3"
 
 # ============================================================
 # [dev-dependencies] -- Dependencies used only during testing
