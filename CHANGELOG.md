@@ -27,6 +27,7 @@ Change RUSTDOCFLAGS from "-D warnings" to "-A rustdoc::all" for the
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.31.0] - 2026-04-10
 
