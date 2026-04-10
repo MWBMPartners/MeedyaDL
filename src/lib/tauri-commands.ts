@@ -1353,3 +1353,15 @@ export function auditApiFields(albumUrl: string): Promise<import('@/types').ApiA
 export function readClipboard(): Promise<string | null> {
   return invoke<string | null>('read_clipboard');
 }
+
+/**
+ * Saves trimmed activity log entries to a session log file for debugging.
+ *
+ * Called when the activity store trims entries beyond MAX_ENTRIES.
+ * Entries are appended to {app_data_dir}/logs/session-{date}.log.
+ *
+ * IPC target: `save_session_log` → `commands::system::save_session_log`
+ */
+export function saveSessionLog(entries: string[]): Promise<void> {
+  return invoke<void>('save_session_log', { entries });
+}

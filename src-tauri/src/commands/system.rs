@@ -233,3 +233,38 @@ pub fn get_engine_config() -> crate::services::engine_registry::EngineConfig {
 pub fn detect_service(url: String) -> Option<crate::models::media_service::MediaServiceId> {
     crate::models::media_service::MediaServiceId::from_url(&url)
 }
+
+/// Saves trimmed activity log entries to a session log file.
+///
+/// Called by the frontend when the activity log is trimmed (exceeds MAX_ENTRIES).
+/// Entries are appended to `{app_data_dir}/logs/session-{date}.log` to preserve
+/// debugging data that would otherwise be lost from the in-memory log.
+///
+/// **Frontend caller:** `saveSessionLog(entries)` in `src/lib/tauri-commands.ts`
+#[tauri::command]
+pub fn save_session_log(app: tauri::AppHandle, entries: Vec<String>) -> Result<(), String> {
+    use std::io::Write;
+
+    let log_dir = crate::utils::platform::get_app_data_dir(&app).join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {e}"))?;
+
+    let date = chrono::Local::now().format("%Y-%m-%d");
+    let session_file = log_dir.join(format!("session-{date}.log"));
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&session_file)
+        .map_err(|e| format!("Failed to open session log: {e}"))?;
+
+    for entry in &entries {
+        writeln!(file, "{entry}").map_err(|e| format!("Failed to write session log: {e}"))?;
+    }
+
+    log::debug!(
+        "Saved {} trimmed activity log entries to {}",
+        entries.len(),
+        session_file.display()
+    );
+    Ok(())
+}

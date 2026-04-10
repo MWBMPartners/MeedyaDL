@@ -160,7 +160,13 @@ fn clear_old_logs(app_data_dir: &std::path::Path) {
     let Ok(entries) = std::fs::read_dir(&log_dir) else {
         return;
     };
-    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    // Tracing logs: 7 days retention
+    let tracing_cutoff =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    // Session logs (trimmed activity log entries): 30 days retention
+    let session_cutoff =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 60 * 60);
+
     let mut removed = 0u32;
     for entry in entries.flatten() {
         let Ok(metadata) = entry.metadata() else {
@@ -169,12 +175,21 @@ fn clear_old_logs(app_data_dir: &std::path::Path) {
         let Ok(modified) = metadata.modified() else {
             continue;
         };
+        let filename = entry.file_name();
+        let name = filename.to_string_lossy();
+        // Session logs get longer retention (30 days) since they contain
+        // debugging data from trimmed activity log entries.
+        let cutoff = if name.starts_with("session-") {
+            session_cutoff
+        } else {
+            tracing_cutoff
+        };
         if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
     }
     if removed > 0 {
-        log::info!("Cleaned up {removed} log file(s) older than 7 days");
+        log::info!("Cleaned up {removed} log file(s) (tracing: >7d, session: >30d)");
     }
 }
 
@@ -995,6 +1010,7 @@ pub fn run() {
             commands::system::get_engine_config,
             // Multi-service URL detection (#315)
             commands::system::detect_service,
+            commands::system::save_session_log,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
