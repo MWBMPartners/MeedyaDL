@@ -596,6 +596,8 @@ export interface AppSettings {
   notification_auto_dismiss_seconds?: number;
   /** Whether the user has accepted the Terms of Service. Shown on first launch. */
   terms_accepted?: boolean;
+  /** Whether the crash report opt-in prompt has been shown. Prevents re-prompting. */
+  crash_report_prompt_shown?: boolean;
   /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
   service_settings?: PerServiceSettings;
   /** Persistent after-queue action (applies to every queue completion). Default: 'do_nothing'. */
