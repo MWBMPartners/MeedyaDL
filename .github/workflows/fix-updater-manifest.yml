@@ -82,8 +82,10 @@ jobs:
           }
 
           # macOS ARM64 (darwin-aarch64)
-          MAC_SIG_FILE="MeedyaDL_aarch64.app.tar.gz.sig"
-          MAC_URL="${BASE}/MeedyaDL_aarch64.app.tar.gz"
+          # Tauri 2.x names the updater bundle after the .app (no version/arch
+          # suffix): MeedyaDL.app.tar.gz — matches the upload step in release.yml.
+          MAC_SIG_FILE="MeedyaDL.app.tar.gz.sig"
+          MAC_URL="${BASE}/MeedyaDL.app.tar.gz"
           if SIG=$(download_sig "$MAC_SIG_FILE"); then
             PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$MAC_URL" \
               '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
