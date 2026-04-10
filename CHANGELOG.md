@@ -93,6 +93,18 @@ Add available disk space check to the output path preflight probe.
 
   New dependency: fs2 (0.4, lightweight cross-platform disk space query).
 
+- Batch URL import from .txt file (#409)
+
+Add "Import URLs from .txt" button on the Download page alongside
+  the existing .meedyadl manifest import. Supports:
+  - One URL per line
+  - Lines starting with # treated as comments (skipped)
+  - Empty lines skipped
+  - Native file picker with .txt filter
+
+  Uses dynamic imports of @tauri-apps/plugin-dialog and plugin-fs
+  to keep the bundle lean (only loaded when the button is clicked).
+
 
 ### 🐛 Bug Fixes
 
@@ -158,6 +170,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
