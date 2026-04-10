@@ -4057,11 +4057,23 @@ pub fn process_queue(
                                 }
 
                                 save_queue_to_disk(&app_clone, &queue_clone).await;
+
+                                // Emit error guidance to the activity log
+                                let error_category = process::classify_error(&error_msg);
+                                let guidance = process::error_guidance(error_category);
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!("💡 {guidance}"),
+                                );
+
                                 let _ = app_clone.emit(
                                     "download-error",
                                     serde_json::json!({
                                         "download_id": dl_id,
                                         "error": error_msg,
+                                        "category": error_category,
+                                        "guidance": guidance,
                                     }),
                                 );
 
@@ -5707,12 +5719,21 @@ pub fn process_queue(
                             );
                         }
 
+                        // Emit error guidance to the activity log
+                        let guidance = process::error_guidance(&error_category);
+                        emit_download_log(
+                            &app_clone,
+                            &dl_id,
+                            &format!("💡 {guidance}"),
+                        );
+
                         let _ = app_clone.emit(
                             "download-error",
                             serde_json::json!({
                                 "download_id": dl_id,
                                 "error": error_msg,
                                 "category": error_category,
+                                "guidance": guidance,
                             }),
                         );
 
