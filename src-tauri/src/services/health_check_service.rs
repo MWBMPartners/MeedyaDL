@@ -503,8 +503,28 @@ fn probe_write_access(dir: &std::path::Path, display_path: &str) -> Option<Prefl
     let probe_file = dir.join(".meedyadl_write_probe");
     match std::fs::write(&probe_file, b"probe") {
         Ok(()) => {
-            // Write succeeded — clean up and report success
+            // Write succeeded — clean up the probe file
             let _ = std::fs::remove_file(&probe_file);
+
+            // Check available disk space (warn if < 500 MB)
+            if let Ok(available) = fs2::available_space(dir) {
+                let available_mb = available / (1024 * 1024);
+                if available_mb < 500 {
+                    let available_display = if available_mb < 1024 {
+                        format!("{available_mb} MB")
+                    } else {
+                        format!("{:.1} GB", available_mb as f64 / 1024.0)
+                    };
+                    return Some(PreflightWarning {
+                        check: PreflightCheck::OutputPath,
+                        message: format!(
+                            "Low disk space on output directory ({available_display} remaining): {display_path}. \
+                             Downloads may fail if the disk fills up during a large album."
+                        ),
+                    });
+                }
+            }
+
             None
         }
         Err(e) => {
