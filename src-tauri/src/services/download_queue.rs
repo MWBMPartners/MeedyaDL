@@ -4334,12 +4334,49 @@ pub fn process_queue(
 
                             // Helper: update the processing label in the queue item
                             // so the progress bar shows what's happening.
+                            // Also appends album context (Artist: Album) when available.
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
                             let set_label = move |label: &str| {
                                 if let Ok(mut q) = label_queue.try_lock() {
-                                    q.set_processing_label(&label_dl_id, label);
+                                    // Look up album context for richer labels
+                                    let context = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == label_dl_id)
+                                        .map(|item| {
+                                            let artist = item.status.artist_name.as_deref().unwrap_or("");
+                                            let album = item.status.album_name.as_deref().unwrap_or("");
+                                            if !artist.is_empty() && !album.is_empty() {
+                                                format!(" — {artist}: {album}")
+                                            } else if !album.is_empty() {
+                                                format!(" — {album}")
+                                            } else {
+                                                String::new()
+                                            }
+                                        })
+                                        .unwrap_or_default();
+                                    let full_label = format!("{label}{context}");
+                                    q.set_processing_label(&label_dl_id, &full_label);
                                 }
+                            };
+
+                            // Helper: get album context for activity log messages.
+                            let log_context_queue = enrich_queue.clone();
+                            let log_context_id = enrich_dl_id.clone();
+                            let album_context = move || -> String {
+                                if let Ok(q) = log_context_queue.try_lock() {
+                                    if let Some(item) = q.items.iter().find(|i| i.status.id == log_context_id) {
+                                        let artist = item.status.artist_name.as_deref().unwrap_or("");
+                                        let album = item.status.album_name.as_deref().unwrap_or("");
+                                        if !artist.is_empty() && !album.is_empty() {
+                                            return format!(" — {artist}: {album}");
+                                        } else if !album.is_empty() {
+                                            return format!(" — {album}");
+                                        }
+                                    }
+                                }
+                                String::new()
                             };
 
                             // Guard: skip Apple Music-specific enrichment for
@@ -4379,7 +4416,7 @@ pub fn process_queue(
                         );
 
                             set_label("Enriching metadata tags...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ Metadata enrichment started");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
                             // source tags, channel detection, API metadata). Returns the
@@ -4492,7 +4529,7 @@ pub fn process_queue(
                                 None
                             };
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ Metadata enrichment completed");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
@@ -4754,7 +4791,7 @@ pub fn process_queue(
                             }
 
                             set_label("Converting lyrics (Enhanced LRC)...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ Lyrics processing started");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
@@ -5016,10 +5053,10 @@ pub fn process_queue(
                                 return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ Lyrics processing completed");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
                             set_label("Downloading animated artwork...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ Animated artwork started");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
                             // duplicate API call. Falls back to a fresh API call
@@ -5184,10 +5221,10 @@ pub fn process_queue(
                                 return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ Animated artwork completed");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
                             set_label("AcoustID fingerprinting...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ AcoustID fingerprinting started");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
                             // embedded rusty-chromaprint library and looks up AcoustID
@@ -5248,10 +5285,10 @@ pub fn process_queue(
                                 return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ AcoustID fingerprinting completed");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ AcoustID fingerprinting completed{}", album_context()));
 
                             set_label("ReplayGain loudness analysis...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ ReplayGain analysis started");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                             // When enabled, analyses each file's loudness via FFmpeg's
                             // ebur128 filter and writes non-destructive ReplayGain tags.
@@ -5303,7 +5340,7 @@ pub fn process_queue(
                                 }
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ ReplayGain analysis completed");
+                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ ReplayGain analysis completed{}", album_context()));
 
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
