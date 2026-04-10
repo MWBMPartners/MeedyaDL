@@ -328,6 +328,9 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Engine registry** - `engines.toml` declarative engine registry compiled into binary. Defines platforms, engines, URL patterns, install methods, icons. Platform icons rendered inline (SVG with `currentColor`) for theme adaptability.
 - ✅ **CodeQL CI fix** - Added `actions: read` permission to CodeQL workflow to resolve "Resource not accessible by integration" errors on release-please PR branches.
 - ✅ **README corrections** - Fixed org URLs (`MeedyaDL/MeedyaDL` → `MWBMPartners/MeedyaDL`), removed screenshots placeholder, PNG logo with dark/light mode support.
+- ✅ **Activity log memory optimization** (#370) - Capped at 10,000 entries with amortised trimming. Virtualized rendering via `@tanstack/react-virtual` (~150 DOM nodes vs 37,500). RAF-batched event ingestion collapses 200+/s Zustand updates to ~60/s. Backend `\r` segment coalescing reduces event volume 5-10x. Download store uses `map()` pattern. Stable `_id` on entries for efficient React reconciliation. Fixes 14+ GB WebView RAM bloat during long download sessions.
+- ✅ **macOS in-app updater fix** (#368) - Corrected filename mismatch in `release.yml` upload step and `latest.json` rebuild: Tauri 2.x generates `MeedyaDL.app.tar.gz` (no arch suffix), not `MeedyaDL_aarch64.app.tar.gz`. Also fixed in standalone `fix-updater-manifest.yml`. `darwin-aarch64` platform now included in updater manifest.
+- ✅ **cargo-deny org-level source allowlist** (#365) - `deny.toml` uses `[sources.allow-org] github = ["MWBMPartners", "MeedyaDL"]` to allow git dependencies from both GitHub orgs without per-repo URL entries.
 
 ---
 
