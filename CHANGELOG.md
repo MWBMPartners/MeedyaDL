@@ -137,6 +137,17 @@ Collect speed samples from gamdl-output progress events (last 60
   throttling or network fluctuations during download sessions.
 
 - WebView memory mitigation with session log persistence (#393)
+- Integration test smoke tests for GAMDL and URL parsing (#414)
+
+Add two smoke tests to the integration test suite:
+  - gamdl_version_smoke_test: verifies GAMDL subprocess works (#[ignore])
+  - url_parsing_smoke_test: verifies Apple Music URL parsing
+
+  The GAMDL test is #[ignore]d by default since it requires Python + GAMDL.
+  Run explicitly with: cargo test -- --ignored
+
+  Partial fix for #414 — full download pipeline tests require CI secrets.
+
 
 ### 🐛 Bug Fixes
 
@@ -202,6 +213,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
