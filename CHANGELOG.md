@@ -26,6 +26,7 @@ Activity log task markers:
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### Security
 
@@ -40,6 +41,15 @@ Add a sliding-window rate limiter in utils/rate_limiter.rs with per-command
 
   Returns a user-friendly "Too many requests" error with retry-after duration
   when the limit is exceeded. Includes unit tests.
+
+- Add settings file integrity check via SHA-256 checksum (#396)
+
+Compute SHA-256 digest on save and write to companion .sha256 file.
+  On load, verify the checksum matches. If mismatched, log a warning
+  but still load the settings (user may have intentionally edited).
+
+  Backwards compatible: settings without a checksum file are accepted
+  and a checksum is generated for next time.
 
 
 ## [0.30.0] - 2026-04-10
