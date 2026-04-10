@@ -745,6 +745,10 @@ export interface QueueItemStatus {
   progress: number;
   /** Name of the track currently being downloaded, or null if not started */
   current_track: string | null;
+  /** Album name extracted from URL at enqueue time, or null */
+  album_name?: string | null;
+  /** Artist name from Apple Music API (populated during enrichment), or null */
+  artist_name?: string | null;
   /** Total number of tracks in this download, or null if unknown */
   total_tracks: number | null;
   /** Number of tracks completed so far, or null if not applicable */

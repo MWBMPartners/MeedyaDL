@@ -381,6 +381,62 @@ fn execute_after_queue_action(app: &AppHandle) {
 ///   - `https://music.apple.com/us/album/foo/123/` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?ls=1` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?i=456` is kept distinct (track-specific)
+/// Extract album name and artist name from an Apple Music URL at enqueue time.
+///
+/// Apple Music URLs have the format:
+///   `https://music.apple.com/{storefront}/album/{album-slug}/{id}`
+///
+/// The album slug is a hyphenated lowercase version of the album name.
+/// Artist name is not available from the URL alone — it will be populated
+/// later from the Apple Music API during enrichment (Step 1). For artist
+/// URLs the artist slug is extracted instead.
+///
+/// Returns `(album_name, artist_name)` — artist is always `None` from URL parsing.
+fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return (None, None);
+    };
+    let segments: Vec<&str> = parsed.path_segments().map_or(vec![], |s| s.collect());
+
+    // Find album slug: /album/{slug}/{id}
+    for (i, seg) in segments.iter().enumerate() {
+        if *seg == "album" && i + 1 < segments.len() {
+            let slug = segments[i + 1];
+            // Convert hyphenated slug to title case: "the-platinum-collection" → "The Platinum Collection"
+            let name = slug
+                .split('-')
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            return (Some(name), None);
+        }
+        // Artist URLs: /artist/{slug}/{id}
+        if *seg == "artist" && i + 1 < segments.len() {
+            let slug = segments[i + 1];
+            let name = slug
+                .split('-')
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            return (None, Some(name));
+        }
+    }
+
+    (None, None)
+}
+
 fn normalize_url_for_dedup(url: &str) -> String {
     // Split scheme + authority from path+query.
     // URL structure: scheme://authority/path?query#fragment
@@ -890,30 +946,40 @@ impl DownloadQueue {
         });
 
         let item = QueueItem {
-            status: QueueItemStatus {
-                id: download_id.clone(),
-                urls: request.urls.clone(),
-                service: service_str,
-                engine: engine_str,
-                state: DownloadState::Queued,
-                progress: 0.0,
-                current_track: None,
-                total_tracks: None,
-                completed_tracks: None,
-                speed: None,
-                eta: None,
-                processing_label: None,
-                error: None,
-                output_path: None,
-                codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
-                    || settings.default_song_codec.to_cli_string().to_string(),
-                    |c| c.to_cli_string().to_string(),
-                )),
-                fallback_occurred: false,
-                used_wrapper: merged_options.use_wrapper.unwrap_or(false),
-                output_is_directory: false,
-                warnings: Vec::new(),
-                created_at: chrono::Utc::now().to_rfc3339(),
+            status: {
+                // Extract album name and artist from URL at enqueue time for
+                // immediate display in the progress bar and queue list.
+                let (album_name, artist_name) = extract_album_info_from_url(
+                    request.urls.first().map(String::as_str).unwrap_or(""),
+                );
+
+                QueueItemStatus {
+                    id: download_id.clone(),
+                    urls: request.urls.clone(),
+                    service: service_str,
+                    engine: engine_str,
+                    state: DownloadState::Queued,
+                    progress: 0.0,
+                    current_track: None,
+                    album_name,
+                    artist_name,
+                    total_tracks: None,
+                    completed_tracks: None,
+                    speed: None,
+                    eta: None,
+                    processing_label: None,
+                    error: None,
+                    output_path: None,
+                    codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
+                        || settings.default_song_codec.to_cli_string().to_string(),
+                        |c| c.to_cli_string().to_string(),
+                    )),
+                    fallback_occurred: false,
+                    used_wrapper: merged_options.use_wrapper.unwrap_or(false),
+                    output_is_directory: false,
+                    warnings: Vec::new(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                }
             },
             request,
             merged_options,
@@ -1613,6 +1679,10 @@ impl DownloadQueue {
                 registry.resolve_engine(svc_id).map(|e| e.id.clone())
             });
 
+            let (album_name, artist_name) = extract_album_info_from_url(
+                p.request.urls.first().map(String::as_str).unwrap_or(""),
+            );
+
             let item = QueueItem {
                 status: QueueItemStatus {
                     id: p.id.clone(),
@@ -1622,6 +1692,8 @@ impl DownloadQueue {
                     state,
                     progress: 0.0,
                     current_track: None,
+                    album_name,
+                    artist_name,
                     total_tracks: None,
                     completed_tracks: None,
                     speed: None,
@@ -4380,6 +4452,25 @@ pub fn process_queue(
                                                 {
                                                     item.status.output_path =
                                                         Some(new_path.clone());
+                                                }
+                                            }
+                                        }
+                                        // Update artist_name from API metadata for progress bar display
+                                        if let Some(ref meta) = metadata {
+                                            if let Ok(mut q) = enrich_queue.try_lock() {
+                                                if let Some(item) = q
+                                                    .items
+                                                    .iter_mut()
+                                                    .find(|i| i.status.id == enrich_dl_id)
+                                                {
+                                                    if item.status.artist_name.is_none() {
+                                                        item.status.artist_name =
+                                                            meta.artist_name.clone();
+                                                    }
+                                                    if item.status.album_name.is_none() {
+                                                        item.status.album_name =
+                                                            meta.album_name.clone();
+                                                    }
                                                 }
                                             }
                                         }

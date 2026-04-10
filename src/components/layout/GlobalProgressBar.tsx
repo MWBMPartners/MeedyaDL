@@ -257,32 +257,25 @@ export function GlobalProgressBar() {
       ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
       : (activeItem?.progress ?? 0);
 
-  /** Extract album context from the URL for display alongside the track name.
-   *  Apple Music URLs: /album/the-platinum-collection/1234 → "The Platinum Collection" */
-  const albumContext = (() => {
-    const url = activeItem?.urls?.[0];
-    if (!url) return '';
-    try {
-      const parts = new URL(url).pathname.split('/');
-      const albumIdx = parts.indexOf('album');
-      if (albumIdx >= 0 && parts[albumIdx + 1]) {
-        return parts[albumIdx + 1]
-          .replace(/-/g, ' ')
-          .replace(/\b\w/g, (c) => c.toUpperCase());
-      }
-    } catch { /* invalid URL */ }
-    return '';
-  })();
+  /** Build contextual label: "Artist — Album — "Track"" for multi-queue clarity */
+  const itemLabel = (() => {
+    // Processing labels (enrichment/companions) take priority
+    if (activeItem?.processing_label) return activeItem.processing_label;
 
-  /** Label for the per-item bar — shows processing label during enrichment/companions,
-   *  or "Album — Track" during download for multi-queue context */
-  const itemLabel =
-    activeItem?.processing_label ??
-    (activeItem?.current_track && albumContext
-      ? `${albumContext} — "${activeItem.current_track}"`
-      : activeItem?.current_track) ??
-    activeItem?.urls?.[0] ??
-    '';
+    const track = activeItem?.current_track;
+    const album = activeItem?.album_name;
+    const artist = activeItem?.artist_name;
+
+    if (track) {
+      const parts: string[] = [];
+      if (artist) parts.push(artist);
+      if (album) parts.push(album);
+      parts.push(`"${track}"`);
+      return parts.join(' — ');
+    }
+
+    return album ?? activeItem?.urls?.[0] ?? '';
+  })();
 
   /** Speed and ETA suffix */
   const speedEta = [activeItem?.speed, activeItem?.eta]
