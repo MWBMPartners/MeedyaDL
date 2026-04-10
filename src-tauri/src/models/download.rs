@@ -207,6 +207,16 @@ pub struct QueueItemStatus {
     /// Parsed from GAMDL's stdout progress lines.
     pub current_track: Option<String>,
 
+    /// Album name for display in the progress bar. Populated at download
+    /// start from the Apple Music API or parsed from the URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album_name: Option<String>,
+
+    /// Album artist name for display in the progress bar. Populated at
+    /// download start from the Apple Music API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_name: Option<String>,
+
     /// Total number of tracks to download. `Some(n)` for albums/playlists,
     /// `None` for single-track downloads. Used by the frontend to render
     /// "Track 3 of 12" style progress indicators.
