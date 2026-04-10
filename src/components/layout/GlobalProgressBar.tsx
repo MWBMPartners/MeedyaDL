@@ -106,7 +106,9 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
       setSvgHtml(svgCache.get(platform.icon)!);
       return;
     }
-    fetch(platform.icon)
+    // Ensure absolute path for Tauri production (base URL is tauri://localhost/)
+    const iconUrl = platform.icon.startsWith('/') ? platform.icon : `/${platform.icon}`;
+    fetch(iconUrl)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.text();
