@@ -3139,72 +3139,129 @@ fn spawn_companion_downloads(
     /// but the enrichment pipeline only runs for the primary download. This
     /// function runs the same conversion steps so companion sidecars get
     /// Enhanced LRC, Rich SRT, WebVTT, and ASS conversions.
+    ///
+    /// The `output_dir` parameter is the top-level output path from GamdlOptions
+    /// (e.g., `~/Music/`), not the album-specific directory. GAMDL creates the
+    /// `Artist/Album/` structure within this path. The lyrics conversion services
+    /// expect the album directory (where .ttml and .m4a files live), so this
+    /// function resolves it by recursively finding directories with TTML files.
     fn run_companion_lyrics_conversion(
         app: &tauri::AppHandle,
         dl_id: &str,
         output_dir: &str,
     ) {
         let settings = load_settings_for_queue(app);
+        let base = std::path::Path::new(output_dir);
 
-        if !std::path::Path::new(output_dir).is_dir() {
+        if !base.is_dir() {
             return;
         }
 
-        // Enhanced LRC: TTML → word-by-word LRC
-        if settings.enhanced_lrc {
-            match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    emit_download_log(
-                        app,
-                        dl_id,
-                        &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
-                    );
+        // Resolve the album directory: the lyrics services operate on a flat
+        // directory of .ttml + .m4a files, but output_dir is typically the
+        // top-level output path. Find directories containing TTML files by
+        // walking the tree recursively.
+        let album_dirs = find_dirs_with_ttml(base);
+        if album_dirs.is_empty() {
+            log::debug!(
+                "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
+            );
+            return;
+        }
+
+        for album_dir in &album_dirs {
+            let dir_str = album_dir.to_string_lossy();
+
+            // Enhanced LRC: TTML → word-by-word LRC
+            if settings.enhanced_lrc {
+                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str)
+                {
+                    Ok(count) if count > 0 => {
+                        emit_download_log(
+                            app,
+                            dl_id,
+                            &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion Enhanced LRC conversion failed: {e}");
+                    }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion Enhanced LRC conversion failed: {e}");
+            }
+
+            // Rich SRT: TTML → styled SRT with bold/italic/colour
+            if settings.generate_rich_srt {
+                match super::rich_srt_service::generate_rich_srt_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} Rich SRT file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion Rich SRT generation failed: {e}");
+                    }
+                }
+            }
+
+            // WebVTT: TTML/SRT/LRC → .vtt
+            if settings.generate_webvtt {
+                match super::webvtt_service::generate_webvtt_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} WebVTT file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion WebVTT generation failed: {e}");
+                    }
+                }
+            }
+
+            // ASS: → styled .ass subtitles
+            if settings.generate_ass {
+                match super::ass_subtitle_service::generate_ass_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} ASS subtitle file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion ASS generation failed: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Recursively finds directories that contain `.ttml` files.
+    ///
+    /// GAMDL creates an `Artist/Album/` directory structure within the output
+    /// path. The lyrics conversion services expect the leaf album directory
+    /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
+    /// and collects every directory that directly contains at least one
+    /// `.ttml` file.
+    fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut result = Vec::new();
+        let mut has_ttml_here = false;
+
+        if let Ok(entries) = std::fs::read_dir(base) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Recurse into subdirectories
+                    result.extend(find_dirs_with_ttml(&path));
+                } else if path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
+                {
+                    has_ttml_here = true;
                 }
             }
         }
 
-        // Rich SRT: TTML → styled SRT with bold/italic/colour
-        if settings.generate_rich_srt {
-            match super::rich_srt_service::generate_rich_srt_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} Rich SRT file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion Rich SRT generation failed: {e}");
-                }
-            }
+        if has_ttml_here {
+            result.push(base.to_path_buf());
         }
 
-        // WebVTT: TTML/SRT/LRC → .vtt
-        if settings.generate_webvtt {
-            match super::webvtt_service::generate_webvtt_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} WebVTT file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion WebVTT generation failed: {e}");
-                }
-            }
-        }
-
-        // ASS: → styled .ass subtitles
-        if settings.generate_ass {
-            match super::ass_subtitle_service::generate_ass_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} ASS subtitle file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion ASS generation failed: {e}");
-                }
-            }
-        }
+        result
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
