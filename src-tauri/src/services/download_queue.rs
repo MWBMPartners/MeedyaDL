@@ -6122,6 +6122,11 @@ async fn run_download_with_events(
                 // This reduces activity-log event volume by 5-10x during
                 // downloads. All segments are still parsed for gamdl-output
                 // progress tracking.
+                //
+                // When verbose logging is enabled, bypass coalescing and
+                // emit ALL segments so users get complete progress detail
+                // for debugging (speeds, ETAs, percentages at every step).
+                let verbose = crate::utils::activity_log::is_verbose_logging();
                 let last_segment_idx = segments
                     .iter()
                     .rposition(|s| !s.trim().is_empty());
@@ -6138,14 +6143,19 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stdout] {clean_line}");
 
-                    // Only emit to activity-log for the last \r segment
-                    // (the final visible state in a terminal).
-                    if Some(idx) == last_segment_idx {
-                        let is_new = {
+                    // Emit to activity-log: last \r segment only (normal),
+                    // or ALL segments when verbose logging is enabled for
+                    // full debugging detail.
+                    if verbose || Some(idx) == last_segment_idx {
+                        let should_emit = if verbose {
+                            // Verbose: bypass dedup — emit every line for
+                            // complete progress history
+                            true
+                        } else {
                             let mut set = seen.lock().await;
                             set.insert(clean_line.clone())
                         };
-                        if is_new {
+                        if should_emit {
                             let _ = app.emit(
                                 "activity-log",
                                 &ActivityLogEvent {
@@ -6257,7 +6267,9 @@ async fn run_download_with_events(
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
-                // Only emit last \r segment to activity-log (same as stdout)
+                // Same coalescing logic as stdout: emit only last \r segment
+                // in normal mode, or ALL segments when verbose logging is on.
+                let verbose = crate::utils::activity_log::is_verbose_logging();
                 let last_segment_idx = segments
                     .iter()
                     .rposition(|s| !s.trim().is_empty());
@@ -6272,13 +6284,16 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stderr] {clean_line}");
 
-                    // Only emit to activity-log for the last \r segment
-                    if Some(idx) == last_segment_idx {
-                        let is_new = {
+                    // Emit to activity-log: last \r segment only (normal),
+                    // or ALL segments when verbose logging is enabled.
+                    if verbose || Some(idx) == last_segment_idx {
+                        let should_emit = if verbose {
+                            true
+                        } else {
                             let mut set = seen.lock().await;
                             set.insert(clean_line.clone())
                         };
-                        if is_new {
+                        if should_emit {
                             let _ = app.emit(
                                 "activity-log",
                                 &ActivityLogEvent {
