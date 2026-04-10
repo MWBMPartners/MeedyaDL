@@ -105,6 +105,19 @@ Add "Import URLs from .txt" button on the Download page alongside
   Uses dynamic imports of @tauri-apps/plugin-dialog and plugin-fs
   to keep the bundle lean (only loaded when the button is clicked).
 
+- System tray tooltip shows download progress (#410)
+
+Add TrayState managed state and update_tray_tooltip() function in lib.rs.
+  The tray icon tooltip updates on every queue state change (via
+  save_queue_to_disk_inner) showing:
+  - "MeedyaDL — 2 downloading, 3 queued" during active downloads
+  - "MeedyaDL — 5 completed" when all done
+  - "MeedyaDL" when idle
+
+  Works on all platforms (macOS, Windows, Linux). Future: macOS dock
+  badge count and Windows taskbar progress overlay can be added as
+  platform-specific enhancements.
+
 
 ### 🐛 Bug Fixes
 
@@ -170,6 +183,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
