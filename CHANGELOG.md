@@ -129,6 +129,14 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- MacOS Gatekeeper, Windows SmartScreen, CONTRIBUTING, CODE_OF_CONDUCT
+
+- FAQ: add macOS Gatekeeper workaround with xattr command (#403)
+  - FAQ: add Windows SmartScreen "Run anyway" instructions (#404)
+  - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
+  - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
+
 
 ### Legal
 
