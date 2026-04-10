@@ -381,6 +381,7 @@ fn execute_after_queue_action(app: &AppHandle) {
 ///   - `https://music.apple.com/us/album/foo/123/` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?ls=1` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?i=456` is kept distinct (track-specific)
+///
 /// Extract album name and artist name from an Apple Music URL at enqueue time.
 ///
 /// Apple Music URLs have the format:
