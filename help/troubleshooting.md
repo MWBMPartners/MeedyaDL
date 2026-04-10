@@ -258,6 +258,16 @@ When a download starts, the Activity Log now displays which authentication metho
 - **Purpose:** This helps you confirm which authentication path is active for each download, which is useful when troubleshooting failures. If a download fails with an auth error and the log shows cookie-based authentication, the most likely fix is to refresh your cookies. If the log shows wrapper authentication, check that the wrapper service is running and reachable.
 - **Note:** When the **Verbose Activity Log** is enabled in Settings > Advanced, additional authentication details are shown, including wrapper URL, credential status, and token expiry information.
 
+#### Activity Log Auto-Scroll
+
+The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** checkbox in the toolbar shows the current state:
+
+- **Checked (default):** The log scrolls to the bottom as new entries arrive.
+- **Scrolling up:** The checkbox automatically unchecks, freezing the view so you can read earlier entries without losing your place.
+- **Re-checking:** Jumps back to the bottom and resumes auto-scrolling.
+
+The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Use the **Export** button to save the full log before entries are trimmed.
+
 ---
 
 ### Activity Log Export

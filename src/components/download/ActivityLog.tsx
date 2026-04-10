@@ -35,7 +35,7 @@ import { useActivityStore } from '@/stores/activityStore';
 import { Button, Input } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { Download, Pause, Play, Trash2, Search, X, Copy } from 'lucide-react';
+import { Download, Trash2, Search, X, Copy } from 'lucide-react';
 import { exportActivityLog } from '@/lib/tauri-commands';
 
 /**
@@ -220,23 +220,6 @@ export function ActivityLog() {
   };
 
   /**
-   * Toggle pause/resume. When resuming, reset the scroll flag so
-   * auto-scroll kicks in on the next entry.
-   */
-  const handleTogglePause = () => {
-    if (paused) {
-      userScrolledRef.current = false;
-      setPaused(false);
-      // Immediately scroll to bottom on resume
-      if (filteredEntries.length > 0) {
-        virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
-      }
-    } else {
-      setPaused(true);
-    }
-  };
-
-  /**
    * Handle search input changes.
    */
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -264,15 +247,27 @@ export function ActivityLog() {
         title="Activity Log"
         subtitle={subtitle}
         actions={
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={paused ? <Play size={14} /> : <Pause size={14} />}
-              onClick={handleTogglePause}
-            >
-              {paused ? 'Resume' : 'Pause'}
-            </Button>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-content-secondary cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!paused}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    // Re-enable auto-scroll: scroll to bottom immediately
+                    userScrolledRef.current = false;
+                    setPaused(false);
+                    if (filteredEntries.length > 0) {
+                      virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
+                    }
+                  } else {
+                    setPaused(true);
+                  }
+                }}
+                className="accent-accent w-3.5 h-3.5 cursor-pointer"
+              />
+              Auto-scroll
+            </label>
             <Button
               variant="secondary"
               size="sm"

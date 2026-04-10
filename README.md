@@ -384,6 +384,9 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Engine registry (`engines.toml`) for per-platform tool priority and fallback
 - ✅ Activity log memory optimization — 10K entry cap, virtualized rendering (`@tanstack/react-virtual`), RAF-batched event ingestion, backend `\r` segment coalescing (fixes 14+ GB WebView RAM usage)
 - ✅ macOS in-app updater fix — corrected updater artifact filename in release workflow so `darwin-aarch64` platform is included in `latest.json`
+- ✅ Clipboard detection queues directly — clicking "Download" on the clipboard toast adds to queue in one click (no more pre-filling the URL input)
+- ✅ Native OS notifications for clipboard detection — sent when the window is not focused so URLs are never missed
+- ✅ Activity Log auto-scroll checkbox — replaces Pause/Resume button with a visible checkbox that auto-unchecks when user scrolls up
 
 ### v2.x — Multi-Service Expansion
 
