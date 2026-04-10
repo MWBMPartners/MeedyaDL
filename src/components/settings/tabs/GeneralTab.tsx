@@ -126,6 +126,18 @@ const UPDATE_INTERVAL_OPTIONS = [
 ];
 
 /**
+ * Notification auto-dismiss duration options (seconds).
+ */
+const NOTIFICATION_DISMISS_OPTIONS = [
+  { value: '3', label: '3 seconds' },
+  { value: '5', label: '5 seconds (default)' },
+  { value: '10', label: '10 seconds' },
+  { value: '15', label: '15 seconds' },
+  { value: '30', label: '30 seconds' },
+  { value: '60', label: '60 seconds' },
+];
+
+/**
  * After-queue action options.
  * "once" variants are handled via the context menu on the Download page;
  * the Settings dropdown controls the persistent "always" action.
@@ -465,6 +477,19 @@ export function GeneralTab() {
           checked={settings.desktop_notifications}
           onChange={(checked) => updateSettings({ desktop_notifications: checked })}
         />
+
+        {/* Notification auto-dismiss duration — only visible when notifications are enabled */}
+        {settings.desktop_notifications && (
+          <Select
+            label="Notification Auto-Dismiss"
+            description="How long transient notifications (download complete, added to queue) stay visible before auto-dismissing. Error and warning notifications always require manual dismissal."
+            options={NOTIFICATION_DISMISS_OPTIONS}
+            value={String(settings.notification_auto_dismiss_seconds ?? 5)}
+            onChange={(e) =>
+              updateSettings({ notification_auto_dismiss_seconds: Number(e.target.value) })
+            }
+          />
+        )}
 
         {/* Smart re-download detection */}
         <Toggle

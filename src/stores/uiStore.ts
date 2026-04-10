@@ -32,6 +32,7 @@ import { create } from 'zustand';
 // Toast    -- shape of an individual toast notification (id, message, type, duration)
 // ToastType -- severity level union ('success' | 'error' | 'warning' | 'info')
 import type { AppPage, Toast, ToastType } from '@/types';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * Shape of the UI state slice and its actions.
@@ -256,7 +257,18 @@ export const useUiStore = create<UiState>((set) => ({
    * it uses the updater-function form of `set()` to safely read the latest toast
    * array (avoiding stale closures over the `toasts` array).
    */
-  addToast: (message, type, duration = 5000, key?, action?) => {
+  addToast: (message, type, duration?, key?, action?) => {
+    // Resolve duration: use explicit value if provided, otherwise read from settings.
+    // Error and warning toasts are persistent (0 = no auto-dismiss) unless explicitly timed.
+    if (duration === undefined) {
+      if (type === 'error' || type === 'warning') {
+        duration = 0; // Persistent — requires manual dismissal
+      } else {
+        // Read configurable dismiss duration from settings (default 5s)
+        const { settings } = useSettingsStore.getState();
+        duration = (settings.notification_auto_dismiss_seconds ?? 5) * 1000;
+      }
+    }
     // Generate a collision-resistant unique ID for this toast.
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 

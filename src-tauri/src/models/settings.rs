@@ -354,6 +354,13 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub desktop_notifications: bool,
 
+    /// Auto-dismiss duration for transient notifications (seconds).
+    /// Range: 3-60 seconds. Default: 5 seconds.
+    /// Affects both in-app toasts and native OS notifications.
+    /// Persistent notifications (errors, warnings) are not affected.
+    #[serde(default = "default_notification_dismiss")]
+    pub notification_auto_dismiss_seconds: u32,
+
     /// Smart re-download detection using Apple Music API `lastModifiedDate`.
     /// When enabled and a user queues a URL that was previously downloaded,
     /// MeedyaDL compares the stored `lastModifiedDate` from the `.meedyadl`
@@ -1008,6 +1015,11 @@ const fn default_update_interval() -> u32 {
     6
 }
 
+/// Default auto-dismiss duration for transient notifications: 5 seconds.
+const fn default_notification_dismiss() -> u32 {
+    5
+}
+
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
     ///
@@ -1071,6 +1083,7 @@ impl Default for AppSettings {
             // Desktop notifications enabled by default — OS-native alerts
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
+            notification_auto_dismiss_seconds: 5,
             smart_redownload_detection: true,
             clipboard_monitoring: true,
 
