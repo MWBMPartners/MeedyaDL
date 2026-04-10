@@ -27,6 +27,7 @@ Activity log task markers:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### Security
 
@@ -50,6 +51,15 @@ Compute SHA-256 digest on save and write to companion .sha256 file.
 
   Backwards compatible: settings without a checksum file are accepted
   and a checksum is generated for next time.
+
+- Add post-install verification for pip packages (#397)
+
+After pip install, run `pip show --verbose` to verify the installed
+  package location and log it for audit trail. Applied to both
+  gamdl_service::install_gamdl() and pip_engine_service::install_pip_engine().
+
+  This provides a verifiable record of what was installed and where,
+  enabling detection of tampered packages after installation.
 
 
 ## [0.30.0] - 2026-04-10
