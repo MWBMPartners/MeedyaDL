@@ -35,7 +35,7 @@ import { useActivityStore } from '@/stores/activityStore';
 import { Button, Input } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { Download, Trash2, Search, X, Copy } from 'lucide-react';
+import { Download, Trash2, Search, X, Copy, ScrollText } from 'lucide-react';
 import { exportActivityLog } from '@/lib/tauri-commands';
 
 /**
@@ -373,6 +373,7 @@ export function ActivityLog() {
       >
         {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
+            <ScrollText size={32} className="mb-3 opacity-40" />
             <p className="text-sm font-medium">No activity yet</p>
             <p className="text-xs mt-1">Start a download to see live output here. The log resets on app restart.</p>
           </div>
