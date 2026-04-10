@@ -116,7 +116,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   return (
     <div
       className={`
-        flex items-start gap-3 px-4 py-3
+        flex items-start gap-3 px-4 py-3 overflow-hidden
         rounded-platform border shadow-platform
         ${config.bgClass} ${config.borderClass}
         animate-in slide-in-from-right
@@ -130,7 +130,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
       {/* Message text and optional action button */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-content-primary">{toast.message}</p>
+        <p className="text-sm text-content-primary break-words overflow-hidden">{toast.message}</p>
         {toast.action && (
           <button
             onClick={() => {
