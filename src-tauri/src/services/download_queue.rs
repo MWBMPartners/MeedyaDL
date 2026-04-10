@@ -6340,11 +6340,15 @@ pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
 
 /// Internal save implementation (not debounced).
 async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandle) {
-    // Clone persistable items while holding the lock (very fast — just cloning URLs + IDs)
-    let items = {
+    // Clone persistable items and get counts while holding the lock
+    let (items, active, queued, completed) = {
         let q = queue.lock().await;
-        q.get_persistable_items()
+        let (_, active, queued, completed, _) = q.get_counts();
+        (q.get_persistable_items(), active, queued, completed)
     };
+
+    // Update the system tray tooltip with current queue status
+    crate::update_tray_tooltip(app, active, queued, completed);
 
     // Write to disk after releasing the lock
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
