@@ -124,6 +124,36 @@ fn verify_settings_checksum(settings_path: &std::path::Path, json_content: &str)
     }
 }
 
+/// Runs any needed settings migrations to bring old settings files up to
+/// the current schema version. Migrations run sequentially (v0→v1, v1→v2, etc.).
+fn migrate_settings(settings: &mut AppSettings) {
+    use crate::models::settings::CURRENT_SETTINGS_VERSION;
+
+    if settings.settings_version >= CURRENT_SETTINGS_VERSION {
+        return; // Already current
+    }
+
+    let old_version = settings.settings_version;
+
+    // v0 → v1: initial migration (no structural changes, just stamps the version)
+    if settings.settings_version == 0 {
+        settings.settings_version = 1;
+    }
+
+    // Future migrations would go here:
+    // if settings.settings_version == 1 {
+    //     // v1 → v2: rename field, change default, etc.
+    //     settings.settings_version = 2;
+    // }
+
+    if old_version != settings.settings_version {
+        log::info!(
+            "Migrated settings from v{old_version} to v{}",
+            settings.settings_version
+        );
+    }
+}
+
 /// Loads the application settings from the JSON settings file.
 ///
 /// If the settings file doesn't exist (first run), returns default settings.
@@ -175,7 +205,11 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // for the broken field(s) while other fields are preserved by serde(default).
         // Ref: https://docs.rs/serde_json/latest/serde_json/fn.from_str.html
         match serde_json::from_str(&contents) {
-            Ok(parsed) => parsed,
+            Ok(mut parsed) => {
+                // Run any needed schema migrations (v0→v1, etc.)
+                migrate_settings(&mut parsed);
+                parsed
+            }
             Err(e) => {
                 log::error!(
                     "Settings file corrupted or incompatible — using defaults. \

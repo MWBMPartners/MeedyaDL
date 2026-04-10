@@ -276,6 +276,13 @@ pub struct AppSettings {
     // ================================================================
     // General
     // ================================================================
+    /// Settings schema version for migration support.
+    /// Incremented when backwards-incompatible changes are made to the settings
+    /// structure (field renames, default value changes, field removal).
+    /// On load, the migration function runs any needed upgrades sequentially.
+    #[serde(default)]
+    pub settings_version: u32,
+
     /// Output directory for downloaded music and videos.
     /// An empty string means "use the platform's default Music directory",
     /// which is resolved at runtime (e.g., `~/Music` on macOS).
@@ -1026,6 +1033,10 @@ const fn default_notification_dismiss() -> u32 {
     5
 }
 
+/// Current settings schema version.
+/// Increment this when making backwards-incompatible changes to AppSettings.
+pub const CURRENT_SETTINGS_VERSION: u32 = 1;
+
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
     ///
@@ -1059,6 +1070,9 @@ impl Default for AppSettings {
     #[allow(clippy::literal_string_with_formatting_args)] // GAMDL template strings, not Rust format args
     fn default() -> Self {
         Self {
+            // Schema version for migration support
+            settings_version: CURRENT_SETTINGS_VERSION,
+
             // --- General ---
             // Empty string = resolve to platform Music dir at runtime.
             output_path: String::new(),
