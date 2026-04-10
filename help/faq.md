@@ -243,6 +243,31 @@ If your question is not answered here, check the full [Troubleshooting](troubles
 - [Lyrics and Metadata](lyrics-and-metadata.md) -- Lyric formats and metadata fields
 - [Troubleshooting](troubleshooting.md) -- Error resolution and diagnostics
 
+### macOS shows "MeedyaDL can't be opened because Apple cannot check it for malicious software"
+
+This is macOS Gatekeeper protecting you from unverified software. MeedyaDL's pre-release builds are not yet signed with an Apple Developer ID certificate. To open MeedyaDL:
+
+1. **Right-click** (or Control-click) the MeedyaDL app icon
+2. Click **Open** from the context menu
+3. Click **Open** again in the dialog that appears
+
+Alternatively, run this command in Terminal after installing:
+
+```bash
+xattr -cr /Applications/MeedyaDL.app
+```
+
+This only needs to be done once. Future launches will open normally. macOS code signing and notarization are planned for the v1 stable release.
+
+### Windows shows "Windows protected your PC" (SmartScreen)
+
+Windows SmartScreen shows this warning for software from unverified publishers. MeedyaDL's pre-release builds are not yet signed with a code signing certificate. To proceed:
+
+1. Click **More info** on the SmartScreen dialog
+2. Click **Run anyway**
+
+This only needs to be done once per version. The warning will not reappear for the same version after you choose "Run anyway". Windows EV code signing is planned for the v1 stable release.
+
 ---
 
 [Back to Help Index](index.md)
