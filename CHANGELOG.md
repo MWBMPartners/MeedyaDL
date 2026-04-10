@@ -25,6 +25,22 @@ Activity log task markers:
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### Security
+
+- Add IPC command rate limiting (#395)
+
+Add a sliding-window rate limiter in utils/rate_limiter.rs with per-command
+  configurable limits. Applied to sensitive commands:
+  - start_download: 10 calls/minute
+  - check_all_updates: 1 call/minute
+  - download_and_install_app_update: 1 call/minute
+  - import_cookies_from_browser: 3 calls/minute
+
+  Returns a user-friendly "Too many requests" error with retry-after duration
+  when the limit is exceeded. Includes unit tests.
+
 
 ## [0.30.0] - 2026-04-10
 
