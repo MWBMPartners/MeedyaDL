@@ -6,6 +6,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Restore activity log line spacing after virtualization
+
+The switch to @tanstack/react-virtual absolute positioning caused rows
+  to lose inherited font-mono/text-xs/leading-relaxed from the parent
+  container. Add these classes directly to each virtualized row and add
+  py-[1px] vertical padding for minimal line separation.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -36,6 +46,7 @@ This changelog is automatically generated from [conventional commits](https://ww
   - CLAUDE.md: update activity log and macOS updater artifact naming
   sections
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.29.4] - 2026-04-10
 
