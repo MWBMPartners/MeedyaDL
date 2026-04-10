@@ -115,6 +115,8 @@ const MOCK_SETTINGS: AppSettings = {
   theme_override: 'dark',
   high_contrast: false,
   colour_blind_mode: '',
+  after_queue_action: 'do_nothing',
+  after_queue_once: null,
 };
 
 /**

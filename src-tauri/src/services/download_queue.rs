@@ -206,6 +206,139 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         .ok();
 }
 
+/// Executes the configured after-queue action when the queue becomes idle.
+///
+/// Checks `after_queue_once` first (one-shot override), then `after_queue_action`
+/// (persistent). One-shot actions are cleared after execution. Called after
+/// `on_task_finished()` when `is_idle()` returns true.
+fn execute_after_queue_action(app: &AppHandle) {
+    use crate::models::settings::AfterQueueAction;
+
+    let mut settings = load_settings_for_queue(app);
+
+    // Resolve which action to execute: one-shot overrides persistent
+    let action = settings
+        .after_queue_once
+        .take() // consume one-shot
+        .unwrap_or(settings.after_queue_action);
+
+    // Clear one-shot in saved settings if it was set
+    if settings.after_queue_once.is_some() {
+        settings.after_queue_once = None;
+        // Save updated settings (clear the one-shot flag)
+        let data_dir = crate::utils::platform::get_app_data_dir(app);
+        let settings_path = data_dir.join("settings.json");
+        if let Ok(json) = serde_json::to_string_pretty(&settings) {
+            let _ = std::fs::write(settings_path, json);
+        }
+    }
+
+    match action {
+        AfterQueueAction::DoNothing => {}
+        AfterQueueAction::OpenOutputFolder => {
+            let path = if settings.output_path.is_empty() {
+                crate::services::config_service::get_default_output_path()
+                    .unwrap_or_else(|_| ".".to_string())
+            } else {
+                settings.output_path.clone()
+            };
+            // Open the folder in the system file manager using platform-native commands
+            #[cfg(target_os = "macos")]
+            { let _ = std::process::Command::new("open").arg(&path).spawn(); }
+            #[cfg(target_os = "windows")]
+            { let _ = std::process::Command::new("explorer").arg(&path).spawn(); }
+            #[cfg(target_os = "linux")]
+            { let _ = std::process::Command::new("xdg-open").arg(&path).spawn(); }
+            log::info!("After-queue: opened output folder {path}");
+            emit_app_log(app, &format!("After-queue action: opened output folder ({path})"));
+        }
+        AfterQueueAction::PlaySound => {
+            send_desktop_notification(app, "Queue Complete", "All downloads finished.");
+            log::info!("After-queue: played notification sound");
+            emit_app_log(app, "After-queue action: notification sound");
+        }
+        AfterQueueAction::CloseMeedyadl => {
+            log::info!("After-queue: closing MeedyaDL");
+            emit_app_log(app, "After-queue action: closing MeedyaDL...");
+            // Brief delay to let the activity log event propagate
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                app_clone.exit(0);
+            });
+        }
+        AfterQueueAction::RestartComputer => {
+            log::info!("After-queue: restarting computer");
+            emit_app_log(app, "After-queue action: restarting computer in 30 seconds...");
+            send_desktop_notification(app, "MeedyaDL", "Computer will restart in 30 seconds...");
+            #[cfg(target_os = "macos")]
+            {
+                let _ = std::process::Command::new("osascript")
+                    .args(["-e", "tell application \"System Events\" to restart"])
+                    .spawn();
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("shutdown")
+                    .args(["/r", "/t", "30"])
+                    .spawn();
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::process::Command::new("systemctl")
+                    .args(["reboot"])
+                    .spawn();
+            }
+        }
+        AfterQueueAction::HibernateComputer => {
+            log::info!("After-queue: hibernating computer");
+            emit_app_log(app, "After-queue action: hibernating computer...");
+            #[cfg(target_os = "macos")]
+            {
+                // macOS uses sleep (pmset sleepnow) — true hibernate requires
+                // hibernatemode 25 which most Macs don't use by default.
+                let _ = std::process::Command::new("pmset").arg("sleepnow").spawn();
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("shutdown")
+                    .args(["/h"])
+                    .spawn();
+            }
+            #[cfg(target_os = "linux")]
+            {
+                // systemctl hibernate requires swap; falls back gracefully
+                let _ = std::process::Command::new("systemctl")
+                    .args(["hibernate"])
+                    .spawn();
+            }
+        }
+        AfterQueueAction::ShutdownComputer => {
+            log::info!("After-queue: shutting down computer");
+            emit_app_log(app, "After-queue action: shutting down computer in 30 seconds...");
+            send_desktop_notification(app, "MeedyaDL", "Computer will shut down in 30 seconds...");
+            #[cfg(target_os = "macos")]
+            {
+                let _ = std::process::Command::new("osascript")
+                    .args(["-e", "tell application \"System Events\" to shut down"])
+                    .spawn();
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("shutdown")
+                    .args(["/s", "/t", "30"])
+                    .spawn();
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let _ = std::process::Command::new("systemctl")
+                    .args(["poweroff"])
+                    .spawn();
+            }
+        }
+    }
+}
+
 /// Normalises a URL for duplicate detection by lowercasing the domain,
 /// stripping trailing slashes, and removing query parameters except
 /// essential ones like `?i=` (Apple Music track IDs within album URLs).
@@ -1241,6 +1374,13 @@ impl DownloadQueue {
         if self.active_count > 0 {
             self.active_count -= 1;
         }
+    }
+
+    /// Returns true when the queue has no active or pending downloads.
+    /// Used to trigger after-queue actions.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        self.active_count == 0 && !self.items.iter().any(|i| i.status.state == DownloadState::Queued)
     }
 
     /// Checks if a download has been cancelled by the user.
@@ -3240,7 +3380,16 @@ pub fn process_queue(
         };
 
         // If no items are pending (queue empty or max concurrent reached), exit.
+        // When the queue is truly idle (no active + no pending), execute the
+        // configured after-queue action (e.g., shutdown, close app).
         let Some((download_id, urls, mut options, item_service)) = pending else {
+            let is_idle = {
+                let q = queue.lock().await;
+                q.is_idle()
+            };
+            if is_idle {
+                execute_after_queue_action(&app);
+            }
             return;
         };
 

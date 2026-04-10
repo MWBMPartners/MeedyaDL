@@ -172,7 +172,7 @@ export function ActivityLog() {
   const virtualizer = useVirtualizer({
     count: filteredEntries.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 24, // text-xs with leading-relaxed baseline
+    estimateSize: () => 26, // text-xs + leading-relaxed + py-0.5 + border
     overscan: 50, // render 50 extra rows above/below viewport
   });
 
@@ -402,7 +402,9 @@ export function ActivityLog() {
                     width: '100%',
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
-                  className={`group relative whitespace-pre-wrap break-all pr-6 py-[1px] font-mono text-xs leading-relaxed ${
+                  className={`group relative whitespace-pre-wrap break-words pr-6 py-0.5 px-1 font-mono text-xs leading-relaxed border-b border-border/20 ${
+                    virtualRow.index % 2 === 0 ? '' : 'bg-surface-primary/30'
+                  } ${
                     entry.stream === 'internal'
                       ? 'text-accent-primary'
                       : entry.stream === 'stderr'
