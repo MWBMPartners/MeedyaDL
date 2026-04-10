@@ -148,6 +148,14 @@ Add two smoke tests to the integration test suite:
 
   Partial fix for #414 — full download pipeline tests require CI secrets.
 
+- Visual regression testing infrastructure with Puppeteer (#415)
+
+Add screenshot capture script using Puppeteer (already a devDependency):
+  - Captures pages at desktop (1280x800) and compact (900x600) viewports
+  - Supports both dark and light theme via prefers-color-scheme emulation
+  - Baseline capture mode: --baseline flag saves to baselines/ directory
+  - Comparison mode scaffold (pixelmatch integration is a follow-up)
+
 
 ### 🐛 Bug Fixes
 
@@ -213,6 +221,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
