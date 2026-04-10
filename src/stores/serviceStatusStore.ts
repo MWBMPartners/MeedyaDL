@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck — This file is staged for future multi-service integration (M8-M10).
 // The IPC commands and types it imports don't exist in the current codebase yet.
 // Remove @ts-nocheck when wiring this into the active app.

@@ -178,6 +178,7 @@ fn redact_url_query(url: &str) -> &str {
 /// - The `desktop_notifications` setting is `false`.
 /// - The main window is currently focused (visible and in foreground).
 /// - The notification fails to build or send (non-critical).
+
 /// Notification throttling state: tracks last notification time per category
 /// and batched count to prevent notification spam during rapid queue processing.
 static NOTIFICATION_THROTTLE: std::sync::LazyLock<
@@ -5752,7 +5753,7 @@ pub fn process_queue(
                         }
 
                         // Emit error guidance to the activity log
-                        let guidance = process::error_guidance(&error_category);
+                        let guidance = process::error_guidance(error_category);
                         emit_download_log(
                             &app_clone,
                             &dl_id,
