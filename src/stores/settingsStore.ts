@@ -73,6 +73,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   update_check_interval_hours: 6, // Check for updates every 6 hours
   auto_start_queue: true, // Start processing immediately when items are enqueued
   desktop_notifications: true, // OS-native notifications for download events when window not focused
+  notification_style: 'native_and_in_app' as const, // Both native + in-app by default
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
   clipboard_monitoring: true, // Monitor clipboard for supported URLs
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless

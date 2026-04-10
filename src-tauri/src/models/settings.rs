@@ -361,6 +361,13 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub desktop_notifications: bool,
 
+    /// Notification delivery style controlling how notifications are shown.
+    /// "in_app_only" = in-app toasts only.
+    /// "native_and_in_app" = both native OS notifications and in-app toasts (default).
+    /// "native_only" = native OS notifications only (no in-app toasts).
+    #[serde(default = "default_notification_style")]
+    pub notification_style: String,
+
     /// Auto-dismiss duration for transient notifications (seconds).
     /// Range: 3-60 seconds. Default: 5 seconds.
     /// Affects both in-app toasts and native OS notifications.
@@ -1045,6 +1052,11 @@ const fn default_notification_dismiss() -> u32 {
     5
 }
 
+/// Default notification style: native + in-app (both).
+fn default_notification_style() -> String {
+    "native_and_in_app".to_string()
+}
+
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
 pub const CURRENT_SETTINGS_VERSION: u32 = 1;
@@ -1115,6 +1127,7 @@ impl Default for AppSettings {
             // Desktop notifications enabled by default — OS-native alerts
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
+            notification_style: "native_and_in_app".to_string(),
             notification_auto_dismiss_seconds: 5,
             smart_redownload_detection: true,
             clipboard_monitoring: true,

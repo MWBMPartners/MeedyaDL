@@ -442,6 +442,11 @@ export interface AppSettings {
   /** Whether to send native OS desktop notifications for download events (completion/failure).
    * Notifications are only sent when the app window is not focused. */
   desktop_notifications: boolean;
+  /** Notification style controlling how notifications are delivered.
+   * 'in_app_only' = in-app toasts only
+   * 'native_and_in_app' = both native OS notifications and in-app toasts (default)
+   * 'native_only' = native OS notifications only (no in-app toasts) */
+  notification_style: 'in_app_only' | 'native_and_in_app' | 'native_only';
   /** Smart re-download detection via Apple Music API lastModifiedDate.
    * When enabled, compares stored manifest data against fresh API response
    * to detect if an album has changed since the user's last download. */
