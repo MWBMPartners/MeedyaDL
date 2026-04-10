@@ -6,6 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Clippy empty_line_after_doc_comments — reorder doc comment blocks
+
+Move send_desktop_notification() doc comment to directly above the
+  function, after the NOTIFICATION_THROTTLE static. The previous layout
+  had the function's doc comment above the static with a blank line,
+  triggering clippy::empty_line_after_doc_comments.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.31.0] - 2026-04-10
+
 ### ✨ Features
 
 - Activity log readability + after-queue actions backend
