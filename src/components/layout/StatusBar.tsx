@@ -41,6 +41,40 @@ import { getVersion } from '@tauri-apps/api/app';
  * @see QueueItemStatus in @/types/index.ts
  */
 import { useDownloadStore } from '@/stores/downloadStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+
+/** Human-readable labels for after-queue actions (status bar display). */
+const AFTER_QUEUE_LABELS: Record<string, string> = {
+  do_nothing: '',
+  open_output_folder: 'Open folder',
+  play_sound: 'Play sound',
+  close_meedyadl: 'Close app',
+  restart_computer: 'Restart',
+  hibernate_computer: 'Hibernate',
+  shutdown_computer: 'Shut down',
+};
+
+/**
+ * Compact indicator shown in the status bar when an after-queue action is set.
+ * Shows "(once)" suffix for one-shot actions vs the persistent action.
+ */
+function AfterQueueIndicator() {
+  const afterOnce = useSettingsStore((s) => s.settings.after_queue_once);
+  const afterAlways = useSettingsStore((s) => s.settings.after_queue_action);
+
+  // One-shot overrides persistent; show nothing for do_nothing
+  const action = afterOnce ?? afterAlways ?? 'do_nothing';
+  if (action === 'do_nothing') return null;
+
+  const label = AFTER_QUEUE_LABELS[action] ?? action;
+  const suffix = afterOnce ? ' (once)' : '';
+
+  return (
+    <span className="text-status-warning" title={`After queue: ${label}${suffix}`}>
+      After queue: {label}{suffix}
+    </span>
+  );
+}
 
 /**
  * Renders a status bar at the bottom of the main content area.
@@ -137,6 +171,9 @@ export function StatusBar() {
         {/* Empty-queue fallback message */}
         {queueItems.length === 0 && <span>No downloads</span>}
       </div>
+
+      {/* Centre: after-queue action indicator (if non-default) */}
+      <AfterQueueIndicator />
 
       {/* Right section: application version string (fetched from tauri.conf.json) */}
       <span>MeedyaDL v{appVersion}</span>
