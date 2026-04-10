@@ -547,6 +547,36 @@ export function DownloadForm() {
     }
   };
 
+  /**
+   * Import URLs from a .txt file (one URL per line).
+   * Lines starting with # are treated as comments and skipped.
+   * Each valid URL is added to the input textarea.
+   */
+  const handleImportTxtFile = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'Text Files', extensions: ['txt'] }],
+      });
+      if (!selected) return; // User cancelled
+      const filePath = String(selected);
+      const content = await readTextFile(filePath);
+      const lines = content.split('\n')
+        .map((l: string) => l.trim())
+        .filter((l: string) => l.length > 0 && !l.startsWith('#'));
+      if (lines.length > 0) {
+        setUrlInput(lines.join('\n'));
+        addToast(`Loaded ${lines.length} URL${lines.length !== 1 ? 's' : ''} from file`, 'success');
+      } else {
+        addToast('No URLs found in file', 'warning');
+      }
+    } catch {
+      // User cancelled the dialog — silently ignore
+    }
+  };
+
   // ---------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------
@@ -756,6 +786,14 @@ export function DownloadForm() {
               title="Import a .meedyadl manifest file"
             >
               Import
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleImportTxtFile}
+              title="Import URLs from a .txt file (one URL per line)"
+            >
+              .txt
             </Button>
           </div>
 
