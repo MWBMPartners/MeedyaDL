@@ -646,6 +646,23 @@ pub fn classify_error(error_message: &str) -> &'static str {
     }
 }
 
+/// Returns a user-friendly recovery suggestion for the given error category.
+///
+/// Used by the activity log and error display to help users understand
+/// what to do when a download fails, rather than just showing the raw error.
+pub fn error_guidance(category: &str) -> &'static str {
+    match category {
+        "auth" => "Try refreshing your cookies (Settings > Authentication) or check your wrapper connection.",
+        "network" => "Check your internet connection. The download will auto-retry when connectivity is restored.",
+        "io" => "Check that your output directory is accessible and has sufficient disk space.",
+        "codec" => "This format may not be available for this content. Try a different quality setting.",
+        "not_found" => "This content may have been removed from Apple Music or the URL may be incorrect.",
+        "rate_limit" => "Apple Music is rate-limiting requests. Wait a few minutes and retry.",
+        "tool" => "A required tool (FFmpeg, mp4decrypt, etc.) may be missing or outdated. Check Settings > Tools.",
+        _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
+    }
+}
+
 // ============================================================
 // Unit Tests
 // ============================================================
