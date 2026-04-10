@@ -165,6 +165,10 @@ Add analytics_enabled field to AppSettings (Rust + TypeScript),
 
   Partial fix for #405.
 
+- Recover service expansion groundwork from meedyadl-v2 (#373)
+
+Cherry-pick recovered files from prep/refactoring/supported-service-expansion:
+
 
 ### 🐛 Bug Fixes
 
@@ -251,6 +255,7 @@ Add `npm run docs:rust` which runs `cargo doc --no-deps --open`
   Partial fix for #413 — CI artifact generation and GitHub Pages
   hosting are planned follow-ups.
 
+- Update CHANGELOG.md [skip ci]
 
 ### Legal
 
