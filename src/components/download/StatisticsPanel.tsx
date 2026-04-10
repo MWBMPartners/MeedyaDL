@@ -144,7 +144,49 @@ export function StatisticsPanel() {
             colour="text-status-error"
           />
         </div>
+
+        {/* Download speed sparkline (last 60 samples) */}
+        <SpeedSparkline />
       </SettingsSection>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Speed sparkline sub-component
+// ---------------------------------------------------------------------------
+
+/** Renders an SVG sparkline of recent download speeds. */
+function SpeedSparkline() {
+  const speedHistory = useDownloadStore((s) => s.speedHistory);
+  if (speedHistory.length < 2) return null;
+
+  const width = 280;
+  const height = 40;
+  const max = Math.max(...speedHistory, 0.1); // Avoid division by zero
+  const stepX = width / (speedHistory.length - 1);
+
+  const points = speedHistory
+    .map((v, i) => `${i * stepX},${height - (v / max) * (height - 4)}`)
+    .join(' ');
+
+  const latest = speedHistory[speedHistory.length - 1];
+  const label = latest >= 1 ? `${latest.toFixed(1)} MB/s` : `${(latest * 1024).toFixed(0)} KB/s`;
+
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <svg width={width} height={height} className="flex-shrink-0" aria-label="Download speed history">
+        <polyline
+          points={points}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity="0.7"
+        />
+      </svg>
+      <span className="text-xs text-content-tertiary whitespace-nowrap">{label}</span>
     </div>
   );
 }

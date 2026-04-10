@@ -128,6 +128,9 @@ interface DownloadState {
    */
   _undoBuffer: string[] | null;
 
+  /** Last 60 download speed samples (MB/s) for the sparkline graph. */
+  speedHistory: number[];
+
   /**
    * `true` while `submitDownload()` is awaiting the Rust `start_download`
    * response. The UI disables the submit button during this period.
@@ -327,6 +330,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   overrideOptions: null, // No per-download overrides; use global settings
   queueItems: [], // Empty queue until refreshQueue() or events arrive
   _undoBuffer: null, // Undo buffer for queue clear operations
+  speedHistory: [] as number[], // Last 60 speed samples (MB/s) for sparkline
   isSubmitting: false, // No submission in progress
   error: null, // No error
 
@@ -678,6 +682,18 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
         return updated;
       });
+
+      // Collect speed sample for sparkline (parse "2.5MB/s" → 2.5)
+      if (progress.event.type === 'download_progress' && progress.event.speed) {
+        const match = progress.event.speed.match(/([\d.]+)\s*(KB|MB|GB)/i);
+        if (match) {
+          let mbps = parseFloat(match[1]);
+          const unit = match[2].toUpperCase();
+          if (unit === 'KB') mbps /= 1024;
+          else if (unit === 'GB') mbps *= 1024;
+          return { queueItems: items, speedHistory: [...state.speedHistory, mbps].slice(-60) };
+        }
+      }
 
       return { queueItems: items };
     });
