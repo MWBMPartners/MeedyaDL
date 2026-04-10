@@ -91,6 +91,8 @@ interface NavItem {
    * @see https://lucide.dev/guide/packages/lucide-react
    */
   icon: typeof Download;
+  /** Optional keyboard shortcut hint (displayed in tooltip). */
+  shortcut?: string;
 }
 
 /**
@@ -108,12 +110,12 @@ interface NavItem {
  *  3. Handle the new page in the App-level page switch/router.
  */
 const NAV_ITEMS: NavItem[] = [
-  { page: 'download', label: 'Download', icon: Download },
-  { page: 'queue', label: 'Queue', icon: ListOrdered },
+  { page: 'download', label: 'Download', icon: Download, shortcut: 'D' },
+  { page: 'queue', label: 'Queue', icon: ListOrdered, shortcut: 'Q' },
   { page: 'history', label: 'History', icon: Clock },
   { page: 'activity', label: 'Activity', icon: ScrollText },
   { page: 'updates', label: 'Updates', icon: ArrowUpCircle },
-  { page: 'settings', label: 'Settings', icon: Settings },
+  { page: 'settings', label: 'Settings', icon: Settings, shortcut: ',' },
   { page: 'help', label: 'Help', icon: HelpCircle },
 ];
 
@@ -313,10 +315,16 @@ export function Sidebar() {
            * Active state: `bg-sidebar-active text-sidebar-text-active font-medium`.
            * Inactive state: `text-sidebar-text hover:bg-sidebar-hover`.
            */
+          // Build tooltip with optional shortcut hint
+          const shortcutHint = navItem.shortcut
+            ? ` (${isMacOS ? '\u2318' : 'Ctrl+'}${navItem.shortcut})`
+            : '';
+
           const button = (
             <button
               key={page}
               onClick={() => setPage(page)}
+              title={`${label}${shortcutHint}`}
               aria-label={label}
               aria-current={isActive ? 'page' : undefined}
               className={`
