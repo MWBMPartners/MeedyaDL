@@ -8,6 +8,192 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Integrate MeedyaSuite-core for tag registry (phase 1)
+
+Replace the custom tag registry implementation (~425 lines) with
+  meedya-core's shared tag_registry module. This is the first phase of
+  the MeedyaSuite-core integration.
+
+
+### 🐛 Bug Fixes
+
+- **(ci)** Allow MeedyaSuite-core git source in cargo-deny
+
+The MeedyaSuite-core integration (d802870) added git dependencies for
+  meedya-core, meedya-codecs, meedya-metadata, and meedya-fingerprint.
+  These were blocked by cargo-deny's source allowlist.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### ⚡ Performance
+
+- Fix activity log memory leak causing 14+ GB WebView RAM usage
+
+The WebView process grew to 14+ GB during download sessions due to
+  unbounded activity log accumulation, non-virtualized DOM rendering,
+  and high-frequency event emission from the Rust backend.
+
+- Fix activity log memory leak (14+ GB → <500 MB) (#364)
+
+## Summary
+
+  - **RAF-batched event listener** in `App.tsx` — collapses hundreds of
+  per-line Zustand updates into ~60/s via `requestAnimationFrame`
+  buffering
+  - **Capped activity store** at 10,000 entries with batch `addEntries()`
+  method and auto-incrementing `_id` for stable React keys
+  - **Virtualized ActivityLog** with `@tanstack/react-virtual` — DOM nodes
+  drop from ~37,500 to ~150 regardless of entry count
+  - **Backend `\r` segment coalescing** in `download_queue.rs` — only
+  emits the last progress segment to `activity-log` (5-10x event
+  reduction)
+  - **Download store optimisation** — `map()` pattern instead of
+  spread+findIndex+splice for lower GC pressure
+
+  ## Context
+
+  During multi-item download sessions, the `tauri://localhost` WebView
+  process grew to 14+ GB RAM and the app froze. Root causes: unbounded
+  activity log array with O(n) spread-copy on every entry, all 7,500+
+  entries rendered as real DOM nodes without virtualization, and
+  ~20,000-40,000 events emitted per album download from the Rust backend.
+
+  ## Test plan
+
+  - [x] `npm run type-check` passes
+  - [x] `npm run test` passes (272/272 tests, including updated
+  activityStore tests)
+  - [x] `cargo check` passes
+  - [ ] Manual test: queue 3+ albums, watch Activity Monitor — WebView
+  memory should stay under ~500 MB
+  - [ ] Verify activity log auto-scrolls, search/filter, export, and
+  pause/resume work
+  - [ ] Verify log entries are trimmed at cap (queue enough downloads to
+  exceed 10,000 lines)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [0.29.2] - 2026-04-09
+
+### 🐛 Bug Fixes
+
+- **(ci)** Add macOS notarization retry logic to release workflow
+
+Apple's notarization service occasionally returns HTTP 503 "Slow Down"
+  rate-limiting errors, causing macOS release builds to fail (see #360).
+
+  This separates the macOS build from tauri-action and handles it manually
+  with retry logic:
+  - Up to 3 attempts with exponential backoff (30s, 60s)
+  - Only notarization failures (503/serviceUnavailable) trigger retries
+  - Non-transient errors (compilation, signing) fail immediately
+  - Artifacts uploaded manually via gh release upload
+
+- **(ci)** Add macOS notarization retry and updater manifest verification (#362)
+
+## Summary
+  - Add macOS notarization retry logic to `release.yml` — up to 3 attempts
+  with exponential backoff (30s, 60s) on Apple 503 "Slow Down" errors;
+  non-transient errors fail immediately
+  - Verify `latest.json` content before showing update banner —
+  `verify_manifest_has_platform()` downloads and checks that the manifest
+  contains a `platforms` entry for the current OS/arch, suppressing the
+  update notification if missing
+  - Separate macOS build from `tauri-action` and handle artifact upload
+  manually (mirrors existing ARMv7 pattern)
+
+  ## Test plan
+  - [ ] Verify CI passes on the PR (Rust check, tests, frontend
+  lint/type-check)
+  - [ ] Confirm `release.yml` syntax is valid (no YAML parse errors)
+  - [ ] On next release, verify macOS build succeeds with the retry
+  wrapper
+  - [ ] Verify `latest.json` check gracefully falls back to `true` on
+  network errors (doesn't suppress updates when manifest is unreachable)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.29.1] - 2026-04-08
+
+### 🐛 Bug Fixes
+
+- Resolve macOS update download failure
+
+Root cause: The `latest.json` updater manifest was missing the
+  `darwin-aarch64` platform entry due to a race condition in the
+  release workflow. When parallel platform builds each upload their
+  own `latest.json` via tauri-action, the last build to finish
+  overwrites all previous entries. For v0.29.0, the Windows build
+  finished last, leaving only `windows-x86_64` entries.
+
+- Resolve npm audit high-severity vulnerability in basic-ftp
+
+Updates basic-ftp 5.2.0 → 5.2.1 to fix FTP Command Injection via
+  CRLF (GHSA-chqc-8p9q-pq6q). Transitive dependency via puppeteer →
+  proxy-agent → get-uri. Fixes CI Frontend job failure on npm audit.
+
+- Verify latest.json content before showing update banner
+
+The update checker previously only verified that `latest.json` existed
+  as a release asset, not that it contained a download entry for the
+  current platform. This caused the update banner to appear even when
+  the manifest was missing the platform entry (due to CI race condition).
+
+  Now downloads and parses `latest.json` to verify the platform key
+  (e.g., `darwin-aarch64`) exists before showing the update notification.
+  Gracefully falls back to showing the update if the manifest can't be
+  fetched (avoids suppressing updates due to transient network errors).
+
+- Resolve macOS update download failure (#355)
+
+Root cause: The `latest.json` updater manifest was missing the
+  `darwin-aarch64` platform entry due to a race condition in the release
+  workflow. When parallel platform builds each upload their own
+  `latest.json` via tauri-action, the last build to finish overwrites all
+  previous entries. For v0.29.0, the Windows build finished last, leaving
+  only `windows-x86_64` entries.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Add workflow to fix updater manifest for existing releases
+
+Adds a `workflow_dispatch` workflow that rebuilds the `latest.json`
+  updater manifest for any existing GitHub Release. This fixes the race
+  condition where parallel platform builds each overwrite `latest.json`,
+  causing the last platform to win and missing earlier platforms.
+
+  Triggered manually via Actions UI with a release tag input.
+
+- Add workflow to fix updater manifest for existing releases
+
+Adds a `workflow_dispatch` workflow that rebuilds the `latest.json`
+  updater manifest for any existing GitHub Release. This fixes the race
+  condition where parallel platform builds each overwrite `latest.json`,
+  causing the last platform to win and missing earlier platforms.
+
+  Triggered manually via Actions UI with a release tag input.
+
+
+## [0.29.0] - 2026-04-08
+
+### ✨ Features
+
 - Upgrade Vite to 8.x and @vitejs/plugin-react to v6 (#340)
 
 - Vite 7.3.x → 8.0.7 (Rolldown-based bundler, 10-30x faster builds)

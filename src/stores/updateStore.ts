@@ -132,6 +132,14 @@ interface UpdateState {
    */
   updateInstalled: boolean;
 
+  /**
+   * Error message from the last failed `downloadAndInstallAppUpdate()` call.
+   * `null` when the download hasn't been attempted or succeeded. Used by the
+   * Update Banner and Updates Page to show the actual error and a manual
+   * download fallback button.
+   */
+  downloadError: string | null;
+
   // ---------------------------------------------------------------------------
   // Async actions (communicate with Rust backend)
   // ---------------------------------------------------------------------------
@@ -254,6 +262,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   isDownloadingUpdate: false, // No app update download in progress
   downloadProgress: null, // No download progress
   updateInstalled: false, // No app update pending restart
+  downloadError: null, // No download error
 
   // -------------------------------------------------------------------------
   // Async actions
@@ -328,7 +337,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
    * Bytes are accumulated locally to compute a 0–100 percentage.
    */
   downloadAndInstallAppUpdate: async (tag) => {
-    set({ isDownloadingUpdate: true, downloadProgress: 0, error: null });
+    set({ isDownloadingUpdate: true, downloadProgress: 0, error: null, downloadError: null });
 
     // Accumulated download bytes for progress calculation
     let downloadedBytes = 0;
@@ -358,7 +367,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       set({ isDownloadingUpdate: false, updateInstalled: true });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      set({ error: message, isDownloadingUpdate: false, downloadProgress: null });
+      set({ error: message, isDownloadingUpdate: false, downloadProgress: null, downloadError: message });
       throw new Error(message, { cause: e });
     } finally {
       // Always clean up the event listener

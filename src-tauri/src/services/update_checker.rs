@@ -330,6 +330,109 @@ fn has_platform_assets(assets: Option<&Vec<serde_json::Value>>) -> bool {
     has_platform
 }
 
+/// Returns the Tauri updater platform key for the current OS and architecture.
+///
+/// These keys must match the entries that `tauri-apps/tauri-action` writes into
+/// `latest.json` during CI builds. The format is `{os}-{arch}`.
+fn get_updater_platform_key() -> &'static str {
+    if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "darwin-aarch64"
+        } else {
+            "darwin-x86_64"
+        }
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            // Tauri writes both `windows-aarch64` and `windows-aarch64-nsis`;
+            // checking either suffices since they're always written together.
+            "windows-aarch64"
+        } else {
+            "windows-x86_64"
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            "linux-aarch64"
+        } else {
+            "linux-x86_64"
+        }
+    } else {
+        "unknown"
+    }
+}
+
+/// Downloads and parses `latest.json` from a release to verify it contains
+/// a download entry for the current platform.
+///
+/// This catches the race condition where parallel CI builds each overwrite
+/// `latest.json` — the last build to finish wins, and its manifest may only
+/// contain that platform's entry. Without this check, the update banner would
+/// appear even though the Tauri updater would fail with "no update found".
+///
+/// # Arguments
+/// * `client` - Pre-configured HTTP client (reused from the update check call)
+/// * `tag` - Release tag (e.g., "v0.29.0")
+///
+/// # Returns
+/// `true` if `latest.json` contains a `platforms.{key}` entry for this platform,
+/// `false` if the manifest is missing the entry, unparseable, or unreachable.
+async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bool {
+    let url =
+        format!("https://github.com/MWBMPartners/MeedyaDL/releases/download/{tag}/latest.json");
+    let platform_key = get_updater_platform_key();
+
+    let response = match client
+        .get(&url)
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            log::warn!(
+                "Failed to download latest.json for {tag}: HTTP {}",
+                r.status()
+            );
+            // If we can't download it, don't suppress the update — let the
+            // user try and get a proper error from the Tauri updater.
+            return true;
+        }
+        Err(e) => {
+            log::warn!("Failed to download latest.json for {tag}: {e}");
+            return true;
+        }
+    };
+
+    let json: serde_json::Value = match response.json().await {
+        Ok(j) => j,
+        Err(e) => {
+            log::warn!("Failed to parse latest.json for {tag}: {e}");
+            return true;
+        }
+    };
+
+    // Check if the platforms object contains the current platform key
+    let has_platform = json
+        .get("platforms")
+        .and_then(|p| p.get(platform_key))
+        .is_some();
+
+    if has_platform {
+        log::debug!("latest.json for {tag} contains platform entry for {platform_key}");
+    } else {
+        let available: Vec<&str> = json
+            .get("platforms")
+            .and_then(|p| p.as_object())
+            .map(|obj| obj.keys().map(|k| k.as_str()).collect())
+            .unwrap_or_default();
+        log::warn!(
+            "latest.json for {tag} is missing platform {platform_key} \
+             (available: {available:?})"
+        );
+    }
+
+    has_platform
+}
+
 // ============================================================
 // Update check functions
 // ============================================================
@@ -555,15 +658,31 @@ async fn check_app_update(
     // Delegate to the response parser to extract fields and build the ComponentUpdate.
     let mut update = parse_release_from_response(release, &current_version);
 
+    // Verify that `latest.json` actually contains an entry for this platform.
+    // The `has_platform_assets()` check above only verifies that the `latest.json`
+    // *file* exists in the release, not that it contains a download entry for the
+    // current OS/arch. This can happen due to the tauri-action race condition where
+    // parallel platform builds each overwrite `latest.json` — the last build to
+    // finish wins, and its manifest only contains that platform's entry.
+    if update.update_available {
+        if let Some(tag) = &update.tag_name {
+            if !verify_manifest_has_platform(&client, tag).await {
+                log::info!(
+                    "Version {} is newer but latest.json has no entry for this platform — \
+                     suppressing update notification",
+                    update.latest_version.as_deref().unwrap_or("unknown")
+                );
+                update.update_available = false;
+            }
+        }
+    }
+
     // For multi-version jumps (e.g., v0.13.0 → v0.15.0), aggregate release notes
     // from all intermediate versions so the user sees a complete changelog.
     if update.update_available {
-        let combined_body = aggregate_intermediate_release_notes(
-            &client,
-            &current_version,
-            check_pre_releases,
-        )
-        .await;
+        let combined_body =
+            aggregate_intermediate_release_notes(&client, &current_version, check_pre_releases)
+                .await;
         if let Some(body) = combined_body {
             update.release_body = Some(body);
         }
@@ -702,10 +821,7 @@ async fn aggregate_intermediate_release_notes(
     let intermediate: Vec<&serde_json::Value> = releases
         .iter()
         .filter(|r| {
-            let tag = r["tag_name"]
-                .as_str()
-                .unwrap_or("")
-                .trim_start_matches('v');
+            let tag = r["tag_name"].as_str().unwrap_or("").trim_start_matches('v');
             if tag.is_empty() {
                 return false;
             }
@@ -863,7 +979,7 @@ async fn check_pip_engine_update(
         (Some(_), Some(newest)) if update_available => {
             Some(format!("Version {newest} available on PyPI"))
         }
-        (None, Some(newest)) => Some(format!("Not installed (latest: {newest})"))  ,
+        (None, Some(newest)) => Some(format!("Not installed (latest: {newest})")),
         _ => None,
     };
 
@@ -1020,6 +1136,25 @@ mod tests {
         assert!(
             !has_platform_assets(Some(&assets)),
             "Should return false when only latest.json exists (no platform binaries)"
+        );
+    }
+
+    /// Tests that get_updater_platform_key() returns a known Tauri updater
+    /// platform key for the current compile target.
+    #[test]
+    fn test_get_updater_platform_key_returns_known_key() {
+        let key = get_updater_platform_key();
+        let known_keys = [
+            "darwin-aarch64",
+            "darwin-x86_64",
+            "windows-x86_64",
+            "windows-aarch64",
+            "linux-x86_64",
+            "linux-aarch64",
+        ];
+        assert!(
+            known_keys.contains(&key),
+            "Platform key '{key}' should be a known Tauri updater key"
         );
     }
 }
