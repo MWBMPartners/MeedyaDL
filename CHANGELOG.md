@@ -21,9 +21,30 @@ This changelog is automatically generated from [conventional commits](https://ww
     behaviour
   - Updated CLAUDE.md, README.md, Project_Plan.md
 
+- Activity log readability + after-queue actions backend
+
+Activity log readability (#382):
+  - Add zebra striping (alternating subtle backgrounds) for visual separation
+  - Add bottom border between entries (border-border/20)
+  - Change break-all to break-words for more natural wrapping
+  - Add horizontal padding (px-1) for breathing room
+
+  After-queue actions backend (#383):
+  - Add AfterQueueAction enum with 7 actions: do_nothing, open_output_folder,
+    play_sound, close_meedyadl, restart_computer, hibernate_computer,
+    shutdown_computer
+  - Add after_queue_action (persistent) and after_queue_once (one-shot)
+    fields to AppSettings with serde defaults
+  - Add is_idle() method to DownloadQueue
+  - Add execute_after_queue_action() with platform-specific implementations
+    for macOS, Windows, Linux (restart/hibernate/shutdown)
+  - Queue idle detection in process_queue() exit path
+  - TypeScript AfterQueueAction type added to index.ts
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.29.5] - 2026-04-10
