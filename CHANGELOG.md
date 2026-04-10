@@ -72,6 +72,18 @@ Add crash_report_prompt_shown field to AppSettings (Rust + TypeScript)
 
   Partial fix for #402.
 
+- Explicit settings migration with version field (#392)
+
+Add settings_version field (u32) to AppSettings with
+  CURRENT_SETTINGS_VERSION constant (currently 1).
+
+  On load, migrate_settings() runs sequential migrations:
+  - v0 → v1: stamps version (no structural changes yet)
+  - Future migrations add blocks for v1→v2, v2→v3, etc.
+
+  Old settings files (without settings_version) deserialize as v0
+  via serde(default), triggering the migration automatically.
+
 
 ### 🐛 Bug Fixes
 
@@ -137,6 +149,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 
 ### Legal
 
