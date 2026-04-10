@@ -3540,6 +3540,40 @@ pub fn process_queue(
             ),
         );
 
+        // === Early metadata fetch (Apple Music API) ===
+        // Fetch album metadata from the Apple Music API BEFORE starting the
+        // GAMDL subprocess, so artist_name and album_name are available for
+        // the progress bar caption and activity log from the very first track.
+        // This is a lightweight API call that completes in <1s on good networks.
+        // Failures are silently ignored — the enrichment pipeline will retry later.
+        if is_apple_music {
+            let early_metadata = super::metadata_tag_service::try_fetch_metadata(
+                &app,
+                &urls,
+                Some((&app, &download_id)),
+            )
+            .await;
+
+            if let Some(ref meta) = early_metadata {
+                let mut q = queue.lock().await;
+                if let Some(item) = q
+                    .items
+                    .iter_mut()
+                    .find(|i| i.status.id == download_id)
+                {
+                    if let Some(ref name) = meta.artist_name {
+                        item.status.artist_name = Some(name.clone());
+                    }
+                    if let Some(ref name) = meta.album_name {
+                        item.status.album_name = Some(name.clone());
+                    }
+                }
+                drop(q);
+                // Trigger frontend queue refresh so progress bar picks up the metadata
+                let _ = app.emit("download-queued", &download_id);
+            }
+        }
+
         // === GAMDL version detection (cached, runs once per queue lifetime) ===
         // Detect the installed GAMDL version on the first download so we can
         // decide whether to use native `--song-codec-priority` (>= 2.9.1) or
@@ -6129,7 +6163,8 @@ async fn run_download_with_events(
                     // Emit a clear per-track separator when GAMDL starts
                     // downloading a new track. This makes it easy to identify
                     // which track's [download] progress lines belong to which
-                    // song in the activity log.
+                    // song in the activity log. Includes artist and album context
+                    // from the queue item metadata (populated by early API fetch).
                     if let process::GamdlOutputEvent::TrackInfo {
                         ref title,
                         track_number,
@@ -6138,16 +6173,47 @@ async fn run_download_with_events(
                     } = event
                     {
                         let track_label = match (track_number, track_total) {
-                            (Some(n), Some(t)) => format!("Track {n}/{t}"),
-                            (Some(n), None) => format!("Track {n}"),
-                            _ => "Track".to_string(),
+                            (Some(n), Some(t)) => format!("[Track {n}/{t}]"),
+                            (Some(n), None) => format!("[Track {n}]"),
+                            _ => "[Track]".to_string(),
+                        };
+                        // Look up artist/album from the queue item for context
+                        let (artist_ctx, album_ctx) = {
+                            if let Ok(q) = queue.try_lock() {
+                                let item = q.items.iter().find(|i| i.status.id == download_id);
+                                (
+                                    item.and_then(|i| i.status.artist_name.clone())
+                                        .unwrap_or_default(),
+                                    item.and_then(|i| i.status.album_name.clone())
+                                        .unwrap_or_default(),
+                                )
+                            } else {
+                                (String::new(), String::new())
+                            }
+                        };
+                        // Build context: "Artist — Album — " prefix when available
+                        let context = {
+                            let mut parts = Vec::new();
+                            if !artist_ctx.is_empty() {
+                                parts.push(artist_ctx);
+                            }
+                            if !album_ctx.is_empty() {
+                                parts.push(album_ctx);
+                            }
+                            if parts.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{} — ", parts.join(" — "))
+                            }
                         };
                         let _ = app.emit(
                             "activity-log",
                             &ActivityLogEvent {
                                 download_id: download_id.clone(),
                                 stream: "internal",
-                                line: format!("──── {track_label}: {title} ────"),
+                                line: format!(
+                                    "──── {track_label} Downloading {context}\"{title}\" ────"
+                                ),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
                         );
