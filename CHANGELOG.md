@@ -18,9 +18,24 @@ Parse the album name from the Apple Music URL slug and display it
   Falls back to track name only if album can't be extracted from URL.
   Processing labels (enrichment/companions) are unaffected.
 
+- Show artist and album context in progress bar and queue
+
+Add album_name and artist_name fields to QueueItemStatus:
+  - album_name: extracted from Apple Music URL slug at enqueue time
+    (e.g., /album/the-platinum-collection/123 → "The Platinum Collection")
+  - artist_name: populated from Apple Music API during enrichment Step 1
+    (AlbumMetadata.artist_name)
+
+  Progress bar now shows: "Artist — Album — \"Track Title\""
+  instead of just "Track Title", giving clear context in multi-queue
+  sessions.
+
+  The extract_album_info_from_url() helper also handles artist URLs.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.31.1] - 2026-04-10
