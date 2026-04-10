@@ -62,6 +62,7 @@ Settings > General > Preferences:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.29.5] - 2026-04-10
 
