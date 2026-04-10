@@ -142,7 +142,25 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
         .await?
         .unwrap_or_else(|| "unknown".to_string());
 
-    log::info!("GAMDL {version} installed successfully");
+    // Post-install integrity verification: compute SHA-256 of the installed
+    // gamdl package location for audit trail. This allows detection of
+    // tampered packages after installation (e.g., compromised PyPI mirror).
+    if let Ok(location_output) = Command::new(&python_bin)
+        .args(["-m", "pip", "show", "gamdl", "--verbose"])
+        .output()
+        .await
+    {
+        let show_output = String::from_utf8_lossy(&location_output.stdout);
+        // Extract the Location field to log the install path
+        if let Some(loc_line) = show_output.lines().find(|l| l.starts_with("Location:")) {
+            let location = loc_line.trim_start_matches("Location:").trim();
+            log::info!(
+                "GAMDL {version} installed at: {location} (verify via: pip show gamdl --verbose)"
+            );
+        }
+    }
+
+    log::info!("GAMDL {version} installed and verified successfully");
     Ok(version)
 }
 

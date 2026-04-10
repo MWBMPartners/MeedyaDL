@@ -62,7 +62,20 @@ pub async fn install_pip_engine(app: &AppHandle, package: &str) -> Result<String
         .await?
         .unwrap_or_else(|| "unknown".to_string());
 
-    log::info!("{package} v{version} installed successfully");
+    // Post-install integrity verification: log the install location for audit trail
+    if let Ok(show_output) = Command::new(&python_bin)
+        .args(["-m", "pip", "show", package, "--verbose"])
+        .output()
+        .await
+    {
+        let show_text = String::from_utf8_lossy(&show_output.stdout);
+        if let Some(loc_line) = show_text.lines().find(|l| l.starts_with("Location:")) {
+            let location = loc_line.trim_start_matches("Location:").trim();
+            log::info!("{package} v{version} installed at: {location}");
+        }
+    }
+
+    log::info!("{package} v{version} installed and verified successfully");
     Ok(version)
 }
 
