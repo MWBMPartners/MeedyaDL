@@ -518,9 +518,9 @@ export function DownloadQueue() {
            * Centered vertically and horizontally with flex utilities.
            */
           <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
-            <Download size={32} className="mb-3 opacity-40" />
+            <Download size={40} className="mb-4 opacity-30" />
             <p className="text-sm font-medium">No downloads in queue</p>
-            <p className="text-xs mt-1">Paste an Apple Music URL on the Download page to get started</p>
+            <p className="text-xs mt-1 text-center max-w-xs">Paste an Apple Music URL on the Download page to get started, or copy a URL to your clipboard and MeedyaDL will detect it automatically.</p>
           </div>
         ) : (
           /*
