@@ -592,6 +592,8 @@ export interface AppSettings {
   high_contrast: boolean;
   /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
   colour_blind_mode: string;
+  /** Whether the user has accepted the Terms of Service. Shown on first launch. */
+  terms_accepted?: boolean;
   /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
   service_settings?: PerServiceSettings;
   /** Persistent after-queue action (applies to every queue completion). Default: 'do_nothing'. */

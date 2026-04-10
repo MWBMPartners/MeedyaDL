@@ -896,6 +896,11 @@ pub struct AppSettings {
     #[serde(default)]
     pub setup_completed: bool,
 
+    /// Whether the user has accepted the Terms of Service / EULA.
+    /// Shown as a modal on first launch before the setup wizard.
+    #[serde(default)]
+    pub terms_accepted: bool,
+
     // ================================================================
     // Per-Service Settings (#319)
     // ================================================================
@@ -1252,6 +1257,7 @@ impl Default for AppSettings {
             last_seen_version: String::new(),
             // Setup wizard has not been completed yet on a fresh install.
             setup_completed: false,
+            terms_accepted: false,
 
             // --- Per-service settings ---
             // Default service settings (all services use their own defaults).
