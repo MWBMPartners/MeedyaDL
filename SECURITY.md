@@ -37,6 +37,31 @@ MeedyaDL implements the following security measures:
 - **Activity log memory bounds** — capped at 10,000 entries to prevent unbounded WebView memory growth
 - **Updater artifact signing** — `.app.tar.gz.sig` signature files verified by Tauri updater before installation
 
+- **IPC command rate limiting** — sliding-window rate limiter on sensitive commands (downloads, updates, cookie imports)
+- **Settings file integrity** — SHA-256 checksum verification detects external modification
+- **Pip install verification** — post-install audit trail logs package location
+
+## Updater Signing Key Rotation Plan
+
+The Tauri updater uses an Ed25519 signing key (`TAURI_SIGNING_PRIVATE_KEY`) to sign update artifacts. All updates are verified against the public key embedded in `tauri.conf.json`.
+
+### If the signing key is compromised
+
+1. **Revoke the compromised key**: remove `TAURI_SIGNING_PRIVATE_KEY` from GitHub Secrets immediately
+2. **Generate a new key pair**: `npx tauri signer generate` — store the new private key securely
+3. **Publish a manual recovery release**:
+   - Update `tauri.conf.json` → `plugins.updater.pubkey` with the new public key
+   - Build and release manually (the in-app updater cannot deliver this release since the old key is revoked)
+   - Users must download this release from GitHub Releases manually
+4. **Communicate the incident**: publish a GitHub Security Advisory explaining the compromise, affected versions, and recovery steps
+5. **Subsequent releases**: once users have the recovery release with the new public key, normal auto-updates resume
+
+### Preventive measures
+
+- The private key is stored only in GitHub Actions Secrets (encrypted at rest)
+- No developer has the private key on their local machine
+- Consider maintaining a backup key pair stored offline (printed QR code in a secure location) for disaster recovery
+
 ## Scope
 
 This security policy covers the MeedyaDL desktop application and its build/release infrastructure. It does not cover third-party dependencies (GAMDL, FFmpeg, etc.) — please report issues with those to their respective projects.
