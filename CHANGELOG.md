@@ -28,6 +28,16 @@ Activity log task markers:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Add updater signing key rotation plan to SECURITY.md (#401)
+
+Document the recovery procedure if the Tauri updater signing key is
+  compromised: revoke, regenerate, publish manual recovery release,
+  communicate via GitHub Security Advisory.
+
+  Also document IPC rate limiting (#395), settings integrity (#396),
+  and pip verification (#397) in DEV_NOTES.md.
+
 
 ### Security
 
