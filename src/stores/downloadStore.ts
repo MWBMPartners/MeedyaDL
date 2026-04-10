@@ -55,6 +55,7 @@ import { parseAppleMusicUrl } from '@/lib/url-parser';
 // Type-safe wrappers for Tauri IPC commands. Each function maps to a
 // `#[tauri::command]` handler in the Rust backend.
 import * as commands from '@/lib/tauri-commands';
+import { useUiStore } from '@/stores/uiStore';
 
 /**
  * Combined state + actions interface for the download store.
@@ -119,6 +120,13 @@ interface DownloadState {
    *   3. Terminal-state updates via `handleDownloadComplete/Error/Cancelled()`
    */
   queueItems: QueueItemStatus[];
+
+  /**
+   * Undo buffer: stores URLs from the last clear operation.
+   * Auto-expires after 5 seconds. Used by the "Undo" toast action
+   * to re-enqueue cleared items.
+   */
+  _undoBuffer: string[] | null;
 
   /**
    * `true` while `submitDownload()` is awaiting the Rust `start_download`
@@ -318,6 +326,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   urlContentType: 'unknown', // Content type unknown until URL is parsed
   overrideOptions: null, // No per-download overrides; use global settings
   queueItems: [], // Empty queue until refreshQueue() or events arrive
+  _undoBuffer: null, // Undo buffer for queue clear operations
   isSubmitting: false, // No submission in progress
   error: null, // No error
 
@@ -479,9 +488,43 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   clearAll: async () => {
     try {
+      // Save URLs of non-active items to undo buffer before clearing
+      const clearableUrls = get().queueItems
+        .filter((i) => i.state !== 'downloading' && i.state !== 'processing')
+        .flatMap((i) => i.urls ?? []);
+
       const removed = await commands.clearAllQueue();
       const status = await commands.getQueueStatus();
-      set({ queueItems: status.items });
+      set({ queueItems: status.items, _undoBuffer: clearableUrls.length > 0 ? clearableUrls : null });
+
+      // Show undo toast with 5-second timeout
+      if (removed > 0 && clearableUrls.length > 0) {
+        const { addToast } = useUiStore.getState();
+        addToast(
+          `Cleared ${removed} item${removed !== 1 ? 's' : ''}`,
+          'info',
+          5000,
+          'undo-clear',
+          {
+            label: 'Undo',
+            onClick: () => {
+              // Re-enqueue the cleared URLs
+              const urls = get()._undoBuffer;
+              if (urls && urls.length > 0) {
+                for (const url of urls) {
+                  commands.startDownload({ urls: [url] }).catch(() => {});
+                }
+                set({ _undoBuffer: null });
+                addToast(`Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`, 'success');
+              }
+            },
+          }
+        );
+
+        // Auto-expire the undo buffer after 5 seconds
+        setTimeout(() => set({ _undoBuffer: null }), 5000);
+      }
+
       return removed;
     } catch (e) {
       set({ error: String(e) });
