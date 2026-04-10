@@ -600,6 +600,8 @@ export interface AppSettings {
   crash_report_prompt_shown?: boolean;
   /** Whether anonymous usage analytics are enabled (opt-in, default off). */
   analytics_enabled?: boolean;
+  /** Whether BPM (tempo) analysis is enabled during enrichment (opt-in, default off). */
+  bpm_analysis_enabled?: boolean;
   /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
   service_settings?: PerServiceSettings;
   /** Persistent after-queue action (applies to every queue completion). Default: 'do_nothing'. */

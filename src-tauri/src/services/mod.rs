@@ -167,6 +167,14 @@ pub mod acoustid_service;
 /// Used by: `download_queue` (post-download enrichment, when `replaygain_enabled`)
 pub mod replaygain_service;
 
+/// BPM (tempo) analysis service.
+///
+/// Detects BPM from audio files using bpm-analyzer crate (wavelet decomposition)
+/// and writes metadata tags (tmpo for M4A, TBPM for MP3, BPM for FLAC).
+///
+/// Used by: `download_queue` (post-download enrichment, when `bpm_analysis_enabled`)
+pub mod bpm_service;
+
 /// Enhanced LRC lyrics conversion service.
 ///
 /// Post-processes Apple Music TTML lyrics files to produce Enhanced LRC
