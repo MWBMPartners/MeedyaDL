@@ -1928,3 +1928,30 @@ github = ["MWBMPartners", "MeedyaDL"]
 ```
 
 This covers `MWBMPartners/MeedyaSuite-core` (shared Rust crates), `MeedyaDL/MeedyaDL-Tools` (dependency mirrors), and any future repos under either org — regardless of branch, tag, or rev qualifiers.
+
+## Updater Signing Key Rotation (#401)
+
+See `SECURITY.md` → "Updater Signing Key Rotation Plan" for the full procedure. Key points:
+
+- The Tauri signing key (`TAURI_SIGNING_PRIVATE_KEY`) is stored only in GitHub Actions Secrets
+- If compromised: revoke immediately, generate new key pair, publish a manual recovery release
+- Users must manually download the recovery release (the old auto-updater can't verify the new key)
+- The public key in `tauri.conf.json` → `plugins.updater.pubkey` must match the new private key
+
+## IPC Rate Limiting (#395)
+
+Sensitive IPC commands are rate-limited via a sliding-window limiter in `utils/rate_limiter.rs`:
+
+| Command | Limit | Window |
+|---------|-------|--------|
+| `start_download` | 10 calls | 60 seconds |
+| `check_all_updates` | 1 call | 60 seconds |
+| `download_and_install_app_update` | 1 call | 60 seconds |
+| `import_cookies_from_browser` | 3 calls | 60 seconds |
+
+Returns "Too many requests. Please wait N seconds" when exceeded.
+
+## Settings File Integrity (#396)
+
+On save: SHA-256 digest written to companion `settings.json.sha256` file.
+On load: digest verified. Mismatch logs a warning but settings are still loaded (user may have intentionally edited). Missing checksum file (pre-upgrade settings) is accepted and a checksum generated for next time.
