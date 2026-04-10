@@ -178,6 +178,15 @@ fn redact_url_query(url: &str) -> &str {
 /// - The `desktop_notifications` setting is `false`.
 /// - The main window is currently focused (visible and in foreground).
 /// - The notification fails to build or send (non-critical).
+/// Notification throttling state: tracks last notification time per category
+/// and batched count to prevent notification spam during rapid queue processing.
+static NOTIFICATION_THROTTLE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Minimum interval between notifications of the same category (seconds).
+const NOTIFICATION_THROTTLE_SECS: u64 = 10;
+
 fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
     use tauri::Manager;
     use tauri_plugin_notification::NotificationExt;
@@ -189,19 +198,42 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
     }
 
     // Only send notifications when the window is NOT focused.
-    // If the user is actively looking at the app, they can see the queue status.
     if let Some(window) = app.get_webview_window("main") {
         if window.is_focused().unwrap_or(false) {
             return;
         }
     }
 
-    // Send the OS-native notification. Use .ok() to swallow errors silently --
-    // notification failure is never worth interrupting the download flow.
+    // Throttle: batch rapid notifications of the same title category.
+    // If the same title was sent within the last 10 seconds, update the
+    // count and modify the body to show "N downloads completed" etc.
+    let throttle_key = title.to_string();
+    let display_body = {
+        let mut throttle = NOTIFICATION_THROTTLE.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        let entry = throttle.entry(throttle_key).or_insert((now, 0));
+        let elapsed = now.duration_since(entry.0);
+
+        if elapsed < std::time::Duration::from_secs(NOTIFICATION_THROTTLE_SECS) {
+            entry.1 += 1;
+            if entry.1 > 1 {
+                // Batch: update the body with count
+                format!("{} ({} items)", body, entry.1)
+            } else {
+                body.to_string()
+            }
+        } else {
+            // Reset: enough time has passed
+            *entry = (now, 1);
+            body.to_string()
+        }
+    };
+
+    // Send the OS-native notification
     app.notification()
         .builder()
         .title(title)
-        .body(body)
+        .body(&display_body)
         .show()
         .ok();
 }

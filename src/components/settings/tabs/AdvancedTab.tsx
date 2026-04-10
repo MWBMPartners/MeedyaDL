@@ -334,6 +334,12 @@ export function AdvancedTab() {
           checked={settings.sentry_enabled}
           onChange={(checked) => updateSettings({ sentry_enabled: checked })}
         />
+        <Toggle
+          label="Anonymous Usage Analytics"
+          description="Send anonymised feature usage data (which features are used, platform, download counts) to help prioritise development. No personal data, URLs, or content information is ever collected."
+          checked={settings.analytics_enabled ?? false}
+          onChange={(checked) => updateSettings({ analytics_enabled: checked })}
+        />
         <p className="text-xs text-content-tertiary">
           Error reports (crashes and download failures) are always saved locally to your app data
           directory regardless of this setting. You can view and report them below.

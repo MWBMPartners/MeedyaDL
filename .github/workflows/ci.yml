@@ -279,3 +279,12 @@ jobs:
       - name: Cargo test
         working-directory: src-tauri
         run: cargo test
+
+      # Generate rustdoc to verify all doc comments compile.
+      # Only runs on ubuntu to save CI minutes (doc compilation is platform-agnostic).
+      - name: Cargo doc (verify documentation compiles)
+        if: runner.os == 'Linux'
+        working-directory: src-tauri
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"

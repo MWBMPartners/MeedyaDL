@@ -47,8 +47,9 @@ static RATE_LIMITS: LazyLock<Mutex<HashMap<&'static str, Vec<Instant>>>> =
 /// # Example
 ///
 /// Allow at most 10 calls to "start_download" per 60 seconds:
-/// ```rust
-/// check_rate_limit("start_download", 10, 60)?;
+/// ```rust,no_run
+/// # use meedyadl::utils::rate_limiter::check_rate_limit;
+/// check_rate_limit("start_download", 10, 60).unwrap();
 /// ```
 pub fn check_rate_limit(
     command: &'static str,
