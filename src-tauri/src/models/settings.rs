@@ -927,6 +927,12 @@ pub struct AppSettings {
     #[serde(default)]
     pub analytics_enabled: bool,
 
+    /// Whether BPM (tempo) analysis is enabled during enrichment.
+    /// When true, audio files are analysed for BPM and the result is
+    /// written as a metadata tag. Default: false (opt-in).
+    #[serde(default)]
+    pub bpm_analysis_enabled: bool,
+
     // ================================================================
     // Per-Service Settings (#319)
     // ================================================================
@@ -1299,6 +1305,7 @@ impl Default for AppSettings {
             terms_accepted: false,
             crash_report_prompt_shown: false,
             analytics_enabled: false,
+            bpm_analysis_enabled: false,
 
             // --- Per-service settings ---
             // Default service settings (all services use their own defaults).
