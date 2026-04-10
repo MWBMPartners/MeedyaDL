@@ -31,6 +31,13 @@ Add break-words + overflow-hidden to toast message text, and
   without natural break points (e.g., /Users/.../Library/...) now
   wrap within the toast bounds instead of leaking outside.
 
+- Platform icon empty square — normalize SVG fetch path (#394)
+
+The platform icon from engines.toml uses a relative path
+  (icons/platforms/apple-music.svg) which may not resolve correctly
+  in Tauri production builds where the base URL is tauri://localhost/.
+  Normalize to absolute path (prepend /) before fetching.
+
 
 ### 📚 Documentation
 
@@ -62,6 +69,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
