@@ -62,6 +62,27 @@ The Tauri updater uses an Ed25519 signing key (`TAURI_SIGNING_PRIVATE_KEY`) to s
 - No developer has the private key on their local machine
 - Consider maintaining a backup key pair stored offline (printed QR code in a secure location) for disaster recovery
 
+## DMCA / Content Takedown Requests
+
+MeedyaDL is an open-source tool that interfaces with official media platform APIs using user-provided authentication credentials. **MeedyaDL does not host, distribute, or store any copyrighted content.**
+
+### What MeedyaDL can and cannot control
+
+- **Can control**: the application's source code and distribution
+- **Cannot control**: how users use the tool, what content they download, or their compliance with platform terms of service
+
+### Submitting a takedown request
+
+If you are a rights holder and believe MeedyaDL facilitates infringement of your copyrighted work:
+
+1. **Contact**: Email the repository maintainers via the email listed on the [MWBMPartners GitHub organisation profile](https://github.com/MWBMPartners)
+2. **Include**: A clear description of the copyrighted work, the specific concern, and your contact information
+3. **Response**: We will acknowledge your request within 48 hours and respond substantively within 7 business days
+
+### Counter-notification
+
+If you believe a takedown request was filed in error, you may submit a counter-notification to the same contact email with a statement of good faith belief and your contact information.
+
 ## Scope
 
 This security policy covers the MeedyaDL desktop application and its build/release infrastructure. It does not cover third-party dependencies (GAMDL, FFmpeg, etc.) — please report issues with those to their respective projects.
