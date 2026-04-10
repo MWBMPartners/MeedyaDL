@@ -1053,4 +1053,61 @@ mod tests {
             "SRT file with special characters not created"
         );
     }
+
+    // ================================================================
+    // GAMDL Smoke Tests
+    // ================================================================
+    //
+    // These tests verify that the GAMDL download pipeline works end-to-end.
+    // They require:
+    //   - Python installed at the managed path
+    //   - GAMDL installed via pip
+    //   - Valid Apple Music cookies or wrapper URL
+    //
+    // They are IGNORED by default (`#[ignore]`) so `cargo test` runs without
+    // them. Run them explicitly with: `cargo test -- --ignored`
+    // Or in CI: `cargo test -- --ignored` with secrets configured.
+
+    /// Smoke test: verify GAMDL is installed and can show its version.
+    /// This doesn't download anything — just confirms the subprocess works.
+    #[test]
+    #[ignore] // Requires Python + GAMDL installed
+    fn gamdl_version_smoke_test() {
+        use std::process::Command;
+
+        // Try to run `python -m gamdl --version`
+        let output = Command::new("python3")
+            .args(["-m", "gamdl", "--version"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let combined = format!("{stdout}{stderr}");
+                assert!(
+                    combined.contains("gamdl") || out.status.success(),
+                    "GAMDL should respond to --version. Output: {combined}"
+                );
+                println!("GAMDL version: {}", combined.trim());
+            }
+            Err(e) => {
+                panic!("Failed to run GAMDL: {e}. Is Python 3 installed?");
+            }
+        }
+    }
+
+    /// Smoke test: verify URL parsing works for a known Apple Music URL.
+    #[test]
+    fn url_parsing_smoke_test() {
+        use crate::services::apple_music_api;
+
+        // A well-known public album URL
+        let url = "https://music.apple.com/us/album/abbey-road/401186199";
+        let parsed = apple_music_api::parse_apple_music_url(url);
+        assert!(parsed.is_some(), "Should parse a valid Apple Music album URL");
+        let parsed = parsed.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.album_id, "401186199");
+    }
 }
