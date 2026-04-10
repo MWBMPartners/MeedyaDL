@@ -6,6 +6,28 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Clipboard direct queue, native notifications, auto-scroll checkbox
+
+- Clipboard toast "Download" now queues directly via startDownload()
+    instead of pre-filling the URL input (#376)
+  - Native OS notifications sent via @tauri-apps/plugin-notification when
+    the window is not focused, so clipboard URLs are never missed (#377)
+  - Activity Log Pause/Resume button replaced with Auto-scroll checkbox
+    that auto-unchecks on scroll-up and re-checks to jump to bottom (#378)
+  - Updated in-app help docs (getting-started, downloading-music, faq,
+    troubleshooting) with new clipboard, notification, and activity log
+    behaviour
+  - Updated CLAUDE.md, README.md, Project_Plan.md
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.29.5] - 2026-04-10
+
 ### 🐛 Bug Fixes
 
 - Restore activity log line spacing after virtualization
