@@ -908,6 +908,12 @@ pub struct AppSettings {
     #[serde(default)]
     pub terms_accepted: bool,
 
+    /// Whether the crash report opt-in prompt has been shown to the user.
+    /// Set to `true` after the first-launch prompt, regardless of the user's
+    /// choice — prevents re-prompting.
+    #[serde(default)]
+    pub crash_report_prompt_shown: bool,
+
     // ================================================================
     // Per-Service Settings (#319)
     // ================================================================
@@ -1271,6 +1277,7 @@ impl Default for AppSettings {
             // Setup wizard has not been completed yet on a fresh install.
             setup_completed: false,
             terms_accepted: false,
+            crash_report_prompt_shown: false,
 
             // --- Per-service settings ---
             // Default service settings (all services use their own defaults).
