@@ -118,6 +118,14 @@ Add TrayState managed state and update_tray_tooltip() function in lib.rs.
   badge count and Windows taskbar progress overlay can be added as
   platform-specific enhancements.
 
+- Undo queue clear with 5-second toast action (#406)
+
+When clearing the queue (Clear All), URLs of cleared items are saved
+  to an _undoBuffer in the download store. An "Undo" toast appears for
+  5 seconds. Clicking "Undo" re-enqueues all cleared URLs.
+
+  The buffer auto-expires after 5 seconds to prevent stale state.
+
 
 ### 🐛 Bug Fixes
 
@@ -183,6 +191,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
