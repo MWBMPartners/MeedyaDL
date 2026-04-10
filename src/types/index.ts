@@ -592,6 +592,8 @@ export interface AppSettings {
   high_contrast: boolean;
   /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
   colour_blind_mode: string;
+  /** Auto-dismiss duration for transient notifications (seconds). Range: 3-60. Default: 5. */
+  notification_auto_dismiss_seconds?: number;
   /** Whether the user has accepted the Terms of Service. Shown on first launch. */
   terms_accepted?: boolean;
   /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
