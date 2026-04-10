@@ -82,6 +82,9 @@ use crate::utils::activity_log::emit_app_log;
 /// if no updates are found.
 #[tauri::command]
 pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, String> {
+    // Rate limit: max 1 update check per minute
+    crate::utils::rate_limiter::check_rate_limit("check_all_updates", 1, 60)?;
+
     log::info!("Checking for updates...");
     emit_app_log(&app, "Checking for updates...");
     // Load settings to check the user's pre-release preference.
@@ -258,6 +261,9 @@ pub async fn download_and_install_app_update(
     app: AppHandle,
     tag: String,
 ) -> Result<String, String> {
+    // Rate limit: max 1 app update install per minute
+    crate::utils::rate_limiter::check_rate_limit("download_and_install_app_update", 1, 60)?;
+
     // Import UpdaterExt at the top of the function body to satisfy
     // clippy::items_after_statements (items must precede statements).
     // `UpdaterExt` trait provides `updater_builder()` on the AppHandle.

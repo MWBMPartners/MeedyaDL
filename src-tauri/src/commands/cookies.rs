@@ -91,6 +91,9 @@ pub async fn import_cookies_from_browser(
     app: AppHandle,
     browser_id: String,
 ) -> Result<CookieImportResult, String> {
+    // Rate limit: max 3 cookie imports per minute
+    crate::utils::rate_limiter::check_rate_limit("import_cookies_from_browser", 3, 60)?;
+
     log::info!("Importing cookies from browser: {browser_id}");
     emit_app_log(&app, &format!("Importing cookies from {browser_id}..."));
     let result = cookie_service::extract_and_save(&app, &browser_id)?;

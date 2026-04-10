@@ -59,3 +59,12 @@ pub mod process;
 ///          `commands::gamdl`, `commands::updates`, `commands::dependencies`,
 ///          `commands::cookies`, `commands::settings`, `commands::login_window`
 pub mod activity_log;
+
+/// IPC command rate limiter.
+///
+/// Simple sliding-window rate limiter that prevents abuse of expensive
+/// commands (downloads, API calls, updates). Each command has a configurable
+/// max calls / window seconds limit.
+///
+/// Used by: `commands::gamdl`, `commands::updates`, `commands::cookies`
+pub mod rate_limiter;

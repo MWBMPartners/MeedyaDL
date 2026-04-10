@@ -123,6 +123,9 @@ pub async fn start_download(
     request: DownloadRequest,
     skip_auto_start: Option<bool>,
 ) -> Result<StartDownloadResult, String> {
+    // Rate limit: max 10 downloads per minute
+    crate::utils::rate_limiter::check_rate_limit("start_download", 10, 60)?;
+
     // Load current settings for merging with per-download overrides.
     // If settings can't be loaded (corrupted file, etc.), fall back to defaults
     // so the download can still proceed with sensible quality/format choices.
