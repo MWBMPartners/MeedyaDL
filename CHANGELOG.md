@@ -15,9 +15,17 @@ Move send_desktop_notification() doc comment to directly above the
   had the function's doc comment above the static with a blank line,
   triggering clippy::empty_line_after_doc_comments.
 
+- **(ci)** Allow pre-existing rustdoc link warnings in CI
+
+Change RUSTDOCFLAGS from "-D warnings" to "-A rustdoc::all" for the
+  cargo doc CI step. Pre-existing doc comments use backtick-wrapped words
+  (Explicit, Clean, Lossless, etc.) that rustdoc interprets as unresolved
+  item links. These will be cleaned up incrementally.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.31.0] - 2026-04-10
