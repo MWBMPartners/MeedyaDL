@@ -68,6 +68,7 @@ import { Toggle, FilePickerButton, Select, Button, SettingsSection } from '@/com
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Download, RefreshCw, Upload } from 'lucide-react';
+import type { AfterQueueAction } from '@/types';
 
 /**
  * Available language options for GAMDL's metadata language preference.
@@ -122,6 +123,21 @@ const UPDATE_INTERVAL_OPTIONS = [
   { value: '12', label: 'Every 12 hours' },
   { value: '24', label: 'Every 24 hours' },
   { value: '0', label: 'Startup only' },
+];
+
+/**
+ * After-queue action options.
+ * "once" variants are handled via the context menu on the Download page;
+ * the Settings dropdown controls the persistent "always" action.
+ */
+const AFTER_QUEUE_OPTIONS = [
+  { value: 'do_nothing', label: 'Do nothing' },
+  { value: 'open_output_folder', label: 'Open output folder' },
+  { value: 'play_sound', label: 'Play notification sound' },
+  { value: 'close_meedyadl', label: 'Close MeedyaDL' },
+  { value: 'restart_computer', label: 'Restart computer' },
+  { value: 'hibernate_computer', label: 'Hibernate / Sleep' },
+  { value: 'shutdown_computer', label: 'Shut down computer' },
 ];
 
 /**
@@ -429,6 +445,17 @@ export function GeneralTab() {
           description="Start processing immediately when items are added to the queue. When disabled, items are queued and you can start processing manually from the Queue page."
           checked={settings.auto_start_queue}
           onChange={(checked) => updateSettings({ auto_start_queue: checked })}
+        />
+
+        {/* After-queue action */}
+        <Select
+          label="After Queue Completes"
+          description="Action to perform automatically when all downloads finish. This is the persistent setting — use the right-click menu on the Download page for a one-time override."
+          options={AFTER_QUEUE_OPTIONS}
+          value={settings.after_queue_action ?? 'do_nothing'}
+          onChange={(e) =>
+            updateSettings({ after_queue_action: e.target.value as AfterQueueAction })
+          }
         />
 
         {/* Desktop notifications */}

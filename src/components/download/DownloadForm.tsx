@@ -52,7 +52,7 @@
  * @see https://react.dev/reference/react/useCallback
  * @see https://react.dev/reference/react/useMemo
  */
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, type MouseEvent } from 'react';
 
 /**
  * Lucide React icons used for content-type badges and UI controls.
@@ -96,7 +96,8 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 
 /** Reusable UI primitives from the common component library. */
-import { Button, Select } from '@/components/common';
+import { Button, Select, ContextMenu } from '@/components/common';
+import type { AfterQueueAction } from '@/types';
 
 /** Tauri IPC commands for pre-download checks (internet, cookies). */
 import {
@@ -584,10 +585,38 @@ export function DownloadForm() {
   }));
 
   // ---------------------------------------------------------------
+  // Context Menu: After-Queue Actions (one-shot)
+  // ---------------------------------------------------------------
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const handleContextMenu = useCallback((e: MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const setAfterQueueOnce = useCallback((action: AfterQueueAction) => {
+    const { updateSettings } = useSettingsStore.getState();
+    updateSettings({ after_queue_once: action === 'do_nothing' ? null : action });
+    const label = action === 'do_nothing' ? 'cleared' : action.replace(/_/g, ' ');
+    useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
+    setContextMenu(null);
+  }, []);
+
+  const afterQueueMenuItems = [
+    { label: 'After Queue: Do nothing', onClick: () => setAfterQueueOnce('do_nothing') },
+    { label: 'After Queue: Open output folder', onClick: () => setAfterQueueOnce('open_output_folder') },
+    { label: 'After Queue: Play sound', onClick: () => setAfterQueueOnce('play_sound') },
+    { label: 'After Queue: Close MeedyaDL', onClick: () => setAfterQueueOnce('close_meedyadl'), separator: true },
+    { label: 'After Queue: Restart computer', onClick: () => setAfterQueueOnce('restart_computer'), separator: true },
+    { label: 'After Queue: Hibernate / Sleep', onClick: () => setAfterQueueOnce('hibernate_computer') },
+    { label: 'After Queue: Shut down', onClick: () => setAfterQueueOnce('shutdown_computer') },
+  ];
+
+  // ---------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------
   return (
-    <div>
+    <div onContextMenu={handleContextMenu}>
       {/*
        * Page header: "Download" title with a brief description.
        * Uses the shared PageHeader component for consistent styling.
@@ -867,6 +896,16 @@ export function DownloadForm() {
           )}
         </div>
       </div>
+
+      {/* After-queue one-shot context menu (right-click) */}
+      {contextMenu && (
+        <ContextMenu
+          items={afterQueueMenuItems}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
