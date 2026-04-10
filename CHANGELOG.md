@@ -29,6 +29,16 @@ The pre-release notice modal now includes a "What's New" section
   gives users a quick changelog summary when they upgrade to a new
   version.
 
+- Keyboard shortcut hints on sidebar nav tooltips (#388)
+
+Add shortcut field to NavItem interface. Sidebar buttons now show
+  platform-aware shortcut hints in their title tooltip:
+  - Download (⌘D / Ctrl+D)
+  - Queue (⌘Q / Ctrl+Q)
+  - Settings (⌘, / Ctrl+,)
+
+  Uses usePlatform().isMacOS to show ⌘ on macOS, Ctrl+ on other platforms.
+
 
 ### 🐛 Bug Fixes
 
@@ -77,6 +87,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
