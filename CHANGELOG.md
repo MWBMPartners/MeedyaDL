@@ -156,6 +156,15 @@ Add screenshot capture script using Puppeteer (already a devDependency):
   - Baseline capture mode: --baseline flag saves to baselines/ directory
   - Comparison mode scaffold (pixelmatch integration is a follow-up)
 
+- Analytics opt-in infrastructure (#405)
+
+Add analytics_enabled field to AppSettings (Rust + TypeScript),
+  defaulting to false (opt-in). The actual analytics endpoint and
+  data collection are deferred to post-v1 — this provides the
+  settings field so the opt-in prompt can be built.
+
+  Partial fix for #405.
+
 
 ### 🐛 Bug Fixes
 
@@ -221,6 +230,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
