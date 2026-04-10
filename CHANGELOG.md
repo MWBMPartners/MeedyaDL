@@ -38,6 +38,25 @@ Document the recovery procedure if the Tauri updater signing key is
   Also document IPC rate limiting (#395), settings integrity (#396),
   and pip verification (#397) in DEV_NOTES.md.
 
+- Update CHANGELOG.md [skip ci]
+
+### Legal
+
+- Add EULA / Terms of Service (#398)
+
+Add TERMS.md with:
+  - MIT licence reference
+  - Disclaimer of warranty
+  - No affiliation with Apple/Spotify/Google/BBC
+  - User responsibility clause
+  - Data collection transparency (Sentry opt-in, clipboard monitoring)
+  - Third-party dependency notice
+  - Limitation of liability
+
+  Add terms_accepted field to AppSettings (Rust + TypeScript) for
+  first-launch acceptance tracking. Frontend modal to be wired up
+  in a follow-up (the field + TERMS.md are the foundation).
+
 
 ### Security
 
