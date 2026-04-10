@@ -6,6 +6,25 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Show album context in progress bar during downloads
+
+Parse the album name from the Apple Music URL slug and display it
+  alongside the track title: "The Platinum Collection — \"Black Boy Run\""
+  instead of just "Black Boy Run". Helps identify which album is being
+  downloaded in multi-queue sessions.
+
+  Falls back to track name only if album can't be extracted from URL.
+  Processing labels (enrichment/companions) are unaffected.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.31.1] - 2026-04-10
+
 ### 🐛 Bug Fixes
 
 - Clippy empty_line_after_doc_comments — reorder doc comment blocks
