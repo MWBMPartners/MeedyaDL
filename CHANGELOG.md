@@ -32,9 +32,24 @@ Add album_name and artist_name fields to QueueItemStatus:
 
   The extract_album_info_from_url() helper also handles artist URLs.
 
+- Album context in activity log entries and processing labels (#422)
+
+All enrichment step markers now include album context:
+  - "▶ Metadata enrichment started — Blue: The Platinum Collection"
+  - "✓ ReplayGain analysis completed — Blue: The Platinum Collection"
+
+  Processing labels (progress bar) also auto-append context:
+  - "Enriching metadata tags... — Blue: The Platinum Collection"
+  - "AcoustID fingerprinting... — Blue: The Platinum Collection"
+
+  The set_label() closure reads artist_name/album_name from the queue
+  item and appends " — Artist: Album" to every label. The album_context()
+  helper does the same for emit_download_log() calls.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
