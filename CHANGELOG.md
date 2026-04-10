@@ -84,6 +84,15 @@ Add settings_version field (u32) to AppSettings with
   Old settings files (without settings_version) deserialize as v0
   via serde(default), triggering the migration automatically.
 
+- Disk space check before download — warn if < 500 MB (#408)
+
+Add available disk space check to the output path preflight probe.
+  After verifying write access, check remaining space via fs2 crate.
+  If < 500 MB available, emit a PreflightWarning with the remaining
+  space and a suggestion about large albums.
+
+  New dependency: fs2 (0.4, lightweight cross-platform disk space query).
+
 
 ### 🐛 Bug Fixes
 
@@ -149,6 +158,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### Legal
