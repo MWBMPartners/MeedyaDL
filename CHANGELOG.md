@@ -292,6 +292,13 @@ Add `npm run docs:rust` which runs `cargo doc --no-deps --open`
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Comprehensive CLAUDE.md update with v1 RC features
+
+Add documentation for: IPC rate limiting, settings integrity check,
+  settings migration, after-queue actions, notification tiers, BPM
+  analysis, disk space check, session log retention.
+
 
 ### Legal
 
