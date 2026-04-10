@@ -220,6 +220,13 @@ The platform icon from engines.toml uses a relative path
   in Tauri production builds where the base URL is tauri://localhost/.
   Normalize to absolute path (prepend /) before fetching.
 
+- Clippy doc_lazy_continuation, needless_borrow, eslint ban-ts-comment
+
+- Separate doc comment blocks for NOTIFICATION_THROTTLE static
+  - Remove needless & in error_guidance() call
+  - Add eslint-disable for @ts-nocheck in serviceStatusStore.ts
+    (staged for future, not active code)
+
 
 ### 📚 Documentation
 
@@ -299,6 +306,7 @@ Add documentation for: IPC rate limiting, settings integrity check,
   settings migration, after-queue actions, notification tiers, BPM
   analysis, disk space check, session log retention.
 
+- Update CHANGELOG.md [skip ci]
 
 ### Legal
 
