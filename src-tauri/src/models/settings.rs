@@ -921,6 +921,12 @@ pub struct AppSettings {
     #[serde(default)]
     pub crash_report_prompt_shown: bool,
 
+    /// Whether anonymous usage analytics are enabled (opt-in).
+    /// When true, anonymised feature usage data is sent to help prioritise development.
+    /// No personal data, URLs, or content information is ever collected.
+    #[serde(default)]
+    pub analytics_enabled: bool,
+
     // ================================================================
     // Per-Service Settings (#319)
     // ================================================================
@@ -1292,6 +1298,7 @@ impl Default for AppSettings {
             setup_completed: false,
             terms_accepted: false,
             crash_report_prompt_shown: false,
+            analytics_enabled: false,
 
             // --- Per-service settings ---
             // Default service settings (all services use their own defaults).
