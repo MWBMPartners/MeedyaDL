@@ -39,6 +39,7 @@ Tauri 2.x names the macOS updater bundle after the .app bundle itself
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
