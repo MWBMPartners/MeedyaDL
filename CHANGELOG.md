@@ -52,6 +52,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 
 ### Legal
 
@@ -69,6 +70,12 @@ Add TERMS.md with:
   Add terms_accepted field to AppSettings (Rust + TypeScript) for
   first-launch acceptance tracking. Frontend modal to be wired up
   in a follow-up (the field + TERMS.md are the foundation).
+
+- Add DMCA / content takedown process to SECURITY.md (#400)
+
+Document how rights holders can submit takedown requests, what
+  MeedyaDL can and cannot control, response timeline (48h ack, 7 day
+  response), and counter-notification procedure.
 
 
 ### Security
