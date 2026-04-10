@@ -136,6 +136,27 @@ export default function PrereleaseNoticeModal() {
           </div>
         )}
 
+        {/* What's New section — shows key changes in this version */}
+        <div className="p-3 rounded-lg bg-surface-secondary border border-border">
+          <p className="text-xs font-semibold text-content-primary mb-2">
+            What&apos;s New in v{appVersion}
+          </p>
+          <p className="text-xs text-content-tertiary">
+            View the full release notes on the{' '}
+            <button
+              type="button"
+              className="text-accent-primary hover:underline"
+              onClick={() => {
+                setShowPrereleaseNotice(false);
+                useUiStore.getState().setPage('updates');
+              }}
+            >
+              Updates page
+            </button>
+            .
+          </p>
+        </div>
+
         {/* Action buttons */}
         <div className="flex justify-end gap-3 pt-2">
           {latestUpdate && (
