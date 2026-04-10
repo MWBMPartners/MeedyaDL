@@ -167,6 +167,15 @@ fn redact_url_query(url: &str) -> &str {
     url.split('?').next().unwrap_or(url)
 }
 
+/// Notification throttling state: tracks last notification time per category
+/// and batched count to prevent notification spam during rapid queue processing.
+static NOTIFICATION_THROTTLE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// Minimum interval between notifications of the same category (seconds).
+const NOTIFICATION_THROTTLE_SECS: u64 = 10;
+
 /// Sends a native OS desktop notification if the setting is enabled and the
 /// main application window is not focused.
 ///
@@ -178,16 +187,6 @@ fn redact_url_query(url: &str) -> &str {
 /// - The `desktop_notifications` setting is `false`.
 /// - The main window is currently focused (visible and in foreground).
 /// - The notification fails to build or send (non-critical).
-
-/// Notification throttling state: tracks last notification time per category
-/// and batched count to prevent notification spam during rapid queue processing.
-static NOTIFICATION_THROTTLE: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-/// Minimum interval between notifications of the same category (seconds).
-const NOTIFICATION_THROTTLE_SECS: u64 = 10;
-
 fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
     use tauri::Manager;
     use tauri_plugin_notification::NotificationExt;
