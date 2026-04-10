@@ -594,7 +594,24 @@ export interface AppSettings {
   colour_blind_mode: string;
   /** Per-service settings (Apple Music, Spotify, YouTube). Optional for backwards compat. */
   service_settings?: PerServiceSettings;
+  /** Persistent after-queue action (applies to every queue completion). Default: 'do_nothing'. */
+  after_queue_action?: AfterQueueAction;
+  /** One-shot after-queue action (applies to next queue completion only, then resets). */
+  after_queue_once?: AfterQueueAction | null;
 }
+
+/**
+ * Action to perform after the download queue finishes processing.
+ * Mirrors: Rust enum `AfterQueueAction` in `src-tauri/src/models/settings.rs`
+ */
+export type AfterQueueAction =
+  | 'do_nothing'
+  | 'open_output_folder'
+  | 'play_sound'
+  | 'close_meedyadl'
+  | 'restart_computer'
+  | 'hibernate_computer'
+  | 'shutdown_computer';
 
 /**
  * Per-service settings container.

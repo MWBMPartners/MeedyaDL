@@ -948,6 +948,44 @@ pub struct AppSettings {
     /// Controlled in Settings > General > Appearance.
     #[serde(default)]
     pub colour_blind_mode: String,
+
+    // ================================================================
+    // After-Queue Actions
+    // ================================================================
+
+    /// Persistent after-queue action (applies to every queue completion).
+    /// Default: `DoNothing`.
+    #[serde(default)]
+    pub after_queue_action: AfterQueueAction,
+
+    /// One-shot after-queue action (applies to the next queue completion only,
+    /// then resets to `None`). Overrides `after_queue_action` when set.
+    #[serde(default)]
+    pub after_queue_once: Option<AfterQueueAction>,
+}
+
+/// Action to perform after the download queue finishes processing.
+///
+/// Each variant maps to an OS-level command. Unsupported actions on a given
+/// platform should be greyed out in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AfterQueueAction {
+    /// Take no action after queue completion.
+    #[default]
+    DoNothing,
+    /// Open the output folder in the system file manager.
+    OpenOutputFolder,
+    /// Play a system notification sound.
+    PlaySound,
+    /// Quit the MeedyaDL application.
+    CloseMeedyadl,
+    /// Restart the computer.
+    RestartComputer,
+    /// Hibernate the computer (suspend to disk). Not available on all platforms.
+    HibernateComputer,
+    /// Shut down the computer.
+    ShutdownComputer,
 }
 
 /// Serde default helper: returns `true` for `auto_start_queue`.
@@ -1231,6 +1269,10 @@ impl Default for AppSettings {
             // Users can enable deuteranopia, protanopia, or tritanopia
             // in Settings > General > Appearance to remap status colours.
             colour_blind_mode: String::new(),
+
+            // After-Queue Actions
+            after_queue_action: AfterQueueAction::DoNothing,
+            after_queue_once: None,
         }
     }
 }
