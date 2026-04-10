@@ -68,6 +68,62 @@ use crate::models::settings::AppSettings;
 // across macOS, Windows, and Linux.
 use crate::utils::platform;
 
+// ============================================================
+// Settings file integrity check (SHA-256)
+// ============================================================
+
+/// Compute SHA-256 hex digest of the given string content.
+fn sha256_hex(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Write a checksum companion file alongside the settings file.
+/// The checksum file is `settings.json.sha256` containing the hex digest.
+fn write_settings_checksum(settings_path: &std::path::Path, json_content: &str) {
+    let checksum_path = settings_path.with_extension("json.sha256");
+    let checksum = sha256_hex(json_content);
+    if let Err(e) = std::fs::write(&checksum_path, &checksum) {
+        log::warn!("Failed to write settings checksum: {e}");
+    }
+}
+
+/// Verify the settings file integrity against its companion checksum file.
+/// Returns `true` if the checksum matches or if no checksum file exists
+/// (backwards compatibility with pre-checksum settings).
+/// Returns `false` if the checksum file exists but doesn't match.
+fn verify_settings_checksum(settings_path: &std::path::Path, json_content: &str) -> bool {
+    let checksum_path = settings_path.with_extension("json.sha256");
+    if !checksum_path.exists() {
+        // No checksum file — settings were written by an older version.
+        // Accept them (backwards compatible) but write a checksum for next time.
+        write_settings_checksum(settings_path, json_content);
+        return true;
+    }
+    match std::fs::read_to_string(&checksum_path) {
+        Ok(stored) => {
+            let computed = sha256_hex(json_content);
+            if stored.trim() == computed {
+                true
+            } else {
+                log::warn!(
+                    "Settings file integrity check failed: checksum mismatch \
+                     (stored={}, computed={}). File may have been modified externally.",
+                    &stored.trim()[..8.min(stored.trim().len())],
+                    &computed[..8],
+                );
+                false
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to read settings checksum file: {e}");
+            true // Can't verify — accept the settings
+        }
+    }
+}
+
 /// Loads the application settings from the JSON settings file.
 ///
 /// If the settings file doesn't exist (first run), returns default settings.
@@ -98,6 +154,15 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // the Tokio thread pool and can tolerate brief blocking.
         let contents = std::fs::read_to_string(&settings_path)
             .map_err(|e| format!("Failed to read settings file: {e}"))?;
+
+        // Verify integrity: check the SHA-256 checksum companion file.
+        // A mismatch means the file was modified externally (manual edit,
+        // import from another machine, or tampering). We log a warning
+        // but still load the settings — the user may have intentionally
+        // edited the file.
+        if !verify_settings_checksum(&settings_path, &contents) {
+            log::warn!("Settings file may have been modified externally — loading anyway");
+        }
 
         // Deserialize the JSON into AppSettings. serde_json handles:
         // - Missing fields: filled with #[serde(default)] values
@@ -254,10 +319,14 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     // because rename() is atomic on all major filesystems (APFS, ext4, NTFS).
     // See: https://github.com/MWBMPartners/MeedyaDL/issues/230
     let temp_path = settings_path.with_extension("json.tmp");
-    std::fs::write(&temp_path, json)
+    std::fs::write(&temp_path, &json)
         .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
     std::fs::rename(&temp_path, &settings_path)
         .map_err(|e| format!("Failed to rename temp settings file: {e}"))?;
+
+    // Write integrity checksum alongside the settings file.
+    // Used by load_settings() to detect tampering or corruption.
+    write_settings_checksum(&settings_path, &json);
 
     log::info!("Settings saved to {}", settings_path.display());
 
