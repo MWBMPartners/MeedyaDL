@@ -180,8 +180,9 @@ unknown-git = "deny"
 # Allow crates from the official registry
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
-# Allow all git dependencies from the MWBMPartners GitHub organisation.
-# This covers MeedyaSuite-core (and any future internal crates) regardless
-# of branch, tag, or rev qualifiers in the Cargo.toml git URL.
+# Allow all git dependencies from our GitHub organisations.
+# - MWBMPartners: MeedyaSuite-core and future internal crates
+# - MeedyaDL: MeedyaDL-Tools and future project-specific repos
+# Covers any branch, tag, or rev qualifier in the Cargo.toml git URL.
 [sources.allow-org]
-github = ["MWBMPartners"]
+github = ["MWBMPartners", "MeedyaDL"]
