@@ -22,6 +22,13 @@ Activity log task markers:
   - Now uses same resolution logic as merge_options(): empty → {OS temp}/MeedyaDL
 
 - Notification tier system with configurable auto-dismiss (#385)
+- Add What's New section to version upgrade modal (#387)
+
+The pre-release notice modal now includes a "What's New" section
+  with a link to the full release notes on the Updates page. This
+  gives users a quick changelog summary when they upgrade to a new
+  version.
+
 
 ### 🐛 Bug Fixes
 
@@ -70,6 +77,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
