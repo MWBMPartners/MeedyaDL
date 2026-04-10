@@ -92,6 +92,76 @@ async function captureScreenshots(outputDir) {
   }
 }
 
+/**
+ * Compare screenshots against baselines using pixelmatch.
+ * Returns the number of screenshots that differ beyond threshold.
+ */
+async function compareScreenshots() {
+  const { default: pixelmatch } = await import('pixelmatch');
+  const { PNG } = await import('pngjs');
+  const { readFileSync, readdirSync, writeFileSync } = await import('fs');
+
+  if (!existsSync(BASELINE_DIR)) {
+    console.error('No baselines found. Run: node scripts/visual-regression.mjs capture --baseline');
+    return 1;
+  }
+  if (!existsSync(SCREENSHOT_DIR)) {
+    console.error('No screenshots to compare. Run: node scripts/visual-regression.mjs capture');
+    return 1;
+  }
+
+  const DIFF_DIR = join(PROJECT_ROOT, 'tests', 'visual-regression', 'diffs');
+  mkdirSync(DIFF_DIR, { recursive: true });
+
+  const baselineFiles = readdirSync(BASELINE_DIR).filter((f) => f.endsWith('.png'));
+  let failures = 0;
+  const THRESHOLD = 0.1; // 0.1 = 10% pixel tolerance
+
+  for (const filename of baselineFiles) {
+    const baselinePath = join(BASELINE_DIR, filename);
+    const screenshotPath = join(SCREENSHOT_DIR, filename);
+
+    if (!existsSync(screenshotPath)) {
+      console.error(`  ✗ ${filename}: no screenshot found (missing)`);
+      failures++;
+      continue;
+    }
+
+    const baselineImg = PNG.sync.read(readFileSync(baselinePath));
+    const screenshotImg = PNG.sync.read(readFileSync(screenshotPath));
+
+    const { width, height } = baselineImg;
+    if (screenshotImg.width !== width || screenshotImg.height !== height) {
+      console.error(`  ✗ ${filename}: dimensions differ (${width}x${height} vs ${screenshotImg.width}x${screenshotImg.height})`);
+      failures++;
+      continue;
+    }
+
+    const diff = new PNG({ width, height });
+    const numDiffPixels = pixelmatch(
+      baselineImg.data,
+      screenshotImg.data,
+      diff.data,
+      width,
+      height,
+      { threshold: THRESHOLD }
+    );
+
+    const diffPercent = (numDiffPixels / (width * height)) * 100;
+
+    if (diffPercent > 0.1) {
+      // Save diff image for inspection
+      writeFileSync(join(DIFF_DIR, `diff-${filename}`), PNG.sync.write(diff));
+      console.error(`  ✗ ${filename}: ${diffPercent.toFixed(2)}% pixels differ (${numDiffPixels} px)`);
+      failures++;
+    } else {
+      console.log(`  ✓ ${filename}: ${diffPercent.toFixed(3)}% diff (ok)`);
+    }
+  }
+
+  return failures;
+}
+
 // Main entry point
 const command = process.argv[2] || 'capture';
 
@@ -106,12 +176,19 @@ if (command === 'capture') {
       process.exit(1);
     });
 } else if (command === 'compare') {
-  console.log('Pixel-diff comparison not yet implemented.');
-  console.log('See #415 for planned pixelmatch integration.');
-  // Future: compare SCREENSHOT_DIR against BASELINE_DIR using pixelmatch
-  if (!existsSync(BASELINE_DIR)) {
-    console.log('No baselines found. Run: node scripts/visual-regression.mjs capture --baseline');
-  }
+  compareScreenshots()
+    .then((failures) => {
+      if (failures > 0) {
+        console.error(`\n${failures} screenshot(s) differ from baseline!`);
+        process.exit(1);
+      } else {
+        console.log('\nAll screenshots match baselines.');
+      }
+    })
+    .catch((err) => {
+      console.error('Comparison failed:', err.message);
+      process.exit(1);
+    });
 } else {
   console.log('Usage: node scripts/visual-regression.mjs [capture|compare] [--baseline]');
 }

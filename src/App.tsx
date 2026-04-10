@@ -160,6 +160,7 @@ import { LoadingSpinner } from './components/common';
  */
 import { Modal } from './components/common/Modal';
 import PrereleaseNoticeModal from './components/common/PrereleaseNoticeModal';
+import CrashReportOptInModal from './components/common/CrashReportOptInModal';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -510,6 +511,15 @@ function App() {
 
         if (isPrerelease && versionChanged && !useUiStore.getState().showSetupWizard) {
           useUiStore.getState().setShowPrereleaseNotice(true);
+        }
+
+        // Show crash report opt-in prompt on first launch (after setup wizard)
+        if (
+          !settingsState.settings.crash_report_prompt_shown &&
+          settingsState.settings.setup_completed &&
+          !useUiStore.getState().showSetupWizard
+        ) {
+          useUiStore.getState().setShowCrashReportPrompt(true);
         }
       } catch {
         /* Non-fatal: version check failure shouldn't block app startup */
@@ -1029,6 +1039,7 @@ function App() {
        * main application. Uses the Modal component so it doesn't block the UI
        * and can be dismissed independently. */}
       <PrereleaseNoticeModal />
+      <CrashReportOptInModal />
       {/* Developer access passphrase prompt (triggered by Konami code) */}
       <Modal
         open={showDevPrompt}

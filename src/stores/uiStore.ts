@@ -86,6 +86,12 @@ interface UiState {
    */
   showPrereleaseNotice: boolean;
 
+  /** Whether the crash report opt-in prompt is shown (first launch only). */
+  showCrashReportPrompt: boolean;
+
+  /** Set the crash report prompt visibility. */
+  setShowCrashReportPrompt: (show: boolean) => void;
+
   /**
    * When set, the Help page should auto-navigate to this topic ID on mount.
    * Used by the `<HelpButton>` component for contextual deep-linking from
@@ -202,6 +208,7 @@ export const useUiStore = create<UiState>((set) => ({
   toasts: [], // No active notifications on launch
   showSetupWizard: false, // Setup wizard hidden until <App> decides to show it
   showPrereleaseNotice: false, // Pre-release notice hidden until version change detected
+  showCrashReportPrompt: false, // Crash report opt-in prompt (first launch only)
   helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
 
   // -------------------------------------------------------------------------
@@ -233,6 +240,7 @@ export const useUiStore = create<UiState>((set) => ({
 
   /** Show or hide the pre-release first-load notice modal. */
   setShowPrereleaseNotice: (show) => set({ showPrereleaseNotice: show }),
+  setShowCrashReportPrompt: (show: boolean) => set({ showCrashReportPrompt: show }),
 
   /**
    * Navigate to the Help page and deep-link to a specific topic.
