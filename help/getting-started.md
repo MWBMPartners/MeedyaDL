@@ -148,7 +148,7 @@ Once setup is complete and your cookies are configured, downloading music is str
 
 You can paste multiple URLs and add them to the queue one after another. The queue processes downloads sequentially so you can continue adding items while downloads are in progress.
 
-**Tip:** MeedyaDL also monitors your clipboard. If you copy an Apple Music URL from a browser or messaging app, a toast notification will appear offering to download it. This can be toggled off in **Settings > General > Preferences**.
+**Tip:** MeedyaDL also monitors your clipboard. If you copy an Apple Music URL from a browser or messaging app, a notification will appear offering to download it — clicking **Download** adds it directly to the queue. When the app window is not focused, a native OS notification is sent instead so you don't miss it. Clipboard monitoring can be toggled off in **Settings > General > Preferences**.
 
 For more details on downloading music, see [Downloading Music](downloading-music.md). For music videos, see [Downloading Videos](downloading-videos.md).
 

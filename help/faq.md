@@ -122,7 +122,11 @@ When you re-download an album you have previously downloaded, MeedyaDL automatic
 
 ### What is clipboard monitoring?
 
-When clipboard monitoring is enabled, MeedyaDL watches your system clipboard for supported URLs (e.g., Apple Music). If you copy an Apple Music URL from a browser or messaging app, a toast notification appears offering to download it. This is a convenience feature -- it only checks for URL patterns and never stores clipboard contents. Enabled by default; toggle in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#clipboard-monitoring) for details.
+When clipboard monitoring is enabled, MeedyaDL watches your system clipboard for supported URLs (e.g., Apple Music). If you copy an Apple Music URL from a browser or messaging app, a notification appears — clicking **Download** adds it directly to the queue. When the app window is not focused, a native OS notification is sent instead. This is a convenience feature — it only checks for URL patterns and never stores clipboard contents. Enabled by default; toggle in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#clipboard-monitoring) for details.
+
+### How does the Activity Log work?
+
+The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** checkbox in the toolbar automatically unchecks. Re-check it to jump back to the bottom and resume auto-scrolling. The log retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached). Use the **Export** button to save the full log to a file before it's trimmed. Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
 
 ### Does MeedyaDL support library URLs?
 

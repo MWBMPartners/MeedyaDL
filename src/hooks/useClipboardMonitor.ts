@@ -20,9 +20,13 @@
 import { useEffect, useRef } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
-import { useDownloadStore } from '@/stores/downloadStore';
-import { readClipboard } from '@/lib/tauri-commands';
+import { readClipboard, startDownload } from '@/lib/tauri-commands';
 import { isAppleMusicUrl, parseAppleMusicUrl, getContentTypeLabel } from '@/lib/url-parser';
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
 
 /** Polling interval in milliseconds (2 seconds) */
 const POLL_INTERVAL_MS = 2000;
@@ -72,21 +76,51 @@ export function useClipboardMonitor(isReady: boolean): void {
             ? getContentTypeLabel(parsed.contentType)
             : 'content';
 
-          // Show an actionable toast
+          const toastMessage = `Apple Music ${typeLabel} URL detected in clipboard`;
+          const downloadAction = () => {
+            // Directly queue the download — skip the input pre-fill step
+            startDownload({ urls: [trimmed] })
+              .then((result) => {
+                if (result.download_id) {
+                  useUiStore.getState().addToast('Added to queue from clipboard', 'success');
+                }
+              })
+              .catch((err) => {
+                useUiStore.getState().addToast(
+                  err instanceof Error ? err.message : String(err),
+                  'error',
+                );
+              });
+          };
+
+          // Always show the in-app toast (visible when window is focused)
           useUiStore.getState().addToast(
-            `Apple Music ${typeLabel} URL detected in clipboard`,
+            toastMessage,
             'info',
             10000, // 10 seconds — longer than default to give the user time
             CLIPBOARD_TOAST_KEY,
-            {
-              label: 'Download',
-              onClick: () => {
-                // Navigate to Download page and pre-fill the URL
-                useUiStore.getState().setPage('download');
-                useDownloadStore.getState().setUrlInput(trimmed);
-              },
-            }
+            { label: 'Download', onClick: downloadAction }
           );
+
+          // Also send a native OS notification when the window is NOT focused
+          // so the user sees the detection even when MeedyaDL is minimised.
+          const { desktop_notifications } = useSettingsStore.getState().settings;
+          if (desktop_notifications && !document.hasFocus()) {
+            isPermissionGranted()
+              .then((granted) => {
+                if (!granted) return requestPermission();
+                return 'granted';
+              })
+              .then((permission) => {
+                if (permission === 'granted' || permission === 'default') {
+                  sendNotification({
+                    title: 'MeedyaDL',
+                    body: `Apple Music ${typeLabel} URL detected — click to download`,
+                  });
+                }
+              })
+              .catch(() => { /* notification permission denied or unavailable */ });
+          }
         })
         .catch(() => {
           // Silently ignore clipboard read errors (e.g., no display server)

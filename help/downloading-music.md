@@ -269,9 +269,11 @@ Smart re-download detection relies on metadata changes exposed through the Apple
 
 ## Clipboard Monitoring
 
-MeedyaDL can watch your system clipboard for supported URLs while the app is open. When you copy an Apple Music URL from a browser, messaging app, or any other source, MeedyaDL detects it and shows a toast notification asking if you want to download that content.
+MeedyaDL can watch your system clipboard for supported URLs while the app is open. When you copy an Apple Music URL from a browser, messaging app, or any other source, MeedyaDL detects it and shows a notification offering to download that content.
 
-Click **Download** on the toast to navigate to the Download page with the URL pre-filled. Dismiss the toast if you do not want to download.
+Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). Dismiss the notification if you do not want to download.
+
+When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications respect the **Desktop Notifications** setting in **Settings > General**.
 
 ### Privacy
 
