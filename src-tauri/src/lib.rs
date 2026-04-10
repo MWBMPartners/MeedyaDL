@@ -244,6 +244,28 @@ fn setup_panic_handler() {
 /// Creates and configures the system tray icon with its context menu and
 /// event handlers.
 ///
+/// Managed state holding the tray icon ID so other modules (e.g., download_queue)
+/// can update the tray tooltip to show download progress.
+pub struct TrayState(pub tauri::tray::TrayIconId);
+
+/// Updates the system tray icon tooltip with the current queue status.
+/// Called from download_queue after state changes.
+pub fn update_tray_tooltip(app: &tauri::AppHandle, active: usize, queued: usize, completed: usize) {
+    use tauri::Manager;
+    if let Some(tray_state) = app.try_state::<TrayState>() {
+        if let Some(tray) = app.tray_by_id(&tray_state.0) {
+            let tooltip = if active > 0 {
+                format!("MeedyaDL — {active} downloading, {queued} queued")
+            } else if completed > 0 {
+                format!("MeedyaDL — {completed} completed")
+            } else {
+                "MeedyaDL".to_string()
+            };
+            let _ = tray.set_tooltip(Some(&tooltip));
+        }
+    }
+}
+
 /// The system tray icon allows the user to interact with the application
 /// even when the main window is hidden or minimised. Tauri 2.0's tray API
 /// is builder-based: we construct menu items, compose them into a menu,
@@ -372,6 +394,9 @@ fn setup_system_tray(
         .build(app)?;
 
     log::info!("System tray icon initialized");
+
+    // Store the tray icon's ID for later tooltip updates from download_queue
+    app.manage(TrayState(tray.id().clone()));
     Ok(tray)
 }
 
