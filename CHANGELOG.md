@@ -21,6 +21,7 @@ Activity log task markers:
   - On macOS from /Applications, empty temp_path = unwritable CWD
   - Now uses same resolution logic as merge_options(): empty → {OS temp}/MeedyaDL
 
+- Notification tier system with configurable auto-dismiss (#385)
 
 ### 🐛 Bug Fixes
 
@@ -69,6 +70,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
