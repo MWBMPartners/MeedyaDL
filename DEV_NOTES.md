@@ -1869,3 +1869,62 @@ The `processing_label` field on `QueueItemStatus` is set at enrichment stage bou
 - `src-tauri/src/models/download.rs` — `processing_label: Option<String>` on `QueueItemStatus`
 - `src/stores/downloadStore.ts` — event handling with state stability guards
 - `src/components/layout/GlobalProgressBar.tsx` — dual bar rendering with companion speed/ETA support
+
+## Activity Log Memory Optimization (#370)
+
+During multi-item download sessions the `tauri://localhost` WebView process grew to **14+ GB RAM** and froze. Root cause: the activity log accumulated 7,500+ entries with no cap, each `addEntry()` call created a full array copy via spread (`[...entries, entry]`), and all entries were rendered as real DOM nodes without virtualization. Combined with ~20,000–40,000 events emitted per album download from the Rust backend, this caused exponential memory pressure and GC thrashing.
+
+### Changes (PR #364)
+
+1. **RAF-batched event listener** (`App.tsx`) — incoming `activity-log` events are buffered in a plain array and flushed in a single `addEntries()` call per `requestAnimationFrame`. Reduces Zustand state updates from 200+/s to ~60/s max.
+
+2. **Capped activity store** (`activityStore.ts`) — `MAX_ENTRIES = 10_000`. When exceeded, the oldest entries are trimmed via `slice()`. `addEntries()` batch method appends in a single `set()` call. Auto-incrementing `_id` on each entry for stable React keys.
+
+3. **Virtualized ActivityLog** (`ActivityLog.tsx`) — `useVirtualizer` from `@tanstack/react-virtual` renders only visible rows + 50-row overscan buffer. DOM nodes drop from ~37,500 to ~150 regardless of entry count. Auto-scroll uses `virtualizer.scrollToIndex()` for accurate positioning with dynamic row heights.
+
+4. **Backend `\r` segment coalescing** (`download_queue.rs`) — for `\r`-split progress lines (yt-dlp style), only the **last non-empty segment** is emitted to `activity-log`. Intermediate segments are still parsed for `gamdl-output` progress tracking. Reduces activity-log event volume by 5-10x.
+
+5. **Download store optimization** (`downloadStore.ts`) — `handleProgressEvent` uses `map()` pattern returning same reference for non-matching items, instead of `[...arr]` + `findIndex` + splice.
+
+### Files
+
+- `src/stores/activityStore.ts` — capped store with `addEntries()` batch method and `_id` assignment
+- `src/App.tsx` — RAF-batched event listener for `activity-log`
+- `src/components/download/ActivityLog.tsx` — virtualized rendering via `@tanstack/react-virtual`
+- `src-tauri/src/services/download_queue.rs` — `\r` coalescing in stdout/stderr reader tasks
+- `src/stores/downloadStore.ts` — `map()` pattern for progress events
+- `src/types/index.ts` — `_id?: number` field on `ActivityLogEntry`
+
+### New dependency
+
+- `@tanstack/react-virtual` — headless virtualization (supports dynamic row heights, React 19 compatible)
+
+## macOS In-App Updater Fix (#368)
+
+The macOS in-app updater periodically failed to download new releases. The update banner appeared correctly (detecting the new version via `update_checker.rs` GitHub API query), but clicking "Download & Install" returned *"No update found for this platform"*.
+
+### Root Cause
+
+**Filename mismatch in `release.yml`**: Tauri 2.x names the macOS updater bundle `MeedyaDL.app.tar.gz` (after the `.app` bundle, no arch/version suffix). The upload step (line 791) looked for `MeedyaDL_aarch64.app.tar.gz` — a file that doesn't exist. The `.app.tar.gz` and `.app.tar.gz.sig` were never uploaded, so the `finalize-release` job's `latest.json` rebuild silently omitted `darwin-aarch64`.
+
+The `download_and_install_app_update` Rust command fetches `latest.json` from the specific release tag (`/releases/download/{tag}/latest.json`). Without a `darwin-aarch64` entry, `updater.check()` returns `None`.
+
+### Fix
+
+Corrected all three filename references in `release.yml` (upload step + `latest.json` rebuild) and `fix-updater-manifest.yml` to use `MeedyaDL.app.tar.gz`.
+
+### Files
+
+- `.github/workflows/release.yml` — upload step (lines 791-806) and manifest rebuild (line 940-949)
+- `.github/workflows/fix-updater-manifest.yml` — macOS sig filename (lines 85-86)
+
+## cargo-deny Org-Level Source Allowlist (#365)
+
+`deny.toml` uses `[sources.allow-org]` to allow git dependencies from both GitHub organisations:
+
+```toml
+[sources.allow-org]
+github = ["MWBMPartners", "MeedyaDL"]
+```
+
+This covers `MWBMPartners/MeedyaSuite-core` (shared Rust crates), `MeedyaDL/MeedyaDL-Tools` (dependency mirrors), and any future repos under either org — regardless of branch, tag, or rev qualifiers.
