@@ -136,6 +136,7 @@ Collect speed samples from gamdl-output progress events (last 60
   The sparkline provides at-a-glance speed history for diagnosing
   throttling or network fluctuations during download sessions.
 
+- WebView memory mitigation with session log persistence (#393)
 
 ### 🐛 Bug Fixes
 
@@ -201,6 +202,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
