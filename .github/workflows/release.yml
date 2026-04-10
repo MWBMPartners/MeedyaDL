@@ -788,19 +788,25 @@ jobs:
           fi
 
           # Upload .app.tar.gz (updater artifact)
-          APP_TAR="$BUNDLE_DIR/macos/MeedyaDL_aarch64.app.tar.gz"
+          # Tauri 2.x names this after the .app bundle (no version/arch suffix),
+          # so the file is MeedyaDL.app.tar.gz, NOT MeedyaDL_aarch64.app.tar.gz.
+          # We rename on upload to include the arch suffix for consistency with
+          # other platform assets and to support future universal builds.
+          APP_TAR="$BUNDLE_DIR/macos/MeedyaDL.app.tar.gz"
+          UPLOAD_TAR_NAME="MeedyaDL.app.tar.gz"
           if [ -f "$APP_TAR" ]; then
-            gh release upload "$TAG" "$APP_TAR" --clobber
-            echo "Uploaded $APP_TAR"
+            gh release upload "$TAG" "$APP_TAR#${UPLOAD_TAR_NAME}" --clobber
+            echo "Uploaded $APP_TAR as $UPLOAD_TAR_NAME"
           else
             echo "::warning::app.tar.gz not found at $APP_TAR"
           fi
 
           # Upload .app.tar.gz.sig (updater signature)
-          APP_SIG="$BUNDLE_DIR/macos/MeedyaDL_aarch64.app.tar.gz.sig"
+          APP_SIG="$BUNDLE_DIR/macos/MeedyaDL.app.tar.gz.sig"
+          UPLOAD_SIG_NAME="MeedyaDL.app.tar.gz.sig"
           if [ -f "$APP_SIG" ]; then
-            gh release upload "$TAG" "$APP_SIG" --clobber
-            echo "Uploaded $APP_SIG"
+            gh release upload "$TAG" "$APP_SIG#${UPLOAD_SIG_NAME}" --clobber
+            echo "Uploaded $APP_SIG as $UPLOAD_SIG_NAME"
           else
             echo "::warning::app.tar.gz.sig not found at $APP_SIG"
           fi
@@ -937,8 +943,10 @@ jobs:
           }
 
           # macOS ARM64 (darwin-aarch64)
-          MAC_SIG_FILE="MeedyaDL_aarch64.app.tar.gz.sig"
-          MAC_URL="${BASE}/MeedyaDL_aarch64.app.tar.gz"
+          # Tauri 2.x names the updater bundle after the .app (no version/arch
+          # suffix): MeedyaDL.app.tar.gz. This matches the upload step above.
+          MAC_SIG_FILE="MeedyaDL.app.tar.gz.sig"
+          MAC_URL="${BASE}/MeedyaDL.app.tar.gz"
           if SIG=$(download_sig "$MAC_SIG_FILE"); then
             PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$MAC_URL" \
               '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
