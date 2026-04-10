@@ -169,6 +169,28 @@ Add analytics_enabled field to AppSettings (Rust + TypeScript),
 
 Cherry-pick recovered files from prep/refactoring/supported-service-expansion:
 
+- Complete partial implementations (#385, #402, #405, #413, #414, #415)
+
+#385 — Notification throttling: add 10-second batching per notification
+  category. Rapid completions batch as "Download failed (3 items)" instead
+  of 3 separate notifications.
+
+  #402 — Crash report opt-in modal: CrashReportOptInModal component with
+  Accept/Decline buttons. Shown after setup wizard completes if
+  crash_report_prompt_shown is false. Wired into App.tsx.
+
+  #405 — Analytics toggle: add "Anonymous Usage Analytics" toggle in
+  Settings > Advanced > Error Reporting section.
+
+  #413 — Rustdoc in CI: add `cargo doc --no-deps` step to backend CI job
+  (Linux only, RUSTDOCFLAGS="-D warnings"). Fix doc-test in rate_limiter.rs.
+
+  #414 — Fix doc-test compilation in rate_limiter.rs (add no_run + import).
+
+  #415 — Visual regression comparison: add pixelmatch + pngjs for pixel-diff
+  comparison. `node scripts/visual-regression.mjs compare` diffs screenshots
+  against baselines with 0.1% threshold, saves diff images.
+
 
 ### 🐛 Bug Fixes
 
@@ -255,6 +277,7 @@ Add `npm run docs:rust` which runs `cargo doc --no-deps --open`
   Partial fix for #413 — CI artifact generation and GitHub Pages
   hosting are planned follow-ups.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### Legal
