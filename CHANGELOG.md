@@ -126,6 +126,16 @@ When clearing the queue (Clear All), URLs of cleared items are saved
 
   The buffer auto-expires after 5 seconds to prevent stale state.
 
+- Download speed sparkline in Statistics panel (#407)
+
+Collect speed samples from gamdl-output progress events (last 60
+  samples, parsed from "2.5MB/s" format to numeric MB/s). Render as
+  a SVG polyline sparkline in the Session Statistics panel with the
+  current speed displayed alongside.
+
+  The sparkline provides at-a-glance speed history for diagnosing
+  throttling or network fluctuations during download sessions.
+
 
 ### 🐛 Bug Fixes
 
@@ -191,6 +201,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
   - CONTRIBUTING.md: dev setup, conventions, PR process, release info (#411)
   - CODE_OF_CONDUCT.md: Contributor Covenant v2.1 (#412)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
