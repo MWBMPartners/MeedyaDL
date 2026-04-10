@@ -2321,7 +2321,11 @@ async fn download_music_video_by_url(
         music_video_resolution: Some(settings.default_video_resolution.clone()),
         music_video_codec_priority: Some(settings.default_video_codec_priority.clone()),
         music_video_remux_format: Some(settings.default_video_remux_format.clone()),
-        temp_path: Some(settings.temp_path.clone()),
+        temp_path: Some(if settings.temp_path.is_empty() {
+            std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
+        } else {
+            settings.temp_path.clone()
+        }),
         cookies_path: settings.cookies_path.clone(),
         use_wrapper: Some(settings.use_wrapper),
         wrapper_account_url: if settings.use_wrapper {
@@ -2507,7 +2511,11 @@ async fn run_lyrics_fallback(
             synced_lyrics_format: Some(format.clone()),
             synced_lyrics_only: Some(true),
             output_path: Some(settings.output_path.clone()),
-            temp_path: Some(settings.temp_path.clone()),
+            temp_path: Some(if settings.temp_path.is_empty() {
+                std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
+            } else {
+                settings.temp_path.clone()
+            }),
             cookies_path: settings.cookies_path.clone(),
             use_wrapper: Some(settings.use_wrapper),
             wrapper_account_url: if settings.use_wrapper {
@@ -4255,6 +4263,7 @@ pub fn process_queue(
                         );
 
                             set_label("Enriching metadata tags...");
+                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ Metadata enrichment started");
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
                             // source tags, channel detection, API metadata). Returns the
@@ -4347,6 +4356,8 @@ pub fn process_queue(
                             } else {
                                 None
                             };
+
+                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ Metadata enrichment completed");
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
@@ -4608,6 +4619,7 @@ pub fn process_queue(
                             }
 
                             set_label("Converting lyrics (Enhanced LRC)...");
+                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ Lyrics processing started");
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
@@ -4869,7 +4881,10 @@ pub fn process_queue(
                                 return;
                             }
 
+                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ Lyrics processing completed");
+
                             set_label("Downloading animated artwork...");
+                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ Animated artwork started");
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
                             // duplicate API call. Falls back to a fresh API call
@@ -5034,7 +5049,10 @@ pub fn process_queue(
                                 return;
                             }
 
+                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ Animated artwork completed");
+
                             set_label("AcoustID fingerprinting...");
+                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ AcoustID fingerprinting started");
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
                             // embedded rusty-chromaprint library and looks up AcoustID
@@ -5095,7 +5113,10 @@ pub fn process_queue(
                                 return;
                             }
 
+                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ AcoustID fingerprinting completed");
+
                             set_label("ReplayGain loudness analysis...");
+                            emit_download_log(&enrich_app, &enrich_dl_id, "▶ ReplayGain analysis started");
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                             // When enabled, analyses each file's loudness via FFmpeg's
                             // ebur128 filter and writes non-destructive ReplayGain tags.
@@ -5146,6 +5167,8 @@ pub fn process_queue(
                                     }
                                 }
                             }
+
+                            emit_download_log(&enrich_app, &enrich_dl_id, "✓ ReplayGain analysis completed");
 
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
@@ -5300,7 +5323,7 @@ pub fn process_queue(
                             emit_download_log(
                                 &enrich_app,
                                 &enrich_dl_id,
-                                "Post-download enrichment complete",
+                                "✓ All enrichment stages completed",
                             );
                         }))
                     } else {
