@@ -4,8 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.11.x  | :white_check_mark: |
-| < 0.11  | :x:                |
+| 0.29.x  | :white_check_mark: |
+| < 0.29  | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -32,8 +32,10 @@ MeedyaDL implements the following security measures:
 - **Secrets stored in OS keychain** (not on disk)
 - **SHA-256 checksum verification** for downloaded dependencies
 - **GitHub Actions hardening**: all actions pinned to immutable commit SHAs
-- **cargo-deny** licence scanning in CI
+- **cargo-deny** licence scanning and source allowlisting in CI (org-level `[sources.allow-org]`)
 - **CodeQL** static analysis for JavaScript/TypeScript and GitHub Actions
+- **Activity log memory bounds** — capped at 10,000 entries to prevent unbounded WebView memory growth
+- **Updater artifact signing** — `.app.tar.gz.sig` signature files verified by Tauri updater before installation
 
 ## Scope
 

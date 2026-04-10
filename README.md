@@ -78,7 +78,7 @@
 - **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
 - **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
-- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, SHA-256 checksum verification for dependency downloads, `cargo-deny` licence scanning in CI
+- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, SHA-256 checksum verification for dependency downloads, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaDL` GitHub orgs)
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 - **Pre-release version handling** — verbose activity logging persists across restarts during pre-release versions (v0.x.x) for easier debugging; first-load notice modal warns users when a new pre-release version is launched
@@ -382,6 +382,8 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Per-track activity log separators with codec and auth info
 - ✅ MediaInfo CLI integration for accurate Atmos/AC3 codec detection
 - ✅ Engine registry (`engines.toml`) for per-platform tool priority and fallback
+- ✅ Activity log memory optimization — 10K entry cap, virtualized rendering (`@tanstack/react-virtual`), RAF-batched event ingestion, backend `\r` segment coalescing (fixes 14+ GB WebView RAM usage)
+- ✅ macOS in-app updater fix — corrected updater artifact filename in release workflow so `darwin-aarch64` platform is included in `latest.json`
 
 ### v2.x — Multi-Service Expansion
 
