@@ -1,0 +1,151 @@
+# Copyright (c) 2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Fix Updater Manifest Workflow
+# ================================
+#
+# Manually triggered workflow that rebuilds the `latest.json` updater manifest
+# for an existing GitHub Release. This fixes the race condition where parallel
+# platform builds each upload their own `latest.json` and the last one wins,
+# potentially missing platforms that built earlier.
+#
+# Usage: Actions → "Fix Updater Manifest" → Run workflow → enter tag (e.g., v0.29.0)
+
+name: Fix Updater Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to fix (e.g., v0.29.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  fix-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild and upload latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          REPO="${{ github.repository }}"
+          VERSION="${TAG#v}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          mkdir -p /tmp/updater
+
+          # Verify the release exists
+          if ! gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            echo "ERROR: Release $TAG not found"
+            exit 1
+          fi
+
+          # Download the current latest.json to preserve notes and pub_date
+          gh release download "$TAG" --repo "$REPO" --pattern "latest.json" --dir /tmp/updater --clobber 2>/dev/null || true
+
+          # Extract existing notes and pub_date (fall back to defaults if missing)
+          if [ -f /tmp/updater/latest.json ]; then
+            NOTES=$(jq -r '.notes // ""' /tmp/updater/latest.json)
+            PUB_DATE=$(jq -r '.pub_date // ""' /tmp/updater/latest.json)
+            echo "Existing latest.json found with $(jq '.platforms | length' /tmp/updater/latest.json) platform(s)"
+            echo "Existing platforms:"
+            jq '.platforms | keys' /tmp/updater/latest.json
+          fi
+          : "${NOTES:=See CHANGELOG.md for details.}"
+          : "${PUB_DATE:=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")}"
+
+          # List all release assets
+          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+          echo "Release assets:"
+          echo "$ASSETS"
+
+          # Start building the platforms JSON object
+          PLATFORMS="{}"
+
+          # Helper: download a .sig file content from the release
+          download_sig() {
+            local sig_name="$1"
+            if echo "$ASSETS" | grep -qF "$sig_name"; then
+              gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 2>/dev/null
+              if [ -f "/tmp/updater/$sig_name" ]; then
+                cat "/tmp/updater/$sig_name"
+                return 0
+              fi
+            fi
+            return 1
+          }
+
+          # macOS ARM64 (darwin-aarch64)
+          MAC_SIG_FILE="MeedyaDL_aarch64.app.tar.gz.sig"
+          MAC_URL="${BASE}/MeedyaDL_aarch64.app.tar.gz"
+          if SIG=$(download_sig "$MAC_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$MAC_URL" \
+              '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
+            echo "✓ Added darwin-aarch64"
+          else
+            echo "✗ Skipped darwin-aarch64 (no sig file)"
+          fi
+
+          # Windows x64 (windows-x86_64 + windows-x86_64-nsis)
+          WIN_X64_SIG_FILE="MeedyaDL_${VERSION}_x64-setup.exe.sig"
+          WIN_X64_URL="${BASE}/MeedyaDL_${VERSION}_x64-setup.exe"
+          if SIG=$(download_sig "$WIN_X64_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$WIN_X64_URL" \
+              '. + {"windows-x86_64": {"signature": $sig, "url": $url}, "windows-x86_64-nsis": {"signature": $sig, "url": $url}}')
+            echo "✓ Added windows-x86_64 + windows-x86_64-nsis"
+          else
+            echo "✗ Skipped windows-x86_64 (no sig file)"
+          fi
+
+          # Windows ARM64 (windows-aarch64 + windows-aarch64-nsis)
+          WIN_ARM_SIG_FILE="MeedyaDL_${VERSION}_arm64-setup.exe.sig"
+          WIN_ARM_URL="${BASE}/MeedyaDL_${VERSION}_arm64-setup.exe"
+          if SIG=$(download_sig "$WIN_ARM_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$WIN_ARM_URL" \
+              '. + {"windows-aarch64": {"signature": $sig, "url": $url}, "windows-aarch64-nsis": {"signature": $sig, "url": $url}}')
+            echo "✓ Added windows-aarch64 + windows-aarch64-nsis"
+          else
+            echo "✗ Skipped windows-aarch64 (no sig file)"
+          fi
+
+          # Linux x64 (linux-x86_64) — uses AppImage for updater
+          LINUX_X64_SIG_FILE="MeedyaDL_${VERSION}_amd64.AppImage.sig"
+          LINUX_X64_URL="${BASE}/MeedyaDL_${VERSION}_amd64.AppImage"
+          if SIG=$(download_sig "$LINUX_X64_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_URL" \
+              '. + {"linux-x86_64": {"signature": $sig, "url": $url}}')
+            echo "✓ Added linux-x86_64"
+          else
+            echo "✗ Skipped linux-x86_64 (no sig file)"
+          fi
+
+          # Build the final latest.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' \
+            > /tmp/updater/latest.json
+
+          # Count platforms for logging
+          PLATFORM_COUNT=$(jq '.platforms | length' /tmp/updater/latest.json)
+          echo ""
+          echo "Rebuilt latest.json with ${PLATFORM_COUNT} platform(s):"
+          jq '.' /tmp/updater/latest.json
+
+          # Upload the rebuilt manifest (overwrite the incomplete one)
+          if [ "$PLATFORM_COUNT" -gt 0 ]; then
+            gh release upload "$TAG" /tmp/updater/latest.json --repo "$REPO" --clobber
+            echo ""
+            echo "✓ Uploaded corrected latest.json to ${TAG}"
+          else
+            echo "ERROR: No platform signatures found — aborting"
+            exit 1
+          fi
