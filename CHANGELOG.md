@@ -47,6 +47,7 @@ The switch to @tanstack/react-virtual absolute positioning caused rows
   sections
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.29.4] - 2026-04-10
 
