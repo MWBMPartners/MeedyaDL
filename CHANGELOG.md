@@ -191,6 +191,18 @@ Cherry-pick recovered files from prep/refactoring/supported-service-expansion:
   comparison. `node scripts/visual-regression.mjs compare` diffs screenshots
   against baselines with 0.1% threshold, saves diff images.
 
+- BPM analysis service with metadata tagging (#418)
+
+Add bpm_service.rs with:
+  - detect_bpm(): reads existing BPM tags via ffprobe; full DSP analysis
+    deferred to MeedyaSuite-core integration (see MeedyaSuite-core#16)
+  - process_bpm_for_directory(): batch analysis with progress emission
+  - write_bpm_m4a(): writes tmpo atom via mp4ameta
+  - write_bpm_lofty(): writes TBPM/BPM via lofty (MP3/FLAC/OGG)
+
+  Add bpm_analysis_enabled setting (default: false, opt-in).
+  Registered in services/mod.rs.
+
 
 ### 🐛 Bug Fixes
 
@@ -277,6 +289,7 @@ Add `npm run docs:rust` which runs `cargo doc --no-deps --open`
   Partial fix for #413 — CI artifact generation and GitHub Pages
   hosting are planned follow-ups.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
