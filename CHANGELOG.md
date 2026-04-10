@@ -6,14 +6,45 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
-### ✨ Features
+### 🐛 Bug Fixes
 
-- Integrate MeedyaSuite-core for tag registry (phase 1)
+- Resolve merge conflict in deny.toml — keep org-level allowance
 
-Replace the custom tag registry implementation (~425 lines) with
-  meedya-core's shared tag_registry module. This is the first phase of
-  the MeedyaSuite-core integration.
+Resolve conflict between #364's per-repo allow-git entry and #367's
+  org-level [sources.allow-org] approach. The org-level approach is
+  superior as it covers all MWBMPartners repos regardless of branch/rev.
 
+- **(ci)** Allow MeedyaDL org in cargo-deny source allowlist
+
+Add the MeedyaDL GitHub org alongside MWBMPartners so git dependencies
+  from repos like MeedyaDL-Tools pass cargo-deny source checks. Future-
+  proofs against additional project-specific repos under that org.
+
+- **(ci)** Update cargo-deny config to allow MeedyaSuite-core org sources (#367)
+
+Replace `allow-git` with `[sources.allow-org]` for MWBMPartners GitHub
+  org, so all git dependencies from the org pass source checks regardless
+  of branch or rev qualifiers.
+
+- **(ci)** Correct macOS updater artifact filename in release workflow
+
+Tauri 2.x names the macOS updater bundle after the .app bundle itself
+  (MeedyaDL.app.tar.gz), NOT with an arch suffix (MeedyaDL_aarch64.app.tar.gz).
+  The upload step and latest.json rebuild were looking for the wrong filename,
+  so the .app.tar.gz and .app.tar.gz.sig were never uploaded. This caused
+  the darwin-aarch64 platform to be missing from latest.json, making in-app
+  updates fail on macOS with "No update found for this platform".
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Update generated macOS schema
+
+## [0.29.3] - 2026-04-09
 
 ### 🐛 Bug Fixes
 
@@ -124,7 +155,22 @@ Apple's notarization service occasionally returns HTTP 503 "Slow Down"
 
 ## [0.29.1] - 2026-04-08
 
+### ✨ Features
+
+- Integrate MeedyaSuite-core for tag registry (phase 1)
+
+Replace the custom tag registry implementation (~425 lines) with
+  meedya-core's shared tag_registry module. This is the first phase of
+  the MeedyaSuite-core integration.
+
+
 ### 🐛 Bug Fixes
+
+- **(ci)** Update cargo-deny config to allow MeedyaSuite-core org sources
+
+Replace `allow-git` with `[sources.allow-org]` for MWBMPartners GitHub org,
+  so all git dependencies from the org pass source checks regardless of branch
+  or rev qualifiers.
 
 - Resolve macOS update download failure
 
