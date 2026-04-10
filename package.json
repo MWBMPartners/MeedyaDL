@@ -16,7 +16,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "docs:rust": "cd src-tauri && cargo doc --no-deps --open"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
