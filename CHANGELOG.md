@@ -39,6 +39,12 @@ Add shortcut field to NavItem interface. Sidebar buttons now show
 
   Uses usePlatform().isMacOS to show ⌘ on macOS, Ctrl+ on other platforms.
 
+- Enhanced empty state illustrations for Queue and Activity (#389)
+
+- Activity Log: add ScrollText icon (32px, 40% opacity) above empty state text
+  - Queue: increase icon to 40px, add descriptive text about clipboard monitoring
+  - Both now match History page's empty state pattern (icon + primary + secondary text)
+
 
 ### 🐛 Bug Fixes
 
@@ -87,6 +93,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
