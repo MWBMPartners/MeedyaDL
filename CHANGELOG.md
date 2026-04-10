@@ -6,6 +6,39 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update documentation for activity log optimization and macOS updater fix
+
+- README.md: add activity log memory optimization and macOS updater fix
+    to completed features, update supply chain hardening note
+  - DEV_NOTES.md: add detailed sections for activity log optimization (#370),
+    macOS updater fix (#368), and cargo-deny org allowlist (#365)
+  - SECURITY.md: update supported version to 0.29.x, add activity log memory
+    bounds and updater artifact signing to security measures
+  - Project_Plan.md: add completed items for activity log optimization,
+    macOS updater fix, and cargo-deny org allowlist
+  - CLAUDE.md: update activity log and macOS updater artifact naming sections
+
+- Update documentation for activity log optimization and macOS up… (#372)
+
+…dater fix
+
+  - README.md: add activity log memory optimization and macOS updater fix
+  to completed features, update supply chain hardening note
+  - DEV_NOTES.md: add detailed sections for activity log optimization
+  (#370), macOS updater fix (#368), and cargo-deny org allowlist (#365)
+  - SECURITY.md: update supported version to 0.29.x, add activity log
+  memory bounds and updater artifact signing to security measures
+  - Project_Plan.md: add completed items for activity log optimization,
+  macOS updater fix, and cargo-deny org allowlist
+  - CLAUDE.md: update activity log and macOS updater artifact naming
+  sections
+
+
+## [0.29.4] - 2026-04-10
+
 ### 🐛 Bug Fixes
 
 - Resolve merge conflict in deny.toml — keep org-level allowance
