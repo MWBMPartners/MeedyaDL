@@ -8,6 +8,28 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Activity log readability + after-queue actions backend
+
+Activity log task markers:
+  - Add ▶ started / ✓ completed markers for all 6 major enrichment stages
+    (metadata, lyrics, artwork, AcoustID, ReplayGain, music video)
+  - Provides clear timing visibility and stall/freeze detection
+
+  Fix temp_path for companion/video downloads (#417):
+  - Companion download options (music video, lyrics fallback) passed empty
+    temp_path directly from settings instead of resolving to OS temp dir
+  - On macOS from /Applications, empty temp_path = unwritable CWD
+  - Now uses same resolution logic as merge_options(): empty → {OS temp}/MeedyaDL
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.30.0] - 2026-04-10
+
+### ✨ Features
+
 - Clipboard direct queue, native notifications, auto-scroll checkbox
 
 - Clipboard toast "Download" now queues directly via startDownload()
