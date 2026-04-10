@@ -41,9 +41,25 @@ Activity log readability (#382):
   - Queue idle detection in process_queue() exit path
   - TypeScript AfterQueueAction type added to index.ts
 
+- After-queue actions UI — settings dropdown, context menu, status bar
+
+Settings > General > Preferences:
+  - "After Queue Completes" dropdown with 7 actions (do nothing, open folder,
+    play sound, close app, restart, hibernate, shut down)
+
+  Download page right-click context menu:
+  - "After Queue: ..." one-shot actions that apply to the next queue completion
+    only, then auto-clear. Shows confirmation toast.
+
+  Status bar:
+  - AfterQueueIndicator shows the active after-queue action in the status bar
+    with "(once)" suffix for one-shot overrides. Hidden when set to "Do nothing".
+    Displayed in warning colour to draw attention.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
