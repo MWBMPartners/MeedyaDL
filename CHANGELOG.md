@@ -61,6 +61,17 @@ Add error_guidance() helper in utils/process.rs that maps error
   failure, and included in the download-error event payload for
   frontend display.
 
+- Crash/telemetry opt-in prompt infrastructure (#402)
+
+Add crash_report_prompt_shown field to AppSettings (Rust + TypeScript)
+  to gate a first-launch crash reporting opt-in prompt. The field prevents
+  re-prompting after the user has made their choice.
+
+  The frontend modal component will be wired up in a follow-up — this
+  provides the settings infrastructure.
+
+  Partial fix for #402.
+
 
 ### 🐛 Bug Fixes
 
@@ -109,6 +120,7 @@ Rewrite ACKNOWLEDGEMENTS.md with complete dependency inventory:
 
   Already referenced in Help > About > Open Source Acknowledgements.
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
