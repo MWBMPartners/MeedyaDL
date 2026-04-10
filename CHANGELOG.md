@@ -52,6 +52,7 @@ All enrichment step markers now include album context:
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.31.1] - 2026-04-10
 
