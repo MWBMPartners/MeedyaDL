@@ -381,6 +381,7 @@ fn execute_after_queue_action(app: &AppHandle) {
 ///   - `https://music.apple.com/us/album/foo/123/` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?ls=1` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?i=456` is kept distinct (track-specific)
+///
 /// Extract album name and artist name from an Apple Music URL at enqueue time.
 ///
 /// Apple Music URLs have the format:
@@ -3138,72 +3139,129 @@ fn spawn_companion_downloads(
     /// but the enrichment pipeline only runs for the primary download. This
     /// function runs the same conversion steps so companion sidecars get
     /// Enhanced LRC, Rich SRT, WebVTT, and ASS conversions.
+    ///
+    /// The `output_dir` parameter is the top-level output path from GamdlOptions
+    /// (e.g., `~/Music/`), not the album-specific directory. GAMDL creates the
+    /// `Artist/Album/` structure within this path. The lyrics conversion services
+    /// expect the album directory (where .ttml and .m4a files live), so this
+    /// function resolves it by recursively finding directories with TTML files.
     fn run_companion_lyrics_conversion(
         app: &tauri::AppHandle,
         dl_id: &str,
         output_dir: &str,
     ) {
         let settings = load_settings_for_queue(app);
+        let base = std::path::Path::new(output_dir);
 
-        if !std::path::Path::new(output_dir).is_dir() {
+        if !base.is_dir() {
             return;
         }
 
-        // Enhanced LRC: TTML → word-by-word LRC
-        if settings.enhanced_lrc {
-            match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    emit_download_log(
-                        app,
-                        dl_id,
-                        &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
-                    );
+        // Resolve the album directory: the lyrics services operate on a flat
+        // directory of .ttml + .m4a files, but output_dir is typically the
+        // top-level output path. Find directories containing TTML files by
+        // walking the tree recursively.
+        let album_dirs = find_dirs_with_ttml(base);
+        if album_dirs.is_empty() {
+            log::debug!(
+                "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
+            );
+            return;
+        }
+
+        for album_dir in &album_dirs {
+            let dir_str = album_dir.to_string_lossy();
+
+            // Enhanced LRC: TTML → word-by-word LRC
+            if settings.enhanced_lrc {
+                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str)
+                {
+                    Ok(count) if count > 0 => {
+                        emit_download_log(
+                            app,
+                            dl_id,
+                            &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion Enhanced LRC conversion failed: {e}");
+                    }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion Enhanced LRC conversion failed: {e}");
+            }
+
+            // Rich SRT: TTML → styled SRT with bold/italic/colour
+            if settings.generate_rich_srt {
+                match super::rich_srt_service::generate_rich_srt_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} Rich SRT file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion Rich SRT generation failed: {e}");
+                    }
+                }
+            }
+
+            // WebVTT: TTML/SRT/LRC → .vtt
+            if settings.generate_webvtt {
+                match super::webvtt_service::generate_webvtt_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} WebVTT file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion WebVTT generation failed: {e}");
+                    }
+                }
+            }
+
+            // ASS: → styled .ass subtitles
+            if settings.generate_ass {
+                match super::ass_subtitle_service::generate_ass_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} ASS subtitle file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion ASS generation failed: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Recursively finds directories that contain `.ttml` files.
+    ///
+    /// GAMDL creates an `Artist/Album/` directory structure within the output
+    /// path. The lyrics conversion services expect the leaf album directory
+    /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
+    /// and collects every directory that directly contains at least one
+    /// `.ttml` file.
+    fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut result = Vec::new();
+        let mut has_ttml_here = false;
+
+        if let Ok(entries) = std::fs::read_dir(base) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Recurse into subdirectories
+                    result.extend(find_dirs_with_ttml(&path));
+                } else if path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
+                {
+                    has_ttml_here = true;
                 }
             }
         }
 
-        // Rich SRT: TTML → styled SRT with bold/italic/colour
-        if settings.generate_rich_srt {
-            match super::rich_srt_service::generate_rich_srt_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} Rich SRT file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion Rich SRT generation failed: {e}");
-                }
-            }
+        if has_ttml_here {
+            result.push(base.to_path_buf());
         }
 
-        // WebVTT: TTML/SRT/LRC → .vtt
-        if settings.generate_webvtt {
-            match super::webvtt_service::generate_webvtt_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} WebVTT file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion WebVTT generation failed: {e}");
-                }
-            }
-        }
-
-        // ASS: → styled .ass subtitles
-        if settings.generate_ass {
-            match super::ass_subtitle_service::generate_ass_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} ASS subtitle file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion ASS generation failed: {e}");
-                }
-            }
-        }
+        result
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
@@ -3539,6 +3597,40 @@ pub fn process_queue(
                  Codec: {separator_codec} | Auth: {separator_wrapper}"
             ),
         );
+
+        // === Early metadata fetch (Apple Music API) ===
+        // Fetch album metadata from the Apple Music API BEFORE starting the
+        // GAMDL subprocess, so artist_name and album_name are available for
+        // the progress bar caption and activity log from the very first track.
+        // This is a lightweight API call that completes in <1s on good networks.
+        // Failures are silently ignored — the enrichment pipeline will retry later.
+        if is_apple_music {
+            let early_metadata = super::metadata_tag_service::try_fetch_metadata(
+                &app,
+                &urls,
+                Some((&app, &download_id)),
+            )
+            .await;
+
+            if let Some(ref meta) = early_metadata {
+                let mut q = queue.lock().await;
+                if let Some(item) = q
+                    .items
+                    .iter_mut()
+                    .find(|i| i.status.id == download_id)
+                {
+                    if let Some(ref name) = meta.artist_name {
+                        item.status.artist_name = Some(name.clone());
+                    }
+                    if let Some(ref name) = meta.album_name {
+                        item.status.album_name = Some(name.clone());
+                    }
+                }
+                drop(q);
+                // Trigger frontend queue refresh so progress bar picks up the metadata
+                let _ = app.emit("download-queued", &download_id);
+            }
+        }
 
         // === GAMDL version detection (cached, runs once per queue lifetime) ===
         // Detect the installed GAMDL version on the first download so we can
@@ -6088,6 +6180,11 @@ async fn run_download_with_events(
                 // This reduces activity-log event volume by 5-10x during
                 // downloads. All segments are still parsed for gamdl-output
                 // progress tracking.
+                //
+                // When verbose logging is enabled, bypass coalescing and
+                // emit ALL segments so users get complete progress detail
+                // for debugging (speeds, ETAs, percentages at every step).
+                let verbose = crate::utils::activity_log::is_verbose_logging();
                 let last_segment_idx = segments
                     .iter()
                     .rposition(|s| !s.trim().is_empty());
@@ -6104,14 +6201,19 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stdout] {clean_line}");
 
-                    // Only emit to activity-log for the last \r segment
-                    // (the final visible state in a terminal).
-                    if Some(idx) == last_segment_idx {
-                        let is_new = {
+                    // Emit to activity-log: last \r segment only (normal),
+                    // or ALL segments when verbose logging is enabled for
+                    // full debugging detail.
+                    if verbose || Some(idx) == last_segment_idx {
+                        let should_emit = if verbose {
+                            // Verbose: bypass dedup — emit every line for
+                            // complete progress history
+                            true
+                        } else {
                             let mut set = seen.lock().await;
                             set.insert(clean_line.clone())
                         };
-                        if is_new {
+                        if should_emit {
                             let _ = app.emit(
                                 "activity-log",
                                 &ActivityLogEvent {
@@ -6129,7 +6231,8 @@ async fn run_download_with_events(
                     // Emit a clear per-track separator when GAMDL starts
                     // downloading a new track. This makes it easy to identify
                     // which track's [download] progress lines belong to which
-                    // song in the activity log.
+                    // song in the activity log. Includes artist and album context
+                    // from the queue item metadata (populated by early API fetch).
                     if let process::GamdlOutputEvent::TrackInfo {
                         ref title,
                         track_number,
@@ -6138,16 +6241,47 @@ async fn run_download_with_events(
                     } = event
                     {
                         let track_label = match (track_number, track_total) {
-                            (Some(n), Some(t)) => format!("Track {n}/{t}"),
-                            (Some(n), None) => format!("Track {n}"),
-                            _ => "Track".to_string(),
+                            (Some(n), Some(t)) => format!("[Track {n}/{t}]"),
+                            (Some(n), None) => format!("[Track {n}]"),
+                            _ => "[Track]".to_string(),
+                        };
+                        // Look up artist/album from the queue item for context
+                        let (artist_ctx, album_ctx) = {
+                            if let Ok(q) = queue.try_lock() {
+                                let item = q.items.iter().find(|i| i.status.id == download_id);
+                                (
+                                    item.and_then(|i| i.status.artist_name.clone())
+                                        .unwrap_or_default(),
+                                    item.and_then(|i| i.status.album_name.clone())
+                                        .unwrap_or_default(),
+                                )
+                            } else {
+                                (String::new(), String::new())
+                            }
+                        };
+                        // Build context: "Artist — Album — " prefix when available
+                        let context = {
+                            let mut parts = Vec::new();
+                            if !artist_ctx.is_empty() {
+                                parts.push(artist_ctx);
+                            }
+                            if !album_ctx.is_empty() {
+                                parts.push(album_ctx);
+                            }
+                            if parts.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{} — ", parts.join(" — "))
+                            }
                         };
                         let _ = app.emit(
                             "activity-log",
                             &ActivityLogEvent {
                                 download_id: download_id.clone(),
                                 stream: "internal",
-                                line: format!("──── {track_label}: {title} ────"),
+                                line: format!(
+                                    "──── {track_label} Downloading {context}\"{title}\" ────"
+                                ),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
                         );
@@ -6191,7 +6325,9 @@ async fn run_download_with_events(
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
-                // Only emit last \r segment to activity-log (same as stdout)
+                // Same coalescing logic as stdout: emit only last \r segment
+                // in normal mode, or ALL segments when verbose logging is on.
+                let verbose = crate::utils::activity_log::is_verbose_logging();
                 let last_segment_idx = segments
                     .iter()
                     .rposition(|s| !s.trim().is_empty());
@@ -6206,13 +6342,16 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stderr] {clean_line}");
 
-                    // Only emit to activity-log for the last \r segment
-                    if Some(idx) == last_segment_idx {
-                        let is_new = {
+                    // Emit to activity-log: last \r segment only (normal),
+                    // or ALL segments when verbose logging is enabled.
+                    if verbose || Some(idx) == last_segment_idx {
+                        let should_emit = if verbose {
+                            true
+                        } else {
                             let mut set = seen.lock().await;
                             set.insert(clean_line.clone())
                         };
-                        if is_new {
+                        if should_emit {
                             let _ = app.emit(
                                 "activity-log",
                                 &ActivityLogEvent {

@@ -1714,7 +1714,11 @@ fn match_track_to_metadata(
 /// This is a best-effort fetch: returns `None` if `MusicKit` credentials are
 /// not configured, the URL isn't an album URL, or the API call fails.
 /// Failures are logged at warn level but do not propagate as errors.
-async fn try_fetch_metadata(
+///
+/// Also called by `download_queue.rs` for early metadata fetch at download
+/// start, so artist_name and album_name are available in the progress bar
+/// and activity log from the very first track.
+pub async fn try_fetch_metadata(
     app: &AppHandle,
     urls: &[String],
     event_context: Option<(&tauri::AppHandle, &str)>,

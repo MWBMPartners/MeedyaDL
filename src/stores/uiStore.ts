@@ -266,17 +266,40 @@ export const useUiStore = create<UiState>((set) => ({
    * array (avoiding stale closures over the `toasts` array).
    */
   addToast: (message, type, duration?, key?, action?) => {
+    const { settings } = useSettingsStore.getState();
+    const style = settings.notification_style ?? 'native_and_in_app';
+
     // Resolve duration: use explicit value if provided, otherwise read from settings.
     // Error and warning toasts are persistent (0 = no auto-dismiss) unless explicitly timed.
     if (duration === undefined) {
       if (type === 'error' || type === 'warning') {
         duration = 0; // Persistent — requires manual dismissal
       } else {
-        // Read configurable dismiss duration from settings (default 5s)
-        const { settings } = useSettingsStore.getState();
         duration = (settings.notification_auto_dismiss_seconds ?? 5) * 1000;
       }
     }
+
+    // Send native OS notification when notification_style includes native.
+    if (style === 'native_and_in_app' || style === 'native_only') {
+      const typeLabel = type === 'error' ? 'Error' : type === 'warning' ? 'Warning' : type === 'success' ? 'Success' : 'Info';
+      import('@tauri-apps/plugin-notification').then(({ isPermissionGranted, requestPermission, sendNotification }) => {
+        isPermissionGranted()
+          .then((granted) => {
+            if (!granted) return requestPermission();
+            return 'granted' as const;
+          })
+          .then((result) => {
+            if (result === 'granted') {
+              sendNotification({ title: `MeedyaDL — ${typeLabel}`, body: message });
+            }
+          })
+          .catch(() => { /* Notification permission denied or unavailable */ });
+      }).catch(() => { /* Plugin not available (e.g., dev mode without Tauri) */ });
+    }
+
+    // Skip in-app toast when user prefers native-only notifications.
+    if (style === 'native_only') return;
+
     // Generate a collision-resistant unique ID for this toast.
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
