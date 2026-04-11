@@ -208,7 +208,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
 - ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
-- ✅ **In-App Help System** - Markdown renderer, search, 11 help topics
+- ✅ **In-App Help System** - Markdown renderer, search, 12 help topics
 - ✅ **System Tray** - Minimize to tray, download count badge
 - ✅ **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
 
@@ -222,7 +222,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ SVG icon set (app icon + UI icons)
 - ✅ Platform testing (macOS, Windows, Linux)
-- ✅ Complete help documentation (11 topics)
+- ✅ Complete help documentation (12 topics)
 - ✅ Release workflow verification (release-please v4)
 - ✅ README with badges and project structure
 
@@ -336,6 +336,13 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Native OS notifications for clipboard** (#377) - `@tauri-apps/plugin-notification` sends native notifications when the window is not focused. Gated by `desktop_notifications` setting.
 - ✅ **Activity Log auto-scroll checkbox** (#378) - Replaced Pause/Resume button with visible Auto-scroll checkbox. Automatically unchecks on scroll-up, re-checking jumps to bottom.
 - ✅ **Animated cover art fallback verified** (#379) - Confirmed `resolve_premium_feature_token()` 3-tier fallback works for animated artwork (user creds → embedded → web player token).
+- ✅ **Album context in progress bar and activity log** (v0.32.0) - Progress bar caption now shows "DOWNLOADING... Artist — Album — Track" with early Apple Music API metadata fetch. Activity log track separators include artist/album context. `album_name` and `artist_name` fields added to `QueueItemStatus`.
+- ✅ **Notification style setting** (v0.32.0) - `notification_style` enum (`in_app_only` / `native_and_in_app` / `native_only`) controls notification delivery method. Configurable in Settings > General > Notifications. Replaces the binary `desktop_notifications` toggle with a 3-way choice.
+- ✅ **Service icon in progress bar** (v0.32.0) - Platform icon (Apple Music) loaded async via IPC from `engines.toml` config with subscriber pattern for React re-renders.
+- ✅ **Right-click context menu on inputs** (v0.32.0) - Native paste context menu restored on all input fields.
+- ✅ **Responsive content width** (v0.32.0) - Removed `max-w-*` constraints from Download, Help, and Updates pages so they fill available width.
+- ✅ **Verbose mode bypasses \r coalescing** (v0.32.0) - When `verbose_activity_log` is enabled, all progress lines are emitted to the activity log without `\r` segment coalescing.
+- ✅ **Companion lyrics recursive directory discovery** (v0.32.0) - `run_companion_lyrics_conversion()` now uses `find_dirs_with_ttml()` to recursively find album directories containing `.ttml` files, fixing missing LRC/SRT/VTT/ASS for companion tiers (#439).
 - 🔲 **Library folder scan for re-download** (#380) - Scan existing music folder to find quality upgrade and re-download opportunities.
 - ✅ **Multi-service groundwork** (#430, #431, #432, #433, #424, #425, #426, #288) - All service modules registered and compiling, frontend types/IPC ready, Settings Services group, DownloadForm service detection, shared deps, enrichment routing, per-service auth.
 
@@ -513,13 +520,14 @@ BBC iPlayer integration for downloading TV programmes, films, and radio shows. R
 
 These tasks span multiple milestones and should be addressed incrementally:
 
-- 🔲 **Multi-service download queue** — generalise `download_queue.rs` to dispatch to the correct CLI tool based on detected service
-- 🔲 **Service registry** — dynamic service registration in `lib.rs` setup instead of hardcoded GAMDL references
-- 🔲 **Per-service settings** — migrate flat `AppSettings` to `Vec<ServiceConfig>` for per-service output paths, auth, and quality defaults
+- ✅ **Multi-service download queue** — `download_queue.rs` dispatches to the correct CLI tool based on `service` and `engine` fields on `QueueItem`. Apple Music enrichment guarded behind `is_apple_music` check (#107)
+- ✅ **Service registry** — `EngineRegistry` in `engine_registry.rs` provides runtime query layer for `engines.toml` with `resolve_engine()`, `resolve_engine_chain()`, `detect_platform()`. `EngineCommandBuilder` trait + `run_engine()` in `engine_runner.rs` abstract subprocess spawning (#107)
+- ✅ **Per-service settings** — `PerServiceSettings` in `settings.rs` nests per-service config (Apple Music, Spotify stub, YouTube stub) with `engine_priority` overrides per platform (#107)
 - ✅ **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services (#314)
 - 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M9) and BBC iPlayer (M10); install once, share across services
-- 🔲 **Service-aware fallback chains** — each service defines its own quality fallback chain based on available codecs
+- ✅ **Service-aware fallback chains** — engine fallback via `try_engine_fallback()` for multi-engine platforms (e.g., BBC iPlayer: get_iplayer → yt-dlp) (#107)
 - 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)
+- 🔲 **Per-service settings UI tabs** — infrastructure exists but needs React Settings page integration
 
 ---
 
@@ -530,7 +538,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 | **Smart Download** | Cross-platform quality optimisation — search all enabled services for the same content and download the best available quality | 🔮 Future |
 | **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔮 Future |
 | **Full i18n** | Complete translations for German, French, and additional languages (groundwork done: i18next + react-i18next, OS auto-detection, English locale) | 🔮 Future |
-| **Download history** | Persistent download history and statistics dashboard | 🔮 Future |
+| ~~**Download history**~~ | ~~Persistent download history and statistics dashboard~~ | ✅ Complete (v0.32.0) — `history_service.rs` persists download history as JSON (max 1000 entries), `HistoryPage.tsx` with search, status icons, codec badges |
 
 ### Future (Beyond v3.x)
 
@@ -561,6 +569,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-03-19*
+*Last updated: 2026-04-11*
 
 (c) 2024-2026 MeedyaDL

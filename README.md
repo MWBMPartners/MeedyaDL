@@ -387,6 +387,10 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Clipboard detection queues directly — clicking "Download" on the clipboard toast adds to queue in one click (no more pre-filling the URL input)
 - ✅ Native OS notifications for clipboard detection — sent when the window is not focused so URLs are never missed
 - ✅ Activity Log auto-scroll checkbox — replaces Pause/Resume button with a visible checkbox that auto-unchecks when user scrolls up
+- ✅ Album context in progress bar — shows "DOWNLOADING... Artist — Album — Track" with early metadata fetch; activity log track separators include artist/album context
+- ✅ Notification style control — 3-way setting (`in_app_only` / `native_and_in_app` / `native_only`) for fine-grained notification delivery in Settings > General
+- ✅ Download history — persistent history with search, status icons, codec badges (max 1000 entries)
+- ✅ Companion lyrics fix — all 4 lyrics conversion formats (LRC, SRT, VTT, ASS) now generated for every companion tier, not just the primary download
 
 ### v2.x — Multi-Service Expansion
 
