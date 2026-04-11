@@ -30,6 +30,17 @@ Milestone order updated:
   Updated in: README.md, CLAUDE.md, Project_Plan.md
   GitHub milestones renamed and issues reassigned accordingly.
 
+- Update CHANGELOG.md [skip ci]
+- Swap Spotify and YouTube milestone order
+
+New milestone order:
+  - M8 v2.0.0: BBC iPlayer (get_iplayer / yt-dlp)
+  - M9 v2.1.0: Spotify (votify)
+  - M10 v2.2.0: YouTube (yt-dlp)
+
+  Updated in: README.md, CLAUDE.md, Project_Plan.md
+  GitHub milestones renamed and issues reassigned.
+
 
 ## [0.32.0] - 2026-04-10
 
