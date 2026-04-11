@@ -178,8 +178,8 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 | Milestone | Version | Service     | Engine                                                             | Key Notes                                                                       |
 | --------- | ------- | ----------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | M8        | v2.0.0  | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / yt-dlp | Region-restricted (UK VPN may be required); yt-dlp as fallback engine           |
-| M9        | v2.1.0  | YouTube     | [yt-dlp](https://github.com/yt-dlp/yt-dlp)                        | pip install, shared with BBC iPlayer; video-first service with format selection  |
-| M10       | v2.2.0  | Spotify     | [votify](https://github.com/glomatico/votify)                      | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support         |
+| M9        | v2.1.0  | Spotify     | [votify](https://github.com/glomatico/votify)                      | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support         |
+| M10       | v2.2.0  | YouTube     | [yt-dlp](https://github.com/yt-dlp/yt-dlp)                        | pip install, shared with BBC iPlayer; video-first service with format selection  |
 
 Architecture foundation completed (#107, issues #314-#321):
 - **`MediaServiceId` enum** (renamed from `MusicServiceId` in #314) with 5 services: AppleMusic, YouTubeMusic, YouTube, Spotify, BbcIPlayer
