@@ -19,6 +19,17 @@ This changelog is automatically generated from [conventional commits](https://ww
   - Create 5 GitHub milestones (v1.0 RC, v1.0 GA, v2.0, v2.1, v2.2)
   - Assign 23 open issues to milestones
 
+- Update CHANGELOG.md [skip ci]
+- Reorder service milestones — BBC iPlayer (M8) before Spotify (M10)
+
+Milestone order updated:
+  - M8 v2.0.0: BBC iPlayer (was Spotify)
+  - M9 v2.1.0: YouTube (unchanged)
+  - M10 v2.2.0: Spotify (was BBC iPlayer)
+
+  Updated in: README.md, CLAUDE.md, Project_Plan.md
+  GitHub milestones renamed and issues reassigned accordingly.
+
 
 ## [0.32.0] - 2026-04-10
 
