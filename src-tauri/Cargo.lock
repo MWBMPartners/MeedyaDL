@@ -3391,7 +3391,7 @@ dependencies = [
 
 [[package]]
 name = "meedyadl"
-version = "0.32.0"
+version = "0.32.1"
 dependencies = [
  "arboard",
  "base64 0.22.1",
