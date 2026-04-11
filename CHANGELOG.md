@@ -6,6 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Comprehensive help and project documentation update
+
+- Create help/supported-services.md with current and planned service
+    details (Apple Music, Spotify, YouTube, BBC iPlayer)
+  - Fix GitHub repo URL in help/index.md
+  - Update Project_Plan.md with multi-service groundwork status
+  - Close 7 already-implemented GitHub issues
+  - Create 5 GitHub milestones (v1.0 RC, v1.0 GA, v2.0, v2.1, v2.2)
+  - Assign 23 open issues to milestones
+
+
+## [0.32.0] - 2026-04-10
+
 ### ✨ Features
 
 - Show album context in progress bar during downloads
