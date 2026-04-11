@@ -157,7 +157,7 @@ export function UpdatesPage() {
           </div>
         ) : (
           /* Updates available */
-          <div className="space-y-6 max-w-3xl">
+          <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
               <ArrowUpCircle size={18} className="text-accent" />
               {activeUpdates.length === 1

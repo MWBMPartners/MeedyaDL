@@ -312,6 +312,18 @@ You can select **multiple content types** simultaneously using the checkbox grou
 
 **Requires GAMDL 2.9.1 or later.**
 
+### Download Notifications
+
+MeedyaDL sends notifications when downloads complete or encounter errors. Configure how notifications are delivered in **Settings > General > Notifications**:
+
+| Mode | Behavior |
+|------|----------|
+| **In-App Only** | Toast banners inside MeedyaDL only |
+| **Native & In-App** (default) | Both OS-level notifications and in-app toasts |
+| **Native Only** | OS-level notifications only (no in-app toasts) |
+
+Native OS notifications are especially useful when MeedyaDL is minimised or running in the system tray — you'll see download completions and errors even while working in other applications.
+
 ### Per-Download Quality Selection
 
 You can override the default quality settings for any individual download without changing your global defaults.

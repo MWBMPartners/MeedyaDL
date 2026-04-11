@@ -620,6 +620,13 @@ export function DownloadForm() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleContextMenu = useCallback((e: MouseEvent) => {
+    // Allow the native context menu (paste/cut/copy) on form elements —
+    // only show the After-Queue menu on blank space.
+    const target = e.target as HTMLElement;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    // Also allow native menu on contentEditable elements
+    if (target.isContentEditable) return;
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
@@ -658,11 +665,11 @@ export function DownloadForm() {
       />
 
       {/*
-       * Form body -- constrained to `max-w-2xl` (672px) for readability.
+       * Form body -- fills available width responsively.
        * `space-y-6` (24px) separates the URL input section from the
        * quality overrides section.
        */}
-      <div className="p-6 max-w-2xl space-y-6">
+      <div className="p-6 space-y-6">
         {/* =========================================================
          * Section 1: URL Input
          * =========================================================

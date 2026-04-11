@@ -137,6 +137,10 @@ In **Settings > Lyrics**, you can select one or more lyric output formats using 
 
 You can check multiple format boxes to download lyrics in more than one format. The first checked format (in LRC, SRT, TTML order) is the **primary** format, downloaded alongside the audio during the main download pass. Any additional checked formats are downloaded as lightweight **companion passes** after the audio completes -- these use GAMDL's `--synced-lyrics-only` mode, which fetches only the lyrics file without re-downloading audio.
 
+### Companion Lyrics
+
+When **companion downloads** are enabled in **Settings > Quality > Companion Downloads**, MeedyaDL automatically generates lyric sidecar files for every companion format version — not just the primary download. For example, if your primary download is Dolby Atmos with ALAC as a companion, both the Atmos and ALAC audio files will get their own `.lrc`, `.srt`, `.vtt`, and `.ass` sidecar files (depending on your lyric format settings). Each companion's lyric files use the same base filename as their corresponding audio file (e.g., `01 Song Title [Lossless].lrc` alongside `01 Song Title [Lossless].m4a`), making it easy to match lyrics to each format variant.
+
 For example, if you check both LRC and SRT:
 
 1. The primary download produces the audio file and a `.lrc` sidecar

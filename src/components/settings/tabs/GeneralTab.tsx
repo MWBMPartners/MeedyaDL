@@ -128,6 +128,12 @@ const UPDATE_INTERVAL_OPTIONS = [
 /**
  * Notification auto-dismiss duration options (seconds).
  */
+const NOTIFICATION_STYLE_OPTIONS = [
+  { value: 'in_app_only', label: 'In-app only' },
+  { value: 'native_and_in_app', label: 'Native + in-app (default)' },
+  { value: 'native_only', label: 'Native only' },
+];
+
 const NOTIFICATION_DISMISS_OPTIONS = [
   { value: '3', label: '3 seconds' },
   { value: '5', label: '5 seconds (default)' },
@@ -477,6 +483,19 @@ export function GeneralTab() {
           checked={settings.desktop_notifications}
           onChange={(checked) => updateSettings({ desktop_notifications: checked })}
         />
+
+        {/* Notification style — controls how notifications are delivered */}
+        {settings.desktop_notifications && (
+          <Select
+            label="Notification Style"
+            description="How notifications are delivered. 'In-app only' shows toasts inside the app. 'Native + in-app' shows both OS notifications and in-app toasts. 'Native only' uses OS notifications exclusively."
+            options={NOTIFICATION_STYLE_OPTIONS}
+            value={settings.notification_style ?? 'native_and_in_app'}
+            onChange={(e) =>
+              updateSettings({ notification_style: e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only' })
+            }
+          />
+        )}
 
         {/* Notification auto-dismiss duration — only visible when notifications are enabled */}
         {settings.desktop_notifications && (
