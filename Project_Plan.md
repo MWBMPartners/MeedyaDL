@@ -337,6 +337,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Activity Log auto-scroll checkbox** (#378) - Replaced Pause/Resume button with visible Auto-scroll checkbox. Automatically unchecks on scroll-up, re-checking jumps to bottom.
 - ✅ **Animated cover art fallback verified** (#379) - Confirmed `resolve_premium_feature_token()` 3-tier fallback works for animated artwork (user creds → embedded → web player token).
 - 🔲 **Library folder scan for re-download** (#380) - Scan existing music folder to find quality upgrade and re-download opportunities.
+- ✅ **Multi-service groundwork** (#430, #431, #432, #433, #424, #425, #426, #288) - All service modules registered and compiling, frontend types/IPC ready, Settings Services group, DownloadForm service detection, shared deps, enrichment routing, per-service auth.
 
 ---
 
@@ -346,7 +347,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 | Milestone | Version | Service | Backend Tool | Issue | Status |
 | --- | --- | --- | --- | --- | --- |
-| — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | 🔲 Prerequisite |
+| — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | ✅ Groundwork done |
 | M8 | v2.0.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
 | M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
 | M10 | v2.2.0 | BBC iPlayer | [yt-dlp](https://github.com/yt-dlp/yt-dlp) / [get_iplayer](https://github.com/get-iplayer/get_iplayer) | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
