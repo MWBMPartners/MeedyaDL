@@ -349,8 +349,8 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 | --- | --- | --- | --- | --- | --- |
 | — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | ✅ Groundwork done |
 | M8 | v2.0.0 | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
-| M9 | v2.1.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
-| M10 | v2.2.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
+| M9 | v2.1.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
+| M10 | v2.2.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
 | v3.x | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | [#103](https://github.com/MWBMPartners/MeedyaDL/issues/103) | 🔮 Future |
 | v3.x | TBD | Smart Download | Cross-platform | [#110](https://github.com/MWBMPartners/MeedyaDL/issues/110) | 🔮 Future |
 | v3.x | TBD | Enhanced MusicKit | Server-side JWT | [#108](https://github.com/MWBMPartners/MeedyaDL/issues/108) | 🔮 Future |
