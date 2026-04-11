@@ -6,6 +6,90 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Progress bar icon, caption format, and activity log context (#427, #428, #429)
+
+Three fixes for the GlobalProgressBar and activity log:
+
+  1. Service icon not displaying (#427): The platform config loaded
+     asynchronously via IPC but stored in module-level variables without
+     triggering a React re-render. Added a subscriber pattern so the
+     component re-renders when config arrives.
+
+  2. Caption format (#428): Changed from "Artist — Track" to
+     "DOWNLOADING...Artist — Album — Track" with a state prefix.
+     Added early Apple Music API metadata fetch at download start
+     (before GAMDL subprocess) so artist_name and album_name are
+     available from the first track.
+
+  3. Activity log context (#429): Track separator now includes artist
+     and album context from the queue item, matching the progress bar
+     format: "[Track N/M] Downloading Artist — Album — "Track"".
+
+  Also made try_fetch_metadata() public in metadata_tag_service.rs
+  so it can be reused for the early fetch.
+
+- Verbose mode now bypasses \r coalescing in activity log (#435)
+
+The stdout/stderr readers in download_queue.rs coalesce \r-separated
+  progress lines, emitting only the last segment per newline-delimited
+  output. This reduces event volume 5-10x but eliminates all intermediate
+  download progress from the Activity Log (speeds, ETAs, percentages).
+
+  When verbose logging is enabled (Settings > Advanced > Verbose Activity
+  Log), the coalescing and dedup filters are now bypassed — ALL GAMDL
+  output segments are emitted to the activity log. This gives users
+  complete progress history for debugging slow downloads, stalls, or
+  rate limiting issues.
+
+  Normal mode (verbose off) retains the compact coalesced view.
+
+- Context menu on inputs, responsive content width, native notifications (#436, #437, #438)
+
+- Right-click on input/textarea/select now shows native paste menu instead
+    of the After-Queue context menu; blank-space right-click still works
+  - Removed fixed max-w constraints from Download, Help, and Updates pages
+    so content fills available width responsively on window resize
+  - Added notification_style setting (in_app_only / native_and_in_app /
+    native_only) with native OS notification routing in addToast(); UI
+    control added in Settings > General > Preferences
+
+- Resolve npm audit vulnerability and add notification_style validation
+
+- Update basic-ftp transitive dependency to fix GHSA-6v7q-wjvx-w8wg
+    (high severity CRLF injection in FTP credentials)
+  - Add notification_style enum validation in sanitize_imported_settings()
+    to prevent arbitrary string injection via crafted settings imports
+
+- Resolve clippy doc_lazy_continuation warning in download_queue
+
+Add blank doc-comment line between URL normalization examples list and
+  the extract_album_info_from_url doc block. Clippy 1.94 flags consecutive
+  doc-comment paragraphs after list items as lazy continuations without
+  proper indentation.
+
+- Add missing album_name and artist_name fields to test structs
+
+The QueueItemStatus struct gained album_name and artist_name fields in
+  commit cc8c0e1, but the three serde roundtrip tests in download.rs were
+  not updated to include these required fields, causing cargo test to fail
+  with E0063.
+
+- Companion lyrics conversion finds album dirs recursively (#439)
+
+The companion lyrics conversion (TTML → LRC/SRT/VTT/ASS) was only
+  scanning the top-level output path with non-recursive read_dir().
+  Since GAMDL creates Artist/Album/ subdirectories, the TTML files
+  were never found for companion tiers, resulting in missing sidecar
+  files for suffixed companions (e.g., [Lossless] variants).
+
+  Adds find_dirs_with_ttml() helper that recursively walks the output
+  directory tree to locate all directories containing .ttml files,
+  then runs all four conversion services on each discovered directory.
+
+- Progress bar, activity log, companion lyrics, CI fixes, and docs update (#434)
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
@@ -40,6 +124,27 @@ New milestone order:
 
   Updated in: README.md, CLAUDE.md, Project_Plan.md
   GitHub milestones renamed and issues reassigned.
+
+- Update CHANGELOG.md [skip ci]
+- Comprehensive documentation update reflecting current project state
+
+- CLAUDE.md: add notification_style setting, album/artist context in progress
+    bars, companion lyrics recursive fix, updated services/models lists, verbose
+    \r bypass, workflow count
+  - Project_Plan.md: add v0.32.0 features (album context, notification style,
+    service icon, companion lyrics fix), update cross-cutting architecture status
+    (multi-service queue, engine registry, per-service settings now complete),
+    mark download history as complete, update date
+  - README.md: add v0.32.0 roadmap items (album context, notification style,
+    download history, companion lyrics fix)
+  - DEV_NOTES.md: update project structure with all 32 services, 15 models,
+    13 commands, 5 hooks, 5 utils, 7 workflows
+  - help/downloading-music.md: add companion lyrics and activity log tracking
+  - help/lyrics-and-metadata.md: add companion lyrics subsection
+  - help/quality-settings.md: add download notifications section
+
+  GitHub Issues closed: #370 (activity log memory leak), #411 (CONTRIBUTING.md),
+  #412 (CODE_OF_CONDUCT.md), #439 (companion lyrics)
 
 
 ## [0.32.0] - 2026-04-10
