@@ -146,6 +146,7 @@ New milestone order:
   GitHub Issues closed: #370 (activity log memory leak), #411 (CONTRIBUTING.md),
   #412 (CODE_OF_CONDUCT.md), #439 (companion lyrics)
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.32.0] - 2026-04-10
 
