@@ -952,6 +952,15 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
             archive::set_executable(&expected_binary)?;
 
+            // For ffmpeg, also copy ffprobe from the same system directory.
+            // ffprobe is a companion binary used for codec detection and BPM analysis.
+            if tool_id == "ffmpeg" {
+                copy_companion_ffprobe_from_dir(
+                    system_path.parent().unwrap_or(std::path::Path::new("")),
+                    &tool_dir,
+                );
+            }
+
             // Write a .source marker file so check_all_dependencies knows this
             // tool came from the system PATH rather than being downloaded.
             let source_marker = tool_dir.join(".source");
@@ -1018,6 +1027,12 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
     // Step 5: Set executable permissions on Unix
     archive::set_executable(&expected_binary)?;
+
+    // Step 5b: For ffmpeg, also extract/download the companion ffprobe binary.
+    // ffprobe is used for codec detection (metadata enrichment) and BPM tag reading.
+    if tool_id == "ffmpeg" {
+        install_companion_ffprobe(&tool_dir).await;
+    }
 
     // Write a .source marker file so check_all_dependencies knows this
     // tool was downloaded and managed by the app.
@@ -1856,6 +1871,121 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
         }
     }
 
+    None
+}
+
+/// Installs the companion `ffprobe` binary alongside ffmpeg.
+///
+/// ffprobe ships with ffmpeg in the BtbN archives (Linux/Windows), but on macOS
+/// evermeet.cx provides ffmpeg and ffprobe as separate downloads. This function:
+/// 1. Searches the extracted archive for ffprobe (covers BtbN archives)
+/// 2. If not found, downloads ffprobe separately (covers macOS evermeet.cx)
+async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
+    let ffprobe_name = if cfg!(target_os = "windows") {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    let ffprobe_dest = tool_dir.join(ffprobe_name);
+
+    // Already present (e.g., extracted at top level) — nothing to do
+    if ffprobe_dest.exists() {
+        log::debug!("ffprobe already present at {}", ffprobe_dest.display());
+        return;
+    }
+
+    // Search the extracted archive tree for ffprobe (BtbN archives nest in bin/)
+    if let Some(found) = find_file_recursive(&tool_dir.to_path_buf(), ffprobe_name) {
+        match std::fs::copy(&found, &ffprobe_dest) {
+            Ok(_) => {
+                archive::set_executable(&ffprobe_dest).ok();
+                log::info!("Copied companion ffprobe from {} to {}", found.display(), ffprobe_dest.display());
+                return;
+            }
+            Err(e) => log::warn!("Failed to copy ffprobe from archive: {e}"),
+        }
+    }
+
+    // Not in the archive — download separately (macOS evermeet.cx case)
+    if cfg!(target_os = "macos") {
+        log::info!("ffprobe not in ffmpeg archive — downloading separately from evermeet.cx");
+        match archive::download_and_extract(
+            "https://evermeet.cx/ffprobe/getrelease/zip",
+            tool_dir,
+            archive::ArchiveFormat::Zip,
+        )
+        .await
+        {
+            Ok(()) => {
+                if ffprobe_dest.exists() {
+                    archive::set_executable(&ffprobe_dest).ok();
+                    log::info!("Downloaded companion ffprobe to {}", ffprobe_dest.display());
+                } else {
+                    log::warn!("ffprobe download succeeded but binary not found at expected location");
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to download companion ffprobe: {e}. \
+                     Codec detection will use MediaInfo or requested codec as fallback."
+                );
+            }
+        }
+    } else {
+        log::warn!(
+            "ffprobe not found in ffmpeg archive. \
+             Codec detection will use MediaInfo or requested codec as fallback."
+        );
+    }
+}
+
+/// Copies companion ffprobe from a directory (used when copying system ffmpeg).
+///
+/// When the user has ffmpeg on their system PATH, ffprobe typically lives in
+/// the same directory. This copies it to the managed tool directory.
+fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std::path::Path) {
+    let ffprobe_name = if cfg!(target_os = "windows") {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    let ffprobe_src = source_dir.join(ffprobe_name);
+    let ffprobe_dest = tool_dir.join(ffprobe_name);
+
+    if ffprobe_src.exists() {
+        match std::fs::copy(&ffprobe_src, &ffprobe_dest) {
+            Ok(_) => {
+                archive::set_executable(&ffprobe_dest).ok();
+                log::info!("Copied system ffprobe from {}", ffprobe_src.display());
+            }
+            Err(e) => log::warn!("Failed to copy system ffprobe: {e}"),
+        }
+    } else {
+        log::warn!("System ffprobe not found at {} — codec detection may be degraded", ffprobe_src.display());
+    }
+}
+
+/// Searches a directory tree for a file by exact name (case-sensitive).
+///
+/// Unlike `find_binary_recursive`, this searches for any filename rather than
+/// tool-specific names. Used to find companion binaries like ffprobe.
+fn find_file_recursive(dir: &PathBuf, filename: &str) -> Option<PathBuf> {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name == filename {
+                        return Some(path);
+                    }
+                }
+            } else if path.is_dir() {
+                if let Some(found) = find_file_recursive(&path, filename) {
+                    return Some(found);
+                }
+            }
+        }
+    }
     None
 }
 
