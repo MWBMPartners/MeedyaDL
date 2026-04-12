@@ -90,7 +90,7 @@ fn load_tool_version_config(tool_id: &str) -> Option<ToolVersionConfig> {
 /// the dependency manager queries this repo's releases for matching assets.
 #[derive(Debug, serde::Deserialize)]
 struct MirrorConfig {
-    /// GitHub repository in "owner/name" format (e.g., "MeedyaDL/MeedyaDL-Tools")
+    /// GitHub repository in "owner/name" format (e.g., "MeedyaSuite/MeedyaDL-Tools")
     github_repo: String,
     /// Release tag to query for downloadable assets (e.g., "latest")
     release_tag: String,
@@ -461,7 +461,7 @@ fn get_mirror_asset_prefix(tool_id: &str) -> Result<String, String> {
 
 /// Queries the mirror repository for a tool's download URL.
 ///
-/// The mirror at `MeedyaDL/MeedyaDL-Tools` hosts pre-built binaries
+/// The mirror at `MeedyaSuite/MeedyaDL-Tools` hosts pre-built binaries
 /// with standardized naming. This function queries the repo's GitHub
 /// Releases API to find the matching asset for the current platform.
 ///
@@ -511,7 +511,7 @@ async fn get_mirror_download_url(
 ///
 /// Resolution order:
 ///   1. Primary upstream source (hardcoded URL or upstream GitHub API)
-///   2. MeedyaDL/MeedyaDL-Tools mirror repository (fallback)
+///   2. MeedyaSuite/MeedyaDL-Tools mirror repository (fallback)
 ///
 /// # Arguments
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
@@ -990,7 +990,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
     // Step 1-3: Download with automatic mirror fallback.
     // Tries the primary upstream source first (hardcoded URL or GitHub API),
-    // then falls back to the MeedyaDL/MeedyaDL-Tools mirror repository.
+    // then falls back to the MeedyaSuite/MeedyaDL-Tools mirror repository.
     let tool_dir = get_tool_dir(app, tool_id);
     download_tool_with_fallback(tool_id, &tool_dir).await?;
 
@@ -1742,7 +1742,7 @@ async fn install_mp4box_linux_inner(
 ///   - Linux ARM (aarch64/armv7): `apt-get install gpac`
 ///
 /// If the platform-specific method fails, falls back to the
-/// MeedyaDL/MeedyaDL-Tools mirror repository for a generic binary archive.
+/// MeedyaSuite/MeedyaDL-Tools mirror repository for a generic binary archive.
 async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String> {
     // Try platform-specific installer first
     let platform_result = match std::env::consts::OS {
@@ -1874,94 +1874,101 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
     None
 }
 
-/// Installs the companion `ffprobe` binary alongside ffmpeg.
+/// Installs all companion FFmpeg binaries (ffprobe, ffplay) alongside ffmpeg.
 ///
-/// ffprobe ships with ffmpeg in the BtbN archives (Linux/Windows), but on macOS
-/// evermeet.cx provides ffmpeg and ffprobe as separate downloads. This function:
-/// 1. Searches the extracted archive for ffprobe (covers BtbN archives)
-/// 2. If not found, downloads ffprobe separately (covers macOS evermeet.cx)
+/// The BtbN archives (Linux/Windows) bundle all three tools. On macOS,
+/// evermeet.cx provides each tool as a separate download. This function:
+/// 1. Searches the extracted archive for each companion (covers BtbN)
+/// 2. If not found, downloads each separately (covers macOS evermeet.cx)
 async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
-    let ffprobe_name = if cfg!(target_os = "windows") {
-        "ffprobe.exe"
-    } else {
-        "ffprobe"
-    };
-    let ffprobe_dest = tool_dir.join(ffprobe_name);
+    // All FFmpeg companion binaries to extract/download alongside ffmpeg.
+    // evermeet.cx URLs follow the pattern: https://evermeet.cx/{tool}/getrelease/zip
+    let companions: &[(&str, &str)] = &[
+        ("ffprobe", "https://evermeet.cx/ffprobe/getrelease/zip"),
+        ("ffplay", "https://evermeet.cx/ffplay/getrelease/zip"),
+    ];
 
-    // Already present (e.g., extracted at top level) — nothing to do
-    if ffprobe_dest.exists() {
-        log::debug!("ffprobe already present at {}", ffprobe_dest.display());
-        return;
-    }
+    for &(base_name, macos_url) in companions {
+        let binary_name = if cfg!(target_os = "windows") {
+            format!("{base_name}.exe")
+        } else {
+            base_name.to_string()
+        };
+        let dest = tool_dir.join(&binary_name);
 
-    // Search the extracted archive tree for ffprobe (BtbN archives nest in bin/)
-    if let Some(found) = find_file_recursive(&tool_dir.to_path_buf(), ffprobe_name) {
-        match std::fs::copy(&found, &ffprobe_dest) {
-            Ok(_) => {
-                archive::set_executable(&ffprobe_dest).ok();
-                log::info!("Copied companion ffprobe from {} to {}", found.display(), ffprobe_dest.display());
-                return;
-            }
-            Err(e) => log::warn!("Failed to copy ffprobe from archive: {e}"),
+        // Already present (e.g., extracted at top level) — skip
+        if dest.exists() {
+            log::debug!("{base_name} already present at {}", dest.display());
+            continue;
         }
-    }
 
-    // Not in the archive — download separately (macOS evermeet.cx case)
-    if cfg!(target_os = "macos") {
-        log::info!("ffprobe not in ffmpeg archive — downloading separately from evermeet.cx");
-        match archive::download_and_extract(
-            "https://evermeet.cx/ffprobe/getrelease/zip",
-            tool_dir,
-            archive::ArchiveFormat::Zip,
-        )
-        .await
-        {
-            Ok(()) => {
-                if ffprobe_dest.exists() {
-                    archive::set_executable(&ffprobe_dest).ok();
-                    log::info!("Downloaded companion ffprobe to {}", ffprobe_dest.display());
-                } else {
-                    log::warn!("ffprobe download succeeded but binary not found at expected location");
+        // Search the extracted archive tree (BtbN archives nest in bin/)
+        if let Some(found) = find_file_recursive(&tool_dir.to_path_buf(), &binary_name) {
+            match std::fs::copy(&found, &dest) {
+                Ok(_) => {
+                    archive::set_executable(&dest).ok();
+                    log::info!("Copied companion {base_name} from {} to {}", found.display(), dest.display());
+                    continue;
+                }
+                Err(e) => log::warn!("Failed to copy {base_name} from archive: {e}"),
+            }
+        }
+
+        // Not in the archive — download separately (macOS evermeet.cx case)
+        if cfg!(target_os = "macos") {
+            log::info!("{base_name} not in ffmpeg archive — downloading separately from evermeet.cx");
+            match archive::download_and_extract(
+                macos_url,
+                tool_dir,
+                archive::ArchiveFormat::Zip,
+            )
+            .await
+            {
+                Ok(()) => {
+                    if dest.exists() {
+                        archive::set_executable(&dest).ok();
+                        log::info!("Downloaded companion {base_name} to {}", dest.display());
+                    } else {
+                        log::warn!("{base_name} download succeeded but binary not found at expected location");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to download companion {base_name}: {e}");
                 }
             }
-            Err(e) => {
-                log::warn!(
-                    "Failed to download companion ffprobe: {e}. \
-                     Codec detection will use MediaInfo or requested codec as fallback."
-                );
-            }
+        } else {
+            log::warn!("{base_name} not found in ffmpeg archive");
         }
-    } else {
-        log::warn!(
-            "ffprobe not found in ffmpeg archive. \
-             Codec detection will use MediaInfo or requested codec as fallback."
-        );
     }
 }
 
-/// Copies companion ffprobe from a directory (used when copying system ffmpeg).
+/// Copies all companion FFmpeg binaries from a directory (used when copying system ffmpeg).
 ///
-/// When the user has ffmpeg on their system PATH, ffprobe typically lives in
-/// the same directory. This copies it to the managed tool directory.
+/// When the user has ffmpeg on their system PATH, ffprobe and ffplay typically
+/// live in the same directory. This copies them to the managed tool directory.
 fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std::path::Path) {
-    let ffprobe_name = if cfg!(target_os = "windows") {
-        "ffprobe.exe"
-    } else {
-        "ffprobe"
-    };
-    let ffprobe_src = source_dir.join(ffprobe_name);
-    let ffprobe_dest = tool_dir.join(ffprobe_name);
+    let companions: &[&str] = &["ffprobe", "ffplay"];
 
-    if ffprobe_src.exists() {
-        match std::fs::copy(&ffprobe_src, &ffprobe_dest) {
-            Ok(_) => {
-                archive::set_executable(&ffprobe_dest).ok();
-                log::info!("Copied system ffprobe from {}", ffprobe_src.display());
+    for &base_name in companions {
+        let binary_name = if cfg!(target_os = "windows") {
+            format!("{base_name}.exe")
+        } else {
+            base_name.to_string()
+        };
+        let src = source_dir.join(&binary_name);
+        let dest = tool_dir.join(&binary_name);
+
+        if src.exists() {
+            match std::fs::copy(&src, &dest) {
+                Ok(_) => {
+                    archive::set_executable(&dest).ok();
+                    log::info!("Copied system {base_name} from {}", src.display());
+                }
+                Err(e) => log::warn!("Failed to copy system {base_name}: {e}"),
             }
-            Err(e) => log::warn!("Failed to copy system ffprobe: {e}"),
+        } else {
+            log::debug!("System {base_name} not found at {}", src.display());
         }
-    } else {
-        log::warn!("System ffprobe not found at {} — codec detection may be degraded", ffprobe_src.display());
     }
 }
 
