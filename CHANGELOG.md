@@ -6,6 +6,45 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Extract all FFmpeg components and rename MeedyaDL org to MeedyaSuite (#444, #445)
+
+- Expand companion FFmpeg extraction to include ffplay alongside ffprobe,
+    ensuring the full FFmpeg suite (ffmpeg, ffprobe, ffplay) is available
+    in the managed tools directory on all platforms
+  - Rename all references from MeedyaDL/MeedyaDL-Tools org to
+    MeedyaSuite/MeedyaDL-Tools across tool-versions.toml, deny.toml,
+    engines.toml, release.yml, dependency_manager.rs, and documentation
+  - CHANGELOG.md historical entries left unchanged
+
+
+### 🐛 Bug Fixes
+
+- Resolve ffprobe missing, activity log text overlap, and progress bar icon (#441, #442, #443)
+
+- Install companion ffprobe alongside ffmpeg during dependency setup:
+    search extracted archives for ffprobe (Linux/Windows BtbN), download
+    separately from evermeet.cx (macOS), and copy from system PATH
+  - Add dynamic row height measurement to Activity Log virtualizer so
+    wrapped multi-line entries no longer overlap subsequent rows
+  - Add PlatformIcon to the queue-level progress bar caption so the
+    service icon displays in both progress bars
+
+- Update remaining MeedyaDL org references to MeedyaSuite (#445)
+
+Update CHANGELOG.md and help/faq.md references from the old
+  MeedyaDL GitHub org name to MeedyaSuite, completing the org rename
+  across all files — no stale references remain.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.32.1] - 2026-04-11
+
 ### 🐛 Bug Fixes
 
 - Progress bar icon, caption format, and activity log context (#427, #428, #429)

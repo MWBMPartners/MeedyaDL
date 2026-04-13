@@ -347,6 +347,7 @@ export function GlobalProgressBar() {
 
       {/* Lower bar: queue-level progress */}
       <div className="flex items-center gap-2 mb-0.5">
+        <PlatformIcon platform={platform} />
         <span className="text-[12px] text-content-tertiary truncate min-w-0 flex-1">
           {completedItems} of {totalItems} complete
         </span>
