@@ -171,7 +171,8 @@ fn service_id_to_key(service: &MediaServiceId) -> &'static str {
     match service {
         MediaServiceId::AppleMusic => "AppleMusic",
         MediaServiceId::YouTube => "YouTube",
-        MediaServiceId::BBCiPlayer => "BBCiPlayer",
+        MediaServiceId::YouTubeMusic => "YouTubeMusic",
+        MediaServiceId::BbcIPlayer => "BBCiPlayer",
         MediaServiceId::Spotify => "Spotify",
     }
 }
@@ -230,7 +231,7 @@ mod tests {
     fn test_service_id_to_key() {
         assert_eq!(service_id_to_key(&MediaServiceId::AppleMusic), "AppleMusic");
         assert_eq!(service_id_to_key(&MediaServiceId::YouTube), "YouTube");
-        assert_eq!(service_id_to_key(&MediaServiceId::BBCiPlayer), "BBCiPlayer");
+        assert_eq!(service_id_to_key(&MediaServiceId::BbcIPlayer), "BBCiPlayer");
         assert_eq!(service_id_to_key(&MediaServiceId::Spotify), "Spotify");
     }
 }
