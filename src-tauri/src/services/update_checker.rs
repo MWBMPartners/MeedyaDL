@@ -1028,7 +1028,6 @@ async fn check_github_tool_update(
         latest_version,
         update_available,
         is_compatible: true,
-        compatibility_note: None,
     })
 }
 

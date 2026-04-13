@@ -32,8 +32,6 @@
 // @see models/tag_registry.rs — Tag definitions driven by meedya-core
 // @see services/metadata_tag_service.rs — Consumes provider output
 
-use async_trait::async_trait;
-
 use super::apple_music_api::AlbumMetadata;
 
 /// Provider priority for metadata field merging.
@@ -54,7 +52,12 @@ pub enum ProviderPriority {
 /// metadata for the enrichment pipeline. Providers are called in
 /// priority order (lowest first), with higher-priority providers
 /// overwriting fields from lower-priority ones.
-#[async_trait]
+///
+/// ## Dyn compatibility
+///
+/// `async fn` in traits is not dyn-compatible, so `fetch_album_metadata`
+/// returns a pinned boxed future instead. This allows storing providers
+/// as `Box<dyn MetadataProvider>` in the registry.
 pub trait MetadataProvider: Send + Sync {
     /// Human-readable name of this provider (e.g., "Apple Music", "iTunes")
     fn provider_name(&self) -> &str;
@@ -72,11 +75,13 @@ pub trait MetadataProvider: Send + Sync {
     ///
     /// Returns `Ok(Some(metadata))` on success, `Ok(None)` if not found,
     /// `Err(message)` on network/auth errors.
-    async fn fetch_album_metadata(
+    fn fetch_album_metadata(
         &self,
         album_id: &str,
         storefront: &str,
-    ) -> Result<Option<AlbumMetadata>, String>;
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<AlbumMetadata>, String>> + Send + '_>,
+    >;
 }
 
 /// Registry of available metadata providers.
