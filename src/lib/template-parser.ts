@@ -85,6 +85,12 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     description: 'Playlist name',
     category: 'playlist',
   },
+  {
+    value: 'platform',
+    label: 'Platform',
+    description: 'Download platform (e.g., AppleMusic, Spotify)',
+    category: 'album',
+  },
 ];
 
 /** Common literal segments offered as quick-insert options in the add menu. */
@@ -125,6 +131,7 @@ export const SAMPLE_METADATA: Record<string, string> = {
   genre: 'Pop',
   playlist_artist: 'Apple Music',
   playlist_title: "Today's Hits",
+  platform: 'AppleMusic',
 };
 
 // ============================================================
