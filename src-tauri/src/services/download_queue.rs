@@ -8792,4 +8792,128 @@ mod tests {
         let urls = vec!["https://music.apple.com/us/album/other/456".to_string()];
         assert!(!queue.has_duplicate_urls(&urls));
     }
+
+    // ============================================================
+    // find_album_directory / find_deepest_audio_dir tests (#460)
+    // ============================================================
+
+    #[test]
+    fn has_direct_audio_files_detects_m4a() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("track.m4a"), b"fake").unwrap();
+        assert!(has_direct_audio_files(dir.path()));
+    }
+
+    #[test]
+    fn has_direct_audio_files_ignores_nested() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("subdir");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("track.m4a"), b"fake").unwrap();
+        // Parent dir has no direct audio files (only in subdir)
+        assert!(!has_direct_audio_files(dir.path()));
+    }
+
+    #[test]
+    fn has_direct_audio_files_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!has_direct_audio_files(dir.path()));
+    }
+
+    #[test]
+    fn find_album_directory_targeted_match() {
+        let base = tempfile::tempdir().unwrap();
+        let album = base.path().join("Blue").join("Too Close - EP");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("01 Track.m4a"), b"fake").unwrap();
+
+        let result = find_album_directory(base.path(), Some("Blue"), Some("Too Close - EP"));
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn find_album_directory_case_insensitive() {
+        let base = tempfile::tempdir().unwrap();
+        let album = base.path().join("Blue").join("Too Close - EP");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("01 Track.m4a"), b"fake").unwrap();
+
+        // Hints with different casing
+        let result = find_album_directory(base.path(), Some("blue"), Some("too close - ep"));
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn find_album_directory_fallback_when_no_hints() {
+        let base = tempfile::tempdir().unwrap();
+        let album = base.path().join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("track.m4a"), b"fake").unwrap();
+
+        let result = find_album_directory(base.path(), None, None);
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn find_album_directory_returns_deepest() {
+        let base = tempfile::tempdir().unwrap();
+        // Create Artist/Album with audio
+        let album = base.path().join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("track.m4a"), b"fake").unwrap();
+        // Artist dir should NOT be returned (no direct audio files)
+        let result = find_album_directory(base.path(), None, None);
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    // ============================================================
+    // rename_cover_art tests (#460)
+    // ============================================================
+
+    #[test]
+    fn rename_cover_art_renames_jpg() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"img").unwrap();
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+        assert!(dir.path().join("FrontCover.jpg").exists());
+        assert!(!dir.path().join("Cover.jpg").exists());
+    }
+
+    #[test]
+    fn rename_cover_art_skips_when_target_cover() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"img").unwrap();
+        rename_cover_art(&dir.path().to_string_lossy(), "Cover");
+        // Should keep as Cover.jpg — no rename
+        assert!(dir.path().join("Cover.jpg").exists());
+    }
+
+    #[test]
+    fn rename_cover_art_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"existing").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"old").unwrap();
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+        // FrontCover.jpg should keep existing content (not overwritten)
+        let content = std::fs::read_to_string(dir.path().join("FrontCover.jpg")).unwrap();
+        assert_eq!(content, "existing");
+    }
+
+    // ============================================================
+    // validate_path_safe tests (#460)
+    // ============================================================
+
+    #[test]
+    fn validate_path_safe_allows_normal_paths() {
+        assert!(super::super::config_service::validate_path_safe("/home/user/Music").is_ok());
+        assert!(super::super::config_service::validate_path_safe("C:\\Users\\Music").is_ok());
+        assert!(super::super::config_service::validate_path_safe("./output").is_ok());
+    }
+
+    #[test]
+    fn validate_path_safe_rejects_traversal() {
+        assert!(super::super::config_service::validate_path_safe("../etc/passwd").is_err());
+        assert!(super::super::config_service::validate_path_safe("/home/../root").is_err());
+        assert!(super::super::config_service::validate_path_safe("foo/../../bar").is_err());
+    }
 }
