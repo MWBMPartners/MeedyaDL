@@ -4843,7 +4843,11 @@ pub fn process_queue(
                                 None
                             };
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
+                            if album_metadata.is_some() {
+                                emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
+                            } else {
+                                emit_download_log(&enrich_app, &enrich_dl_id, &format!("⚠ Metadata enrichment completed without API data — some enrichment steps may be limited{}", album_context()));
+                            }
 
                             // --- Post-step 1: Rename cover art per user setting (#448) ---
                             // GAMDL saves static cover art as Cover.<ext>. Rename to the
