@@ -1102,6 +1102,10 @@ pub fn run() {
             commands::api_audit::audit_api_fields,
             // Clipboard monitoring command
             commands::clipboard::read_clipboard,
+            // Service status checking
+            commands::service_status::check_service_status,
+            // Smart Download cross-platform search
+            commands::smart_download::check_cross_platform,
         ]);
 
     // ---------------------------------------------------------------
