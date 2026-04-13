@@ -530,11 +530,14 @@ pub fn generate_musickit_jwt(
         .map_err(|e| format!("System time error: {e}"))?
         .as_secs();
 
-    // Build the JWT claims: issuer (team ID), issued-at, and expiry.
+    // Build the JWT claims: issuer (team ID), issued-at, expiry, and
+    // audience. The `aud` claim is required by Apple's MusicKit API (#161).
+    // Without it, the API may return 401 even with valid credentials.
     let claims = serde_json::json!({
         "iss": team_id,
         "iat": now,
         "exp": now + 3600,  // 1 hour from now
+        "aud": "https://music.apple.com",
     });
 
     // Parse the PEM private key and sign the JWT.
