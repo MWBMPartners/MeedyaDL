@@ -3584,7 +3584,6 @@ fn spawn_companion_downloads(
 /// # Arguments
 /// * `app` - Tauri app handle for event emission and path resolution
 /// * `queue` - Shared queue handle
-
 // Monolithic by necessity: this function orchestrates the entire queue lifecycle
 // including async closures with complex move semantics, cancellation polling,
 // fallback/retry decision trees, companion spawning, and recursive self-calls.
@@ -6385,7 +6384,6 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
 /// message if the process exits with a non-zero code. On success, returns
 /// any non-fatal warning messages collected during the run (error-pattern
 /// lines from GAMDL output that didn't cause a non-zero exit).
-
 // Monolithic by necessity: manages subprocess lifecycle (spawn, stdout/stderr
 // readers, cancellation polling loop, exit status handling) with shared
 // Arc<Mutex> state that makes extraction impractical.
