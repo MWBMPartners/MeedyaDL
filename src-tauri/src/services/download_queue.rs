@@ -1399,11 +1399,16 @@ impl DownloadQueue {
         }
     }
 
-    /// Marks a download as complete.
+    /// Marks a download as complete (#416).
+    /// Clears processing label and speed/ETA to prevent stale data
+    /// appearing in the UI after completion.
     pub fn set_complete(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
+            item.status.processing_label = None;
+            item.status.speed = None;
+            item.status.eta = None;
         }
     }
 
