@@ -119,6 +119,14 @@ pub struct UpdateCheckResult {
     /// Non-fatal errors that occurred during individual checks.
     /// For example, a network timeout on `PyPI` doesn't prevent checking GitHub.
     pub errors: Vec<String>,
+    /// When running a pre-release, the latest stable version available for
+    /// rollback (#267). `None` when running a stable version or if no stable
+    /// release exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollback_version: Option<String>,
+    /// Tag name for the rollback release (e.g., "v0.32.1").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollback_tag: Option<String>,
 }
 
 // ============================================================
@@ -488,17 +496,90 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
         }
     }
 
+    // Check external tools for updates (#273).
+    // Compares installed tool versions (from tool-versions.toml minimums)
+    // against the latest GitHub release for tools that have known repos.
+    let tool_checks = [
+        ("ffmpeg", "BtbN/FFmpeg-Builds"),
+        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE"),
+    ];
+    for (tool_id, repo) in &tool_checks {
+        let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
+        if binary.exists() {
+            match check_github_tool_update(app, tool_id, repo).await {
+                Ok(update) => components.push(update),
+                Err(e) => {
+                    log::debug!("Tool update check failed for {tool_id}: {e}");
+                }
+            }
+        }
+    }
+
     // Aggregate: an update is "available" only if it's both newer AND compatible.
     // This prevents the UI from showing incompatible GAMDL versions as available.
     let has_updates = components
         .iter()
         .any(|c| c.update_available && c.is_compatible);
 
+    // Check for rollback opportunity (#267): when the current version is a
+    // pre-release, fetch the latest stable release for rollback.
+    let current_version = app.package_info().version.to_string();
+    let is_pre = current_version.contains('-'); // e.g., "0.33.0-rc.1"
+    let (rollback_version, rollback_tag) = if is_pre {
+        match fetch_latest_stable_release().await {
+            Ok(Some((ver, tag))) => (Some(ver), Some(tag)),
+            _ => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     UpdateCheckResult {
         checked_at: chrono::Utc::now().to_rfc3339(),
         has_updates,
         components,
         errors,
+        rollback_version,
+        rollback_tag,
+    }
+}
+
+/// Fetch the latest stable (non-pre-release) GitHub release (#267).
+async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, String> {
+    let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases/latest";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(url)
+        .header("User-Agent", "meedyadl")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    let tag = body
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let version = tag
+        .as_ref()
+        .map(|t| t.trim_start_matches('v').to_string());
+
+    match (version, tag) {
+        (Some(v), Some(t)) => Ok(Some((v, t))),
+        _ => Ok(None),
     }
 }
 
@@ -875,6 +956,86 @@ async fn aggregate_intermediate_release_notes(
 /// Compares the installed Python version with the version constant in
 /// `python_manager.rs`. In the future, this could also check GitHub
 /// for newer python-build-standalone releases.
+/// Check for external tool updates via GitHub Releases API (#273).
+///
+/// Queries the latest release from the tool's GitHub repo and compares
+/// the tag against the minimum version from tool-versions.toml. Since
+/// we don't track the exact installed version (only minimum requirements),
+/// this reports "update may be available" when the latest release is newer
+/// than the minimum.
+async fn check_github_tool_update(
+    app: &AppHandle,
+    tool_id: &str,
+    github_repo: &str,
+) -> Result<ComponentUpdate, String> {
+    // Reuse the centralized dependency-manager logic so each tool uses its
+    // configured version flag and parser instead of assuming `--version`.
+    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
+    let current_version = if binary.exists() {
+        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
+            .await
+            .ok()
+    } else {
+        None
+    };
+    let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed for {tool_id}: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "GitHub API returned {} for {tool_id}",
+            response.status()
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub response for {tool_id}: {e}"))?;
+
+    let latest_tag = body
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim_start_matches('v').to_string())
+        .unwrap_or_default();
+
+    let latest_version = if latest_tag.is_empty() {
+        None
+    } else {
+        Some(latest_tag.clone())
+    };
+
+    // Compare versions if we have both (#273)
+    let update_available = match (&current_version, &latest_version) {
+        (Some(cur), Some(latest)) => cur != latest && !latest.is_empty(),
+        _ => false,
+    };
+
+    Ok(ComponentUpdate {
+        name: tool_id.to_string(),
+        current_version,
+        latest_version,
+        update_available,
+        is_compatible: true,
+        description: None,
+        release_url: None,
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+    })
+}
+
 async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // Get the installed Python version by running the binary with --version.
     // Returns None if Python is not installed.

@@ -107,7 +107,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   musicbrainz_lookup: false, // MusicBrainz video/cross-platform discovery (no creds needed)
   artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
   artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
-  embed_lyrics_and_sidecar: true, // Embed lyrics in metadata AND keep sidecar files
+  embed_lyrics_and_sidecar: true, // Embed lyrics in metadata
+  keep_lyrics_sidecar: true, // Keep .lrc/.srt/.ttml sidecar files alongside embedded lyrics
   enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
   lyrics_fallback_enabled: true, // If TTML unavailable, try LRC (audio) or SRT (video)
   generate_webvtt: false, // Opt-in: generate .vtt from TTML/SRT/LRC
@@ -122,10 +123,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   save_cover: true, // Save album artwork alongside audio files
   cover_format: 'jpg', // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
   cover_size: 10000, // Request maximum available artwork resolution from Apple CDN
+  cover_art_name: 'front_cover' as const, // Rename Cover → FrontCover after download (#448)
   // Animated artwork (motion cover art) -- requires MusicKit credentials
-  animated_artwork_enabled: false, // Disabled by default; needs Apple Developer setup
-  hide_animated_artwork: true, // Hide artwork files from default file browser views
-  artist_promo_video_enabled: false, // Download artist promo video to artist folder
+  animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
+  hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)
+  artist_promo_video_enabled: true, // Download artist promo video to artist folder (#453)
   musickit_team_id: null, // Apple Developer Team ID (10-char)
   musickit_key_id: null, // MusicKit private key identifier (10-char)
   // Metadata enrichment (opt-in post-download processing)
