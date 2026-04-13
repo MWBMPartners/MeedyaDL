@@ -59,6 +59,7 @@ import {
   XCircle, // Required but missing (red)
   Download, // Install button icon
   AlertCircle, // Optional and missing (grey)
+  FolderOpen, // Browse for existing installation (#278)
 } from 'lucide-react';
 
 // Zustand stores for dependency tracking and wizard step management.
@@ -209,18 +210,47 @@ export function DependenciesStep() {
                   )}
                 </div>
 
-                {/* Install button for missing tools */}
+                {/* Install + Browse buttons for missing tools (#278) */}
                 {!tool.installed && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={<Download size={14} />}
-                    loading={isInstalling && installingName === tool.name}
-                    disabled={isInstalling}
-                    onClick={() => installTool(tool.name)}
-                  >
-                    Install
-                  </Button>
+                  <div className="flex gap-1.5">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Download size={14} />}
+                      loading={isInstalling && installingName === tool.name}
+                      disabled={isInstalling}
+                      onClick={() => installTool(tool.name)}
+                    >
+                      Install
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<FolderOpen size={14} />}
+                      disabled={isInstalling}
+                      title="Browse for an existing installation on your system"
+                      onClick={async () => {
+                        try {
+                          const { open } = await import('@tauri-apps/plugin-dialog');
+                          const selected = await open({
+                            multiple: false,
+                            title: `Locate ${tool.name} binary`,
+                          });
+                          if (typeof selected === 'string') {
+                            // Store the custom path — the dependency store
+                            // will re-check on next status poll
+                            const { updateSettings } = (await import('@/stores/settingsStore')).useSettingsStore.getState();
+                            const key = `${tool.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_path`;
+                            updateSettings({ [key]: selected } as Record<string, string>);
+                          }
+                        } catch {
+                          // User cancelled
+                        }
+                      }}
+                    >
+                      Browse
+                    </Button>
+                  </div>
                 )}
               </div>
             ))}
