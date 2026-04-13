@@ -484,7 +484,7 @@ pub async fn download_artist_promo_video(
     // Skip if the promo video already exists (idempotent — don't re-download
     // on every album download from the same artist).
     if dest.exists() {
-        log::debug!(
+        log::info!(
             "Artist promo video already exists at {}, skipping",
             dest.display()
         );
@@ -511,7 +511,7 @@ pub async fn download_artist_promo_video(
     )? {
         Some(pair) => pair,
         None => {
-            log::debug!("No MusicKit token available, skipping artist promo video");
+            log::info!("No MusicKit token available, skipping artist promo video");
             return Ok(false);
         }
     };
