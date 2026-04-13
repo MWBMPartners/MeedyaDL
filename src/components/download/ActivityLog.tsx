@@ -168,12 +168,15 @@ export function ActivityLog() {
     });
   }, [entries, searchQuery, showSystem, showDownload, showVerbose]);
 
-  /** Virtualizer for efficient rendering of large entry lists. */
+  /** Virtualizer for efficient rendering of large entry lists.
+   * Uses dynamic height measurement so wrapped multi-line entries
+   * don't overlap with subsequent rows. */
   const virtualizer = useVirtualizer({
     count: filteredEntries.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 26, // text-xs + leading-relaxed + py-0.5 + border
+    estimateSize: () => 26, // text-xs + leading-relaxed + py-0.5 + border (single-line estimate)
     overscan: 50, // render 50 extra rows above/below viewport
+    measureElement: (element) => element?.getBoundingClientRect().height ?? 26,
   });
 
   /**

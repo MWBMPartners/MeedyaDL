@@ -231,7 +231,7 @@ Try these steps in order:
 
 ### Where can I get more help?
 
-If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MeedyaDL/MeedyaDL/issues) page for support.
+If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MeedyaSuite/MeedyaDL/issues) page for support.
 
 ---
 
