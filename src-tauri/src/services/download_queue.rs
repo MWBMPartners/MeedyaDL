@@ -5903,13 +5903,43 @@ pub fn process_queue(
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
                         tokio::spawn(async move {
-                            // Wait for enrichment to finish
+                            // Wait for enrichment to finish with a timeout (#461).
+                            // If enrichment hangs (e.g., deadlock, unresponsive API),
+                            // we force completion after 10 minutes to prevent the
+                            // queue from stalling indefinitely.
+                            let enrichment_timeout = std::time::Duration::from_secs(600);
                             if let Some(handle) = enrichment_handle {
-                                let _ = handle.await;
+                                match tokio::time::timeout(enrichment_timeout, handle).await {
+                                    Ok(_) => {}
+                                    Err(_) => {
+                                        log::warn!(
+                                            "Enrichment timed out after 10 minutes for {}",
+                                            completion_dl_id
+                                        );
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            "⚠ Enrichment timed out after 10 minutes — marking complete",
+                                        );
+                                    }
+                                }
                             }
-                            // Wait for companion downloads to finish
+                            // Wait for companion downloads with the same timeout
                             if let Some(handle) = companion_handle {
-                                let _ = handle.await;
+                                match tokio::time::timeout(enrichment_timeout, handle).await {
+                                    Ok(_) => {}
+                                    Err(_) => {
+                                        log::warn!(
+                                            "Companion downloads timed out after 10 minutes for {}",
+                                            completion_dl_id
+                                        );
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            "⚠ Companion downloads timed out after 10 minutes — marking complete",
+                                        );
+                                    }
+                                }
                             }
 
                             // Mark as complete now that all background work is done
