@@ -32,7 +32,6 @@ interface PlatformEntry {
   id: string;
   name: string;
   icon: string;
-  faviconHost: string;
   patterns: string[];
 }
 
@@ -58,7 +57,6 @@ async function loadPlatformConfig() {
         id: p.id,
         name: p.name,
         icon: p.icon ? `/${p.icon}` : '',
-        faviconHost: p.url_patterns[0]?.replace(/\/.*$/, '') ?? '',
         patterns: p.url_patterns,
       }));
     // Notify all subscribers that config is ready
@@ -91,7 +89,7 @@ function detectPlatform(urls?: string[]): PlatformEntry | undefined {
  * renders it inline so `currentColor` inherits from the parent CSS context,
  * automatically adapting to light, dark, and colour-blind themes.
  *
- * Falls back to Google Favicon API (PNG) if the local SVG can't be loaded.
+ * Falls back to a local <img> tag if the inline SVG can't be loaded.
  * SVG content is cached in a module-level Map to avoid re-fetching.
  */
 const svgCache = new Map<string, string>();
@@ -170,11 +168,12 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
     );
   }
 
-  // Fallback: Google Favicon API (PNG, doesn't adapt to theme but works)
-  if (useFallback) {
+  // Fallback: render the local icon as an <img> (no currentColor theming,
+  // but works under img-src 'self' without external network requests).
+  if (useFallback && platform.icon) {
     return (
       <img
-        src={`https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`}
+        src={platform.icon}
         alt={platform.name}
         width={16}
         height={16}
