@@ -4245,10 +4245,10 @@ Fix double blank lines (MD012) and inconsistent indentation (MD007)
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- Update mirror repo reference to MeedyaDL/MeedyaDL-Tools
+- Update mirror repo reference to MeedyaSuite/MeedyaDL-Tools
 
 Renamed mirror repository from MWBMPartners/meedyadl-tools to
-  MeedyaDL/MeedyaDL-Tools across code, config, and documentation.
+  MeedyaSuite/MeedyaDL-Tools across code, config, and documentation.
   Also fixed example asset extension (.zip → .tar.gz) in tool-versions.toml.
 
 - Update CHANGELOG.md [skip ci]

@@ -1997,7 +1997,7 @@ Corrected all three filename references in `release.yml` (upload step + `latest.
 github = ["MWBMPartners", "MeedyaDL"]
 ```
 
-This covers `MWBMPartners/MeedyaSuite-core` (shared Rust crates), `MeedyaDL/MeedyaDL-Tools` (dependency mirrors), and any future repos under either org — regardless of branch, tag, or rev qualifiers.
+This covers `MWBMPartners/MeedyaSuite-core` (shared Rust crates), `MeedyaSuite/MeedyaDL-Tools` (dependency mirrors), and any future repos under either org — regardless of branch, tag, or rev qualifiers.
 
 ## Updater Signing Key Rotation (#401)
 
