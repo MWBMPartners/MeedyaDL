@@ -741,6 +741,8 @@ export function DownloadForm() {
               <textarea
                 ref={textareaRef}
                 id="url-input"
+                aria-label="Apple Music URL input"
+                aria-describedby="url-input-help"
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
