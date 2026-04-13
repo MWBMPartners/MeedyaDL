@@ -1573,8 +1573,6 @@ fn rename_folder_with_advisory(
 // Internal: File Collection
 // ============================================================
 
-/// Collect all M4A file paths from the output path.
-///
 // ============================================================
 // iTunes API Supplementary Tags (#454)
 // ============================================================
