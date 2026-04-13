@@ -1991,7 +1991,15 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.truncate = settings.truncate;
 
     if !settings.output_path.is_empty() {
-        options.output_path = Some(settings.output_path.clone());
+        // Validate output path for traversal sequences (#459)
+        match super::config_service::validate_path_safe(&settings.output_path) {
+            Ok(_) => {
+                options.output_path = Some(settings.output_path.clone());
+            }
+            Err(e) => {
+                log::warn!("Output path rejected: {e}");
+            }
+        }
     }
 
     // Resolve temp_path: use the user's custom path if set, otherwise fall

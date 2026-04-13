@@ -150,6 +150,22 @@ pub async fn start_download(
     // (it uses the user's cookies/wrapper auth to determine the real storefront)
     // but structurally required for GAMDL's URL regex to match.
     let mut request = request;
+
+    // Validate all URLs belong to supported domains (#459).
+    // Reject any URL that doesn't match Apple Music, Apple Music Classical,
+    // or legacy iTunes domains. Prevents passing arbitrary URLs to GAMDL.
+    for url in &request.urls {
+        let lower = url.to_lowercase();
+        let is_supported = lower.contains("music.apple.com")
+            || lower.contains("classical.apple.com")
+            || lower.contains("itunes.apple.com");
+        if !is_supported && (lower.starts_with("http://") || lower.starts_with("https://")) {
+            return Err(format!(
+                "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, and iTunes URLs are supported."
+            ));
+        }
+    }
+
     let original_urls = request.urls.clone();
     request.urls = request
         .urls
