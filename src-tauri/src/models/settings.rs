@@ -149,6 +149,38 @@ impl Default for CompanionMode {
     }
 }
 
+/// Filename for saved cover art images (without extension).
+///
+/// GAMDL writes `Cover.<ext>` by default. MeedyaDL renames the file after
+/// download to match this setting. Default: `FrontCover` for consistency
+/// with animated artwork naming (FrontCover.mp4, PortraitCover.mp4).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverArtName {
+    /// Keep GAMDL's default filename: `Cover.<ext>`
+    Cover,
+    /// Rename to `FrontCover.<ext>` (consistent with animated artwork)
+    FrontCover,
+    /// Rename to `Folder.<ext>` (Windows Media Player convention)
+    Folder,
+}
+
+impl CoverArtName {
+    /// Returns the filename stem (without extension) for this cover art name.
+    #[must_use]
+    pub fn to_filename_stem(&self) -> &str {
+        match self {
+            Self::Cover => "Cover",
+            Self::FrontCover => "FrontCover",
+            Self::Folder => "Folder",
+        }
+    }
+}
+
+fn default_cover_art_name() -> CoverArtName {
+    CoverArtName::FrontCover
+}
+
 // ============================================================
 // Per-service settings (#319)
 // ============================================================
@@ -495,15 +527,25 @@ pub struct AppSettings {
     // ================================================================
     // Lyrics
     // ================================================================
-    /// When enabled, ensures that lyrics are both embedded in the audio
-    /// file's metadata tags AND saved as a sidecar file (LRC/SRT/TTML).
-    /// This provides maximum compatibility: embedded lyrics for players
-    /// that support them, sidecar files for those that don't. When enabled,
-    /// this overrides `no_synced_lyrics` (forcing sidecar creation) and
-    /// removes `"lyrics"` from `exclude_tags` (forcing metadata embedding).
-    /// When disabled, lyrics behavior is controlled independently by
-    /// `no_synced_lyrics`, `synced_lyrics_format`, and `exclude_tags`.
+    /// When enabled, lyrics/captions are embedded in the audio file's
+    /// metadata tags (`©lyr` atom for M4A). This removes `"lyrics"` from
+    /// `exclude_tags` in merge_options so GAMDL embeds them, and also
+    /// triggers MeedyaDL's Enhanced LRC embedding in the enrichment pipeline.
+    ///
+    /// When disabled, lyrics are still downloaded as sidecar files (if
+    /// `keep_lyrics_sidecar` is true) but not embedded in the audio.
     pub embed_lyrics_and_sidecar: bool,
+
+    /// When enabled alongside `embed_lyrics_and_sidecar`, sidecar lyrics
+    /// files (LRC/SRT/TTML) are kept on disk after embedding. When disabled,
+    /// sidecar files are still created during download (GAMDL needs them)
+    /// but could be cleaned up. Currently defaults to true for maximum
+    /// player compatibility.
+    ///
+    /// Only meaningful when `embed_lyrics_and_sidecar` is true. When embed
+    /// is off, sidecar behavior is controlled by `no_synced_lyrics`.
+    #[serde(default = "default_true")]
+    pub keep_lyrics_sidecar: bool,
 
     /// Default format for synced lyrics files. See `LyricsFormat` in
     /// `gamdl_options.rs`. Maps to `GamdlOptions::synced_lyrics_format`.
@@ -618,6 +660,13 @@ pub struct AppSettings {
     /// Music's CDN returns what it has (typically up to ~3000x3000).
     /// Maps to `GamdlOptions::cover_size` / GAMDL `--cover-size`.
     pub cover_size: u32,
+
+    /// Filename for the saved cover art image (without extension). GAMDL
+    /// writes `Cover.<ext>` by default; MeedyaDL renames the file after
+    /// download to match this setting. Default: `FrontCover` for consistency
+    /// with animated artwork naming (FrontCover.mp4). (#448)
+    #[serde(default = "default_cover_art_name")]
+    pub cover_art_name: CoverArtName,
 
     // ================================================================
     // Animated Artwork (Motion Cover Art)
@@ -1183,9 +1232,10 @@ impl Default for AppSettings {
             musicbrainz_lookup: false,
 
             // --- Lyrics ---
-            // Enabled by default: embed lyrics in audio metadata AND keep
-            // sidecar files for maximum player compatibility.
+            // Enabled by default: embed lyrics in audio metadata.
             embed_lyrics_and_sidecar: true,
+            // Keep sidecar files alongside embedded lyrics by default.
+            keep_lyrics_sidecar: true,
             // TTML is the primary format because it preserves Apple Music's
             // word-level timing data for Enhanced LRC conversion.
             synced_lyrics_format: LyricsFormat::Ttml,
@@ -1225,6 +1275,9 @@ impl Default for AppSettings {
             // CDN. The CDN returns the largest version it has (typically 3000x3000),
             // so this effectively means "give me the best you have".
             cover_size: 10000,
+            // Rename GAMDL's "Cover" to "FrontCover" for consistency with
+            // animated artwork (FrontCover.mp4, PortraitCover.mp4).
+            cover_art_name: CoverArtName::FrontCover,
 
             // --- Animated artwork ---
             // Enabled by default (#449): animated artwork is downloaded when
