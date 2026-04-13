@@ -8824,9 +8824,16 @@ mod tests {
         std::fs::create_dir_all(&album).unwrap();
         std::fs::write(album.join("01 Track.m4a"), b"fake").unwrap();
 
-        // Hints with different casing
+        // Hints with different casing — on case-insensitive filesystems (macOS)
+        // the original-cased path is found directly; on case-sensitive (Linux)
+        // the case-insensitive fallback finds it. Either way, the paths should
+        // match when compared case-insensitively.
         let result = find_album_directory(base.path(), Some("blue"), Some("too close - ep"));
-        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+        assert!(result.is_some(), "should find album directory");
+        assert_eq!(
+            result.unwrap().to_lowercase(),
+            album.to_string_lossy().to_string().to_lowercase()
+        );
     }
 
     #[test]
