@@ -491,28 +491,6 @@ fn normalize_url_for_dedup(url: &str) -> String {
     )
 }
 
-/// Checks if the given path contains any .m4a or .m4v audio/video files.
-fn has_audio_files(dir: &std::path::Path) -> bool {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("m4a") || ext.eq_ignore_ascii_case("m4v") {
-                        return true;
-                    }
-                }
-            } else if path.is_dir() {
-                // Recurse into subdirectories (GAMDL creates Artist/Album/ structure)
-                if has_audio_files(&path) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 /// Finds the deepest (leaf) subdirectory containing audio files (.m4a/.m4v).
 ///
 /// GAMDL creates an `Artist/Album/` directory structure under the base output
