@@ -4809,6 +4809,50 @@ pub fn process_queue(
                             // with animated artwork FrontCover.mp4/PortraitCover.mp4).
                             rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
 
+                            // --- Step 1 supplement: iTunes Lookup API enrichment (#454) ---
+                            // Fetch supplementary metadata from the public iTunes API (no auth).
+                            // Provides fields not available in the Apple Music API: price,
+                            // currency, country, disc count. Also serves as a fallback when
+                            // Apple Music credentials are not configured.
+                            {
+                                let album_id = album_metadata
+                                    .as_ref()
+                                    .map(|m| m.album_id.clone())
+                                    .or_else(|| {
+                                        enrich_urls.iter()
+                                            .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                            .map(|p| p.album_id)
+                                    });
+
+                                if let Some(aid) = album_id {
+                                    match super::apple_music_api::fetch_itunes_lookup(&aid).await {
+                                        Ok(Some(itunes_tracks)) => {
+                                            let count = super::metadata_tag_service::apply_itunes_supplementary_tags(
+                                                &album_dir,
+                                                &itunes_tracks,
+                                            );
+                                            if count > 0 {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("iTunes API: enriched {count} file(s) with supplementary metadata (price, country, disc count)"),
+                                                );
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "iTunes API: album not found in iTunes catalog",
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::debug!("iTunes Lookup failed for {enrich_dl_id}: {e}");
+                                        }
+                                    }
+                                }
+                            }
+
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
                             // response to a JSON file in the album output directory. This lets
