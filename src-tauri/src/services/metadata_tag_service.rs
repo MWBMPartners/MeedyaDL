@@ -670,15 +670,28 @@ async fn enrich_single_file(
             // match the API response, skip API metadata to prevent cross-
             // contamination between concurrent downloads.
             let file_album = tag.album().map(|s| s.to_string());
+            let file_artist = tag.album_artist().or_else(|| tag.artist()).map(|s| s.to_string());
             let api_album = metadata.album_name.as_deref();
+            let api_artist = metadata.artist_name.as_deref();
             let album_matches = match (&file_album, api_album) {
                 (Some(file_name), Some(api_name)) => {
                     // Case-insensitive comparison — Apple Music sometimes
                     // normalises casing differently than GAMDL
                     file_name.to_lowercase() == api_name.to_lowercase()
                 }
-                // If either is missing, allow enrichment (best effort)
-                _ => true,
+                (None, Some(_)) => {
+                    // File has no album tag — try artist name as fallback guard.
+                    // If artist names also differ, this file likely belongs to
+                    // a different download (#452).
+                    match (&file_artist, api_artist) {
+                        (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
+                        // If both album AND artist are missing from file, allow
+                        // enrichment (fresh file with minimal tags)
+                        _ => true,
+                    }
+                }
+                // API has no album name — allow enrichment
+                (_, None) => true,
             };
 
             if !album_matches {
