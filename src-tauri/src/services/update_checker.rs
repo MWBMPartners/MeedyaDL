@@ -119,6 +119,14 @@ pub struct UpdateCheckResult {
     /// Non-fatal errors that occurred during individual checks.
     /// For example, a network timeout on `PyPI` doesn't prevent checking GitHub.
     pub errors: Vec<String>,
+    /// When running a pre-release, the latest stable version available for
+    /// rollback (#267). `None` when running a stable version or if no stable
+    /// release exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollback_version: Option<String>,
+    /// Tag name for the rollback release (e.g., "v0.32.1").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollback_tag: Option<String>,
 }
 
 // ============================================================
@@ -513,11 +521,65 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
         .iter()
         .any(|c| c.update_available && c.is_compatible);
 
+    // Check for rollback opportunity (#267): when the current version is a
+    // pre-release, fetch the latest stable release for rollback.
+    let current_version = app.package_info().version.to_string();
+    let is_pre = current_version.contains('-'); // e.g., "0.33.0-rc.1"
+    let (rollback_version, rollback_tag) = if is_pre {
+        match fetch_latest_stable_release().await {
+            Ok(Some((ver, tag))) => (Some(ver), Some(tag)),
+            _ => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     UpdateCheckResult {
         checked_at: chrono::Utc::now().to_rfc3339(),
         has_updates,
         components,
         errors,
+        rollback_version,
+        rollback_tag,
+    }
+}
+
+/// Fetch the latest stable (non-pre-release) GitHub release (#267).
+async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, String> {
+    let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases/latest";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(url)
+        .header("User-Agent", "meedyadl")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    let tag = body
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let version = tag
+        .as_ref()
+        .map(|t| t.trim_start_matches('v').to_string());
+
+    match (version, tag) {
+        (Some(v), Some(t)) => Ok(Some((v, t))),
+        _ => Ok(None),
     }
 }
 
