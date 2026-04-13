@@ -839,7 +839,7 @@ fn setup_linux_rendering_env() {}
 /// - `generate_context!`: <https://docs.rs/tauri/latest/tauri/macro.generate_context.html>
 /// - Plugin system: <https://v2.tauri.app/develop/plugins/>
 /// - Calling Rust from JS: <https://v2.tauri.app/develop/calling-rust/>
-///
+
 // Allow large_stack_frames: `tauri::generate_context!()` allocates ~740KB on the
 // stack at compile time. This is idiomatic Tauri code and cannot be avoided without
 // boxing the entire context, which Tauri's API does not support.
