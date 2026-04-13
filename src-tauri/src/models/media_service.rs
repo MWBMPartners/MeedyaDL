@@ -84,7 +84,7 @@ pub enum MediaServiceId {
 
     /// BBC iPlayer -- will use get_iplayer with yt-dlp fallback.
     /// Region-restricted to the UK.
-    BbcIPlayer,
+    BBCiPlayer,
 }
 
 /// Formats the service ID as a kebab-case platform identifier string
@@ -100,7 +100,7 @@ impl std::fmt::Display for MediaServiceId {
             Self::YouTubeMusic => "youtube-music",
             Self::YouTube => "youtube",
             Self::Spotify => "spotify",
-            Self::BbcIPlayer => "bbc-iplayer",
+            Self::BBCiPlayer => "bbc-iplayer",
         };
         write!(f, "{id}")
     }
@@ -118,7 +118,7 @@ impl MediaServiceId {
             Self::YouTubeMusic => "YouTube Music",
             Self::YouTube => "YouTube",
             Self::Spotify => "Spotify",
-            Self::BbcIPlayer => "BBC iPlayer",
+            Self::BBCiPlayer => "BBC iPlayer",
         }
     }
 
@@ -137,7 +137,7 @@ impl MediaServiceId {
             Self::YouTubeMusic => &["music.youtube.com"],
             Self::YouTube => &["youtube.com", "youtu.be"],
             Self::Spotify => &["open.spotify.com"],
-            Self::BbcIPlayer => &["bbc.co.uk/iplayer", "bbc.co.uk/sounds"],
+            Self::BBCiPlayer => &["bbc.co.uk/iplayer", "bbc.co.uk/sounds"],
         }
     }
 
@@ -151,7 +151,7 @@ impl MediaServiceId {
         match self {
             Self::AppleMusic => "gamdl",
             Self::YouTubeMusic => "gytmdl",
-            Self::YouTube | Self::BbcIPlayer => "yt-dlp",
+            Self::YouTube | Self::BBCiPlayer => "yt-dlp",
             Self::Spotify => "votify",
         }
     }
@@ -184,7 +184,7 @@ impl MediaServiceId {
         // because each service has unique, non-overlapping domains.
         // Order matters: YouTubeMusic must come before YouTube since
         // music.youtube.com contains "youtube.com".
-        for service in [Self::AppleMusic, Self::YouTubeMusic, Self::YouTube, Self::Spotify, Self::BbcIPlayer] {
+        for service in [Self::AppleMusic, Self::YouTubeMusic, Self::YouTube, Self::Spotify, Self::BBCiPlayer] {
             // Check each domain pattern for this service.
             for domain in service.url_domains() {
                 if url_lower.contains(domain) {
@@ -467,11 +467,11 @@ mod tests {
         // BBC iPlayer
         assert_eq!(
             MediaServiceId::from_url("https://www.bbc.co.uk/iplayer/episode/b0000001"),
-            Some(MediaServiceId::BbcIPlayer)
+            Some(MediaServiceId::BBCiPlayer)
         );
         assert_eq!(
             MediaServiceId::from_url("https://www.bbc.co.uk/sounds/play/m001234"),
-            Some(MediaServiceId::BbcIPlayer)
+            Some(MediaServiceId::BBCiPlayer)
         );
         // Unknown
         assert_eq!(MediaServiceId::from_url("https://example.com/music"), None);
@@ -485,7 +485,7 @@ mod tests {
         assert_eq!(MediaServiceId::YouTubeMusic.display_name(), "YouTube Music");
         assert_eq!(MediaServiceId::YouTube.display_name(), "YouTube");
         assert_eq!(MediaServiceId::Spotify.display_name(), "Spotify");
-        assert_eq!(MediaServiceId::BbcIPlayer.display_name(), "BBC iPlayer");
+        assert_eq!(MediaServiceId::BBCiPlayer.display_name(), "BBC iPlayer");
     }
 
     /// Verifies that `pip_package()` returns the correct PyPI package
@@ -497,6 +497,6 @@ mod tests {
         assert_eq!(MediaServiceId::YouTubeMusic.pip_package(), "gytmdl");
         assert_eq!(MediaServiceId::YouTube.pip_package(), "yt-dlp");
         assert_eq!(MediaServiceId::Spotify.pip_package(), "votify");
-        assert_eq!(MediaServiceId::BbcIPlayer.pip_package(), "yt-dlp");
+        assert_eq!(MediaServiceId::BBCiPlayer.pip_package(), "yt-dlp");
     }
 }

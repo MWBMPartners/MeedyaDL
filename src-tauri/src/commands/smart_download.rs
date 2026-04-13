@@ -52,7 +52,7 @@ pub async fn check_cross_platform(
         "AppleMusic" => MediaServiceId::AppleMusic,
         "YouTube" => MediaServiceId::YouTube,
         "YouTubeMusic" => MediaServiceId::YouTubeMusic,
-        "BBCiPlayer" => MediaServiceId::BbcIPlayer,
+        "BBCiPlayer" => MediaServiceId::BBCiPlayer,
         "Spotify" => MediaServiceId::Spotify,
         _ => return Err(format!("Unknown service: {}", service_id)),
     };
