@@ -1287,7 +1287,10 @@ impl Default for AppSettings {
             // Show animated artwork files by default (#449) so users can see
             // FrontCover.mp4/PortraitCover.mp4 in their album folders.
             hide_animated_artwork: false,
-            artist_promo_video_enabled: false,
+            // Enabled by default (#453): downloads artist promo video to artist
+            // folder when available. Gracefully skips when no credentials or
+            // no promo video exists. Skipped for compilation albums.
+            artist_promo_video_enabled: true,
             musickit_team_id: None,
             musickit_key_id: None,
 

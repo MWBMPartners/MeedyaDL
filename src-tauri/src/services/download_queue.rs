@@ -5364,60 +5364,78 @@ pub fn process_queue(
                             // Downloads the artist's animated background video from Apple Music
                             // and saves it as ArtistCover.mp4 in the artist folder (parent of
                             // the album directory). Uses the artist_id from album metadata.
+                            // Skipped for compilation albums (Various Artists) where there is
+                            // no single primary artist (#453).
                             if enrich_settings.artist_promo_video_enabled {
-                                // Extract artist ID and storefront from album metadata or URL
-                                let artist_id = album_metadata
+                                // Skip for compilation albums — no meaningful artist to fetch
+                                let is_compilation = album_metadata
                                     .as_ref()
-                                    .and_then(|m| m.artist_id.clone());
-                                let storefront = enrich_urls
-                                    .iter()
-                                    .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
-                                    .map(|p| p.storefront)
-                                    .unwrap_or_else(|| enrich_settings.storefront.clone());
+                                    .and_then(|m| m.is_compilation)
+                                    .unwrap_or(false);
 
-                                if let Some(aid) = artist_id {
+                                if is_compilation {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
-                                        "Downloading artist promo video...",
+                                        "Artist promo video skipped (compilation album)",
                                     );
-                                    match super::animated_artwork_service::download_artist_promo_video(
-                                        &enrich_app,
-                                        &aid,
-                                        &storefront,
-                                        &album_dir,
-                                    )
-                                    .await
-                                    {
-                                        Ok(true) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "Artist promo video downloaded",
-                                            );
-                                        }
-                                        Ok(false) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "No artist promo video available (or already downloaded)",
-                                            );
-                                        }
-                                        Err(e) => {
-                                            log::debug!(
-                                                "Artist promo video failed for {enrich_dl_id}: {e}"
-                                            );
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("Artist promo video skipped: {e}"),
-                                            );
-                                        }
-                                    }
                                 } else {
-                                    log::debug!(
-                                        "No artist_id available for {enrich_dl_id}, skipping artist promo video"
-                                    );
+                                    // Extract artist ID and storefront from album metadata or URL
+                                    let artist_id = album_metadata
+                                        .as_ref()
+                                        .and_then(|m| m.artist_id.clone());
+                                    let storefront = enrich_urls
+                                        .iter()
+                                        .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                        .map(|p| p.storefront)
+                                        .unwrap_or_else(|| enrich_settings.storefront.clone());
+
+                                    if let Some(aid) = artist_id {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "Downloading artist promo video...",
+                                        );
+                                        match super::animated_artwork_service::download_artist_promo_video(
+                                            &enrich_app,
+                                            &aid,
+                                            &storefront,
+                                            &album_dir,
+                                        )
+                                        .await
+                                        {
+                                            Ok(true) => {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    "Artist promo video downloaded",
+                                                );
+                                            }
+                                            Ok(false) => {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    "No artist promo video available (or already downloaded)",
+                                                );
+                                            }
+                                            Err(e) => {
+                                                log::debug!(
+                                                    "Artist promo video failed for {enrich_dl_id}: {e}"
+                                                );
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("Artist promo video skipped: {e}"),
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "Artist promo video skipped (no artist ID in metadata)",
+                                        );
+                                    }
                                 }
                             }
 

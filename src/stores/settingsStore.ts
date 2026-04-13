@@ -127,7 +127,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
   hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)
-  artist_promo_video_enabled: false, // Download artist promo video to artist folder
+  artist_promo_video_enabled: true, // Download artist promo video to artist folder (#453)
   musickit_team_id: null, // Apple Developer Team ID (10-char)
   musickit_key_id: null, // MusicKit private key identifier (10-char)
   // Metadata enrichment (opt-in post-download processing)
