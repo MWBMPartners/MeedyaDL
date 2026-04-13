@@ -1028,6 +1028,11 @@ async fn check_github_tool_update(
         latest_version,
         update_available,
         is_compatible: true,
+        description: None,
+        release_url: None,
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
     })
 }
 
