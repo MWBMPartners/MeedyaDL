@@ -38,7 +38,7 @@ import { describe, it, expect } from 'vitest';
  * Import the functions under test from the url-parser module.
  * These are the public API of the parser that components consume.
  */
-import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel } from './url-parser';
+import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel, detectService, parseMediaUrl, isSupportedUrl } from './url-parser';
 
 /**
  * Test suite for `isAppleMusicUrl()` - domain validation.
@@ -257,5 +257,85 @@ describe('parseAppleMusicUrl - library URLs', () => {
     const result = parseAppleMusicUrl('https://music.apple.com/library/recently-added');
     expect(result.isValid).toBe(true);
     expect(result.contentType).toBe('library');
+  });
+});
+
+// ============================================================
+// Multi-service URL detection (#232)
+// ============================================================
+
+describe('detectService', () => {
+  it('detects Apple Music URLs', () => {
+    expect(detectService('https://music.apple.com/us/album/test/123')).toBe('apple-music');
+  });
+
+  it('detects Apple Music Classical URLs', () => {
+    expect(detectService('https://classical.apple.com/us/album/test/123')).toBe('apple-music');
+  });
+
+  it('detects iTunes URLs', () => {
+    expect(detectService('https://itunes.apple.com/lookup?id=123')).toBe('apple-music');
+  });
+
+  it('detects YouTube Music URLs', () => {
+    expect(detectService('https://music.youtube.com/watch?v=abc123')).toBe('youtube-music');
+  });
+
+  it('detects YouTube URLs', () => {
+    expect(detectService('https://www.youtube.com/watch?v=abc123')).toBe('youtube');
+  });
+
+  it('detects Spotify URLs', () => {
+    expect(detectService('https://open.spotify.com/album/abc123')).toBe('spotify');
+  });
+
+  it('detects BBC iPlayer URLs', () => {
+    expect(detectService('https://www.bbc.co.uk/iplayer/episode/abc123')).toBe('bbc-iplayer');
+  });
+
+  it('returns null for unknown URLs', () => {
+    expect(detectService('https://example.com/music')).toBeNull();
+  });
+
+  it('is case-insensitive', () => {
+    expect(detectService('https://MUSIC.APPLE.COM/us/album/test/123')).toBe('apple-music');
+  });
+});
+
+describe('isSupportedUrl', () => {
+  it('returns true for Apple Music', () => {
+    expect(isSupportedUrl('https://music.apple.com/us/album/test/123')).toBe(true);
+  });
+
+  it('returns false for unknown domains', () => {
+    expect(isSupportedUrl('https://example.com')).toBe(false);
+  });
+});
+
+describe('parseMediaUrl', () => {
+  it('parses Apple Music album URL with content type', () => {
+    const result = parseMediaUrl('https://music.apple.com/us/album/test/123');
+    expect(result.service).toBe('apple-music');
+    expect(result.contentType).toBe('album');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('parses Spotify URL without content type', () => {
+    const result = parseMediaUrl('https://open.spotify.com/album/abc123');
+    expect(result.service).toBe('spotify');
+    expect(result.contentType).toBeNull();
+    expect(result.isValid).toBe(true);
+  });
+
+  it('marks unknown URLs as invalid', () => {
+    const result = parseMediaUrl('https://example.com/music');
+    expect(result.service).toBeNull();
+    expect(result.isValid).toBe(false);
+  });
+
+  it('trims whitespace', () => {
+    const result = parseMediaUrl('  https://music.apple.com/us/album/test/123  ');
+    expect(result.service).toBe('apple-music');
+    expect(result.isValid).toBe(true);
   });
 });
