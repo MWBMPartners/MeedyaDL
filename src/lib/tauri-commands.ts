@@ -736,6 +736,8 @@ export interface ScannedManifest {
   current_codec: string | null;
   /** Number of audio files in the album directory */
   audio_file_count: number;
+  /** Apple Music lastModifiedDate from manifest — for content refresh detection (#380) */
+  last_modified_date: string | null;
 }
 
 /**
