@@ -695,7 +695,7 @@ pub struct AppSettings {
     pub hide_animated_artwork: bool,
 
     /// When enabled, downloads the artist's promotional video (editorial
-    /// motion art) from Apple Music and saves it as `ArtistCover.mp4` in
+    /// motion art) from Apple Music and saves it as `ArtistSpotlightCover.mp4` in
     /// the artist folder (parent of the album directory). These are the
     /// animated backgrounds shown on Apple Music artist pages. Requires
     /// valid `MusicKit` credentials. Default: `false`.

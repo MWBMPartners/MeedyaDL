@@ -1623,13 +1623,7 @@ pub fn apply_itunes_supplementary_tags(
         let mut wrote_any = false;
 
         // Write iTunes-exclusive fields as supplementary atoms
-        if let Some(ref currency) = itunes.currency {
-            tag.set_data(
-                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "Currency"),
-                mp4ameta::Data::Utf8(currency.clone()),
-            );
-            wrote_any = true;
-        }
+        // Note: Currency excluded (locale-dependent, changes with storefront)
         if let Some(ref country) = itunes.country {
             tag.set_data(
                 mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "Country"),
@@ -1637,24 +1631,9 @@ pub fn apply_itunes_supplementary_tags(
             );
             wrote_any = true;
         }
-        if let Some(price) = itunes.track_price {
-            if price >= 0.0 {
-                tag.set_data(
-                    mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "TrackPrice"),
-                    mp4ameta::Data::Utf8(format!("{price:.2}")),
-                );
-                wrote_any = true;
-            }
-        }
-        if let Some(price) = itunes.collection_price {
-            if price >= 0.0 {
-                tag.set_data(
-                    mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "CollectionPrice"),
-                    mp4ameta::Data::Utf8(format!("{price:.2}")),
-                );
-                wrote_any = true;
-            }
-        }
+        // Note: TrackPrice/CollectionPrice/Currency excluded from file metadata
+        // because they are locale-dependent and change over time. Available in
+        // the ItunesTrackResult struct for future use if needed.
         if let Some(disc_count) = itunes.disc_count {
             tag.set_data(
                 mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "DiscCount"),

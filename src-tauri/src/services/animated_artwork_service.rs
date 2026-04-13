@@ -445,7 +445,7 @@ pub async fn hide_file(file_path: &Path) -> Result<(), String> {
 /// Download an artist's promotional video to the artist folder.
 ///
 /// Queries the Apple Music API for the artist's `editorialVideo` and
-/// downloads the HLS stream as `ArtistCover.mp4` to the artist directory
+/// downloads the HLS stream as `ArtistSpotlightCover.mp4` to the artist directory
 /// (the parent of the album directory).
 ///
 /// # Arguments
@@ -479,7 +479,7 @@ pub async fn download_artist_promo_video(
         }
     };
 
-    let dest = artist_dir.join("ArtistCover.mp4");
+    let dest = artist_dir.join("ArtistSpotlightCover.mp4");
 
     // Skip if the promo video already exists (idempotent — don't re-download
     // on every album download from the same artist).
@@ -530,7 +530,7 @@ pub async fn download_artist_promo_video(
         None => return Ok(false),
     };
 
-    // Download the HLS stream to ArtistCover.mp4
+    // Download the HLS stream to ArtistSpotlightCover.mp4
     log::info!(
         "Downloading promo video for {} to {}",
         promo.artist_name,
@@ -547,7 +547,7 @@ pub async fn download_artist_promo_video(
     // Hide the file if the user wants animated artwork hidden
     if settings.hide_animated_artwork {
         if let Err(e) = hide_file(&dest).await {
-            log::debug!("Failed to hide ArtistCover.mp4: {e}");
+            log::debug!("Failed to hide ArtistSpotlightCover.mp4: {e}");
         }
     }
 

@@ -4715,6 +4715,48 @@ pub fn process_queue(
                                     album_dir,
                                 ),
                             );
+                            // --- Step 0: iTunes Lookup API enrichment (#454) ---
+                            // Run FIRST (no auth required). Writes baseline metadata
+                            // (country, disc count) that Apple Music API can overwrite.
+                            {
+                                let album_id = enrich_urls.iter()
+                                    .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                    .map(|p| p.album_id);
+
+                                if let Some(aid) = album_id {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "iTunes API: fetching supplementary metadata...",
+                                    );
+                                    match super::apple_music_api::fetch_itunes_lookup(&aid).await {
+                                        Ok(Some(itunes_tracks)) => {
+                                            let count = super::metadata_tag_service::apply_itunes_supplementary_tags(
+                                                &album_dir,
+                                                &itunes_tracks,
+                                            );
+                                            if count > 0 {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("iTunes API: enriched {count} file(s) with supplementary metadata (country, disc count)"),
+                                                );
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "iTunes API: album not found in iTunes catalog",
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::debug!("iTunes Lookup failed for {enrich_dl_id}: {e}");
+                                        }
+                                    }
+                                }
+                            }
+
                             emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
@@ -4808,50 +4850,6 @@ pub fn process_queue(
                             // user's configured name (default: FrontCover for consistency
                             // with animated artwork FrontCover.mp4/PortraitCover.mp4).
                             rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
-
-                            // --- Step 1 supplement: iTunes Lookup API enrichment (#454) ---
-                            // Fetch supplementary metadata from the public iTunes API (no auth).
-                            // Provides fields not available in the Apple Music API: price,
-                            // currency, country, disc count. Also serves as a fallback when
-                            // Apple Music credentials are not configured.
-                            {
-                                let album_id = album_metadata
-                                    .as_ref()
-                                    .map(|m| m.album_id.clone())
-                                    .or_else(|| {
-                                        enrich_urls.iter()
-                                            .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
-                                            .map(|p| p.album_id)
-                                    });
-
-                                if let Some(aid) = album_id {
-                                    match super::apple_music_api::fetch_itunes_lookup(&aid).await {
-                                        Ok(Some(itunes_tracks)) => {
-                                            let count = super::metadata_tag_service::apply_itunes_supplementary_tags(
-                                                &album_dir,
-                                                &itunes_tracks,
-                                            );
-                                            if count > 0 {
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!("iTunes API: enriched {count} file(s) with supplementary metadata (price, country, disc count)"),
-                                                );
-                                            }
-                                        }
-                                        Ok(None) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "iTunes API: album not found in iTunes catalog",
-                                            );
-                                        }
-                                        Err(e) => {
-                                            log::debug!("iTunes Lookup failed for {enrich_dl_id}: {e}");
-                                        }
-                                    }
-                                }
-                            }
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
@@ -5485,7 +5483,7 @@ pub fn process_queue(
 
                             // --- Step 3b: Artist promo video download (opt-in) ---
                             // Downloads the artist's animated background video from Apple Music
-                            // and saves it as ArtistCover.mp4 in the artist folder (parent of
+                            // and saves it as ArtistSpotlightCover.mp4 in the artist folder (parent of
                             // the album directory). Uses the artist_id from album metadata.
                             // Skipped for compilation albums (Various Artists) where there is
                             // no single primary artist (#453).
@@ -5922,6 +5920,12 @@ pub fn process_queue(
                                 "Download Complete",
                                 "All downloads and processing complete",
                             );
+
+                            // Cascade: process the next item in the queue (#455).
+                            // Moved inside completion task so the entire pipeline
+                            // (download + enrichment + companions) completes before
+                            // the next item starts. Prevents metadata cross-contamination.
+                            process_queue(completion_app, completion_queue).await;
                         });
                     }
                 }
@@ -5939,6 +5943,8 @@ pub fn process_queue(
                         save_queue_to_disk(&app_clone, &queue_clone).await;
                         log::info!("Download {dl_id} cancelled by user");
                         emit_download_log(&app_clone, &dl_id, "Download cancelled by user");
+                        // Cascade on cancel (#455)
+                        process_queue(app_clone, queue_clone).await;
                         return;
                     }
 
@@ -6275,14 +6281,12 @@ pub fn process_queue(
                                 "Companion downloads skipped — network unavailable",
                             );
                         }
+
+                        // Cascade on error path (#455): process next item after failure
+                        process_queue(app_clone.clone(), queue_clone.clone()).await;
                     }
                 }
             }
-
-            // Cascade: process the next item in the queue.
-            // This recursive call ensures continuous queue processing — when one
-            // download finishes, the next one starts automatically.
-            process_queue(app_clone, queue_clone).await;
         });
     }) // close Box::pin(async move {
 }
