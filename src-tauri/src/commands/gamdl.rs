@@ -1005,6 +1005,10 @@ pub struct ScannedManifest {
     pub downloaded_at: Option<String>,
     /// Track count from the manifest
     pub track_count: usize,
+    /// Current codec detected from files on disk (e.g., "aac", "alac") (#380)
+    pub current_codec: Option<String>,
+    /// Number of audio files in the album directory
+    pub audio_file_count: usize,
 }
 
 /// Recursively scan a directory for `manifest.meedyadl` files and return
@@ -1143,6 +1147,10 @@ fn scan_dir_for_manifests_recursive(
             .map(|s| s.tracks.len())
             .unwrap_or(0);
 
+        // Detect current codec from the first M4A file in the album dir (#380).
+        // Reads the MeedyaMeta:SourceCodec or com.apple.iTunes:isLossless tag.
+        let (current_codec, audio_file_count) = detect_album_codec(album_dir);
+
         results.push(ScannedManifest {
             manifest_path: path.to_string_lossy().to_string(),
             album_dir: album_dir.to_string_lossy().to_string(),
@@ -1152,11 +1160,75 @@ fn scan_dir_for_manifests_recursive(
             album: album_name,
             downloaded_at: source.map(|s| s.downloaded_at.clone()),
             track_count,
+            current_codec,
+            audio_file_count,
         });
     }
 }
 
 /// Checks whether a URL was previously downloaded and returns change
+/// Detect the codec of the first M4A file in an album directory (#380).
+///
+/// Reads the `MeedyaMeta:SourceCodec` or `com.apple.iTunes:isLossless` tag
+/// from the first `.m4a` file found. Returns `(codec_name, audio_file_count)`.
+fn detect_album_codec(album_dir: &std::path::Path) -> (Option<String>, usize) {
+    let mut count = 0;
+    let mut codec: Option<String> = None;
+
+    let Ok(entries) = std::fs::read_dir(album_dir) else {
+        return (None, 0);
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !ext.eq_ignore_ascii_case("m4a") && !ext.eq_ignore_ascii_case("m4v") {
+            continue;
+        }
+        count += 1;
+
+        // Only detect codec from the first file
+        if codec.is_some() {
+            continue;
+        }
+
+        if let Ok(tag) = mp4ameta::Tag::read_from_path(&path) {
+            // Try MeedyaMeta:SourceCodec first (written by MeedyaDL enrichment)
+            let source_codec = tag
+                .strings_of(&mp4ameta::FreeformIdent::new_static(
+                    "MeedyaMeta",
+                    "SourceCodec",
+                ))
+                .next()
+                .map(String::from);
+
+            if let Some(c) = source_codec {
+                codec = Some(c);
+            } else {
+                // Fallback: check isLossless tag
+                let is_lossless = tag
+                    .strings_of(&mp4ameta::FreeformIdent::new_static(
+                        "com.apple.iTunes",
+                        "isLossless",
+                    ))
+                    .next()
+                    .map(|s| s.to_string());
+
+                codec = match is_lossless.as_deref() {
+                    Some("true") => Some("alac".to_string()),
+                    Some("false") => Some("aac".to_string()),
+                    _ => None,
+                };
+            }
+        }
+    }
+
+    (codec, count)
+}
+
 /// detection metadata for smart re-download detection (#263).
 ///
 /// Looks up the URL in download history. If found, returns the download

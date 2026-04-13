@@ -732,6 +732,10 @@ export interface ScannedManifest {
   downloaded_at: string | null;
   /** Track count from the manifest */
   track_count: number;
+  /** Current codec detected from files on disk (e.g., "aac", "alac") (#380) */
+  current_codec: string | null;
+  /** Number of audio files in the album directory */
+  audio_file_count: number;
 }
 
 /**
