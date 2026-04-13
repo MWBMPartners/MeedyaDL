@@ -313,6 +313,7 @@ pub fn open_login_window(app: &AppHandle) -> Result<(), String> {
 /// # Returns
 /// * `Ok(CookieImportResult)` - Extraction result with cookie counts and path.
 /// * `Err(String)` - If the login window isn't open or extraction failed.
+///
 // Tauri cookie API should be called from async context on Windows
 // (WebView2 deadlock avoidance), so we keep the async signature.
 #[allow(clippy::unused_async)]
@@ -465,6 +466,7 @@ pub fn detect_storefront() -> Option<String> {
 /// * `Ok(Some(result))` - Auth cookies found, extracted, and saved.
 /// * `Ok(None)` - No auth cookies found yet (login not complete).
 /// * `Err(String)` - Extraction failed.
+///
 // Tauri cookie API should be called from async context on Windows
 // (WebView2 deadlock avoidance), so we keep the async signature.
 #[allow(clippy::unused_async)]

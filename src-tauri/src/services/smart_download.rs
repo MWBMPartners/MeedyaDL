@@ -145,7 +145,7 @@ pub fn get_service_quality_tier(
             // YouTube Music audio extraction is lossy (AAC/Opus ~256kbps at best)
             QualityTier::Lossy256
         }
-        MediaServiceId::BbcIPlayer => {
+        MediaServiceId::BBCiPlayer => {
             // BBC iPlayer audio is typically AAC at 128-320kbps
             QualityTier::Lossy256
         }
