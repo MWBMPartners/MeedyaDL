@@ -42,6 +42,7 @@ Update CHANGELOG.md and help/faq.md references from the old
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.32.1] - 2026-04-11
 
