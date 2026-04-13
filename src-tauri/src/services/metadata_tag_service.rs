@@ -1575,6 +1575,113 @@ fn rename_folder_with_advisory(
 
 /// Collect all M4A file paths from the output path.
 ///
+// ============================================================
+// iTunes API Supplementary Tags (#454)
+// ============================================================
+
+/// Apply supplementary metadata from the iTunes Lookup API.
+///
+/// Writes iTunes-exclusive fields (price, currency, country, disc count)
+/// to M4A files as freeform atoms. Only writes fields not already present
+/// from the Apple Music API enrichment. Matches tracks by track number
+/// and disc number.
+///
+/// Returns the number of files enriched.
+pub fn apply_itunes_supplementary_tags(
+    output_path: &str,
+    itunes_tracks: &[apple_music_api::ItunesTrackResult],
+) -> usize {
+    let files = collect_m4a_files(output_path);
+    let mut count = 0;
+
+    for file_path in &files {
+        let tag = match mp4ameta::Tag::read_from_path(file_path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let track_num = tag.track_number();
+        let disc_num = tag.disc_number().unwrap_or(1);
+        drop(tag);
+
+        // Match to iTunes track by track/disc number
+        let matched = itunes_tracks.iter().find(|t| {
+            t.track_number.map(|n| n as u16) == track_num
+                && t.disc_number.unwrap_or(1) as u16 == disc_num
+        });
+
+        let Some(itunes) = matched else {
+            continue;
+        };
+
+        // Re-open for writing
+        let mut tag = match mp4ameta::Tag::read_from_path(file_path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let mut wrote_any = false;
+
+        // Write iTunes-exclusive fields as supplementary atoms
+        if let Some(ref currency) = itunes.currency {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "Currency"),
+                mp4ameta::Data::Utf8(currency.clone()),
+            );
+            wrote_any = true;
+        }
+        if let Some(ref country) = itunes.country {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "Country"),
+                mp4ameta::Data::Utf8(country.clone()),
+            );
+            wrote_any = true;
+        }
+        if let Some(price) = itunes.track_price {
+            if price >= 0.0 {
+                tag.set_data(
+                    mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "TrackPrice"),
+                    mp4ameta::Data::Utf8(format!("{price:.2}")),
+                );
+                wrote_any = true;
+            }
+        }
+        if let Some(price) = itunes.collection_price {
+            if price >= 0.0 {
+                tag.set_data(
+                    mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "CollectionPrice"),
+                    mp4ameta::Data::Utf8(format!("{price:.2}")),
+                );
+                wrote_any = true;
+            }
+        }
+        if let Some(disc_count) = itunes.disc_count {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "DiscCount"),
+                mp4ameta::Data::Utf8(disc_count.to_string()),
+            );
+            wrote_any = true;
+        }
+        if let Some(ref view_url) = itunes.track_view_url {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "iTunesTrackURL"),
+                mp4ameta::Data::Utf8(view_url.clone()),
+            );
+            wrote_any = true;
+        }
+
+        if wrote_any {
+            if let Err(e) = tag.write_to_path(file_path) {
+                log::debug!("Failed to write iTunes tags to {}: {e}", file_path.display());
+            } else {
+                count += 1;
+            }
+        }
+    }
+
+    count
+}
+
 /// Handles both single-file (single-track download) and directory
 /// (album download) cases. For directories, walks recursively to
 /// find M4A files in disc subfolders.
