@@ -328,6 +328,11 @@ pub mod engine_runner;
 /// Used by: `commands/system` (IPC), `download_queue` (engine resolution)
 pub mod engine_registry;
 
+/// Service-agnostic metadata provider trait (#351).
+/// Enables Apple Music, iTunes, Spotify, YouTube etc. to provide metadata
+/// through a common interface for the enrichment pipeline.
+pub mod metadata_provider;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;
