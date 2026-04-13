@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.32.1] - 2026-04-11
+
 ### 🐛 Bug Fixes
 
 - Progress bar icon, caption format, and activity log context (#427, #428, #429)
