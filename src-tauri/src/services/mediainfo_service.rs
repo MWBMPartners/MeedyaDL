@@ -7,6 +7,15 @@
 // which ffprobe's channel-count heuristics cannot reliably achieve. Falls back to ffprobe
 // when MediaInfo is not installed.
 //
+// ## meedya-core Integration (#352)
+//
+// This module is a candidate for migration to the meedya-core `CodecDetector`
+// trait. The current implementation uses direct CLI invocation (MediaInfo +
+// ffprobe); meedya-core would abstract this behind a trait allowing alternative
+// backends (e.g., pure-Rust detection via symphonia, or GStreamer bindings).
+// Migration is low priority since the current implementation is stable and
+// performant.
+//
 // Detection fields:
 //   Atmos:  Format="E-AC-3" + Format_AdditionalFeatures contains "JOC"
 //   AC-3:   Format="AC-3"
