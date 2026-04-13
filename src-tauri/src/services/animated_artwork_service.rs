@@ -126,7 +126,7 @@ pub async fn process_album_artwork(
     let settings = config_service::load_settings(app).unwrap_or_default();
 
     if !settings.animated_artwork_enabled {
-        log::debug!("Animated artwork disabled in settings");
+        log::info!("Animated artwork disabled in settings");
         return Ok(empty_result());
     }
 
@@ -152,7 +152,7 @@ pub async fn process_album_artwork(
     let parsed = match parsed {
         Some(p) if p.content_type == "album" => p,
         _ => {
-            log::debug!("No album URL found in download URLs, skipping animated artwork");
+            log::info!("No album URL found in download URLs, skipping animated artwork");
             return Ok(empty_result());
         }
     };
@@ -165,7 +165,7 @@ pub async fn process_album_artwork(
     )? {
         Some(pair) => pair,
         None => {
-            log::debug!(
+            log::info!(
                 "No MusicKit token available (user creds / embedded / web player), skipping animated artwork"
             );
             return Ok(empty_result());
@@ -223,7 +223,7 @@ pub async fn process_album_artwork_from_metadata(
     // Check if feature is enabled
     let settings = config_service::load_settings(app).unwrap_or_default();
     if !settings.animated_artwork_enabled {
-        log::debug!("Animated artwork disabled in settings");
+        log::info!("Animated artwork disabled in settings");
         return Ok(empty_result());
     }
 
@@ -245,7 +245,7 @@ async fn download_artwork_from_metadata(
 ) -> Result<ArtworkResult, String> {
     // Check if any artwork URLs are available
     if metadata.artwork_square_url.is_none() && metadata.artwork_tall_url.is_none() {
-        log::debug!(
+        log::info!(
             "No animated artwork available for album {}",
             metadata.album_id
         );

@@ -635,8 +635,18 @@ fn write_manifest(
         return;
     }
 
-    let manifest_path = dir.join(".meedyadl");
+    let manifest_path = dir.join("manifest.meedyadl");
     log::info!("Writing manifest to: {}", manifest_path.display());
+
+    // Migration: rename legacy hidden dotfile to visible filename (#447)
+    let legacy_path = dir.join(".meedyadl");
+    if legacy_path.exists() && !manifest_path.exists() {
+        if let Err(e) = std::fs::rename(&legacy_path, &manifest_path) {
+            log::warn!("Failed to migrate legacy .meedyadl to manifest.meedyadl: {e}");
+        } else {
+            log::info!("Migrated legacy .meedyadl → manifest.meedyadl");
+        }
+    }
     let url = urls.first().cloned().unwrap_or_default();
     if url.is_empty() {
         return;
@@ -732,6 +742,42 @@ fn write_manifest(
         }
         Err(e) => {
             log::warn!("Failed to serialise manifest: {e}");
+        }
+    }
+}
+
+/// Rename GAMDL's `Cover.<ext>` to `FrontCover.<ext>` for consistency (#448).
+///
+/// GAMDL hardcodes the static cover art filename as `Cover.jpg` / `Cover.png` /
+/// `Cover.raw`. MeedyaDL's animated artwork service uses `FrontCover.mp4` and
+/// `PortraitCover.mp4`. This post-download rename aligns static cover art naming
+/// with the animated artwork convention.
+///
+/// Idempotent: skips if `FrontCover.<ext>` already exists or `Cover.<ext>` is absent.
+fn rename_cover_to_front_cover(album_dir: &str) {
+    let dir = std::path::Path::new(album_dir);
+    if !dir.exists() {
+        return;
+    }
+
+    for ext in &["jpg", "png", "raw"] {
+        let old_name = dir.join(format!("Cover.{ext}"));
+        let new_name = dir.join(format!("FrontCover.{ext}"));
+
+        if old_name.exists() && !new_name.exists() {
+            match std::fs::rename(&old_name, &new_name) {
+                Ok(()) => {
+                    log::info!(
+                        "Renamed Cover.{ext} → FrontCover.{ext} in {}",
+                        dir.display()
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to rename Cover.{ext} → FrontCover.{ext}: {e}"
+                    );
+                }
+            }
         }
     }
 }
@@ -3073,6 +3119,9 @@ fn spawn_companion_downloads(
                                     let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
                                     if let Some(ref output_dir) = opts.output_path {
+                                        // Rename Cover → FrontCover in companion output (#448)
+                                        rename_cover_to_front_cover(output_dir);
+
                                         match super::metadata_tag_service::apply_codec_metadata_tags(
                                             output_dir, codec,
                                         ) {
@@ -4623,6 +4672,12 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
 
+                            // --- Post-step 1: Rename GAMDL's "Cover" to "FrontCover" (#448) ---
+                            // GAMDL saves static cover art as Cover.<ext> but MeedyaDL's
+                            // animated artwork uses FrontCover.mp4/PortraitCover.mp4.
+                            // Rename for consistency before subsequent steps reference the file.
+                            rename_cover_to_front_cover(&album_dir);
+
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
                             // response to a JSON file in the album output directory. This lets
@@ -5573,7 +5628,7 @@ pub fn process_queue(
                                 }
                             }
 
-                            // Write/update .meedyadl manifest in the album folder.
+                            // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
                             write_manifest(
@@ -5582,6 +5637,11 @@ pub fn process_queue(
                                 album_metadata.as_ref(),
                                 &enrich_settings,
                                 &enrich_started_at,
+                            );
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                "Download manifest saved to album folder",
                             );
 
                             emit_download_log(

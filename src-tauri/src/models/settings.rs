@@ -189,8 +189,8 @@ impl Default for AppleMusicSettings {
             cookies_path: None,
             musickit_team_id: None,
             musickit_key_id: None,
-            animated_artwork_enabled: false,
-            hide_animated_artwork: true,
+            animated_artwork_enabled: true,
+            hide_animated_artwork: false,
             enhanced_lrc: true,
             content_advisory_in_filenames: true,
         }
@@ -1227,13 +1227,13 @@ impl Default for AppSettings {
             cover_size: 10000,
 
             // --- Animated artwork ---
-            // Disabled by default: requires Apple Developer credentials.
-            // Users must configure MusicKit Team ID, Key ID, and private key
-            // in Settings > Cover Art before animated artwork can be fetched.
-            animated_artwork_enabled: false,
-            // Hide animated artwork files by default to keep album folders clean.
-            // Files remain accessible by name for media players and scripts.
-            hide_animated_artwork: true,
+            // Enabled by default (#449): animated artwork is downloaded when
+            // available and credentials are configured. Falls back gracefully
+            // when MusicKit credentials are missing or album has no artwork.
+            animated_artwork_enabled: true,
+            // Show animated artwork files by default (#449) so users can see
+            // FrontCover.mp4/PortraitCover.mp4 in their album folders.
+            hide_animated_artwork: false,
             artist_promo_video_enabled: false,
             musickit_team_id: None,
             musickit_key_id: None,
