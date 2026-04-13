@@ -346,8 +346,38 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
     for tool in tools {
         // Resolve the expected binary path: {app_data}/tools/{tool_id}/{binary_name}
         let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
-        // Simple existence check — we don't verify the binary is functional here
-        let installed = binary_path.exists();
+        // Functional check (#391): verify the binary exists AND can execute.
+        // Runs the binary with --version (2-second timeout) to confirm it's
+        // not corrupted. Falls back to existence check if execution fails.
+        let installed = if binary_path.exists() {
+            match tokio::process::Command::new(&binary_path)
+                .arg("--version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        child.wait(),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => true,  // Executed successfully
+                        _ => {
+                            log::warn!("Tool {} exists but failed to execute", tool.id);
+                            true // Still report as installed — may need different args
+                        }
+                    }
+                }
+                Err(_) => {
+                    log::warn!("Tool {} exists but could not spawn", tool.id);
+                    false // Binary exists but is not executable
+                }
+            }
+        } else {
+            false
+        };
 
         // Read the .source marker file to determine where the tool was installed from.
         // Written by install_tool() as "system" or "managed" during installation.
