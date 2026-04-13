@@ -501,7 +501,7 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // against the latest GitHub release for tools that have known repos.
     let tool_checks = [
         ("ffmpeg", "BtbN/FFmpeg-Builds"),
-        ("n_m3u8dl-re", "nilaoda/N_m3u8DL-RE"),
+        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE"),
     ];
     for (tool_id, repo) in &tool_checks {
         let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
@@ -968,28 +968,13 @@ async fn check_github_tool_update(
     tool_id: &str,
     github_repo: &str,
 ) -> Result<ComponentUpdate, String> {
-    // Get the installed tool version by running --version (#273)
+    // Reuse the centralized dependency-manager logic so each tool uses its
+    // configured version flag and parser instead of assuming `--version`.
     let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
     let current_version = if binary.exists() {
-        match tokio::process::Command::new(&binary)
-            .arg("--version")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
+        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
             .await
-        {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let combined = format!("{stdout} {stderr}");
-                // Extract version-like pattern (e.g., "1.2.3" or "v1.2.3")
-                combined
-                    .split_whitespace()
-                    .find(|s| s.chars().any(|c| c.is_ascii_digit()) && s.contains('.'))
-                    .map(|s| s.trim_start_matches('v').to_string())
-            }
-            Err(_) => None,
-        }
+            .ok()
     } else {
         None
     };

@@ -152,17 +152,33 @@ pub async fn start_download(
     let mut request = request;
 
     // Validate all URLs belong to supported domains (#459).
-    // Reject any URL that doesn't match Apple Music, Apple Music Classical,
-    // or legacy iTunes domains. Prevents passing arbitrary URLs to GAMDL.
+    // Reject any URL whose host does not exactly match an Apple Music,
+    // Apple Music Classical, or legacy iTunes domain. Uses url::Url to
+    // parse and extract host_str() so that substring tricks like
+    // "evil.com/?next=music.apple.com/..." cannot bypass the check.
+    const SUPPORTED_HOSTS: &[&str] = &[
+        "music.apple.com",
+        "classical.apple.com",
+        "itunes.apple.com",
+    ];
     for url in &request.urls {
-        let lower = url.to_lowercase();
-        let is_supported = lower.contains("music.apple.com")
-            || lower.contains("classical.apple.com")
-            || lower.contains("itunes.apple.com");
-        if !is_supported && (lower.starts_with("http://") || lower.starts_with("https://")) {
-            return Err(format!(
-                "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, and iTunes URLs are supported."
-            ));
+        let parsed = url::Url::parse(url)
+            .map_err(|e| format!("Invalid URL '{url}': {e}"))?;
+        if parsed.scheme() == "http" || parsed.scheme() == "https" {
+            let host = parsed.host_str().unwrap_or("").to_lowercase();
+            // Check for an exact host match or a subdomain (e.g., "geo.music.apple.com").
+            // Use strip_suffix to avoid per-iteration string allocations.
+            let is_supported = SUPPORTED_HOSTS.iter().any(|&allowed| {
+                host == allowed
+                    || host
+                        .strip_suffix(allowed)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            });
+            if !is_supported {
+                return Err(format!(
+                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, and iTunes URLs are supported."
+                ));
+            }
         }
     }
 
