@@ -5347,6 +5347,12 @@ pub fn process_queue(
                                         );
                                     }
                                 }
+                            } else {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Animated artwork disabled in settings",
+                                );
                             }
 
                             if enrich_shutdown.is_triggered() {
