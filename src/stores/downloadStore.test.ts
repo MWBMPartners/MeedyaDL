@@ -521,4 +521,42 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().error).toBe('Fetch failed');
     });
   });
+
+  // ============================================================
+  // Queue state management tests (#232)
+  // ============================================================
+
+  describe('queue state tracking', () => {
+    it('tracks items by state correctly', () => {
+      const items: QueueItemStatus[] = [
+        createMockQueueItem({ id: '1', state: 'queued' }),
+        createMockQueueItem({ id: '2', state: 'downloading' }),
+        createMockQueueItem({ id: '3', state: 'processing' }),
+        createMockQueueItem({ id: '4', state: 'complete' }),
+        createMockQueueItem({ id: '5', state: 'error' }),
+      ];
+
+      // Use the store's internal state setter (Zustand setState)
+      useDownloadStore.setState({ queueItems: items });
+      const state = useDownloadStore.getState();
+
+      expect(state.queueItems).toHaveLength(5);
+      expect(state.queueItems.filter((i) => i.state === 'queued')).toHaveLength(1);
+      expect(state.queueItems.filter((i) => i.state === 'downloading')).toHaveLength(1);
+      expect(state.queueItems.filter((i) => i.state === 'complete')).toHaveLength(1);
+    });
+
+    it('replaces queue snapshot completely', () => {
+      const initial = [createMockQueueItem({ id: '1', state: 'queued', progress: 0 })];
+      useDownloadStore.setState({ queueItems: initial });
+
+      const updated = [createMockQueueItem({ id: '1', state: 'downloading', progress: 50 })];
+      useDownloadStore.setState({ queueItems: updated });
+
+      const state = useDownloadStore.getState();
+      expect(state.queueItems).toHaveLength(1);
+      expect(state.queueItems[0].state).toBe('downloading');
+      expect(state.queueItems[0].progress).toBe(50);
+    });
+  });
 });
