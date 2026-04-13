@@ -665,17 +665,55 @@ async fn enrich_single_file(
         // The registry defines JSON paths, value types, and atom names — adding
         // new tags requires only editing tags.toml, zero Rust code changes.
         if let Some(ref metadata) = metadata_owned {
-            // Match this file to a track by track/disc number
-            let track_num = tag.track_number();
-            let disc_num = tag.disc_number().unwrap_or(1);
-            let matched_track = match_track_to_metadata(track_num, disc_num, &metadata.tracks);
+            // Safety guard (#452): verify the file belongs to this album before
+            // writing API metadata. If the file's embedded album name doesn't
+            // match the API response, skip API metadata to prevent cross-
+            // contamination between concurrent downloads.
+            let file_album = tag.album().map(|s| s.to_string());
+            let file_artist = tag.album_artist().or_else(|| tag.artist()).map(|s| s.to_string());
+            let api_album = metadata.album_name.as_deref();
+            let api_artist = metadata.artist_name.as_deref();
+            let album_matches = match (&file_album, api_album) {
+                (Some(file_name), Some(api_name)) => {
+                    // Case-insensitive comparison — Apple Music sometimes
+                    // normalises casing differently than GAMDL
+                    file_name.to_lowercase() == api_name.to_lowercase()
+                }
+                (None, Some(_)) => {
+                    // File has no album tag — try artist name as fallback guard.
+                    // If artist names also differ, this file likely belongs to
+                    // a different download (#452).
+                    match (&file_artist, api_artist) {
+                        (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
+                        // If both album AND artist are missing from file, allow
+                        // enrichment (fresh file with minimal tags)
+                        _ => true,
+                    }
+                }
+                // API has no album name — allow enrichment
+                (_, None) => true,
+            };
 
-            write_tags_from_registry(
-                &mut tag,
-                &TAG_REGISTRY,
-                &metadata.raw_json,
-                matched_track.map(|t| &t.raw_json),
-            );
+            if !album_matches {
+                log::warn!(
+                    "Skipping API metadata for {} — album mismatch: file='{}', API='{}'",
+                    tag_path.display(),
+                    file_album.as_deref().unwrap_or("?"),
+                    api_album.unwrap_or("?"),
+                );
+            } else {
+                // Match this file to a track by track/disc number
+                let track_num = tag.track_number();
+                let disc_num = tag.disc_number().unwrap_or(1);
+                let matched_track = match_track_to_metadata(track_num, disc_num, &metadata.tracks);
+
+                write_tags_from_registry(
+                    &mut tag,
+                    &TAG_REGISTRY,
+                    &metadata.raw_json,
+                    matched_track.map(|t| &t.raw_json),
+                );
+            }
         }
 
         // --- Layer 5: ISRC extraction from Vendor tag (fallback) ---
@@ -1168,19 +1206,51 @@ fn write_api_track_tags(tag: &mut Tag, track: &apple_music_api::TrackMetadata) {
         );
     }
 
-    // --- Track genres (comma-separated) ---
-    // Note: native `©gen` atom may already exist from GAMDL — this is supplementary
-    // with the full genre array from the catalog API.
+    // --- Track genres (deduplicated, merged with existing) ---
+    // Merge API genre names with any existing genre from the standard ©gen atom
+    // (set by GAMDL). Deduplicate entries case-insensitively (#452).
     if !track.genre_names.is_empty() {
-        let genres_str = track.genre_names.join(", ");
-        tag.set_data(
-            FreeformIdent::new_static(ITUNES_NAMESPACE, "Genre"),
-            Data::Utf8(genres_str.clone()),
-        );
-        tag.set_data(
-            FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleGenres"),
-            Data::Utf8(genres_str),
-        );
+        // Collect existing genres from the standard atom
+        let existing_genre = tag.genre().map(|s| s.to_string());
+        let mut all_genres: Vec<String> = Vec::new();
+        let mut seen_lower: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Add existing genre entries first (from GAMDL's ©gen atom)
+        if let Some(ref existing) = existing_genre {
+            for g in existing.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                let lower = g.to_lowercase();
+                if seen_lower.insert(lower) {
+                    all_genres.push(g.to_string());
+                }
+            }
+        }
+
+        // Add API genres, skipping duplicates and the generic "Music" entry
+        for g in &track.genre_names {
+            let trimmed = g.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("Music") {
+                continue;
+            }
+            let lower = trimmed.to_lowercase();
+            if seen_lower.insert(lower) {
+                all_genres.push(trimmed.to_string());
+            }
+        }
+
+        if !all_genres.is_empty() {
+            let genres_str = all_genres.join(", ");
+            // Update standard ©gen atom with deduplicated genre list
+            tag.set_genre(&genres_str);
+            // Also write to freeform atoms for compatibility
+            tag.set_data(
+                FreeformIdent::new_static(ITUNES_NAMESPACE, "Genre"),
+                Data::Utf8(genres_str.clone()),
+            );
+            tag.set_data(
+                FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleGenres"),
+                Data::Utf8(genres_str),
+            );
+        }
     }
 }
 
@@ -1503,8 +1573,92 @@ fn rename_folder_with_advisory(
 // Internal: File Collection
 // ============================================================
 
-/// Collect all M4A file paths from the output path.
+// ============================================================
+// iTunes API Supplementary Tags (#454)
+// ============================================================
+
+/// Apply supplementary metadata from the iTunes Lookup API.
 ///
+/// Writes iTunes-exclusive fields (price, currency, country, disc count)
+/// to M4A files as freeform atoms. Only writes fields not already present
+/// from the Apple Music API enrichment. Matches tracks by track number
+/// and disc number.
+///
+/// Returns the number of files enriched.
+pub fn apply_itunes_supplementary_tags(
+    output_path: &str,
+    itunes_tracks: &[apple_music_api::ItunesTrackResult],
+) -> usize {
+    let files = collect_m4a_files(output_path);
+    let mut count = 0;
+
+    for file_path in &files {
+        let tag = match mp4ameta::Tag::read_from_path(file_path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let track_num = tag.track_number();
+        let disc_num = tag.disc_number().unwrap_or(1);
+        drop(tag);
+
+        // Match to iTunes track by track/disc number
+        let matched = itunes_tracks.iter().find(|t| {
+            t.track_number.map(|n| n as u16) == track_num
+                && t.disc_number.unwrap_or(1) as u16 == disc_num
+        });
+
+        let Some(itunes) = matched else {
+            continue;
+        };
+
+        // Re-open for writing
+        let mut tag = match mp4ameta::Tag::read_from_path(file_path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let mut wrote_any = false;
+
+        // Write iTunes-exclusive fields as supplementary atoms
+        // Note: Currency excluded (locale-dependent, changes with storefront)
+        if let Some(ref country) = itunes.country {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "Country"),
+                mp4ameta::Data::Utf8(country.clone()),
+            );
+            wrote_any = true;
+        }
+        // Note: TrackPrice/CollectionPrice/Currency excluded from file metadata
+        // because they are locale-dependent and change over time. Available in
+        // the ItunesTrackResult struct for future use if needed.
+        if let Some(disc_count) = itunes.disc_count {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "DiscCount"),
+                mp4ameta::Data::Utf8(disc_count.to_string()),
+            );
+            wrote_any = true;
+        }
+        if let Some(ref view_url) = itunes.track_view_url {
+            tag.set_data(
+                mp4ameta::FreeformIdent::new_static(ITUNES_NAMESPACE, "iTunesTrackURL"),
+                mp4ameta::Data::Utf8(view_url.clone()),
+            );
+            wrote_any = true;
+        }
+
+        if wrote_any {
+            if let Err(e) = tag.write_to_path(file_path) {
+                log::debug!("Failed to write iTunes tags to {}: {e}", file_path.display());
+            } else {
+                count += 1;
+            }
+        }
+    }
+
+    count
+}
+
 /// Handles both single-file (single-track download) and directory
 /// (album download) cases. For directories, walks recursively to
 /// find M4A files in disc subfolders.
@@ -1517,22 +1671,30 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
             files.push(path.to_path_buf());
         }
     } else if path.is_dir() {
-        collect_m4a_recursive(path, &mut files);
+        // Collect M4A files from the album directory with limited depth.
+        // Depth 0 = album dir itself, depth 1 = disc subdirectories.
+        // Do NOT recurse deeper to prevent cross-contamination when
+        // the directory is an artist dir instead of album dir (#452).
+        collect_m4a_depth_limited(path, &mut files, 0, 1);
     }
 
     files
 }
 
-/// Recursively collect M4A file paths from a directory tree.
-fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
+/// Collect M4A files with depth-limited recursion.
+///
+/// `max_depth` limits how many subdirectory levels to descend. For album
+/// directories, depth 1 covers disc subdirectories (e.g., `Disc 1/`, `Disc 2/`)
+/// without descending into sibling album directories (#452).
+fn collect_m4a_depth_limited(dir: &Path, files: &mut Vec<PathBuf>, depth: u32, max_depth: u32) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
-            collect_m4a_recursive(&path, files);
+        if path.is_dir() && depth < max_depth {
+            collect_m4a_depth_limited(&path, files, depth + 1, max_depth);
         } else if is_m4a(&path) {
             files.push(path);
         }

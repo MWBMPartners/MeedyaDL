@@ -224,6 +224,167 @@ pub struct TrackMetadata {
 }
 
 // ============================================================
+// iTunes Search/Lookup API (public, no auth required) (#454)
+// ============================================================
+
+/// Metadata from the iTunes Search/Lookup API for a single track.
+///
+/// The iTunes API returns a flat JSON structure with different field names
+/// than the Apple Music API. This struct captures the iTunes-exclusive fields
+/// that supplement Apple Music metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItunesTrackResult {
+    /// iTunes track ID (same as Apple Music song ID / cnID atom)
+    #[serde(rename = "trackId")]
+    pub track_id: Option<u64>,
+    /// Track name
+    #[serde(rename = "trackName")]
+    pub track_name: Option<String>,
+    /// Artist name
+    #[serde(rename = "artistName")]
+    pub artist_name: Option<String>,
+    /// Album name
+    #[serde(rename = "collectionName")]
+    pub collection_name: Option<String>,
+    /// Primary genre as a single string (vs Apple Music's array)
+    #[serde(rename = "primaryGenreName")]
+    pub primary_genre_name: Option<String>,
+    /// Track price in local currency
+    #[serde(rename = "trackPrice")]
+    pub track_price: Option<f64>,
+    /// Album price in local currency
+    #[serde(rename = "collectionPrice")]
+    pub collection_price: Option<f64>,
+    /// Currency code (e.g., "GBP", "USD")
+    pub currency: Option<String>,
+    /// Release country (e.g., "GBR", "USA")
+    pub country: Option<String>,
+    /// Track duration in milliseconds
+    #[serde(rename = "trackTimeMillis")]
+    pub track_time_millis: Option<u64>,
+    /// Track number on disc
+    #[serde(rename = "trackNumber")]
+    pub track_number: Option<u32>,
+    /// Disc number
+    #[serde(rename = "discNumber")]
+    pub disc_number: Option<u32>,
+    /// Total disc count
+    #[serde(rename = "discCount")]
+    pub disc_count: Option<u32>,
+    /// Track count in album
+    #[serde(rename = "trackCount")]
+    pub track_count: Option<u32>,
+    /// ISRC code
+    pub isrc: Option<String>,
+    /// Content advisory (e.g., "explicit", "cleaned", "notExplicit")
+    #[serde(rename = "trackExplicitness")]
+    pub track_explicitness: Option<String>,
+    /// Album-level advisory
+    #[serde(rename = "collectionExplicitness")]
+    pub collection_explicitness: Option<String>,
+    /// Preview URL (30-second clip)
+    #[serde(rename = "previewUrl")]
+    pub preview_url: Option<String>,
+    /// Track Apple Music URL
+    #[serde(rename = "trackViewUrl")]
+    pub track_view_url: Option<String>,
+    /// Album Apple Music URL
+    #[serde(rename = "collectionViewUrl")]
+    pub collection_view_url: Option<String>,
+    /// Media kind (e.g., "song", "music-video")
+    pub kind: Option<String>,
+    /// Wrapper type ("track", "collection", "artist")
+    #[serde(rename = "wrapperType")]
+    pub wrapper_type: Option<String>,
+}
+
+/// Response from the iTunes Lookup API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItunesLookupResponse {
+    /// Number of results returned
+    #[serde(rename = "resultCount")]
+    pub result_count: u32,
+    /// Array of results (first is the collection, rest are tracks)
+    pub results: Vec<serde_json::Value>,
+}
+
+/// Fetch album + track metadata from the public iTunes Lookup API.
+///
+/// This API requires NO authentication — it's Apple's public search/lookup
+/// endpoint. Returns track-level metadata that supplements the Apple Music
+/// API response with fields like price, currency, country, and disc count.
+///
+/// # Arguments
+/// * `album_id` - Apple Music album ID (numeric string, same as plID atom)
+///
+/// # Returns
+/// * `Ok(Some(Vec<ItunesTrackResult>))` — Tracks found
+/// * `Ok(None)` — Album not found or no track results
+/// * `Err(String)` — Network or parse error
+pub async fn fetch_itunes_lookup(
+    album_id: &str,
+) -> Result<Option<Vec<ItunesTrackResult>>, String> {
+    let url = format!(
+        "https://itunes.apple.com/lookup?id={album_id}&entity=song&limit=200"
+    );
+
+    log::debug!("Querying iTunes Lookup API: {url}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+        .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("iTunes Lookup API returned HTTP {status}"));
+    }
+
+    let body: ItunesLookupResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse iTunes Lookup response: {e}"))?;
+
+    if body.result_count == 0 || body.results.is_empty() {
+        log::debug!("iTunes Lookup: no results for album {album_id}");
+        return Ok(None);
+    }
+
+    // Parse track results (skip the first entry if it's a "collection" wrapper)
+    let tracks: Vec<ItunesTrackResult> = body
+        .results
+        .into_iter()
+        .filter_map(|val| {
+            // Only include "track" entries, not the "collection" header
+            let wrapper = val.get("wrapperType")?.as_str()?;
+            if wrapper == "track" {
+                serde_json::from_value(val).ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if tracks.is_empty() {
+        log::debug!("iTunes Lookup: no track results for album {album_id}");
+        return Ok(None);
+    }
+
+    log::info!(
+        "iTunes Lookup: found {} track(s) for album {album_id}",
+        tracks.len()
+    );
+    Ok(Some(tracks))
+}
+
+// ============================================================
 // URL Parsing
 // ============================================================
 
@@ -369,11 +530,14 @@ pub fn generate_musickit_jwt(
         .map_err(|e| format!("System time error: {e}"))?
         .as_secs();
 
-    // Build the JWT claims: issuer (team ID), issued-at, and expiry.
+    // Build the JWT claims: issuer (team ID), issued-at, expiry, and
+    // audience. The `aud` claim is required by Apple's MusicKit API (#161).
+    // Without it, the API may return 401 even with valid credentials.
     let claims = serde_json::json!({
         "iss": team_id,
         "iat": now,
         "exp": now + 3600,  // 1 hour from now
+        "aud": "https://music.apple.com",
     });
 
     // Parse the PEM private key and sign the JWT.

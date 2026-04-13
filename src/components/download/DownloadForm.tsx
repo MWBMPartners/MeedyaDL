@@ -83,6 +83,7 @@ import {
   Plus,
   Layers,
   FileDown,
+  FolderSearch,
 } from 'lucide-react';
 
 /**
@@ -548,6 +549,38 @@ export function DownloadForm() {
   };
 
   /**
+   * Scan a folder for manifest files and populate the URL input (#456).
+   * Opens a native folder picker, recursively scans for manifest.meedyadl
+   * files, and populates the textarea with discovered URLs.
+   */
+  const handleScanFolder = async () => {
+    try {
+      const { scanFolderForManifests } = await import('@/lib/tauri-commands');
+      const manifests = await scanFolderForManifests();
+      if (manifests.length === 0) {
+        addToast('No manifest files found in the selected folder', 'info');
+        return;
+      }
+      // Collect all unique URLs from all manifests
+      const allUrls = [...new Set(manifests.flatMap((m) => m.urls))];
+      setUrlInput(allUrls.join('\n'));
+      const albumCount = manifests.length;
+      const trackTotal = manifests.reduce((sum, m) => sum + m.track_count, 0);
+      addToast(
+        `Found ${albumCount} album${albumCount !== 1 ? 's' : ''} (${trackTotal} tracks, ${allUrls.length} URLs) — review and submit to re-download`,
+        'success',
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage === 'Folder selection cancelled') {
+        // User cancelled the dialog — silently ignore
+        return;
+      }
+      addToast('Failed to scan folder for manifests', 'error');
+    }
+  };
+
+  /**
    * Import URLs from a .txt file (one URL per line).
    * Lines starting with # are treated as comments and skipped.
    * Each valid URL is added to the input textarea.
@@ -713,6 +746,8 @@ export function DownloadForm() {
               <textarea
                 ref={textareaRef}
                 id="url-input"
+                aria-label="Media URL input"
+                aria-describedby="url-input-help"
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
@@ -801,6 +836,14 @@ export function DownloadForm() {
               title="Import URLs from a .txt file (one URL per line)"
             >
               .txt
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<FolderSearch size={16} />}
+              onClick={handleScanFolder}
+              title="Scan a folder for manifest files to re-download"
+            >
+              Scan
             </Button>
           </div>
 
