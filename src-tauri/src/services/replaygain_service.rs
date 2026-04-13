@@ -537,6 +537,11 @@ const SUPPORTED_EXTENSIONS: &[(&str, AudioFormat)] = &[
     ("opus", AudioFormat::VorbisComment),
     // MP3 (future: YouTube via yt-dlp)
     ("mp3", AudioFormat::Id3v2),
+    // Matroska / WebM / OGV video containers (#329)
+    // ReplayGain tags written via Vorbis Comments (lofty supports these)
+    ("mkv", AudioFormat::VorbisComment),
+    ("webm", AudioFormat::VorbisComment),
+    ("ogv", AudioFormat::VorbisComment),
 ];
 
 /// Determine the audio format of a file by its extension.
