@@ -1455,6 +1455,10 @@ export interface UpdateCheckResult {
   components: ComponentUpdate[];
   /** Non-fatal error messages from the update check process */
   errors: string[];
+  /** When running a pre-release, the latest stable version for rollback (#267) */
+  rollback_version?: string | null;
+  /** Git tag for the rollback release (e.g., "v0.32.1") */
+  rollback_tag?: string | null;
 }
 
 // ============================================================
