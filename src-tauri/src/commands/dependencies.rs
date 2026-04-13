@@ -347,32 +347,54 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
         // Resolve the expected binary path: {app_data}/tools/{tool_id}/{binary_name}
         let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
         // Functional check (#391): verify the binary exists AND can execute.
-        // Runs the binary with --version (2-second timeout) to confirm it's
-        // not corrupted. Falls back to existence check if execution fails.
+        // Reuses dependency_manager::get_tool_version() so each tool uses its
+        // configured version flag and parser (e.g., FFmpeg uses -version, mp4decrypt
+        // runs with no args) rather than assuming every tool supports --version.
+        // Runs with a 2-second timeout to prevent stalling on broken binaries.
+        //
+        // Stricter than simple existence checking: `false` when the spawn fails
+        // outright (permission denied, corrupt binary). Timeout is treated as
+        // "still installed but slow" to avoid false negatives on loaded systems.
         let installed = if binary_path.exists() {
-            match tokio::process::Command::new(&binary_path)
-                .arg("--version")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-            {
-                Ok(mut child) => {
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(2),
-                        child.wait(),
+            let version_check_path = binary_path.clone();
+            let tool_id_str = tool.id.to_string();
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                tokio::task::spawn(async move {
+                    crate::services::dependency_manager::get_tool_version(
+                        &version_check_path,
+                        &tool_id_str,
                     )
                     .await
-                    {
-                        Ok(Ok(_)) => true,  // Executed successfully
-                        _ => {
-                            log::warn!("Tool {} exists but failed to execute", tool.id);
-                            true // Still report as installed — may need different args
-                        }
-                    }
+                }),
+            )
+            .await
+            {
+                Ok(Ok(Ok(_))) => true,
+                Ok(Ok(Err(err))) => {
+                    // Binary failed to spawn entirely (e.g., permission denied)
+                    log::warn!(
+                        "Tool {} exists but failed dependency-manager verification: {}",
+                        tool.id,
+                        err
+                    );
+                    false
+                }
+                Ok(Err(err)) => {
+                    log::warn!(
+                        "Tool {} exists but version check task failed: {}",
+                        tool.id,
+                        err
+                    );
+                    false
                 }
                 Err(_) => {
-                    log::warn!("Tool {} exists but could not spawn", tool.id);
-                    false // Binary exists but is not executable
+                    // Timed out — binary is slow but likely functional; treat as installed
+                    log::warn!(
+                        "Tool {} version check timed out — reporting as installed",
+                        tool.id
+                    );
+                    true
                 }
             }
         } else {

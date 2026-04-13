@@ -5912,38 +5912,46 @@ pub fn process_queue(
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
                             // we force completion after 10 minutes to prevent the
                             // queue from stalling indefinitely.
+                            // IMPORTANT: on timeout, abort() the task so it is actually
+                            // cancelled rather than merely detached (dropping a JoinHandle
+                            // detaches the task and lets it keep running, which can
+                            // reintroduce the cross-contamination this fix aims to prevent).
                             let enrichment_timeout = std::time::Duration::from_secs(600);
-                            if let Some(handle) = enrichment_handle {
-                                match tokio::time::timeout(enrichment_timeout, handle).await {
-                                    Ok(_) => {}
-                                    Err(_) => {
-                                        log::warn!(
-                                            "Enrichment timed out after 10 minutes for {}",
-                                            completion_dl_id
-                                        );
-                                        emit_download_log(
-                                            &completion_app,
-                                            &completion_dl_id,
-                                            "⚠ Enrichment timed out after 10 minutes — marking complete",
-                                        );
-                                    }
+                            if let Some(mut handle) = enrichment_handle {
+                                if tokio::time::timeout(enrichment_timeout, &mut handle)
+                                    .await
+                                    .is_err()
+                                {
+                                    log::warn!(
+                                        "Enrichment timed out after 10 minutes for {}",
+                                        completion_dl_id
+                                    );
+                                    emit_download_log(
+                                        &completion_app,
+                                        &completion_dl_id,
+                                        "⚠ Enrichment timed out after 10 minutes — marking complete",
+                                    );
+                                    handle.abort();
+                                    let _ = handle.await;
                                 }
                             }
                             // Wait for companion downloads with the same timeout
-                            if let Some(handle) = companion_handle {
-                                match tokio::time::timeout(enrichment_timeout, handle).await {
-                                    Ok(_) => {}
-                                    Err(_) => {
-                                        log::warn!(
-                                            "Companion downloads timed out after 10 minutes for {}",
-                                            completion_dl_id
-                                        );
-                                        emit_download_log(
-                                            &completion_app,
-                                            &completion_dl_id,
-                                            "⚠ Companion downloads timed out after 10 minutes — marking complete",
-                                        );
-                                    }
+                            if let Some(mut handle) = companion_handle {
+                                if tokio::time::timeout(enrichment_timeout, &mut handle)
+                                    .await
+                                    .is_err()
+                                {
+                                    log::warn!(
+                                        "Companion downloads timed out after 10 minutes for {}",
+                                        completion_dl_id
+                                    );
+                                    emit_download_log(
+                                        &completion_app,
+                                        &completion_dl_id,
+                                        "⚠ Companion downloads timed out after 10 minutes — marking complete",
+                                    );
+                                    handle.abort();
+                                    let _ = handle.await;
                                 }
                             }
 

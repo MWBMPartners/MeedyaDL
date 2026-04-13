@@ -570,8 +570,13 @@ export function DownloadForm() {
         `Found ${albumCount} album${albumCount !== 1 ? 's' : ''} (${trackTotal} tracks, ${allUrls.length} URLs) — review and submit to re-download`,
         'success',
       );
-    } catch {
-      // User cancelled the dialog — silently ignore
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage === 'Folder selection cancelled') {
+        // User cancelled the dialog — silently ignore
+        return;
+      }
+      addToast('Failed to scan folder for manifests', 'error');
     }
   };
 
@@ -741,7 +746,7 @@ export function DownloadForm() {
               <textarea
                 ref={textareaRef}
                 id="url-input"
-                aria-label="Apple Music URL input"
+                aria-label="Media URL input"
                 aria-describedby="url-input-help"
                 value={urlInput}
                 onChange={(e) => {
