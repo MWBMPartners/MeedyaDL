@@ -1009,6 +1009,11 @@ pub struct ScannedManifest {
     pub current_codec: Option<String>,
     /// Number of audio files in the album directory
     pub audio_file_count: usize,
+    /// Apple Music lastModifiedDate from the manifest — used for content
+    /// refresh detection (#380). If the current API response has a newer
+    /// date, the album may have been updated (mix corrections, remasters,
+    /// added tracks, Apple Digital Master certification).
+    pub last_modified_date: Option<String>,
 }
 
 /// Recursively scan a directory for `manifest.meedyadl` files and return
@@ -1162,6 +1167,7 @@ fn scan_dir_for_manifests_recursive(
             track_count,
             current_codec,
             audio_file_count,
+            last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
         });
     }
 }
