@@ -1052,8 +1052,9 @@ pub fn run() {
             commands::gamdl::process_queue_manual,
             // Activity log export
             commands::gamdl::export_activity_log,
-            // Manifest import
+            // Manifest import and folder scan
             commands::gamdl::import_manifest,
+            commands::gamdl::scan_folder_for_manifests,
             // Smart re-download detection (#263)
             commands::gamdl::check_redownload_status,
             // Syllable-level lyrics fetch (#306)

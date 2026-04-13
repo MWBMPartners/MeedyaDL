@@ -967,6 +967,179 @@ pub async fn import_manifest(app: AppHandle) -> Result<Vec<String>, String> {
     }
 }
 
+/// Result of scanning a folder for manifest files (#456).
+///
+/// Each entry represents one discovered `manifest.meedyadl` file with
+/// metadata extracted for display in the UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ScannedManifest {
+    /// Path to the manifest file on disk
+    pub manifest_path: String,
+    /// Album directory containing the manifest
+    pub album_dir: String,
+    /// Source URLs extracted from the manifest
+    pub urls: Vec<String>,
+    /// Platform (e.g., "apple-music")
+    pub platform: Option<String>,
+    /// Artist name (from album directory structure)
+    pub artist: Option<String>,
+    /// Album name (from album directory name)
+    pub album: Option<String>,
+    /// When this source was last downloaded
+    pub downloaded_at: Option<String>,
+    /// Track count from the manifest
+    pub track_count: usize,
+}
+
+/// Recursively scan a directory for `manifest.meedyadl` files and return
+/// metadata from each discovered manifest (#456).
+///
+/// Opens a native folder picker dialog, then walks the selected directory
+/// tree looking for `manifest.meedyadl` (and legacy `.meedyadl`) files.
+/// For each found manifest, extracts the source URLs, platform, download
+/// date, and track count. Also infers artist/album names from the directory
+/// structure (GAMDL's `Artist/Album/` convention).
+///
+/// Used by the "Re-download from Folder" feature to let users point at an
+/// existing music library and re-queue downloads for metadata correction
+/// or quality upgrades.
+///
+/// # Returns
+/// * `Ok(Vec<ScannedManifest>)` — Manifests found (may be empty)
+/// * `Err(String)` — Folder picker cancelled or I/O error
+#[tauri::command]
+pub async fn scan_folder_for_manifests(
+    app: AppHandle,
+) -> Result<Vec<ScannedManifest>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder = app
+        .dialog()
+        .file()
+        .blocking_pick_folder();
+
+    let folder_path = match folder {
+        Some(path) => {
+            path.as_path()
+                .ok_or_else(|| "Failed to resolve folder path".to_string())?
+                .to_path_buf()
+        }
+        None => return Err("Folder selection cancelled".to_string()),
+    };
+
+    log::info!(
+        "Scanning folder for manifests: {}",
+        folder_path.display()
+    );
+
+    let mut results = Vec::new();
+    scan_dir_for_manifests_recursive(&folder_path, &mut results, 0, 10);
+
+    log::info!(
+        "Found {} manifest(s) in {}",
+        results.len(),
+        folder_path.display()
+    );
+
+    crate::utils::activity_log::emit_app_log(
+        &app,
+        &format!(
+            "Folder scan: found {} manifest(s) in {}",
+            results.len(),
+            folder_path.display()
+        ),
+    );
+
+    Ok(results)
+}
+
+/// Recursively scan directories for manifest files.
+fn scan_dir_for_manifests_recursive(
+    dir: &std::path::Path,
+    results: &mut Vec<ScannedManifest>,
+    depth: u32,
+    max_depth: u32,
+) {
+    if depth > max_depth {
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.is_dir() {
+            scan_dir_for_manifests_recursive(&path, results, depth + 1, max_depth);
+            continue;
+        }
+
+        // Check for manifest.meedyadl or legacy .meedyadl
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        if file_name != "manifest.meedyadl" && file_name != ".meedyadl" {
+            continue;
+        }
+
+        // Parse the manifest
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            log::debug!("Failed to read manifest: {}", path.display());
+            continue;
+        };
+
+        let Ok(manifest) = serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents) else {
+            log::debug!("Failed to parse manifest: {}", path.display());
+            continue;
+        };
+
+        // Extract the first (most recent) source
+        let source = manifest.sources.first();
+
+        // Infer artist/album from directory structure:
+        // base/Artist/Album/manifest.meedyadl → parent = Album, grandparent = Artist
+        let album_dir = path.parent().unwrap_or(dir);
+        let album_name = album_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(String::from);
+        let artist_name = album_dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(String::from);
+
+        let urls: Vec<String> = manifest
+            .sources
+            .iter()
+            .map(|s| s.url.clone())
+            .collect();
+
+        if urls.is_empty() {
+            continue;
+        }
+
+        let track_count = source
+            .map(|s| s.tracks.len())
+            .unwrap_or(0);
+
+        results.push(ScannedManifest {
+            manifest_path: path.to_string_lossy().to_string(),
+            album_dir: album_dir.to_string_lossy().to_string(),
+            urls,
+            platform: source.map(|s| s.platform.clone()),
+            artist: artist_name,
+            album: album_name,
+            downloaded_at: source.map(|s| s.downloaded_at.clone()),
+            track_count,
+        });
+    }
+}
+
 /// Checks whether a URL was previously downloaded and returns change
 /// detection metadata for smart re-download detection (#263).
 ///
