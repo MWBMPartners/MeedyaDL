@@ -80,15 +80,15 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
         })
         .unwrap_or_else(|| "ffmpeg".to_string());
 
-    // Run FFmpeg with the `astats` filter which outputs timing info.
-    // We use a simplified approach: decode to null and parse duration,
-    // then estimate BPM from onset markers in the stderr output.
+    // Use FFmpeg's volumedetect + silencedetect to estimate beats (#418).
+    // silencedetect finds quiet gaps between beats, giving us onset count.
+    // BPM ≈ (onset_count / duration_seconds) * 60
     let analysis = tokio::process::Command::new(&ffmpeg)
         .args([
             "-i",
             &file_path.to_string_lossy(),
             "-af",
-            "aresample=22050,lowpass=f=300,highpass=f=40",
+            "aresample=22050,lowpass=f=300,highpass=f=40,silencedetect=noise=-30dB:d=0.1",
             "-f", "null", "-",
         ])
         .stdout(std::process::Stdio::null())
@@ -98,16 +98,44 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
 
     if let Ok(output) = analysis {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // Extract duration from FFmpeg output for basic BPM estimation
-        // Full BPM detection via aubio/essentia deferred to meedya-core
-        if let Some(duration_secs) = parse_ffmpeg_duration(&stderr) {
-            if duration_secs > 0.0 {
-                log::debug!(
-                    "Audio duration {duration_secs:.1}s for {}; full BPM analysis requires aubio/essentia",
-                    file_path.display()
-                );
+
+        // Count silence_end markers (each marks the start of a sound onset)
+        let onset_count = stderr
+            .lines()
+            .filter(|l| l.contains("silence_end"))
+            .count();
+
+        let duration = parse_ffmpeg_duration(&stderr);
+
+        if let Some(dur) = duration {
+            if dur > 10.0 && onset_count > 10 {
+                // BPM ≈ beats per second * 60
+                let raw_bpm = (onset_count as f64 / dur) * 60.0;
+                // Musical BPM is typically 60-200. If our estimate is outside
+                // this range, try halving or doubling.
+                let bpm = if raw_bpm > 200.0 {
+                    raw_bpm / 2.0
+                } else if raw_bpm < 60.0 {
+                    raw_bpm * 2.0
+                } else {
+                    raw_bpm
+                };
+
+                // Only return if the result is plausible (60-200 BPM)
+                if (60.0..=200.0).contains(&bpm) {
+                    log::info!(
+                        "BPM estimated via onset detection: {bpm:.0} ({onset_count} onsets in {dur:.1}s) for {}",
+                        file_path.display()
+                    );
+                    return Some(bpm);
+                }
             }
         }
+
+        log::debug!(
+            "BPM estimation inconclusive for {} ({onset_count} onsets)",
+            file_path.display()
+        );
     }
 
     None
