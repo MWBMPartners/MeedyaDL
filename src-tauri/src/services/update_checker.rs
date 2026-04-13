@@ -964,10 +964,35 @@ async fn aggregate_intermediate_release_notes(
 /// this reports "update may be available" when the latest release is newer
 /// than the minimum.
 async fn check_github_tool_update(
-    _app: &AppHandle,
+    app: &AppHandle,
     tool_id: &str,
     github_repo: &str,
 ) -> Result<ComponentUpdate, String> {
+    // Get the installed tool version by running --version (#273)
+    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
+    let current_version = if binary.exists() {
+        match tokio::process::Command::new(&binary)
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let combined = format!("{stdout} {stderr}");
+                // Extract version-like pattern (e.g., "1.2.3" or "v1.2.3")
+                combined
+                    .split_whitespace()
+                    .find(|s| s.chars().any(|c| c.is_ascii_digit()) && s.contains('.'))
+                    .map(|s| s.trim_start_matches('v').to_string())
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
     let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
 
     let client = reqwest::Client::builder()
@@ -1000,15 +1025,23 @@ async fn check_github_tool_update(
         .map(|s| s.trim_start_matches('v').to_string())
         .unwrap_or_default();
 
+    let latest_version = if latest_tag.is_empty() {
+        None
+    } else {
+        Some(latest_tag.clone())
+    };
+
+    // Compare versions if we have both (#273)
+    let update_available = match (&current_version, &latest_version) {
+        (Some(cur), Some(latest)) => cur != latest && !latest.is_empty(),
+        _ => false,
+    };
+
     Ok(ComponentUpdate {
         name: tool_id.to_string(),
-        current_version: None, // We don't track exact installed version
-        latest_version: if latest_tag.is_empty() {
-            None
-        } else {
-            Some(latest_tag)
-        },
-        update_available: false, // Can't compare without knowing current version
+        current_version,
+        latest_version,
+        update_available,
         is_compatible: true,
         compatibility_note: None,
     })
