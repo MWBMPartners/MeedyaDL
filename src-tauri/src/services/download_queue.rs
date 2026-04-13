@@ -517,14 +517,43 @@ fn has_audio_files(dir: &std::path::Path) -> bool {
 ///
 /// GAMDL creates an `Artist/Album/` directory structure under the base output
 /// path. This function must return the **album** directory (where audio files
-/// live), not the artist directory. It recursively descends through the tree,
-/// preferring the most recently modified **leaf** directory that directly
-/// contains audio files. A "leaf" directory is one where audio files exist
-/// directly (not only in nested subdirectories).
+/// live), not the artist directory.
 ///
-/// Fixed in #447: previously only searched one level deep, returning the
-/// artist directory instead of the album directory.
-fn find_album_directory(base_dir: &std::path::Path) -> Option<String> {
+/// When `artist_hint` and/or `album_hint` are provided (from the early metadata
+/// fetch), the search first attempts a targeted path match before falling back
+/// to the generic timestamp-based scan. This prevents cross-contamination
+/// between concurrent downloads (#452) where the generic scan might return
+/// a different artist's most recently modified directory.
+///
+/// Fixed in #447/#452: previously only searched one level deep and used
+/// recency-based selection that could pick the wrong artist's directory.
+fn find_album_directory(
+    base_dir: &std::path::Path,
+    artist_hint: Option<&str>,
+    album_hint: Option<&str>,
+) -> Option<String> {
+    // --- Targeted search: use artist/album names to find the exact directory ---
+    // GAMDL's default template creates: base_dir/Artist/Album/
+    if let (Some(artist), Some(album)) = (artist_hint, album_hint) {
+        let targeted = base_dir.join(artist).join(album);
+        if targeted.is_dir() && has_direct_audio_files(&targeted) {
+            log::info!(
+                "find_album_directory: targeted match at {}",
+                targeted.display()
+            );
+            return Some(targeted.to_string_lossy().to_string());
+        }
+        // Try case-insensitive match on the artist/album directory names
+        if let Some(found) = find_directory_case_insensitive(base_dir, artist, album) {
+            log::info!(
+                "find_album_directory: case-insensitive match at {}",
+                found.display()
+            );
+            return Some(found.to_string_lossy().to_string());
+        }
+    }
+
+    // --- Fallback: generic deep scan (picks most recently modified leaf dir) ---
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
 
     find_deepest_audio_dir(base_dir, &mut best);
@@ -535,6 +564,49 @@ fn find_album_directory(base_dir: &std::path::Path) -> Option<String> {
     }
 
     best.map(|(_, p)| p.to_string_lossy().to_string())
+}
+
+/// Case-insensitive directory matching for Artist/Album structure.
+/// Handles slight differences in filesystem naming vs. API naming
+/// (e.g., special characters stripped, Unicode normalisation).
+fn find_directory_case_insensitive(
+    base_dir: &std::path::Path,
+    artist: &str,
+    album: &str,
+) -> Option<std::path::PathBuf> {
+    let artist_lower = artist.to_lowercase();
+    let album_lower = album.to_lowercase();
+
+    // Scan base_dir for a matching artist subdirectory
+    let Ok(entries) = std::fs::read_dir(base_dir) else {
+        return None;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let dir_name = path.file_name()?.to_string_lossy().to_lowercase();
+        if dir_name != artist_lower {
+            continue;
+        }
+        // Found artist dir — now scan for album subdirectory
+        let Ok(album_entries) = std::fs::read_dir(&path) else {
+            continue;
+        };
+        for album_entry in album_entries.flatten() {
+            let album_path = album_entry.path();
+            if !album_path.is_dir() {
+                continue;
+            }
+            let album_dir_name = album_path.file_name()?.to_string_lossy().to_lowercase();
+            if album_dir_name == album_lower && has_direct_audio_files(&album_path) {
+                return Some(album_path);
+            }
+        }
+    }
+    None
 }
 
 /// Recursively finds the deepest directory that directly contains audio files.
@@ -4155,8 +4227,11 @@ pub fn process_queue(
                                         item.merged_options.output_path.clone()
                                     {
                                         let base_path = std::path::Path::new(base_dir);
+                                        // Use artist/album names from the queue item for targeted search (#452)
+                                        let artist_hint = item.status.artist_name.as_deref();
+                                        let album_hint = item.status.album_name.as_deref();
                                         // Find the actual album directory within the base output dir
-                                        if let Some(album_dir) = find_album_directory(base_path) {
+                                        if let Some(album_dir) = find_album_directory(base_path, artist_hint, album_hint) {
                                             item.status.output_path = Some(album_dir);
                                             item.status.output_is_directory = true;
                                             log::info!(
@@ -4183,7 +4258,9 @@ pub fn process_queue(
                                         item.merged_options.output_path.clone()
                                     {
                                         let base_path = std::path::Path::new(base_dir);
-                                        if let Some(album_dir) = find_album_directory(base_path) {
+                                        let artist_hint = item.status.artist_name.as_deref();
+                                        let album_hint = item.status.album_name.as_deref();
+                                        if let Some(album_dir) = find_album_directory(base_path, artist_hint, album_hint) {
                                             item.status.output_path = Some(album_dir);
                                             item.status.output_is_directory = true;
                                         } else {
@@ -4214,8 +4291,10 @@ pub fn process_queue(
                                     {
                                         let base_path =
                                             std::path::Path::new(base_dir);
+                                        let artist_hint = item.status.artist_name.as_deref();
+                                        let album_hint = item.status.album_name.as_deref();
                                         if let Some(album_dir) =
-                                            find_album_directory(base_path)
+                                            find_album_directory(base_path, artist_hint, album_hint)
                                         {
                                             item.status.output_path =
                                                 Some(album_dir);
