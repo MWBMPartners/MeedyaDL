@@ -513,36 +513,81 @@ fn has_audio_files(dir: &std::path::Path) -> bool {
     false
 }
 
-/// Finds the most recently modified subdirectory containing audio files (.m4a/.m4v).
-/// Used by the partial-success recovery path to find the actual album directory
-/// within the base output directory, instead of returning the base directory itself.
+/// Finds the deepest (leaf) subdirectory containing audio files (.m4a/.m4v).
+///
+/// GAMDL creates an `Artist/Album/` directory structure under the base output
+/// path. This function must return the **album** directory (where audio files
+/// live), not the artist directory. It recursively descends through the tree,
+/// preferring the most recently modified **leaf** directory that directly
+/// contains audio files. A "leaf" directory is one where audio files exist
+/// directly (not only in nested subdirectories).
+///
+/// Fixed in #447: previously only searched one level deep, returning the
+/// artist directory instead of the album directory.
 fn find_album_directory(base_dir: &std::path::Path) -> Option<String> {
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
 
-    if let Ok(entries) = std::fs::read_dir(base_dir) {
+    find_deepest_audio_dir(base_dir, &mut best);
+
+    // If no subdirectory with audio files found, check if base itself has audio
+    if best.is_none() && has_direct_audio_files(base_dir) {
+        return Some(base_dir.to_string_lossy().to_string());
+    }
+
+    best.map(|(_, p)| p.to_string_lossy().to_string())
+}
+
+/// Recursively finds the deepest directory that directly contains audio files.
+/// Prefers the most recently modified leaf directory.
+fn find_deepest_audio_dir(
+    dir: &std::path::Path,
+    best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // If this directory directly contains audio files, it's a candidate
+            if has_direct_audio_files(&path) {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if let Ok(modified) = meta.modified() {
+                        if best.as_ref().is_none_or(|(t, _)| modified > *t) {
+                            *best = Some((modified, path.clone()));
+                        }
+                    }
+                }
+            }
+            // Always recurse deeper — there may be nested album directories
+            find_deepest_audio_dir(&path, best);
+        }
+    }
+}
+
+/// Checks if the given directory directly contains audio files (non-recursive).
+/// Unlike `has_audio_files()`, this does NOT recurse into subdirectories.
+fn has_direct_audio_files(dir: &std::path::Path) -> bool {
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
-                // Check recursively for audio files in this subdirectory
-                if has_audio_files(&path) {
-                    if let Ok(meta) = std::fs::metadata(&path) {
-                        if let Ok(modified) = meta.modified() {
-                            if best.as_ref().is_none_or(|(t, _)| modified > *t) {
-                                best = Some((modified, path));
-                            }
-                        }
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("m4a")
+                        || ext.eq_ignore_ascii_case("m4v")
+                        || ext.eq_ignore_ascii_case("mp4")
+                        || ext.eq_ignore_ascii_case("flac")
+                        || ext.eq_ignore_ascii_case("mp3")
+                        || ext.eq_ignore_ascii_case("ogg")
+                    {
+                        return true;
                     }
                 }
             }
         }
     }
-
-    // If no subdirectory with audio files found, check if base itself has audio
-    if best.is_none() && has_audio_files(base_dir) {
-        return Some(base_dir.to_string_lossy().to_string());
-    }
-
-    best.map(|(_, p)| p.to_string_lossy().to_string())
+    false
 }
 
 /// Count GAMDL warnings indicating tracks were skipped because the
@@ -727,7 +772,9 @@ fn write_manifest(
     // Write atomically (temp file + rename)
     match serde_json::to_string_pretty(&manifest) {
         Ok(json) => {
-            let tmp_path = manifest_path.with_extension("meedyadl.tmp");
+            // Use a sibling temp file with a simple suffix to avoid
+            // Rust's `with_extension()` quirks on dotfiles (#447).
+            let tmp_path = dir.join("manifest.meedyadl.tmp");
             if let Err(e) = std::fs::write(&tmp_path, &json) {
                 log::warn!("Failed to write manifest temp file: {e}");
                 return;
@@ -746,15 +793,19 @@ fn write_manifest(
     }
 }
 
-/// Rename GAMDL's `Cover.<ext>` to `FrontCover.<ext>` for consistency (#448).
+/// Rename GAMDL's `Cover.<ext>` to the user's configured cover art name (#448).
 ///
 /// GAMDL hardcodes the static cover art filename as `Cover.jpg` / `Cover.png` /
-/// `Cover.raw`. MeedyaDL's animated artwork service uses `FrontCover.mp4` and
-/// `PortraitCover.mp4`. This post-download rename aligns static cover art naming
-/// with the animated artwork convention.
+/// `Cover.raw`. The `cover_art_name` setting controls what the file should be
+/// renamed to (e.g., `FrontCover`, `Folder`, or kept as `Cover`).
 ///
-/// Idempotent: skips if `FrontCover.<ext>` already exists or `Cover.<ext>` is absent.
-fn rename_cover_to_front_cover(album_dir: &str) {
+/// Idempotent: skips if target already exists or source `Cover.<ext>` is absent.
+fn rename_cover_art(album_dir: &str, target_stem: &str) {
+    // If the user wants to keep the default "Cover" name, nothing to do
+    if target_stem == "Cover" {
+        return;
+    }
+
     let dir = std::path::Path::new(album_dir);
     if !dir.exists() {
         return;
@@ -762,19 +813,19 @@ fn rename_cover_to_front_cover(album_dir: &str) {
 
     for ext in &["jpg", "png", "raw"] {
         let old_name = dir.join(format!("Cover.{ext}"));
-        let new_name = dir.join(format!("FrontCover.{ext}"));
+        let new_name = dir.join(format!("{target_stem}.{ext}"));
 
         if old_name.exists() && !new_name.exists() {
             match std::fs::rename(&old_name, &new_name) {
                 Ok(()) => {
                     log::info!(
-                        "Renamed Cover.{ext} → FrontCover.{ext} in {}",
+                        "Renamed Cover.{ext} → {target_stem}.{ext} in {}",
                         dir.display()
                     );
                 }
                 Err(e) => {
                     log::warn!(
-                        "Failed to rename Cover.{ext} → FrontCover.{ext}: {e}"
+                        "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
                     );
                 }
             }
@@ -3119,8 +3170,9 @@ fn spawn_companion_downloads(
                                     let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
                                     if let Some(ref output_dir) = opts.output_path {
-                                        // Rename Cover → FrontCover in companion output (#448)
-                                        rename_cover_to_front_cover(output_dir);
+                                        // Rename cover art per user setting (#448)
+                                        let comp_settings = load_settings_for_queue(&comp_app);
+                                        rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
 
                                         match super::metadata_tag_service::apply_codec_metadata_tags(
                                             output_dir, codec,
@@ -4672,11 +4724,11 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
 
-                            // --- Post-step 1: Rename GAMDL's "Cover" to "FrontCover" (#448) ---
-                            // GAMDL saves static cover art as Cover.<ext> but MeedyaDL's
-                            // animated artwork uses FrontCover.mp4/PortraitCover.mp4.
-                            // Rename for consistency before subsequent steps reference the file.
-                            rename_cover_to_front_cover(&album_dir);
+                            // --- Post-step 1: Rename cover art per user setting (#448) ---
+                            // GAMDL saves static cover art as Cover.<ext>. Rename to the
+                            // user's configured name (default: FrontCover for consistency
+                            // with animated artwork FrontCover.mp4/PortraitCover.mp4).
+                            rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
