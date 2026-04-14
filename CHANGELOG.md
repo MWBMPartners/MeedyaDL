@@ -26,6 +26,7 @@ The "Update All" button for component updates was silently succeeding
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.34.2] - 2026-04-14
 
