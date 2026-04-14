@@ -462,10 +462,17 @@ pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, 
     // Delegates to dependency_manager which handles platform-specific
     // URL resolution, download, archive extraction, and binary verification.
     log::info!("Installing dependency: {name}");
-    emit_app_log(&app, &format!("Installing {name}..."));
-    let result = dependency_manager::install_tool(&app, &name).await?;
-    emit_app_log(&app, &format!("{name} installed"));
-    Ok(result)
+    emit_app_log(&app, &format!("Updating {name}..."));
+    match dependency_manager::install_tool(&app, &name).await {
+        Ok(result) => {
+            emit_app_log(&app, &format!("{name} updated successfully"));
+            Ok(result)
+        }
+        Err(e) => {
+            emit_app_log(&app, &format!("Failed to update {name}: {e}"));
+            Err(e)
+        }
+    }
 }
 
 /// A single component version entry for the About screen and Activity Log.
