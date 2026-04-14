@@ -1434,6 +1434,8 @@ export interface ComponentUpdate {
   is_prerelease: boolean;
   /** Git tag name for this release (e.g., "v0.3.7"), used for download URL construction */
   tag_name: string | null;
+  /** PyPI package name for pip-based engines (e.g., "ofscraper", "votify"), or null for non-pip components */
+  pip_package: string | null;
 }
 
 /**
