@@ -207,12 +207,14 @@ export function UpdatesPage() {
                     size="sm"
                     icon={<RefreshCw size={12} />}
                     onClick={() => {
-                      // Upgrade all engine updates silently
-                      const engines = activeUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name));
+                      // Upgrade all engine updates using the pip_package identifier
+                      const engines = activeUpdates.filter(
+                        (c) => !CORE_COMPONENTS.includes(c.name) && c.pip_package
+                      );
                       Promise.all(
                         engines.map((e) =>
                           import('@/lib/tauri-commands').then(({ upgradePipEngine }) =>
-                            upgradePipEngine(e.name.toLowerCase())
+                            upgradePipEngine(e.pip_package!)
                           )
                         )
                       )

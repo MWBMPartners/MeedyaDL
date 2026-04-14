@@ -100,6 +100,10 @@ pub struct ComponentUpdate {
     /// Git tag name for this release (e.g., "v0.3.7").
     /// Used by the frontend to construct the download URL for the Tauri updater.
     pub tag_name: Option<String>,
+    /// PyPI package name for pip-based engines (e.g., "ofscraper", "votify").
+    /// Used by the frontend to call `upgrade_pip_engine` with the correct identifier
+    /// (display names like "OF-Scraper" don't match PyPI package names).
+    pub pip_package: Option<String>,
 }
 
 /// Combined update status for all components.
@@ -628,6 +632,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
         is_prerelease: false,
         tag_name: None,
+        pip_package: Some("gamdl".to_string()),
     })
 }
 
@@ -698,6 +703,7 @@ async fn check_app_update(
                 release_body: None,
                 is_prerelease: false,
                 tag_name: None,
+                pip_package: None,
             });
         }
         return Err(format!("GitHub API returned HTTP {}", response.status()));
@@ -727,6 +733,7 @@ async fn check_app_update(
                 release_body: None,
                 is_prerelease: false,
                 tag_name: None,
+                pip_package: None,
             });
         }
         // Index 0 is the newest release (may be a pre-release).
@@ -857,6 +864,7 @@ fn parse_release_from_response(
         } else {
             Some(raw_tag.to_string())
         },
+        pip_package: None,
     }
 }
 
@@ -1033,6 +1041,7 @@ async fn check_github_tool_update(
         release_body: None,
         is_prerelease: false,
         tag_name: None,
+        pip_package: None,
     })
 }
 
@@ -1074,6 +1083,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // Python updates are local version comparisons, not GitHub Releases
         is_prerelease: false,
         tag_name: None,
+        pip_package: None,
     })
 }
 
@@ -1157,6 +1167,7 @@ async fn check_pip_engine_update(
         release_body: None,
         is_prerelease: false,
         tag_name: None,
+        pip_package: Some(pip_package.to_string()),
     })
 }
 
