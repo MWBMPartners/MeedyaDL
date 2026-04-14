@@ -206,23 +206,45 @@ export function UpdatesPage() {
                     variant="primary"
                     size="sm"
                     icon={<RefreshCw size={12} />}
-                    onClick={() => {
-                      // Upgrade all engine updates using the pip_package identifier
-                      const engines = activeUpdates.filter(
-                        (c) => !CORE_COMPONENTS.includes(c.name) && c.pip_package
+                    onClick={async () => {
+                      const components = activeUpdates.filter(
+                        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
                       );
-                      Promise.all(
-                        engines.map((e) =>
-                          import('@/lib/tauri-commands').then(({ upgradePipEngine }) =>
-                            upgradePipEngine(e.pip_package!)
-                          )
-                        )
-                      )
-                        .then(() => {
-                          addToast('Components updated successfully', 'success');
-                          checkForUpdates().catch(() => {});
+                      if (components.length === 0) {
+                        addToast('No updatable components found', 'info');
+                        return;
+                      }
+
+                      let successCount = 0;
+                      let failCount = 0;
+
+                      const results = await Promise.allSettled(
+                        components.map(async (c) => {
+                          if (c.pip_package) {
+                            const { upgradePipEngine } = await import('@/lib/tauri-commands');
+                            return upgradePipEngine(c.pip_package);
+                          } else if (c.tool_id) {
+                            const { installDependency } = await import('@/lib/tauri-commands');
+                            return installDependency(c.tool_id);
+                          }
+                          throw new Error(`No upgrade method for ${c.name}`);
                         })
-                        .catch(() => addToast('Some component updates failed', 'error'));
+                      );
+
+                      for (const r of results) {
+                        if (r.status === 'fulfilled') successCount++;
+                        else failCount++;
+                      }
+
+                      if (failCount === 0) {
+                        addToast(`${successCount} component${successCount > 1 ? 's' : ''} updated successfully`, 'success');
+                      } else if (successCount === 0) {
+                        addToast(`Failed to update ${failCount} component${failCount > 1 ? 's' : ''}`, 'error');
+                      } else {
+                        addToast(`${successCount} updated, ${failCount} failed`, 'warning');
+                      }
+
+                      checkForUpdates().catch(() => {});
                     }}
                   >
                     Update All

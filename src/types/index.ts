@@ -1436,6 +1436,8 @@ export interface ComponentUpdate {
   tag_name: string | null;
   /** PyPI package name for pip-based engines (e.g., "ofscraper", "votify"), or null for non-pip components */
   pip_package: string | null;
+  /** Canonical tool ID for binary tools (e.g., "ffmpeg", "nm3u8dlre"), or null for non-tool components */
+  tool_id: string | null;
 }
 
 /**
