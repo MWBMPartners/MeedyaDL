@@ -30,6 +30,7 @@ The `mangle.properties.regex: /^_/` terser option renames ALL object
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.34.0] - 2026-04-14
 
