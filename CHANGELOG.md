@@ -8,6 +8,40 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Blank window rendering + broken component updates (#475)
+
+## Summary
+
+  - **Fix blank/black window on all platforms**: Remove terser
+  `mangle.properties.regex: /^_/` which renamed React's internal
+  underscore-prefixed properties (`._reactInternals`, `._payload`,
+  `._init`, etc.), destroying the reconciler in production builds. Dev
+  mode was unaffected because terser is disabled in debug builds.
+  - **Fix "Update All" button doing nothing**: The frontend passed
+  `e.name.toLowerCase()` (display name like "of-scraper") to
+  `upgradePipEngine()` instead of the actual PyPI package name
+  ("ofscraper"). Added `pip_package` field to `ComponentUpdate` so the
+  backend passes the correct identifier through.
+
+  ## Test plan
+
+  - [ ] Build a release binary (`cargo tauri build`) and verify the app
+  renders on macOS, Windows, and Linux
+  - [ ] Verify dev mode (`cargo tauri dev`) still works
+  - [ ] Navigate to Updates page, confirm "Update All" triggers pip
+  upgrades with correct package names
+  - [ ] Run `npm run type-check` — passes
+  - [ ] Run `npm test` — 293/293 tests pass
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.1] - 2026-04-14
+
+### 🐛 Bug Fixes
+
 - Remove terser property mangling that breaks React rendering
 
 The `mangle.properties.regex: /^_/` terser option renames ALL object
@@ -16,6 +50,13 @@ The `mangle.properties.regex: /^_/` terser option renames ALL object
   underscore-prefixed properties (._reactInternals, ._internalRoot,
   ._payload, ._init, ._currentValue, etc.) that must retain their exact
   names for the reconciler to function.
+
+- Component updates fail — frontend uses display name instead of pip package name
+
+The "Update All" button on the Updates page called `upgradePipEngine(e.name.toLowerCase())`
+  which passes the human-readable display name (e.g., "OF-Scraper" → "of-scraper") instead
+  of the PyPI package name ("ofscraper"). This caused pip to fail for any engine where the
+  display name differs from the package name.
 
 - Loads with blank screen (#473)
 
