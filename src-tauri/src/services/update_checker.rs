@@ -104,6 +104,10 @@ pub struct ComponentUpdate {
     /// Used by the frontend to call `upgrade_pip_engine` with the correct identifier
     /// (display names like "OF-Scraper" don't match PyPI package names).
     pub pip_package: Option<String>,
+    /// Canonical tool ID for binary tools (e.g., "ffmpeg", "nm3u8dlre").
+    /// Used by the frontend to call `install_dependency` to re-download and
+    /// upgrade the tool. Only set for external binary tools, not pip engines.
+    pub tool_id: Option<String>,
 }
 
 /// Combined update status for all components.
@@ -504,13 +508,13 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // Compares installed tool versions (from tool-versions.toml minimums)
     // against the latest GitHub release for tools that have known repos.
     let tool_checks = [
-        ("ffmpeg", "BtbN/FFmpeg-Builds"),
-        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE"),
+        ("ffmpeg", "BtbN/FFmpeg-Builds", "FFmpeg"),
+        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE", "N_m3u8DL-RE"),
     ];
-    for (tool_id, repo) in &tool_checks {
+    for (tool_id, repo, display_name) in &tool_checks {
         let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
         if binary.exists() {
-            match check_github_tool_update(app, tool_id, repo).await {
+            match check_github_tool_update(app, tool_id, repo, display_name).await {
                 Ok(update) => components.push(update),
                 Err(e) => {
                     log::debug!("Tool update check failed for {tool_id}: {e}");
@@ -633,6 +637,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         is_prerelease: false,
         tag_name: None,
         pip_package: Some("gamdl".to_string()),
+        tool_id: None,
     })
 }
 
@@ -704,6 +709,7 @@ async fn check_app_update(
                 is_prerelease: false,
                 tag_name: None,
                 pip_package: None,
+                tool_id: None,
             });
         }
         return Err(format!("GitHub API returned HTTP {}", response.status()));
@@ -734,6 +740,7 @@ async fn check_app_update(
                 is_prerelease: false,
                 tag_name: None,
                 pip_package: None,
+                tool_id: None,
             });
         }
         // Index 0 is the newest release (may be a pre-release).
@@ -865,6 +872,7 @@ fn parse_release_from_response(
             Some(raw_tag.to_string())
         },
         pip_package: None,
+        tool_id: None,
     }
 }
 
@@ -975,6 +983,7 @@ async fn check_github_tool_update(
     app: &AppHandle,
     tool_id: &str,
     github_repo: &str,
+    display_name: &str,
 ) -> Result<ComponentUpdate, String> {
     // Reuse the centralized dependency-manager logic so each tool uses its
     // configured version flag and parser instead of assuming `--version`.
@@ -1031,17 +1040,18 @@ async fn check_github_tool_update(
     };
 
     Ok(ComponentUpdate {
-        name: tool_id.to_string(),
+        name: display_name.to_string(),
         current_version,
         latest_version,
         update_available,
         is_compatible: true,
-        description: None,
-        release_url: None,
+        description: Some(format!("Newer version of {display_name} available")),
+        release_url: Some(format!("https://github.com/{github_repo}/releases/latest")),
         release_body: None,
         is_prerelease: false,
         tag_name: None,
         pip_package: None,
+        tool_id: Some(tool_id.to_string()),
     })
 }
 
@@ -1084,6 +1094,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         is_prerelease: false,
         tag_name: None,
         pip_package: None,
+        tool_id: None,
     })
 }
 
@@ -1168,6 +1179,7 @@ async fn check_pip_engine_update(
         is_prerelease: false,
         tag_name: None,
         pip_package: Some(pip_package.to_string()),
+        tool_id: None,
     })
 }
 
