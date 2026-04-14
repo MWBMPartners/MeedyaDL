@@ -154,10 +154,37 @@ export function UpdatesPage() {
                 Last checked: {new Date(lastResult.checked_at).toLocaleString()}
               </p>
             )}
+
+            {/* Rollback option for pre-release users (#267) */}
+            {lastResult?.rollback_version && (
+              <div className="mt-4 p-4 rounded-platform border border-border-light bg-surface-secondary">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-content-primary">
+                      Running pre-release — stable v{lastResult.rollback_version} available
+                    </p>
+                    <p className="text-xs text-content-tertiary mt-1">
+                      Roll back to the latest stable release if you experience issues with this pre-release.
+                    </p>
+                  </div>
+                  <button
+                    className="px-3 py-1.5 text-xs font-medium rounded-platform bg-surface-tertiary hover:bg-surface-quaternary text-content-primary transition-colors"
+                    onClick={async () => {
+                      if (lastResult.rollback_tag) {
+                        const { open } = await import('@tauri-apps/plugin-shell');
+                        await open(`https://github.com/MWBMPartners/MeedyaDL/releases/tag/${lastResult.rollback_tag}`);
+                      }
+                    }}
+                  >
+                    View Stable Release
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* Updates available */
-          <div className="space-y-6 max-w-3xl">
+          <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
               <ArrowUpCircle size={18} className="text-accent" />
               {activeUpdates.length === 1

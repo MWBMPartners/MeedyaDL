@@ -703,6 +703,44 @@ export function importManifest(): Promise<string[]> {
 }
 
 /**
+ * Scans a folder for `manifest.meedyadl` files and returns metadata
+ * from each discovered manifest (#456). Opens a native folder picker.
+ *
+ * Rust handler: `scan_folder_for_manifests()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * @returns Promise resolving to an array of scanned manifest data
+ */
+export function scanFolderForManifests(): Promise<ScannedManifest[]> {
+  return invoke<ScannedManifest[]>('scan_folder_for_manifests');
+}
+
+/** Result of scanning a folder for manifest files (#456). */
+export interface ScannedManifest {
+  /** Path to the manifest file on disk */
+  manifest_path: string;
+  /** Album directory containing the manifest */
+  album_dir: string;
+  /** Source URLs extracted from the manifest */
+  urls: string[];
+  /** Platform (e.g., "apple-music") */
+  platform: string | null;
+  /** Artist name (inferred from directory structure) */
+  artist: string | null;
+  /** Album name (inferred from directory name) */
+  album: string | null;
+  /** When this source was last downloaded (ISO 8601) */
+  downloaded_at: string | null;
+  /** Track count from the manifest */
+  track_count: number;
+  /** Current codec detected from files on disk (e.g., "aac", "alac") (#380) */
+  current_codec: string | null;
+  /** Number of audio files in the album directory */
+  audio_file_count: number;
+  /** Apple Music lastModifiedDate from manifest — for content refresh detection (#380) */
+  last_modified_date: string | null;
+}
+
+/**
  * Checks whether a URL was previously downloaded for smart re-download
  * detection (#263). Returns metadata about the previous download if found.
  *

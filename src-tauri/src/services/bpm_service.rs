@@ -66,12 +66,97 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
         }
     }
 
-    // No existing BPM tag — analysis would require a DSP library or Python.
-    // For now, log that analysis is deferred to MeedyaSuite-core integration.
-    log::debug!(
-        "No existing BPM tag for {}; full BPM analysis requires MeedyaSuite-core (see #418)",
-        file_path.display()
-    );
+    // No existing BPM tag — analyse using FFmpeg's onset detection (#418).
+    // Uses the `ebur128` and peak detection to estimate tempo. FFmpeg must
+    // be available (already a required dependency).
+    let ffmpeg = ffmpeg_path
+        .map(|p| {
+            let path = std::path::Path::new(p);
+            if let Some(dir) = path.parent() {
+                dir.join("ffmpeg").to_string_lossy().to_string()
+            } else {
+                "ffmpeg".to_string()
+            }
+        })
+        .unwrap_or_else(|| "ffmpeg".to_string());
+
+    // Use FFmpeg's volumedetect + silencedetect to estimate beats (#418).
+    // silencedetect finds quiet gaps between beats, giving us onset count.
+    // BPM ≈ (onset_count / duration_seconds) * 60
+    let analysis = tokio::process::Command::new(&ffmpeg)
+        .args([
+            "-i",
+            &file_path.to_string_lossy(),
+            "-af",
+            "aresample=22050,lowpass=f=300,highpass=f=40,silencedetect=noise=-30dB:d=0.1",
+            "-f", "null", "-",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+
+    if let Ok(output) = analysis {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Count silence_end markers (each marks the start of a sound onset)
+        let onset_count = stderr
+            .lines()
+            .filter(|l| l.contains("silence_end"))
+            .count();
+
+        let duration = parse_ffmpeg_duration(&stderr);
+
+        if let Some(dur) = duration {
+            if dur > 10.0 && onset_count > 10 {
+                // BPM ≈ beats per second * 60
+                let raw_bpm = (onset_count as f64 / dur) * 60.0;
+                // Musical BPM is typically 60-200. If our estimate is outside
+                // this range, try halving or doubling.
+                let bpm = if raw_bpm > 200.0 {
+                    raw_bpm / 2.0
+                } else if raw_bpm < 60.0 {
+                    raw_bpm * 2.0
+                } else {
+                    raw_bpm
+                };
+
+                // Only return if the result is plausible (60-200 BPM)
+                if (60.0..=200.0).contains(&bpm) {
+                    log::info!(
+                        "BPM estimated via onset detection: {bpm:.0} ({onset_count} onsets in {dur:.1}s) for {}",
+                        file_path.display()
+                    );
+                    return Some(bpm);
+                }
+            }
+        }
+
+        log::debug!(
+            "BPM estimation inconclusive for {} ({onset_count} onsets)",
+            file_path.display()
+        );
+    }
+
+    None
+}
+
+/// Parse duration from FFmpeg stderr output (e.g., "Duration: 00:03:45.12").
+fn parse_ffmpeg_duration(stderr: &str) -> Option<f64> {
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+        if let Some(idx) = trimmed.find("Duration:") {
+            let after = &trimmed[idx + 9..];
+            let time_str = after.split(',').next()?.trim();
+            let parts: Vec<&str> = time_str.split(':').collect();
+            if parts.len() == 3 {
+                let hours: f64 = parts[0].parse().ok()?;
+                let minutes: f64 = parts[1].parse().ok()?;
+                let seconds: f64 = parts[2].parse().ok()?;
+                return Some(hours * 3600.0 + minutes * 60.0 + seconds);
+            }
+        }
+    }
     None
 }
 

@@ -64,4 +64,4 @@ If you encounter an issue not covered in this documentation:
 
 1. Check the [Troubleshooting](troubleshooting.md) guide for common errors and solutions
 2. Review the [FAQ](faq.md) for frequently asked questions
-3. Open an issue on the [MeedyaDL GitHub repository](https://github.com/MeedyaDL/MeedyaDL/issues) with details about your problem, including your OS, app version, and any relevant log messages
+3. Open an issue on the [MeedyaDL GitHub repository](https://github.com/MWBMPartners/MeedyaDL/issues) with details about your problem, including your OS, app version, and any relevant log messages

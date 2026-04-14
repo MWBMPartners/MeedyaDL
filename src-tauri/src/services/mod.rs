@@ -328,6 +328,23 @@ pub mod engine_runner;
 /// Used by: `commands/system` (IPC), `download_queue` (engine resolution)
 pub mod engine_registry;
 
+/// Service-agnostic metadata provider trait (#351).
+/// Enables Apple Music, iTunes, Spotify, YouTube etc. to provide metadata
+/// through a common interface for the enrichment pipeline.
+pub mod metadata_provider;
+
+/// Service status — fetches remote service enable/disable configuration.
+///
+/// Checks whether services (Apple Music, Spotify, etc.) are currently
+/// available. Used to disable UI elements for temporarily unavailable services.
+pub mod service_status;
+
+/// Smart Download — cross-platform quality optimisation service.
+///
+/// Analyses content availability across services to recommend the best
+/// quality source for a given album/track.
+pub mod smart_download;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

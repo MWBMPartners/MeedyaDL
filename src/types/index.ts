@@ -121,6 +121,17 @@ export type LyricsFormat = 'lrc' | 'srt' | 'ttml';
 export type CoverFormat = 'jpg' | 'png' | 'raw';
 
 /**
+ * Cover art filename (without extension).
+ *
+ * Mirrors: Rust enum `CoverArtName` in `src-tauri/src/models/settings.rs`
+ *
+ * - `cover`: Keep GAMDL's default `Cover.<ext>`
+ * - `front_cover`: Rename to `FrontCover.<ext>` (matches animated artwork naming)
+ * - `folder`: Rename to `Folder.<ext>` (Windows Media Player convention)
+ */
+export type CoverArtName = 'cover' | 'front_cover' | 'folder';
+
+/**
  * Download mode: selects which tool GAMDL uses for fetching HLS streams.
  *
  * Mirrors: Rust enum `DownloadMode` in `src-tauri/src/models/settings.rs`
@@ -442,6 +453,11 @@ export interface AppSettings {
   /** Whether to send native OS desktop notifications for download events (completion/failure).
    * Notifications are only sent when the app window is not focused. */
   desktop_notifications: boolean;
+  /** Notification style controlling how notifications are delivered.
+   * 'in_app_only' = in-app toasts only
+   * 'native_and_in_app' = both native OS notifications and in-app toasts (default)
+   * 'native_only' = native OS notifications only (no in-app toasts) */
+  notification_style: 'in_app_only' | 'native_and_in_app' | 'native_only';
   /** Smart re-download detection via Apple Music API lastModifiedDate.
    * When enabled, compares stored manifest data against fresh API response
    * to detect if an album has changed since the user's last download. */
@@ -479,8 +495,10 @@ export interface AppSettings {
   /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.
    * MeedyaDL creates one download per mode for artist URLs. */
   artist_auto_select_multi: ArtistAutoSelect[];
-  /** Whether to both embed lyrics in file metadata AND keep sidecar lyrics files */
+  /** Whether to embed lyrics/captions in audio file metadata */
   embed_lyrics_and_sidecar: boolean;
+  /** Whether to keep sidecar lyrics files (.lrc/.srt/.ttml) when embedding is enabled */
+  keep_lyrics_sidecar: boolean;
   /** Default format for synced lyrics output */
   synced_lyrics_format: LyricsFormat;
   /** Whether to skip synced lyrics by default */
@@ -510,6 +528,8 @@ export interface AppSettings {
   cover_format: CoverFormat;
   /** Default pixel dimensions for cover art */
   cover_size: number;
+  /** Filename for saved cover art image (without extension). Default: FrontCover */
+  cover_art_name: CoverArtName;
   /** Whether to download animated cover art (motion artwork) from Apple Music */
   animated_artwork_enabled: boolean;
   /** Whether to set the OS "hidden" attribute on animated artwork files */
@@ -1435,6 +1455,10 @@ export interface UpdateCheckResult {
   components: ComponentUpdate[];
   /** Non-fatal error messages from the update check process */
   errors: string[];
+  /** When running a pre-release, the latest stable version for rollback (#267) */
+  rollback_version?: string | null;
+  /** Git tag for the rollback release (e.g., "v0.32.1") */
+  rollback_tag?: string | null;
 }
 
 // ============================================================

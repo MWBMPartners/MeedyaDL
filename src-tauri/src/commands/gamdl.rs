@@ -150,6 +150,38 @@ pub async fn start_download(
     // (it uses the user's cookies/wrapper auth to determine the real storefront)
     // but structurally required for GAMDL's URL regex to match.
     let mut request = request;
+
+    // Validate all URLs belong to supported domains (#459).
+    // Reject any URL whose host does not exactly match an Apple Music,
+    // Apple Music Classical, or legacy iTunes domain. Uses url::Url to
+    // parse and extract host_str() so that substring tricks like
+    // "evil.com/?next=music.apple.com/..." cannot bypass the check.
+    const SUPPORTED_HOSTS: &[&str] = &[
+        "music.apple.com",
+        "classical.apple.com",
+        "itunes.apple.com",
+    ];
+    for url in &request.urls {
+        let parsed = url::Url::parse(url)
+            .map_err(|e| format!("Invalid URL '{url}': {e}"))?;
+        if parsed.scheme() == "http" || parsed.scheme() == "https" {
+            let host = parsed.host_str().unwrap_or("").to_lowercase();
+            // Check for an exact host match or a subdomain (e.g., "geo.music.apple.com").
+            // Use strip_suffix to avoid per-iteration string allocations.
+            let is_supported = SUPPORTED_HOSTS.iter().any(|&allowed| {
+                host == allowed
+                    || host
+                        .strip_suffix(allowed)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            });
+            if !is_supported {
+                return Err(format!(
+                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, and iTunes URLs are supported."
+                ));
+            }
+        }
+    }
+
     let original_urls = request.urls.clone();
     request.urls = request
         .urls
@@ -967,7 +999,258 @@ pub async fn import_manifest(app: AppHandle) -> Result<Vec<String>, String> {
     }
 }
 
+/// Result of scanning a folder for manifest files (#456).
+///
+/// Each entry represents one discovered `manifest.meedyadl` file with
+/// metadata extracted for display in the UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ScannedManifest {
+    /// Path to the manifest file on disk
+    pub manifest_path: String,
+    /// Album directory containing the manifest
+    pub album_dir: String,
+    /// Source URLs extracted from the manifest
+    pub urls: Vec<String>,
+    /// Platform (e.g., "apple-music")
+    pub platform: Option<String>,
+    /// Artist name (from album directory structure)
+    pub artist: Option<String>,
+    /// Album name (from album directory name)
+    pub album: Option<String>,
+    /// When this source was last downloaded
+    pub downloaded_at: Option<String>,
+    /// Track count from the manifest
+    pub track_count: usize,
+    /// Current codec detected from files on disk (e.g., "aac", "alac") (#380)
+    pub current_codec: Option<String>,
+    /// Number of audio files in the album directory
+    pub audio_file_count: usize,
+    /// Apple Music lastModifiedDate from the manifest — used for content
+    /// refresh detection (#380). If the current API response has a newer
+    /// date, the album may have been updated (mix corrections, remasters,
+    /// added tracks, Apple Digital Master certification).
+    pub last_modified_date: Option<String>,
+}
+
+/// Recursively scan a directory for `manifest.meedyadl` files and return
+/// metadata from each discovered manifest (#456).
+///
+/// Opens a native folder picker dialog, then walks the selected directory
+/// tree looking for `manifest.meedyadl` (and legacy `.meedyadl`) files.
+/// For each found manifest, extracts the source URLs, platform, download
+/// date, and track count. Also infers artist/album names from the directory
+/// structure (GAMDL's `Artist/Album/` convention).
+///
+/// Used by the "Re-download from Folder" feature to let users point at an
+/// existing music library and re-queue downloads for metadata correction
+/// or quality upgrades.
+///
+/// # Returns
+/// * `Ok(Vec<ScannedManifest>)` — Manifests found (may be empty)
+/// * `Err(String)` — Folder picker cancelled or I/O error
+#[tauri::command]
+pub async fn scan_folder_for_manifests(
+    app: AppHandle,
+) -> Result<Vec<ScannedManifest>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder = app
+        .dialog()
+        .file()
+        .blocking_pick_folder();
+
+    let folder_path = match folder {
+        Some(path) => {
+            path.as_path()
+                .ok_or_else(|| "Failed to resolve folder path".to_string())?
+                .to_path_buf()
+        }
+        None => return Err("Folder selection cancelled".to_string()),
+    };
+
+    log::info!(
+        "Scanning folder for manifests: {}",
+        folder_path.display()
+    );
+
+    let mut results = Vec::new();
+    scan_dir_for_manifests_recursive(&folder_path, &mut results, 0, 10);
+
+    log::info!(
+        "Found {} manifest(s) in {}",
+        results.len(),
+        folder_path.display()
+    );
+
+    crate::utils::activity_log::emit_app_log(
+        &app,
+        &format!(
+            "Folder scan: found {} manifest(s) in {}",
+            results.len(),
+            folder_path.display()
+        ),
+    );
+
+    Ok(results)
+}
+
+/// Recursively scan directories for manifest files.
+fn scan_dir_for_manifests_recursive(
+    dir: &std::path::Path,
+    results: &mut Vec<ScannedManifest>,
+    depth: u32,
+    max_depth: u32,
+) {
+    if depth > max_depth {
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        if path.is_dir() {
+            scan_dir_for_manifests_recursive(&path, results, depth + 1, max_depth);
+            continue;
+        }
+
+        // Check for manifest.meedyadl or legacy .meedyadl
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        if file_name != "manifest.meedyadl" && file_name != ".meedyadl" {
+            continue;
+        }
+
+        // Parse the manifest
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            log::debug!("Failed to read manifest: {}", path.display());
+            continue;
+        };
+
+        let Ok(manifest) = serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents) else {
+            log::debug!("Failed to parse manifest: {}", path.display());
+            continue;
+        };
+
+        // Extract the first (most recent) source
+        let source = manifest.sources.first();
+
+        // Infer artist/album from directory structure:
+        // base/Artist/Album/manifest.meedyadl → parent = Album, grandparent = Artist
+        let album_dir = path.parent().unwrap_or(dir);
+        let album_name = album_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(String::from);
+        let artist_name = album_dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(String::from);
+
+        let urls: Vec<String> = manifest
+            .sources
+            .iter()
+            .map(|s| s.url.clone())
+            .collect();
+
+        if urls.is_empty() {
+            continue;
+        }
+
+        let track_count = source
+            .map(|s| s.tracks.len())
+            .unwrap_or(0);
+
+        // Detect current codec from the first M4A file in the album dir (#380).
+        // Reads the MeedyaMeta:SourceCodec or com.apple.iTunes:isLossless tag.
+        let (current_codec, audio_file_count) = detect_album_codec(album_dir);
+
+        results.push(ScannedManifest {
+            manifest_path: path.to_string_lossy().to_string(),
+            album_dir: album_dir.to_string_lossy().to_string(),
+            urls,
+            platform: source.map(|s| s.platform.clone()),
+            artist: artist_name,
+            album: album_name,
+            downloaded_at: source.map(|s| s.downloaded_at.clone()),
+            track_count,
+            current_codec,
+            audio_file_count,
+            last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
+        });
+    }
+}
+
 /// Checks whether a URL was previously downloaded and returns change
+/// Detect the codec of the first M4A file in an album directory (#380).
+///
+/// Reads the `MeedyaMeta:SourceCodec` or `com.apple.iTunes:isLossless` tag
+/// from the first `.m4a` file found. Returns `(codec_name, audio_file_count)`.
+fn detect_album_codec(album_dir: &std::path::Path) -> (Option<String>, usize) {
+    let mut count = 0;
+    let mut codec: Option<String> = None;
+
+    let Ok(entries) = std::fs::read_dir(album_dir) else {
+        return (None, 0);
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !ext.eq_ignore_ascii_case("m4a") && !ext.eq_ignore_ascii_case("m4v") {
+            continue;
+        }
+        count += 1;
+
+        // Only detect codec from the first file
+        if codec.is_some() {
+            continue;
+        }
+
+        if let Ok(tag) = mp4ameta::Tag::read_from_path(&path) {
+            // Try MeedyaMeta:SourceCodec first (written by MeedyaDL enrichment)
+            let source_codec = tag
+                .strings_of(&mp4ameta::FreeformIdent::new_static(
+                    "MeedyaMeta",
+                    "SourceCodec",
+                ))
+                .next()
+                .map(String::from);
+
+            if let Some(c) = source_codec {
+                codec = Some(c);
+            } else {
+                // Fallback: check isLossless tag
+                let is_lossless = tag
+                    .strings_of(&mp4ameta::FreeformIdent::new_static(
+                        "com.apple.iTunes",
+                        "isLossless",
+                    ))
+                    .next()
+                    .map(|s| s.to_string());
+
+                codec = match is_lossless.as_deref() {
+                    Some("true") => Some("alac".to_string()),
+                    Some("false") => Some("aac".to_string()),
+                    _ => None,
+                };
+            }
+        }
+    }
+
+    (codec, count)
+}
+
 /// detection metadata for smart re-download detection (#263).
 ///
 /// Looks up the URL in download history. If found, returns the download
