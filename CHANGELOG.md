@@ -143,6 +143,7 @@ The empty_line_after_doc_comments lint fires when there is ANY blank
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
