@@ -6,6 +6,34 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Remove terser property mangling that breaks React rendering
+
+The `mangle.properties.regex: /^_/` terser option renames ALL object
+  properties starting with underscore across the entire production bundle.
+  This destroys React's internal state management — React DOM uses 18+
+  underscore-prefixed properties (._reactInternals, ._internalRoot,
+  ._payload, ._init, ._currentValue, etc.) that must retain their exact
+  names for the reconciler to function.
+
+- Loads with blank screen (#473)
+
+The `mangle.properties.regex: /^_/` terser option renames ALL object
+  properties starting with underscore across the entire production bundle.
+  This destroys React's internal state management — React DOM uses 18+
+  underscore-prefixed properties (._reactInternals, ._internalRoot,
+  ._payload, ._init, ._currentValue, etc.) that must retain their exact
+  names for the reconciler to function.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.0] - 2026-04-14
+
 ### ✨ Features
 
 - Download manifest, folder scan, enrichment fixes, and new features (#468)
