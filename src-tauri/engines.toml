@@ -65,7 +65,7 @@
 # 1. Add a new [engines.<id>] section below
 # 2. Set enabled = false until the Rust adapter is implemented
 # 3. Set bundled = true (pip engines use install_method="pip", binary
-#    engines use install_method="binary" and are hosted on MeedyaDL-Tools mirror)
+#    engines use install_method="binary" and are hosted on MeedyaSuite/MeedyaDL-Tools mirror)
 # 4. Add the engine ID to the relevant platform's `engines` list
 # 5. Implement the engine adapter in Rust (see services/ directory)
 # 6. Set enabled = true when ready for users

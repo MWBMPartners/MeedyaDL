@@ -3,9 +3,10 @@
 //
 // Download manifest model (.meedyadl files embedded in album folders).
 //
-// Each downloaded album/playlist folder contains a `.meedyadl` JSON
-// manifest recording the source URL(s) and per-track metadata. This
+// Each downloaded album/playlist folder contains a `manifest.meedyadl`
+// JSON file recording the source URL(s) and per-track metadata. This
 // enables one-click re-download by importing the file into MeedyaDL.
+// (Previously named `.meedyadl` — a hidden dotfile; renamed in #447.)
 //
 // The `sources` array supports multi-platform entries — as MeedyaDL
 // expands to Spotify, YouTube, etc., new sources are appended to the

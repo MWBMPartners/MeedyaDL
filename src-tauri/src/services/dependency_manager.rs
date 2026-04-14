@@ -90,7 +90,7 @@ fn load_tool_version_config(tool_id: &str) -> Option<ToolVersionConfig> {
 /// the dependency manager queries this repo's releases for matching assets.
 #[derive(Debug, serde::Deserialize)]
 struct MirrorConfig {
-    /// GitHub repository in "owner/name" format (e.g., "MeedyaDL/MeedyaDL-Tools")
+    /// GitHub repository in "owner/name" format (e.g., "MeedyaSuite/MeedyaDL-Tools")
     github_repo: String,
     /// Release tag to query for downloadable assets (e.g., "latest")
     release_tag: String,
@@ -461,7 +461,7 @@ fn get_mirror_asset_prefix(tool_id: &str) -> Result<String, String> {
 
 /// Queries the mirror repository for a tool's download URL.
 ///
-/// The mirror at `MeedyaDL/MeedyaDL-Tools` hosts pre-built binaries
+/// The mirror at `MeedyaSuite/MeedyaDL-Tools` hosts pre-built binaries
 /// with standardized naming. This function queries the repo's GitHub
 /// Releases API to find the matching asset for the current platform.
 ///
@@ -511,7 +511,7 @@ async fn get_mirror_download_url(
 ///
 /// Resolution order:
 ///   1. Primary upstream source (hardcoded URL or upstream GitHub API)
-///   2. MeedyaDL/MeedyaDL-Tools mirror repository (fallback)
+///   2. MeedyaSuite/MeedyaDL-Tools mirror repository (fallback)
 ///
 /// # Arguments
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
@@ -952,6 +952,15 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
             archive::set_executable(&expected_binary)?;
 
+            // For ffmpeg, also copy ffprobe from the same system directory.
+            // ffprobe is a companion binary used for codec detection and BPM analysis.
+            if tool_id == "ffmpeg" {
+                copy_companion_ffprobe_from_dir(
+                    system_path.parent().unwrap_or(std::path::Path::new("")),
+                    &tool_dir,
+                );
+            }
+
             // Write a .source marker file so check_all_dependencies knows this
             // tool came from the system PATH rather than being downloaded.
             let source_marker = tool_dir.join(".source");
@@ -981,7 +990,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
     // Step 1-3: Download with automatic mirror fallback.
     // Tries the primary upstream source first (hardcoded URL or GitHub API),
-    // then falls back to the MeedyaDL/MeedyaDL-Tools mirror repository.
+    // then falls back to the MeedyaSuite/MeedyaDL-Tools mirror repository.
     let tool_dir = get_tool_dir(app, tool_id);
     download_tool_with_fallback(tool_id, &tool_dir).await?;
 
@@ -1018,6 +1027,12 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
 
     // Step 5: Set executable permissions on Unix
     archive::set_executable(&expected_binary)?;
+
+    // Step 5b: For ffmpeg, also extract/download the companion ffprobe binary.
+    // ffprobe is used for codec detection (metadata enrichment) and BPM tag reading.
+    if tool_id == "ffmpeg" {
+        install_companion_ffprobe(&tool_dir).await;
+    }
 
     // Write a .source marker file so check_all_dependencies knows this
     // tool was downloaded and managed by the app.
@@ -1727,7 +1742,7 @@ async fn install_mp4box_linux_inner(
 ///   - Linux ARM (aarch64/armv7): `apt-get install gpac`
 ///
 /// If the platform-specific method fails, falls back to the
-/// MeedyaDL/MeedyaDL-Tools mirror repository for a generic binary archive.
+/// MeedyaSuite/MeedyaDL-Tools mirror repository for a generic binary archive.
 async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String> {
     // Try platform-specific installer first
     let platform_result = match std::env::consts::OS {
@@ -1856,6 +1871,128 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
         }
     }
 
+    None
+}
+
+/// Installs all companion FFmpeg binaries (ffprobe, ffplay) alongside ffmpeg.
+///
+/// The BtbN archives (Linux/Windows) bundle all three tools. On macOS,
+/// evermeet.cx provides each tool as a separate download. This function:
+/// 1. Searches the extracted archive for each companion (covers BtbN)
+/// 2. If not found, downloads each separately (covers macOS evermeet.cx)
+async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
+    // All FFmpeg companion binaries to extract/download alongside ffmpeg.
+    // evermeet.cx URLs follow the pattern: https://evermeet.cx/{tool}/getrelease/zip
+    let companions: &[(&str, &str)] = &[
+        ("ffprobe", "https://evermeet.cx/ffprobe/getrelease/zip"),
+        ("ffplay", "https://evermeet.cx/ffplay/getrelease/zip"),
+    ];
+
+    for &(base_name, macos_url) in companions {
+        let binary_name = if cfg!(target_os = "windows") {
+            format!("{base_name}.exe")
+        } else {
+            base_name.to_string()
+        };
+        let dest = tool_dir.join(&binary_name);
+
+        // Already present (e.g., extracted at top level) — skip
+        if dest.exists() {
+            log::debug!("{base_name} already present at {}", dest.display());
+            continue;
+        }
+
+        // Search the extracted archive tree (BtbN archives nest in bin/)
+        if let Some(found) = find_file_recursive(&tool_dir.to_path_buf(), &binary_name) {
+            match std::fs::copy(&found, &dest) {
+                Ok(_) => {
+                    archive::set_executable(&dest).ok();
+                    log::info!("Copied companion {base_name} from {} to {}", found.display(), dest.display());
+                    continue;
+                }
+                Err(e) => log::warn!("Failed to copy {base_name} from archive: {e}"),
+            }
+        }
+
+        // Not in the archive — download separately (macOS evermeet.cx case)
+        if cfg!(target_os = "macos") {
+            log::info!("{base_name} not in ffmpeg archive — downloading separately from evermeet.cx");
+            match archive::download_and_extract(
+                macos_url,
+                tool_dir,
+                archive::ArchiveFormat::Zip,
+            )
+            .await
+            {
+                Ok(()) => {
+                    if dest.exists() {
+                        archive::set_executable(&dest).ok();
+                        log::info!("Downloaded companion {base_name} to {}", dest.display());
+                    } else {
+                        log::warn!("{base_name} download succeeded but binary not found at expected location");
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to download companion {base_name}: {e}");
+                }
+            }
+        } else {
+            log::warn!("{base_name} not found in ffmpeg archive");
+        }
+    }
+}
+
+/// Copies all companion FFmpeg binaries from a directory (used when copying system ffmpeg).
+///
+/// When the user has ffmpeg on their system PATH, ffprobe and ffplay typically
+/// live in the same directory. This copies them to the managed tool directory.
+fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std::path::Path) {
+    let companions: &[&str] = &["ffprobe", "ffplay"];
+
+    for &base_name in companions {
+        let binary_name = if cfg!(target_os = "windows") {
+            format!("{base_name}.exe")
+        } else {
+            base_name.to_string()
+        };
+        let src = source_dir.join(&binary_name);
+        let dest = tool_dir.join(&binary_name);
+
+        if src.exists() {
+            match std::fs::copy(&src, &dest) {
+                Ok(_) => {
+                    archive::set_executable(&dest).ok();
+                    log::info!("Copied system {base_name} from {}", src.display());
+                }
+                Err(e) => log::warn!("Failed to copy system {base_name}: {e}"),
+            }
+        } else {
+            log::debug!("System {base_name} not found at {}", src.display());
+        }
+    }
+}
+
+/// Searches a directory tree for a file by exact name (case-sensitive).
+///
+/// Unlike `find_binary_recursive`, this searches for any filename rather than
+/// tool-specific names. Used to find companion binaries like ffprobe.
+fn find_file_recursive(dir: &PathBuf, filename: &str) -> Option<PathBuf> {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name == filename {
+                        return Some(path);
+                    }
+                }
+            } else if path.is_dir() {
+                if let Some(found) = find_file_recursive(&path, filename) {
+                    return Some(found);
+                }
+            }
+        }
+    }
     None
 }
 

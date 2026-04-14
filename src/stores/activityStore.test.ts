@@ -115,4 +115,68 @@ describe('activityStore', () => {
     useActivityStore.getState().setPaused(false);
     expect(useActivityStore.getState().paused).toBe(false);
   });
+
+  // ============================================================
+  // Search & Filter tests (#232)
+  // ============================================================
+
+  it('entries can be filtered by download_id', () => {
+    useActivityStore.getState().addEntries([
+      mockEntry({ download_id: 'dl-1', line: 'Album A started' }),
+      mockEntry({ download_id: 'dl-2', line: 'Album B started' }),
+      mockEntry({ download_id: 'dl-1', line: 'Album A track 1' }),
+      mockEntry({ download_id: 'system', line: 'System event' }),
+    ]);
+
+    const entries = useActivityStore.getState().entries;
+    const dl1Entries = entries.filter((e) => e.download_id === 'dl-1');
+    const systemEntries = entries.filter((e) => e.download_id === 'system');
+
+    expect(dl1Entries).toHaveLength(2);
+    expect(systemEntries).toHaveLength(1);
+  });
+
+  it('entries can be filtered by stream type', () => {
+    useActivityStore.getState().addEntries([
+      mockEntry({ stream: 'stdout', line: 'GAMDL output' }),
+      mockEntry({ stream: 'stderr', line: 'GAMDL error' }),
+      mockEntry({ stream: 'internal', line: 'MeedyaDL event' }),
+    ]);
+
+    const entries = useActivityStore.getState().entries;
+    const stdoutEntries = entries.filter((e) => e.stream === 'stdout');
+    expect(stdoutEntries).toHaveLength(1);
+    expect(stdoutEntries[0].line).toBe('GAMDL output');
+  });
+
+  it('entries searchable by line content', () => {
+    useActivityStore.getState().addEntries([
+      mockEntry({ line: 'Downloading Too Close by Blue' }),
+      mockEntry({ line: 'Enriching metadata for Michael W. Smith' }),
+      mockEntry({ line: 'iTunes API: fetching supplementary metadata' }),
+    ]);
+
+    const entries = useActivityStore.getState().entries;
+    const blueEntries = entries.filter((e) =>
+      e.line.toLowerCase().includes('blue'),
+    );
+    expect(blueEntries).toHaveLength(1);
+  });
+
+  it('concurrent entries from different downloads are distinguishable', () => {
+    // Simulates the serial queue: entries arrive in pipeline order
+    useActivityStore.getState().addEntries([
+      mockEntry({ download_id: 'dl-1', line: 'Download started' }),
+      mockEntry({ download_id: 'dl-1', line: 'Enrichment started' }),
+      mockEntry({ download_id: 'dl-1', line: 'Manifest saved' }),
+      mockEntry({ download_id: 'dl-1', line: 'All complete' }),
+      mockEntry({ download_id: 'dl-2', line: 'Download started' }),
+    ]);
+
+    const entries = useActivityStore.getState().entries;
+    const dl1 = entries.filter((e) => e.download_id === 'dl-1');
+    const dl2 = entries.filter((e) => e.download_id === 'dl-2');
+    expect(dl1).toHaveLength(4);
+    expect(dl2).toHaveLength(1);
+  });
 });

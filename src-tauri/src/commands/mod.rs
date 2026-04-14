@@ -120,3 +120,9 @@ pub mod clipboard;
 /// its JSON attributes against the known tag definitions in `tags.toml`.
 /// Delegates to `services::api_audit_service`.
 pub mod api_audit;
+
+/// Service status command — checks remote service availability.
+pub mod service_status;
+
+/// Smart Download command — cross-platform quality search.
+pub mod smart_download;
