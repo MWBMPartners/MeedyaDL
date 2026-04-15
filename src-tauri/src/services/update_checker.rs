@@ -1027,25 +1027,44 @@ async fn check_github_tool_update(
         .map(|s| s.trim_start_matches('v').to_string())
         .unwrap_or_default();
 
+    // Extract a normalized semver from the GitHub tag for comparison.
+    // Some repos (e.g., BtbN/FFmpeg-Builds) use non-semver tags like "latest"
+    // or "autobuild-2024-12-19", which can't be compared numerically.
+    // Others (e.g., nilaoda/N_m3u8DL-RE) use "v0.5.1-beta" — we strip
+    // the pre-release suffix to match how extract_version_from_output() works.
+    let semver_re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok();
+    let latest_semver = semver_re
+        .as_ref()
+        .and_then(|re| re.find(&latest_tag))
+        .map(|m| m.as_str().to_string());
+
     let latest_version = if latest_tag.is_empty() {
         None
     } else {
         Some(latest_tag.clone())
     };
 
-    // Compare versions if we have both (#273)
-    let update_available = match (&current_version, &latest_version) {
-        (Some(cur), Some(latest)) => cur != latest && !latest.is_empty(),
+    // Compare using proper semver comparison via is_newer().
+    // Only report an update if:
+    // 1. Both versions are known
+    // 2. The GitHub tag contains a parseable semver (skip non-version tags like "latest")
+    // 3. The latest semver is genuinely newer than the installed version
+    let update_available = match (&current_version, &latest_semver) {
+        (Some(cur), Some(latest)) => is_newer(cur, latest),
         _ => false,
     };
 
     Ok(ComponentUpdate {
         name: display_name.to_string(),
         current_version,
-        latest_version,
+        latest_version: latest_semver.or(latest_version),
         update_available,
         is_compatible: true,
-        description: Some(format!("Newer version of {display_name} available")),
+        description: if update_available {
+            Some(format!("Newer version of {display_name} available"))
+        } else {
+            None
+        },
         release_url: Some(format!("https://github.com/{github_repo}/releases/latest")),
         release_body: None,
         is_prerelease: false,
