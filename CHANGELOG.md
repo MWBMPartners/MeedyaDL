@@ -8,6 +8,30 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Component Update All button now actually updates binary tools
+
+The "Update All" button for component updates was silently succeeding
+  without updating anything. Root cause: the 2 updates shown (FFmpeg,
+  N_m3u8DL-RE) are binary tools with pip_package=null, so the pip-only
+  filter excluded them — Promise.all([]) resolved as instant "success".
+
+- Component Update All button now actually updates binary tools (#477)
+
+The "Update All" button for component updates was silently succeeding
+  without updating anything. Root cause: the 2 updates shown (FFmpeg,
+  N_m3u8DL-RE) are binary tools with pip_package=null, so the pip-only
+  filter excluded them — Promise.all([]) resolved as instant "success".
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.2] - 2026-04-14
+
+### 🐛 Bug Fixes
+
 - Blank window rendering + broken component updates (#475)
 
 ## Summary
