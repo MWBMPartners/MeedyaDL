@@ -8,12 +8,45 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- False-positive tool update notifications due to version format m… (#479)
+
+…ismatch
+
+  The update checker compared installed tool versions (from `--version`
+  output) against GitHub release tags using simple string inequality. This
+  caused perpetual false "update available" for:
+
+  - FFmpeg: installed "8.0.1" vs GitHub tag "latest" (BtbN uses rolling
+  builds, not semver tags) — always different, always "update available"
+  - N_m3u8DL-RE: installed "0.5.1" (digits only) vs GitHub tag
+  "0.5.1-beta" (includes pre-release suffix) — never matched
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.3] - 2026-04-14
+
+### 🐛 Bug Fixes
+
 - Component Update All button now actually updates binary tools
 
 The "Update All" button for component updates was silently succeeding
   without updating anything. Root cause: the 2 updates shown (FFmpeg,
   N_m3u8DL-RE) are binary tools with pip_package=null, so the pip-only
   filter excluded them — Promise.all([]) resolved as instant "success".
+
+- False-positive tool update notifications due to version format mismatch
+
+The update checker compared installed tool versions (from `--version`
+  output) against GitHub release tags using simple string inequality.
+  This caused perpetual false "update available" for:
+
+  - FFmpeg: installed "8.0.1" vs GitHub tag "latest" (BtbN uses rolling
+    builds, not semver tags) — always different, always "update available"
+  - N_m3u8DL-RE: installed "0.5.1" (digits only) vs GitHub tag
+    "0.5.1-beta" (includes pre-release suffix) — never matched
 
 - Component Update All button now actually updates binary tools (#477)
 
