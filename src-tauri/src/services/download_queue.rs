@@ -2567,6 +2567,139 @@ async fn spawn_music_video_companion_inner(
 
 /// Downloads a single music video given its Apple Music URL.
 ///
+/// Recursively collect every `.mp4` / `.m4v` file under the given root.
+///
+/// Used to snapshot the video-file set before a music video download so we
+/// can diff the new set afterwards and pinpoint which files GAMDL just
+/// produced. Depth-limited at 4 levels to keep the scan bounded on large
+/// music libraries.
+fn snapshot_video_files(root: &str) -> std::collections::HashSet<std::path::PathBuf> {
+    let mut out = std::collections::HashSet::new();
+    let root_path = std::path::Path::new(root);
+    if !root_path.is_dir() {
+        return out;
+    }
+    collect_video_files_depth_limited(root_path, &mut out, 0, 4);
+    out
+}
+
+fn collect_video_files_depth_limited(
+    dir: &std::path::Path,
+    out: &mut std::collections::HashSet<std::path::PathBuf>,
+    depth: u32,
+    max_depth: u32,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if depth < max_depth {
+                collect_video_files_depth_limited(&path, out, depth + 1, max_depth);
+            }
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            let ext_lc = ext.to_ascii_lowercase();
+            if ext_lc == "mp4" || ext_lc == "m4v" {
+                out.insert(path);
+            }
+        }
+    }
+}
+
+/// Identify freshly-created music video files (those not present in
+/// `pre_existing`) and run subtitle extraction + lyrics pairing on each.
+///
+/// Fire-and-forget: any failure is logged but never fails the download.
+async fn extract_music_video_subtitles_for_new_files(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    output_root: &str,
+    pre_existing: &std::collections::HashSet<std::path::PathBuf>,
+) {
+    let ffprobe_path = match super::metadata_tag_service::get_ffprobe_path(app) {
+        Ok(p) => p,
+        Err(e) => {
+            log::debug!("Skipping music video subtitle extraction for {dl_id}: {e}");
+            return;
+        }
+    };
+    let ffmpeg_path = super::dependency_manager::get_tool_binary_path(app, "ffmpeg");
+    if !ffmpeg_path.exists() {
+        log::debug!("Skipping music video subtitle extraction for {dl_id}: ffmpeg missing");
+        return;
+    }
+
+    // Diff pre/post video sets to isolate the new files.
+    let post_existing = snapshot_video_files(output_root);
+    let new_videos: Vec<_> = post_existing
+        .difference(pre_existing)
+        .cloned()
+        .collect();
+
+    if new_videos.is_empty() {
+        log::debug!("No new music video files detected for {dl_id}");
+        return;
+    }
+
+    for video_path in &new_videos {
+        // 1. Extract any embedded subtitle / caption streams to sidecars.
+        match super::music_video_subtitle_service::extract_subtitles_to_sidecars(
+            &ffprobe_path,
+            &ffmpeg_path,
+            video_path,
+        )
+        .await
+        {
+            Ok(0) => log::debug!(
+                "No subtitle streams in {}",
+                video_path.display()
+            ),
+            Ok(n) => {
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Extracted {n} subtitle/caption track(s) from {}",
+                        video_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("music video")
+                    ),
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Music video subtitle extraction failed for {}: {e}",
+                    video_path.display()
+                );
+            }
+        }
+
+        // 2. Pair any matching song lyrics sidecars from the album folder
+        //    (works when the music video was a companion to an album track).
+        if let Some(album_dir) = video_path.parent() {
+            let paired =
+                super::music_video_subtitle_service::pair_song_lyrics_with_music_video(
+                    album_dir, video_path,
+                );
+            if paired > 0 {
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Paired {paired} song-lyrics file(s) with {}",
+                        video_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("music video")
+                    ),
+                );
+            }
+        }
+    }
+}
+
 /// Shared helper used by both the MusicKit-based video companion pipeline
 /// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
 /// minimal `GamdlOptions` using the user's video quality settings and
@@ -2581,6 +2714,10 @@ async fn download_music_video_by_url(
     video_label: &str,
     settings: &crate::models::settings::AppSettings,
 ) -> bool {
+    // Inherit the user's filename/folder templates, tool paths, and metadata
+    // settings so the music video output matches what the primary pipeline
+    // produces. Without these, GAMDL falls back to its own defaults which
+    // can yield empty filenames like "-.mp4" for music videos (#481).
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: Some(settings.output_path.clone()),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
@@ -2598,6 +2735,26 @@ async fn download_music_video_by_url(
         } else {
             None
         },
+        // Filename / folder templates — shared with the audio pipeline so
+        // videos land with `{artist}/{album}/{title}` style names.
+        album_folder_template: Some(settings.album_folder_template.clone()),
+        compilation_folder_template: Some(settings.compilation_folder_template.clone()),
+        no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+        single_disc_file_template: Some(settings.single_disc_file_template.clone()),
+        multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
+        no_album_file_template: Some(settings.no_album_file_template.clone()),
+        playlist_file_template: Some(settings.playlist_file_template.clone()),
+        // Tool paths (ffmpeg, mp4decrypt, mp4box, N_m3u8DL-RE) so GAMDL can
+        // resolve the managed binaries instead of relying on PATH lookup.
+        ffmpeg_path: settings.ffmpeg_path.clone(),
+        mp4decrypt_path: settings.mp4decrypt_path.clone(),
+        mp4box_path: settings.mp4box_path.clone(),
+        nm3u8dlre_path: settings.nm3u8dlre_path.clone(),
+        // Metadata / language so music-video tags are localised consistently.
+        language: Some(settings.language.clone()),
+        truncate: settings.truncate,
+        download_mode: Some(settings.download_mode.clone()),
+        remux_mode: Some(settings.remux_mode.clone()),
         ..Default::default()
     };
 
@@ -2618,6 +2775,11 @@ async fn download_music_video_by_url(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
+    // Snapshot the set of video files under the output directory BEFORE
+    // GAMDL runs so we can identify exactly which files were freshly
+    // produced for this music video (#483). Used for subtitle extraction.
+    let pre_existing_videos = snapshot_video_files(&settings.output_path);
+
     match cmd.spawn() {
         Ok(child) => match child.wait_with_output().await {
             Ok(output) if output.status.success() => {
@@ -2627,6 +2789,16 @@ async fn download_music_video_by_url(
                     dl_id,
                     &format!("Music video downloaded: {video_label}"),
                 );
+                // Post-process freshly downloaded music videos: extract any
+                // embedded subtitle / caption streams into sidecar files and
+                // (best-effort) copy the matching song's lyrics alongside.
+                extract_music_video_subtitles_for_new_files(
+                    app,
+                    dl_id,
+                    &settings.output_path,
+                    &pre_existing_videos,
+                )
+                .await;
                 true
             }
             Ok(output) => {
@@ -5930,6 +6102,41 @@ pub fn process_queue(
                                     );
                                     handle.abort();
                                     let _ = handle.await;
+                                }
+                            }
+
+                            // Post-companion advisory pass (#482).
+                            // Re-apply `[Explicit]` / `[Clean]` suffixes now that
+                            // companion files have landed. The primary-file pass
+                            // runs inside the enrichment task before companions
+                            // exist, so companion files never saw it. Reads the
+                            // `rtng` atom directly from each file so no extra
+                            // metadata plumbing is required.
+                            {
+                                let completion_settings = load_settings_for_queue(&completion_app);
+                                if completion_settings.content_advisory_in_filenames {
+                                    let advisory_path = {
+                                        let q = completion_queue.lock().await;
+                                        q.items
+                                            .iter()
+                                            .find(|i| i.status.id == completion_dl_id)
+                                            .and_then(|i| i.status.output_path.clone())
+                                    };
+                                    if let Some(output_dir) = advisory_path {
+                                        let dir_for_advisory = {
+                                            let p = std::path::Path::new(&output_dir);
+                                            if p.is_dir() {
+                                                output_dir.clone()
+                                            } else {
+                                                p.parent()
+                                                    .map(|pp| pp.to_string_lossy().to_string())
+                                                    .unwrap_or(output_dir.clone())
+                                            }
+                                        };
+                                        super::metadata_tag_service::apply_advisory_suffixes_from_tags(
+                                            &dir_for_advisory,
+                                        );
+                                    }
                                 }
                             }
 
