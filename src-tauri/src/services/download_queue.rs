@@ -2567,6 +2567,71 @@ async fn spawn_music_video_companion_inner(
 
 /// Downloads a single music video given its Apple Music URL.
 ///
+/// Emit the `\r`-split segments of a single raw output line to the
+/// activity log, matching the main GAMDL reader's coalescing rules.
+///
+/// yt-dlp and N_m3u8DL-RE (used for music videos / HLS) overwrite
+/// terminal progress in place with `\r` rather than `\n`, which means
+/// `AsyncBufReadExt::lines()` returns a single line containing many
+/// `[download]` progress segments. Emitting that line as-is produces a
+/// 100KB+ unreadable blob in the activity log.
+///
+/// This helper splits on `\r`, strips ANSI escapes, and emits either:
+/// - the **last non-empty segment only** in normal mode (keeps activity
+///   log scrollable — earlier segments would be overwritten in a real
+///   terminal anyway), or
+/// - **every** non-empty segment in verbose mode, so users get the full
+///   speed / ETA / percentage trail when debugging.
+///
+/// Shared by companion audio downloads and music-video companion
+/// downloads so their progress renders consistently with the primary
+/// GAMDL reader.
+async fn emit_companion_stream_line(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    stream: &'static str,
+    raw_line: &str,
+) -> Option<String> {
+    let segments: Vec<&str> = raw_line.split('\r').collect();
+    let verbose = crate::utils::activity_log::is_verbose_logging();
+    let last_segment_idx = segments.iter().rposition(|s| !s.trim().is_empty());
+    let mut last_clean = None;
+
+    for (idx, segment) in segments.iter().enumerate() {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+
+        let clean_line = crate::utils::process::strip_ansi_codes(segment);
+        last_clean = Some(clean_line.clone());
+
+        // Drive the progress bar off EVERY segment so the speed/ETA/%
+        // stay live even when we suppress earlier segments from the log.
+        let event = crate::utils::process::parse_gamdl_output(&clean_line);
+        let progress = gamdl_service::GamdlProgress {
+            download_id: dl_id.to_string(),
+            event,
+        };
+        let _ = app.emit("gamdl-output", &progress);
+
+        // Emit to activity-log: last segment only (normal) or all (verbose).
+        if verbose || Some(idx) == last_segment_idx {
+            let _ = app.emit(
+                "activity-log",
+                &crate::utils::activity_log::ActivityLogEvent {
+                    download_id: dl_id.to_string(),
+                    stream,
+                    line: clean_line,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                },
+            );
+        }
+    }
+
+    last_clean
+}
+
 /// Recursively collect every `.mp4` / `.m4v` file under the given root.
 ///
 /// Used to snapshot the video-file set before a music video download so we
@@ -2780,45 +2845,100 @@ async fn download_music_video_by_url(
     // produced for this music video (#483). Used for subtitle extraction.
     let pre_existing_videos = snapshot_video_files(&settings.output_path);
 
-    match cmd.spawn() {
-        Ok(child) => match child.wait_with_output().await {
-            Ok(output) if output.status.success() => {
-                log::info!("Music video downloaded for {dl_id}: {video_label}");
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!("Music video downloaded: {video_label}"),
-                );
-                // Post-process freshly downloaded music videos: extract any
-                // embedded subtitle / caption streams into sidecar files and
-                // (best-effort) copy the matching song's lyrics alongside.
-                extract_music_video_subtitles_for_new_files(
-                    app,
-                    dl_id,
-                    &settings.output_path,
-                    &pre_existing_videos,
-                )
-                .await;
-                true
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let last_err = stderr.lines().last().unwrap_or("unknown error");
-                log::debug!("Music video download failed for {dl_id} ({video_label}): {last_err}");
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!("Music video failed ({video_label}): {last_err}"),
-                );
-                false
-            }
-            Err(e) => {
-                log::debug!("Music video process error for {dl_id}: {e}");
-                false
-            }
-        },
+    // Stream stdout/stderr line-by-line (with `\r` splitting) instead of
+    // buffering the entire process output with `wait_with_output()`.
+    // Streaming keeps the progress bar live AND prevents yt-dlp's
+    // carriage-return progress blob from arriving as a single 100KB
+    // activity-log row (see `emit_companion_stream_line` for rationale).
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
         Err(e) => {
             log::debug!("Failed to spawn music video download for {dl_id}: {e}");
+            return false;
+        }
+    };
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let stdout_task = stdout.map(|out| {
+        let app = app.clone();
+        let dl_id = dl_id.to_string();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let reader = tokio::io::BufReader::new(out);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                emit_companion_stream_line(&app, &dl_id, "stdout", &line).await;
+            }
+        })
+    });
+
+    let stderr_task = stderr.map(|err| {
+        let app = app.clone();
+        let dl_id = dl_id.to_string();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let reader = tokio::io::BufReader::new(err);
+            let mut lines = reader.lines();
+            let mut last = String::new();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(clean) =
+                    emit_companion_stream_line(&app, &dl_id, "stderr", &line).await
+                {
+                    last = clean;
+                }
+            }
+            last
+        })
+    });
+
+    let status = child.wait().await;
+    if let Some(t) = stdout_task {
+        let _ = t.await;
+    }
+    let last_err = if let Some(t) = stderr_task {
+        t.await.unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    match status {
+        Ok(s) if s.success() => {
+            log::info!("Music video downloaded for {dl_id}: {video_label}");
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Music video downloaded: {video_label}"),
+            );
+            // Post-process freshly downloaded music videos: extract any
+            // embedded subtitle / caption streams into sidecar files and
+            // (best-effort) copy the matching song's lyrics alongside.
+            extract_music_video_subtitles_for_new_files(
+                app,
+                dl_id,
+                &settings.output_path,
+                &pre_existing_videos,
+            )
+            .await;
+            true
+        }
+        Ok(_) => {
+            let shown_err = if last_err.is_empty() {
+                "unknown error".to_string()
+            } else {
+                last_err
+            };
+            log::debug!("Music video download failed for {dl_id} ({video_label}): {shown_err}");
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Music video failed ({video_label}): {shown_err}"),
+            );
+            false
+        }
+        Err(e) => {
+            log::debug!("Music video process error for {dl_id}: {e}");
             false
         }
     }
@@ -3315,7 +3435,9 @@ fn spawn_companion_downloads(
                             let stream_dl_id = comp_dl_id.clone();
                             let stream_codec = codec.to_cli_string().to_string();
 
-                            // Spawn stdout reader
+                            // Spawn stdout reader — splits on `\r` so yt-dlp /
+                            // N_m3u8DL-RE progress lines render as separate
+                            // activity-log rows instead of one giant blob.
                             let stdout_task = if let Some(out) = stdout {
                                 let app = stream_app.clone();
                                 let dl_id = stream_dl_id.clone();
@@ -3324,34 +3446,16 @@ fn spawn_companion_downloads(
                                     let reader = tokio::io::BufReader::new(out);
                                     let mut lines = reader.lines();
                                     while let Ok(Some(line)) = lines.next_line().await {
-                                        let clean = crate::utils::process::strip_ansi_codes(&line);
-                                        if !clean.trim().is_empty() {
-                                            // Emit to activity log
-                                            let _ = app.emit(
-                                                "activity-log",
-                                                &crate::utils::activity_log::ActivityLogEvent {
-                                                    download_id: dl_id.clone(),
-                                                    stream: "stdout",
-                                                    line: clean.clone(),
-                                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                                },
-                                            );
-
-                                            // Parse for progress events so the progress bar updates
-                                            let event = crate::utils::process::parse_gamdl_output(&clean);
-                                            let progress = gamdl_service::GamdlProgress {
-                                                download_id: dl_id.clone(),
-                                                event,
-                                            };
-                                            let _ = app.emit("gamdl-output", &progress);
-                                        }
+                                        emit_companion_stream_line(&app, &dl_id, "stdout", &line)
+                                            .await;
                                     }
                                 }))
                             } else {
                                 None
                             };
 
-                            // Collect stderr for error diagnosis
+                            // Collect stderr for error diagnosis — same
+                            // `\r`-splitting rules as stdout.
                             let stderr_task = if let Some(err) = stderr {
                                 let app = stream_app.clone();
                                 let dl_id = stream_dl_id.clone();
@@ -3361,18 +3465,12 @@ fn spawn_companion_downloads(
                                     let mut lines = reader.lines();
                                     let mut last_line = String::new();
                                     while let Ok(Some(line)) = lines.next_line().await {
-                                        let clean = crate::utils::process::strip_ansi_codes(&line);
-                                        if !clean.trim().is_empty() {
-                                            last_line = clean.clone();
-                                            let _ = app.emit(
-                                                "activity-log",
-                                                &crate::utils::activity_log::ActivityLogEvent {
-                                                    download_id: dl_id.clone(),
-                                                    stream: "stderr",
-                                                    line: clean,
-                                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                                },
-                                            );
+                                        if let Some(clean) = emit_companion_stream_line(
+                                            &app, &dl_id, "stderr", &line,
+                                        )
+                                        .await
+                                        {
+                                            last_line = clean;
                                         }
                                     }
                                     last_line
