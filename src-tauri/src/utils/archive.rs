@@ -168,9 +168,9 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<(u64, String), Stri
 
         downloaded += chunk.len() as u64;
 
-        // Log progress at every 10% milestone
-        if total_size > 0 {
-            let percent = (downloaded * 100) / total_size;
+        // Log progress at every 10% milestone. `checked_div` skips the
+        // divide-by-zero case cleanly when `total_size` is not yet known.
+        if let Some(percent) = downloaded.checked_mul(100).and_then(|n| n.checked_div(total_size)) {
             if percent >= last_logged_percent + 10 {
                 log::info!(
                     "Download progress: {}% ({:.1}/{:.1} MB)",
