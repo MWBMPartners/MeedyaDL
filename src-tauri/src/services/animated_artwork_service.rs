@@ -419,18 +419,25 @@ pub async fn hide_file(file_path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        // Linux: rename with dot prefix (only standard hiding mechanism)
+        // Linux: rename with dot prefix (only standard hiding mechanism).
+        // Collision-proof: if `.FrontCover.mp4` already exists from a
+        // previous session, `safe_rename` lands the new file on a
+        // disambiguated sibling rather than silently overwriting the
+        // earlier hidden artwork.
         if let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) {
             if !filename.starts_with('.') {
                 let hidden_name = format!(".{}", filename);
                 let hidden_path = file_path.with_file_name(&hidden_name);
-                std::fs::rename(file_path, &hidden_path)
-                    .map_err(|e| format!("Failed to rename to {}: {}", hidden_name, e))?;
-                log::debug!(
-                    "Renamed {} to {} (Linux hidden)",
-                    file_path.display(),
-                    hidden_path.display()
-                );
+                match crate::utils::fs_safe::safe_rename(file_path, &hidden_path) {
+                    Ok(final_path) => log::debug!(
+                        "Renamed {} to {} (Linux hidden)",
+                        file_path.display(),
+                        final_path.display()
+                    ),
+                    Err(e) => {
+                        return Err(format!("Failed to rename to {}: {}", hidden_name, e));
+                    }
+                }
             }
         }
     }
