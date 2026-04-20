@@ -3357,6 +3357,14 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+// The argument list is long because this function is the seam between
+// the queue's per-download state (app, queue, dl_id, urls, shutdown),
+// the GAMDL invocation context (primary codec, base options,
+// force_all_suffixes), and the audioTraits pre-filter from #504. All
+// of them are needed inside the spawned task and a struct wrapper
+// would just move the repetition to the three call sites. Suppress
+// the clippy nit rather than introduce indirection.
+#[allow(clippy::too_many_arguments)]
 fn spawn_companion_downloads(
     app: &tauri::AppHandle,
     queue: &QueueHandle,
