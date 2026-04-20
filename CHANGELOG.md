@@ -6,6 +6,145 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Nightly release channel with channel-aware update guard
+
+Adds the first slice of the multi-channel release pipeline:
+
+  - New `nightly-release.yml` workflow runs daily at 00:00 UTC. It resets
+    `nightly` to `main`, merges every `feat/*` branch (skipping conflicts
+    and opening an issue for them), bumps to `X.Y.Z-nightly.YYYYMMDD`
+    across package.json / tauri.conf.json / Cargo.toml, and pushes the
+    tag to trigger the existing `release.yml`.
+  - `UpdateChannel` enum + `update_channel` setting. `UpdateChannel::from_tag`
+    parses release-tag suffixes (-nightly, -weekly, -monthly, -alpha, -beta,
+    stable). `check_all_updates` filters GitHub releases to the user's
+    channel, and `download_and_install_app_update` refuses to install a
+    tag whose channel is less stable than the user's selection — the
+    guard for "option 2" client-side channel safety.
+  - Settings > General > Updates gains an Update Channel dropdown.
+  - `.github/rulesets/protected-release-branches.json` + apply workflow
+    keep `main`, `beta`, `alpha`, `monthly`, `weekly`, `nightly`
+    undeletable even with repo-wide auto-delete on.
+  - `auto-delete-merged-branches.yml` deletes merged PR head branches
+    except the protected channels.
+
+  Weekly/monthly channels fall out of the same pattern once this lands.
+
+- Release-channel ladder, nightly auto-release, and update-channel guard (#498)
+
+## Summary
+
+  Introduces a six-tier release-channel ladder with automated nightly
+  integration, branch protection, and an in-app update-channel guard.
+
+  **Channel hierarchy** (least → most stable):
+
+  ```
+  feat/* → nightly → weekly → monthly → alpha → beta → main (stable)
+  ```
+
+  ### Pipeline
+
+  - **`.github/workflows/nightly-release.yml`** — cron `0 0 * * *`. Resets
+  `nightly` to `main`, merges every `origin/feat/*` (skips conflicts,
+  opens an issue listing them), bumps version to `X.Y.Z-nightly.YYYYMMDD`
+  across `package.json` / `tauri.conf.json` / `Cargo.toml`, force-pushes
+  `nightly`, and creates an annotated tag that triggers the existing
+  `release.yml`. `workflow_dispatch` supports a `dry_run` flag.
+  Weekly/monthly follow the same template (crons `0 0 * * 0` and `0 0 1 *
+  *`).
+  - **`.github/rulesets/protected-release-branches.json`** +
+  **`.github/workflows/apply-branch-rulesets.yml`** — ruleset committed as
+  JSON; workflow idempotently applies it (PUT on match, POST otherwise).
+  Blocks deletion + non-fast-forward on `main` / `beta` / `alpha` /
+  `monthly` / `weekly` / `nightly`.
+  - **`.github/workflows/auto-delete-merged-branches.yml`** — on merged
+  PRs, deletes head branches except the six protected channel names.
+
+  ### In-app update-channel guard (option 2)
+
+  - `UpdateChannel` enum in `src-tauri/src/models/settings.rs` — ordered
+  `Nightly < Weekly < Monthly < Alpha < Beta < Stable` (`PartialOrd`).
+  - `UpdateChannel::from_tag()` parses pre-release suffixes
+  (`-nightly.YYYYMMDD`, `-weekly.YYYYWW`, `-monthly.YYYYMM`, `-alpha.N`,
+  `-beta.N`/`-rc.N`, stable).
+  - `update_channel: UpdateChannel` persisted in `AppSettings`, exposed as
+  the **Update Channel** dropdown in Settings > General > Updates.
+  - `check_all_updates` filters releases to the user's channel.
+  `download_and_install_app_update` refuses tags whose channel is less
+  stable than the user's selection — enforcement point: even a tampered
+  manifest or stale deep link cannot downgrade stability. Switching
+  channel is always an explicit action in Settings.
+
+  ### Docs
+
+  - `DEV_NOTES.md` — workflow table expanded to 7 workflows; new "Release
+  Channels" section.
+  - `README.md` — roadmap bullet + new "Release channels" table in Quick
+  Start.
+  - `Project_Plan.md` — completed bullet for the release-channel ladder +
+  guard.
+  - `CONTRIBUTING.md` — new "Branching Model" section.
+  - `CLAUDE.md` — "Release Workflow" + "Conserving GitHub Actions Minutes"
+  updated; note about `workflow_dispatch` UI visibility.
+  - `help/release-channels.md` (new) + linked from `help/index.md`, plus
+  matching in-app topic in `HelpViewer.tsx` and a new FAQ section.
+
+  ## Test plan
+
+  - [ ] After merging, run `gh workflow run "Apply Branch Rulesets" --ref
+  main` to apply the protected-branch ruleset (needs `RELEASE_PAT` with
+  `administration:write`).
+  - [ ] Enable repo setting **Settings → General → Automatically delete
+  head branches**.
+  - [ ] Manually trigger `Nightly Release` with `dry_run=true` to verify
+  the merge + version-bump steps without pushing a tag.
+  - [ ] Once dry-run is clean, let the cron fire (or dispatch with
+  `dry_run=false`) to produce the first `-nightly.YYYYMMDD` build.
+  - [ ] In an installed build, confirm Settings > General > Updates shows
+  the **Update Channel** dropdown and changing it triggers an update
+  check.
+  - [ ] Confirm `cargo test --lib services::update_checker` passes (10
+  tests incl. new `test_update_channel_from_tag`).
+  - [ ] Confirm `npm test` passes (293 tests).
+
+  ## Follow-up (separate PRs)
+
+  - Weekly / monthly workflows (near-copies of `nightly-release.yml` with
+  different cron + source branch).
+  - macOS installer refinements for pre-release channel badging in the
+  update banner.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Release channels + branch protection + update-channel guard
+
+- DEV_NOTES.md: expand Release Workflow table to 7 workflows; replace
+    "Pre-Release Channel" with a full "Release Channels" section covering
+    the six-tier ladder, auto-merge pipeline, option 2 in-app guard, and
+    branch-protection tooling.
+  - README.md: roadmap bullet reflects the six-channel ladder; new
+    "Release channels" section under Quick Start with the channel table.
+  - Project_Plan.md: new bullet for the release-channel ladder + guard.
+  - CONTRIBUTING.md: new "Branching Model" section; clarify feat/* naming
+    and auto-delete of merged head branches.
+  - CLAUDE.md: document the ladder, enum ordering, and per-call guard in
+    the "Release Workflow" section; list new workflows under "Conserving
+    GitHub Actions Minutes" with a note about workflow_dispatch UI.
+  - help/: new release-channels.md page with channel table, switching
+    guide, and guard explanation; linked from help/index.md.
+  - help/faq.md: new FAQ section about channels, downgrade behaviour, and
+    cadence.
+  - HelpViewer.tsx: add matching in-app help topic (id: release-channels)
+    with the same content as the sidecar markdown.
+
+
+## [0.34.6] - 2026-04-20
+
 ### 🐛 Bug Fixes
 
 - **(fs)** Collision-proof every rename/write path (generalise #483 invariant) (#494)
