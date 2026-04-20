@@ -119,6 +119,7 @@ beforeEach(() => {
       auto_start_queue: true,
       auto_check_updates: true,
       check_pre_releases: false,
+      update_channel: 'stable',
       update_check_interval_hours: 6,
       theme_override: null,
       language: 'en-US',
