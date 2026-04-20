@@ -53,6 +53,7 @@ function createMockQueueItem(overrides: Partial<QueueItemStatus> = {}): QueueIte
     used_wrapper: false,
     output_is_directory: false,
     warnings: [],
+    audio_traits: [],
     created_at: '2026-02-09T12:00:00Z',
     ...overrides,
   };

@@ -664,6 +664,66 @@ pub fn error_guidance(category: &str) -> &'static str {
 }
 
 // ============================================================
+// GAMDL output classification helpers (companion download safety)
+// ============================================================
+//
+// GAMDL exits with code 0 even when individual tracks fail — the per-track
+// exception is caught by its main loop, the traceback is printed to stderr,
+// and the process keeps running. The summary line `Finished with N error(s)`
+// is the authoritative signal that something went wrong inside an apparently
+// "successful" run.
+//
+// These helpers let the companion download supervisor convert that "soft
+// error" into a real failure (so the next codec / tier is tried) and turn
+// known Python tracebacks into a single user-facing line, instead of dumping
+// the raw traceback into the activity log.
+
+/// Compiled regex for GAMDL's per-run summary line.
+///
+/// Matches `Finished with N error(s)` for any non-negative N. The summary
+/// is emitted on stdout (not stderr) so the parser must scan both.
+static GAMDL_FINISHED_SUMMARY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"Finished with (\d+) error\(s\)")
+        .expect("GAMDL_FINISHED_SUMMARY regex must compile")
+});
+
+/// Parses GAMDL's `Finished with N error(s)` summary line and returns N.
+///
+/// Returns `None` when the summary is absent (e.g., GAMDL crashed early
+/// without printing the summary). Returns `Some(0)` when the summary is
+/// present and reports zero errors. Callers should treat `None` as
+/// "couldn't tell" and rely on the exit code in that case.
+pub fn parse_gamdl_error_count(output: &str) -> Option<u32> {
+    GAMDL_FINISHED_SUMMARY
+        .captures(output)
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+}
+
+/// Translates a known GAMDL Python traceback into a single user-friendly
+/// activity-log line. Returns `None` for tracebacks we don't recognise so
+/// the caller can fall back to a generic "GAMDL reported an error" message.
+///
+/// Currently handled:
+///   - `AttributeError: 'NoneType' object has no attribute 'audio_track'`
+///     and the related `'NoneType' has no attribute 'stream_info'` paths,
+///     both of which mean Apple Music's manifest didn't return any stream
+///     for the requested codec on this track. Surfaces as a "codec not
+///     available for this track" message rather than a Python crash.
+pub fn classify_gamdl_traceback(output: &str) -> Option<&'static str> {
+    let lower = output.to_ascii_lowercase();
+    if lower.contains("'nonetype' object has no attribute 'audio_track'")
+        || lower.contains("'nonetype' object has no attribute 'stream_info'")
+        || lower.contains("'nonetype' object has no attribute 'audio'")
+    {
+        return Some(
+            "this codec is not available for this track on Apple Music — skipping",
+        );
+    }
+    None
+}
+
+// ============================================================
 // Unit Tests
 // ============================================================
 
@@ -1171,5 +1231,46 @@ mod tests {
         if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
             panic!("Indented traceback frame should not be captured as Error");
         }
+    }
+
+    // ----------------------------------------------------------
+    // GAMDL companion-soft-error helpers
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parse_gamdl_error_count_finds_summary() {
+        let output = "[INFO  21:57:04] Starting Gamdl 2.9.3\n\
+                      [ERROR 21:57:04] [Track 1/1] Error downloading \"PSYCHO\"\n\
+                      [INFO  21:57:04] Finished with 1 error(s)\n";
+        assert_eq!(parse_gamdl_error_count(output), Some(1));
+    }
+
+    #[test]
+    fn parse_gamdl_error_count_zero() {
+        let output = "[INFO 12:00:00] Finished with 0 error(s)\n";
+        assert_eq!(parse_gamdl_error_count(output), Some(0));
+    }
+
+    #[test]
+    fn parse_gamdl_error_count_missing_returns_none() {
+        let output = "[INFO 12:00:00] Starting Gamdl 2.9.3\n";
+        assert_eq!(parse_gamdl_error_count(output), None);
+    }
+
+    #[test]
+    fn classify_gamdl_traceback_recognises_audio_track_none() {
+        let trace = "Traceback (most recent call last):\n  \
+                     File \"downloader_song.py\", line 90, in get_download_item\n    \
+                     if download_item.stream_info.audio_track.legacy:\n\
+                     AttributeError: 'NoneType' object has no attribute 'audio_track'";
+        let msg = classify_gamdl_traceback(trace).expect("should be classified");
+        assert!(msg.contains("not available"));
+    }
+
+    #[test]
+    fn classify_gamdl_traceback_unknown_returns_none() {
+        let trace = "Traceback (most recent call last):\n\
+                     KeyError: 'foo'";
+        assert!(classify_gamdl_traceback(trace).is_none());
     }
 }
