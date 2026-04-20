@@ -814,6 +814,10 @@ export interface QueueItemStatus {
   output_is_directory: boolean;
   /** Non-fatal warnings from the download (e.g., GAMDL errors that didn't prevent completion) */
   warnings: string[];
+  /** Union of audioTraits across all tracks in this download (e.g.,
+   * `["atmos", "lossless", "lossy-stereo", "spatial"]`) used by the
+   * companion planner to skip unavailable codecs (#504). */
+  audio_traits: string[];
   /** ISO 8601 timestamp when this download was queued */
   created_at: string;
 }

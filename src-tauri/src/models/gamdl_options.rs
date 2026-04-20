@@ -173,6 +173,39 @@ impl SongCodec {
         matches!(self, Self::Atmos | Self::Ac3)
     }
 
+    /// Returns the Apple Music `audioTraits` value that must be present
+    /// on a track for this codec to be downloadable. Used by the
+    /// companion planner (#504) to skip tiers whose codec the API has
+    /// already told us isn't offered for the track, instead of letting
+    /// GAMDL crash with `NoneType.audio_track`.
+    ///
+    /// Returns `None` for codecs that are derived from another stream
+    /// (binaural / downmix / HE variants) — those are computed on top
+    /// of whatever the track *does* have, so they can't be filtered
+    /// purely from `audioTraits` and we still hand them to GAMDL.
+    ///
+    /// Mapping derived from Apple Music API field values observed on
+    /// catalog responses for tracks across the codec matrix.
+    #[must_use]
+    pub const fn required_audio_trait(&self) -> Option<&'static str> {
+        match self {
+            Self::Alac => Some("lossless"),
+            Self::Atmos => Some("atmos"),
+            Self::Ac3 => Some("dolby-digital"),
+            Self::Aac | Self::AacLegacy => Some("lossy-stereo"),
+            // Derived / rendered codecs — gated by their source stream
+            // (binaural and downmix are computed from the spatial mix;
+            // HE variants share the lossy stereo source). Returning
+            // None means "don't pre-skip on traits".
+            Self::AacBinaural
+            | Self::AacHe
+            | Self::AacHeLegacy
+            | Self::AacDownmix
+            | Self::AacHeBinaural
+            | Self::AacHeDownmix => None,
+        }
+    }
+
     /// Human-readable display name for the UI dropdown/selector.
     ///
     /// These labels are shown in the React frontend's codec selection
@@ -1441,5 +1474,29 @@ mod tests {
         assert!(!SongCodec::AacHeLegacy.is_wrapper_dependent());
         assert!(!SongCodec::AacHeBinaural.is_wrapper_dependent());
         assert!(!SongCodec::AacHeDownmix.is_wrapper_dependent());
+    }
+
+    #[test]
+    fn required_audio_trait_maps_known_codecs() {
+        assert_eq!(SongCodec::Alac.required_audio_trait(), Some("lossless"));
+        assert_eq!(SongCodec::Atmos.required_audio_trait(), Some("atmos"));
+        assert_eq!(SongCodec::Ac3.required_audio_trait(), Some("dolby-digital"));
+        assert_eq!(SongCodec::Aac.required_audio_trait(), Some("lossy-stereo"));
+        assert_eq!(
+            SongCodec::AacLegacy.required_audio_trait(),
+            Some("lossy-stereo")
+        );
+    }
+
+    #[test]
+    fn required_audio_trait_none_for_derived_codecs() {
+        // Binaural / downmix / HE variants are computed from another
+        // stream — we don't pre-skip them on traits.
+        assert_eq!(SongCodec::AacBinaural.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHe.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacDownmix.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHeLegacy.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHeBinaural.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHeDownmix.required_audio_trait(), None);
     }
 }

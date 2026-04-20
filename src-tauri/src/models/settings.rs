@@ -442,6 +442,15 @@ pub struct AppSettings {
     #[serde(default = "default_update_interval")]
     pub update_check_interval_hours: u32,
 
+    /// Maximum minutes a GAMDL child process may sit silent (no
+    /// stdout / stderr output) while still in the active-download phase
+    /// before the companion supervisor kills it (#505). The watchdog
+    /// pauses automatically once the post-processing phase is detected
+    /// (#503), so a slow remux/decrypt over a network volume will not
+    /// trip the killswitch. Default: 5 minutes.
+    #[serde(default = "default_gamdl_idle_timeout")]
+    pub gamdl_idle_timeout_minutes: u32,
+
     /// Whether to start processing the download queue immediately when items
     /// are enqueued. When `true` (the default), downloads begin as soon as
     /// a concurrency slot is available. When `false`, items are added in
@@ -1167,6 +1176,15 @@ const fn default_notification_dismiss() -> u32 {
     5
 }
 
+/// Default GAMDL idle-output timeout: 5 minutes. The companion
+/// supervisor kills the child after this many minutes of stdout/stderr
+/// silence while still in the download phase. The watchdog stands down
+/// once a `100% of` line is observed so the silent post-processing
+/// phase doesn't trigger a false kill.
+const fn default_gamdl_idle_timeout() -> u32 {
+    5
+}
+
 /// Default notification style: native + in-app (both).
 fn default_notification_style() -> String {
     "native_and_in_app".to_string()
@@ -1238,6 +1256,9 @@ impl Default for AppSettings {
             // Check for updates every 6 hours during early development.
             // Users can change to 1/12/24 hours or 0 (startup only).
             update_check_interval_hours: 6,
+            // 5-minute idle window matches GAMDL's typical worst-case
+            // segment-download latency before something is genuinely wedged.
+            gamdl_idle_timeout_minutes: default_gamdl_idle_timeout(),
             // Auto-start queue processing by default so downloads begin
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
