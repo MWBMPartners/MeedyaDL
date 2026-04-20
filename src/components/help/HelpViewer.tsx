@@ -120,6 +120,7 @@ import {
   ShieldAlert, // "Disclaimer" topic
   Keyboard, // "Keyboard Shortcuts" topic
   Globe, // "Supported Services" topic
+  GitBranch, // "Release Channels" topic
   Search, // Search icon in the sidebar search bar
   X, // Clear search button icon
 } from 'lucide-react';
@@ -1042,6 +1043,56 @@ Some services support multiple download engines. When the primary engine fails w
 **Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
 
 The engine priority for each service is defined in \`engines.toml\` and can be customised in Settings.`,
+  },
+  {
+    id: 'release-channels',
+    label: 'Release Channels',
+    icon: GitBranch,
+    content: `# Release Channels
+
+MeedyaDL publishes builds on six channels, ordered from **least** to **most** stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
+
+## The six channels
+
+| Channel | Cadence | Version suffix | Who it's for |
+| --- | --- | --- | --- |
+| **Nightly** | Daily at 00:00 UTC | \`-nightly.YYYYMMDD\` | Developers validating today's work-in-progress. Can be broken. |
+| **Weekly** | Sunday at 00:00 UTC | \`-weekly.YYYYWW\` | Testers who want a week of nightlies rolled up. |
+| **Monthly** | 1st of the month at 00:00 UTC | \`-monthly.YYYYMM\` | Early adopters wanting a monthly preview. |
+| **Alpha** | Ad-hoc | \`-alpha.N\` | Feature-complete previews with known rough edges. |
+| **Beta** | Ad-hoc | \`-beta.N\` | Release candidates close to Stable. |
+| **Stable** | Release-please merge | _(no suffix)_ | Most users — production-ready. |
+
+Each channel is an integration of the channel directly below it plus any ready feature branches, so moving up the ladder picks up strictly more testing.
+
+## Switching channels
+
+1. Open **Settings > General > Updates**.
+2. Pick a channel from the **Update Channel** dropdown.
+3. Save. The next update check will use the new channel.
+
+Switching to a less-stable channel is always an explicit choice. Switching back up is equally explicit.
+
+## The auto-update guard
+
+MeedyaDL will **never auto-downgrade your stability tier**:
+
+- The update check only ever surfaces a release from your selected channel — a Stable install will not be offered a Nightly build.
+- If an update URL or deep link points at a less-stable build than your current channel, the installer refuses to apply it and shows a clear error. Change channel first if you genuinely want that build.
+
+## Which channel should I use?
+
+- **Stable** — the default. Pick this unless you have a reason not to.
+- **Beta** — pre-release candidates. Helps catch regressions before they reach Stable.
+- **Alpha / Monthly / Weekly / Nightly** — only if you are comfortable filing bug reports and rolling back to a working build. Expect regressions.
+
+## Reporting problems on pre-release builds
+
+When reporting an issue for any pre-release channel, please include:
+
+- The **exact version** from *Settings > About* (e.g., \`0.34.6-nightly.20260420\`).
+- Your selected **Update Channel**.
+- Reproduction steps and any relevant log output.`,
   },
 ];
 

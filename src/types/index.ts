@@ -186,6 +186,21 @@ export type CompanionMode =
  */
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
 
+/**
+ * Release channel (stability tier) the install is subscribed to.
+ *
+ * Mirrors: Rust enum `UpdateChannel` in `src-tauri/src/models/settings.rs`.
+ * Ordered from least to most stable; the updater blocks installs whose
+ * channel is less stable than the user's selection.
+ */
+export type UpdateChannel =
+  | 'nightly'
+  | 'weekly'
+  | 'monthly'
+  | 'alpha'
+  | 'beta'
+  | 'stable';
+
 // ============================================================
 // Human-readable labels for codec/quality selectors
 // ============================================================
@@ -446,6 +461,10 @@ export interface AppSettings {
   auto_check_updates: boolean;
   /** Whether to include pre-release (beta/RC) versions in update checks */
   check_pre_releases: boolean;
+  /** Release channel (stability tier) the install is subscribed to.
+   * The installer refuses tags from a less-stable channel than this value,
+   * so users on `stable` can't accidentally be downgraded to a `nightly` build. */
+  update_channel: UpdateChannel;
   /** How often (in hours) to periodically check for updates. 0 = startup only. */
   update_check_interval_hours: number;
   /** Whether to auto-start queue processing when items are enqueued */

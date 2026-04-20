@@ -59,14 +59,31 @@ See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) for a comprehensive architecture ov
   - `chore:` — build process, CI, dependencies
   - `security:` — security-related changes
 
+## Branching Model
+
+MeedyaDL uses a six-tier release-channel ladder (least → most stable):
+
+```
+feat/* ─→ nightly ─→ weekly ─→ monthly ─→ alpha ─→ beta ─→ main (stable)
+```
+
+All six channel branches are **long-lived and protected** against deletion and non-fast-forward pushes. The `Auto-Delete Merged Branches` workflow keeps merged `feat/*` / `fix/*` branches from accumulating but exempts the six protected ones.
+
+- Open PRs against `main`. Your branch name should start with `feat/` or `fix/`.
+- The **Nightly Release** workflow (`nightly-release.yml`) automatically merges every `feat/*` branch into `nightly` daily at 00:00 UTC, tags `vX.Y.Z-nightly.YYYYMMDD`, and triggers a nightly build. If your branch conflicts with another, the workflow skips it and files an issue; rebase on `main` and the next nightly will pick it up.
+- Weekly / monthly / alpha / beta integrate upward from the channel directly below on their own cadence.
+- See [DEV_NOTES.md → Release Channels](DEV_NOTES.md#release-channels) for the full pipeline and in-app update-channel guard.
+
 ## Pull Request Process
 
-1. Create a feature branch from `main`: `git checkout -b feature/your-feature`
+1. Create a feature branch from `main`: `git checkout -b feat/your-feature`
 2. Make your changes with conventional commit messages
 3. Ensure all checks pass: `npm run type-check && npm run test`
 4. Push and open a pull request against `main`
 5. Link related GitHub Issues in the PR description (e.g., "Fixes #123")
 6. Wait for CI to pass and a maintainer to review
+
+> The merged PR branch is auto-deleted; you don't need to clean it up. Protected channel branches are never deleted.
 
 ## Reporting Issues
 
