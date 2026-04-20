@@ -189,12 +189,27 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Installation
 
-1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page.
+1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page. Most users want the latest **Stable** release; if you want bleeding-edge builds, pick one of the pre-release channels (see [Release channels](#-release-channels) below).
 2. **Install** using your platform's standard method:
    - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
    - **Windows**: Run the `.exe` installer
    - **Linux**: Install the `.deb` or run the `.AppImage`
 3. **Launch** the application.
+
+### Release channels
+
+MeedyaDL publishes across six channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists.
+
+| Channel | Cadence | Suffix | Audience |
+| ------- | ------- | ------ | -------- |
+| **Nightly** | Daily 00:00 UTC | `-nightly.YYYYMMDD` | Testing today's in-flight features; expect bugs |
+| **Weekly** | Sunday 00:00 UTC | `-weekly.YYYYWW` | Week-old integrations |
+| **Monthly** | 1st of month 00:00 UTC | `-monthly.YYYYMM` | Monthly preview |
+| **Alpha** | Ad-hoc | `-alpha.N` | Feature-complete previews |
+| **Beta** | Ad-hoc | `-beta.N` | Release candidates |
+| **Stable** | Release-please merge | _no suffix_ | Production (recommended) |
+
+Moving to a less-stable channel is an explicit action (Settings > General > Updates). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
 
 ### First-Run Setup
 
@@ -361,7 +376,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
 - ✅ Automatic dependency management with first-run setup wizard
-- ✅ CI/CD pipeline with release-please, pre-release channel, and bundled dependencies
+- ✅ CI/CD pipeline with release-please, six-tier channel ladder (Nightly → Weekly → Monthly → Alpha → Beta → Stable), automated nightly tag-and-release, and bundled dependencies
 - ✅ Settings UI with 10 configuration tabs
 - ✅ Cookie import (browser auto-detect, built-in login, manual import)
 - ✅ Auto-update checker with in-app download, install, and rollback

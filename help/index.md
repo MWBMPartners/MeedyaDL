@@ -32,6 +32,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 ### Reference
 
 - [:globe_with_meridians: Supported Services](supported-services.md) -- Apple Music, Spotify, YouTube, BBC iPlayer — what's available and what's coming.
+- [:twisted_rightwards_arrows: Release Channels](release-channels.md) -- Nightly, Weekly, Monthly, Alpha, Beta, and Stable channels, and how the in-app update guard keeps you on your selected tier.
 - [:keyboard: Keyboard Shortcuts](keyboard-shortcuts.md) -- Navigation and action shortcuts for power users.
 
 ### Support
