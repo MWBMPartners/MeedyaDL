@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.5] - 2026-04-20
+
 ### 🐛 Bug Fixes
 
 - **(download)** Music video filenames, Explicit/Clean suffix, video subtitles
