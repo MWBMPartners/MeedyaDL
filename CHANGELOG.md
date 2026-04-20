@@ -8,6 +8,190 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(download)** Music video filenames, Explicit/Clean suffix, video subtitles
+
+Three related fixes to the music-video / companion / filename pipeline:
+
+  - fix(#481): music video companion downloads were producing `-.mp4`
+    because `download_music_video_by_url()` only passed quality/path
+    settings to GAMDL. Now inherits filename/folder templates, tool paths,
+    language, truncate, download/remux modes so videos land with proper
+    `{artist} - {title}` style names matching the primary pipeline.
+
+  - fix(#482): `[Explicit]`/`[Clean]` suffixes were applied inconsistently.
+    (a) `insert_advisory_before_codec_suffix` now pulls the full codec
+    suffix set from the codec registry instead of the three hardcoded
+    strings, so `[Binaural]`, `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]`
+    files get the correct ordering. (b) `advisory_suffix()` matches
+    case-insensitively. (c) Idempotency checks are case-insensitive.
+    (d) New `apply_advisory_suffixes_from_tags()` runs in the completion
+    task after companion downloads finish, reading each file's `rtng`
+    atom so companion files that land late still pick up the suffix.
+
+  - feat(#483): music videos (direct or companion) now get
+    subtitles / closed-captions extracted into sidecar files. New
+    `music_video_subtitle_service` probes the video with ffprobe,
+    extracts each subtitle stream to `.vtt` (WebVTT copy) or `.srt`
+    (ffmpeg convert) preserving BCP-47 language tags. Companion videos
+    additionally get the matching song's TTML/LRC/SRT/VTT/ASS sidecars
+    mirrored alongside for media-player pickup. Diff before/after video
+    file set so only freshly produced videos are processed.
+
+  Adds 9 new unit tests (688 → 697 passing).
+
+- **(subtitles)** Guarantee music video caption sidecars never overwrite
+
+Harden the music video subtitle extraction naming so freshly produced
+  captions can never overwrite:
+  - a song's existing lyrics sidecar (`01 Title.srt` / `.vtt` / `.ttml`),
+  - another music video caption track of the same language, or
+  - any prior extraction.
+
+  Changes to `music_video_subtitle_service`:
+  - Extracted caption filename now embeds a `.cc.` marker and the stream
+    index: `{stem}.cc.{index}[.{lang}].{ext}`. Keeps captions distinct
+    from song lyrics and from each other.
+  - New `resolve_non_clobbering_path()` disambiguates with `.1`, `.2`, ...
+    if the computed path is somehow already taken (up to 100 attempts).
+  - ffmpeg invocation switched from `-y` to `-n` so the downloader cannot
+    silently overwrite an existing file even if our path resolution has
+    a bug.
+  - Lyrics pairing now guards with `same_file()` (canonicalised compare)
+    so copying a file onto itself (identical stems in the same dir) is a
+    true no-op rather than a potential truncation.
+
+  Adds 7 new unit tests covering every guard (collision disambiguation,
+  same-file detection, pair no-op when target exists, pair-copy when
+  stems differ). Full suite: 688 → 695 passing.
+
+- **(activity-log)** Split \r progress segments for companion downloads
+
+Companion audio downloads and music-video downloads were emitting
+  yt-dlp / N_m3u8DL-RE progress output to the activity log as single
+  100KB+ lines because their stream readers used
+  `AsyncBufReadExt::lines()` (splits on `\n` only) and did not then
+  re-split on `\r`. yt-dlp uses `\r` to overwrite in place in a terminal,
+  so a full download's progress arrived as one huge blob like
+  `[download] 4.0% of ... (frag 0/18)[download] 3.2% of ...[download]`,
+  rendering as an unreadable wall of text.
+
+  Also, the music-video download helper used `wait_with_output()` which
+  buffers the entire process output and never streams — so MV progress
+  never reached the activity log or the progress bar in real time.
+
+  Both issues are fixed:
+  - New shared helper `emit_companion_stream_line()` mirrors the main
+    GAMDL reader: splits on `\r`, strips ANSI, emits the last non-empty
+    segment to `activity-log` in normal mode or every segment in verbose
+    mode, and fires `gamdl-output` progress events for every segment so
+    the progress bar stays live.
+  - Companion audio reader (stdout + stderr) routed through the helper.
+  - `download_music_video_by_url()` replaced `wait_with_output()` with
+    spawned stdout/stderr reader tasks that also use the helper.
+
+  Visible effect: music-video download progress now lands as individual
+  scrollable rows with speed / ETA / percentage, matching the primary
+  GAMDL reader's rendering.
+
+- **(clippy)** Use checked_div for download progress (Rust 1.95)
+
+Rust 1.95 shipped the new `clippy::manual_checked_ops` lint which
+  flags `if x > 0 { (a * 100) / x }` patterns as preferring `checked_div`.
+  CI (which installs the latest stable via `dtolnay/rust-toolchain@stable`)
+  failed on this lint; local builds on 1.94 didn't see it yet.
+
+  Rewrote the progress-log branch in `archive.rs` to use
+  `downloaded.checked_mul(100).and_then(|n| n.checked_div(total_size))`,
+  which produces the same percentage when `total_size > 0` and
+  short-circuits otherwise.
+
+- Music video filenames, Explicit/Clean suffix, collision-proof subtitles, activity-log progress splitting (#484)
+
+## Summary
+
+  - **fix(#481)**: music video companions were saving as `-.mp4`.
+  `download_music_video_by_url()` now inherits the full set of
+  filename/folder templates, tool paths, language, truncate, and
+  download/remux modes so videos land with proper
+  `{artist}/{album}/{title}` names.
+  - **fix(#482)**: `[Explicit]` / `[Clean]` suffixes were applied
+  inconsistently. `insert_advisory_before_codec_suffix()` now pulls the
+  full codec suffix set from the registry (covers `[Binaural]`,
+  `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]` — not just the three hardcoded
+  strings); `advisory_suffix()` + idempotency checks are case-insensitive;
+  a new `apply_advisory_suffixes_from_tags()` pass runs in the completion
+  task after companion downloads finish so late-landing companion files
+  still pick up the suffix.
+  - **feat(#483)**: music videos (direct or companion) now get subtitles /
+  closed-captions extracted to sidecars. New
+  `music_video_subtitle_service` probes the video with ffprobe, extracts
+  each stream (`.vtt` copy for WebVTT, `.srt` convert for
+  `mov_text`/`tx3g`/`eia_608`/etc.), mirrors matching song lyrics next to
+  companion videos, and uses a **collision-proof** naming scheme
+  (`{stem}.cc.{index}[.{lang}].{ext}`) plus belt-and-braces guards (`-n`
+  on ffmpeg, canonicalised same-file compare on pairing, numeric
+  disambiguation).
+  - **fix(activity-log)**: companion audio downloads and music-video
+  downloads were emitting yt-dlp / N_m3u8DL-RE `\r`-progress blobs as a
+  single 100KB+ unreadable row. New shared helper
+  `emit_companion_stream_line()` splits on `\r`, strips ANSI, coalesces to
+  the last segment (or every segment in verbose mode), and drives
+  `gamdl-output` progress events from every segment. Also switched
+  `download_music_video_by_url()` from `wait_with_output()` to streaming
+  readers so MV progress is live in the progress bar.
+  - **chore(deps)**: `basic-ftp` 5.2.2 → 5.3.0 (patches
+  GHSA-rp42-5vxx-qpwr to unblock `npm audit`); `tauri-plugin-deep-link`
+  2.4.8 → 2.4.7 (2.4.8 was yanked — unblocks `cargo-deny`).
+
+  ## Filename safety
+
+  Naming is guaranteed not to overwrite:
+  - song lyrics (`.ttml`/`.lrc`/`.srt`/`.vtt`/`.ass`) ← distinct from
+  caption sidecars via `.cc.` marker
+  - multi-track captions ← distinct by stream index
+  - prior extractions ← idempotent (skip when target exists)
+  - any file at all ← `resolve_non_clobbering_path()` + ffmpeg `-n` +
+  `same_file()` pairing guard
+
+  ## Tests
+
+  - 16 new unit tests (advisory suffix cases, collision disambiguation,
+  same-file detection, pair guards)
+  - Full backend suite: **688 → 695 passing**, 0 failing
+  - `cargo clippy --all-targets -- -D warnings` clean
+  - `cargo-deny check` clean
+  - `npm audit --audit-level=high` clean
+
+  ## Test plan
+
+  - [ ] Download an album that includes a track with a music video
+  (music_video_companion enabled + MusicKit credentials) — verify the MV
+  is named like `{artist} - {title}.mp4`, not `-.mp4`
+  - [ ] Same album with a mix of Explicit + Clean tracks — verify every
+  track file and the album folder carry the correct `[Explicit]`/`[Clean]`
+  suffix regardless of codec
+  - [ ] Companion codec (e.g. Atmos + ALAC) — verify the ALAC companion
+  file also gets the advisory suffix after all downloads complete
+  - [ ] Music video with embedded captions — verify
+  `.cc.{idx}[.{lang}].vtt` / `.srt` sidecars appear alongside the video
+  - [ ] Music video companion where the song's lyrics already exist in the
+  album folder — verify lyrics are mirrored alongside the video and
+  nothing is overwritten
+  - [ ] Re-run the same download twice — verify no double-suffixing, no
+  overwritten sidecars
+  - [ ] Watch the Activity Log during a music-video download — verify
+  progress arrives as individual scrollable rows (not one wall of text),
+  and the progress bar shows live speed / ETA / percentage
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.4] - 2026-04-15
+
+### 🐛 Bug Fixes
+
 - False-positive tool update notifications due to version format m… (#479)
 
 …ismatch
