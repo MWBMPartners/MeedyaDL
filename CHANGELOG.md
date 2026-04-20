@@ -187,6 +187,7 @@ Rust 1.95 shipped the new `clippy::manual_checked_ops` lint which
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.34.4] - 2026-04-15
 
