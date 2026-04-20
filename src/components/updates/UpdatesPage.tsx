@@ -154,10 +154,37 @@ export function UpdatesPage() {
                 Last checked: {new Date(lastResult.checked_at).toLocaleString()}
               </p>
             )}
+
+            {/* Rollback option for pre-release users (#267) */}
+            {lastResult?.rollback_version && (
+              <div className="mt-4 p-4 rounded-platform border border-border-light bg-surface-secondary">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-content-primary">
+                      Running pre-release — stable v{lastResult.rollback_version} available
+                    </p>
+                    <p className="text-xs text-content-tertiary mt-1">
+                      Roll back to the latest stable release if you experience issues with this pre-release.
+                    </p>
+                  </div>
+                  <button
+                    className="px-3 py-1.5 text-xs font-medium rounded-platform bg-surface-tertiary hover:bg-surface-quaternary text-content-primary transition-colors"
+                    onClick={async () => {
+                      if (lastResult.rollback_tag) {
+                        const { open } = await import('@tauri-apps/plugin-shell');
+                        await open(`https://github.com/MWBMPartners/MeedyaDL/releases/tag/${lastResult.rollback_tag}`);
+                      }
+                    }}
+                  >
+                    View Stable Release
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* Updates available */
-          <div className="space-y-6 max-w-3xl">
+          <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
               <ArrowUpCircle size={18} className="text-accent" />
               {activeUpdates.length === 1
@@ -179,21 +206,45 @@ export function UpdatesPage() {
                     variant="primary"
                     size="sm"
                     icon={<RefreshCw size={12} />}
-                    onClick={() => {
-                      // Upgrade all engine updates silently
-                      const engines = activeUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name));
-                      Promise.all(
-                        engines.map((e) =>
-                          import('@/lib/tauri-commands').then(({ upgradePipEngine }) =>
-                            upgradePipEngine(e.name.toLowerCase())
-                          )
-                        )
-                      )
-                        .then(() => {
-                          addToast('Components updated successfully', 'success');
-                          checkForUpdates().catch(() => {});
+                    onClick={async () => {
+                      const components = activeUpdates.filter(
+                        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
+                      );
+                      if (components.length === 0) {
+                        addToast('No updatable components found', 'info');
+                        return;
+                      }
+
+                      let successCount = 0;
+                      let failCount = 0;
+
+                      const results = await Promise.allSettled(
+                        components.map(async (c) => {
+                          if (c.pip_package) {
+                            const { upgradePipEngine } = await import('@/lib/tauri-commands');
+                            return upgradePipEngine(c.pip_package);
+                          } else if (c.tool_id) {
+                            const { installDependency } = await import('@/lib/tauri-commands');
+                            return installDependency(c.tool_id);
+                          }
+                          throw new Error(`No upgrade method for ${c.name}`);
                         })
-                        .catch(() => addToast('Some component updates failed', 'error'));
+                      );
+
+                      for (const r of results) {
+                        if (r.status === 'fulfilled') successCount++;
+                        else failCount++;
+                      }
+
+                      if (failCount === 0) {
+                        addToast(`${successCount} component${successCount > 1 ? 's' : ''} updated successfully`, 'success');
+                      } else if (successCount === 0) {
+                        addToast(`Failed to update ${failCount} component${failCount > 1 ? 's' : ''}`, 'error');
+                      } else {
+                        addToast(`${successCount} updated, ${failCount} failed`, 'warning');
+                      }
+
+                      checkForUpdates().catch(() => {});
                     }}
                   >
                     Update All

@@ -6,6 +6,1161 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(fs)** Collision-proof every rename/write path (generalise #483 invariant) (#494)
+
+## Summary
+
+  Generalises the "different content must never land on the same filename
+  silently" invariant that shipped for music-video subtitle sidecars in
+  #483 to **every** rename / write / copy site in the Rust backend.
+  Addresses 6 HIGH-severity sites where different logical content could
+  silently overwrite on Unix.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.5] - 2026-04-20
+
+### 🐛 Bug Fixes
+
+- **(download)** Music video filenames, Explicit/Clean suffix, video subtitles
+
+Three related fixes to the music-video / companion / filename pipeline:
+
+  - fix(#481): music video companion downloads were producing `-.mp4`
+    because `download_music_video_by_url()` only passed quality/path
+    settings to GAMDL. Now inherits filename/folder templates, tool paths,
+    language, truncate, download/remux modes so videos land with proper
+    `{artist} - {title}` style names matching the primary pipeline.
+
+  - fix(#482): `[Explicit]`/`[Clean]` suffixes were applied inconsistently.
+    (a) `insert_advisory_before_codec_suffix` now pulls the full codec
+    suffix set from the codec registry instead of the three hardcoded
+    strings, so `[Binaural]`, `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]`
+    files get the correct ordering. (b) `advisory_suffix()` matches
+    case-insensitively. (c) Idempotency checks are case-insensitive.
+    (d) New `apply_advisory_suffixes_from_tags()` runs in the completion
+    task after companion downloads finish, reading each file's `rtng`
+    atom so companion files that land late still pick up the suffix.
+
+  - feat(#483): music videos (direct or companion) now get
+    subtitles / closed-captions extracted into sidecar files. New
+    `music_video_subtitle_service` probes the video with ffprobe,
+    extracts each subtitle stream to `.vtt` (WebVTT copy) or `.srt`
+    (ffmpeg convert) preserving BCP-47 language tags. Companion videos
+    additionally get the matching song's TTML/LRC/SRT/VTT/ASS sidecars
+    mirrored alongside for media-player pickup. Diff before/after video
+    file set so only freshly produced videos are processed.
+
+  Adds 9 new unit tests (688 → 697 passing).
+
+- **(subtitles)** Guarantee music video caption sidecars never overwrite
+
+Harden the music video subtitle extraction naming so freshly produced
+  captions can never overwrite:
+  - a song's existing lyrics sidecar (`01 Title.srt` / `.vtt` / `.ttml`),
+  - another music video caption track of the same language, or
+  - any prior extraction.
+
+  Changes to `music_video_subtitle_service`:
+  - Extracted caption filename now embeds a `.cc.` marker and the stream
+    index: `{stem}.cc.{index}[.{lang}].{ext}`. Keeps captions distinct
+    from song lyrics and from each other.
+  - New `resolve_non_clobbering_path()` disambiguates with `.1`, `.2`, ...
+    if the computed path is somehow already taken (up to 100 attempts).
+  - ffmpeg invocation switched from `-y` to `-n` so the downloader cannot
+    silently overwrite an existing file even if our path resolution has
+    a bug.
+  - Lyrics pairing now guards with `same_file()` (canonicalised compare)
+    so copying a file onto itself (identical stems in the same dir) is a
+    true no-op rather than a potential truncation.
+
+  Adds 7 new unit tests covering every guard (collision disambiguation,
+  same-file detection, pair no-op when target exists, pair-copy when
+  stems differ). Full suite: 688 → 695 passing.
+
+- **(activity-log)** Split \r progress segments for companion downloads
+
+Companion audio downloads and music-video downloads were emitting
+  yt-dlp / N_m3u8DL-RE progress output to the activity log as single
+  100KB+ lines because their stream readers used
+  `AsyncBufReadExt::lines()` (splits on `\n` only) and did not then
+  re-split on `\r`. yt-dlp uses `\r` to overwrite in place in a terminal,
+  so a full download's progress arrived as one huge blob like
+  `[download] 4.0% of ... (frag 0/18)[download] 3.2% of ...[download]`,
+  rendering as an unreadable wall of text.
+
+  Also, the music-video download helper used `wait_with_output()` which
+  buffers the entire process output and never streams — so MV progress
+  never reached the activity log or the progress bar in real time.
+
+  Both issues are fixed:
+  - New shared helper `emit_companion_stream_line()` mirrors the main
+    GAMDL reader: splits on `\r`, strips ANSI, emits the last non-empty
+    segment to `activity-log` in normal mode or every segment in verbose
+    mode, and fires `gamdl-output` progress events for every segment so
+    the progress bar stays live.
+  - Companion audio reader (stdout + stderr) routed through the helper.
+  - `download_music_video_by_url()` replaced `wait_with_output()` with
+    spawned stdout/stderr reader tasks that also use the helper.
+
+  Visible effect: music-video download progress now lands as individual
+  scrollable rows with speed / ETA / percentage, matching the primary
+  GAMDL reader's rendering.
+
+- **(clippy)** Use checked_div for download progress (Rust 1.95)
+
+Rust 1.95 shipped the new `clippy::manual_checked_ops` lint which
+  flags `if x > 0 { (a * 100) / x }` patterns as preferring `checked_div`.
+  CI (which installs the latest stable via `dtolnay/rust-toolchain@stable`)
+  failed on this lint; local builds on 1.94 didn't see it yet.
+
+  Rewrote the progress-log branch in `archive.rs` to use
+  `downloaded.checked_mul(100).and_then(|n| n.checked_div(total_size))`,
+  which produces the same percentage when `total_size > 0` and
+  short-circuits otherwise.
+
+- **(fs)** Collision-proof every rename/write path, not just MV subtitles
+
+Extends the "never silently overwrite a different file" invariant —
+  previously scoped to music-video subtitle sidecars — to every rename
+  and write site in the app where different logical content could land
+  on the same path.
+
+  ## Why
+
+- Music video filenames, Explicit/Clean suffix, collision-proof subtitles, activity-log progress splitting (#484)
+
+## Summary
+
+  - **fix(#481)**: music video companions were saving as `-.mp4`.
+  `download_music_video_by_url()` now inherits the full set of
+  filename/folder templates, tool paths, language, truncate, and
+  download/remux modes so videos land with proper
+  `{artist}/{album}/{title}` names.
+  - **fix(#482)**: `[Explicit]` / `[Clean]` suffixes were applied
+  inconsistently. `insert_advisory_before_codec_suffix()` now pulls the
+  full codec suffix set from the registry (covers `[Binaural]`,
+  `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]` — not just the three hardcoded
+  strings); `advisory_suffix()` + idempotency checks are case-insensitive;
+  a new `apply_advisory_suffixes_from_tags()` pass runs in the completion
+  task after companion downloads finish so late-landing companion files
+  still pick up the suffix.
+  - **feat(#483)**: music videos (direct or companion) now get subtitles /
+  closed-captions extracted to sidecars. New
+  `music_video_subtitle_service` probes the video with ffprobe, extracts
+  each stream (`.vtt` copy for WebVTT, `.srt` convert for
+  `mov_text`/`tx3g`/`eia_608`/etc.), mirrors matching song lyrics next to
+  companion videos, and uses a **collision-proof** naming scheme
+  (`{stem}.cc.{index}[.{lang}].{ext}`) plus belt-and-braces guards (`-n`
+  on ffmpeg, canonicalised same-file compare on pairing, numeric
+  disambiguation).
+  - **fix(activity-log)**: companion audio downloads and music-video
+  downloads were emitting yt-dlp / N_m3u8DL-RE `\r`-progress blobs as a
+  single 100KB+ unreadable row. New shared helper
+  `emit_companion_stream_line()` splits on `\r`, strips ANSI, coalesces to
+  the last segment (or every segment in verbose mode), and drives
+  `gamdl-output` progress events from every segment. Also switched
+  `download_music_video_by_url()` from `wait_with_output()` to streaming
+  readers so MV progress is live in the progress bar.
+  - **chore(deps)**: `basic-ftp` 5.2.2 → 5.3.0 (patches
+  GHSA-rp42-5vxx-qpwr to unblock `npm audit`); `tauri-plugin-deep-link`
+  2.4.8 → 2.4.7 (2.4.8 was yanked — unblocks `cargo-deny`).
+
+  ## Filename safety
+
+  Naming is guaranteed not to overwrite:
+  - song lyrics (`.ttml`/`.lrc`/`.srt`/`.vtt`/`.ass`) ← distinct from
+  caption sidecars via `.cc.` marker
+  - multi-track captions ← distinct by stream index
+  - prior extractions ← idempotent (skip when target exists)
+  - any file at all ← `resolve_non_clobbering_path()` + ffmpeg `-n` +
+  `same_file()` pairing guard
+
+  ## Tests
+
+  - 16 new unit tests (advisory suffix cases, collision disambiguation,
+  same-file detection, pair guards)
+  - Full backend suite: **688 → 695 passing**, 0 failing
+  - `cargo clippy --all-targets -- -D warnings` clean
+  - `cargo-deny check` clean
+  - `npm audit --audit-level=high` clean
+
+  ## Test plan
+
+  - [ ] Download an album that includes a track with a music video
+  (music_video_companion enabled + MusicKit credentials) — verify the MV
+  is named like `{artist} - {title}.mp4`, not `-.mp4`
+  - [ ] Same album with a mix of Explicit + Clean tracks — verify every
+  track file and the album folder carry the correct `[Explicit]`/`[Clean]`
+  suffix regardless of codec
+  - [ ] Companion codec (e.g. Atmos + ALAC) — verify the ALAC companion
+  file also gets the advisory suffix after all downloads complete
+  - [ ] Music video with embedded captions — verify
+  `.cc.{idx}[.{lang}].vtt` / `.srt` sidecars appear alongside the video
+  - [ ] Music video companion where the song's lyrics already exist in the
+  album folder — verify lyrics are mirrored alongside the video and
+  nothing is overwritten
+  - [ ] Re-run the same download twice — verify no double-suffixing, no
+  overwritten sidecars
+  - [ ] Watch the Activity Log during a music-video download — verify
+  progress arrives as individual scrollable rows (not one wall of text),
+  and the progress bar shows live speed / ETA / percentage
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.4] - 2026-04-15
+
+### 🐛 Bug Fixes
+
+- False-positive tool update notifications due to version format m… (#479)
+
+…ismatch
+
+  The update checker compared installed tool versions (from `--version`
+  output) against GitHub release tags using simple string inequality. This
+  caused perpetual false "update available" for:
+
+  - FFmpeg: installed "8.0.1" vs GitHub tag "latest" (BtbN uses rolling
+  builds, not semver tags) — always different, always "update available"
+  - N_m3u8DL-RE: installed "0.5.1" (digits only) vs GitHub tag
+  "0.5.1-beta" (includes pre-release suffix) — never matched
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.3] - 2026-04-14
+
+### 🐛 Bug Fixes
+
+- Component Update All button now actually updates binary tools
+
+The "Update All" button for component updates was silently succeeding
+  without updating anything. Root cause: the 2 updates shown (FFmpeg,
+  N_m3u8DL-RE) are binary tools with pip_package=null, so the pip-only
+  filter excluded them — Promise.all([]) resolved as instant "success".
+
+- False-positive tool update notifications due to version format mismatch
+
+The update checker compared installed tool versions (from `--version`
+  output) against GitHub release tags using simple string inequality.
+  This caused perpetual false "update available" for:
+
+  - FFmpeg: installed "8.0.1" vs GitHub tag "latest" (BtbN uses rolling
+    builds, not semver tags) — always different, always "update available"
+  - N_m3u8DL-RE: installed "0.5.1" (digits only) vs GitHub tag
+    "0.5.1-beta" (includes pre-release suffix) — never matched
+
+- Component Update All button now actually updates binary tools (#477)
+
+The "Update All" button for component updates was silently succeeding
+  without updating anything. Root cause: the 2 updates shown (FFmpeg,
+  N_m3u8DL-RE) are binary tools with pip_package=null, so the pip-only
+  filter excluded them — Promise.all([]) resolved as instant "success".
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.2] - 2026-04-14
+
+### 🐛 Bug Fixes
+
+- Blank window rendering + broken component updates (#475)
+
+## Summary
+
+  - **Fix blank/black window on all platforms**: Remove terser
+  `mangle.properties.regex: /^_/` which renamed React's internal
+  underscore-prefixed properties (`._reactInternals`, `._payload`,
+  `._init`, etc.), destroying the reconciler in production builds. Dev
+  mode was unaffected because terser is disabled in debug builds.
+  - **Fix "Update All" button doing nothing**: The frontend passed
+  `e.name.toLowerCase()` (display name like "of-scraper") to
+  `upgradePipEngine()` instead of the actual PyPI package name
+  ("ofscraper"). Added `pip_package` field to `ComponentUpdate` so the
+  backend passes the correct identifier through.
+
+  ## Test plan
+
+  - [ ] Build a release binary (`cargo tauri build`) and verify the app
+  renders on macOS, Windows, and Linux
+  - [ ] Verify dev mode (`cargo tauri dev`) still works
+  - [ ] Navigate to Updates page, confirm "Update All" triggers pip
+  upgrades with correct package names
+  - [ ] Run `npm run type-check` — passes
+  - [ ] Run `npm test` — 293/293 tests pass
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.1] - 2026-04-14
+
+### 🐛 Bug Fixes
+
+- Remove terser property mangling that breaks React rendering
+
+The `mangle.properties.regex: /^_/` terser option renames ALL object
+  properties starting with underscore across the entire production bundle.
+  This destroys React's internal state management — React DOM uses 18+
+  underscore-prefixed properties (._reactInternals, ._internalRoot,
+  ._payload, ._init, ._currentValue, etc.) that must retain their exact
+  names for the reconciler to function.
+
+- Component updates fail — frontend uses display name instead of pip package name
+
+The "Update All" button on the Updates page called `upgradePipEngine(e.name.toLowerCase())`
+  which passes the human-readable display name (e.g., "OF-Scraper" → "of-scraper") instead
+  of the PyPI package name ("ofscraper"). This caused pip to fail for any engine where the
+  display name differs from the package name.
+
+- Loads with blank screen (#473)
+
+The `mangle.properties.regex: /^_/` terser option renames ALL object
+  properties starting with underscore across the entire production bundle.
+  This destroys React's internal state management — React DOM uses 18+
+  underscore-prefixed properties (._reactInternals, ._internalRoot,
+  ._payload, ._init, ._currentValue, etc.) that must retain their exact
+  names for the reconciler to function.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.0] - 2026-04-14
+
+### ✨ Features
+
+- Download manifest, folder scan, enrichment fixes, and new features (#468)
+
+## Summary
+
+  Large feature branch spanning critical bug fixes, new features, and
+  infrastructure improvements across 105+ files.
+
+  ### Critical Fixes
+  - **Metadata cross-contamination defence** (#452) — targeted
+  `find_album_directory()` with artist/album hints, depth-limited file
+  collection, album/artist validation before writing API metadata
+  - **Serial queue processing** (#455) — entire pipeline (download →
+  companions → enrichment → lyrics → manifest) completes before next item
+  starts; 10-minute completion timeout (#461)
+  - **Platform icon not rendering** — CSP `connect-src` was missing
+  `'self'`, blocking SVG fetch; replaced external Google Favicon fallback
+  with local `<img>`
+
+  ### New Features
+  - **Download manifest rename** (#447) — `.meedyadl` →
+  `manifest.meedyadl` with auto-migration
+  - **Folder scan** (#456) — recursive manifest discovery for
+  re-downloading with quality upgrade (#380) and content refresh detection
+  - **Dual API metadata enrichment** (#454) — iTunes Lookup API (Step 0)
+  then Apple Music Catalog API (Step 1)
+  - **MetadataProvider trait** (#351) — service-agnostic enrichment
+  interface with priority registry
+  - **BPM onset detection** (#418) — FFmpeg `silencedetect` filter for
+  audio analysis
+  - **Tool version tracking** (#273) — `--version` parsing + auto-update
+  checking via GitHub API
+  - **Functional tool verification** (#391) — startup binary health checks
+  with 2s timeout
+  - **Rollback UI for pre-release users** (#267) — downgrade to stable via
+  in-app updater
+  - **Browse button in setup wizard** (#278) — locate existing tool
+  binaries via native file picker
+  - **Cover art naming** (#448) — configurable cover art filename
+  (FrontCover/Cover/Folder)
+  - **Platform template variable** (#309) — `{platform}` in
+  filename/folder templates
+  - **ReplayGain video containers** (#329) — MKV/WebM/OGV support via
+  lofty
+  - **Service status** — remote kill-switch system with fail-open design
+  - **Smart Download** — cross-platform quality search infrastructure
+  (Phase 1)
+
+  ### Security & Validation
+  - **Input validation** (#459) — path traversal rejection, URL domain
+  validation, `0o600` file permissions
+  - **MusicKit JWT fix** (#161) — missing `aud` claim + validation logic
+
+  ### Testing & Docs
+  - **Frontend tests** (#232, #460) — Vitest component tests,
+  multi-service URL detection, unit tests
+  - **ARIA accessibility** (#182) — screen reader support on DownloadForm
+  + StatusBar
+  - **meedya-core migration docs** (#352, #353) — CodecDetector and
+  Fingerprinter extraction plans
+
+  ## Test plan
+  - [x] TypeScript type-check passes (`npm run type-check`)
+  - [x] All 293 Vitest tests pass (`npm run test`)
+  - [ ] Verify platform icon renders in progress bar during active
+  download
+  - [ ] Test folder scan discovers manifest files and allows re-download
+  - [ ] Verify serial queue processing — second item waits for first to
+  fully complete
+  - [ ] Confirm `manifest.meedyadl` created after download (not hidden
+  `.meedyadl`)
+
+
+### 🐛 Bug Fixes
+
+- Address review feedback — abort on timeout, exact URL host validation, tool ID/version fixes, error handling
+- Metadata_provider async trait + ComponentUpdate missing field
+
+1. metadata_provider.rs: Remove `async_trait` crate dependency (not in
+     Cargo.toml). Replace `async fn` in trait with pinned boxed future
+     return type for dyn-compatibility (E0038).
+
+  2. update_checker.rs: Remove nonexistent `compatibility_note` field
+     from ComponentUpdate struct initialization (E0560).
+
+- Add missing ComponentUpdate fields in tool version check
+
+The ComponentUpdate struct requires description, release_url,
+  release_body, is_prerelease, and tag_name fields — these were
+  missing from the check_github_tool_update constructor.
+
+- Clippy errors — orphaned doc comment + dead code
+
+1. metadata_tag_service.rs: Remove orphaned doc comment before section
+     header that triggered empty_line_after_doc_comments lint.
+
+  2. download_queue.rs: Remove unused has_audio_files() function (dead
+     code — superseded by has_direct_audio_files() from #452).
+
+- Rename BbcIPlayer → BBCiPlayer + fix doc_lazy_continuation lints
+
+1. Rename MediaServiceId::BbcIPlayer to BBCiPlayer across the codebase
+     to match BBC branding (7 files).
+
+  2. Fix 5 doc_lazy_continuation clippy warnings where /// doc comments
+     were immediately followed by // regular comments without a blank
+     /// separator line (lib.rs, login_window_service.rs, download_queue.rs).
+
+- Use blank lines (not ///) to separate doc comments from regular comments
+
+Previous fix incorrectly used blank /// lines as separators — the
+  doc_lazy_continuation lint requires a completely blank line (no
+  comment marker at all) between /// doc comments and // comments.
+
+- Remove accidentally committed test binary
+- Remove blank lines between /// doc comments and // comments
+
+The empty_line_after_doc_comments lint fires when there is ANY blank
+  line between a /// doc comment and the function it documents — even
+  if regular // comments and #[allow] attributes sit between them.
+
+- Update tests for video container ReplayGain + case-insensitive dirs
+
+1. replaygain_service.rs: .mkv/.webm now correctly return
+     Some(VorbisComment) after #329 added video container support.
+     Split into detect_unsupported (txt, png → None) and
+     detect_video_containers (mkv, webm, ogv → VorbisComment).
+
+  2. download_queue.rs: find_album_directory_case_insensitive test now
+     compares paths case-insensitively — macOS has a case-insensitive
+     filesystem so the original-cased path is returned directly.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Trigger fresh CI run after doc comment fixes
+
+### Merge
+
+- Integrate main v0.33.0 release
+
+Pick up version bump to 0.33.0 and Cargo.lock update from
+  release-please PR #470.
+
+
+## [0.33.0] - 2026-04-13
+
+### ✨ Features
+
+- Dual API metadata enrichment — Apple Music + iTunes Lookup (#454)
+
+Add iTunes Search/Lookup API as a supplementary metadata source alongside
+  the existing Apple Music Catalog API. The iTunes API is public (no auth
+  required) and provides fields the Apple Music API doesn't:
+
+  - Track/album price and currency (TrackPrice, CollectionPrice, Currency)
+  - Release country (Country)
+  - Disc count (DiscCount)
+  - iTunes track URLs (iTunesTrackURL)
+
+- Re-download from folder scan via manifest discovery (#456)
+
+Added `scan_folder_for_manifests` IPC command that opens a native folder
+  picker and recursively scans the selected directory for `manifest.meedyadl`
+  (and legacy `.meedyadl`) files. For each discovered manifest, extracts:
+  - Source URLs for re-downloading
+  - Artist/album names (inferred from GAMDL's Artist/Album/ dir structure)
+  - Platform, download date, track count
+
+- Functional tool verification at startup (#391)
+
+check_all_dependencies() now runs each tool binary with --version
+  (2-second timeout) instead of just checking file existence. This
+  detects corrupted or non-executable binaries before showing "Ready".
+
+  If the binary exists but fails to spawn (not executable), it's
+  reported as not installed. If it spawns but --version fails (some
+  tools use different flags), it's still reported as installed since
+  the binary is functional.
+
+- Quality upgrade detection in folder scan (#380)
+
+ScannedManifest now includes `current_codec` and `audio_file_count`
+  fields. When scanning a folder for manifests, the codec is detected
+  from the first M4A file's MeedyaMeta:SourceCodec or isLossless tag.
+
+  This lets the frontend show upgrade opportunities: e.g., "Currently
+  AAC — ALAC/Atmos available" when the user's current codec is lower
+  quality than what Apple Music offers.
+
+  detect_album_codec() helper reads mp4ameta tags without spawning any
+  subprocess — fast and lightweight for scanning large libraries.
+
+- Auto-update checking for external tools via GitHub API (#273)
+
+Added check_github_tool_update() that queries GitHub Releases API for
+  the latest version of external tools (FFmpeg, N_m3u8DL-RE). Integrated
+  into check_all_updates() — runs for installed tools only.
+
+  Currently reports latest available version without comparison (exact
+  installed version not tracked). Foundation for future "Tool Updates
+  Available" UI indicator.
+
+- Browse button in setup wizard for custom tool paths (#278)
+
+Added "Browse" button next to "Install" for each missing tool in the
+  setup wizard's Dependencies step. Opens a native file picker to locate
+  an existing binary on the system. The selected path is stored in
+  settings (e.g., ffmpeg_path, mp4decrypt_path) so the app uses the
+  user's existing installation instead of downloading a new one.
+
+- Add {platform} template variable for download platform name (#309)
+
+Added 'platform' to TEMPLATE_VARIABLES and SAMPLE_METADATA in
+  template-parser.ts. Renders as the download platform name (e.g.,
+  "AppleMusic", "Spotify") in file/folder name templates. Enables
+  organizing downloads by service: {platform}/{album_artist}/{album}/
+
+- Stable rollback option when running pre-release (#267)
+
+UpdateCheckResult now includes `rollback_version` and `rollback_tag`
+  fields. When the current app version is a pre-release (contains '-'),
+  check_all_updates() fetches the latest stable release from GitHub's
+  releases/latest endpoint and populates these fields.
+
+  The frontend can use these to show a "Rollback to stable vX.Y.Z"
+  option when the user is running a beta/RC. The Tauri updater can
+  then be pointed to the stable release's tag.
+
+- BPM detection foundation with FFmpeg audio analysis (#418)
+
+Replaced placeholder "analysis deferred" comment with actual FFmpeg
+  invocation for audio pre-processing (resample to 22050Hz, bandpass
+  40-300Hz for rhythm detection). Added parse_ffmpeg_duration() helper.
+
+  Full BPM onset detection via aubio/essentia is deferred to meedya-core
+  integration, but the FFmpeg pipeline is now in place. Musical key
+  detection requires Python's essentia library (no Rust equivalent).
+
+- ReplayGain support for MKV/WebM/OGV video containers (#329)
+
+Added mkv, webm, and ogv to SUPPORTED_EXTENSIONS in replaygain_service.
+  These containers support Vorbis Comment tags (same as FLAC/OGG/Opus),
+  so the existing VorbisComment write path handles them via lofty.
+
+  FFmpeg ebur128 analysis already supports any decodable audio stream,
+  so the analysis side was already working — only the extension whitelist
+  needed updating.
+
+- Rollback UI for pre-release users (#267)
+
+Added rollback_version and rollback_tag to UpdateCheckResult TypeScript
+  type. When running a pre-release, the Updates page shows a card:
+  "Running pre-release — stable vX.Y.Z available" with a "View Stable
+  Release" button that opens the GitHub release page.
+
+  Backend (commit ec8a249) already populates these fields via
+  fetch_latest_stable_release(). This commit adds the frontend UI.
+
+- Tool version tracking via --version for update comparison (#273)
+
+check_github_tool_update() now runs the installed binary with --version
+  to detect the current version, then compares against the latest GitHub
+  release tag. Reports update_available when versions differ.
+
+  Version extraction parses the first whitespace-delimited token containing
+  a dot and digits from the combined stdout+stderr output.
+
+- Content refresh detection via lastModifiedDate in folder scan (#380)
+
+ScannedManifest now includes last_modified_date from the manifest's
+  ManifestSource. This enables the frontend to compare the stored date
+  against a fresh API response to detect content refreshes: mix
+  corrections, remastered audio, added tracks, Apple Digital Master
+  certification, metadata updates.
+
+  Combined with current_codec detection (commit 1f526e2), the folder
+  scan now provides complete re-download opportunity data: quality
+  upgrades (AAC→ALAC) AND content refreshes (same codec, newer content).
+
+- MetadataProvider trait and registry for multi-service enrichment (#351)
+
+Defined the service-agnostic MetadataProvider async trait with:
+  - provider_name(), service_id(), priority(), requires_auth()
+  - fetch_album_metadata(album_id, storefront) -> Option<AlbumMetadata>
+
+  MetadataProviderRegistry stores providers sorted by ProviderPriority:
+  - Supplementary (iTunes) → Primary (Apple Music) → UserOverride
+
+  This trait enables the enrichment pipeline to call multiple providers
+  through a common interface. Concrete implementations (AppleMusicProvider,
+  ItunesProvider) will be added as the services are migrated to use the
+  trait instead of direct function calls.
+
+- BPM onset detection via FFmpeg silencedetect filter (#418)
+
+Replaced placeholder analysis with actual onset-based BPM detection:
+  - FFmpeg silencedetect filter (noise=-30dB, duration=0.1s) identifies
+    quiet gaps between beats in the low-frequency band (40-300Hz)
+  - Counts silence_end markers as onset events
+  - BPM = (onset_count / duration) * 60
+  - Auto-corrects via halving/doubling if outside 60-200 BPM range
+  - Only returns plausible results (60-200 BPM range)
+
+  This is an approximation — for production quality, aubio/essentia
+  via meedya-core (#353) will be needed. But this provides reasonable
+  BPM estimates for most 4/4 time music without external dependencies.
+
+  Musical key detection still requires Python essentia library.
+
+- Extract all FFmpeg components and rename MeedyaDL org to MeedyaSuite (#444, #445)
+
+- Expand companion FFmpeg extraction to include ffplay alongside ffprobe,
+    ensuring the full FFmpeg suite (ffmpeg, ffprobe, ffplay) is available
+    in the managed tools directory on all platforms
+  - Rename all references from MeedyaDL/MeedyaDL-Tools org to
+    MeedyaSuite/MeedyaDL-Tools across tool-versions.toml, deny.toml,
+    engines.toml, release.yml, dependency_manager.rs, and documentation
+  - CHANGELOG.md historical entries left unchanged
+
+
+### 🐛 Bug Fixes
+
+- Manifest visibility, cover art naming, and animated artwork defaults (#447, #448, #449)
+
+- Rename manifest file from `.meedyadl` to `manifest.meedyadl` so it is
+    visible in file managers on macOS/Linux (was hidden as a dotfile).
+    Auto-migrates legacy `.meedyadl` files on write. Add activity log entry
+    when manifest is saved. (#447)
+
+  - Add post-download rename of GAMDL's `Cover.<ext>` to `FrontCover.<ext>`
+    for consistency with animated artwork naming (`FrontCover.mp4`,
+    `PortraitCover.mp4`). Applied in both primary enrichment and companion
+    download paths. (#448)
+
+  - Change `animated_artwork_enabled` default from `false` to `true` and
+    `hide_animated_artwork` default from `true` to `false` so animated
+    cover art is downloaded and visible by default. Upgrade skip-reason
+    logging from DEBUG to INFO for better diagnostics. (#449)
+
+- Album directory resolution, configurable cover names, lyrics settings (#447, #448, #449, #450, #451)
+
+Root cause fix: `find_album_directory()` only searched one level deep,
+  returning the artist directory instead of the album directory for
+  GAMDL's Artist/Album/ structure. This caused manifests, animated artwork,
+  and all enrichment to target the wrong directory. Replaced with recursive
+  `find_deepest_audio_dir()` that finds the deepest directory directly
+  containing audio files. Added `has_direct_audio_files()` non-recursive
+  check alongside existing recursive `has_audio_files()`. (#450)
+
+  Manifest temp file fix: replaced `Path::with_extension()` (which
+  produced `.meedyadl.meedyadl.tmp` on dotfiles) with explicit
+  `dir.join("manifest.meedyadl.tmp")`. (#447)
+
+  Configurable cover art naming: added `CoverArtName` enum (FrontCover,
+  Cover, Folder) with `cover_art_name` setting (default: FrontCover).
+  UI dropdown in Settings > Cover Art. `rename_cover_art()` respects the
+  user's choice. (#448)
+
+  Lyrics settings restructure: split "Embed Lyrics and Keep Sidecar" into
+  two controls — "Embed Lyrics / Captions" master toggle + conditional
+  "Keep Sidecar Lyrics / Caption Files" sub-toggle. Added
+  `keep_lyrics_sidecar` setting (default: true). (#451)
+
+- CRITICAL metadata cross-contamination between concurrent downloads (#452)
+
+Three-layer defence against metadata from one download being written to
+  another download's files:
+
+  1. **Depth-limited file collection**: `collect_m4a_files()` now uses
+     `collect_m4a_depth_limited()` with max_depth=1, preventing recursive
+     collection into sibling album directories when the enrichment path
+     resolves to an artist directory.
+
+  2. **Album-name validation**: Before writing Apple Music API metadata
+     (Layer 4), `enrich_single_file()` now compares the file's embedded
+     album name against the API response. Mismatches are logged and skipped,
+     preventing cross-contamination even if file collection includes files
+     from a different album.
+
+  3. **Genre deduplication**: Track genres are now merged with existing
+     `©gen` atom values (from GAMDL) and deduplicated case-insensitively.
+     The generic "Music" entry is filtered out. Result written to standard
+     `©gen`, freeform `Genre`, and `MeedyaMeta:AppleGenres` atoms.
+
+  Also added activity log entry when animated artwork is disabled in
+  settings, so users can see why artwork wasn't downloaded.
+
+- Artist promo video not downloading to artist folders (#453)
+
+- Add compilation album skip: checks `is_compilation` from Apple Music
+    API and skips promo video download for "Various Artists" compilations.
+    Activity log shows "Artist promo video skipped (compilation album)".
+
+  - Add activity log entries for all skip reasons: disabled in settings,
+    no artist_id in metadata, compilation album, no MusicKit credentials.
+    Previously these were silent `log::debug!()` calls only.
+
+  - Change `artist_promo_video_enabled` default from `false` to `true`
+    (consistent with animated artwork #449). Feature gracefully skips
+    when credentials are missing or no promo video exists.
+
+  - Upgrade `log::debug!()` to `log::info!()` in
+    `download_artist_promo_video()` for skip reasons (already exists,
+    no MusicKit token).
+
+  The primary fix for directory resolution was already applied in #450 —
+  `find_album_directory()` now returns the album directory, so
+  `parent()` correctly derives the artist directory for ArtistCover.mp4.
+
+- CRITICAL cross-contamination — targeted directory search + strict validation (#452)
+
+Root cause: `find_album_directory()` used most-recently-modified timestamp
+  to select the album directory from the base output path. With concurrent
+  downloads, this returned the WRONG artist's directory (e.g., Michael W.
+  Smith's dir for Blue's enrichment) because the later download had newer
+  file timestamps.
+
+  Primary fix: `find_album_directory()` now accepts `artist_hint` and
+  `album_hint` parameters (from the early metadata fetch). It first
+  attempts a targeted path match (`base_dir/Artist/Album/`) with
+  case-insensitive fallback before falling back to the timestamp scan.
+  This ensures each download's enrichment targets the correct directory.
+
+  Secondary fix: Tightened album-name validation guard in
+  `enrich_single_file()`. When the file has no album tag but DOES have
+  an artist tag, the artist name is compared against the API response.
+  Previously the fallback was unconditionally `true`, allowing any
+  metadata to be applied to files with missing album tags.
+
+  Also added `find_directory_case_insensitive()` helper for filesystem
+  name matching that handles slight differences between API naming and
+  GAMDL's filesystem-safe naming.
+
+- Serial queue processing, reorder iTunes-first, rename ArtistSpotlightCover (#455, #454)
+
+Serial queue processing (#455): Moved `process_queue()` cascade from
+  the main download task (which ran immediately after GAMDL exited) INTO
+  the completion task (which waits for enrichment + companions to finish).
+  The next queued item now starts only after the current item's full
+  pipeline completes: download → enrichment → companions → lyrics → done.
+  Added cascade calls to error and cancellation paths too.
+
+  This eliminates the root cause of metadata cross-contamination (#452)
+  where concurrent enrichment tasks could target wrong directories due
+  to race conditions in timestamp-based directory detection.
+
+  iTunes-first ordering (#454): Moved iTunes Lookup API call to Step 0
+  (before Apple Music API enrichment). iTunes runs first (no auth needed),
+  Apple Music overwrites with richer data. This ensures Apple Music data
+  takes priority for any overlapping fields.
+
+  Removed price/currency from file metadata: TrackPrice, CollectionPrice,
+  and Currency are locale-dependent and change over time, so they are
+  excluded from file tags. Country and DiscCount are still written.
+
+  Renamed ArtistCover.mp4 → ArtistSpotlightCover.mp4 across all files
+  for clearer naming of the artist spotlight/promo video.
+
+- Enrichment pipeline status reporting when API metadata unavailable (#458)
+
+Audit found all .unwrap() calls are safely in test code only — production
+  code uses proper error handling (unwrap_or, ok_or?, match, if-let).
+
+  Fixed misleading activity log: "Metadata enrichment completed" now shows
+  a warning icon when API metadata is unavailable, informing users that
+  downstream enrichment steps (artwork, manifest) may be limited.
+
+- Completion task timeout prevents stuck Processing state (#461)
+
+Added 10-minute timeout to enrichment and companion download awaits in
+  the completion task. If either hangs (deadlock, unresponsive API, slow
+  network), the item is forcibly marked complete with a warning in the
+  activity log, and the queue cascades to the next item.
+
+  Without this timeout, a hung enrichment task would block the entire
+  queue indefinitely (since #455 made processing serial).
+
+- Clear processing label and speed/ETA on completion (#416)
+
+set_complete() now clears processing_label, speed, and eta fields when
+  transitioning to Complete state. This prevents stale "Processing..."
+  text and speed indicators from lingering in the queue UI after a
+  download finishes.
+
+  Combined with the completion task timeout (#461) which prevents
+  indefinite stalls, this addresses the stuck Processing state bug.
+
+- MusicKit JWT missing aud claim + validation logic (#161)
+
+Root cause: The MusicKit JWT was missing the required `aud` (audience)
+  claim. Apple's API requires `"aud": "https://music.apple.com"` in the
+  JWT claims — without it, valid credentials get rejected with HTTP 401.
+
+  Also fixed validation logic: changed `.all(|s| s == 401)` to
+  `.any(|s| s == 401)` so a 401 from ANY host is reported as an auth
+  failure. Previously, if one host returned 401 and the other had a
+  network error, the error fell through to a generic "unexpected response"
+  message.
+
+- Platform icon not rendering — CSP blocked fetch + fallback
+
+Root cause: `connect-src` in CSP was `ipc: http://ipc.localhost` without
+  `'self'`, so `fetch('/icons/platforms/apple-music.svg')` was blocked by
+  the Content Security Policy. When the fetch failed, the Google Favicon
+  fallback <img> was also blocked because `img-src` didn't include
+  `https://www.google.com`. Result: broken image outline.
+
+- Resolve ffprobe missing, activity log text overlap, and progress bar icon (#441, #442, #443)
+
+- Install companion ffprobe alongside ffmpeg during dependency setup:
+    search extracted archives for ffprobe (Linux/Windows BtbN), download
+    separately from evermeet.cx (macOS), and copy from system PATH
+  - Add dynamic row height measurement to Activity Log virtualizer so
+    wrapped multi-line entries no longer overlap subsequent rows
+  - Add PlatformIcon to the queue-level progress bar caption so the
+    service icon displays in both progress bars
+
+- Update remaining MeedyaDL org references to MeedyaSuite (#445)
+
+Update CHANGELOG.md and help/faq.md references from the old
+  MeedyaDL GitHub org name to MeedyaSuite, completing the org rename
+  across all files — no stale references remain.
+
+- Register 9 missing module declarations for cargo check
+
+Added missing `pub mod` declarations that caused cargo check to fail
+  with exit code 101 on CI (ubuntu-latest, macos-latest):
+
+  - services/mod.rs: +service_status, +smart_download
+  - models/mod.rs: +content_match, +service_status, +votify_options,
+    +ytdlp_options, +get_iplayer_options
+  - commands/mod.rs: +service_status, +smart_download
+  - lib.rs: register check_service_status, check_cross_platform in
+    generate_handler!
+
+  The .rs files existed on disk but were never declared in their parent
+  mod.rs files, so rustc couldn't find them.
+
+- Compile errors — wrong enum variant, missing match arms, nonexistent field
+
+- MediaServiceId::BBCiPlayer → BbcIPlayer (3 files)
+  - Add missing YouTubeMusic arm to all match expressions on MediaServiceId
+  - Remove reference to nonexistent SpotifySettings.audio_quality field
+    (stub service — quality settings not yet implemented)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Document meedya-core CodecDetector migration path (#352)
+
+Added documentation block in mediainfo_service.rs describing the planned
+  migration to meedya-core's CodecDetector trait. Current implementation
+  (MediaInfo CLI + ffprobe fallback) is stable and performant — migration
+  is low priority. The trait abstraction would enable alternative backends
+  (symphonia, GStreamer) without changing the service interface.
+
+- Document meedya-core Fingerprinter migration path (#353)
+
+Added documentation block in acoustid_service.rs describing the planned
+  migration to meedya-core's Fingerprinter trait. Current rusty-chromaprint
+  + Symphonia implementation is stable — migration enables alternative
+  backends (essentia for musical key detection). Low priority.
+
+- Update CLAUDE.md with recent feature and fix context
+
+Reflects changes from issues #161, #182, #232, #267, #273, #278, #309,
+  #329, #351, #352, #353, #380, #391, #416, #447, #448, #452, #453, #454,
+  #455, #456, #459, #460, #461.
+
+  Key additions: download manifest rename + folder scan, targeted album
+  directory resolution, metadata cross-contamination defence, serial queue
+  processing, dual API enrichment, MetadataProvider trait, cover art
+  naming, input validation, tool version tracking, functional tool
+  verification, rollback UI, platform template variable, ARIA a11y,
+  frontend tests, meedya-core migration docs.
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- Add unit tests for find_album_directory, rename_cover_art, validate_path_safe (#460)
+
+Added 13 unit tests covering the new functions from this session:
+
+  - find_album_directory: targeted match, case-insensitive, fallback,
+    returns deepest directory (4 tests)
+  - has_direct_audio_files: detects M4A, ignores nested, empty dir (3 tests)
+  - rename_cover_art: renames jpg, skips when target is Cover, idempotent
+    (3 tests)
+  - validate_path_safe: allows normal paths, rejects traversal (3 tests)
+
+  Total download_queue.rs tests: 103 (was 90).
+
+- Add multi-service URL detection tests (#232)
+
+Added 15 frontend tests for the multi-service URL parser:
+
+  - detectService: Apple Music, Classical, iTunes, YouTube Music,
+    YouTube, Spotify, BBC iPlayer, unknown, case-insensitive (9 tests)
+  - isSupportedUrl: supported + unsupported (2 tests)
+  - parseMediaUrl: Apple Music with content type, Spotify without content
+    type, unknown URL, whitespace trimming (4 tests)
+
+  Total frontend tests: 287 (was 272).
+
+- Frontend component tests for activity and download stores (#232)
+
+Added 6 tests:
+  - Activity store: filter by download_id, filter by stream type,
+    search by line content, serial pipeline entries distinguishable (4)
+  - Download store: queue state tracking by state, queue snapshot
+    replacement (2)
+
+  Total frontend tests: 293 (was 287).
+
+
+### A11y
+
+- Add ARIA attributes for screen reader support (#182)
+
+- DownloadForm: aria-label + aria-describedby on URL textarea
+  - StatusBar: role="status" + aria-live="polite" + aria-label for
+    screen readers to announce download status changes
+
+  55 ARIA attributes were already in place across components. These
+  additions cover the two most interactive areas: URL input and
+  download status. Manual VoiceOver/NVDA testing still needed.
+
+
+### Merge
+
+- Resolve conflict with main (org rename + feature updates)
+
+Conflict in CLAUDE.md resolved by combining:
+  - Our branch: ArtistSpotlightCover.mp4 rename (#455), artist folder
+    resolution fix (#453)
+  - Main: MeedyaSuite org rename (#445) in dependency manager mirror path
+
+
+### Security
+
+- Input validation — path traversal, URL domain, file permissions (#459)
+
+1. Path traversal: Added `validate_path_safe()` in config_service.rs
+     that rejects paths containing `..` components. Applied to output_path
+     in merge_options() before passing to GAMDL subprocess.
+
+  2. URL domain validation: start_download() now rejects URLs not matching
+     supported domains (music.apple.com, classical.apple.com,
+     itunes.apple.com) before normalization. Prevents arbitrary URLs from
+     reaching GAMDL.
+
+  3. File permissions: settings.json now set to 0o600 (owner read/write
+     only) on Unix after write. Settings contain sensitive data (cookies
+     path, API credentials, wrapper URL).
+
+
+## [0.32.1] - 2026-04-11
+
+### 🐛 Bug Fixes
+
+- Progress bar icon, caption format, and activity log context (#427, #428, #429)
+
+Three fixes for the GlobalProgressBar and activity log:
+
+  1. Service icon not displaying (#427): The platform config loaded
+     asynchronously via IPC but stored in module-level variables without
+     triggering a React re-render. Added a subscriber pattern so the
+     component re-renders when config arrives.
+
+  2. Caption format (#428): Changed from "Artist — Track" to
+     "DOWNLOADING...Artist — Album — Track" with a state prefix.
+     Added early Apple Music API metadata fetch at download start
+     (before GAMDL subprocess) so artist_name and album_name are
+     available from the first track.
+
+  3. Activity log context (#429): Track separator now includes artist
+     and album context from the queue item, matching the progress bar
+     format: "[Track N/M] Downloading Artist — Album — "Track"".
+
+  Also made try_fetch_metadata() public in metadata_tag_service.rs
+  so it can be reused for the early fetch.
+
+- Verbose mode now bypasses \r coalescing in activity log (#435)
+
+The stdout/stderr readers in download_queue.rs coalesce \r-separated
+  progress lines, emitting only the last segment per newline-delimited
+  output. This reduces event volume 5-10x but eliminates all intermediate
+  download progress from the Activity Log (speeds, ETAs, percentages).
+
+  When verbose logging is enabled (Settings > Advanced > Verbose Activity
+  Log), the coalescing and dedup filters are now bypassed — ALL GAMDL
+  output segments are emitted to the activity log. This gives users
+  complete progress history for debugging slow downloads, stalls, or
+  rate limiting issues.
+
+  Normal mode (verbose off) retains the compact coalesced view.
+
+- Context menu on inputs, responsive content width, native notifications (#436, #437, #438)
+
+- Right-click on input/textarea/select now shows native paste menu instead
+    of the After-Queue context menu; blank-space right-click still works
+  - Removed fixed max-w constraints from Download, Help, and Updates pages
+    so content fills available width responsively on window resize
+  - Added notification_style setting (in_app_only / native_and_in_app /
+    native_only) with native OS notification routing in addToast(); UI
+    control added in Settings > General > Preferences
+
+- Resolve npm audit vulnerability and add notification_style validation
+
+- Update basic-ftp transitive dependency to fix GHSA-6v7q-wjvx-w8wg
+    (high severity CRLF injection in FTP credentials)
+  - Add notification_style enum validation in sanitize_imported_settings()
+    to prevent arbitrary string injection via crafted settings imports
+
+- Resolve clippy doc_lazy_continuation warning in download_queue
+
+Add blank doc-comment line between URL normalization examples list and
+  the extract_album_info_from_url doc block. Clippy 1.94 flags consecutive
+  doc-comment paragraphs after list items as lazy continuations without
+  proper indentation.
+
+- Add missing album_name and artist_name fields to test structs
+
+The QueueItemStatus struct gained album_name and artist_name fields in
+  commit cc8c0e1, but the three serde roundtrip tests in download.rs were
+  not updated to include these required fields, causing cargo test to fail
+  with E0063.
+
+- Companion lyrics conversion finds album dirs recursively (#439)
+
+The companion lyrics conversion (TTML → LRC/SRT/VTT/ASS) was only
+  scanning the top-level output path with non-recursive read_dir().
+  Since GAMDL creates Artist/Album/ subdirectories, the TTML files
+  were never found for companion tiers, resulting in missing sidecar
+  files for suffixed companions (e.g., [Lossless] variants).
+
+  Adds find_dirs_with_ttml() helper that recursively walks the output
+  directory tree to locate all directories containing .ttml files,
+  then runs all four conversion services on each discovered directory.
+
+- Progress bar, activity log, companion lyrics, CI fixes, and docs update (#434)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Comprehensive help and project documentation update
+
+- Create help/supported-services.md with current and planned service
+    details (Apple Music, Spotify, YouTube, BBC iPlayer)
+  - Fix GitHub repo URL in help/index.md
+  - Update Project_Plan.md with multi-service groundwork status
+  - Close 7 already-implemented GitHub issues
+  - Create 5 GitHub milestones (v1.0 RC, v1.0 GA, v2.0, v2.1, v2.2)
+  - Assign 23 open issues to milestones
+
+- Update CHANGELOG.md [skip ci]
+- Reorder service milestones — BBC iPlayer (M8) before Spotify (M10)
+
+Milestone order updated:
+  - M8 v2.0.0: BBC iPlayer (was Spotify)
+  - M9 v2.1.0: YouTube (unchanged)
+  - M10 v2.2.0: Spotify (was BBC iPlayer)
+
+  Updated in: README.md, CLAUDE.md, Project_Plan.md
+  GitHub milestones renamed and issues reassigned accordingly.
+
+- Update CHANGELOG.md [skip ci]
+- Swap Spotify and YouTube milestone order
+
+New milestone order:
+  - M8 v2.0.0: BBC iPlayer (get_iplayer / yt-dlp)
+  - M9 v2.1.0: Spotify (votify)
+  - M10 v2.2.0: YouTube (yt-dlp)
+
+  Updated in: README.md, CLAUDE.md, Project_Plan.md
+  GitHub milestones renamed and issues reassigned.
+
+- Update CHANGELOG.md [skip ci]
+- Comprehensive documentation update reflecting current project state
+
+- CLAUDE.md: add notification_style setting, album/artist context in progress
+    bars, companion lyrics recursive fix, updated services/models lists, verbose
+    \r bypass, workflow count
+  - Project_Plan.md: add v0.32.0 features (album context, notification style,
+    service icon, companion lyrics fix), update cross-cutting architecture status
+    (multi-service queue, engine registry, per-service settings now complete),
+    mark download history as complete, update date
+  - README.md: add v0.32.0 roadmap items (album context, notification style,
+    download history, companion lyrics fix)
+  - DEV_NOTES.md: update project structure with all 32 services, 15 models,
+    13 commands, 5 hooks, 5 utils, 7 workflows
+  - help/downloading-music.md: add companion lyrics and activity log tracking
+  - help/lyrics-and-metadata.md: add companion lyrics subsection
+  - help/quality-settings.md: add download notifications section
+
+  GitHub Issues closed: #370 (activity log memory leak), #411 (CONTRIBUTING.md),
+  #412 (CODE_OF_CONDUCT.md), #439 (companion lyrics)
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.32.0] - 2026-04-10
+
 ### ✨ Features
 
 - Show album context in progress bar during downloads

@@ -303,10 +303,13 @@ pub async fn validate_musickit_credentials(
         return Ok("MusicKit credentials are valid! API authentication successful.".to_string());
     }
 
-    if statuses.iter().all(|(_, s)| *s == 401) {
-        log::warn!("MusicKit validation: authentication failed on all hosts (HTTP 401)");
+    // If ANY host returned 401, the credentials are likely invalid (#161).
+    // Previously used .all() which missed cases where one host had a network
+    // error and the other returned 401 — falling through to a generic message.
+    if statuses.iter().any(|(_, s)| *s == 401) {
+        log::warn!("MusicKit validation: authentication failed (HTTP 401, statuses={statuses:?})");
         return Err(
-            "Authentication failed (HTTP 401). Your MusicKit credentials are invalid. \
+            "Authentication failed (HTTP 401). Your MusicKit credentials may be invalid. \
              Check on developer.apple.com that: (1) Team ID is correct, (2) Key ID is active, \
              (3) private key (.p8) matches the Key ID, (4) key has MusicKit/Media Services access."
                 .to_string(),

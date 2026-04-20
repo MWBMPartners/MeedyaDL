@@ -1052,8 +1052,9 @@ pub fn run() {
             commands::gamdl::process_queue_manual,
             // Activity log export
             commands::gamdl::export_activity_log,
-            // Manifest import
+            // Manifest import and folder scan
             commands::gamdl::import_manifest,
+            commands::gamdl::scan_folder_for_manifests,
             // Smart re-download detection (#263)
             commands::gamdl::check_redownload_status,
             // Syllable-level lyrics fetch (#306)
@@ -1101,6 +1102,10 @@ pub fn run() {
             commands::api_audit::audit_api_fields,
             // Clipboard monitoring command
             commands::clipboard::read_clipboard,
+            // Service status checking
+            commands::service_status::check_service_status,
+            // Smart Download cross-platform search
+            commands::smart_download::check_cross_platform,
         ]);
 
     // ---------------------------------------------------------------

@@ -537,6 +537,11 @@ const SUPPORTED_EXTENSIONS: &[(&str, AudioFormat)] = &[
     ("opus", AudioFormat::VorbisComment),
     // MP3 (future: YouTube via yt-dlp)
     ("mp3", AudioFormat::Id3v2),
+    // Matroska / WebM / OGV video containers (#329)
+    // ReplayGain tags written via Vorbis Comments (lofty supports these)
+    ("mkv", AudioFormat::VorbisComment),
+    ("webm", AudioFormat::VorbisComment),
+    ("ogv", AudioFormat::VorbisComment),
 ];
 
 /// Determine the audio format of a file by its extension.
@@ -744,7 +749,13 @@ mod tests {
     fn detect_unsupported_returns_none() {
         assert_eq!(detect_format(Path::new("readme.txt")), None);
         assert_eq!(detect_format(Path::new("image.png")), None);
-        assert_eq!(detect_format(Path::new("video.mkv")), None);
-        assert_eq!(detect_format(Path::new("video.webm")), None);
+    }
+
+    #[test]
+    fn detect_video_containers_returns_vorbis_comment() {
+        // MKV/WebM/OGV video containers use VorbisComment tags (#329)
+        assert_eq!(detect_format(Path::new("video.mkv")), Some(AudioFormat::VorbisComment));
+        assert_eq!(detect_format(Path::new("video.webm")), Some(AudioFormat::VorbisComment));
+        assert_eq!(detect_format(Path::new("video.ogv")), Some(AudioFormat::VorbisComment));
     }
 }

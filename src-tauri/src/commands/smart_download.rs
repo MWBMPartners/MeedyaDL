@@ -51,6 +51,7 @@ pub async fn check_cross_platform(
     let parsed_service = match service_id.as_str() {
         "AppleMusic" => MediaServiceId::AppleMusic,
         "YouTube" => MediaServiceId::YouTube,
+        "YouTubeMusic" => MediaServiceId::YouTubeMusic,
         "BBCiPlayer" => MediaServiceId::BBCiPlayer,
         "Spotify" => MediaServiceId::Spotify,
         _ => return Err(format!("Unknown service: {}", service_id)),

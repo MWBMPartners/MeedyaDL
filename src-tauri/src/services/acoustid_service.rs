@@ -10,6 +10,15 @@
 // identification compatible with MusicBrainz Picard and other tools
 // that use the AcoustID ecosystem.
 //
+// ## meedya-core Integration (#353)
+//
+// This module is a candidate for delegation to meedya-core's
+// `Fingerprinter` trait. Current implementation uses rusty-chromaprint
+// directly via Symphonia for audio decoding. meedya-core would abstract
+// this behind a trait enabling alternative fingerprinting backends
+// (e.g., essentia for musical key detection alongside fingerprinting).
+// Migration is low priority since the current implementation is stable.
+//
 // ## How it works
 //
 // 1. For each M4A file, decodes the audio to raw PCM using Symphonia
