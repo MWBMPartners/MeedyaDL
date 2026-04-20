@@ -171,6 +171,7 @@ fn service_id_to_key(service: &MediaServiceId) -> &'static str {
     match service {
         MediaServiceId::AppleMusic => "AppleMusic",
         MediaServiceId::YouTube => "YouTube",
+        MediaServiceId::YouTubeMusic => "YouTubeMusic",
         MediaServiceId::BBCiPlayer => "BBCiPlayer",
         MediaServiceId::Spotify => "Spotify",
     }

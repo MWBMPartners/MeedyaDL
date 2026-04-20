@@ -381,6 +381,7 @@ fn execute_after_queue_action(app: &AppHandle) {
 ///   - `https://music.apple.com/us/album/foo/123/` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?ls=1` == `https://music.apple.com/us/album/foo/123`
 ///   - `https://music.apple.com/us/album/foo/123?i=456` is kept distinct (track-specific)
+///
 /// Extract album name and artist name from an Apple Music URL at enqueue time.
 ///
 /// Apple Music URLs have the format:
@@ -490,58 +491,153 @@ fn normalize_url_for_dedup(url: &str) -> String {
     )
 }
 
-/// Checks if the given path contains any .m4a or .m4v audio/video files.
-fn has_audio_files(dir: &std::path::Path) -> bool {
+/// Finds the deepest (leaf) subdirectory containing audio files (.m4a/.m4v).
+///
+/// GAMDL creates an `Artist/Album/` directory structure under the base output
+/// path. This function must return the **album** directory (where audio files
+/// live), not the artist directory.
+///
+/// When `artist_hint` and/or `album_hint` are provided (from the early metadata
+/// fetch), the search first attempts a targeted path match before falling back
+/// to the generic timestamp-based scan. This prevents cross-contamination
+/// between concurrent downloads (#452) where the generic scan might return
+/// a different artist's most recently modified directory.
+///
+/// Fixed in #447/#452: previously only searched one level deep and used
+/// recency-based selection that could pick the wrong artist's directory.
+fn find_album_directory(
+    base_dir: &std::path::Path,
+    artist_hint: Option<&str>,
+    album_hint: Option<&str>,
+) -> Option<String> {
+    // --- Targeted search: use artist/album names to find the exact directory ---
+    // GAMDL's default template creates: base_dir/Artist/Album/
+    if let (Some(artist), Some(album)) = (artist_hint, album_hint) {
+        let targeted = base_dir.join(artist).join(album);
+        if targeted.is_dir() && has_direct_audio_files(&targeted) {
+            log::info!(
+                "find_album_directory: targeted match at {}",
+                targeted.display()
+            );
+            return Some(targeted.to_string_lossy().to_string());
+        }
+        // Try case-insensitive match on the artist/album directory names
+        if let Some(found) = find_directory_case_insensitive(base_dir, artist, album) {
+            log::info!(
+                "find_album_directory: case-insensitive match at {}",
+                found.display()
+            );
+            return Some(found.to_string_lossy().to_string());
+        }
+    }
+
+    // --- Fallback: generic deep scan (picks most recently modified leaf dir) ---
+    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+
+    find_deepest_audio_dir(base_dir, &mut best);
+
+    // If no subdirectory with audio files found, check if base itself has audio
+    if best.is_none() && has_direct_audio_files(base_dir) {
+        return Some(base_dir.to_string_lossy().to_string());
+    }
+
+    best.map(|(_, p)| p.to_string_lossy().to_string())
+}
+
+/// Case-insensitive directory matching for Artist/Album structure.
+/// Handles slight differences in filesystem naming vs. API naming
+/// (e.g., special characters stripped, Unicode normalisation).
+fn find_directory_case_insensitive(
+    base_dir: &std::path::Path,
+    artist: &str,
+    album: &str,
+) -> Option<std::path::PathBuf> {
+    let artist_lower = artist.to_lowercase();
+    let album_lower = album.to_lowercase();
+
+    // Scan base_dir for a matching artist subdirectory
+    let Ok(entries) = std::fs::read_dir(base_dir) else {
+        return None;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let dir_name = path.file_name()?.to_string_lossy().to_lowercase();
+        if dir_name != artist_lower {
+            continue;
+        }
+        // Found artist dir — now scan for album subdirectory
+        let Ok(album_entries) = std::fs::read_dir(&path) else {
+            continue;
+        };
+        for album_entry in album_entries.flatten() {
+            let album_path = album_entry.path();
+            if !album_path.is_dir() {
+                continue;
+            }
+            let album_dir_name = album_path.file_name()?.to_string_lossy().to_lowercase();
+            if album_dir_name == album_lower && has_direct_audio_files(&album_path) {
+                return Some(album_path);
+            }
+        }
+    }
+    None
+}
+
+/// Recursively finds the deepest directory that directly contains audio files.
+/// Prefers the most recently modified leaf directory.
+fn find_deepest_audio_dir(
+    dir: &std::path::Path,
+    best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // If this directory directly contains audio files, it's a candidate
+            if has_direct_audio_files(&path) {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if let Ok(modified) = meta.modified() {
+                        if best.as_ref().is_none_or(|(t, _)| modified > *t) {
+                            *best = Some((modified, path.clone()));
+                        }
+                    }
+                }
+            }
+            // Always recurse deeper — there may be nested album directories
+            find_deepest_audio_dir(&path, best);
+        }
+    }
+}
+
+/// Checks if the given directory directly contains audio files (non-recursive).
+/// Unlike `has_audio_files()`, this does NOT recurse into subdirectories.
+fn has_direct_audio_files(dir: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("m4a") || ext.eq_ignore_ascii_case("m4v") {
+                    if ext.eq_ignore_ascii_case("m4a")
+                        || ext.eq_ignore_ascii_case("m4v")
+                        || ext.eq_ignore_ascii_case("mp4")
+                        || ext.eq_ignore_ascii_case("flac")
+                        || ext.eq_ignore_ascii_case("mp3")
+                        || ext.eq_ignore_ascii_case("ogg")
+                    {
                         return true;
                     }
-                }
-            } else if path.is_dir() {
-                // Recurse into subdirectories (GAMDL creates Artist/Album/ structure)
-                if has_audio_files(&path) {
-                    return true;
                 }
             }
         }
     }
     false
-}
-
-/// Finds the most recently modified subdirectory containing audio files (.m4a/.m4v).
-/// Used by the partial-success recovery path to find the actual album directory
-/// within the base output directory, instead of returning the base directory itself.
-fn find_album_directory(base_dir: &std::path::Path) -> Option<String> {
-    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
-
-    if let Ok(entries) = std::fs::read_dir(base_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                // Check recursively for audio files in this subdirectory
-                if has_audio_files(&path) {
-                    if let Ok(meta) = std::fs::metadata(&path) {
-                        if let Ok(modified) = meta.modified() {
-                            if best.as_ref().is_none_or(|(t, _)| modified > *t) {
-                                best = Some((modified, path));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // If no subdirectory with audio files found, check if base itself has audio
-    if best.is_none() && has_audio_files(base_dir) {
-        return Some(base_dir.to_string_lossy().to_string());
-    }
-
-    best.map(|(_, p)| p.to_string_lossy().to_string())
 }
 
 /// Count GAMDL warnings indicating tracks were skipped because the
@@ -634,8 +730,18 @@ fn write_manifest(
         return;
     }
 
-    let manifest_path = dir.join(".meedyadl");
+    let manifest_path = dir.join("manifest.meedyadl");
     log::info!("Writing manifest to: {}", manifest_path.display());
+
+    // Migration: rename legacy hidden dotfile to visible filename (#447)
+    let legacy_path = dir.join(".meedyadl");
+    if legacy_path.exists() && !manifest_path.exists() {
+        if let Err(e) = std::fs::rename(&legacy_path, &manifest_path) {
+            log::warn!("Failed to migrate legacy .meedyadl to manifest.meedyadl: {e}");
+        } else {
+            log::info!("Migrated legacy .meedyadl → manifest.meedyadl");
+        }
+    }
     let url = urls.first().cloned().unwrap_or_default();
     if url.is_empty() {
         return;
@@ -716,7 +822,9 @@ fn write_manifest(
     // Write atomically (temp file + rename)
     match serde_json::to_string_pretty(&manifest) {
         Ok(json) => {
-            let tmp_path = manifest_path.with_extension("meedyadl.tmp");
+            // Use a sibling temp file with a simple suffix to avoid
+            // Rust's `with_extension()` quirks on dotfiles (#447).
+            let tmp_path = dir.join("manifest.meedyadl.tmp");
             if let Err(e) = std::fs::write(&tmp_path, &json) {
                 log::warn!("Failed to write manifest temp file: {e}");
                 return;
@@ -731,6 +839,46 @@ fn write_manifest(
         }
         Err(e) => {
             log::warn!("Failed to serialise manifest: {e}");
+        }
+    }
+}
+
+/// Rename GAMDL's `Cover.<ext>` to the user's configured cover art name (#448).
+///
+/// GAMDL hardcodes the static cover art filename as `Cover.jpg` / `Cover.png` /
+/// `Cover.raw`. The `cover_art_name` setting controls what the file should be
+/// renamed to (e.g., `FrontCover`, `Folder`, or kept as `Cover`).
+///
+/// Idempotent: skips if target already exists or source `Cover.<ext>` is absent.
+fn rename_cover_art(album_dir: &str, target_stem: &str) {
+    // If the user wants to keep the default "Cover" name, nothing to do
+    if target_stem == "Cover" {
+        return;
+    }
+
+    let dir = std::path::Path::new(album_dir);
+    if !dir.exists() {
+        return;
+    }
+
+    for ext in &["jpg", "png", "raw"] {
+        let old_name = dir.join(format!("Cover.{ext}"));
+        let new_name = dir.join(format!("{target_stem}.{ext}"));
+
+        if old_name.exists() && !new_name.exists() {
+            match std::fs::rename(&old_name, &new_name) {
+                Ok(()) => {
+                    log::info!(
+                        "Renamed Cover.{ext} → {target_stem}.{ext} in {}",
+                        dir.display()
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
+                    );
+                }
+            }
         }
     }
 }
@@ -1229,11 +1377,16 @@ impl DownloadQueue {
         }
     }
 
-    /// Marks a download as complete.
+    /// Marks a download as complete (#416).
+    /// Clears processing label and speed/ETA to prevent stale data
+    /// appearing in the UI after completion.
     pub fn set_complete(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
+            item.status.processing_label = None;
+            item.status.speed = None;
+            item.status.eta = None;
         }
     }
 
@@ -1821,7 +1974,15 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.truncate = settings.truncate;
 
     if !settings.output_path.is_empty() {
-        options.output_path = Some(settings.output_path.clone());
+        // Validate output path for traversal sequences (#459)
+        match super::config_service::validate_path_safe(&settings.output_path) {
+            Ok(_) => {
+                options.output_path = Some(settings.output_path.clone());
+            }
+            Err(e) => {
+                log::warn!("Output path rejected: {e}");
+            }
+        }
     }
 
     // Resolve temp_path: use the user's custom path if set, otherwise fall
@@ -2406,6 +2567,204 @@ async fn spawn_music_video_companion_inner(
 
 /// Downloads a single music video given its Apple Music URL.
 ///
+/// Emit the `\r`-split segments of a single raw output line to the
+/// activity log, matching the main GAMDL reader's coalescing rules.
+///
+/// yt-dlp and N_m3u8DL-RE (used for music videos / HLS) overwrite
+/// terminal progress in place with `\r` rather than `\n`, which means
+/// `AsyncBufReadExt::lines()` returns a single line containing many
+/// `[download]` progress segments. Emitting that line as-is produces a
+/// 100KB+ unreadable blob in the activity log.
+///
+/// This helper splits on `\r`, strips ANSI escapes, and emits either:
+/// - the **last non-empty segment only** in normal mode (keeps activity
+///   log scrollable — earlier segments would be overwritten in a real
+///   terminal anyway), or
+/// - **every** non-empty segment in verbose mode, so users get the full
+///   speed / ETA / percentage trail when debugging.
+///
+/// Shared by companion audio downloads and music-video companion
+/// downloads so their progress renders consistently with the primary
+/// GAMDL reader.
+async fn emit_companion_stream_line(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    stream: &'static str,
+    raw_line: &str,
+) -> Option<String> {
+    let segments: Vec<&str> = raw_line.split('\r').collect();
+    let verbose = crate::utils::activity_log::is_verbose_logging();
+    let last_segment_idx = segments.iter().rposition(|s| !s.trim().is_empty());
+    let mut last_clean = None;
+
+    for (idx, segment) in segments.iter().enumerate() {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+
+        let clean_line = crate::utils::process::strip_ansi_codes(segment);
+        last_clean = Some(clean_line.clone());
+
+        // Drive the progress bar off EVERY segment so the speed/ETA/%
+        // stay live even when we suppress earlier segments from the log.
+        let event = crate::utils::process::parse_gamdl_output(&clean_line);
+        let progress = gamdl_service::GamdlProgress {
+            download_id: dl_id.to_string(),
+            event,
+        };
+        let _ = app.emit("gamdl-output", &progress);
+
+        // Emit to activity-log: last segment only (normal) or all (verbose).
+        if verbose || Some(idx) == last_segment_idx {
+            let _ = app.emit(
+                "activity-log",
+                &crate::utils::activity_log::ActivityLogEvent {
+                    download_id: dl_id.to_string(),
+                    stream,
+                    line: clean_line,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                },
+            );
+        }
+    }
+
+    last_clean
+}
+
+/// Recursively collect every `.mp4` / `.m4v` file under the given root.
+///
+/// Used to snapshot the video-file set before a music video download so we
+/// can diff the new set afterwards and pinpoint which files GAMDL just
+/// produced. Depth-limited at 4 levels to keep the scan bounded on large
+/// music libraries.
+fn snapshot_video_files(root: &str) -> std::collections::HashSet<std::path::PathBuf> {
+    let mut out = std::collections::HashSet::new();
+    let root_path = std::path::Path::new(root);
+    if !root_path.is_dir() {
+        return out;
+    }
+    collect_video_files_depth_limited(root_path, &mut out, 0, 4);
+    out
+}
+
+fn collect_video_files_depth_limited(
+    dir: &std::path::Path,
+    out: &mut std::collections::HashSet<std::path::PathBuf>,
+    depth: u32,
+    max_depth: u32,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if depth < max_depth {
+                collect_video_files_depth_limited(&path, out, depth + 1, max_depth);
+            }
+        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            let ext_lc = ext.to_ascii_lowercase();
+            if ext_lc == "mp4" || ext_lc == "m4v" {
+                out.insert(path);
+            }
+        }
+    }
+}
+
+/// Identify freshly-created music video files (those not present in
+/// `pre_existing`) and run subtitle extraction + lyrics pairing on each.
+///
+/// Fire-and-forget: any failure is logged but never fails the download.
+async fn extract_music_video_subtitles_for_new_files(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    output_root: &str,
+    pre_existing: &std::collections::HashSet<std::path::PathBuf>,
+) {
+    let ffprobe_path = match super::metadata_tag_service::get_ffprobe_path(app) {
+        Ok(p) => p,
+        Err(e) => {
+            log::debug!("Skipping music video subtitle extraction for {dl_id}: {e}");
+            return;
+        }
+    };
+    let ffmpeg_path = super::dependency_manager::get_tool_binary_path(app, "ffmpeg");
+    if !ffmpeg_path.exists() {
+        log::debug!("Skipping music video subtitle extraction for {dl_id}: ffmpeg missing");
+        return;
+    }
+
+    // Diff pre/post video sets to isolate the new files.
+    let post_existing = snapshot_video_files(output_root);
+    let new_videos: Vec<_> = post_existing
+        .difference(pre_existing)
+        .cloned()
+        .collect();
+
+    if new_videos.is_empty() {
+        log::debug!("No new music video files detected for {dl_id}");
+        return;
+    }
+
+    for video_path in &new_videos {
+        // 1. Extract any embedded subtitle / caption streams to sidecars.
+        match super::music_video_subtitle_service::extract_subtitles_to_sidecars(
+            &ffprobe_path,
+            &ffmpeg_path,
+            video_path,
+        )
+        .await
+        {
+            Ok(0) => log::debug!(
+                "No subtitle streams in {}",
+                video_path.display()
+            ),
+            Ok(n) => {
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Extracted {n} subtitle/caption track(s) from {}",
+                        video_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("music video")
+                    ),
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Music video subtitle extraction failed for {}: {e}",
+                    video_path.display()
+                );
+            }
+        }
+
+        // 2. Pair any matching song lyrics sidecars from the album folder
+        //    (works when the music video was a companion to an album track).
+        if let Some(album_dir) = video_path.parent() {
+            let paired =
+                super::music_video_subtitle_service::pair_song_lyrics_with_music_video(
+                    album_dir, video_path,
+                );
+            if paired > 0 {
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Paired {paired} song-lyrics file(s) with {}",
+                        video_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("music video")
+                    ),
+                );
+            }
+        }
+    }
+}
+
 /// Shared helper used by both the MusicKit-based video companion pipeline
 /// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
 /// minimal `GamdlOptions` using the user's video quality settings and
@@ -2420,6 +2779,10 @@ async fn download_music_video_by_url(
     video_label: &str,
     settings: &crate::models::settings::AppSettings,
 ) -> bool {
+    // Inherit the user's filename/folder templates, tool paths, and metadata
+    // settings so the music video output matches what the primary pipeline
+    // produces. Without these, GAMDL falls back to its own defaults which
+    // can yield empty filenames like "-.mp4" for music videos (#481).
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: Some(settings.output_path.clone()),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
@@ -2437,6 +2800,26 @@ async fn download_music_video_by_url(
         } else {
             None
         },
+        // Filename / folder templates — shared with the audio pipeline so
+        // videos land with `{artist}/{album}/{title}` style names.
+        album_folder_template: Some(settings.album_folder_template.clone()),
+        compilation_folder_template: Some(settings.compilation_folder_template.clone()),
+        no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+        single_disc_file_template: Some(settings.single_disc_file_template.clone()),
+        multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
+        no_album_file_template: Some(settings.no_album_file_template.clone()),
+        playlist_file_template: Some(settings.playlist_file_template.clone()),
+        // Tool paths (ffmpeg, mp4decrypt, mp4box, N_m3u8DL-RE) so GAMDL can
+        // resolve the managed binaries instead of relying on PATH lookup.
+        ffmpeg_path: settings.ffmpeg_path.clone(),
+        mp4decrypt_path: settings.mp4decrypt_path.clone(),
+        mp4box_path: settings.mp4box_path.clone(),
+        nm3u8dlre_path: settings.nm3u8dlre_path.clone(),
+        // Metadata / language so music-video tags are localised consistently.
+        language: Some(settings.language.clone()),
+        truncate: settings.truncate,
+        download_mode: Some(settings.download_mode.clone()),
+        remux_mode: Some(settings.remux_mode.clone()),
         ..Default::default()
     };
 
@@ -2457,35 +2840,105 @@ async fn download_music_video_by_url(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
-    match cmd.spawn() {
-        Ok(child) => match child.wait_with_output().await {
-            Ok(output) if output.status.success() => {
-                log::info!("Music video downloaded for {dl_id}: {video_label}");
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!("Music video downloaded: {video_label}"),
-                );
-                true
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let last_err = stderr.lines().last().unwrap_or("unknown error");
-                log::debug!("Music video download failed for {dl_id} ({video_label}): {last_err}");
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!("Music video failed ({video_label}): {last_err}"),
-                );
-                false
-            }
-            Err(e) => {
-                log::debug!("Music video process error for {dl_id}: {e}");
-                false
-            }
-        },
+    // Snapshot the set of video files under the output directory BEFORE
+    // GAMDL runs so we can identify exactly which files were freshly
+    // produced for this music video (#483). Used for subtitle extraction.
+    let pre_existing_videos = snapshot_video_files(&settings.output_path);
+
+    // Stream stdout/stderr line-by-line (with `\r` splitting) instead of
+    // buffering the entire process output with `wait_with_output()`.
+    // Streaming keeps the progress bar live AND prevents yt-dlp's
+    // carriage-return progress blob from arriving as a single 100KB
+    // activity-log row (see `emit_companion_stream_line` for rationale).
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
         Err(e) => {
             log::debug!("Failed to spawn music video download for {dl_id}: {e}");
+            return false;
+        }
+    };
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let stdout_task = stdout.map(|out| {
+        let app = app.clone();
+        let dl_id = dl_id.to_string();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let reader = tokio::io::BufReader::new(out);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                emit_companion_stream_line(&app, &dl_id, "stdout", &line).await;
+            }
+        })
+    });
+
+    let stderr_task = stderr.map(|err| {
+        let app = app.clone();
+        let dl_id = dl_id.to_string();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let reader = tokio::io::BufReader::new(err);
+            let mut lines = reader.lines();
+            let mut last = String::new();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(clean) =
+                    emit_companion_stream_line(&app, &dl_id, "stderr", &line).await
+                {
+                    last = clean;
+                }
+            }
+            last
+        })
+    });
+
+    let status = child.wait().await;
+    if let Some(t) = stdout_task {
+        let _ = t.await;
+    }
+    let last_err = if let Some(t) = stderr_task {
+        t.await.unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    match status {
+        Ok(s) if s.success() => {
+            log::info!("Music video downloaded for {dl_id}: {video_label}");
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Music video downloaded: {video_label}"),
+            );
+            // Post-process freshly downloaded music videos: extract any
+            // embedded subtitle / caption streams into sidecar files and
+            // (best-effort) copy the matching song's lyrics alongside.
+            extract_music_video_subtitles_for_new_files(
+                app,
+                dl_id,
+                &settings.output_path,
+                &pre_existing_videos,
+            )
+            .await;
+            true
+        }
+        Ok(_) => {
+            let shown_err = if last_err.is_empty() {
+                "unknown error".to_string()
+            } else {
+                last_err
+            };
+            log::debug!("Music video download failed for {dl_id} ({video_label}): {shown_err}");
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Music video failed ({video_label}): {shown_err}"),
+            );
+            false
+        }
+        Err(e) => {
+            log::debug!("Music video process error for {dl_id}: {e}");
             false
         }
     }
@@ -2982,7 +3435,9 @@ fn spawn_companion_downloads(
                             let stream_dl_id = comp_dl_id.clone();
                             let stream_codec = codec.to_cli_string().to_string();
 
-                            // Spawn stdout reader
+                            // Spawn stdout reader — splits on `\r` so yt-dlp /
+                            // N_m3u8DL-RE progress lines render as separate
+                            // activity-log rows instead of one giant blob.
                             let stdout_task = if let Some(out) = stdout {
                                 let app = stream_app.clone();
                                 let dl_id = stream_dl_id.clone();
@@ -2991,34 +3446,16 @@ fn spawn_companion_downloads(
                                     let reader = tokio::io::BufReader::new(out);
                                     let mut lines = reader.lines();
                                     while let Ok(Some(line)) = lines.next_line().await {
-                                        let clean = crate::utils::process::strip_ansi_codes(&line);
-                                        if !clean.trim().is_empty() {
-                                            // Emit to activity log
-                                            let _ = app.emit(
-                                                "activity-log",
-                                                &crate::utils::activity_log::ActivityLogEvent {
-                                                    download_id: dl_id.clone(),
-                                                    stream: "stdout",
-                                                    line: clean.clone(),
-                                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                                },
-                                            );
-
-                                            // Parse for progress events so the progress bar updates
-                                            let event = crate::utils::process::parse_gamdl_output(&clean);
-                                            let progress = gamdl_service::GamdlProgress {
-                                                download_id: dl_id.clone(),
-                                                event,
-                                            };
-                                            let _ = app.emit("gamdl-output", &progress);
-                                        }
+                                        emit_companion_stream_line(&app, &dl_id, "stdout", &line)
+                                            .await;
                                     }
                                 }))
                             } else {
                                 None
                             };
 
-                            // Collect stderr for error diagnosis
+                            // Collect stderr for error diagnosis — same
+                            // `\r`-splitting rules as stdout.
                             let stderr_task = if let Some(err) = stderr {
                                 let app = stream_app.clone();
                                 let dl_id = stream_dl_id.clone();
@@ -3028,18 +3465,12 @@ fn spawn_companion_downloads(
                                     let mut lines = reader.lines();
                                     let mut last_line = String::new();
                                     while let Ok(Some(line)) = lines.next_line().await {
-                                        let clean = crate::utils::process::strip_ansi_codes(&line);
-                                        if !clean.trim().is_empty() {
-                                            last_line = clean.clone();
-                                            let _ = app.emit(
-                                                "activity-log",
-                                                &crate::utils::activity_log::ActivityLogEvent {
-                                                    download_id: dl_id.clone(),
-                                                    stream: "stderr",
-                                                    line: clean,
-                                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                                },
-                                            );
+                                        if let Some(clean) = emit_companion_stream_line(
+                                            &app, &dl_id, "stderr", &line,
+                                        )
+                                        .await
+                                        {
+                                            last_line = clean;
                                         }
                                     }
                                     last_line
@@ -3072,6 +3503,10 @@ fn spawn_companion_downloads(
                                     let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
                                     if let Some(ref output_dir) = opts.output_path {
+                                        // Rename cover art per user setting (#448)
+                                        let comp_settings = load_settings_for_queue(&comp_app);
+                                        rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
+
                                         match super::metadata_tag_service::apply_codec_metadata_tags(
                                             output_dir, codec,
                                         ) {
@@ -3138,72 +3573,129 @@ fn spawn_companion_downloads(
     /// but the enrichment pipeline only runs for the primary download. This
     /// function runs the same conversion steps so companion sidecars get
     /// Enhanced LRC, Rich SRT, WebVTT, and ASS conversions.
+    ///
+    /// The `output_dir` parameter is the top-level output path from GamdlOptions
+    /// (e.g., `~/Music/`), not the album-specific directory. GAMDL creates the
+    /// `Artist/Album/` structure within this path. The lyrics conversion services
+    /// expect the album directory (where .ttml and .m4a files live), so this
+    /// function resolves it by recursively finding directories with TTML files.
     fn run_companion_lyrics_conversion(
         app: &tauri::AppHandle,
         dl_id: &str,
         output_dir: &str,
     ) {
         let settings = load_settings_for_queue(app);
+        let base = std::path::Path::new(output_dir);
 
-        if !std::path::Path::new(output_dir).is_dir() {
+        if !base.is_dir() {
             return;
         }
 
-        // Enhanced LRC: TTML → word-by-word LRC
-        if settings.enhanced_lrc {
-            match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    emit_download_log(
-                        app,
-                        dl_id,
-                        &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
-                    );
+        // Resolve the album directory: the lyrics services operate on a flat
+        // directory of .ttml + .m4a files, but output_dir is typically the
+        // top-level output path. Find directories containing TTML files by
+        // walking the tree recursively.
+        let album_dirs = find_dirs_with_ttml(base);
+        if album_dirs.is_empty() {
+            log::debug!(
+                "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
+            );
+            return;
+        }
+
+        for album_dir in &album_dirs {
+            let dir_str = album_dir.to_string_lossy();
+
+            // Enhanced LRC: TTML → word-by-word LRC
+            if settings.enhanced_lrc {
+                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str)
+                {
+                    Ok(count) if count > 0 => {
+                        emit_download_log(
+                            app,
+                            dl_id,
+                            &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion Enhanced LRC conversion failed: {e}");
+                    }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion Enhanced LRC conversion failed: {e}");
+            }
+
+            // Rich SRT: TTML → styled SRT with bold/italic/colour
+            if settings.generate_rich_srt {
+                match super::rich_srt_service::generate_rich_srt_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} Rich SRT file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion Rich SRT generation failed: {e}");
+                    }
+                }
+            }
+
+            // WebVTT: TTML/SRT/LRC → .vtt
+            if settings.generate_webvtt {
+                match super::webvtt_service::generate_webvtt_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} WebVTT file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion WebVTT generation failed: {e}");
+                    }
+                }
+            }
+
+            // ASS: → styled .ass subtitles
+            if settings.generate_ass {
+                match super::ass_subtitle_service::generate_ass_for_directory(&dir_str) {
+                    Ok(count) if count > 0 => {
+                        log::debug!("Companion: generated {count} ASS subtitle file(s)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Companion ASS generation failed: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Recursively finds directories that contain `.ttml` files.
+    ///
+    /// GAMDL creates an `Artist/Album/` directory structure within the output
+    /// path. The lyrics conversion services expect the leaf album directory
+    /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
+    /// and collects every directory that directly contains at least one
+    /// `.ttml` file.
+    fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut result = Vec::new();
+        let mut has_ttml_here = false;
+
+        if let Ok(entries) = std::fs::read_dir(base) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Recurse into subdirectories
+                    result.extend(find_dirs_with_ttml(&path));
+                } else if path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
+                {
+                    has_ttml_here = true;
                 }
             }
         }
 
-        // Rich SRT: TTML → styled SRT with bold/italic/colour
-        if settings.generate_rich_srt {
-            match super::rich_srt_service::generate_rich_srt_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} Rich SRT file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion Rich SRT generation failed: {e}");
-                }
-            }
+        if has_ttml_here {
+            result.push(base.to_path_buf());
         }
 
-        // WebVTT: TTML/SRT/LRC → .vtt
-        if settings.generate_webvtt {
-            match super::webvtt_service::generate_webvtt_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} WebVTT file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion WebVTT generation failed: {e}");
-                }
-            }
-        }
-
-        // ASS: → styled .ass subtitles
-        if settings.generate_ass {
-            match super::ass_subtitle_service::generate_ass_for_directory(output_dir) {
-                Ok(count) if count > 0 => {
-                    log::debug!("Companion: generated {count} ASS subtitle file(s)");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::debug!("Companion ASS generation failed: {e}");
-                }
-            }
-        }
+        result
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
@@ -3539,6 +4031,40 @@ pub fn process_queue(
                  Codec: {separator_codec} | Auth: {separator_wrapper}"
             ),
         );
+
+        // === Early metadata fetch (Apple Music API) ===
+        // Fetch album metadata from the Apple Music API BEFORE starting the
+        // GAMDL subprocess, so artist_name and album_name are available for
+        // the progress bar caption and activity log from the very first track.
+        // This is a lightweight API call that completes in <1s on good networks.
+        // Failures are silently ignored — the enrichment pipeline will retry later.
+        if is_apple_music {
+            let early_metadata = super::metadata_tag_service::try_fetch_metadata(
+                &app,
+                &urls,
+                Some((&app, &download_id)),
+            )
+            .await;
+
+            if let Some(ref meta) = early_metadata {
+                let mut q = queue.lock().await;
+                if let Some(item) = q
+                    .items
+                    .iter_mut()
+                    .find(|i| i.status.id == download_id)
+                {
+                    if let Some(ref name) = meta.artist_name {
+                        item.status.artist_name = Some(name.clone());
+                    }
+                    if let Some(ref name) = meta.album_name {
+                        item.status.album_name = Some(name.clone());
+                    }
+                }
+                drop(q);
+                // Trigger frontend queue refresh so progress bar picks up the metadata
+                let _ = app.emit("download-queued", &download_id);
+            }
+        }
 
         // === GAMDL version detection (cached, runs once per queue lifetime) ===
         // Detect the installed GAMDL version on the first download so we can
@@ -3962,8 +4488,11 @@ pub fn process_queue(
                                         item.merged_options.output_path.clone()
                                     {
                                         let base_path = std::path::Path::new(base_dir);
+                                        // Use artist/album names from the queue item for targeted search (#452)
+                                        let artist_hint = item.status.artist_name.as_deref();
+                                        let album_hint = item.status.album_name.as_deref();
                                         // Find the actual album directory within the base output dir
-                                        if let Some(album_dir) = find_album_directory(base_path) {
+                                        if let Some(album_dir) = find_album_directory(base_path, artist_hint, album_hint) {
                                             item.status.output_path = Some(album_dir);
                                             item.status.output_is_directory = true;
                                             log::info!(
@@ -3990,7 +4519,9 @@ pub fn process_queue(
                                         item.merged_options.output_path.clone()
                                     {
                                         let base_path = std::path::Path::new(base_dir);
-                                        if let Some(album_dir) = find_album_directory(base_path) {
+                                        let artist_hint = item.status.artist_name.as_deref();
+                                        let album_hint = item.status.album_name.as_deref();
+                                        if let Some(album_dir) = find_album_directory(base_path, artist_hint, album_hint) {
                                             item.status.output_path = Some(album_dir);
                                             item.status.output_is_directory = true;
                                         } else {
@@ -4021,8 +4552,10 @@ pub fn process_queue(
                                     {
                                         let base_path =
                                             std::path::Path::new(base_dir);
+                                        let artist_hint = item.status.artist_name.as_deref();
+                                        let album_hint = item.status.album_name.as_deref();
                                         if let Some(album_dir) =
-                                            find_album_directory(base_path)
+                                            find_album_directory(base_path, artist_hint, album_hint)
                                         {
                                             item.status.output_path =
                                                 Some(album_dir);
@@ -4443,6 +4976,48 @@ pub fn process_queue(
                                     album_dir,
                                 ),
                             );
+                            // --- Step 0: iTunes Lookup API enrichment (#454) ---
+                            // Run FIRST (no auth required). Writes baseline metadata
+                            // (country, disc count) that Apple Music API can overwrite.
+                            {
+                                let album_id = enrich_urls.iter()
+                                    .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                    .map(|p| p.album_id);
+
+                                if let Some(aid) = album_id {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "iTunes API: fetching supplementary metadata...",
+                                    );
+                                    match super::apple_music_api::fetch_itunes_lookup(&aid).await {
+                                        Ok(Some(itunes_tracks)) => {
+                                            let count = super::metadata_tag_service::apply_itunes_supplementary_tags(
+                                                &album_dir,
+                                                &itunes_tracks,
+                                            );
+                                            if count > 0 {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("iTunes API: enriched {count} file(s) with supplementary metadata (country, disc count)"),
+                                                );
+                                            }
+                                        }
+                                        Ok(None) => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                "iTunes API: album not found in iTunes catalog",
+                                            );
+                                        }
+                                        Err(e) => {
+                                            log::debug!("iTunes Lookup failed for {enrich_dl_id}: {e}");
+                                        }
+                                    }
+                                }
+                            }
+
                             emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
@@ -4529,7 +5104,17 @@ pub fn process_queue(
                                 None
                             };
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
+                            if album_metadata.is_some() {
+                                emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
+                            } else {
+                                emit_download_log(&enrich_app, &enrich_dl_id, &format!("⚠ Metadata enrichment completed without API data — some enrichment steps may be limited{}", album_context()));
+                            }
+
+                            // --- Post-step 1: Rename cover art per user setting (#448) ---
+                            // GAMDL saves static cover art as Cover.<ext>. Rename to the
+                            // user's configured name (default: FrontCover for consistency
+                            // with animated artwork FrontCover.mp4/PortraitCover.mp4).
+                            rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
@@ -4553,22 +5138,35 @@ pub fn process_queue(
                                         })
                                         .collect();
                                     let json_filename = format!("{safe_name}-applemusic-data.json");
-                                    let json_path = std::path::Path::new(&album_dir).join(&json_filename);
+                                    let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
                                         Ok(json_str) => {
-                                            if let Err(e) = std::fs::write(&json_path, &json_str) {
-                                                log::debug!(
-                                                    "Failed to write API response JSON for {enrich_dl_id}: {e}"
-                                                );
-                                            } else {
-                                                emit_verbose_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!(
-                                                        "Apple Music API response saved to: {}",
-                                                        json_path.display()
-                                                    ),
-                                                );
+                                            // Non-clobbering write: if a dump
+                                            // from a prior run already sits at
+                                            // the same name (or two albums
+                                            // sanitise to the same stem), the
+                                            // new dump lands on `...data.1.json`
+                                            // instead of silently replacing it.
+                                            match crate::utils::fs_safe::write_non_clobbering(
+                                                album_dir_path,
+                                                &json_filename,
+                                                json_str.as_bytes(),
+                                            ) {
+                                                Ok(json_path) => {
+                                                    emit_verbose_download_log(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Apple Music API response saved to: {}",
+                                                            json_path.display()
+                                                        ),
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    log::debug!(
+                                                        "Failed to write API response JSON for {enrich_dl_id}: {e}"
+                                                    );
+                                                }
                                             }
                                         }
                                         Err(e) => {
@@ -5148,6 +5746,12 @@ pub fn process_queue(
                                         );
                                     }
                                 }
+                            } else {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Animated artwork disabled in settings",
+                                );
                             }
 
                             if enrich_shutdown.is_triggered() {
@@ -5157,62 +5761,80 @@ pub fn process_queue(
 
                             // --- Step 3b: Artist promo video download (opt-in) ---
                             // Downloads the artist's animated background video from Apple Music
-                            // and saves it as ArtistCover.mp4 in the artist folder (parent of
+                            // and saves it as ArtistSpotlightCover.mp4 in the artist folder (parent of
                             // the album directory). Uses the artist_id from album metadata.
+                            // Skipped for compilation albums (Various Artists) where there is
+                            // no single primary artist (#453).
                             if enrich_settings.artist_promo_video_enabled {
-                                // Extract artist ID and storefront from album metadata or URL
-                                let artist_id = album_metadata
+                                // Skip for compilation albums — no meaningful artist to fetch
+                                let is_compilation = album_metadata
                                     .as_ref()
-                                    .and_then(|m| m.artist_id.clone());
-                                let storefront = enrich_urls
-                                    .iter()
-                                    .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
-                                    .map(|p| p.storefront)
-                                    .unwrap_or_else(|| enrich_settings.storefront.clone());
+                                    .and_then(|m| m.is_compilation)
+                                    .unwrap_or(false);
 
-                                if let Some(aid) = artist_id {
+                                if is_compilation {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
-                                        "Downloading artist promo video...",
+                                        "Artist promo video skipped (compilation album)",
                                     );
-                                    match super::animated_artwork_service::download_artist_promo_video(
-                                        &enrich_app,
-                                        &aid,
-                                        &storefront,
-                                        &album_dir,
-                                    )
-                                    .await
-                                    {
-                                        Ok(true) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "Artist promo video downloaded",
-                                            );
-                                        }
-                                        Ok(false) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "No artist promo video available (or already downloaded)",
-                                            );
-                                        }
-                                        Err(e) => {
-                                            log::debug!(
-                                                "Artist promo video failed for {enrich_dl_id}: {e}"
-                                            );
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("Artist promo video skipped: {e}"),
-                                            );
-                                        }
-                                    }
                                 } else {
-                                    log::debug!(
-                                        "No artist_id available for {enrich_dl_id}, skipping artist promo video"
-                                    );
+                                    // Extract artist ID and storefront from album metadata or URL
+                                    let artist_id = album_metadata
+                                        .as_ref()
+                                        .and_then(|m| m.artist_id.clone());
+                                    let storefront = enrich_urls
+                                        .iter()
+                                        .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                        .map(|p| p.storefront)
+                                        .unwrap_or_else(|| enrich_settings.storefront.clone());
+
+                                    if let Some(aid) = artist_id {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "Downloading artist promo video...",
+                                        );
+                                        match super::animated_artwork_service::download_artist_promo_video(
+                                            &enrich_app,
+                                            &aid,
+                                            &storefront,
+                                            &album_dir,
+                                        )
+                                        .await
+                                        {
+                                            Ok(true) => {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    "Artist promo video downloaded",
+                                                );
+                                            }
+                                            Ok(false) => {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    "No artist promo video available (or already downloaded)",
+                                                );
+                                            }
+                                            Err(e) => {
+                                                log::debug!(
+                                                    "Artist promo video failed for {enrich_dl_id}: {e}"
+                                                );
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("Artist promo video skipped: {e}"),
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "Artist promo video skipped (no artist ID in metadata)",
+                                        );
+                                    }
                                 }
                             }
 
@@ -5481,7 +6103,7 @@ pub fn process_queue(
                                 }
                             }
 
-                            // Write/update .meedyadl manifest in the album folder.
+                            // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
                             write_manifest(
@@ -5490,6 +6112,11 @@ pub fn process_queue(
                                 album_metadata.as_ref(),
                                 &enrich_settings,
                                 &enrich_started_at,
+                            );
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                "Download manifest saved to album folder",
                             );
 
                             emit_download_log(
@@ -5542,13 +6169,86 @@ pub fn process_queue(
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
                         tokio::spawn(async move {
-                            // Wait for enrichment to finish
-                            if let Some(handle) = enrichment_handle {
-                                let _ = handle.await;
+                            // Wait for enrichment to finish with a timeout (#461).
+                            // If enrichment hangs (e.g., deadlock, unresponsive API),
+                            // we force completion after 10 minutes to prevent the
+                            // queue from stalling indefinitely.
+                            // IMPORTANT: on timeout, abort() the task so it is actually
+                            // cancelled rather than merely detached (dropping a JoinHandle
+                            // detaches the task and lets it keep running, which can
+                            // reintroduce the cross-contamination this fix aims to prevent).
+                            let enrichment_timeout = std::time::Duration::from_secs(600);
+                            if let Some(mut handle) = enrichment_handle {
+                                if tokio::time::timeout(enrichment_timeout, &mut handle)
+                                    .await
+                                    .is_err()
+                                {
+                                    log::warn!(
+                                        "Enrichment timed out after 10 minutes for {}",
+                                        completion_dl_id
+                                    );
+                                    emit_download_log(
+                                        &completion_app,
+                                        &completion_dl_id,
+                                        "⚠ Enrichment timed out after 10 minutes — marking complete",
+                                    );
+                                    handle.abort();
+                                    let _ = handle.await;
+                                }
                             }
-                            // Wait for companion downloads to finish
-                            if let Some(handle) = companion_handle {
-                                let _ = handle.await;
+                            // Wait for companion downloads with the same timeout
+                            if let Some(mut handle) = companion_handle {
+                                if tokio::time::timeout(enrichment_timeout, &mut handle)
+                                    .await
+                                    .is_err()
+                                {
+                                    log::warn!(
+                                        "Companion downloads timed out after 10 minutes for {}",
+                                        completion_dl_id
+                                    );
+                                    emit_download_log(
+                                        &completion_app,
+                                        &completion_dl_id,
+                                        "⚠ Companion downloads timed out after 10 minutes — marking complete",
+                                    );
+                                    handle.abort();
+                                    let _ = handle.await;
+                                }
+                            }
+
+                            // Post-companion advisory pass (#482).
+                            // Re-apply `[Explicit]` / `[Clean]` suffixes now that
+                            // companion files have landed. The primary-file pass
+                            // runs inside the enrichment task before companions
+                            // exist, so companion files never saw it. Reads the
+                            // `rtng` atom directly from each file so no extra
+                            // metadata plumbing is required.
+                            {
+                                let completion_settings = load_settings_for_queue(&completion_app);
+                                if completion_settings.content_advisory_in_filenames {
+                                    let advisory_path = {
+                                        let q = completion_queue.lock().await;
+                                        q.items
+                                            .iter()
+                                            .find(|i| i.status.id == completion_dl_id)
+                                            .and_then(|i| i.status.output_path.clone())
+                                    };
+                                    if let Some(output_dir) = advisory_path {
+                                        let dir_for_advisory = {
+                                            let p = std::path::Path::new(&output_dir);
+                                            if p.is_dir() {
+                                                output_dir.clone()
+                                            } else {
+                                                p.parent()
+                                                    .map(|pp| pp.to_string_lossy().to_string())
+                                                    .unwrap_or(output_dir.clone())
+                                            }
+                                        };
+                                        super::metadata_tag_service::apply_advisory_suffixes_from_tags(
+                                            &dir_for_advisory,
+                                        );
+                                    }
+                                }
                             }
 
                             // Mark as complete now that all background work is done
@@ -5571,6 +6271,12 @@ pub fn process_queue(
                                 "Download Complete",
                                 "All downloads and processing complete",
                             );
+
+                            // Cascade: process the next item in the queue (#455).
+                            // Moved inside completion task so the entire pipeline
+                            // (download + enrichment + companions) completes before
+                            // the next item starts. Prevents metadata cross-contamination.
+                            process_queue(completion_app, completion_queue).await;
                         });
                     }
                 }
@@ -5588,6 +6294,8 @@ pub fn process_queue(
                         save_queue_to_disk(&app_clone, &queue_clone).await;
                         log::info!("Download {dl_id} cancelled by user");
                         emit_download_log(&app_clone, &dl_id, "Download cancelled by user");
+                        // Cascade on cancel (#455)
+                        process_queue(app_clone, queue_clone).await;
                         return;
                     }
 
@@ -5924,14 +6632,12 @@ pub fn process_queue(
                                 "Companion downloads skipped — network unavailable",
                             );
                         }
+
+                        // Cascade on error path (#455): process next item after failure
+                        process_queue(app_clone.clone(), queue_clone.clone()).await;
                     }
                 }
             }
-
-            // Cascade: process the next item in the queue.
-            // This recursive call ensures continuous queue processing — when one
-            // download finishes, the next one starts automatically.
-            process_queue(app_clone, queue_clone).await;
         });
     }) // close Box::pin(async move {
 }
@@ -6088,6 +6794,11 @@ async fn run_download_with_events(
                 // This reduces activity-log event volume by 5-10x during
                 // downloads. All segments are still parsed for gamdl-output
                 // progress tracking.
+                //
+                // When verbose logging is enabled, bypass coalescing and
+                // emit ALL segments so users get complete progress detail
+                // for debugging (speeds, ETAs, percentages at every step).
+                let verbose = crate::utils::activity_log::is_verbose_logging();
                 let last_segment_idx = segments
                     .iter()
                     .rposition(|s| !s.trim().is_empty());
@@ -6104,14 +6815,19 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stdout] {clean_line}");
 
-                    // Only emit to activity-log for the last \r segment
-                    // (the final visible state in a terminal).
-                    if Some(idx) == last_segment_idx {
-                        let is_new = {
+                    // Emit to activity-log: last \r segment only (normal),
+                    // or ALL segments when verbose logging is enabled for
+                    // full debugging detail.
+                    if verbose || Some(idx) == last_segment_idx {
+                        let should_emit = if verbose {
+                            // Verbose: bypass dedup — emit every line for
+                            // complete progress history
+                            true
+                        } else {
                             let mut set = seen.lock().await;
                             set.insert(clean_line.clone())
                         };
-                        if is_new {
+                        if should_emit {
                             let _ = app.emit(
                                 "activity-log",
                                 &ActivityLogEvent {
@@ -6129,7 +6845,8 @@ async fn run_download_with_events(
                     // Emit a clear per-track separator when GAMDL starts
                     // downloading a new track. This makes it easy to identify
                     // which track's [download] progress lines belong to which
-                    // song in the activity log.
+                    // song in the activity log. Includes artist and album context
+                    // from the queue item metadata (populated by early API fetch).
                     if let process::GamdlOutputEvent::TrackInfo {
                         ref title,
                         track_number,
@@ -6138,16 +6855,47 @@ async fn run_download_with_events(
                     } = event
                     {
                         let track_label = match (track_number, track_total) {
-                            (Some(n), Some(t)) => format!("Track {n}/{t}"),
-                            (Some(n), None) => format!("Track {n}"),
-                            _ => "Track".to_string(),
+                            (Some(n), Some(t)) => format!("[Track {n}/{t}]"),
+                            (Some(n), None) => format!("[Track {n}]"),
+                            _ => "[Track]".to_string(),
+                        };
+                        // Look up artist/album from the queue item for context
+                        let (artist_ctx, album_ctx) = {
+                            if let Ok(q) = queue.try_lock() {
+                                let item = q.items.iter().find(|i| i.status.id == download_id);
+                                (
+                                    item.and_then(|i| i.status.artist_name.clone())
+                                        .unwrap_or_default(),
+                                    item.and_then(|i| i.status.album_name.clone())
+                                        .unwrap_or_default(),
+                                )
+                            } else {
+                                (String::new(), String::new())
+                            }
+                        };
+                        // Build context: "Artist — Album — " prefix when available
+                        let context = {
+                            let mut parts = Vec::new();
+                            if !artist_ctx.is_empty() {
+                                parts.push(artist_ctx);
+                            }
+                            if !album_ctx.is_empty() {
+                                parts.push(album_ctx);
+                            }
+                            if parts.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{} — ", parts.join(" — "))
+                            }
                         };
                         let _ = app.emit(
                             "activity-log",
                             &ActivityLogEvent {
                                 download_id: download_id.clone(),
                                 stream: "internal",
-                                line: format!("──── {track_label}: {title} ────"),
+                                line: format!(
+                                    "──── {track_label} Downloading {context}\"{title}\" ────"
+                                ),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
                         );
@@ -6191,7 +6939,9 @@ async fn run_download_with_events(
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
-                // Only emit last \r segment to activity-log (same as stdout)
+                // Same coalescing logic as stdout: emit only last \r segment
+                // in normal mode, or ALL segments when verbose logging is on.
+                let verbose = crate::utils::activity_log::is_verbose_logging();
                 let last_segment_idx = segments
                     .iter()
                     .rposition(|s| !s.trim().is_empty());
@@ -6206,13 +6956,16 @@ async fn run_download_with_events(
                     let clean_line = process::strip_ansi_codes(segment);
                     log::debug!("[gamdl stderr] {clean_line}");
 
-                    // Only emit to activity-log for the last \r segment
-                    if Some(idx) == last_segment_idx {
-                        let is_new = {
+                    // Emit to activity-log: last \r segment only (normal),
+                    // or ALL segments when verbose logging is enabled.
+                    if verbose || Some(idx) == last_segment_idx {
+                        let should_emit = if verbose {
+                            true
+                        } else {
                             let mut set = seen.lock().await;
                             set.insert(clean_line.clone())
                         };
-                        if is_new {
+                        if should_emit {
                             let _ = app.emit(
                                 "activity-log",
                                 &ActivityLogEvent {
@@ -8342,5 +9095,136 @@ mod tests {
 
         let urls = vec!["https://music.apple.com/us/album/other/456".to_string()];
         assert!(!queue.has_duplicate_urls(&urls));
+    }
+
+    // ============================================================
+    // find_album_directory / find_deepest_audio_dir tests (#460)
+    // ============================================================
+
+    #[test]
+    fn has_direct_audio_files_detects_m4a() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("track.m4a"), b"fake").unwrap();
+        assert!(has_direct_audio_files(dir.path()));
+    }
+
+    #[test]
+    fn has_direct_audio_files_ignores_nested() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("subdir");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("track.m4a"), b"fake").unwrap();
+        // Parent dir has no direct audio files (only in subdir)
+        assert!(!has_direct_audio_files(dir.path()));
+    }
+
+    #[test]
+    fn has_direct_audio_files_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!has_direct_audio_files(dir.path()));
+    }
+
+    #[test]
+    fn find_album_directory_targeted_match() {
+        let base = tempfile::tempdir().unwrap();
+        let album = base.path().join("Blue").join("Too Close - EP");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("01 Track.m4a"), b"fake").unwrap();
+
+        let result = find_album_directory(base.path(), Some("Blue"), Some("Too Close - EP"));
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn find_album_directory_case_insensitive() {
+        let base = tempfile::tempdir().unwrap();
+        let album = base.path().join("Blue").join("Too Close - EP");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("01 Track.m4a"), b"fake").unwrap();
+
+        // Hints with different casing — on case-insensitive filesystems (macOS)
+        // the original-cased path is found directly; on case-sensitive (Linux)
+        // the case-insensitive fallback finds it. Either way, the paths should
+        // match when compared case-insensitively.
+        let result = find_album_directory(base.path(), Some("blue"), Some("too close - ep"));
+        assert!(result.is_some(), "should find album directory");
+        assert_eq!(
+            result.unwrap().to_lowercase(),
+            album.to_string_lossy().to_string().to_lowercase()
+        );
+    }
+
+    #[test]
+    fn find_album_directory_fallback_when_no_hints() {
+        let base = tempfile::tempdir().unwrap();
+        let album = base.path().join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("track.m4a"), b"fake").unwrap();
+
+        let result = find_album_directory(base.path(), None, None);
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    #[test]
+    fn find_album_directory_returns_deepest() {
+        let base = tempfile::tempdir().unwrap();
+        // Create Artist/Album with audio
+        let album = base.path().join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        std::fs::write(album.join("track.m4a"), b"fake").unwrap();
+        // Artist dir should NOT be returned (no direct audio files)
+        let result = find_album_directory(base.path(), None, None);
+        assert_eq!(result, Some(album.to_string_lossy().to_string()));
+    }
+
+    // ============================================================
+    // rename_cover_art tests (#460)
+    // ============================================================
+
+    #[test]
+    fn rename_cover_art_renames_jpg() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"img").unwrap();
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+        assert!(dir.path().join("FrontCover.jpg").exists());
+        assert!(!dir.path().join("Cover.jpg").exists());
+    }
+
+    #[test]
+    fn rename_cover_art_skips_when_target_cover() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"img").unwrap();
+        rename_cover_art(&dir.path().to_string_lossy(), "Cover");
+        // Should keep as Cover.jpg — no rename
+        assert!(dir.path().join("Cover.jpg").exists());
+    }
+
+    #[test]
+    fn rename_cover_art_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"existing").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"old").unwrap();
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+        // FrontCover.jpg should keep existing content (not overwritten)
+        let content = std::fs::read_to_string(dir.path().join("FrontCover.jpg")).unwrap();
+        assert_eq!(content, "existing");
+    }
+
+    // ============================================================
+    // validate_path_safe tests (#460)
+    // ============================================================
+
+    #[test]
+    fn validate_path_safe_allows_normal_paths() {
+        assert!(super::super::config_service::validate_path_safe("/home/user/Music").is_ok());
+        assert!(super::super::config_service::validate_path_safe("C:\\Users\\Music").is_ok());
+        assert!(super::super::config_service::validate_path_safe("./output").is_ok());
+    }
+
+    #[test]
+    fn validate_path_safe_rejects_traversal() {
+        assert!(super::super::config_service::validate_path_safe("../etc/passwd").is_err());
+        assert!(super::super::config_service::validate_path_safe("/home/../root").is_err());
+        assert!(super::super::config_service::validate_path_safe("foo/../../bar").is_err());
     }
 }

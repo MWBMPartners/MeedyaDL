@@ -203,6 +203,8 @@ When a fallback occurs, the queue item displays a fallback indicator so you know
 
 MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Quality controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
 
+Companion downloads include lyric sidecar files for every companion tier — each format version gets its own `.lrc`, `.srt`, `.vtt`, and `.ass` files (depending on your lyrics settings). You can track companion download progress in the **Activity Log**, which shows per-tier codec details, per-codec attempts, and completion status.
+
 ---
 
 ## Download Manifests (.meedyadl Files)

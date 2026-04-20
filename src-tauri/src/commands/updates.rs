@@ -161,10 +161,18 @@ pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
 pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
     log::info!("Upgrading {package}...");
     emit_app_log(&app, &format!("Upgrading {package}..."));
-    let version = crate::services::pip_engine_service::install_pip_engine(&app, &package).await?;
-    log::info!("{package} upgraded to {version}");
-    emit_app_log(&app, &format!("{package} upgraded to v{version}"));
-    Ok(version)
+    match crate::services::pip_engine_service::install_pip_engine(&app, &package).await {
+        Ok(version) => {
+            log::info!("{package} upgraded to {version}");
+            emit_app_log(&app, &format!("{package} upgraded to v{version}"));
+            Ok(version)
+        }
+        Err(e) => {
+            log::error!("Failed to upgrade {package}: {e}");
+            emit_app_log(&app, &format!("Failed to upgrade {package}: {e}"));
+            Err(e)
+        }
+    }
 }
 
 /// Returns the update status for a specific component by name.

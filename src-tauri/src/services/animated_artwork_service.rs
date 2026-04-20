@@ -126,7 +126,7 @@ pub async fn process_album_artwork(
     let settings = config_service::load_settings(app).unwrap_or_default();
 
     if !settings.animated_artwork_enabled {
-        log::debug!("Animated artwork disabled in settings");
+        log::info!("Animated artwork disabled in settings");
         return Ok(empty_result());
     }
 
@@ -152,7 +152,7 @@ pub async fn process_album_artwork(
     let parsed = match parsed {
         Some(p) if p.content_type == "album" => p,
         _ => {
-            log::debug!("No album URL found in download URLs, skipping animated artwork");
+            log::info!("No album URL found in download URLs, skipping animated artwork");
             return Ok(empty_result());
         }
     };
@@ -165,7 +165,7 @@ pub async fn process_album_artwork(
     )? {
         Some(pair) => pair,
         None => {
-            log::debug!(
+            log::info!(
                 "No MusicKit token available (user creds / embedded / web player), skipping animated artwork"
             );
             return Ok(empty_result());
@@ -223,7 +223,7 @@ pub async fn process_album_artwork_from_metadata(
     // Check if feature is enabled
     let settings = config_service::load_settings(app).unwrap_or_default();
     if !settings.animated_artwork_enabled {
-        log::debug!("Animated artwork disabled in settings");
+        log::info!("Animated artwork disabled in settings");
         return Ok(empty_result());
     }
 
@@ -245,7 +245,7 @@ async fn download_artwork_from_metadata(
 ) -> Result<ArtworkResult, String> {
     // Check if any artwork URLs are available
     if metadata.artwork_square_url.is_none() && metadata.artwork_tall_url.is_none() {
-        log::debug!(
+        log::info!(
             "No animated artwork available for album {}",
             metadata.album_id
         );
@@ -419,18 +419,25 @@ pub async fn hide_file(file_path: &Path) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        // Linux: rename with dot prefix (only standard hiding mechanism)
+        // Linux: rename with dot prefix (only standard hiding mechanism).
+        // Collision-proof: if `.FrontCover.mp4` already exists from a
+        // previous session, `safe_rename` lands the new file on a
+        // disambiguated sibling rather than silently overwriting the
+        // earlier hidden artwork.
         if let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) {
             if !filename.starts_with('.') {
                 let hidden_name = format!(".{}", filename);
                 let hidden_path = file_path.with_file_name(&hidden_name);
-                std::fs::rename(file_path, &hidden_path)
-                    .map_err(|e| format!("Failed to rename to {}: {}", hidden_name, e))?;
-                log::debug!(
-                    "Renamed {} to {} (Linux hidden)",
-                    file_path.display(),
-                    hidden_path.display()
-                );
+                match crate::utils::fs_safe::safe_rename(file_path, &hidden_path) {
+                    Ok(final_path) => log::debug!(
+                        "Renamed {} to {} (Linux hidden)",
+                        file_path.display(),
+                        final_path.display()
+                    ),
+                    Err(e) => {
+                        return Err(format!("Failed to rename to {}: {}", hidden_name, e));
+                    }
+                }
             }
         }
     }
@@ -445,7 +452,7 @@ pub async fn hide_file(file_path: &Path) -> Result<(), String> {
 /// Download an artist's promotional video to the artist folder.
 ///
 /// Queries the Apple Music API for the artist's `editorialVideo` and
-/// downloads the HLS stream as `ArtistCover.mp4` to the artist directory
+/// downloads the HLS stream as `ArtistSpotlightCover.mp4` to the artist directory
 /// (the parent of the album directory).
 ///
 /// # Arguments
@@ -479,12 +486,12 @@ pub async fn download_artist_promo_video(
         }
     };
 
-    let dest = artist_dir.join("ArtistCover.mp4");
+    let dest = artist_dir.join("ArtistSpotlightCover.mp4");
 
     // Skip if the promo video already exists (idempotent — don't re-download
     // on every album download from the same artist).
     if dest.exists() {
-        log::debug!(
+        log::info!(
             "Artist promo video already exists at {}, skipping",
             dest.display()
         );
@@ -511,7 +518,7 @@ pub async fn download_artist_promo_video(
     )? {
         Some(pair) => pair,
         None => {
-            log::debug!("No MusicKit token available, skipping artist promo video");
+            log::info!("No MusicKit token available, skipping artist promo video");
             return Ok(false);
         }
     };
@@ -530,7 +537,7 @@ pub async fn download_artist_promo_video(
         None => return Ok(false),
     };
 
-    // Download the HLS stream to ArtistCover.mp4
+    // Download the HLS stream to ArtistSpotlightCover.mp4
     log::info!(
         "Downloading promo video for {} to {}",
         promo.artist_name,
@@ -547,7 +554,7 @@ pub async fn download_artist_promo_video(
     // Hide the file if the user wants animated artwork hidden
     if settings.hide_animated_artwork {
         if let Err(e) = hide_file(&dest).await {
-            log::debug!("Failed to hide ArtistCover.mp4: {e}");
+            log::debug!("Failed to hide ArtistSpotlightCover.mp4: {e}");
         }
     }
 

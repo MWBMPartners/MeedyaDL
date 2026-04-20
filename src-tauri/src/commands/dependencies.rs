@@ -346,8 +346,60 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
     for tool in tools {
         // Resolve the expected binary path: {app_data}/tools/{tool_id}/{binary_name}
         let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
-        // Simple existence check — we don't verify the binary is functional here
-        let installed = binary_path.exists();
+        // Functional check (#391): verify the binary exists AND can execute.
+        // Reuses dependency_manager::get_tool_version() so each tool uses its
+        // configured version flag and parser (e.g., FFmpeg uses -version, mp4decrypt
+        // runs with no args) rather than assuming every tool supports --version.
+        // Runs with a 2-second timeout to prevent stalling on broken binaries.
+        //
+        // Stricter than simple existence checking: `false` when the spawn fails
+        // outright (permission denied, corrupt binary). Timeout is treated as
+        // "still installed but slow" to avoid false negatives on loaded systems.
+        let installed = if binary_path.exists() {
+            let version_check_path = binary_path.clone();
+            let tool_id_str = tool.id.to_string();
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                tokio::task::spawn(async move {
+                    crate::services::dependency_manager::get_tool_version(
+                        &version_check_path,
+                        &tool_id_str,
+                    )
+                    .await
+                }),
+            )
+            .await
+            {
+                Ok(Ok(Ok(_))) => true,
+                Ok(Ok(Err(err))) => {
+                    // Binary failed to spawn entirely (e.g., permission denied)
+                    log::warn!(
+                        "Tool {} exists but failed dependency-manager verification: {}",
+                        tool.id,
+                        err
+                    );
+                    false
+                }
+                Ok(Err(err)) => {
+                    log::warn!(
+                        "Tool {} exists but version check task failed: {}",
+                        tool.id,
+                        err
+                    );
+                    false
+                }
+                Err(_) => {
+                    // Timed out — binary is slow but likely functional; treat as installed
+                    log::warn!(
+                        "Tool {} version check timed out — reporting as installed",
+                        tool.id
+                    );
+                    true
+                }
+            }
+        } else {
+            false
+        };
 
         // Read the .source marker file to determine where the tool was installed from.
         // Written by install_tool() as "system" or "managed" during installation.
@@ -410,10 +462,17 @@ pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, 
     // Delegates to dependency_manager which handles platform-specific
     // URL resolution, download, archive extraction, and binary verification.
     log::info!("Installing dependency: {name}");
-    emit_app_log(&app, &format!("Installing {name}..."));
-    let result = dependency_manager::install_tool(&app, &name).await?;
-    emit_app_log(&app, &format!("{name} installed"));
-    Ok(result)
+    emit_app_log(&app, &format!("Updating {name}..."));
+    match dependency_manager::install_tool(&app, &name).await {
+        Ok(result) => {
+            emit_app_log(&app, &format!("{name} updated successfully"));
+            Ok(result)
+        }
+        Err(e) => {
+            emit_app_log(&app, &format!("Failed to update {name}: {e}"));
+            Err(e)
+        }
+    }
 }
 
 /// A single component version entry for the About screen and Activity Log.

@@ -417,7 +417,7 @@ jobs:
           fi
 
           # --- Download binary tools from MeedyaDL-Tools mirror ---
-          MIRROR_REPO="MeedyaDL/MeedyaDL-Tools"
+          MIRROR_REPO="MeedyaSuite/MeedyaDL-Tools"
           TOOLS=("ffmpeg" "mp4decrypt" "nm3u8dlre" "mp4box" "mediainfo")
 
           # Also download binary engines (bundled=true, install_method=binary)

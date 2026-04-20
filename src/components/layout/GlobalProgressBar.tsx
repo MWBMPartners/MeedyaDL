@@ -32,16 +32,18 @@ interface PlatformEntry {
   id: string;
   name: string;
   icon: string;
-  faviconHost: string;
   patterns: string[];
 }
 
 let platformConfig: PlatformEntry[] = [];
 let configLoaded = false;
+/** Subscribers notified when platformConfig loads, so components re-render. */
+let configSubscribers: Array<() => void> = [];
 
 /**
  * Loads platform config from engines.toml via IPC (one-time).
  * Called lazily on first render of GlobalProgressBar.
+ * Notifies subscribers when the config is ready so React components re-render.
  */
 async function loadPlatformConfig() {
   if (configLoaded) return;
@@ -55,9 +57,10 @@ async function loadPlatformConfig() {
         id: p.id,
         name: p.name,
         icon: p.icon ? `/${p.icon}` : '',
-        faviconHost: p.url_patterns[0]?.replace(/\/.*$/, '') ?? '',
         patterns: p.url_patterns,
       }));
+    // Notify all subscribers that config is ready
+    for (const cb of configSubscribers) cb();
   } catch {
     // IPC not ready yet — will retry on next render
     configLoaded = false;
@@ -86,7 +89,7 @@ function detectPlatform(urls?: string[]): PlatformEntry | undefined {
  * renders it inline so `currentColor` inherits from the parent CSS context,
  * automatically adapting to light, dark, and colour-blind themes.
  *
- * Falls back to Google Favicon API (PNG) if the local SVG can't be loaded.
+ * Falls back to a local <img> tag if the inline SVG can't be loaded.
  * SVG content is cached in a module-level Map to avoid re-fetching.
  */
 const svgCache = new Map<string, string>();
@@ -165,11 +168,12 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
     );
   }
 
-  // Fallback: Google Favicon API (PNG, doesn't adapt to theme but works)
-  if (useFallback) {
+  // Fallback: render the local icon as an <img> (no currentColor theming,
+  // but works under img-src 'self' without external network requests).
+  if (useFallback && platform.icon) {
     return (
       <img
-        src={`https://www.google.com/s2/favicons?domain=${platform.faviconHost}&sz=32`}
+        src={platform.icon}
         alt={platform.name}
         width={16}
         height={16}
@@ -197,9 +201,20 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
 export function GlobalProgressBar() {
   const queueItems = useDownloadStore((s) => s.queueItems);
 
-  // Load platform config from engines.toml via IPC (one-time)
+  // Load platform config from engines.toml via IPC (one-time).
+  // Uses a subscriber pattern so the component re-renders when the
+  // async IPC resolves — without this, the module-level platformConfig
+  // would be empty on first render and the icon would never appear.
+  const [, setConfigReady] = useState(false);
   useEffect(() => {
+    const cb = () => setConfigReady(true);
+    configSubscribers.push(cb);
     loadPlatformConfig();
+    // If config already loaded (e.g., hot reload), trigger immediately
+    if (platformConfig.length > 0) setConfigReady(true);
+    return () => {
+      configSubscribers = configSubscribers.filter((s) => s !== cb);
+    };
   }, []);
 
   /**
@@ -257,7 +272,7 @@ export function GlobalProgressBar() {
       ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
       : (activeItem?.progress ?? 0);
 
-  /** Build contextual label: "Artist — Album — "Track"" for multi-queue clarity */
+  /** Build contextual label: "DOWNLOADING...Artist — Album — "Track"" for multi-queue clarity */
   const itemLabel = (() => {
     // Processing labels (enrichment/companions) take priority
     if (activeItem?.processing_label) return activeItem.processing_label;
@@ -265,16 +280,19 @@ export function GlobalProgressBar() {
     const track = activeItem?.current_track;
     const album = activeItem?.album_name;
     const artist = activeItem?.artist_name;
+    const isDownloading = activeItem?.state === 'downloading';
 
     if (track) {
       const parts: string[] = [];
       if (artist) parts.push(artist);
       if (album) parts.push(album);
       parts.push(`"${track}"`);
-      return parts.join(' — ');
+      const label = parts.join(' — ');
+      return isDownloading ? `DOWNLOADING...${label}` : label;
     }
 
-    return album ?? activeItem?.urls?.[0] ?? '';
+    const fallback = album ?? activeItem?.urls?.[0] ?? '';
+    return isDownloading ? `DOWNLOADING...${fallback}` : fallback;
   })();
 
   /** Speed and ETA suffix */
@@ -329,6 +347,7 @@ export function GlobalProgressBar() {
 
       {/* Lower bar: queue-level progress */}
       <div className="flex items-center gap-2 mb-0.5">
+        <PlatformIcon platform={platform} />
         <span className="text-[12px] text-content-tertiary truncate min-w-0 flex-1">
           {completedItems} of {totalItems} complete
         </span>

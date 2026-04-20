@@ -799,4 +799,10 @@ fn sanitize_imported_settings(settings: &mut AppSettings) {
     for tag in &mut settings.exclude_tags {
         truncate(tag, 100);
     }
+
+    // Validate notification_style enum value
+    const VALID_STYLES: &[&str] = &["in_app_only", "native_and_in_app", "native_only"];
+    if !VALID_STYLES.contains(&settings.notification_style.as_str()) {
+        settings.notification_style = "native_and_in_app".to_string();
+    }
 }

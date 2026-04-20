@@ -182,7 +182,7 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
 # Allow all git dependencies from our GitHub organisations.
 # - MWBMPartners: MeedyaSuite-core and future internal crates
-# - MeedyaDL: MeedyaDL-Tools and future project-specific repos
+# - MeedyaSuite: MeedyaDL-Tools and future project-specific repos
 # Covers any branch, tag, or rev qualifier in the Cargo.toml git URL.
 [sources.allow-org]
-github = ["MWBMPartners", "MeedyaDL"]
+github = ["MWBMPartners", "MeedyaSuite"]

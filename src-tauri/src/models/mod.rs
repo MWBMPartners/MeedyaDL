@@ -92,3 +92,18 @@ pub mod manifest;
 /// Loaded from `tags.toml` (compiled into binary via `include_str!`).
 /// Adding new tags requires only editing the TOML file — zero Rust code changes.
 pub mod tag_registry;
+
+/// Content matching models for Smart Download cross-platform search.
+pub mod content_match;
+
+/// Service status configuration models.
+pub mod service_status;
+
+/// Votify CLI options for Spotify downloads.
+pub mod votify_options;
+
+/// yt-dlp CLI options for YouTube and BBC iPlayer downloads.
+pub mod ytdlp_options;
+
+/// get_iplayer CLI options for BBC iPlayer downloads.
+pub mod get_iplayer_options;
