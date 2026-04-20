@@ -2223,6 +2223,18 @@ struct CompanionTier {
 /// `AtmosToLosslessAndLossy` with primary `"atmos"`:
 /// → `[CompanionTier { codecs: [ALAC], suffix: true },
 ///     CompanionTier { codecs: [AAC, AacLegacy], suffix: false }]`
+/// Epoch-milliseconds helper used by `run_download_with_events` for
+/// the primary GAMDL idle watchdog (#508). Local copy rather than
+/// importing from `companion_supervisor` to avoid a tight coupling
+/// between the two modules — the helper is trivially small.
+fn now_epoch_ms_primary() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
 /// Reads the union of `audioTraits` for a queue item, returning an
 /// empty `Vec` when the item is missing or has no traits captured.
 /// Used at companion-spawn time to feed the audioTraits-aware filter
@@ -6909,10 +6921,39 @@ async fn run_download_with_events(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
+    // Reap the child automatically if the supervising task is aborted
+    // (e.g., app shutdown, 10-min completion timeout in process_queue).
+    // Prevents zombie GAMDL processes that would otherwise keep running
+    // and writing log lines long after the queue item is "done" (#508).
+    cmd.kill_on_drop(true);
+
     // Spawn the GAMDL subprocess
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to start GAMDL process: {e}"))?;
+
+    // Idle-watchdog + post-processing shared state (#508).
+    //
+    // - `last_activity_ms` is bumped on every stdout/stderr line so the
+    //   cancellation poll loop can compute idle time against the
+    //   configured `gamdl_idle_timeout_minutes` and kill the child when
+    //   exceeded.
+    // - `post_processing_flag` flips to true once the parser reports a
+    //   `ProcessingStep` or we see a `100% of` progress line. While
+    //   set, the idle watchdog stands down (remux / decrypt is silent
+    //   by design). The queue UI also picks up the flag via a
+    //   processing-label update so the caption flips from
+    //   `DOWNLOADING…` to `Post-processing (remux / decrypt)`.
+    // - `soft_error_count` tallies `Finished with N error(s)` from
+    //   GAMDL's stdout so an exit-0 with N>0 is downgraded to an
+    //   error at status-check time instead of being silently swallowed
+    //   (the same symptom the companion supervisor guards against
+    //   in #500).
+    let last_activity_ms = Arc::new(std::sync::atomic::AtomicU64::new(
+        now_epoch_ms_primary(),
+    ));
+    let post_processing_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let soft_error_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
     // Take stdout/stderr handles
     let stdout = child
@@ -6953,10 +6994,23 @@ async fn run_download_with_events(
         let queue = queue.clone();
         let errors = collected_errors.clone();
         let seen = seen_lines.clone();
+        let last_activity = last_activity_ms.clone();
+        let post_proc = post_processing_flag.clone();
+        let soft_errors = soft_error_count.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
+                // #508: bump the idle watchdog on every line and scan
+                // for GAMDL's end-of-run summary. Parsing is cheap
+                // (byte search) and runs once per stdout line.
+                last_activity
+                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
+                if let Some(n) = process::parse_gamdl_error_count(&raw_line) {
+                    if n > 0 {
+                        soft_errors.store(n, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
                 // Split on \r to handle yt-dlp download progress updates.
                 // yt-dlp uses \r (carriage return) for in-place terminal
                 // updates, but AsyncBufReadExt::lines() only splits on \n.
@@ -7089,6 +7143,28 @@ async fn run_download_with_events(
                         errs.push(message.clone());
                     }
 
+                    // #508: detect the transition into the silent
+                    // post-processing phase. The parser returns
+                    // `ProcessingStep` for remux/tag/decrypt steps, and
+                    // yt-dlp's final `100% of` progress line signals the
+                    // HLS download is complete. Either path flips the
+                    // shared flag; first flip also updates the queue's
+                    // processing_label so the UI caption flips to
+                    // `Post-processing (remux / decrypt)`.
+                    let is_processing_transition = matches!(
+                        event,
+                        process::GamdlOutputEvent::ProcessingStep { .. }
+                    ) || clean_line.contains("100% of");
+                    if is_processing_transition
+                        && !post_proc.swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        let mut q = queue.lock().await;
+                        q.set_processing_label(
+                            &download_id,
+                            "Post-processing (remux / decrypt)",
+                        );
+                    }
+
                     // Emit parsed event to frontend
                     let progress = gamdl_service::GamdlProgress {
                         download_id: download_id.clone(),
@@ -7108,10 +7184,13 @@ async fn run_download_with_events(
         let errors = collected_errors.clone();
         let raw_stderr = raw_stderr_lines.clone();
         let seen = seen_lines.clone();
+        let last_activity = last_activity_ms.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
+                last_activity
+                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
@@ -7183,6 +7262,15 @@ async fn run_download_with_events(
         })
     };
 
+    // Idle watchdog configuration (#508). Read once before the loop —
+    // changing it mid-download has no effect until the next item.
+    // `.max(1)` clamps a pathological 0 to one minute.
+    let idle_limit_ms = u64::from(
+        load_settings_for_queue(app)
+            .gamdl_idle_timeout_minutes
+            .max(1),
+    ) * 60_000;
+
     // Cancellation polling loop: alternate between checking for user cancellation
     // and checking if the GAMDL process has exited naturally.
     // This loop runs every 250ms and provides responsive cancellation support
@@ -7205,6 +7293,37 @@ async fn run_download_with_events(
             }
         }
 
+        // Step 1b (#508): idle watchdog. When the post-processing flag
+        // isn't set, kill the child if no stdout/stderr line has arrived
+        // for `gamdl_idle_timeout_minutes`. The flag pause is important
+        // — remux / decrypt can run silently for minutes on a network
+        // volume without being stuck.
+        if !post_processing_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let elapsed = now_epoch_ms_primary().saturating_sub(
+                last_activity_ms.load(std::sync::atomic::Ordering::Relaxed),
+            );
+            if elapsed >= idle_limit_ms {
+                let mins = idle_limit_ms / 60_000;
+                log::warn!(
+                    "GAMDL idle for {mins} min on download {download_id} — terminating"
+                );
+                emit_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "⚠ GAMDL was idle for {mins} min — terminated by watchdog"
+                    ),
+                );
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err(format!(
+                    "GAMDL idle for {mins} min — terminated by watchdog"
+                ));
+            }
+        }
+
         // Step 2: Check if the process has exited (non-blocking check).
         // try_wait() returns Ok(Some(status)) if the process has exited,
         // Ok(None) if it's still running, or Err on OS-level error.
@@ -7224,6 +7343,28 @@ async fn run_download_with_events(
     let _ = stderr_task.await;
 
     // Check the exit status and construct an appropriate error message.
+    //
+    // #508 soft-error gate: GAMDL exits 0 even when a per-track download
+    // crashed internally (e.g., `AttributeError: 'NoneType' object has
+    // no attribute 'audio_track'` when a codec isn't offered for the
+    // track). The `Finished with N error(s)` summary line is the
+    // authoritative failure signal in that case. When soft errors
+    // occurred, translate the tracebacks we can recognise and return
+    // an error instead of swallowing them.
+    let soft_errors = soft_error_count.load(std::sync::atomic::Ordering::Relaxed);
+    if status.success() && soft_errors > 0 {
+        let raw_lines = raw_stderr_lines.lock().await;
+        let combined = raw_lines.join("\n");
+        let friendly = process::classify_gamdl_traceback(&combined)
+            .map(std::string::ToString::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "GAMDL reported {soft_errors} per-track error(s) even though the process exited 0"
+                )
+            });
+        return Err(friendly);
+    }
+
     if status.success() {
         // Return any error-pattern lines as non-fatal warnings.
         // These are issues GAMDL logged during the run but didn't consider
@@ -7259,7 +7400,15 @@ async fn run_download_with_events(
                 // non-indented line after a "Traceback" header, which is the
                 // actual exception (e.g., "httpx.ConnectError: Connection refused").
                 // This gives classify_error() the real error text.
-                if let Some(extracted) = extract_python_exception(&raw_lines) {
+                //
+                // #508: first try the friendly classifier on the combined
+                // raw stderr so `NoneType.audio_track` and similar
+                // "codec not available" patterns surface as a single
+                // actionable line instead of a Python traceback.
+                let combined = raw_lines.join("\n");
+                if let Some(friendly) = process::classify_gamdl_traceback(&combined) {
+                    Err(friendly.to_string())
+                } else if let Some(extracted) = extract_python_exception(&raw_lines) {
                     Err(extracted)
                 } else {
                     Err(last_error.clone())
