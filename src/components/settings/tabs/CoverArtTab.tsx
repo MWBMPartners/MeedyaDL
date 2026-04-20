@@ -58,8 +58,8 @@ import { useUiStore } from '@/stores/uiStore';
 // Input for the size number field.
 import { Select, Toggle, Input, SettingsSection } from '@/components/common';
 
-// TypeScript union type for cover format values.
-import type { CoverFormat } from '@/types';
+// TypeScript union types for cover settings.
+import type { CoverFormat, CoverArtName } from '@/types';
 
 /**
  * Dropdown options for the cover art format selector.
@@ -69,6 +69,16 @@ const COVER_FORMAT_OPTIONS = [
   { value: 'raw', label: 'Raw (original format from Apple Music)' },
   { value: 'jpg', label: 'JPEG (compressed, smaller file size)' },
   { value: 'png', label: 'PNG (lossless, larger file size)' },
+];
+
+/**
+ * Dropdown options for the cover art filename selector.
+ * Controls what GAMDL's default "Cover" filename is renamed to after download.
+ */
+const COVER_ART_NAME_OPTIONS = [
+  { value: 'front_cover', label: 'FrontCover (matches animated artwork naming)' },
+  { value: 'cover', label: 'Cover (GAMDL default)' },
+  { value: 'folder', label: 'Folder (Windows Media Player convention)' },
 ];
 
 /**
@@ -137,6 +147,19 @@ export function CoverArtTab() {
                     updateSettings({ cover_size: size }); // Only persist valid values
                   }
                 }}
+              />
+
+              {/* Cover art filename */}
+              <Select
+                label="Cover Art Filename"
+                description="Filename for saved cover art images. GAMDL writes 'Cover' by default; this renames the file after download."
+                options={COVER_ART_NAME_OPTIONS}
+                value={settings.cover_art_name}
+                onChange={(e) =>
+                  updateSettings({
+                    cover_art_name: e.target.value as CoverArtName,
+                  })
+                }
               />
             </>
           )}

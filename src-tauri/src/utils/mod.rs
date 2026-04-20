@@ -68,3 +68,13 @@ pub mod activity_log;
 ///
 /// Used by: `commands::gamdl`, `commands::updates`, `commands::cookies`
 pub mod rate_limiter;
+
+/// Collision-proof filesystem helpers.
+///
+/// Every `std::fs::rename` / `std::fs::write` / `std::fs::copy` path in
+/// the app must use one of the helpers here rather than the raw stdlib
+/// call, because `fs::rename` silently overwrites on Unix (data-loss
+/// risk) and errors on Windows (platform-inconsistent). Exposes
+/// `safe_rename`, `rename_if_dest_free`, `write_non_clobbering`,
+/// `resolve_non_clobbering_path`, and `same_file`.
+pub mod fs_safe;

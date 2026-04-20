@@ -644,9 +644,9 @@ MeedyaDL/
 
 │   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
 
-│   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog
+│   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog, QueueItem, HistoryPage, GlobalProgressBar
 
-│   │   ├── settings/           #    SettingsPage + 10 tab components + CrashReportSection, CrashReportDialog
+│   │   ├── settings/           #    SettingsPage + 10 tab components + CrashReportSection, CrashReportDialog, DevToolsSection
 
 │   │   ├── updates/            #    UpdatesPage (changelog + update actions)
 
@@ -686,7 +686,13 @@ MeedyaDL/
 
 │   │   ├── usePlatform.ts      #    Platform detection
 
-│   │   └── useTheme.ts         #    Dark/light/auto theme override
+│   │   ├── useTheme.ts         #    Dark/light/auto theme override
+
+│   │   ├── useKeyboardShortcuts.ts # Cmd/Ctrl+D, Cmd+,, Cmd+Q
+
+│   │   ├── useKonamiCode.ts    #    Dev access mode activation
+
+│   │   └── useClipboardMonitor.ts # Clipboard URL detection
 
 │   └── styles/themes/          #    Platform-adaptive CSS
 
@@ -719,7 +725,7 @@ MeedyaDL/
 
 │       │   ├── gamdl.rs        #    Download queue orchestration
 
-│       │   ├── credentials.rs  #    Secure keychain storage
+│       │   ├── credentials.rs  #    Secure keychain storage + dev access
 
 │       │   ├── updates.rs      #    Update checking commands
 
@@ -729,9 +735,15 @@ MeedyaDL/
 
 │       │   ├── artwork.rs      #    Animated artwork download
 
-│       │   └── crash_reports.rs#    Crash report management + frontend error logging
+│       │   ├── crash_reports.rs#    Crash report management + frontend error logging
 
-│       ├── models/             #    Data structures
+│       │   ├── api_audit.rs    #    API field audit diagnostic
+
+│       │   ├── history.rs      #    Download history queries
+
+│       │   └── clipboard.rs    #    System clipboard reading
+
+│       ├── models/             #    Data structures (15 files)
 
 │       │   ├── download.rs     #    Download request, state, queue status
 
@@ -741,11 +753,27 @@ MeedyaDL/
 
 │       │   ├── dependency.rs   #    Dependency status tracking
 
-│       │   ├── media_service.rs#    Service trait (extensibility)
+│       │   ├── media_service.rs#    MediaServiceId enum (5 services)
 
-│       │   └── crash_report.rs #    Crash report data model
+│       │   ├── crash_report.rs #    Crash report data model
 
-│       ├── services/           #    Business logic
+│       │   ├── codec_registry.rs#   Universal codec definitions (codecs.toml)
+
+│       │   ├── tag_registry.rs #    Metadata tag definitions (tags.toml)
+
+│       │   ├── manifest.rs     #    .meedyadl manifest schema
+
+│       │   ├── content_match.rs#    Content matching/search results
+
+│       │   ├── service_status.rs#   Service health/status state
+
+│       │   ├── votify_options.rs#   Spotify (votify) CLI options stub
+
+│       │   ├── ytdlp_options.rs#    yt-dlp CLI options stub
+
+│       │   └── get_iplayer_options.rs# BBC iPlayer CLI options stub
+
+│       ├── services/           #    Business logic (32 files)
 
 │       │   ├── python_manager.rs    # Portable Python download/install
 
@@ -775,15 +803,51 @@ MeedyaDL/
 
 │       │   ├── enhanced_lyrics_service.rs # TTML → Enhanced LRC conversion
 
-│       │   └── crash_report_service.rs # Crash report CRUD + export
+│       │   ├── crash_report_service.rs # Crash report CRUD + export
+
+│       │   ├── webvtt_service.rs    # WebVTT subtitle generation
+
+│       │   ├── rich_srt_service.rs  # Rich SRT with styling tags
+
+│       │   ├── ass_subtitle_service.rs # ASS subtitle generation
+
+│       │   ├── musicbrainz_service.rs # MusicBrainz video discovery
+
+│       │   ├── history_service.rs   # Download history persistence
+
+│       │   ├── health_check_service.rs # System health monitoring
+
+│       │   ├── api_audit_service.rs # API field audit diagnostic
+
+│       │   ├── mediainfo_service.rs # MediaInfo CLI integration
+
+│       │   ├── pip_engine_service.rs# Python pip installation management
+
+│       │   ├── clipboard_service.rs # System clipboard operations
+
+│       │   ├── engine_registry.rs   # Download engine registry (engines.toml)
+
+│       │   ├── engine_runner.rs     # Service-agnostic subprocess spawning
+
+│       │   ├── bpm_service.rs       # BPM/tempo detection
+
+│       │   ├── smart_download.rs    # Intelligent download orchestration
+
+│       │   ├── service_status.rs    # Service operational status
+
+│       │   └── integration_tests.rs # Backend integration tests
 
 │       └── utils/              #    Utility modules
 
 │           ├── platform.rs     #    OS detection & paths
 
-│           ├── archive.rs      #    ZIP/tar extraction
+│           ├── archive.rs      #    ZIP/tar extraction + SHA-256 verification
 
-│           └── process.rs      #    GAMDL output parser & error classifier
+│           ├── process.rs      #    GAMDL output parser & error classifier
+
+│           ├── activity_log.rs #    Shared activity log emission helpers
+
+│           └── rate_limiter.rs #    Sliding-window IPC rate limiter
 
 ├── public/locales/             # i18n translation files
 
@@ -802,7 +866,7 @@ MeedyaDL/
 
 │   │   └── crash-report.yml    #    Crash report issue form
 
-│   └── workflows/              # CI/CD
+│   └── workflows/              # CI/CD (7 workflows)
 
 │       ├── ci.yml              #    Test & lint on push/PR
 
@@ -810,7 +874,13 @@ MeedyaDL/
 
 │       ├── release-please.yml  #    Automated version bumps & release PRs
 
-│       └── changelog.yml       #    Auto-generate changelogs
+│       ├── changelog.yml       #    Auto-generate changelogs
+
+│       ├── codeql.yml          #    CodeQL static analysis
+
+│       ├── dependency-report.yml#   Monthly dependency audit
+
+│       └── fix-updater-manifest.yml # Standalone updater manifest repair
 
 ├── scripts/                    # Utility scripts
 
@@ -1927,7 +1997,7 @@ Corrected all three filename references in `release.yml` (upload step + `latest.
 github = ["MWBMPartners", "MeedyaDL"]
 ```
 
-This covers `MWBMPartners/MeedyaSuite-core` (shared Rust crates), `MeedyaDL/MeedyaDL-Tools` (dependency mirrors), and any future repos under either org — regardless of branch, tag, or rev qualifiers.
+This covers `MWBMPartners/MeedyaSuite-core` (shared Rust crates), `MeedyaSuite/MeedyaDL-Tools` (dependency mirrors), and any future repos under either org — regardless of branch, tag, or rev qualifiers.
 
 ## Updater Signing Key Rotation (#401)
 

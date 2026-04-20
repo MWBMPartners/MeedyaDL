@@ -358,6 +358,17 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     std::fs::rename(&temp_path, &settings_path)
         .map_err(|e| format!("Failed to rename temp settings file: {e}"))?;
 
+    // Set restrictive file permissions on Unix (#459).
+    // Settings contain sensitive paths (cookies, API credentials).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        if let Err(e) = std::fs::set_permissions(&settings_path, perms) {
+            log::debug!("Failed to set settings.json permissions: {e}");
+        }
+    }
+
     // Write integrity checksum alongside the settings file.
     // Used by load_settings() to detect tampering or corruption.
     write_settings_checksum(&settings_path, &json);
@@ -448,6 +459,24 @@ pub fn sync_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), 
 /// See: https://github.com/MWBMPartners/MeedyaDL/issues/226
 fn sanitize_ini_value(value: &str) -> String {
     value.replace(['\n', '\r'], "")
+}
+
+/// Validate a user-provided path for safety (#459).
+///
+/// Rejects paths containing traversal sequences (`..`) that could
+/// escape the intended directory. Returns `Ok(path)` if safe,
+/// `Err(reason)` if the path is suspicious.
+pub fn validate_path_safe(path: &str) -> Result<&str, String> {
+    use std::path::Component;
+    let p = std::path::Path::new(path);
+    for component in p.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err(format!(
+                "Path contains directory traversal (..): {path}"
+            ));
+        }
+    }
+    Ok(path)
 }
 
 fn settings_to_ini(settings: &AppSettings) -> String {
