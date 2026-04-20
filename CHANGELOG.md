@@ -142,6 +142,7 @@ Adds the first slice of the multi-channel release pipeline:
   - HelpViewer.tsx: add matching in-app help topic (id: release-channels)
     with the same content as the sidecar markdown.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.34.6] - 2026-04-20
 
