@@ -126,6 +126,24 @@ const UPDATE_INTERVAL_OPTIONS = [
 ];
 
 /**
+ * Update-channel options. Listed from least to most stable so the dropdown
+ * reads top-down as "riskiest first" and the default (Stable) is the last
+ * entry — matching conventional release-channel pickers.
+ *
+ * The installer guard refuses to apply a release whose channel is less
+ * stable than the user's selection, so switching down the list is the
+ * explicit opt-in for early builds.
+ */
+const UPDATE_CHANNEL_OPTIONS = [
+  { value: 'nightly', label: 'Nightly — built daily, may be broken' },
+  { value: 'weekly', label: 'Weekly — integrated weekly, often unstable' },
+  { value: 'monthly', label: 'Monthly — integrated monthly' },
+  { value: 'alpha', label: 'Alpha — feature-complete, expect bugs' },
+  { value: 'beta', label: 'Beta — release candidate' },
+  { value: 'stable', label: 'Stable — production release (recommended)' },
+];
+
+/**
  * Notification auto-dismiss duration options (seconds).
  */
 const NOTIFICATION_STYLE_OPTIONS = [
@@ -553,6 +571,19 @@ export function GeneralTab() {
           description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
           checked={settings.check_pre_releases}
           onChange={(checked) => updateSettings({ check_pre_releases: checked })}
+        />
+
+        {/* Update channel selector — guards auto-updates from crossing down the
+            stability ladder. Selecting anything other than Stable implicitly
+            enables pre-release checks on the backend. */}
+        <Select
+          label="Update Channel"
+          description="Controls which release channel you receive updates from. Nightly/weekly/monthly/alpha builds may be broken — Stable is recommended for most users. The installer refuses to apply updates from a less-stable channel than your selection."
+          options={UPDATE_CHANNEL_OPTIONS}
+          value={settings.update_channel}
+          onChange={(e) =>
+            updateSettings({ update_channel: e.target.value as typeof settings.update_channel })
+          }
         />
 
         {/* Manual update check button */}

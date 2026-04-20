@@ -52,6 +52,7 @@ use tauri::AppHandle;
 
 // gamdl_service: provides get_gamdl_version() and check_latest_gamdl_version() for GAMDL update checks.
 // python_manager: provides get_installed_python_version() and get_target_python_version() for Python update checks.
+use crate::models::settings::UpdateChannel;
 use crate::services::{gamdl_service, python_manager};
 // platform: provides get_python_dir() for resolving the Python installation directory.
 use crate::utils::platform;
@@ -464,7 +465,11 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 /// * `check_pre_releases` - Whether to include pre-release versions when
 ///   checking for app updates. When true, queries all recent GitHub releases
 ///   (including betas/RCs); when false, only checks the latest stable release.
-pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> UpdateCheckResult {
+pub async fn check_all_updates(
+    app: &AppHandle,
+    check_pre_releases: bool,
+    user_channel: UpdateChannel,
+) -> UpdateCheckResult {
     let mut components = Vec::new();
     let mut errors = Vec::new();
 
@@ -478,7 +483,9 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // Check for app self-updates via GitHub Releases API.
     // Compares the running app version against the latest GitHub release tag.
     // When check_pre_releases is true, includes beta/RC releases in the check.
-    match check_app_update(app, check_pre_releases).await {
+    // `user_channel` is used to filter out releases that don't match the user's
+    // subscribed stability tier (e.g., a beta user won't see nightly builds).
+    match check_app_update(app, check_pre_releases, user_channel).await {
         Ok(update) => components.push(update),
         Err(e) => errors.push(format!("App update check failed: {e}")),
     }
@@ -656,6 +663,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
 async fn check_app_update(
     app: &AppHandle,
     check_pre_releases: bool,
+    user_channel: UpdateChannel,
 ) -> Result<ComponentUpdate, String> {
     // Get the current app version from Tauri's package info.
     // This reads the version from tauri.conf.json, set at build time.
@@ -663,10 +671,13 @@ async fn check_app_update(
 
     // Choose the GitHub API endpoint based on pre-release preference.
     // - Stable only: `releases/latest` returns a single release object (excludes pre-releases)
-    // - Include pre-releases: `releases?per_page=5` returns an array sorted newest-first
+    // - Include pre-releases: `releases?per_page=20` returns an array sorted newest-first.
+    //   We fetch up to 20 so that, after channel filtering, we still find the most
+    //   recent release on the user's tier (nightly releases ship daily and can bury
+    //   other channels in the first few results).
     let (url, is_list) = if check_pre_releases {
         (
-            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=5",
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20",
             true,
         )
     } else {
@@ -722,12 +733,20 @@ async fn check_app_update(
         .map_err(|e| format!("Failed to parse GitHub response: {e}"))?;
 
     // Extract the release object: either the single response (stable mode)
-    // or the first item from the array (pre-release mode, newest first).
+    // or the newest channel-matching entry from the array (pre-release mode).
     let release = if is_list {
         let releases = json
             .as_array()
             .ok_or("GitHub API returned unexpected format (expected array)")?;
-        if releases.is_empty() {
+        // Pick the newest release whose tag suffix matches the user's channel.
+        // Releases from a less-stable channel (e.g., a fresh nightly when the
+        // user is on beta) are skipped so the UI never surfaces an update
+        // that crosses down the stability ladder.
+        let matched = releases.iter().find(|r| {
+            let tag = r["tag_name"].as_str().unwrap_or("");
+            UpdateChannel::from_tag(tag) == user_channel
+        });
+        let Some(release) = matched else {
             return Ok(ComponentUpdate {
                 name: "MeedyaDL".to_string(),
                 current_version: Some(current_version),
@@ -742,9 +761,8 @@ async fn check_app_update(
                 pip_package: None,
                 tool_id: None,
             });
-        }
-        // Index 0 is the newest release (may be a pre-release).
-        &releases[0]
+        };
+        release
     } else {
         // Stable mode: response is a single release object.
         &json
@@ -1209,6 +1227,50 @@ async fn check_pip_engine_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Tests that UpdateChannel::from_tag correctly maps release tag suffixes
+    /// to their channel. Stable is the fallback for anything unrecognised so
+    /// an unexpected tag never downgrades a user's stability selection.
+    #[test]
+    fn test_update_channel_from_tag() {
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0"),
+            UpdateChannel::Stable
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("1.0.0"),
+            UpdateChannel::Stable
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-nightly.20260420"),
+            UpdateChannel::Nightly
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-weekly.202616"),
+            UpdateChannel::Weekly
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-monthly.202604"),
+            UpdateChannel::Monthly
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-alpha.1"),
+            UpdateChannel::Alpha
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-beta.1"),
+            UpdateChannel::Beta
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-rc.1"),
+            UpdateChannel::Beta
+        );
+        // Unknown suffix: fall back to Stable (safe default)
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-unreleased.x"),
+            UpdateChannel::Stable
+        );
+    }
 
     /// Tests that is_newer() correctly handles all semver comparison cases:
     /// patch bumps, minor bumps, major bumps, equal versions, and downgrades.
