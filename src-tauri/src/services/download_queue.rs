@@ -5138,22 +5138,35 @@ pub fn process_queue(
                                         })
                                         .collect();
                                     let json_filename = format!("{safe_name}-applemusic-data.json");
-                                    let json_path = std::path::Path::new(&album_dir).join(&json_filename);
+                                    let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
                                         Ok(json_str) => {
-                                            if let Err(e) = std::fs::write(&json_path, &json_str) {
-                                                log::debug!(
-                                                    "Failed to write API response JSON for {enrich_dl_id}: {e}"
-                                                );
-                                            } else {
-                                                emit_verbose_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!(
-                                                        "Apple Music API response saved to: {}",
-                                                        json_path.display()
-                                                    ),
-                                                );
+                                            // Non-clobbering write: if a dump
+                                            // from a prior run already sits at
+                                            // the same name (or two albums
+                                            // sanitise to the same stem), the
+                                            // new dump lands on `...data.1.json`
+                                            // instead of silently replacing it.
+                                            match crate::utils::fs_safe::write_non_clobbering(
+                                                album_dir_path,
+                                                &json_filename,
+                                                json_str.as_bytes(),
+                                            ) {
+                                                Ok(json_path) => {
+                                                    emit_verbose_download_log(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Apple Music API response saved to: {}",
+                                                            json_path.display()
+                                                        ),
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    log::debug!(
+                                                        "Failed to write API response JSON for {enrich_dl_id}: {e}"
+                                                    );
+                                                }
                                             }
                                         }
                                         Err(e) => {
