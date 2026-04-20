@@ -330,52 +330,10 @@ pub fn pair_song_lyrics_with_music_video(album_dir: &Path, video_path: &Path) ->
     copied
 }
 
-/// Return a path that is guaranteed not to overwrite any existing file.
-///
-/// If `{dir}/{name}` is free, that path is returned. Otherwise appends
-/// `.1`, `.2`, ... to the stem (before the extension) until a free slot
-/// is found or we give up after 100 attempts (should never happen in
-/// practice).
-fn resolve_non_clobbering_path(dir: &Path, name: &str) -> PathBuf {
-    let candidate = dir.join(name);
-    if !candidate.exists() {
-        return candidate;
-    }
-
-    // Split `name` into (stem, ext) for disambiguation.
-    let (stem, ext) = match name.rsplit_once('.') {
-        Some((s, e)) => (s, Some(e)),
-        None => (name, None),
-    };
-
-    for n in 1..100 {
-        let alt_name = match ext {
-            Some(e) => format!("{stem}.{n}.{e}"),
-            None => format!("{stem}.{n}"),
-        };
-        let alt = dir.join(&alt_name);
-        if !alt.exists() {
-            return alt;
-        }
-    }
-
-    // Exhausted — fall back to the original (caller's existence check will
-    // catch it). 100 collisions for one stem is pathological.
-    candidate
-}
-
-/// True when two paths point at the same file on disk.
-///
-/// Uses canonicalisation so symlinks, case-insensitive filesystems, and
-/// redundant `./` segments all collapse correctly. When either path can't
-/// be canonicalised (e.g. the target doesn't exist yet) we fall back to
-/// lexical comparison.
-fn same_file(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(ac), Ok(bc)) => ac == bc,
-        _ => a == b,
-    }
-}
+// Collision-proofing helpers (`resolve_non_clobbering_path`,
+// `same_file`) now live in `crate::utils::fs_safe` so every rename /
+// write path in the app shares one battle-tested implementation.
+use crate::utils::fs_safe::{resolve_non_clobbering_path, same_file};
 
 /// Lowercase + strip typical decoration suffixes (codec / advisory) so
 /// song and music video stems compare cleanly.
@@ -416,48 +374,9 @@ mod tests {
         assert_eq!(normalise_stem("Song Title"), "song title");
     }
 
-    #[test]
-    fn resolve_non_clobbering_returns_original_when_free() {
-        let dir = tempfile::tempdir().unwrap();
-        let resolved = resolve_non_clobbering_path(dir.path(), "Title.cc.0.vtt");
-        assert_eq!(resolved, dir.path().join("Title.cc.0.vtt"));
-    }
-
-    #[test]
-    fn resolve_non_clobbering_disambiguates_when_taken() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("Title.cc.0.vtt"), "existing").unwrap();
-        let resolved = resolve_non_clobbering_path(dir.path(), "Title.cc.0.vtt");
-        assert_eq!(resolved, dir.path().join("Title.cc.0.1.vtt"));
-    }
-
-    #[test]
-    fn resolve_non_clobbering_steps_past_multiple_collisions() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("a.srt"), "").unwrap();
-        fs::write(dir.path().join("a.1.srt"), "").unwrap();
-        fs::write(dir.path().join("a.2.srt"), "").unwrap();
-        let resolved = resolve_non_clobbering_path(dir.path(), "a.srt");
-        assert_eq!(resolved, dir.path().join("a.3.srt"));
-    }
-
-    #[test]
-    fn same_file_detects_identical_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("x.ttml");
-        fs::write(&p, "lyrics").unwrap();
-        assert!(same_file(&p, &p));
-    }
-
-    #[test]
-    fn same_file_detects_distinct_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("a.ttml");
-        let b = dir.path().join("b.ttml");
-        fs::write(&a, "").unwrap();
-        fs::write(&b, "").unwrap();
-        assert!(!same_file(&a, &b));
-    }
+    // NOTE: coverage for `resolve_non_clobbering_path` and `same_file`
+    // now lives alongside the helpers themselves in
+    // `src/utils/fs_safe.rs`.
 
     #[test]
     fn pair_skips_when_target_exists() {

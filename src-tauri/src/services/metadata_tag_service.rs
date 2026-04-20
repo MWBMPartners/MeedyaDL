@@ -1443,11 +1443,15 @@ pub fn apply_advisory_suffixes_from_tags(output_path: &str) {
         let new_name = format!("{new_stem}.{ext}");
         let new_path = file_path.with_file_name(&new_name);
 
-        match std::fs::rename(file_path, &new_path) {
-            Ok(()) => log::debug!(
+        // Never clobber — if an unrelated file already sits at the
+        // target path (e.g. a previous session's differently-tagged
+        // track), `safe_rename` auto-disambiguates with `.1`, `.2`
+        // suffix so nothing is overwritten.
+        match crate::utils::fs_safe::safe_rename(file_path, &new_path) {
+            Ok(final_path) => log::debug!(
                 "Post-companion advisory suffix: {} → {}",
                 file_path.display(),
-                new_path.display()
+                final_path.display()
             ),
             Err(e) => log::warn!(
                 "Post-companion advisory rename failed for {}: {e}",
@@ -1484,12 +1488,15 @@ fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
     let new_name = format!("{stem} {suffix}.{ext}");
     let new_path = file_path.with_file_name(&new_name);
 
-    match std::fs::rename(file_path, &new_path) {
-        Ok(()) => {
+    // `safe_rename` auto-disambiguates if `new_path` is already
+    // occupied by an unrelated file (e.g. a previous session left the
+    // suffixed version on disk with different content).
+    match crate::utils::fs_safe::safe_rename(file_path, &new_path) {
+        Ok(final_path) => {
             log::debug!(
                 "Codec suffix: {} → {}",
                 file_path.display(),
-                new_path.display()
+                final_path.display()
             );
         }
         Err(e) => {
@@ -1545,14 +1552,18 @@ fn rename_track_with_advisory(
     let new_name = format!("{new_stem}.{ext}");
     let new_path = file_path.with_file_name(&new_name);
 
-    match std::fs::rename(file_path, &new_path) {
-        Ok(()) => {
+    // `safe_rename` returns the actual landing path — important here
+    // because collision disambiguation changes it, and subsequent
+    // enrichment steps must operate on the real path, not the ideal
+    // one we asked for.
+    match crate::utils::fs_safe::safe_rename(file_path, &new_path) {
+        Ok(final_path) => {
             log::debug!(
                 "Advisory suffix: {} → {}",
                 file_path.display(),
-                new_path.display()
+                final_path.display()
             );
-            new_path
+            final_path
         }
         Err(e) => {
             log::warn!(
@@ -1636,14 +1647,29 @@ fn rename_folder_with_advisory(
     let new_folder_name = format!("{folder_name} {suffix}");
     let new_path = path.with_file_name(&new_folder_name);
 
-    match std::fs::rename(path, &new_path) {
-        Ok(()) => {
+    // Use `rename_if_dest_free` rather than `safe_rename` — merging
+    // two logically-distinct album folders under a numerically
+    // disambiguated name (`Album [Explicit].1`) would be worse than
+    // leaving the folder un-suffixed. If the suffixed name is taken,
+    // skip the rename, log a warning, and let the caller keep using
+    // the original path.
+    match crate::utils::fs_safe::rename_if_dest_free(path, &new_path) {
+        Ok(true) => {
             log::info!(
                 "Advisory suffix: folder {} → {}",
                 folder_name,
                 new_folder_name
             );
             new_path.to_string_lossy().to_string()
+        }
+        Ok(false) => {
+            log::warn!(
+                "Advisory folder rename skipped — {} already exists \
+                 (keeping files in {})",
+                new_path.display(),
+                folder_name
+            );
+            output_path.to_string()
         }
         Err(e) => {
             log::warn!(
