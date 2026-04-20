@@ -70,6 +70,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ui_language: '', // Auto-detect UI language from OS locale
   auto_check_updates: true, // Automatically check for updates on startup
   check_pre_releases: false, // Only show stable releases by default
+  update_channel: 'stable', // Subscribe to the stable release channel
   update_check_interval_hours: 6, // Check for updates every 6 hours
   auto_start_queue: true, // Start processing immediately when items are enqueued
   desktop_notifications: true, // OS-native notifications for download events when window not focused

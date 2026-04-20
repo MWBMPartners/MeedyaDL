@@ -164,9 +164,19 @@ Push fix:/feat: commits directly to main
 
 Manual override: `version-bump.yml` + `scripts/bump-version.mjs` for non-standard releases.
 
+### Release Channels (six-tier ladder)
+
+Branches: `feat/* → nightly → weekly → monthly → alpha → beta → main (stable)`. All six channel branches are long-lived and protected against deletion + non-fast-forward pushes via `.github/rulesets/protected-release-branches.json` (applied by `apply-branch-rulesets.yml`). Merged PR head branches are auto-deleted by `auto-delete-merged-branches.yml` with the six channel names in a hard-coded exempt list.
+
+- `nightly-release.yml` — cron `0 0 * * *`. Resets `nightly` to `main`, merges every `origin/feat/*` (skips conflicts, opens issue), bumps version to `X.Y.Z-nightly.YYYYMMDD` across package.json / tauri.conf.json / Cargo.toml, force-pushes `nightly`, creates tag → triggers `release.yml`. Weekly (`0 0 * * 0`) and monthly (`0 0 1 * *`) follow the same template.
+- `UpdateChannel` enum (`models/settings.rs`) — `Nightly < Weekly < Monthly < Alpha < Beta < Stable` (`PartialOrd`). `UpdateChannel::from_tag(&str)` parses the pre-release suffix of any tag. `update_channel: UpdateChannel` persisted in `AppSettings`.
+- `check_all_updates` filters GitHub releases by `user_channel`. A Stable user hits `releases/latest`; any non-Stable channel hits `releases?per_page=20` and picks the newest entry matching the exact channel (cross-channel entries are skipped, not surfaced as updates).
+- `download_and_install_app_update` in `commands/updates.rs` refuses tags whose channel is `< user_channel`. This is the client-side "option 2" enforcement — even a tampered manifest or stale deep link can't downgrade stability. Users move between channels via Settings > General > Updates; that's an explicit action.
+- Legacy `check_pre_releases: bool` is implicitly enabled whenever `update_channel != Stable` (forces the list endpoint); the channel drives which release is actually shown/installable.
+
 ### Conserving GitHub Actions Minutes
 
-All workflows (CI, Changelog, Release Please, Release) support both automatic (`on: push`) and manual (`workflow_dispatch`) triggers.
+All workflows (CI, Changelog, Release Please, Release, Nightly Release, Apply Branch Rulesets) support both automatic triggers and manual `workflow_dispatch`.
 
 **Do NOT use `[skip ci]`** in commit messages unless the user explicitly requests it. Every push must trigger CI to validate changes. Manual triggering is available if needed:
 
@@ -174,8 +184,12 @@ All workflows (CI, Changelog, Release Please, Release) support both automatic (`
 gh workflow run "CI" --ref main
 gh workflow run "Release Please" --ref main
 gh workflow run "Changelog" --ref main
-gh workflow run "Release" -f tag=v0.3.3  # Release requires a tag input
+gh workflow run "Release" -f tag=v0.3.3             # Release requires a tag input
+gh workflow run "Nightly Release" --ref main        # Optionally -f dry_run=true
+gh workflow run "Apply Branch Rulesets" --ref main  # Re-applies protected-branch ruleset
 ```
+
+Note: `workflow_dispatch` only shows a "Run workflow" button in the GitHub UI for workflows whose YAML is on the default branch. Until a new workflow is merged to `main`, trigger it via the CLI with an explicit `--ref`.
 
 ### Release Please Branch Naming
 

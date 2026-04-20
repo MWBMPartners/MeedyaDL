@@ -1,0 +1,66 @@
+# Copyright (c) 2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Apply Branch Rulesets
+# =====================
+#
+# Idempotently applies every JSON ruleset under `.github/rulesets/` to the
+# repository. Run manually after editing a ruleset file, or on push when
+# one of them changes. Each ruleset's `name` field is used to detect an
+# existing ruleset on the repo: present → PUT update, absent → POST create.
+#
+# Rulesets committed in this repo:
+#   - protected-release-branches.json
+#       Blocks deletion and non-fast-forward pushes on main, beta, alpha,
+#       monthly, weekly, and nightly. This is the safety net that lets the
+#       repo-wide "Automatically delete head branches" setting stay on
+#       without risking the long-lived channel branches.
+#
+# Requires: RELEASE_PAT with `administration:write` scope on the repo.
+
+name: Apply Branch Rulesets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/rulesets/*.json'
+      - '.github/workflows/apply-branch-rulesets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Apply rulesets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # List existing rulesets (name → id map)
+          EXISTING=$(gh api "repos/$REPO/rulesets" --jq 'map({ (.name): .id }) | add // {}')
+
+          for FILE in .github/rulesets/*.json; do
+            NAME=$(jq -r '.name' "$FILE")
+            echo "::group::$NAME ($FILE)"
+
+            # Strip comment-only fields (keys starting with _) before sending
+            PAYLOAD=$(jq 'with_entries(select(.key | startswith("_") | not))' "$FILE")
+
+            ID=$(echo "$EXISTING" | jq -r --arg n "$NAME" '.[$n] // empty')
+            if [ -n "$ID" ]; then
+              echo "Updating existing ruleset id=$ID"
+              echo "$PAYLOAD" | gh api -X PUT "repos/$REPO/rulesets/$ID" --input -
+            else
+              echo "Creating new ruleset"
+              echo "$PAYLOAD" | gh api -X POST "repos/$REPO/rulesets" --input -
+            fi
+            echo "::endgroup::"
+          done

@@ -51,6 +51,62 @@ fn default_replaygain_reference() -> f64 {
     -18.0
 }
 
+/// Update channel (stability tier) the user is tracking.
+///
+/// Channels are ordered from least to most stable. The user selects which
+/// channel they want updates from; the update checker filters GitHub
+/// releases so the user only sees updates matching their channel, and
+/// `download_and_install_app_update` refuses to install a release whose
+/// channel is less stable than the user's selection (guard against
+/// accidentally sliding down the stability ladder via a spoofed URL).
+///
+/// The channel is derived from a release tag's pre-release suffix:
+///   - `v0.32.0-nightly.20260420` → Nightly
+///   - `v0.32.0-weekly.202616`    → Weekly
+///   - `v0.32.0-monthly.202604`   → Monthly
+///   - `v0.32.0-alpha.1`          → Alpha
+///   - `v0.32.0-beta.1`           → Beta
+///   - `v0.32.0`                  → Stable
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    Nightly,
+    Weekly,
+    Monthly,
+    Alpha,
+    Beta,
+    Stable,
+}
+
+impl UpdateChannel {
+    /// Parses a release tag (with or without leading `v`) and returns the
+    /// channel implied by its pre-release suffix. Tags with no suffix or
+    /// an unrecognised suffix are treated as Stable.
+    pub fn from_tag(tag: &str) -> Self {
+        let trimmed = tag.trim_start_matches('v');
+        let suffix = match trimmed.split_once('-') {
+            Some((_, s)) => s,
+            None => return Self::Stable,
+        };
+        // Match on the first dotted segment so "nightly.20260420" → "nightly".
+        let label = suffix.split('.').next().unwrap_or("").to_ascii_lowercase();
+        match label.as_str() {
+            "nightly" => Self::Nightly,
+            "weekly" => Self::Weekly,
+            "monthly" => Self::Monthly,
+            "alpha" => Self::Alpha,
+            "beta" | "rc" => Self::Beta,
+            _ => Self::Stable,
+        }
+    }
+}
+
+/// Default update channel: Stable. New installs only receive production
+/// releases unless the user opts into a pre-release channel in Settings.
+const fn default_update_channel() -> UpdateChannel {
+    UpdateChannel::Stable
+}
+
 /// Companion download mode configuration.
 ///
 /// Controls whether `MeedyaDL` automatically downloads additional format
@@ -368,6 +424,16 @@ pub struct AppSettings {
     /// GitHub. Pre-release versions may contain bugs or incomplete features.
     #[serde(default)]
     pub check_pre_releases: bool,
+
+    /// Release channel the user is subscribed to for app updates.
+    /// Defaults to `Stable` (production releases only). Users can opt into
+    /// less-stable channels (Beta/Alpha/Monthly/Weekly/Nightly) to preview
+    /// upcoming features. The channel acts as a guard in
+    /// `download_and_install_app_update`: the installer refuses tags whose
+    /// channel is less stable than the user's selection, so a stable
+    /// install can't be tricked into downgrading to a nightly build.
+    #[serde(default = "default_update_channel")]
+    pub update_channel: UpdateChannel,
 
     /// How often (in hours) to periodically check for updates while the app
     /// is running. Value `0` = check on startup only (no periodic timer).
@@ -1166,6 +1232,9 @@ impl Default for AppSettings {
             // Only show stable releases by default. Pre-releases may have
             // incomplete features or bugs and are for testers/developers.
             check_pre_releases: false,
+            // Default to the stable channel; users opt into less-stable
+            // channels explicitly from Settings > General > Updates.
+            update_channel: UpdateChannel::Stable,
             // Check for updates every 6 hours during early development.
             // Users can change to 1/12/24 hours or 0 (startup only).
             update_check_interval_hours: 6,
