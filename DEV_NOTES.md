@@ -48,7 +48,7 @@ Run this whenever engines are enabled/disabled or dependencies change.
 
 ## Release Workflow
 
-### There Are 4 Separate Workflows — Don't Confuse Them
+### There Are 7 Separate Workflows — Don't Confuse Them
 
 | Workflow | Trigger | What It Does | Produces Binaries? |
 | -------- | ------- | ------------ | ------------------ |
@@ -56,6 +56,9 @@ Run this whenever engines are enabled/disabled or dependencies change.
 | **Release Please** (`release-please.yml`) | Every push to `main` | Creates or updates a "Release PR" that bumps version numbers | **No** — just creates/updates a PR |
 | **Release** (`release.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Builds the app on all 6 platforms | **Yes** — this is the only workflow that produces installable binaries |
 | **Changelog** (`changelog.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Regenerates `CHANGELOG.md` via git-cliff | **No** — just updates the changelog file |
+| **Nightly Release** (`nightly-release.yml`) | Cron `0 0 * * *` (daily 00:00 UTC) or manual `workflow_dispatch` | Merges `feat/*` branches into `nightly`, bumps version to `X.Y.Z-nightly.YYYYMMDD`, pushes tag to trigger `release.yml` | **Yes** — via the tag it pushes |
+| **Apply Branch Rulesets** (`apply-branch-rulesets.yml`) | Push to `.github/rulesets/*.json` or manual `workflow_dispatch` | Idempotently applies every ruleset in `.github/rulesets/` via the GitHub API | **No** — repo-config only |
+| **Auto-Delete Merged Branches** (`auto-delete-merged-branches.yml`) | `pull_request` closed (merged) | Deletes merged PR head branches except the protected channels | **No** — repo-config only |
 
 **Key insight**: When you push code to `main`, you'll see CI and Release Please run. These are fast and lightweight — they do NOT build binaries. The Release workflow only runs after the full release pipeline completes (see below).
 
@@ -322,14 +325,48 @@ If the private key is lost:
 
 ---
 
-## Pre-Release Channel
+## Release Channels
 
-The app supports a toggle for "Include Pre-Release Versions" in General settings:
+MeedyaDL ships across six long-lived channels, ordered from least to most stable:
 
-- **Off (default)**: Only checks `releases/latest` (stable releases)
-- **On**: Checks `releases?per_page=5` which includes pre-release/beta/RC versions
+| Channel | Branch | Tag format | Cadence | Audience |
+| ------- | ------ | ---------- | ------- | -------- |
+| Nightly | `nightly` | `vX.Y.Z-nightly.YYYYMMDD` | Daily 00:00 UTC | Developers validating today's `feat/*` integrations |
+| Weekly | `weekly` | `vX.Y.Z-weekly.YYYYWW` | Weekly Sunday 00:00 UTC (planned) | Testers willing to trial a week's worth of nightlies |
+| Monthly | `monthly` | `vX.Y.Z-monthly.YYYYMM` | Monthly 1st 00:00 UTC (planned) | Early adopters wanting monthly preview builds |
+| Alpha | `alpha` | `vX.Y.Z-alpha.N` | Ad-hoc | Feature-complete previews |
+| Beta | `beta` | `vX.Y.Z-beta.N` | Ad-hoc | Release candidates |
+| Stable | `main` | `vX.Y.Z` | Release-please PR merges | End users |
 
-Pre-release updates show an amber badge and disclaimer in the Update Banner. The setting is stored as `check_pre_releases: bool` in `AppSettings`.
+All six channel branches are **protected against deletion and non-fast-forward pushes** via `.github/rulesets/protected-release-branches.json`.
+
+### Channel auto-merge pipeline
+
+Each channel's source branch is refreshed from the one directly below it plus any ready `feat/*` branches, preserving the stability ladder:
+
+```
+feat/* ─→ nightly ─→ weekly ─→ monthly ─→ alpha ─→ beta ─→ main (stable)
+```
+
+`nightly-release.yml` is the live implementation of the first hop: it resets `nightly` to `main`, merges every `origin/feat/*` branch (skipping any that conflict and opening an issue listing them), bumps the version in `package.json` / `tauri.conf.json` / `Cargo.toml`, force-pushes `nightly`, and creates an annotated tag. The tag push triggers `release.yml`, which produces the platform installers. Weekly and monthly use the same pattern with their own crons (`0 0 * * 0` and `0 0 1 * *`).
+
+### In-app update guard (option 2)
+
+The app filters and enforces the channel on the client:
+
+- `UpdateChannel` enum in `src-tauri/src/models/settings.rs` — ordered `Nightly < Weekly < Monthly < Alpha < Beta < Stable`.
+- `UpdateChannel::from_tag()` parses the pre-release suffix of any tag (`"-nightly.20260420"` → `Nightly`, `"-beta.1"` → `Beta`, no suffix → `Stable`).
+- `update_channel: UpdateChannel` is persisted in `AppSettings`, exposed as the **Update Channel** dropdown under *Settings > General > Updates*.
+- `check_all_updates` filters the GitHub releases list to the user's channel, so a Stable user never sees Nightly entries and vice-versa. A Stable user fetches `releases/latest`; any other channel fetches `releases?per_page=20` and picks the first entry matching the selection.
+- `download_and_install_app_update` refuses to install a tag whose channel is **less stable** than the user's current selection. This is the enforcement point: even if a cross-channel URL reaches the installer (deep link, stale cache, or manifest tampering), the installer returns a clear error instead of downgrading the user's stability tier. Switching to a less-stable channel is always an explicit action in Settings.
+
+The legacy `check_pre_releases: bool` setting still exists and is implicitly enabled whenever `update_channel != Stable` — it controls which GitHub endpoint the checker hits, but the channel drives which release is actually surfaced and installable.
+
+### Branch protection + auto-delete
+
+- `.github/rulesets/protected-release-branches.json` blocks deletion and non-fast-forward pushes on `main`, `beta`, `alpha`, `monthly`, `weekly`, `nightly`. Apply (or re-apply) with `gh workflow run "Apply Branch Rulesets" --ref main`, or through **Actions → Apply Branch Rulesets → Run workflow** in the GitHub UI.
+- `auto-delete-merged-branches.yml` deletes merged PR head branches (so `feat/*` and `fix/*` don't accumulate), while the same six channel names in its `case` are exempted as a soft guardrail. The ruleset is the hard guarantee — the workflow is just quieter.
+- Requires a `RELEASE_PAT` with `administration:write` to apply rulesets.
 
 ---
 
