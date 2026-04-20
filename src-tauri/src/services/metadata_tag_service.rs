@@ -1349,10 +1349,14 @@ fn write_tags_from_registry(
 // ============================================================
 
 /// Returns the advisory suffix string for a content rating value.
+///
+/// Apple Music normally returns lowercase `"explicit"` / `"clean"`, but we
+/// match case-insensitively to be defensive against capitalisation drift
+/// across API responses and locale variants.
 fn advisory_suffix(content_rating: &str) -> Option<&'static str> {
-    match content_rating {
+    match content_rating.trim().to_ascii_lowercase().as_str() {
         "explicit" => Some("[Explicit]"),
-        "clean" => Some("[Clean]"),
+        "clean" | "cleaned" | "explicitcleaned" => Some("[Clean]"),
         _ => None,
     }
 }
@@ -1393,6 +1397,64 @@ pub fn apply_advisory_suffixes(
     }
 
     (new_output_path, renamed_files)
+}
+
+/// Apply content advisory suffixes (`[Explicit]` / `[Clean]`) to any M4A
+/// files in `output_path` that don't yet carry them, reading the advisory
+/// directly from each file's `rtng` atom.
+///
+/// Used as a post-companion pass so companion downloads (ALAC, AAC, etc.)
+/// — which land after the primary enrichment already ran — still pick up
+/// the advisory suffix. Idempotent: files already carrying the suffix are
+/// left alone. Because `rtng` is written by GAMDL itself (the primary
+/// downloader), this works without needing access to the original
+/// `AlbumMetadata` struct.
+pub fn apply_advisory_suffixes_from_tags(output_path: &str) {
+    let m4a_files = collect_m4a_files(output_path);
+    for file_path in &m4a_files {
+        let Ok(tag) = mp4ameta::Tag::read_from_path(file_path) else {
+            continue;
+        };
+        let suffix = match tag.advisory_rating() {
+            Some(mp4ameta::AdvisoryRating::Explicit) => "[Explicit]",
+            Some(mp4ameta::AdvisoryRating::Clean) => "[Clean]",
+            // Inoffensive / None → no advisory suffix
+            _ => continue,
+        };
+        drop(tag);
+
+        let stem = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        // Case-insensitive idempotency guard — avoids double-suffixing.
+        if stem
+            .to_ascii_lowercase()
+            .contains(&suffix.to_ascii_lowercase())
+        {
+            continue;
+        }
+
+        let ext = file_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("m4a");
+        let new_stem = insert_advisory_before_codec_suffix(stem, suffix);
+        let new_name = format!("{new_stem}.{ext}");
+        let new_path = file_path.with_file_name(&new_name);
+
+        match std::fs::rename(file_path, &new_path) {
+            Ok(()) => log::debug!(
+                "Post-companion advisory suffix: {} → {}",
+                file_path.display(),
+                new_path.display()
+            ),
+            Err(e) => log::warn!(
+                "Post-companion advisory rename failed for {}: {e}",
+                file_path.display()
+            ),
+        }
+    }
 }
 
 /// Rename a single M4A file to include its codec suffix.
@@ -1465,9 +1527,11 @@ fn rename_track_with_advisory(
         return file_path.to_path_buf();
     };
 
-    // Check if the file stem already contains this suffix (idempotency)
+    // Check if the file stem already contains this suffix (idempotency).
+    // Matches case-insensitively so re-runs don't double-suffix a file
+    // that was renamed during a previous attempt with different casing.
     let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    if stem.contains(suffix) {
+    if stem.to_ascii_lowercase().contains(&suffix.to_ascii_lowercase()) {
         return file_path.to_path_buf();
     }
 
@@ -1500,14 +1564,32 @@ fn rename_track_with_advisory(
     }
 }
 
-/// Insert the advisory suffix before any existing codec suffix like
-/// `[Lossless]`, `[Dolby Atmos]`, or `[Dolby Digital]`.
+/// Collect every non-empty codec suffix defined in the codec registry.
+///
+/// Used to reorder filenames so the advisory suffix (`[Explicit]` /
+/// `[Clean]`) always precedes the codec suffix, regardless of which codec
+/// suffix happens to be in use. Without this, suffixes outside a small
+/// hardcoded list (`[Binaural]`, `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]`,
+/// etc.) would end up after the advisory instead of before it.
+fn registry_codec_suffixes() -> Vec<&'static str> {
+    use crate::models::codec_registry::CODEC_REGISTRY;
+    CODEC_REGISTRY
+        .audio
+        .iter()
+        .filter_map(|c| c.suffix.as_deref())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Insert the advisory suffix before any existing codec suffix (e.g.
+/// `[Lossless]`, `[Dolby Atmos]`, `[Dolby Digital]`, `[Binaural]`,
+/// `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]`).
 /// If no codec suffix is found, appends at the end.
 fn insert_advisory_before_codec_suffix(stem: &str, advisory: &str) -> String {
-    // Known codec suffixes that should come AFTER advisory
-    let codec_suffixes = ["[Lossless]", "[Dolby Atmos]", "[Dolby Digital]"];
-
-    for cs in &codec_suffixes {
+    // Pull the full codec-suffix set from the registry so every codec
+    // recognised by MeedyaDL ends up with the correct `[Explicit]/[Clean]`
+    // ordering — not just the three originally hardcoded here.
+    for cs in registry_codec_suffixes() {
         if let Some(pos) = stem.find(cs) {
             // Insert advisory before the codec suffix
             let before = stem[..pos].trim_end();
@@ -1541,9 +1623,13 @@ fn rename_folder_with_advisory(
         return output_path.to_string();
     };
 
-    // Check if folder name already contains the suffix (idempotency)
+    // Check if folder name already contains the suffix (idempotency,
+    // case-insensitive to tolerate mixed-case renames from previous runs).
     let folder_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if folder_name.contains(suffix) {
+    if folder_name
+        .to_ascii_lowercase()
+        .contains(&suffix.to_ascii_lowercase())
+    {
         return output_path.to_string();
     }
 
@@ -2326,6 +2412,48 @@ mod tests {
     fn advisory_suffix_none_for_unknown() {
         assert_eq!(advisory_suffix("notRated"), None);
         assert_eq!(advisory_suffix(""), None);
+    }
+
+    #[test]
+    fn advisory_suffix_case_insensitive() {
+        assert_eq!(advisory_suffix("Explicit"), Some("[Explicit]"));
+        assert_eq!(advisory_suffix("EXPLICIT"), Some("[Explicit]"));
+        assert_eq!(advisory_suffix("CLEAN"), Some("[Clean]"));
+        assert_eq!(advisory_suffix("  explicit  "), Some("[Explicit]"));
+    }
+
+    #[test]
+    fn insert_advisory_before_binaural_suffix() {
+        // Regression for #482 — registry-driven suffix list covers every
+        // codec, not just the three originally hardcoded ones.
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [Binaural]", "[Explicit]"),
+            "01 Title [Explicit] [Binaural]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_before_aac_legacy_suffix() {
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [AAC Legacy]", "[Clean]"),
+            "01 Title [Clean] [AAC Legacy]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_before_he_aac_suffix() {
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [HE-AAC]", "[Explicit]"),
+            "01 Title [Explicit] [HE-AAC]"
+        );
+    }
+
+    #[test]
+    fn insert_advisory_before_downmix_suffix() {
+        assert_eq!(
+            insert_advisory_before_codec_suffix("01 Title [Downmix]", "[Explicit]"),
+            "01 Title [Explicit] [Downmix]"
+        );
     }
 
     #[test]
