@@ -1437,7 +1437,7 @@ export function HelpViewer() {
          * typographic styling with dark mode support.
          * ---------------------------------------------------------------- */}
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-2xl prose prose-sm dark:prose-invert">
+          <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema]]}

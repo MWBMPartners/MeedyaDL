@@ -457,6 +457,8 @@ mod tests {
             fallback_occurred: false,
             used_wrapper: false,
             output_is_directory: false,
+            album_name: Some("Test Album".to_string()),
+            artist_name: Some("Test Artist".to_string()),
             warnings: Vec::new(),
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
@@ -504,6 +506,8 @@ mod tests {
             fallback_occurred: false,
             used_wrapper: false,
             output_is_directory: false,
+            album_name: None,
+            artist_name: None,
             warnings: Vec::new(),
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
@@ -544,6 +548,8 @@ mod tests {
             fallback_occurred: true,
             used_wrapper: false,
             output_is_directory: false,
+            album_name: Some("Done Album".to_string()),
+            artist_name: None,
             warnings: Vec::new(),
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };

@@ -143,7 +143,12 @@ export function StatusBar() {
      *
      * @see https://tailwindcss.com/docs/font-size  -- arbitrary font size
      */
-    <div className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-[11px] text-content-tertiary">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label="Download status"
+      className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-[11px] text-content-tertiary"
+    >
       {/*
        * Left section: download activity summary.
        * Conditionally renders one or more count spans depending on

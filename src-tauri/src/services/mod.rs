@@ -245,6 +245,18 @@ pub mod rich_srt_service;
 /// Used by: `download_queue` (post-download enrichment Step 2f, when `generate_ass` enabled)
 pub mod ass_subtitle_service;
 
+/// Music video subtitle / caption extraction service (#483).
+///
+/// After a music video download lands, probes the output file for
+/// subtitle / closed-caption streams (via ffprobe) and extracts each one
+/// to a sidecar file (`.vtt` / `.srt`) next to the video. Also mirrors any
+/// existing song lyrics (TTML/LRC/SRT/VTT/ASS) from the album directory
+/// alongside the music video when the pair is a companion match.
+///
+/// Used by: `download_queue::download_music_video_by_url` (fire-and-forget
+/// post-processing after GAMDL finishes).
+pub mod music_video_subtitle_service;
+
 /// MusicBrainz recording lookup service.
 ///
 /// Queries the MusicBrainz database to discover recording metadata,
@@ -327,6 +339,23 @@ pub mod engine_runner;
 ///
 /// Used by: `commands/system` (IPC), `download_queue` (engine resolution)
 pub mod engine_registry;
+
+/// Service-agnostic metadata provider trait (#351).
+/// Enables Apple Music, iTunes, Spotify, YouTube etc. to provide metadata
+/// through a common interface for the enrichment pipeline.
+pub mod metadata_provider;
+
+/// Service status — fetches remote service enable/disable configuration.
+///
+/// Checks whether services (Apple Music, Spotify, etc.) are currently
+/// available. Used to disable UI elements for temporarily unavailable services.
+pub mod service_status;
+
+/// Smart Download — cross-platform quality optimisation service.
+///
+/// Analyses content availability across services to recommend the best
+/// quality source for a given album/track.
+pub mod smart_download;
 
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]

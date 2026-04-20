@@ -100,6 +100,14 @@ pub struct ComponentUpdate {
     /// Git tag name for this release (e.g., "v0.3.7").
     /// Used by the frontend to construct the download URL for the Tauri updater.
     pub tag_name: Option<String>,
+    /// PyPI package name for pip-based engines (e.g., "ofscraper", "votify").
+    /// Used by the frontend to call `upgrade_pip_engine` with the correct identifier
+    /// (display names like "OF-Scraper" don't match PyPI package names).
+    pub pip_package: Option<String>,
+    /// Canonical tool ID for binary tools (e.g., "ffmpeg", "nm3u8dlre").
+    /// Used by the frontend to call `install_dependency` to re-download and
+    /// upgrade the tool. Only set for external binary tools, not pip engines.
+    pub tool_id: Option<String>,
 }
 
 /// Combined update status for all components.
@@ -119,6 +127,14 @@ pub struct UpdateCheckResult {
     /// Non-fatal errors that occurred during individual checks.
     /// For example, a network timeout on `PyPI` doesn't prevent checking GitHub.
     pub errors: Vec<String>,
+    /// When running a pre-release, the latest stable version available for
+    /// rollback (#267). `None` when running a stable version or if no stable
+    /// release exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollback_version: Option<String>,
+    /// Tag name for the rollback release (e.g., "v0.32.1").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rollback_tag: Option<String>,
 }
 
 // ============================================================
@@ -488,17 +504,90 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
         }
     }
 
+    // Check external tools for updates (#273).
+    // Compares installed tool versions (from tool-versions.toml minimums)
+    // against the latest GitHub release for tools that have known repos.
+    let tool_checks = [
+        ("ffmpeg", "BtbN/FFmpeg-Builds", "FFmpeg"),
+        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE", "N_m3u8DL-RE"),
+    ];
+    for (tool_id, repo, display_name) in &tool_checks {
+        let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
+        if binary.exists() {
+            match check_github_tool_update(app, tool_id, repo, display_name).await {
+                Ok(update) => components.push(update),
+                Err(e) => {
+                    log::debug!("Tool update check failed for {tool_id}: {e}");
+                }
+            }
+        }
+    }
+
     // Aggregate: an update is "available" only if it's both newer AND compatible.
     // This prevents the UI from showing incompatible GAMDL versions as available.
     let has_updates = components
         .iter()
         .any(|c| c.update_available && c.is_compatible);
 
+    // Check for rollback opportunity (#267): when the current version is a
+    // pre-release, fetch the latest stable release for rollback.
+    let current_version = app.package_info().version.to_string();
+    let is_pre = current_version.contains('-'); // e.g., "0.33.0-rc.1"
+    let (rollback_version, rollback_tag) = if is_pre {
+        match fetch_latest_stable_release().await {
+            Ok(Some((ver, tag))) => (Some(ver), Some(tag)),
+            _ => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     UpdateCheckResult {
         checked_at: chrono::Utc::now().to_rfc3339(),
         has_updates,
         components,
         errors,
+        rollback_version,
+        rollback_tag,
+    }
+}
+
+/// Fetch the latest stable (non-pre-release) GitHub release (#267).
+async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, String> {
+    let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases/latest";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(url)
+        .header("User-Agent", "meedyadl")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    let tag = body
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let version = tag
+        .as_ref()
+        .map(|t| t.trim_start_matches('v').to_string());
+
+    match (version, tag) {
+        (Some(v), Some(t)) => Ok(Some((v, t))),
+        _ => Ok(None),
     }
 }
 
@@ -547,6 +636,8 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
         is_prerelease: false,
         tag_name: None,
+        pip_package: Some("gamdl".to_string()),
+        tool_id: None,
     })
 }
 
@@ -617,6 +708,8 @@ async fn check_app_update(
                 release_body: None,
                 is_prerelease: false,
                 tag_name: None,
+                pip_package: None,
+                tool_id: None,
             });
         }
         return Err(format!("GitHub API returned HTTP {}", response.status()));
@@ -646,6 +739,8 @@ async fn check_app_update(
                 release_body: None,
                 is_prerelease: false,
                 tag_name: None,
+                pip_package: None,
+                tool_id: None,
             });
         }
         // Index 0 is the newest release (may be a pre-release).
@@ -776,6 +871,8 @@ fn parse_release_from_response(
         } else {
             Some(raw_tag.to_string())
         },
+        pip_package: None,
+        tool_id: None,
     }
 }
 
@@ -875,6 +972,108 @@ async fn aggregate_intermediate_release_notes(
 /// Compares the installed Python version with the version constant in
 /// `python_manager.rs`. In the future, this could also check GitHub
 /// for newer python-build-standalone releases.
+/// Check for external tool updates via GitHub Releases API (#273).
+///
+/// Queries the latest release from the tool's GitHub repo and compares
+/// the tag against the minimum version from tool-versions.toml. Since
+/// we don't track the exact installed version (only minimum requirements),
+/// this reports "update may be available" when the latest release is newer
+/// than the minimum.
+async fn check_github_tool_update(
+    app: &AppHandle,
+    tool_id: &str,
+    github_repo: &str,
+    display_name: &str,
+) -> Result<ComponentUpdate, String> {
+    // Reuse the centralized dependency-manager logic so each tool uses its
+    // configured version flag and parser instead of assuming `--version`.
+    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
+    let current_version = if binary.exists() {
+        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
+            .await
+            .ok()
+    } else {
+        None
+    };
+    let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed for {tool_id}: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "GitHub API returned {} for {tool_id}",
+            response.status()
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub response for {tool_id}: {e}"))?;
+
+    let latest_tag = body
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim_start_matches('v').to_string())
+        .unwrap_or_default();
+
+    // Extract a normalized semver from the GitHub tag for comparison.
+    // Some repos (e.g., BtbN/FFmpeg-Builds) use non-semver tags like "latest"
+    // or "autobuild-2024-12-19", which can't be compared numerically.
+    // Others (e.g., nilaoda/N_m3u8DL-RE) use "v0.5.1-beta" — we strip
+    // the pre-release suffix to match how extract_version_from_output() works.
+    let semver_re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok();
+    let latest_semver = semver_re
+        .as_ref()
+        .and_then(|re| re.find(&latest_tag))
+        .map(|m| m.as_str().to_string());
+
+    let latest_version = if latest_tag.is_empty() {
+        None
+    } else {
+        Some(latest_tag.clone())
+    };
+
+    // Compare using proper semver comparison via is_newer().
+    // Only report an update if:
+    // 1. Both versions are known
+    // 2. The GitHub tag contains a parseable semver (skip non-version tags like "latest")
+    // 3. The latest semver is genuinely newer than the installed version
+    let update_available = match (&current_version, &latest_semver) {
+        (Some(cur), Some(latest)) => is_newer(cur, latest),
+        _ => false,
+    };
+
+    Ok(ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: latest_semver.or(latest_version),
+        update_available,
+        is_compatible: true,
+        description: if update_available {
+            Some(format!("Newer version of {display_name} available"))
+        } else {
+            None
+        },
+        release_url: Some(format!("https://github.com/{github_repo}/releases/latest")),
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+    })
+}
+
 async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // Get the installed Python version by running the binary with --version.
     // Returns None if Python is not installed.
@@ -913,6 +1112,8 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // Python updates are local version comparisons, not GitHub Releases
         is_prerelease: false,
         tag_name: None,
+        pip_package: None,
+        tool_id: None,
     })
 }
 
@@ -996,6 +1197,8 @@ async fn check_pip_engine_update(
         release_body: None,
         is_prerelease: false,
         tag_name: None,
+        pip_package: Some(pip_package.to_string()),
+        tool_id: None,
     })
 }
 

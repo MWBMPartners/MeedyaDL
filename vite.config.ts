@@ -153,12 +153,17 @@ export default defineConfig({
      * These options provide source code protection for release builds:
      * - **mangle**: Renames local variables, function parameters, and class
      *   names to short identifiers (a, b, c...). `toplevel: true` also mangles
-     *   top-level declarations. `properties.regex` mangles internal properties
-     *   starting with underscore (convention for private members).
+     *   top-level declarations.
      * - **compress**: Removes dead code, inlines constants, collapses
      *   variable declarations, and drops `console.log` calls (debug noise).
      *   `passes: 2` runs compression twice for better optimisation.
      * - **format**: Removes all comments and whitespace from output.
+     *
+     * IMPORTANT: Do NOT enable `mangle.properties` — it renames object property
+     * names across the entire bundle, breaking React internals (._reactInternals,
+     * ._payload, ._init, etc.), Zustand, and other libraries that rely on
+     * underscore-prefixed properties for internal state. This causes a blank
+     * screen in production builds while dev mode works fine.
      *
      * Performance: zero runtime overhead — all processing happens at build time.
      * The output is valid, functional JavaScript; just much harder to read.
@@ -167,9 +172,6 @@ export default defineConfig({
       ? {
           mangle: {
             toplevel: true, // Mangle top-level names (module scope)
-            properties: {
-              regex: /^_/, // Mangle properties starting with _ (private convention)
-            },
           },
           compress: {
             drop_console: true, // Remove console.log/warn/error in production

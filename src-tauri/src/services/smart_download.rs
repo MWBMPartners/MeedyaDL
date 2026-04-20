@@ -133,14 +133,16 @@ pub fn get_service_quality_tier(
             }
         }
         MediaServiceId::Spotify => {
-            // Map Spotify's Ogg Vorbis quality settings
-            match settings.services.spotify.audio_quality.as_str() {
-                "vorbis-high" => QualityTier::Lossy256,
-                _ => QualityTier::Lossy128,
-            }
+            // Spotify quality settings not yet implemented (stub service).
+            // Default to lossy 256 — will be refined when Votify integration lands.
+            QualityTier::Lossy256
         }
         MediaServiceId::YouTube => {
             // YouTube audio extraction is lossy (AAC/Opus ~256kbps at best)
+            QualityTier::Lossy256
+        }
+        MediaServiceId::YouTubeMusic => {
+            // YouTube Music audio extraction is lossy (AAC/Opus ~256kbps at best)
             QualityTier::Lossy256
         }
         MediaServiceId::BBCiPlayer => {

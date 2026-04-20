@@ -168,13 +168,23 @@ export function LyricsTab() {
             onChange={(checked) => updateSettings({ generate_ass: checked })}
           />
 
-          {/* Embed lyrics + keep sidecar */}
+          {/* Embed lyrics/captions */}
           <Toggle
-            label="Embed Lyrics and Keep Sidecar"
-            description="Embed lyrics in audio file metadata and also save a separate lyrics file for maximum player compatibility"
+            label="Embed Lyrics / Captions"
+            description="Embed lyrics and subtitle content into audio file metadata. Enhanced LRC is embedded in the standard lyrics atom; SRT/WebVTT are embedded as freeform metadata when 'Embed Subtitles' is also enabled."
             checked={settings.embed_lyrics_and_sidecar}
             onChange={(checked) => updateSettings({ embed_lyrics_and_sidecar: checked })}
           />
+
+          {/* Keep sidecar files (only shown when embed is enabled) */}
+          {settings.embed_lyrics_and_sidecar && (
+            <Toggle
+              label="Keep Sidecar Lyrics / Caption Files"
+              description="Keep separate .lrc, .srt, and .ttml files alongside audio files after embedding. Useful for players that read external lyrics files."
+              checked={settings.keep_lyrics_sidecar}
+              onChange={(checked) => updateSettings({ keep_lyrics_sidecar: checked })}
+            />
+          )}
 
           {/* Synced lyrics format checkboxes */}
           <div className={formatsDisabled ? 'opacity-50' : ''}>
