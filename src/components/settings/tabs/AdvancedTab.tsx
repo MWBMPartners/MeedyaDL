@@ -131,6 +131,22 @@ const REMUX_MODE_OPTIONS = [
 ];
 
 /**
+ * GAMDL idle-output timeout options, in minutes (#507).
+ * Values passed to `settings.gamdl_idle_timeout_minutes`; the watchdog
+ * in `services::companion_supervisor` treats this as the max span between
+ * stdout/stderr lines during the active-download phase before killing
+ * the child. The watchdog pauses automatically once post-processing
+ * starts so a slow remux on a network volume doesn't trip it.
+ */
+const GAMDL_IDLE_TIMEOUT_OPTIONS = [
+  { value: '2', label: '2 minutes' },
+  { value: '5', label: '5 minutes (default)' },
+  { value: '10', label: '10 minutes' },
+  { value: '15', label: '15 minutes' },
+  { value: '30', label: '30 minutes' },
+];
+
+/**
  * AdvancedTab -- Renders the Advanced settings tab.
  *
  * Contains sections: Processing, Wrapper, File Options, Error Reporting,
@@ -293,6 +309,15 @@ export function AdvancedTab() {
           options={REMUX_MODE_OPTIONS}
           value={settings.remux_mode}
           onChange={(e) => updateSettings({ remux_mode: e.target.value as RemuxMode })}
+        />
+        <Select
+          label="GAMDL Idle Timeout"
+          description="Kill the GAMDL process if no output arrives for this many minutes. The watchdog pauses automatically once post-processing (remux / decrypt) begins, so this won't cut short a slow remux on a network volume."
+          options={GAMDL_IDLE_TIMEOUT_OPTIONS}
+          value={String(settings.gamdl_idle_timeout_minutes)}
+          onChange={(e) =>
+            updateSettings({ gamdl_idle_timeout_minutes: Number(e.target.value) })
+          }
         />
       </SettingsSection>
 
