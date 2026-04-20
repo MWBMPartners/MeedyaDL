@@ -467,6 +467,11 @@ export interface AppSettings {
   update_channel: UpdateChannel;
   /** How often (in hours) to periodically check for updates. 0 = startup only. */
   update_check_interval_hours: number;
+  /** Minutes of stdout/stderr silence the companion supervisor tolerates
+   * before killing a GAMDL child (#505). The watchdog pauses automatically
+   * once post-processing begins, so a slow remux on a network volume will
+   * not trip the killswitch. Default: 5. */
+  gamdl_idle_timeout_minutes: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
   /** Whether to send native OS desktop notifications for download events (completion/failure).

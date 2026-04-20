@@ -72,6 +72,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   check_pre_releases: false, // Only show stable releases by default
   update_channel: 'stable', // Subscribe to the stable release channel
   update_check_interval_hours: 6, // Check for updates every 6 hours
+  gamdl_idle_timeout_minutes: 5, // Kill hung GAMDL after 5 min of silent output (#505)
   auto_start_queue: true, // Start processing immediately when items are enqueued
   desktop_notifications: true, // OS-native notifications for download events when window not focused
   notification_style: 'native_and_in_app' as const, // Both native + in-app by default
