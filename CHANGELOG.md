@@ -6,8 +6,22 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(fs)** Collision-proof every rename/write path (generalise #483 invariant) (#494)
+
+## Summary
+
+  Generalises the "different content must never land on the same filename
+  silently" invariant that shipped for music-video subtitle sidecars in
+  #483 to **every** rename / write / copy site in the Rust backend.
+  Addresses 6 HIGH-severity sites where different logical content could
+  silently overwrite on Unix.
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.34.5] - 2026-04-20
@@ -110,6 +124,15 @@ Rust 1.95 shipped the new `clippy::manual_checked_ops` lint which
   `downloaded.checked_mul(100).and_then(|n| n.checked_div(total_size))`,
   which produces the same percentage when `total_size > 0` and
   short-circuits otherwise.
+
+- **(fs)** Collision-proof every rename/write path, not just MV subtitles
+
+Extends the "never silently overwrite a different file" invariant —
+  previously scoped to music-video subtitle sidecars — to every rename
+  and write site in the app where different logical content could land
+  on the same path.
+
+  ## Why
 
 - Music video filenames, Explicit/Clean suffix, collision-proof subtitles, activity-log progress splitting (#484)
 
