@@ -555,6 +555,204 @@ pub async fn plan_playlist_deduplication(
 }
 
 // ============================================================
+// Album / song URL dedup vs history (#514)
+// ============================================================
+
+/// Dedup outcome for a single album URL.
+#[derive(Debug, Clone)]
+pub enum AlbumPlan {
+    /// Replace the album URL with this explicit list of per-track URLs
+    /// (only the non-duplicate subset will be downloaded).
+    TrackUrls(Vec<String>),
+    /// Every track in the album already exists in the queue / history —
+    /// don't enqueue this URL.
+    SkipEntirely,
+    /// Dedup couldn't run (no token, API error, song-URL form, unparseable
+    /// album ID). Keep the original album URL unchanged.
+    FallbackToAlbumUrl,
+}
+
+/// Result of [`plan_album_deduplication`].
+#[derive(Debug, Clone)]
+pub struct AlbumDedupPlan {
+    /// What to do with the album URL.
+    pub plan: AlbumPlan,
+    /// Human-readable "Already downloaded" lines.
+    pub activity_lines: Vec<String>,
+    /// Count of tracks skipped (diagnostic).
+    pub skipped_count: usize,
+    /// Count of tracks kept (diagnostic).
+    pub kept_count: usize,
+}
+
+/// Plan duplicate detection for a single album URL.
+///
+/// Unlike the artist/playlist planners (which also dedupe against
+/// intra-session sources), this planner is strictly **cross-session** —
+/// it only makes sense when queue or history keys exist to compare
+/// against. Returns `None` otherwise.
+///
+/// Common use cases caught here:
+///
+/// - User queues a deluxe edition after already downloading the standard
+///   edition → only the bonus tracks are enqueued.
+/// - User re-queues an album they forgot they already downloaded →
+///   [`AlbumPlan::SkipEntirely`] is returned; caller surfaces a toast.
+///
+/// # Notes
+///
+/// - Album URLs containing `?i=song_id` (individual-song selectors)
+///   return `None` — those are a single-song request and the user is
+///   making an explicit pick; this function doesn't second-guess it.
+/// - `lastModifiedDate` interaction with smart re-download (#263) is
+///   deferred to a follow-up; if the album has changed since last
+///   download but matches this dedup, the user currently sees both
+///   signals (re-download toast + dedup trim). Refinement tracked
+///   separately.
+pub async fn plan_album_deduplication(
+    _app: &AppHandle,
+    parsed: &ParsedAppleMusicUrl,
+    settings: &AppSettings,
+    queued_keys: &HashSet<String>,
+    history_keys: &HashSet<String>,
+) -> Option<AlbumDedupPlan> {
+    let cfg = &settings.duplicate_detection;
+
+    if matches!(cfg.scope, DuplicateDetectionScope::Off) {
+        return None;
+    }
+    if parsed.content_type != "album" || parsed.album_id.is_empty() {
+        return None;
+    }
+    // Album URLs with ?i=song_id are a single-song download — pass through.
+    if parsed.song_id.is_some() {
+        return None;
+    }
+    if queued_keys.is_empty() && history_keys.is_empty() {
+        return None;
+    }
+
+    let Some(jwt) = resolve_jwt(settings) else {
+        log::info!(
+            "Album dedup: no MusicKit token available for album {}, keeping original URL",
+            parsed.album_id
+        );
+        return Some(AlbumDedupPlan {
+            plan: AlbumPlan::FallbackToAlbumUrl,
+            activity_lines: Vec::new(),
+            skipped_count: 0,
+            kept_count: 0,
+        });
+    };
+
+    // Use the same storefront-fallback fetch as the enrichment pipeline
+    // so region-mismatched share URLs still work.
+    let album = match apple_music_api::fetch_album_metadata_with_fallback(
+        &jwt,
+        &parsed.storefront,
+        &parsed.album_id,
+    )
+    .await
+    {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            log::info!(
+                "Album dedup: album {} not found in catalog — falling back to original URL",
+                parsed.album_id
+            );
+            return Some(AlbumDedupPlan {
+                plan: AlbumPlan::FallbackToAlbumUrl,
+                activity_lines: Vec::new(),
+                skipped_count: 0,
+                kept_count: 0,
+            });
+        }
+        Err(e) => {
+            log::warn!(
+                "Album dedup: fetch_album_metadata_with_fallback failed for {}: {e}",
+                parsed.album_id
+            );
+            return Some(AlbumDedupPlan {
+                plan: AlbumPlan::FallbackToAlbumUrl,
+                activity_lines: Vec::new(),
+                skipped_count: 0,
+                kept_count: 0,
+            });
+        }
+    };
+
+    if album.tracks.is_empty() {
+        return Some(AlbumDedupPlan {
+            plan: AlbumPlan::FallbackToAlbumUrl,
+            activity_lines: Vec::new(),
+            skipped_count: 0,
+            kept_count: 0,
+        });
+    }
+
+    let strategy = cfg.key_strategy;
+    let mut kept_urls: Vec<String> = Vec::new();
+    let mut activity_lines: Vec<String> = Vec::new();
+    let mut skipped_count: usize = 0;
+
+    for t in &album.tracks {
+        let Some(key) = build_track_key(t, strategy) else {
+            // Can't dedupe — keep. Happens if IsrcOnly is configured and
+            // the API didn't return one for this track.
+            if let Some(url) = build_track_url(&parsed.storefront, &parsed.album_id, &t.song_id) {
+                kept_urls.push(url);
+            }
+            continue;
+        };
+
+        if queued_keys.contains(&key) {
+            skipped_count += 1;
+            activity_lines.push(format!(
+                "Already downloaded / queued: {} — skipping",
+                t.name
+            ));
+            continue;
+        }
+        if history_keys.contains(&key) {
+            skipped_count += 1;
+            activity_lines.push(format!(
+                "Already in download history: {} — skipping",
+                t.name
+            ));
+            continue;
+        }
+
+        if let Some(url) = build_track_url(&parsed.storefront, &parsed.album_id, &t.song_id) {
+            kept_urls.push(url);
+        }
+    }
+
+    let kept_count = kept_urls.len();
+    let plan = if kept_urls.is_empty() {
+        AlbumPlan::SkipEntirely
+    } else if skipped_count == 0 {
+        // Nothing was deduped — don't bother rewriting the URL list;
+        // the original album URL downloads more efficiently as one unit
+        // (GAMDL's native album handling > per-track URLs).
+        AlbumPlan::FallbackToAlbumUrl
+    } else {
+        AlbumPlan::TrackUrls(kept_urls)
+    };
+
+    log::info!(
+        "Album dedup: album {} — {kept_count} kept, {skipped_count} skipped",
+        parsed.album_id
+    );
+
+    Some(AlbumDedupPlan {
+        plan,
+        activity_lines,
+        skipped_count,
+        kept_count,
+    })
+}
+
+// ============================================================
 // Internal helpers
 // ============================================================
 
