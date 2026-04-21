@@ -140,6 +140,7 @@ beforeEach(() => {
       remux_mode: 'ffmpeg',
       sentry_enabled: false,
       verbose_activity_log: false,
+      verbose_gamdl_exceptions: false,
     },
     isDirty: false,
     isLoading: false,

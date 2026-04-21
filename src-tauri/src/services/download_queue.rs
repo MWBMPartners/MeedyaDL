@@ -2036,8 +2036,32 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.download_mode = Some(settings.download_mode.clone());
     options.remux_mode = Some(settings.remux_mode.clone());
 
-    // Apply metadata options
-    options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+    // Apply metadata options.
+    //
+    // `fetch_extra_tags` is version-gated: the CLI flag exists in every
+    // v2.x release but was removed in GAMDL v3.0 ("Remove extra tags
+    // fetching and preview parsing"). Emitting `--fetch-extra-tags` on
+    // v3+ crashes the subprocess with a Click "no such option" error, so
+    // we leave the field as `None` there — `GamdlOptions::to_cli_args()`
+    // only emits the flag when the value is `Some(true)`.
+    if super::gamdl_capabilities::supports(
+        super::gamdl_capabilities::GamdlFeature::FetchExtraTags,
+    ) {
+        options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+    }
+
+    // Default to `--no-exceptions` so GAMDL prints a single user-facing
+    // line per failure instead of a full Python traceback. GAMDL v3.0
+    // interleaves structlog-formatted lines with raw multi-line
+    // tracebacks, which makes the activity log unreadable and confuses
+    // `classify_error()` (frame paths like `httpx/_transports/default.py`
+    // pick up the "Error" keyword falsely). Users debugging upstream
+    // issues can flip the `verbose_gamdl_exceptions` setting to get the
+    // full stack trace back; in that case we leave `no_exceptions` as
+    // `None` so `to_cli_args()` never emits the flag.
+    if !settings.verbose_gamdl_exceptions {
+        options.no_exceptions = Some(true);
+    }
 
     // Apply exclude tags
     if !settings.exclude_tags.is_empty() {
@@ -9274,6 +9298,82 @@ mod tests {
     fn count_codec_skip_warnings_empty() {
         let warnings: Vec<String> = vec![];
         assert_eq!(count_codec_skip_warnings(&warnings), 0);
+    }
+
+    /// Exercises `count_codec_skip_warnings` against a synthetic GAMDL
+    /// v3.0 stderr capture that includes the structlog prefix.
+    ///
+    /// `count_codec_skip_warnings` matches by substring (lowercased),
+    /// so the `[WARNING  HH:MM:SS]` prefix should not prevent a match.
+    /// This test pins that invariant so a future regression in the
+    /// matcher (e.g. someone anchoring the pattern at line start) is
+    /// caught immediately.
+    ///
+    /// Fixture wording best-effort synthesis — see #521.
+    #[test]
+    fn count_codec_skip_warnings_handles_structlog_prefix() {
+        let v3_lines = vec![
+            "[WARNING  12:10:05] Skipping \"Track Two\": Requested format is not available".to_string(),
+            "[INFO     12:10:06] Downloading \"Track Three\"".to_string(),
+            "[WARNING  12:10:09] Skipping \"Track Four\": Requested format is not available".to_string(),
+            "[INFO     12:10:10] Finished with 2 error(s)".to_string(),
+        ];
+        assert_eq!(
+            count_codec_skip_warnings(&v3_lines),
+            2,
+            "count_codec_skip_warnings must see past GAMDL v3.0's \
+             structlog [LEVEL HH:MM:SS] prefix"
+        );
+    }
+
+    /// End-to-end: if the matcher works, the gap-fill chain builder
+    /// must also produce a usable priority string when experimental
+    /// codecs (wrapper-dependent) are present. Ties the two helpers
+    /// together so a regression in one doesn't silently break the
+    /// pipeline.
+    #[test]
+    fn v3_codec_skips_drive_gapfill_chain_construction() {
+        let warnings = vec![
+            "[WARNING  12:10:05] Skipping \"T1\": Requested format is not available".to_string(),
+            "[WARNING  12:10:09] Skipping \"T2\": Requested format is not available".to_string(),
+        ];
+        let skip_count = count_codec_skip_warnings(&warnings);
+        assert!(skip_count > 0);
+
+        // Original chain favours Atmos (wrapper-dependent), then ALAC.
+        // Gap-fill should drop Atmos and keep ALAC/AAC so the retry
+        // pass can fill the missing tracks with lossless/lossy
+        // fallbacks.
+        let gap = build_gapfill_priority_chain("atmos,alac,aac").unwrap();
+        assert_eq!(gap, "alac,aac");
+    }
+
+    /// `extract_python_exception` scans stderr for traceback lines.
+    /// v3.0 leaves tracebacks unwrapped (structlog only formats
+    /// `logger.error` calls, not the traceback Python itself prints),
+    /// so this should still work. Pin the behaviour.
+    #[test]
+    fn v3_network_traceback_extraction_survives_structlog_interleaving() {
+        let stderr_lines = vec![
+            "[INFO     12:30:00] Processing \"https://music.apple.com/us/album/example/1234567890\"".to_string(),
+            "[ERROR    12:30:05] Error processing \"https://...\": Connection timed out".to_string(),
+            "Traceback (most recent call last):".to_string(),
+            "  File \"gamdl/cli/cli.py\", line 142, in main".to_string(),
+            "    downloader.download(url)".to_string(),
+            "  File \"httpx/_transports/default.py\", line 118, in map_httpcore_exceptions".to_string(),
+            "    raise mapped_exc(message) from exc".to_string(),
+            "httpx.ConnectTimeout: Connection timed out".to_string(),
+        ];
+        let exception = extract_python_exception(&stderr_lines);
+        assert!(
+            exception.is_some(),
+            "extract_python_exception should have captured the traceback"
+        );
+        let msg = exception.unwrap();
+        assert!(
+            msg.contains("ConnectTimeout"),
+            "Expected the final exception line to be extracted; got: {msg}"
+        );
     }
 
     // ==========================================================
