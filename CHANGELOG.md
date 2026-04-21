@@ -8,6 +8,145 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(dedup)** Pre-queue track-level duplicate detection for artist URLs (#510)
+
+When an Apple Music artist URL is fanned out across multiple
+  artist_auto_select_multi modes (e.g. main-albums + singles-eps +
+  compilation-albums), the same song would previously be downloaded
+  multiple times at the same quality because each mode spawned an
+  independent GAMDL subprocess with no cross-process awareness.
+
+  Fetch each mode's track list via the Apple Music catalog API
+  before enqueueing, then skip duplicates according to a
+  user-configurable preference hierarchy (default: main-albums >
+  singles-eps > compilation-albums > live-albums > top-songs). The
+  winning mode's queue item is rewritten to explicit per-track
+  URLs; modes with zero unique tracks are suppressed entirely. API
+  failures fall back to the original artist URL so downloads are
+  never blocked.
+
+  Scope is configurable (off / intra-session / intra+queued /
+  intra+queued+history) and match key strategy can be swapped
+  between song_id (with ISRC fallback), ISRC-only, or song_id-only.
+  Companion-format downloads are unaffected — a song chosen from
+  one mode still runs the full ALAC/Atmos/AAC companion chain.
+
+- **(dedup)** Skip playlist tracks that overlap queue or history (#512)
+
+When a user queues an Apple Music playlist URL, fetch the playlist's
+  tracks via the catalog API and trim it to the subset that isn't already
+  present in the active queue or in existing manifest.meedyadl files
+  (per the duplicate_detection.scope setting). All tracks duplicated →
+  the playlist isn't enqueued at all.
+
+  - Extend ParsedAppleMusicUrl with a playlist_id field and add a catalog
+    PLAYLIST_RE matcher (library playlists deliberately skipped — they'd
+    need Music-User-Token auth and a different endpoint).
+  - Add fetch_playlist_tracks() to apple_music_api.rs (paginated, 50-page
+    cap matching fetch_artist_albums).
+  - Add plan_playlist_deduplication() + PlaylistPlan / PlaylistDedupPlan
+    public types to duplicate_detector.rs, reusing the existing
+    build_track_key_from_parts / build_track_url / resolve_jwt helpers.
+  - Wire the planner into start_download's single-URL path (single
+    playlist URLs only; batch pastes will be covered by #513).
+  - Intra-playlist dedup: a song listed twice in the same playlist is
+    also collapsed to one download.
+  - Graceful fallback on any failure path (missing token, API error,
+    library playlist, zero usable tracks) — never blocks a download.
+
+- **(dedup)** Skip album tracks already in queue or history (#514)
+
+When a single album URL is queued, cross-check its tracks against the
+  active queue and (per duplicate_detection.scope) existing manifest.meedyadl
+  files in the output directory. Tracks already present are dropped; the
+  remaining subset is enqueued as per-track URLs. If every track is a
+  duplicate, nothing is enqueued and the caller receives a duplicate_warning
+  surfacing the "everything already downloaded" state.
+
+  - Add plan_album_deduplication() + AlbumPlan / AlbumDedupPlan in
+    duplicate_detector.rs, reusing build_track_key / build_track_url /
+    resolve_jwt from the artist + playlist planners.
+  - Wire into start_download's single-URL path (batch pastes will be
+    handled by #513). Album URLs with ?i=song_id are passed through
+    unchanged — those are explicit single-song requests.
+  - Short-circuit the catalog API call when there's nothing to compare
+    against (empty queue + history).
+  - No dedup runs → the original album URL is kept unchanged (more
+    efficient than switching to per-track URLs for no gain).
+
+  Graceful fallback on API / credential failures; never blocks a
+  download.
+
+  Interaction with smart re-download (#263): both signals can surface
+  simultaneously for now; refinement (suppressing dedup when
+  lastModifiedDate differs) deferred to a follow-up.
+
+- **(dedup)** Cross-URL batch deduplication (#513)
+
+When multiple URLs are pasted in a single request (e.g. album + playlist
+  + song URLs that overlap), walk every classifiable album and playlist
+  track list and apply a source-priority filter so each track is claimed
+  by exactly one URL. Albums claim tracks before playlists (an album is
+  the more canonical source). Song URLs and album?i=song_id URLs are
+  treated as explicit picks and claim their song_ids up-front. Artist,
+  music-video, and unrecognised URLs pass through unchanged.
+
+  - Add plan_batch_deduplication() + BatchUrlAction / BatchDedupPlan in
+    duplicate_detector.rs. Reuses the existing JWT resolver, track-key
+    builder, and per-track URL builder.
+  - Wire into start_download BEFORE the single-URL planners (#510, #512,
+    #514) so the later planners see the already-trimmed URL list.
+  - Skip the expensive fetch when urls.len() < 2 or no album/playlist
+    URL is present in the batch.
+  - When every URL in the batch is fully deduped, return a
+    duplicate_warning and don't enqueue anything.
+
+  Rename parse_playlist_url_returns_none to parse_playlist_url_extracts_id
+  (now that #512 made playlist URLs parseable) and add a matching
+  parse_library_playlist_url_returns_none check.
+
+  All 728 lib tests + 293 frontend tests pass. Rust compiles clean.
+
+- **(dedup)** Pre-queue duplicate detection for artist, playlist, album, and batch URLs (#511)
+
+## Summary
+
+  Comprehensive pre-queue duplicate-detection across **every URL type**
+  MeedyaDL handles. Before any URL hits GAMDL, the Apple Music catalog API
+  is consulted to identify tracks that would otherwise be downloaded
+  multiple times at the same quality — whether across artist auto-select
+  modes, inside a playlist, inside the download history, or across a batch
+  of pasted URLs. A user-configurable priority hierarchy + scope + key
+  strategy decides which copy wins; the rest are skipped with an Activity
+  Log entry naming the kept and skipped sources.
+
+  **Scope guarantee (unchanged across all 4 issues):** operates on **track
+  identity** only. Companion-format downloads (ALAC / Atmos / AAC etc.)
+  are untouched — a song chosen by dedup still runs the full
+  `companion_mode` chain.
+
+
+### 🐛 Bug Fixes
+
+- **(dedup)** Appease clippy::question_mark lint
+
+Replace `let Some(playlist_id) = parsed.playlist_id.as_deref() else {
+  return None; }` with `let playlist_id = parsed.playlist_id.as_deref()?;`
+  — the function already returns Option<PlaylistDedupPlan>, so the `?`
+  operator is equivalent and preferred by clippy in this codebase
+  (CI runs `cargo clippy -- -D warnings`).
+
+  Backend CI on all 3 OSes failed on this single lint; no other issues.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.36.0] - 2026-04-21
+
+### ✨ Features
+
 - Companion-download resilience — soft errors, watchdog, scoping, audioTraits gate
 
 Wraps every companion-tier GAMDL spawn in a new
