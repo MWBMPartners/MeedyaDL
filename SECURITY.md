@@ -7,6 +7,16 @@
 | 0.29.x  | :white_check_mark: |
 | < 0.29  | :x:                |
 
+## Supported Components
+
+MeedyaDL ships with a validated **component support matrix** — a pinned range of versions for every external dependency (Python runtime, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo). We only verify the security and functional behaviour of these components within those ranges.
+
+- The current support matrix lives in [README.md](./README.md#-component-support-matrix) and is the canonical, user-facing reference.
+- The machine-readable source of truth is [`src-tauri/tool-versions.toml`](./src-tauri/tool-versions.toml). Bumping a component's range requires a code change, review, and a new MeedyaDL release.
+- GAMDL specifically is bounded by `[gamdl] maximum_tested_version` so update prompts are suppressed when upstream ships beyond the validated ceiling. Users can still install newer versions manually but will see an activity-log warning and lose our support guarantees until the next MeedyaDL release validates that range.
+
+Running MeedyaDL with components **outside** the listed ranges (e.g. a manually installed newer GAMDL, or a system-PATH FFmpeg below our floor) is not a supported configuration. We will triage bug reports against supported versions first, and may decline to investigate issues that do not reproduce inside the documented range.
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in MeedyaDL, please report it responsibly:

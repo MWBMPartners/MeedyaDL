@@ -1123,6 +1123,25 @@ pub struct AppSettings {
     #[serde(default)]
     pub verbose_activity_log: bool,
 
+    /// When `true`, GAMDL prints full Python tracebacks to stderr on
+    /// uncaught exceptions. When `false` (default), MeedyaDL passes
+    /// `--no-exceptions` to every GAMDL invocation so only the final
+    /// one-line error message reaches the activity log.
+    ///
+    /// Default is `false` because GAMDL v3.0's structlog migration
+    /// interleaves structured log lines with raw multi-line tracebacks,
+    /// which turns the activity log into an unreadable blob and makes
+    /// `classify_error()` match the wrong keyword (e.g. picking up
+    /// "Error" from a traceback filepath like
+    /// `httpx/_transports/default.py`).
+    ///
+    /// Flip this on when filing upstream bug reports against GAMDL —
+    /// you lose a clean activity log but gain the full call stack.
+    ///
+    /// Controlled in Settings > Advanced > Diagnostics.
+    #[serde(default)]
+    pub verbose_gamdl_exceptions: bool,
+
     // ================================================================
     // Internal / Developer
     // ================================================================
@@ -1569,6 +1588,10 @@ impl Default for AppSettings {
             sentry_enabled: false,
             // Verbose activity log disabled by default — may expose sensitive data.
             verbose_activity_log: false,
+            // GAMDL tracebacks suppressed by default — structlog-wrapped
+            // stderr is unreadable with raw tracebacks interleaved. Users
+            // debugging upstream issues can flip this in Settings > Advanced.
+            verbose_gamdl_exceptions: false,
 
             // --- Internal / Developer ---
             // Developer access is disabled by default; activated via hidden gesture.

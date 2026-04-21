@@ -114,14 +114,25 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
         );
     }
 
-    // Run `python -m pip install --upgrade gamdl`.
-    // `-m pip` invokes pip as a module of our managed Python, ensuring we use
-    // the correct pip instance rather than any system pip.
-    // `--upgrade` ensures we get the latest version even if an older one exists,
-    // which is important for the update flow.
+    // Run `python -m pip install --upgrade {spec}` where `{spec}` is
+    // bounded by the GAMDL support window compiled into this build
+    // (e.g. `gamdl>=2.9.1,<=3.0`). Without the ceiling, `--upgrade`
+    // silently pulls future GAMDL majors that remove or rename CLI
+    // flags MeedyaDL depends on — GAMDL v3.0 dropped
+    // `--fetch-extra-tags` and caused exactly this class of fire.
+    //
+    // `-m pip` invokes pip as a module of our managed Python, so we
+    // always use the correct pip instance (not any system pip).
+    // `--upgrade` + the bounded spec together mean "pick the newest
+    // release inside the tested range, even if an older one exists".
+    // The spec is defined in `tool-versions.toml` → `[gamdl]` and
+    // read via `services::gamdl_capabilities::pip_version_spec()`.
+    //
     // GAMDL's PyPI page: https://pypi.org/project/gamdl/
+    let pip_spec = super::gamdl_capabilities::pip_version_spec();
+    log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
-        .args(["-m", "pip", "install", "--upgrade", "gamdl"])
+        .args(["-m", "pip", "install", "--upgrade", &pip_spec])
         .output()
         .await
         .map_err(|e| format!("Failed to run pip install: {e}"))?;
@@ -137,7 +148,11 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
 
     // Get the installed version by parsing `pip show gamdl` output.
     // We do this after install to confirm the exact version that was installed
-    // and return it to the frontend for display.
+    // and return it to the frontend for display. `get_gamdl_version` also
+    // refreshes the shared capability cache so every consumer (CLI-arg
+    // builder, config.ini writer, download queue) sees the new version
+    // immediately — critical for upgrades that add or remove CLI flags
+    // (e.g. v2.x → v3.0 which dropped `--fetch-extra-tags`).
     let version = get_gamdl_version(app)
         .await?
         .unwrap_or_else(|| "unknown".to_string());
@@ -220,6 +235,13 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
         .lines()
         .find(|line| line.starts_with("Version:"))
         .map(|line| line.trim_start_matches("Version:").trim().to_string());
+
+    // Keep the shared capability cache in sync. Every reader (CLI-arg
+    // builder, config.ini writer, download queue) asks this cache
+    // whether a given flag / INI key is safe to emit for the currently
+    // installed GAMDL release, so stale data here silently breaks
+    // downloads after the user upgrades or downgrades GAMDL.
+    super::gamdl_capabilities::set_detected_version(version.clone());
 
     Ok(version)
 }

@@ -178,6 +178,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
   verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)
+  verbose_gamdl_exceptions: false, // Pass --no-exceptions to GAMDL by default; flip on for upstream bug reports
   dev_access_enabled: false, // Internal developer access mode (hidden, not in normal Settings UI)
   last_seen_version: '', // Last app version the user launched (empty = first run)
   setup_completed: false, // Whether the setup wizard has been completed at least once
