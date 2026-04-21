@@ -238,6 +238,106 @@ fn default_cover_art_name() -> CoverArtName {
 }
 
 // ============================================================
+// Duplicate Detection (#510)
+// ============================================================
+
+/// Scope of the pre-queue duplicate-detection pass.
+///
+/// Controls how far we look when deciding whether a track fetched from the
+/// Apple Music API is already "claimed" by another download. Broader scopes
+/// do more I/O (reading manifest files on disk) but catch more duplicates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateDetectionScope {
+    /// Feature disabled — no duplicate detection is performed.
+    Off,
+    /// Dedupe only within the fan-out of the current artist URL
+    /// (across the N modes in `artist_auto_select_multi`).
+    IntraSession,
+    /// Intra-session plus songs already present in other queue items
+    /// (Queued / Downloading / Processing states).
+    #[default]
+    IntraAndQueued,
+    /// Intra-session, queue, AND songs recorded in existing manifest files
+    /// under the configured output directory (prior download history).
+    /// Walks the output directory once per artist-URL enqueue.
+    IntraAndQueuedAndHistory,
+}
+
+/// Dedup-key strategy when comparing two tracks.
+///
+/// Apple Music's internal `song_id` is the most reliable key (unique per
+/// master). ISRC is shared across re-releases, which is either desired
+/// (catching remasters) or too aggressive (collapsing distinct masters).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DedupKeyStrategy {
+    /// Primary key: Apple Music `song_id`. Fall back to ISRC only when
+    /// `song_id` is absent. Recommended default.
+    #[default]
+    SongIdIsrcFallback,
+    /// Use ISRC exclusively — catches remasters/re-releases as duplicates.
+    IsrcOnly,
+    /// Use `song_id` exclusively — most conservative, won't collapse
+    /// different masters of the same recording.
+    SongIdOnly,
+}
+
+/// Settings governing the pre-queue duplicate-detection pipeline.
+///
+/// Applied when an Apple Music artist URL is fanned out into multiple
+/// queue items (one per `artist_auto_select_multi` mode). Before those
+/// items are enqueued, each mode's track list is fetched via the Apple
+/// Music catalog API and filtered against the user's preference order so
+/// that a given song is downloaded exactly once.
+///
+/// Disabling this (via `scope: Off`) makes the feature a no-op.
+///
+/// ## Scope (important)
+///
+/// This operates on **track identity** only — the same song appearing in
+/// multiple artist-auto-select modes (album, single, compilation, etc.).
+/// Companion downloads that produce multiple **format** versions of the
+/// same song (ALAC / Atmos / AAC / AC3 etc., governed by `companion_mode`)
+/// are NOT touched. A song chosen from, say, the main-album mode still
+/// triggers the user's full companion chain. Dedup only prevents the
+/// same-quality copy from being fetched 3 times because it happens to
+/// appear in 3 different albums under an artist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DuplicateDetectionSettings {
+    /// Which scopes to consult when deciding if a track is a duplicate.
+    pub scope: DuplicateDetectionScope,
+    /// Ordered priority of artist-auto-select modes. When the same song
+    /// appears in multiple fetched modes, the mode earliest in this list
+    /// wins and keeps the track; later modes have the duplicate skipped.
+    /// Modes not present in this list fall to the end in default order.
+    pub preference_order: Vec<ArtistAutoSelect>,
+    /// How strict to be when matching tracks (see [`DedupKeyStrategy`]).
+    pub key_strategy: DedupKeyStrategy,
+}
+
+impl Default for DuplicateDetectionSettings {
+    fn default() -> Self {
+        Self {
+            scope: DuplicateDetectionScope::IntraAndQueued,
+            // User-agreed default order: full album > singles/EPs >
+            // compilations > live albums > top-songs. Music videos are
+            // intentionally omitted (not an audio track) and won't be
+            // deduplicated even when selected.
+            preference_order: vec![
+                ArtistAutoSelect::MainAlbums,
+                ArtistAutoSelect::SinglesEps,
+                ArtistAutoSelect::CompilationAlbums,
+                ArtistAutoSelect::LiveAlbums,
+                ArtistAutoSelect::TopSongs,
+            ],
+            key_strategy: DedupKeyStrategy::SongIdIsrcFallback,
+        }
+    }
+}
+
+// ============================================================
 // Per-service settings (#319)
 // ============================================================
 
@@ -975,6 +1075,18 @@ pub struct AppSettings {
     #[serde(default)]
     pub artist_auto_select_multi: Vec<ArtistAutoSelect>,
 
+    /// Pre-queue duplicate-detection settings (#510).
+    ///
+    /// When a multi-mode artist URL is fanned out into N downloads, songs
+    /// that exist in multiple modes (e.g. the same track on an album AND a
+    /// compilation) would otherwise be downloaded multiple times at the
+    /// same quality. This setting controls the dedup strategy.
+    ///
+    /// Does NOT affect companion-format downloads — a song chosen from one
+    /// mode still runs the full `companion_mode` chain.
+    #[serde(default)]
+    pub duplicate_detection: DuplicateDetectionSettings,
+
     // ================================================================
     // Crash Reporting & Telemetry
     // ================================================================
@@ -1192,7 +1304,7 @@ fn default_notification_style() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 1;
+pub const CURRENT_SETTINGS_VERSION: u32 = 2;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1444,6 +1556,12 @@ impl Default for AppSettings {
             artist_auto_select: None,
             // No multi-mode artist selection by default.
             artist_auto_select_multi: Vec::new(),
+
+            // --- Duplicate detection (#510) ---
+            // Default: on, with preference main-albums > singles-eps > compilation-albums
+            // > live-albums > top-songs; scope covers intra-session + already-queued items.
+            // Applies only to multi-mode artist URL expansion; other downloads unaffected.
+            duplicate_detection: DuplicateDetectionSettings::default(),
 
             // --- Crash reporting ---
             // Sentry is disabled by default (opt-in). No data is sent until

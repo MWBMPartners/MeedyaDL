@@ -225,6 +225,81 @@ pub async fn start_download(
         let urls_display = request.urls.join(", ");
         let mut first_id = String::new();
 
+        // Pre-queue duplicate detection (#510). When enabled, we fetch each
+        // mode's albums/tracks via the Apple Music catalog API and rewrite
+        // per-mode URL lists so that a song appearing in multiple modes
+        // (e.g. on an album AND a compilation) is only downloaded once at
+        // the preferred mode. Companion-format downloads are unaffected.
+        //
+        // Only runs for the first artist URL in the request — batch pastes
+        // of multiple artist URLs fall through with per-mode dedup skipped
+        // for the secondary URLs (rare case; keeps the code bounded).
+        let dedup_plan = if crate::services::duplicate_detector::dedup_enabled_for(
+            &settings.duplicate_detection,
+            artist_modes,
+        ) {
+            let first_artist_url = request
+                .urls
+                .iter()
+                .find(|u| u.contains("/artist/"))
+                .cloned()
+                .unwrap_or_default();
+            let parsed = crate::services::apple_music_api::parse_apple_music_url(&first_artist_url);
+            if let Some(parsed) = parsed.filter(|p| p.content_type == "artist") {
+                // Collect queue / history keys per the configured scope.
+                let queued_keys = {
+                    let snapshot = {
+                        let q = queue.lock().await;
+                        q.get_status()
+                    };
+                    crate::services::duplicate_detector::collect_queued_keys(
+                        &snapshot,
+                        settings.duplicate_detection.scope,
+                        settings.duplicate_detection.key_strategy,
+                    )
+                };
+                let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                    &settings.output_path,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                );
+                emit_app_log(&app, "Checking for duplicate tracks across selected artist modes...");
+                crate::services::duplicate_detector::plan_artist_deduplication(
+                    &app,
+                    &parsed,
+                    &first_artist_url,
+                    artist_modes,
+                    &settings,
+                    &queued_keys,
+                    &history_keys,
+                )
+                .await
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Emit per-skipped-track activity log lines. Done before the enqueue
+        // block so the log messages appear in chronological order relative
+        // to the queue entries that follow.
+        if let Some(plan) = &dedup_plan {
+            for line in &plan.activity_lines {
+                emit_app_log(&app, line);
+            }
+            if plan.skipped_count > 0 {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Duplicate detection: {} track(s) skipped across {} mode(s)",
+                        plan.skipped_count,
+                        artist_modes.len()
+                    ),
+                );
+            }
+        }
+
         {
             let mut q = queue.lock().await;
             for (i, mode) in artist_modes.iter().enumerate() {
@@ -233,15 +308,76 @@ pub async fn start_download(
                 let overrides = split_request.options.get_or_insert_with(Default::default);
                 overrides.artist_auto_select = Some(mode.clone());
 
+                // Apply the dedup plan for this mode, if any.
+                if let Some(plan) = &dedup_plan {
+                    let mode_plan = plan
+                        .per_mode
+                        .iter()
+                        .find(|(m, _)| m == mode)
+                        .map(|(_, p)| p);
+                    match mode_plan {
+                        Some(
+                            crate::services::duplicate_detector::ModePlan::SkipEntirely,
+                        ) => {
+                            emit_app_log(
+                                &app,
+                                &format!(
+                                    "Skipping artist mode {} — every track is a duplicate",
+                                    mode.display_name()
+                                ),
+                            );
+                            continue;
+                        }
+                        Some(crate::services::duplicate_detector::ModePlan::TrackUrls(
+                            urls,
+                        )) => {
+                            // Replace the artist URL with explicit per-track
+                            // URLs; GAMDL will download each as a single
+                            // track. Drop --artist-auto-select because it's
+                            // meaningless for non-artist URLs.
+                            split_request.urls = urls.clone();
+                            let overrides = split_request
+                                .options
+                                .get_or_insert_with(Default::default);
+                            overrides.artist_auto_select = None;
+                        }
+                        Some(
+                            crate::services::duplicate_detector::ModePlan::FallbackToArtistUrl,
+                        )
+                        | None => {
+                            // Keep the original artist URL + mode override.
+                        }
+                    }
+                }
+
                 let download_id = q.enqueue(split_request, &settings);
                 log::info!(
                     "Download {download_id} queued (artist mode: {})",
                     mode.to_cli_string()
                 );
-                if i == 0 {
+                if i == 0 || first_id.is_empty() {
                     first_id = download_id;
                 }
             }
+        }
+
+        if first_id.is_empty() {
+            // Every mode was SkipEntirely — report this to the caller as a
+            // no-op success with a warning. The frontend will show the
+            // duplicate_warning toast and the user sees the activity log.
+            emit_app_log(
+                &app,
+                &format!(
+                    "Nothing queued for {urls_display} — every track is already downloaded or queued"
+                ),
+            );
+            return Ok(StartDownloadResult {
+                download_id: String::new(),
+                duplicate_warning: Some(
+                    "All tracks from this artist URL were duplicates and were not re-queued"
+                        .to_string(),
+                ),
+            });
         }
 
         emit_app_log(
