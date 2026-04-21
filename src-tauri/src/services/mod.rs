@@ -90,6 +90,14 @@ pub mod config_service;
 /// and background download tasks.
 pub mod download_queue;
 
+/// Companion-download supervisor.
+///
+/// Wraps a single GAMDL companion-tier child process with soft-error
+/// detection (#500), an idle-timeout watchdog (#505),
+/// post-processing detection (#503) and `kill_on_drop` so timeouts
+/// in `download_queue` don't leak zombie GAMDL processes (#501).
+pub mod companion_supervisor;
+
 /// Update checker.
 ///
 /// Queries `PyPI` (for GAMDL/gamdl version) and GitHub Releases (for

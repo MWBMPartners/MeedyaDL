@@ -467,6 +467,11 @@ export interface AppSettings {
   update_channel: UpdateChannel;
   /** How often (in hours) to periodically check for updates. 0 = startup only. */
   update_check_interval_hours: number;
+  /** Minutes of stdout/stderr silence the companion supervisor tolerates
+   * before killing a GAMDL child (#505). The watchdog pauses automatically
+   * once post-processing begins, so a slow remux on a network volume will
+   * not trip the killswitch. Default: 5. */
+  gamdl_idle_timeout_minutes: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
   /** Whether to send native OS desktop notifications for download events (completion/failure).
@@ -814,6 +819,10 @@ export interface QueueItemStatus {
   output_is_directory: boolean;
   /** Non-fatal warnings from the download (e.g., GAMDL errors that didn't prevent completion) */
   warnings: string[];
+  /** Union of audioTraits across all tracks in this download (e.g.,
+   * `["atmos", "lossless", "lossy-stereo", "spatial"]`) used by the
+   * companion planner to skip unavailable codecs (#504). */
+  audio_traits: string[];
   /** ISO 8601 timestamp when this download was queued */
   created_at: string;
 }

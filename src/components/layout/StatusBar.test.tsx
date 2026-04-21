@@ -47,6 +47,7 @@ function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStat
     used_wrapper: false,
     output_is_directory: false,
     warnings: [],
+    audio_traits: [],
     created_at: new Date().toISOString(),
   };
 }
