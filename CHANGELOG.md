@@ -8,6 +8,112 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- Companion-download resilience — soft errors, watchdog, scoping, audioTraits gate
+
+Wraps every companion-tier GAMDL spawn in a new
+  `services::companion_supervisor` so the queue stops being misled by
+  GAMDL's per-track exception handling, and stops looking frozen during
+  genuine post-processing.
+
+  - **Soft-error detection (closes #500).** New `process::parse_gamdl_error_count`
+    + `classify_gamdl_traceback` parse `Finished with N error(s)` and
+    recognise the `NoneType.audio_track` traceback. Companion supervisor
+    downgrades a soft-error exit-0 to a tier failure and logs
+    "<codec> not available for this track on Apple Music — skipping"
+    instead of dumping the raw traceback.
+
+  - **Real abort with `kill_on_drop` (closes #501).** Supervisor sets
+    `kill_on_drop(true)` on the GAMDL Command so when the 10-minute
+    completion-task timeout aborts the supervising tokio task the GAMDL
+    child is reaped instead of leaking as a zombie that keeps writing
+    hours later. (`tokio::JoinHandle::abort()` on its own only fires at
+    await points; combined with #502 the synchronous tail is now short
+    enough that abort fully covers it.)
+
+  - **Scoped lyrics conversion (closes #502).** `run_companion_lyrics_conversion`
+    now takes `artist_hint` / `album_hint`. Targeted
+    `{output_dir}/{artist}/{album}/` resolution wins; the previous
+    recursive walk over the entire library is the fallback only when
+    hints aren't available. Fixes the "TTML conversion of every album in
+    the library" perceived hang.
+
+  - **Post-processing indicator (closes #503).** Supervisor flips an
+    `is_post_processing` flag once it sees a `100% of` line. New
+    `DownloadQueue::clear_processing_label`. Queue UI now switches to
+    "Post-processing companion (codec): remux / decrypt" while
+    mp4decrypt / ffmpeg / mp4box run silently.
+
+  - **audioTraits-aware tier filter (closes #504).**
+    `SongCodec::required_audio_trait()` maps each codec to the API trait
+    that must be present on the track. New `filter_tiers_by_audio_traits`
+    drops tiers whose codec the catalog response says isn't offered for
+    the track. `QueueItemStatus.audio_traits` carries the union across
+    the download's tracks; populated during the early metadata fetch.
+    No-op when API metadata isn't reachable.
+
+  - **Idle watchdog (closes #505).** Supervisor polls `child.try_wait()`
+    every 200 ms; if no stdout/stderr line has arrived for
+    `gamdl_idle_timeout_minutes` (default 5) and we are NOT in
+    post-processing, it kills the child and reports a watchdog failure
+    to the activity log. New `gamdl_idle_timeout_minutes: u32` setting.
+
+- Expose gamdl_idle_timeout_minutes in Settings > Advanced
+
+Adds a 'GAMDL Idle Timeout' Select to Settings > Advanced > Processing
+  with preset options (2 / 5 / 10 / 15 / 30 min) and an explanation of
+  how the watchdog interacts with the post-processing phase. The control
+  binds to the existing settings.gamdl_idle_timeout_minutes field added
+  in #505; no backend changes needed.
+
+- Wrap primary GAMDL spawn in supervisor safety nets
+
+Extends the resilience net from the companion tiers to the primary
+  GAMDL invocation in run_download_with_events. Same four guarantees,
+  implemented inline since the primary's rich output parser (progress
+  events, track info, ANSI stripping, \r coalescing, dedup) is tightly
+  coupled with queue state in ways the generic supervisor module
+  doesn't host today.
+
+  - kill_on_drop(true) on the Command so app shutdown or the queue's
+    10-min completion timeout reaps GAMDL instead of leaking a zombie.
+  - Idle watchdog in the cancellation poll loop: tracks last
+    stdout/stderr timestamp, kills the child after
+    gamdl_idle_timeout_minutes (default 5) of silence, and stands down
+    while the post-processing flag is set so a slow remux on a network
+    volume doesn't trip it.
+  - Soft-error detection: parses 'Finished with N error(s)' on stdout
+    and, when status.success() && N > 0, downgrades to an error with
+    a classified message.
+  - Friendly traceback translation: primary error path now runs
+    process::classify_gamdl_traceback on the combined raw stderr BEFORE
+    falling back to extract_python_exception, so
+     surfaces as 'this codec is not available for
+    this track on Apple Music — skipping' instead of a Python dump.
+  - Post-processing indicator: stdout reader flips a shared flag on
+    ProcessingStep events or '100% of' progress lines, and sets the
+    queue's processing_label to 'Post-processing (remux / decrypt)'
+    so the UI caption doesn't look frozen during the silent phase.
+
+- Companion-download resilience — soft errors, watchdog, scoping, audioTraits gate (#506)
+
+### 🐛 Bug Fixes
+
+- **(clippy)** Allow too_many_arguments on spawn_companion_downloads
+
+The new function signature is 9 params after adding queue + audio traits
+  for the #504 gate. All of them are genuinely needed inside the spawned
+  task and a struct wrapper just moves repetition to call sites. Suppress
+  the lint with an explanatory comment.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.35.0] - 2026-04-20
+
+### ✨ Features
+
 - Nightly release channel with channel-aware update guard
 
 Adds the first slice of the multi-channel release pipeline:
