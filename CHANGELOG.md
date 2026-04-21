@@ -8,6 +8,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(gamdl)** V3.0 compatibility + long-term version management (#525)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.37.0] - 2026-04-21
+
+### ✨ Features
+
 - **(dedup)** Pre-queue track-level duplicate detection for artist URLs (#510)
 
 When an Apple Music artist URL is fanned out across multiple
@@ -125,6 +135,93 @@ When multiple URLs are pasted in a single request (e.g. album + playlist
   are untouched — a song chosen by dedup still runs the full
   `companion_mode` chain.
 
+- **(gamdl)** Version-aware CLI/INI dispatch for GAMDL v2.9.1 — v3.x
+
+GAMDL v3.0 removed the --fetch-extra-tags CLI flag (upstream commit
+  61ea24b, "Remove extra tags fetching and preview parsing") and migrated
+  user-facing logging to structlog. Unconditionally emitting the old flag
+  crashes the subprocess on v3+, and the new "[LEVEL    HH:MM:SS] ..."
+  line prefix used to slip past Priority-4 error classification.
+
+  Introduce a shared gamdl_capabilities module that caches the detected
+  GAMDL version in a process-global RwLock and exposes supports(feature)
+  queries. The cache is refreshed by install_gamdl() and get_gamdl_version().
+  merge_options() and ini_metadata_section() now gate fetch_extra_tags on
+  GamdlFeature::FetchExtraTags so the flag and INI key are only emitted on
+  v2.x. Unknown-version queries return false so a freshly installed v3.0
+  never sees the removed option. Tested across v2.9.1, v2.9.3, v3.0, v3.1.2,
+  and None.
+
+  Update ERROR_PREFIX_REGEX to optionally strip structlog's
+  "[LEVEL    HH:MM:SS]" banner so v3.0 "Error processing ..." lines are
+  still classified as GamdlOutputEvent::Error rather than Unknown.
+
+- **(gamdl)** Compile-time version support window with pinned installer + gated upgrade prompts
+
+MeedyaDL now declares an explicit `[minimum, maximum_tested, recommended]`
+  range for GAMDL in `src-tauri/tool-versions.toml` → `[gamdl]`. The range
+  is the single source of truth for four things:
+
+  1. The installer. `install_gamdl()` now runs
+     `pip install --upgrade 'gamdl>={min},<={max}'` instead of the
+     unbounded `pip install --upgrade gamdl`, so first-time setup and
+     in-app "Update GAMDL" clicks can never pull a release we haven't
+     validated.
+
+  2. The update banner. `update_checker::is_gamdl_compatible` is now a
+     thin wrapper over `gamdl_capabilities::should_offer_upgrade`, which
+     returns `false` for PyPI advertisements above `maximum_tested_version`.
+     The frontend's `updateStore.getActiveUpdates()` already filters by
+     `is_compatible`, so those updates disappear from the UI without
+     any frontend plumbing.
+
+  3. Startup diagnostics. `commands::dependencies::log_component_versions_to_activity`
+     now emits a `[System]` activity-log line classifying the installed
+     GAMDL version as NotInstalled / Supported / Unsupported / Untested
+     against the window. Unsupported / Untested cases additionally hit
+     `log::warn!` so they land in the rotated tracing log for crash reports.
+
+  4. User-facing documentation. README has a new "Component Support
+     Matrix" section listing the validated ranges for every component;
+     SECURITY.md references it as the canonical support policy.
+
+  New surface in `services::gamdl_capabilities`:
+  - `GamdlSupportWindow { minimum, maximum_tested, recommended }`
+  - `VersionSupport::{NotInstalled, Supported, Unsupported, Untested}` +
+    `is_supported()`
+  - `support_window()`, `classify(Option<&str>)`,
+    `should_offer_upgrade(&str)`, `pip_version_spec()`
+
+- **(ci)** Weekly PyPI watcher that tickets GAMDL releases above our tested ceiling
+
+Adds `.github/workflows/upstream-gamdl-watch.yml`, a Monday 08:00 UTC cron
+  that compares PyPI's latest GAMDL release against the `maximum_tested_version`
+  declared in `tool-versions.toml`. When upstream ships past the ceiling, the
+  workflow opens (or updates) a GitHub Issue labelled `upstream-bump` with a
+  triage checklist covering release-notes review, commit diff review, local
+  install + smoke test, and the ceiling-bump path.
+
+  Dedupe is by exact title match on open `upstream-bump` tickets, so the
+  weekly cron updates the same ticket instead of spamming 52 fresh ones
+  across a year where upstream stays above the ceiling. Label creation is
+  idempotent via `gh label create --force`, so fresh clones of the repo
+  don't fail on the missing label.
+
+- **(gamdl)** Emit --no-exceptions by default to clean up v3.0 mixed stderr
+
+GAMDL v3.0 migrated logging to structlog but still lets Python print raw
+  tracebacks when --no-exceptions is not set. The resulting stderr is an
+  unreadable blob — structlog-formatted lines interleaved with multi-line
+  tracebacks — that clutters the activity log and fools classify_error()
+  into matching "Error" in frame paths like httpx/_transports/default.py
+  line 118 in map_httpcore_exceptions.
+
+  Default merge_options() to set options.no_exceptions = Some(true) so
+  each download gets a single user-facing error line per failure. Users
+  debugging upstream GAMDL issues can flip a new AppSettings field
+  `verbose_gamdl_exceptions` (default false) from Settings > Advanced >
+  Diagnostics to restore the full traceback.
+
 
 ### 🐛 Bug Fixes
 
@@ -143,6 +240,45 @@ Replace `let Some(playlist_id) = parsed.playlist_id.as_deref() else {
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(gamdl)** Synthetic v3.0 output fixtures + parser integration coverage
+
+Captures what we believe GAMDL v3.0 writes to stderr based on the
+  upstream source at the v3.0 tag (cli/utils.py::custom_structlog_formatter
+  plus the INFO/WARNING/ERROR strings in cli/cli.py), and exercises every
+  parser that consumes GAMDL output end-to-end against those fixtures.
+
+  Four scenarios are represented:
+
+  1. Happy-path album download — pins the invariant that no structlog-
+     prefixed INFO line is ever misclassified as an Error.
+  2. Codec skips — the exact wording we believe triggers gap-fill retry.
+     Tests lock in that count_codec_skip_warnings + is_codec_error see
+     past the [WARNING  HH:MM:SS] prefix, and that build_gapfill_priority_chain
+     still produces a usable fallback chain when experimental codecs are
+     dropped.
+  3. Auth / 404 error — the new ERROR_PREFIX_REGEX (from #517) must
+     preserve URL and reason through classification, and classify_error
+     must bucket "404 Not Found" as `not_found`.
+  4. Network failure + traceback — covers the verbose_gamdl_exceptions
+     opt-in path. Interleaved structlog + raw traceback must still land
+     in the `network` classify bucket, traceback frames must not be
+     captured as errors, and the final exception line must be.
+
+  Bonus fix: PYTHON_EXCEPTION_REGEX now also accepts `Timeout` as a
+  class-name suffix. Without it httpx's typed timeout hierarchy
+  (ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout) silently
+  fell through to GamdlOutputEvent::Unknown — a pre-existing regression
+  for every network timeout raised by GAMDL's HTTP stack.
+
+  Fixtures are best-effort synthesis. Real v3.0 output samples should
+  refine the skip-warning wording and any structlog-action prefixes —
+  see issue #521 for the follow-up.
+
+  Part of #521. Part of #516.
+
 
 ## [0.36.0] - 2026-04-21
 
