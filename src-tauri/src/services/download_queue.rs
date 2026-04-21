@@ -766,6 +766,14 @@ fn write_manifest(
                     } else {
                         None
                     };
+                    // Record Apple Music song_id when non-empty so the
+                    // duplicate-detection "History" scope (#510) can match
+                    // previously-downloaded tracks.
+                    let song_id = if t.song_id.is_empty() {
+                        None
+                    } else {
+                        Some(t.song_id.clone())
+                    };
                     ManifestTrack {
                         number: t.track_number,
                         disc: t.disc_number,
@@ -773,6 +781,7 @@ fn write_manifest(
                         url: track_url,
                         codec: None,
                         isrc: t.isrc.clone(),
+                        song_id,
                     }
                 })
                 .collect()

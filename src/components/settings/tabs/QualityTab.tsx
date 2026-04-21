@@ -72,7 +72,25 @@ import type {
   VideoCodec,
   CompanionMode,
   ArtistAutoSelect,
+  DuplicateDetectionScope,
+  DedupKeyStrategy,
 } from '@/types';
+
+/** Display labels for the duplicate-detection scope setting. */
+const DEDUP_SCOPE_LABELS: Record<DuplicateDetectionScope, string> = {
+  off: 'Off — download everything',
+  intra_session: 'Within this artist URL only',
+  intra_and_queued: 'This URL + already-queued items (recommended)',
+  intra_and_queued_and_history:
+    'This URL + queue + download history (scans manifest files)',
+};
+
+/** Display labels for the dedup key strategy. */
+const DEDUP_KEY_LABELS: Record<DedupKeyStrategy, string> = {
+  song_id_isrc_fallback: 'Song ID (with ISRC fallback) — recommended',
+  isrc_only: 'ISRC only — catches remasters as duplicates',
+  song_id_only: 'Song ID only — strictest match',
+};
 
 /** All valid video codec identifiers, used for type-guarding parsed strings. */
 const VALID_VIDEO_CODECS: VideoCodec[] = ['h265', 'h264'];
@@ -218,6 +236,78 @@ export function QualityTab() {
             });
           }}
         />
+      </SettingsSection>
+
+      {/* Section: Duplicate detection (#510) */}
+      <SettingsSection title="Duplicate Detection">
+        <p className="text-sm text-content-secondary">
+          When an artist URL is downloaded with multiple Artist Auto-Select modes
+          (e.g. main albums + singles/EPs + compilations), the same song can
+          appear in multiple modes. Duplicate detection queries the Apple
+          Music catalog API before queueing, then skips duplicates so each
+          song is only downloaded once. This does <strong>not</strong> affect
+          companion-format downloads — the winning song still runs the full
+          ALAC/Atmos/AAC companion chain you've configured.
+        </p>
+
+        <Select
+          label="Scope"
+          description="How far to look when deciding whether a track is a duplicate."
+          options={(['off', 'intra_session', 'intra_and_queued', 'intra_and_queued_and_history'] as DuplicateDetectionScope[]).map((v) => ({
+            value: v,
+            label: DEDUP_SCOPE_LABELS[v],
+          }))}
+          value={settings.duplicate_detection.scope}
+          onChange={(e) =>
+            updateSettings({
+              duplicate_detection: {
+                ...settings.duplicate_detection,
+                scope: e.target.value as DuplicateDetectionScope,
+              },
+            })
+          }
+        />
+
+        <Select
+          label="Match key"
+          description="Which identifier to match tracks on. Song ID is the strictest — it matches only the exact same master file. ISRC also matches remasters and re-releases of the same recording."
+          options={(['song_id_isrc_fallback', 'isrc_only', 'song_id_only'] as DedupKeyStrategy[]).map((v) => ({
+            value: v,
+            label: DEDUP_KEY_LABELS[v],
+          }))}
+          value={settings.duplicate_detection.key_strategy}
+          onChange={(e) =>
+            updateSettings({
+              duplicate_detection: {
+                ...settings.duplicate_detection,
+                key_strategy: e.target.value as DedupKeyStrategy,
+              },
+            })
+          }
+        />
+
+        <div>
+          <label className="block text-sm font-medium text-content-primary mb-1">
+            Version preference
+          </label>
+          <p className="text-sm text-content-secondary mb-2">
+            When a song appears in multiple Artist Auto-Select modes, the
+            version from the highest-priority mode wins and the others are
+            skipped. Reorder to change which version is kept.
+          </p>
+          <FallbackChainList<ArtistAutoSelect>
+            items={settings.duplicate_detection.preference_order}
+            labels={ARTIST_AUTO_SELECT_LABELS}
+            onChange={(items) =>
+              updateSettings({
+                duplicate_detection: {
+                  ...settings.duplicate_detection,
+                  preference_order: items,
+                },
+              })
+            }
+          />
+        </div>
       </SettingsSection>
 
       {/* Section: Video */}

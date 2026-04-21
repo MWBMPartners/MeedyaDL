@@ -140,11 +140,15 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 1;
     }
 
-    // Future migrations would go here:
-    // if settings.settings_version == 1 {
-    //     // v1 → v2: rename field, change default, etc.
-    //     settings.settings_version = 2;
-    // }
+    // v1 → v2: introduces `duplicate_detection` (#510). Serde `#[serde(default)]`
+    // on the field means old settings files deserialize with
+    // `DuplicateDetectionSettings::default()`, which enables dedup for the
+    // "IntraAndQueued" scope — the user-agreed default. Existing users who
+    // never opted in see the new behaviour turn on silently, which is the
+    // intended rollout (the feature is opt-out via scope=Off).
+    if settings.settings_version == 1 {
+        settings.settings_version = 2;
+    }
 
     if old_version != settings.settings_version {
         log::info!(

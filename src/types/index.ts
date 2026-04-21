@@ -519,6 +519,9 @@ export interface AppSettings {
   /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.
    * MeedyaDL creates one download per mode for artist URLs. */
   artist_auto_select_multi: ArtistAutoSelect[];
+  /** Pre-queue duplicate detection settings (#510).
+   * Applies only when fanning out a multi-mode artist URL. */
+  duplicate_detection: DuplicateDetectionSettings;
   /** Whether to embed lyrics/captions in audio file metadata */
   embed_lyrics_and_sidecar: boolean;
   /** Whether to keep sidecar lyrics files (.lrc/.srt/.ttml) when embedding is enabled */
@@ -1238,6 +1241,51 @@ export type ArtistAutoSelect =
   | 'all-albums'
   | 'top-songs'
   | 'music-videos';
+
+/**
+ * Scope of the pre-queue duplicate-detection feature (#510).
+ *
+ * Mirrors `DuplicateDetectionScope` in `src-tauri/src/models/settings.rs`.
+ */
+export type DuplicateDetectionScope =
+  | 'off'
+  | 'intra_session'
+  | 'intra_and_queued'
+  | 'intra_and_queued_and_history';
+
+/**
+ * Which key is used to match two tracks as duplicates (#510).
+ *
+ * Mirrors `DedupKeyStrategy` in `src-tauri/src/models/settings.rs`.
+ */
+export type DedupKeyStrategy =
+  | 'song_id_isrc_fallback'
+  | 'isrc_only'
+  | 'song_id_only';
+
+/**
+ * Pre-queue duplicate detection settings (#510).
+ *
+ * Applies when an Apple Music artist URL is fanned out into multiple
+ * queue items (one per `artist_auto_select_multi` mode). The Apple
+ * Music catalog API is queried to enumerate each mode's tracks, and
+ * duplicates across modes / queue / download history are filtered out
+ * according to the preference order so any given song is downloaded
+ * exactly once. Does NOT affect companion-format downloads — a song
+ * chosen from one mode still runs the full companion chain.
+ */
+export interface DuplicateDetectionSettings {
+  /** Which scopes to consult when matching duplicates. */
+  scope: DuplicateDetectionScope;
+  /**
+   * Ordered priority list of artist-auto-select modes. The mode
+   * earliest in this list wins the track; later modes have the
+   * duplicate skipped. Modes not in the list fall back to natural order.
+   */
+  preference_order: ArtistAutoSelect[];
+  /** Which key to use when matching tracks. */
+  key_strategy: DedupKeyStrategy;
+}
 
 /**
  * Result of parsing an Apple Music URL.
