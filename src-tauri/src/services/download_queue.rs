@@ -1126,6 +1126,7 @@ impl DownloadQueue {
                     used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                     output_is_directory: false,
                     warnings: Vec::new(),
+                    audio_traits: Vec::new(),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 }
             },
@@ -1374,6 +1375,15 @@ impl DownloadQueue {
     pub fn set_processing_label(&mut self, download_id: &str, label: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.processing_label = Some(label.to_string());
+        }
+    }
+
+    /// Clears the processing label for a download. Called by the
+    /// companion supervisor when the post-processing phase finishes
+    /// (#503), so the queue UI returns to its normal caption.
+    pub fn clear_processing_label(&mut self, download_id: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_label = None;
         }
     }
 
@@ -1862,6 +1872,8 @@ impl DownloadQueue {
                     used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                     output_is_directory: false,
                     warnings: Vec::new(),
+                    // Re-fetched from the Apple Music API on next attempt.
+                    audio_traits: Vec::new(),
                     created_at: p.created_at,
                 },
                 request: p.request,
@@ -2211,6 +2223,72 @@ struct CompanionTier {
 /// `AtmosToLosslessAndLossy` with primary `"atmos"`:
 /// → `[CompanionTier { codecs: [ALAC], suffix: true },
 ///     CompanionTier { codecs: [AAC, AacLegacy], suffix: false }]`
+/// Epoch-milliseconds helper used by `run_download_with_events` for
+/// the primary GAMDL idle watchdog (#508). Local copy rather than
+/// importing from `companion_supervisor` to avoid a tight coupling
+/// between the two modules — the helper is trivially small.
+fn now_epoch_ms_primary() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+/// Reads the union of `audioTraits` for a queue item, returning an
+/// empty `Vec` when the item is missing or has no traits captured.
+/// Used at companion-spawn time to feed the audioTraits-aware filter
+/// in `filter_tiers_by_audio_traits`.
+async fn read_audio_traits(queue: &QueueHandle, dl_id: &str) -> Vec<String> {
+    let q = queue.lock().await;
+    q.items
+        .iter()
+        .find(|i| i.status.id == dl_id)
+        .map(|i| i.status.audio_traits.clone())
+        .unwrap_or_default()
+}
+
+/// Filters a planned companion-tier list against the union of
+/// `audioTraits` reported by the Apple Music catalog API for this
+/// download's tracks (#504).
+///
+/// A tier is kept when at least one of its codecs has either:
+///   - no `required_audio_trait()` (the codec is derived from another
+///     stream, e.g. binaural — leave the decision to GAMDL), or
+///   - a required trait that appears in `available_traits`.
+///
+/// When `available_traits` is empty (API metadata wasn't reachable) we
+/// pass every tier through unchanged so the existing best-effort
+/// behaviour is preserved.
+fn filter_tiers_by_audio_traits(
+    tiers: Vec<CompanionTier>,
+    available_traits: &[String],
+) -> (Vec<CompanionTier>, Vec<String>) {
+    if available_traits.is_empty() {
+        return (tiers, Vec::new());
+    }
+    let mut skipped = Vec::new();
+    let kept: Vec<CompanionTier> = tiers
+        .into_iter()
+        .filter(|tier| {
+            let any_codec_supported = tier.codecs_to_try.iter().any(|c| match c.required_audio_trait() {
+                None => true,
+                Some(needed) => available_traits.iter().any(|t| t == needed),
+            });
+            if !any_codec_supported {
+                let names: Vec<&str> = tier
+                    .codecs_to_try
+                    .iter()
+                    .map(SongCodec::to_cli_string)
+                    .collect();
+                skipped.push(names.join(","));
+            }
+            any_codec_supported
+        })
+        .collect();
+    (kept, skipped)
+}
+
 fn plan_companions(
     mode: &CompanionMode,
     primary_codec: &str,
@@ -3291,21 +3369,48 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+// The argument list is long because this function is the seam between
+// the queue's per-download state (app, queue, dl_id, urls, shutdown),
+// the GAMDL invocation context (primary codec, base options,
+// force_all_suffixes), and the audioTraits pre-filter from #504. All
+// of them are needed inside the spawned task and a struct wrapper
+// would just move the repetition to the three call sites. Suppress
+// the clippy nit rather than introduce indirection.
+#[allow(clippy::too_many_arguments)]
 fn spawn_companion_downloads(
     app: &tauri::AppHandle,
+    queue: &QueueHandle,
     dl_id: &str,
     urls: &[String],
     primary_codec_str: &str,
     companion_base_options: &GamdlOptions,
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
+    available_audio_traits: &[String],
 ) -> Option<tokio::task::JoinHandle<()>> {
     let companion_settings = load_settings_for_queue(app);
-    let mut companion_tiers = plan_companions(
+    let raw_tiers = plan_companions(
         &companion_settings.companion_mode,
         primary_codec_str,
         &companion_settings.custom_companion_codecs,
     );
+
+    // Drop tiers whose codec the Apple Music API has already told us
+    // isn't offered for this track (#504). When no traits are available
+    // the filter is a no-op and we fall through to GAMDL as before.
+    let (mut companion_tiers, skipped) =
+        filter_tiers_by_audio_traits(raw_tiers, available_audio_traits);
+    for codec_list in &skipped {
+        emit_download_log(
+            app,
+            dl_id,
+            &format!(
+                "Companion skipped: {codec_list} not available for this track on Apple Music \
+                 (audioTraits: [{}])",
+                available_audio_traits.join(", ")
+            ),
+        );
+    }
 
     // When native priority was used, the primary download has clean filenames
     // (because we don't know the actual codec until GAMDL finishes). Force ALL
@@ -3322,6 +3427,7 @@ fn spawn_companion_downloads(
         None
     } else {
         let comp_app = app.clone();
+        let comp_queue = queue.clone();
         let comp_urls = urls.to_vec();
         let comp_base_opts = companion_base_options.clone();
         let comp_dl_id = dl_id.to_string();
@@ -3426,130 +3532,164 @@ fn spawn_companion_downloads(
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
-                    match cmd.spawn() {
-                        Ok(mut child) => {
-                            // Stream stdout to activity log line-by-line
-                            let stdout = child.stdout.take();
-                            let stderr = child.stderr.take();
-                            let stream_app = comp_app.clone();
-                            let stream_dl_id = comp_dl_id.clone();
-                            let stream_codec = codec.to_cli_string().to_string();
+                    let stream_codec = codec.to_cli_string().to_string();
 
-                            // Spawn stdout reader — splits on `\r` so yt-dlp /
-                            // N_m3u8DL-RE progress lines render as separate
-                            // activity-log rows instead of one giant blob.
-                            let stdout_task = if let Some(out) = stdout {
-                                let app = stream_app.clone();
-                                let dl_id = stream_dl_id.clone();
-                                Some(tokio::spawn(async move {
-                                    use tokio::io::AsyncBufReadExt;
-                                    let reader = tokio::io::BufReader::new(out);
-                                    let mut lines = reader.lines();
-                                    while let Ok(Some(line)) = lines.next_line().await {
-                                        emit_companion_stream_line(&app, &dl_id, "stdout", &line)
-                                            .await;
-                                    }
-                                }))
-                            } else {
-                                None
-                            };
+                    // Hand the child off to the companion supervisor:
+                    //   - kill_on_drop(true) so an aborted task reaps GAMDL (#501)
+                    //   - parses `Finished with N error(s)` to detect soft errors (#500)
+                    //   - watches for stdout/stderr silence and kills the child after
+                    //     `gamdl_idle_timeout_minutes` of inactivity (#505), pausing the
+                    //     watchdog once a `100% of` line marks the post-processing phase (#503)
+                    let supervisor_app = comp_app.clone();
+                    let supervisor_dl = comp_dl_id.clone();
+                    let label_for_emit = format!("companion-tier-{tier_idx}");
+                    let companion_settings = load_settings_for_queue(&comp_app);
+                    let idle_timeout = std::time::Duration::from_secs(
+                        u64::from(companion_settings.gamdl_idle_timeout_minutes.max(1)) * 60,
+                    );
+                    let emitter: super::companion_supervisor::LineEmitter =
+                        std::sync::Arc::new(move |app, dl, stream, line| {
+                            Box::pin(async move {
+                                let kind = if stream.contains("stderr") {
+                                    "stderr"
+                                } else {
+                                    "stdout"
+                                };
+                                emit_companion_stream_line(&app, &dl, kind, &line).await
+                            })
+                        });
 
-                            // Collect stderr for error diagnosis — same
-                            // `\r`-splitting rules as stdout.
-                            let stderr_task = if let Some(err) = stderr {
-                                let app = stream_app.clone();
-                                let dl_id = stream_dl_id.clone();
-                                Some(tokio::spawn(async move {
-                                    use tokio::io::AsyncBufReadExt;
-                                    let reader = tokio::io::BufReader::new(err);
-                                    let mut lines = reader.lines();
-                                    let mut last_line = String::new();
-                                    while let Ok(Some(line)) = lines.next_line().await {
-                                        if let Some(clean) = emit_companion_stream_line(
-                                            &app, &dl_id, "stderr", &line,
-                                        )
-                                        .await
-                                        {
-                                            last_line = clean;
-                                        }
-                                    }
-                                    last_line
-                                }))
-                            } else {
-                                None
-                            };
+                    let run_result = super::companion_supervisor::run_supervised(
+                        &supervisor_app,
+                        &supervisor_dl,
+                        &label_for_emit,
+                        cmd,
+                        idle_timeout,
+                        emitter,
+                    )
+                    .await;
 
-                            // Wait for the process to complete
-                            let status = child.wait().await;
+                    // Surface the post-processing transition to the queue UI so
+                    // the per-item bar switches from `DOWNLOADING…` to
+                    // `PROCESSING (remux / decrypt)…` instead of looking frozen
+                    // while mp4decrypt / ffmpeg / mp4box run silently (#503).
+                    if let Ok(ref r) = run_result {
+                        if r.reached_post_processing {
+                            let mut q = comp_queue.lock().await;
+                            q.set_processing_label(
+                                &supervisor_dl,
+                                &format!(
+                                    "Post-processing companion ({}): remux / decrypt",
+                                    stream_codec
+                                ),
+                            );
+                        }
+                    }
 
-                            // Wait for stream readers to finish
-                            if let Some(t) = stdout_task { let _ = t.await; }
-                            let last_err = if let Some(t) = stderr_task {
-                                t.await.unwrap_or_default()
-                            } else {
-                                String::new()
-                            };
+                    match run_result {
+                        Ok(r) if r.exit_success && !r.had_soft_error => {
+                            emit_download_log(
+                                &comp_app,
+                                &comp_dl_id,
+                                &format!(
+                                    "Companion download complete (tier {}, codec: {})",
+                                    tier_idx, stream_codec,
+                                ),
+                            );
+                            let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
-                            match status {
-                                Ok(s) if s.success() => {
-                                    emit_download_log(
-                                        &comp_app,
-                                        &comp_dl_id,
-                                        &format!(
-                                            "Companion download complete (tier {}, codec: {})",
-                                            tier_idx, stream_codec,
-                                        ),
-                                    );
-                                    let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
+                            if let Some(ref output_dir) = opts.output_path {
+                                // Rename cover art per user setting (#448)
+                                let comp_settings = load_settings_for_queue(&comp_app);
+                                rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
 
-                                    if let Some(ref output_dir) = opts.output_path {
-                                        // Rename cover art per user setting (#448)
-                                        let comp_settings = load_settings_for_queue(&comp_app);
-                                        rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
-
-                                        match super::metadata_tag_service::apply_codec_metadata_tags(
-                                            output_dir, codec,
-                                        ) {
-                                            Ok(count) if count > 0 => {
-                                                log::info!(
-                                                    "Tagged {} companion file(s) with {} metadata for {}",
-                                                    count, stream_codec, comp_dl_id
-                                                );
-                                            }
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
-                                            }
-                                        }
-
-                                        run_companion_lyrics_conversion(
-                                            &comp_app,
-                                            &comp_dl_id,
-                                            output_dir,
+                                match super::metadata_tag_service::apply_codec_metadata_tags(
+                                    output_dir, codec,
+                                ) {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Tagged {} companion file(s) with {} metadata for {}",
+                                            count, stream_codec, comp_dl_id
                                         );
                                     }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
+                                    }
+                                }
 
-                                    tier_succeeded = true;
-                                    break;
-                                }
-                                Ok(_) => {
-                                    emit_download_log(
-                                        &comp_app,
-                                        &comp_dl_id,
-                                        &format!(
-                                            "Companion tier {}: {} failed — {}",
-                                            tier_idx, stream_codec,
-                                            if last_err.is_empty() { "unknown error" } else { &last_err }
-                                        ),
-                                    );
-                                }
-                                Err(e) => {
-                                    log::debug!("Companion process wait error: {e}");
-                                }
+                                // Scope the lyrics conversion to the album we
+                                // just produced — falls back to a recursive
+                                // walk only when the artist/album hints are
+                                // unavailable (#502).
+                                let (artist_hint, album_hint) = {
+                                    let q = comp_queue.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == comp_dl_id)
+                                        .map(|i| {
+                                            (
+                                                i.status.artist_name.clone(),
+                                                i.status.album_name.clone(),
+                                            )
+                                        })
+                                        .unwrap_or((None, None))
+                                };
+                                run_companion_lyrics_conversion(
+                                    &comp_app,
+                                    &comp_dl_id,
+                                    output_dir,
+                                    artist_hint.as_deref(),
+                                    album_hint.as_deref(),
+                                );
+                            }
+
+                            // Clear the post-processing label now that we're done.
+                            {
+                                let mut q = comp_queue.lock().await;
+                                q.clear_processing_label(&supervisor_dl);
+                            }
+
+                            tier_succeeded = true;
+                            break;
+                        }
+                        Ok(r) => {
+                            // Build the most informative failure message we can:
+                            //   - friendly_error wins (translated traceback, #500)
+                            //   - then idle_killed (#505)
+                            //   - then had_soft_error notes the GAMDL summary (#500)
+                            //   - last resort: whatever stderr ended on
+                            let detail = if let Some(msg) = r.friendly_error {
+                                msg
+                            } else if r.idle_killed {
+                                format!(
+                                    "GAMDL was idle for {} min — terminated by watchdog",
+                                    companion_settings.gamdl_idle_timeout_minutes.max(1)
+                                )
+                            } else if r.had_soft_error {
+                                "GAMDL exited 0 but reported per-track errors — treating as failure"
+                                    .to_string()
+                            } else if r.last_stderr_line.is_empty() {
+                                "unknown error".to_string()
+                            } else {
+                                r.last_stderr_line.clone()
+                            };
+                            emit_download_log(
+                                &comp_app,
+                                &comp_dl_id,
+                                &format!(
+                                    "Companion tier {}: {} failed — {}",
+                                    tier_idx, stream_codec, detail
+                                ),
+                            );
+                            // Reset post-processing label on failure too.
+                            {
+                                let mut q = comp_queue.lock().await;
+                                q.clear_processing_label(&supervisor_dl);
                             }
                         }
                         Err(e) => {
-                            log::debug!("Failed to spawn companion: {e}");
+                            log::debug!("Failed to spawn companion ({stream_codec}): {e}");
                         }
                     }
                 }
@@ -3583,6 +3723,8 @@ fn spawn_companion_downloads(
         app: &tauri::AppHandle,
         dl_id: &str,
         output_dir: &str,
+        artist_hint: Option<&str>,
+        album_hint: Option<&str>,
     ) {
         let settings = load_settings_for_queue(app);
         let base = std::path::Path::new(output_dir);
@@ -3591,11 +3733,36 @@ fn spawn_companion_downloads(
             return;
         }
 
-        // Resolve the album directory: the lyrics services operate on a flat
-        // directory of .ttml + .m4a files, but output_dir is typically the
-        // top-level output path. Find directories containing TTML files by
-        // walking the tree recursively.
-        let album_dirs = find_dirs_with_ttml(base);
+        // Prefer the targeted `{output_dir}/{artist}/{album}/` resolution
+        // when we have both hints, falling back to a recursive walk only
+        // when hints aren't available or the targeted path doesn't exist
+        // yet (#502). The recursive walk over a large library can take
+        // several minutes — scoping eliminates the perceived "hang" the
+        // user saw between a finished companion and the next queue item.
+        let album_dirs: Vec<std::path::PathBuf> = match (artist_hint, album_hint) {
+            (Some(artist), Some(album)) => {
+                let scoped = base.join(artist).join(album);
+                if scoped.is_dir() && find_dirs_with_ttml(&scoped).iter().any(|p| p == &scoped) {
+                    log::debug!(
+                        "Companion lyrics: scoped to album dir {} for {dl_id}",
+                        scoped.display()
+                    );
+                    vec![scoped]
+                } else {
+                    log::debug!(
+                        "Companion lyrics: scoped path {} missing TTML — falling back to recursive walk",
+                        scoped.display()
+                    );
+                    find_dirs_with_ttml(base)
+                }
+            }
+            _ => {
+                log::debug!(
+                    "Companion lyrics: no artist/album hints for {dl_id} — recursive walk over {output_dir}"
+                );
+                find_dirs_with_ttml(base)
+            }
+        };
         if album_dirs.is_empty() {
             log::debug!(
                 "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
@@ -4059,6 +4226,17 @@ pub fn process_queue(
                     if let Some(ref name) = meta.album_name {
                         item.status.album_name = Some(name.clone());
                     }
+                    // Capture the union of audioTraits across every track
+                    // for the companion planner (#504). De-duplicate so
+                    // the slice handed to plan_companions is compact.
+                    let mut traits: Vec<String> = meta
+                        .tracks
+                        .iter()
+                        .flat_map(|t| t.audio_traits.iter().cloned())
+                        .collect();
+                    traits.sort();
+                    traits.dedup();
+                    item.status.audio_traits = traits;
                 }
                 drop(q);
                 // Trigger frontend queue refresh so progress bar picks up the metadata
@@ -4724,14 +4902,17 @@ pub fn process_queue(
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
                                 // format was unavailable.
+                                let traits = read_audio_traits(&queue_clone, &dl_id).await;
                                 let _ = spawn_companion_downloads(
                                     &app_clone,
+                                    &queue_clone,
                                     &dl_id,
                                     &urls,
                                     &primary_codec_for_companions,
                                     &companion_base_options,
                                     &shutdown_clone,
                                     uses_native_priority,
+                                    &traits,
                                 );
 
                                 // Continue processing remaining queued items
@@ -6150,14 +6331,18 @@ pub fn process_queue(
 
                     // When native priority was used, force all companions to
                     // use suffixed filenames (primary has clean filenames).
+                    let companion_traits =
+                        read_audio_traits(&queue_clone, &dl_id).await;
                     let companion_handle = spawn_companion_downloads(
                         &app_clone,
+                        &queue_clone,
                         &dl_id,
                         &urls,
                         &actual_codec_for_companions,
                         &companion_base_options,
                         &shutdown_clone,
                         uses_native_priority,
+                        &companion_traits,
                     );
 
                     // Spawn a completion task that waits for ALL background work
@@ -6616,14 +6801,17 @@ pub fn process_queue(
                         // is network-related (network is down, so companions would
                         // also fail and just waste time + clutter the Activity Log).
                         if error_category != "network" {
+                            let traits = read_audio_traits(&queue_clone, &dl_id).await;
                             let _ = spawn_companion_downloads(
                                 &app_clone,
+                                &queue_clone,
                                 &dl_id,
                                 &urls,
                                 &primary_codec_for_companions,
                                 &companion_base_options,
                                 &shutdown_clone,
                                 uses_native_priority,
+                                &traits,
                             );
                         } else {
                             emit_download_log(
@@ -6733,10 +6921,39 @@ async fn run_download_with_events(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
+    // Reap the child automatically if the supervising task is aborted
+    // (e.g., app shutdown, 10-min completion timeout in process_queue).
+    // Prevents zombie GAMDL processes that would otherwise keep running
+    // and writing log lines long after the queue item is "done" (#508).
+    cmd.kill_on_drop(true);
+
     // Spawn the GAMDL subprocess
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to start GAMDL process: {e}"))?;
+
+    // Idle-watchdog + post-processing shared state (#508).
+    //
+    // - `last_activity_ms` is bumped on every stdout/stderr line so the
+    //   cancellation poll loop can compute idle time against the
+    //   configured `gamdl_idle_timeout_minutes` and kill the child when
+    //   exceeded.
+    // - `post_processing_flag` flips to true once the parser reports a
+    //   `ProcessingStep` or we see a `100% of` progress line. While
+    //   set, the idle watchdog stands down (remux / decrypt is silent
+    //   by design). The queue UI also picks up the flag via a
+    //   processing-label update so the caption flips from
+    //   `DOWNLOADING…` to `Post-processing (remux / decrypt)`.
+    // - `soft_error_count` tallies `Finished with N error(s)` from
+    //   GAMDL's stdout so an exit-0 with N>0 is downgraded to an
+    //   error at status-check time instead of being silently swallowed
+    //   (the same symptom the companion supervisor guards against
+    //   in #500).
+    let last_activity_ms = Arc::new(std::sync::atomic::AtomicU64::new(
+        now_epoch_ms_primary(),
+    ));
+    let post_processing_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let soft_error_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
     // Take stdout/stderr handles
     let stdout = child
@@ -6777,10 +6994,23 @@ async fn run_download_with_events(
         let queue = queue.clone();
         let errors = collected_errors.clone();
         let seen = seen_lines.clone();
+        let last_activity = last_activity_ms.clone();
+        let post_proc = post_processing_flag.clone();
+        let soft_errors = soft_error_count.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
+                // #508: bump the idle watchdog on every line and scan
+                // for GAMDL's end-of-run summary. Parsing is cheap
+                // (byte search) and runs once per stdout line.
+                last_activity
+                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
+                if let Some(n) = process::parse_gamdl_error_count(&raw_line) {
+                    if n > 0 {
+                        soft_errors.store(n, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
                 // Split on \r to handle yt-dlp download progress updates.
                 // yt-dlp uses \r (carriage return) for in-place terminal
                 // updates, but AsyncBufReadExt::lines() only splits on \n.
@@ -6913,6 +7143,28 @@ async fn run_download_with_events(
                         errs.push(message.clone());
                     }
 
+                    // #508: detect the transition into the silent
+                    // post-processing phase. The parser returns
+                    // `ProcessingStep` for remux/tag/decrypt steps, and
+                    // yt-dlp's final `100% of` progress line signals the
+                    // HLS download is complete. Either path flips the
+                    // shared flag; first flip also updates the queue's
+                    // processing_label so the UI caption flips to
+                    // `Post-processing (remux / decrypt)`.
+                    let is_processing_transition = matches!(
+                        event,
+                        process::GamdlOutputEvent::ProcessingStep { .. }
+                    ) || clean_line.contains("100% of");
+                    if is_processing_transition
+                        && !post_proc.swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        let mut q = queue.lock().await;
+                        q.set_processing_label(
+                            &download_id,
+                            "Post-processing (remux / decrypt)",
+                        );
+                    }
+
                     // Emit parsed event to frontend
                     let progress = gamdl_service::GamdlProgress {
                         download_id: download_id.clone(),
@@ -6932,10 +7184,13 @@ async fn run_download_with_events(
         let errors = collected_errors.clone();
         let raw_stderr = raw_stderr_lines.clone();
         let seen = seen_lines.clone();
+        let last_activity = last_activity_ms.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
+                last_activity
+                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
@@ -7007,6 +7262,15 @@ async fn run_download_with_events(
         })
     };
 
+    // Idle watchdog configuration (#508). Read once before the loop —
+    // changing it mid-download has no effect until the next item.
+    // `.max(1)` clamps a pathological 0 to one minute.
+    let idle_limit_ms = u64::from(
+        load_settings_for_queue(app)
+            .gamdl_idle_timeout_minutes
+            .max(1),
+    ) * 60_000;
+
     // Cancellation polling loop: alternate between checking for user cancellation
     // and checking if the GAMDL process has exited naturally.
     // This loop runs every 250ms and provides responsive cancellation support
@@ -7029,6 +7293,37 @@ async fn run_download_with_events(
             }
         }
 
+        // Step 1b (#508): idle watchdog. When the post-processing flag
+        // isn't set, kill the child if no stdout/stderr line has arrived
+        // for `gamdl_idle_timeout_minutes`. The flag pause is important
+        // — remux / decrypt can run silently for minutes on a network
+        // volume without being stuck.
+        if !post_processing_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let elapsed = now_epoch_ms_primary().saturating_sub(
+                last_activity_ms.load(std::sync::atomic::Ordering::Relaxed),
+            );
+            if elapsed >= idle_limit_ms {
+                let mins = idle_limit_ms / 60_000;
+                log::warn!(
+                    "GAMDL idle for {mins} min on download {download_id} — terminating"
+                );
+                emit_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "⚠ GAMDL was idle for {mins} min — terminated by watchdog"
+                    ),
+                );
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err(format!(
+                    "GAMDL idle for {mins} min — terminated by watchdog"
+                ));
+            }
+        }
+
         // Step 2: Check if the process has exited (non-blocking check).
         // try_wait() returns Ok(Some(status)) if the process has exited,
         // Ok(None) if it's still running, or Err on OS-level error.
@@ -7048,6 +7343,28 @@ async fn run_download_with_events(
     let _ = stderr_task.await;
 
     // Check the exit status and construct an appropriate error message.
+    //
+    // #508 soft-error gate: GAMDL exits 0 even when a per-track download
+    // crashed internally (e.g., `AttributeError: 'NoneType' object has
+    // no attribute 'audio_track'` when a codec isn't offered for the
+    // track). The `Finished with N error(s)` summary line is the
+    // authoritative failure signal in that case. When soft errors
+    // occurred, translate the tracebacks we can recognise and return
+    // an error instead of swallowing them.
+    let soft_errors = soft_error_count.load(std::sync::atomic::Ordering::Relaxed);
+    if status.success() && soft_errors > 0 {
+        let raw_lines = raw_stderr_lines.lock().await;
+        let combined = raw_lines.join("\n");
+        let friendly = process::classify_gamdl_traceback(&combined)
+            .map(std::string::ToString::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "GAMDL reported {soft_errors} per-track error(s) even though the process exited 0"
+                )
+            });
+        return Err(friendly);
+    }
+
     if status.success() {
         // Return any error-pattern lines as non-fatal warnings.
         // These are issues GAMDL logged during the run but didn't consider
@@ -7083,7 +7400,15 @@ async fn run_download_with_events(
                 // non-indented line after a "Traceback" header, which is the
                 // actual exception (e.g., "httpx.ConnectError: Connection refused").
                 // This gives classify_error() the real error text.
-                if let Some(extracted) = extract_python_exception(&raw_lines) {
+                //
+                // #508: first try the friendly classifier on the combined
+                // raw stderr so `NoneType.audio_track` and similar
+                // "codec not available" patterns surface as a single
+                // actionable line instead of a Python traceback.
+                let combined = raw_lines.join("\n");
+                if let Some(friendly) = process::classify_gamdl_traceback(&combined) {
+                    Err(friendly.to_string())
+                } else if let Some(extracted) = extract_python_exception(&raw_lines) {
                     Err(extracted)
                 } else {
                     Err(last_error.clone())
@@ -9226,5 +9551,65 @@ mod tests {
         assert!(super::super::config_service::validate_path_safe("../etc/passwd").is_err());
         assert!(super::super::config_service::validate_path_safe("/home/../root").is_err());
         assert!(super::super::config_service::validate_path_safe("foo/../../bar").is_err());
+    }
+
+    // ============================================================
+    // filter_tiers_by_audio_traits (#504)
+    // ============================================================
+
+    fn tier(codecs: Vec<SongCodec>, suffix: bool) -> super::CompanionTier {
+        super::CompanionTier {
+            codecs_to_try: codecs,
+            apply_suffix: suffix,
+        }
+    }
+
+    #[test]
+    fn filter_tiers_passes_through_when_no_traits() {
+        let tiers = vec![tier(vec![SongCodec::Ac3], false)];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &[]);
+        assert_eq!(kept.len(), 1);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn filter_tiers_drops_unmatched_required_trait() {
+        // PSYCHO single example: track has atmos / lossless / lossy-stereo / spatial
+        // but NOT dolby-digital. AC3 must be dropped.
+        let traits = vec![
+            "atmos".to_string(),
+            "lossless".to_string(),
+            "lossy-stereo".to_string(),
+            "spatial".to_string(),
+        ];
+        let tiers = vec![
+            tier(vec![SongCodec::Ac3], true),
+            tier(vec![SongCodec::AacBinaural], false),
+        ];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
+        assert_eq!(kept.len(), 1, "AacBinaural tier should survive");
+        assert_eq!(kept[0].codecs_to_try, vec![SongCodec::AacBinaural]);
+        assert_eq!(skipped, vec!["ac3".to_string()]);
+    }
+
+    #[test]
+    fn filter_tiers_keeps_tier_when_any_codec_in_chain_supported() {
+        let traits = vec!["lossy-stereo".to_string()];
+        // A multi-codec tier where one codec is supported and another isn't
+        let tiers = vec![tier(vec![SongCodec::Ac3, SongCodec::Aac], false)];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
+        assert_eq!(kept.len(), 1);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn filter_tiers_keeps_derived_codecs_unconditionally() {
+        // AacBinaural has no required_audio_trait — it should survive
+        // even when the trait list is empty-ish.
+        let traits = vec!["lossy-stereo".to_string()]; // intentionally minimal
+        let tiers = vec![tier(vec![SongCodec::AacBinaural], false)];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
+        assert_eq!(kept.len(), 1);
+        assert!(skipped.is_empty());
     }
 }

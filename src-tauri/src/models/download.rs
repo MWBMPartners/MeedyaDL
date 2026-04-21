@@ -287,6 +287,16 @@ pub struct QueueItemStatus {
     #[serde(default)]
     pub warnings: Vec<String>,
 
+    /// Union of `audioTraits` across all tracks in this download as
+    /// returned by the Apple Music catalog API (e.g.,
+    /// `["atmos", "lossless", "lossy-stereo", "spatial"]`). Populated
+    /// during the early-metadata fetch in `process_queue` and used by
+    /// `plan_companions` (#504) to skip companion tiers whose codec
+    /// has no matching trait, instead of letting GAMDL crash with
+    /// `NoneType.audio_track`. Empty when no API metadata was reachable.
+    #[serde(default)]
+    pub audio_traits: Vec<String>,
+
     /// ISO 8601 timestamp (`YYYY-MM-DDTHH:MM:SS.sssZ`) when this item
     /// was added to the queue. Used for sorting the queue display and
     /// for calculating elapsed time.
@@ -460,6 +470,7 @@ mod tests {
             album_name: Some("Test Album".to_string()),
             artist_name: Some("Test Artist".to_string()),
             warnings: Vec::new(),
+            audio_traits: Vec::new(),
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
 
@@ -509,6 +520,7 @@ mod tests {
             album_name: None,
             artist_name: None,
             warnings: Vec::new(),
+            audio_traits: Vec::new(),
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
 
@@ -551,6 +563,7 @@ mod tests {
             album_name: Some("Done Album".to_string()),
             artist_name: None,
             warnings: Vec::new(),
+            audio_traits: Vec::new(),
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };
 

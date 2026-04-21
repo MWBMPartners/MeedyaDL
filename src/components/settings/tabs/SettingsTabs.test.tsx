@@ -121,6 +121,7 @@ beforeEach(() => {
       check_pre_releases: false,
       update_channel: 'stable',
       update_check_interval_hours: 6,
+      gamdl_idle_timeout_minutes: 5,
       theme_override: null,
       language: 'en-US',
       ui_language: '',
