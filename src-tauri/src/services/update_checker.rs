@@ -35,9 +35,13 @@
 // ## Compatibility Gating
 //
 // GAMDL updates are subject to a compatibility check (`is_gamdl_compatible()`).
-// This prevents the user from upgrading to a GAMDL version that may have changed
-// its CLI interface in incompatible ways. The range [MIN_COMPATIBLE_GAMDL,
-// MAX_COMPATIBLE_GAMDL] defines the known-compatible window.
+// This prevents the user from upgrading to a GAMDL version that may have
+// changed its CLI interface in incompatible ways. The compatible range is
+// declared in `tool-versions.toml` → `[gamdl]` (`minimum_version` …
+// `maximum_tested_version`) and queried via
+// `services::gamdl_capabilities::should_offer_upgrade`. Bumping the ceiling
+// is a one-file change; see `services/gamdl_capabilities.rs` for the
+// surrounding design.
 //
 // ## References
 //
@@ -53,7 +57,7 @@ use tauri::AppHandle;
 // gamdl_service: provides get_gamdl_version() and check_latest_gamdl_version() for GAMDL update checks.
 // python_manager: provides get_installed_python_version() and get_target_python_version() for Python update checks.
 use crate::models::settings::UpdateChannel;
-use crate::services::{gamdl_service, python_manager};
+use crate::services::{gamdl_capabilities, gamdl_service, python_manager};
 // platform: provides get_python_dir() for resolving the Python installation directory.
 use crate::utils::platform;
 
@@ -141,61 +145,28 @@ pub struct UpdateCheckResult {
 // ============================================================
 // GAMDL version compatibility
 // ============================================================
+//
+// The compatibility range was previously declared via two `const`
+// version strings pinned inside this file. That was brittle because:
+//
+//   * bumping the range required a code change rather than a
+//     tool-versions.toml bump, and
+//   * the frontend had no way to surface the range to users, so
+//     "why is this update hidden?" needed engineering support to
+//     explain.
+//
+// Today both are fixed by delegating to `gamdl_capabilities`, which
+// owns the single source of truth (`tool-versions.toml` → `[gamdl]`)
+// and exposes typed classification helpers.
 
-/// Minimum GAMDL version known to be compatible with this app version.
-/// Versions below this may have different CLI argument formats or missing features.
-/// When GAMDL makes a breaking CLI change, update this to exclude old versions.
-/// - 2.9.1: introduced `--song-codec-priority` (replaced `--song-codec`)
-const MIN_COMPATIBLE_GAMDL: &str = "2.9.1";
-
-/// Maximum GAMDL version known to be compatible (inclusive).
-/// Set to a deliberately high value (99.99.99) to allow all future patch and
-/// minor releases by default. Update this to a specific version only when a
-/// known-incompatible GAMDL release is published (e.g., a major version bump
-/// that changes CLI argument names or output format).
-const MAX_COMPATIBLE_GAMDL: &str = "99.99.99";
-
-/// Checks whether a GAMDL version is compatible with this app version.
+/// Checks whether a GAMDL version is safe to auto-upgrade to.
 ///
-/// This is a simple semver range check that prevents the user from
-/// upgrading to a GAMDL version that may break the CLI interface.
-///
-/// # Arguments
-/// * `version` - The GAMDL version string to check (e.g., "2.8.4")
+/// Thin wrapper over [`gamdl_capabilities::should_offer_upgrade`] kept
+/// so the surrounding `check_gamdl_update` call site stays readable.
+/// Returns `false` for versions above the `maximum_tested_version`
+/// baked into this MeedyaDL build, and for unparseable strings.
 fn is_gamdl_compatible(version: &str) -> bool {
-    // Inner closure that parses "X.Y.Z" into (major, minor, patch).
-    // Handles both "X.Y.Z" (3 parts) and "X.Y" (2 parts, patch defaults to 0).
-    // Returns None for unparseable strings (e.g., "invalid", "1", "1.x.2").
-    let parse = |v: &str| -> Option<(u32, u32, u32)> {
-        let parts: Vec<&str> = v.split('.').collect();
-        if parts.len() >= 3 {
-            Some((
-                parts[0].parse().ok()?,
-                parts[1].parse().ok()?,
-                parts[2].parse().ok()?,
-            ))
-        } else if parts.len() == 2 {
-            Some((parts[0].parse().ok()?, parts[1].parse().ok()?, 0))
-        } else {
-            None
-        }
-    };
-
-    // Parse all three versions; return false (incompatible) if any fails to parse
-    let Some(current) = parse(version) else {
-        return false;
-    };
-    let Some(min) = parse(MIN_COMPATIBLE_GAMDL) else {
-        return false;
-    };
-    let Some(max) = parse(MAX_COMPATIBLE_GAMDL) else {
-        return false;
-    };
-
-    // Check that the version falls within the inclusive range [min, max].
-    // Rust's tuple comparison is lexicographic, which matches semver ordering:
-    // (2, 8, 4) >= (2, 0, 0) && (2, 8, 4) <= (99, 99, 99)
-    current >= min && current <= max
+    gamdl_capabilities::should_offer_upgrade(version)
 }
 
 /// Compares two semver version strings and returns true if `latest` is strictly newer than `current`.
@@ -1288,23 +1259,33 @@ mod tests {
         assert!(!is_newer("2.0.0", "1.0.0"));
     }
 
-    /// Tests that is_gamdl_compatible() correctly identifies versions within
-    /// and outside the [MIN_COMPATIBLE_GAMDL, MAX_COMPATIBLE_GAMDL] range.
+    /// `is_gamdl_compatible` is now a thin alias over
+    /// `gamdl_capabilities::should_offer_upgrade`, so the test focuses
+    /// on the candidate-upgrade semantics: offer only when the
+    /// PyPI-advertised "latest" is inside our validated ceiling.
+    ///
+    /// The floor check that used to live here applies to the
+    /// **installed** version (via `classify` in `gamdl_capabilities`),
+    /// not to the **candidate upgrade**, so it was always dead code
+    /// for this call site — PyPI never advertises a past release as
+    /// `latest`.
     #[test]
     fn test_is_gamdl_compatible() {
-        // Within range: compatible
+        // Current ceiling is the `maximum_tested_version` baked into
+        // tool-versions.toml; these cases must stay within it.
         assert!(is_gamdl_compatible("2.9.1"));
         assert!(is_gamdl_compatible("2.9.2"));
-        assert!(is_gamdl_compatible("2.10.0"));
+        assert!(is_gamdl_compatible("3.0"));
         assert!(is_gamdl_compatible("3.0.0"));
-        // At minimum boundary: compatible (inclusive)
-        assert!(is_gamdl_compatible("2.9.1"));
-        // Below minimum: incompatible (old CLI format)
-        assert!(!is_gamdl_compatible("2.9.0"));
-        assert!(!is_gamdl_compatible("2.8.4"));
-        assert!(!is_gamdl_compatible("1.9.9"));
-        // Unparseable string: incompatible (safe default)
+
+        // Above the validated ceiling: suppress the upgrade prompt.
+        // (Pinned to a far-future major so the test stays green as we
+        // bump the ceiling.)
+        assert!(!is_gamdl_compatible("99.0.0"));
+
+        // Unparseable string: refuse to offer.
         assert!(!is_gamdl_compatible("invalid"));
+        assert!(!is_gamdl_compatible(""));
     }
 
     /// Tests that get_platform_asset_patterns() returns a non-empty list
