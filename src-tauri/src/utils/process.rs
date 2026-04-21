@@ -144,12 +144,22 @@ static SAVED_REGEX: LazyLock<Regex> =
 ///   - `ERROR: Unable to download webpage`
 ///   - `Error: cookies file not found`
 ///   - `error: network timeout`
+///   - `[ERROR    12:34:56] Error processing "https://...": 404 Not Found`
+///     (GAMDL >= v3.0 structlog format — see `cli/utils.py`
+///     `custom_structlog_formatter`)
 ///
-/// The `(?i)` flag makes the match case-insensitive. The `^` anchor
-/// ensures this only matches errors at the start of a line (not
-/// "no error occurred" mid-line). The `:?` makes the colon optional.
+/// The `(?i)` flag makes the match case-insensitive. The `:?` makes the
+/// trailing colon optional.
+///
+/// The optional `\[[A-Z]+\s+[\d:]+\]\s*` prefix accepts GAMDL v3.0's
+/// structlog timestamp banner so we still catch real errors even when
+/// they arrive wrapped as `[ERROR    HH:MM:SS] Error ...`. Without this,
+/// the `^` anchor rejected the whole line, silently downgrading every
+/// GAMDL error to Priority 7 keyword matching (which does not include
+/// the word "error" on its own) and in the worst case to `Unknown`.
 static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?:ERROR|error|Error):?\s+(.+)").expect("Invalid error regex")
+    Regex::new(r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:ERROR|error|Error):?\s+(.+)")
+        .expect("Invalid error regex")
 });
 
 /// Matches Python exception lines that appear as the final line of a traceback.
@@ -873,6 +883,53 @@ mod tests {
                 assert!(message.contains("Traceback"));
             }
             other => panic!("Expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_structlog_wrapped_error_line() {
+        // GAMDL v3.0 migrated to structlog: every user-facing log line
+        // is rendered via `cli/utils.py::custom_structlog_formatter` as
+        // `[LEVEL    HH:MM:SS] message`. The `[ERROR ...]` wrapper used
+        // to cause Priority 4 to miss real errors, downgrading them to
+        // `Unknown` in the activity log (Priority 7 only matches the
+        // word "error" when combined with "failed"/"exception"/etc.).
+        //
+        // The regex captures everything after the `Error` prefix, so
+        // the captured message is `processing "...": 404 Not Found`.
+        // The URL and the reason ("404 Not Found") must survive — they
+        // are what `classify_error` and the activity log display keys on.
+        let line = r#"[ERROR    12:34:56] Error processing "https://music.apple.com/us/album/...": 404 Not Found"#;
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(
+                    message.contains("music.apple.com")
+                        && message.contains("404 Not Found"),
+                    "Expected the structlog prefix + `Error` keyword to be \
+                     stripped while URL and reason are preserved. \
+                     Got: {message}"
+                );
+            }
+            other => panic!("Expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_structlog_wrapped_error_variable_spacing() {
+        // Structlog's level field is left-padded to 8 chars via
+        // `f"[{level:<8} {timestamp}]"`. "ERROR" is 5 chars and gets
+        // three trailing spaces, "INFO" is 4 and gets four — the regex
+        // must tolerate the variable width.
+        let line = "[ERROR    09:01:02] ERROR: cookies file not found";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(
+                    message.contains("cookies file not found"),
+                    "Expected structlog + embedded ERROR: prefix to be \
+                     stripped. Got: {message}"
+                );
+            }
+            other => panic!("Expected Error, got {other:?}"),
         }
     }
 

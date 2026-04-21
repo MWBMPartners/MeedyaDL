@@ -137,7 +137,11 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
 
     // Get the installed version by parsing `pip show gamdl` output.
     // We do this after install to confirm the exact version that was installed
-    // and return it to the frontend for display.
+    // and return it to the frontend for display. `get_gamdl_version` also
+    // refreshes the shared capability cache so every consumer (CLI-arg
+    // builder, config.ini writer, download queue) sees the new version
+    // immediately — critical for upgrades that add or remove CLI flags
+    // (e.g. v2.x → v3.0 which dropped `--fetch-extra-tags`).
     let version = get_gamdl_version(app)
         .await?
         .unwrap_or_else(|| "unknown".to_string());
@@ -220,6 +224,13 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
         .lines()
         .find(|line| line.starts_with("Version:"))
         .map(|line| line.trim_start_matches("Version:").trim().to_string());
+
+    // Keep the shared capability cache in sync. Every reader (CLI-arg
+    // builder, config.ini writer, download queue) asks this cache
+    // whether a given flag / INI key is safe to emit for the currently
+    // installed GAMDL release, so stale data here silently breaks
+    // downloads after the user upgrades or downgrades GAMDL.
+    super::gamdl_capabilities::set_detected_version(version.clone());
 
     Ok(version)
 }

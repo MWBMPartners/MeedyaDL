@@ -61,6 +61,14 @@ pub mod python_manager;
 /// and emits events to the frontend via Tauri's event system.
 pub mod gamdl_service;
 
+/// Version-aware capability flags for the installed GAMDL release.
+///
+/// Tracks which CLI options / INI keys the currently installed GAMDL
+/// version supports so we can emit a backwards-compatible command line
+/// across GAMDL `>= 2.9.1` (oldest we still support) through the
+/// current v3.x line.
+pub mod gamdl_capabilities;
+
 /// Dependency manager: download and install external tool binaries
 /// (`FFmpeg`, mp4decrypt, N_m3u8DL-RE, `MP4Box`) from their official
 /// GitHub release pages.

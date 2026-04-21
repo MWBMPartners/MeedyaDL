@@ -2036,8 +2036,19 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.download_mode = Some(settings.download_mode.clone());
     options.remux_mode = Some(settings.remux_mode.clone());
 
-    // Apply metadata options
-    options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+    // Apply metadata options.
+    //
+    // `fetch_extra_tags` is version-gated: the CLI flag exists in every
+    // v2.x release but was removed in GAMDL v3.0 ("Remove extra tags
+    // fetching and preview parsing"). Emitting `--fetch-extra-tags` on
+    // v3+ crashes the subprocess with a Click "no such option" error, so
+    // we leave the field as `None` there — `GamdlOptions::to_cli_args()`
+    // only emits the flag when the value is `Some(true)`.
+    if super::gamdl_capabilities::supports(
+        super::gamdl_capabilities::GamdlFeature::FetchExtraTags,
+    ) {
+        options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+    }
 
     // Apply exclude tags
     if !settings.exclude_tags.is_empty() {
