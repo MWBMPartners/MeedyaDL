@@ -68,7 +68,7 @@ export function MetadataTab() {
 
         <Toggle
           label="Fetch Extra Tags"
-          description="Fetch additional metadata from Apple Music (normalization, spatial/lossless properties, smooth playback info). Adds a small delay per track. Disable if you only want basic codec/source tags."
+          description="Fetch additional metadata from Apple Music (normalization, spatial/lossless properties, smooth playback info). Adds a small delay per track. Disable if you only want basic codec/source tags. Only applies to GAMDL 2.x — GAMDL 3.0 removed this option, and MeedyaDL automatically skips emitting it when v3.0+ is installed."
           checked={settings.fetch_extra_tags}
           onChange={(checked) => updateSettings({ fetch_extra_tags: checked })}
         />
