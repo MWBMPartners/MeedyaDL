@@ -2150,11 +2150,31 @@ mod tests {
     }
 
     #[test]
-    fn parse_playlist_url_returns_none() {
+    fn parse_playlist_url_extracts_id() {
+        // Catalog playlist URLs (#512) parse into content_type="playlist"
+        // with playlist_id populated from the pl.XXXX slug.
         let url =
             "https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
-        let result = parse_apple_music_url(url);
-        assert!(result.is_none());
+        let parsed = parse_apple_music_url(url).expect("catalog playlist URL should parse");
+        assert_eq!(parsed.content_type, "playlist");
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(
+            parsed.playlist_id.as_deref(),
+            Some("pl.f4d106fed2bd41149aaacabb233eb5eb")
+        );
+        assert!(parsed.album_id.is_empty());
+        assert!(parsed.song_id.is_none());
+        assert!(parsed.artist_id.is_none());
+    }
+
+    #[test]
+    fn parse_library_playlist_url_returns_none() {
+        // Library playlists (/library/playlist/p.xxx) require different
+        // auth (Music-User-Token) and must still be rejected by the
+        // catalog-URL parser so the caller falls through to the generic
+        // GAMDL path.
+        let url = "https://music.apple.com/us/library/playlist/p.abc123";
+        assert!(parse_apple_music_url(url).is_none());
     }
 
     #[test]

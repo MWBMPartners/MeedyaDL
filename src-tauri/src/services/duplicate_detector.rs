@@ -753,6 +753,248 @@ pub async fn plan_album_deduplication(
 }
 
 // ============================================================
+// Batch URL cross-dedup (#513)
+// ============================================================
+
+/// Per-URL action produced by [`plan_batch_deduplication`].
+#[derive(Debug, Clone)]
+pub enum BatchUrlAction {
+    /// Pass the URL through unchanged — applies to song URLs, artist
+    /// URLs, music-video URLs, unrecognised URLs, and any album /
+    /// playlist URL that had no duplicates to skip.
+    KeepOriginal,
+    /// Replace this URL with an explicit list of per-track URLs (only
+    /// the non-duplicate subset).
+    Replace(Vec<String>),
+    /// Every track under this URL was a duplicate — drop it from the
+    /// batch. If every URL in the batch ends up dropped, the caller
+    /// should skip the enqueue entirely.
+    Drop,
+}
+
+/// Result of [`plan_batch_deduplication`].
+#[derive(Debug, Clone)]
+pub struct BatchDedupPlan {
+    /// One action per input URL, in the same order as `urls`.
+    pub per_url: Vec<BatchUrlAction>,
+    /// Activity-log lines describing each skipped track.
+    pub activity_lines: Vec<String>,
+    /// Total tracks skipped across the whole batch.
+    pub skipped_count: usize,
+    /// Count of URLs entirely dropped.
+    pub dropped_url_count: usize,
+}
+
+/// Plan duplicate detection across a batch of URLs pasted in a single
+/// request.
+///
+/// Priority (highest first):
+///   1. Song URLs and album-with-`?i=song_id` URLs — explicit single-track
+///      picks always win; their song_ids are claimed up-front.
+///   2. Album URLs — fetched and applied in paste order; each album
+///      claims the tracks not already taken.
+///   3. Playlist URLs — fetched and applied in paste order, with a
+///      preference order placing playlists AFTER albums (an album is a
+///      more canonical source than a playlist).
+///
+/// Artist URLs and music-video URLs are left untouched (pass-through) —
+/// artist URLs run their own intra-artist planner downstream, music
+/// videos aren't audio. Batch dedup against artist URLs is a known gap
+/// left for a follow-up.
+///
+/// Returns `None` when there's nothing to do (scope Off, single-URL
+/// request, no classifiable albums or playlists in the batch).
+pub async fn plan_batch_deduplication(
+    _app: &AppHandle,
+    urls: &[String],
+    settings: &AppSettings,
+    queued_keys: &HashSet<String>,
+    history_keys: &HashSet<String>,
+) -> Option<BatchDedupPlan> {
+    let cfg = &settings.duplicate_detection;
+
+    if matches!(cfg.scope, DuplicateDetectionScope::Off) {
+        return None;
+    }
+    if urls.len() < 2 {
+        return None;
+    }
+
+    // Classify each URL up-front.
+    let parsed: Vec<Option<ParsedAppleMusicUrl>> = urls
+        .iter()
+        .map(|u| apple_music_api::parse_apple_music_url(u))
+        .collect();
+
+    // Fast-path: if nothing is album-or-playlist, no cross-URL dedup
+    // is useful (song vs song dedup would just check literal duplicates
+    // already caught upstream).
+    let has_fetchable = parsed.iter().any(|p| {
+        p.as_ref().is_some_and(|p| {
+            (p.content_type == "album" && p.song_id.is_none())
+                || p.content_type == "playlist"
+        })
+    });
+    if !has_fetchable {
+        return None;
+    }
+
+    // Resolve the MusicKit token once — without it we can't fetch any
+    // of the batch's track lists.
+    let Some(jwt) = resolve_jwt(settings) else {
+        log::info!("Batch dedup: no MusicKit token available, skipping batch dedup");
+        return None;
+    };
+
+    let strategy = cfg.key_strategy;
+
+    // Build the initial "claimed" key set: queue + history + every
+    // song_id that's explicit in the batch (a song URL or an
+    // album?i=song_id URL).
+    let mut claimed: HashSet<String> = HashSet::new();
+    claimed.extend(queued_keys.iter().cloned());
+    claimed.extend(history_keys.iter().cloned());
+
+    for p in parsed.iter().flatten() {
+        if let Some(song_id) = &p.song_id {
+            if let Some(key) = build_track_key_from_parts(Some(song_id), None, strategy) {
+                claimed.insert(key);
+            }
+        }
+    }
+
+    // Actions default to KeepOriginal; we only change them for the
+    // album / playlist URLs we actively dedupe.
+    let mut actions: Vec<BatchUrlAction> = vec![BatchUrlAction::KeepOriginal; urls.len()];
+    let mut activity_lines: Vec<String> = Vec::new();
+    let mut skipped_count: usize = 0;
+    let mut dropped_url_count: usize = 0;
+
+    // Pass 1: albums in paste order. Each album fetches its tracks and
+    // claims whatever the earlier claimed-set hasn't taken yet.
+    for (idx, parsed_url) in parsed.iter().enumerate() {
+        let Some(p) = parsed_url else { continue };
+        if !(p.content_type == "album" && p.song_id.is_none() && !p.album_id.is_empty()) {
+            continue;
+        }
+
+        let album = match apple_music_api::fetch_album_metadata_with_fallback(
+            &jwt,
+            &p.storefront,
+            &p.album_id,
+        )
+        .await
+        {
+            Ok(Some(a)) => a,
+            Ok(None) | Err(_) => continue, // leave KeepOriginal on failure
+        };
+
+        let mut kept_urls: Vec<String> = Vec::new();
+        let mut album_skipped = 0usize;
+        for t in &album.tracks {
+            let Some(key) = build_track_key(t, strategy) else {
+                if let Some(url) = build_track_url(&p.storefront, &p.album_id, &t.song_id) {
+                    kept_urls.push(url);
+                }
+                continue;
+            };
+            if claimed.contains(&key) {
+                album_skipped += 1;
+                activity_lines.push(format!(
+                    "Duplicate skipped from batch album: {} — already claimed by an earlier URL / queue / history",
+                    t.name
+                ));
+                continue;
+            }
+            claimed.insert(key);
+            if let Some(url) = build_track_url(&p.storefront, &p.album_id, &t.song_id) {
+                kept_urls.push(url);
+            }
+        }
+
+        skipped_count += album_skipped;
+        actions[idx] = if kept_urls.is_empty() {
+            dropped_url_count += 1;
+            BatchUrlAction::Drop
+        } else if album_skipped == 0 {
+            BatchUrlAction::KeepOriginal
+        } else {
+            BatchUrlAction::Replace(kept_urls)
+        };
+    }
+
+    // Pass 2: playlists, after all albums have had first pick.
+    for (idx, parsed_url) in parsed.iter().enumerate() {
+        let Some(p) = parsed_url else { continue };
+        if p.content_type != "playlist" {
+            continue;
+        }
+        let Some(playlist_id) = p.playlist_id.as_deref() else {
+            continue;
+        };
+
+        let tracks =
+            match apple_music_api::fetch_playlist_tracks(&jwt, &p.storefront, playlist_id).await {
+                Ok(t) => t,
+                Err(_) => continue, // leave KeepOriginal
+            };
+
+        if tracks.is_empty() {
+            continue;
+        }
+
+        let mut kept_urls: Vec<String> = Vec::new();
+        let mut playlist_skipped = 0usize;
+        for t in &tracks {
+            let Some(key) = build_track_key_from_parts(
+                Some(&t.song_id),
+                t.isrc.as_deref(),
+                strategy,
+            ) else {
+                if let Some(url) = build_track_url(&p.storefront, &t.album_id, &t.song_id) {
+                    kept_urls.push(url);
+                }
+                continue;
+            };
+            if claimed.contains(&key) {
+                playlist_skipped += 1;
+                activity_lines.push(format!(
+                    "Duplicate skipped from batch playlist: {} — already claimed by an earlier URL / queue / history",
+                    t.name
+                ));
+                continue;
+            }
+            claimed.insert(key);
+            if let Some(url) = build_track_url(&p.storefront, &t.album_id, &t.song_id) {
+                kept_urls.push(url);
+            }
+        }
+
+        skipped_count += playlist_skipped;
+        actions[idx] = if kept_urls.is_empty() {
+            dropped_url_count += 1;
+            BatchUrlAction::Drop
+        } else if playlist_skipped == 0 {
+            BatchUrlAction::KeepOriginal
+        } else {
+            BatchUrlAction::Replace(kept_urls)
+        };
+    }
+
+    log::info!(
+        "Batch dedup: {} URL(s), {skipped_count} track(s) skipped, {dropped_url_count} URL(s) dropped",
+        urls.len()
+    );
+
+    Some(BatchDedupPlan {
+        per_url: actions,
+        activity_lines,
+        skipped_count,
+        dropped_url_count,
+    })
+}
+
+// ============================================================
 // Internal helpers
 // ============================================================
 

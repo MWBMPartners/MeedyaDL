@@ -213,6 +213,95 @@ pub async fn start_download(
         }
     };
 
+    // Batch cross-URL dedup (#513). When the user pastes multiple URLs
+    // in one request (e.g. an album + a playlist that overlap), walk
+    // every album/playlist URL's track list and apply a source-priority
+    // filter (song > album > playlist) so any given track is claimed by
+    // exactly one URL. URLs that end up winning nothing are dropped from
+    // the request; URLs that partially win are rewritten to per-track
+    // URLs. Song/artist/video URLs pass through unchanged.
+    //
+    // Runs BEFORE the single-URL album and playlist planners (#512 /
+    // #514) so the later planners see the already-trimmed URL list.
+    if !matches!(
+        settings.duplicate_detection.scope,
+        crate::models::settings::DuplicateDetectionScope::Off
+    ) && request.urls.len() > 1
+    {
+        let queued_keys = {
+            let snapshot = {
+                let q = queue.lock().await;
+                q.get_status()
+            };
+            crate::services::duplicate_detector::collect_queued_keys(
+                &snapshot,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            )
+        };
+        let history_keys = crate::services::duplicate_detector::collect_history_keys(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+        );
+        if let Some(batch_plan) =
+            crate::services::duplicate_detector::plan_batch_deduplication(
+                &app,
+                &request.urls,
+                &settings,
+                &queued_keys,
+                &history_keys,
+            )
+            .await
+        {
+            for line in &batch_plan.activity_lines {
+                emit_app_log(&app, line);
+            }
+            if batch_plan.skipped_count > 0 || batch_plan.dropped_url_count > 0 {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Batch dedup: {} track(s) skipped, {} URL(s) dropped",
+                        batch_plan.skipped_count, batch_plan.dropped_url_count
+                    ),
+                );
+            }
+
+            // Apply the per-URL actions, preserving original paste order.
+            let mut new_urls: Vec<String> = Vec::with_capacity(request.urls.len());
+            for (i, action) in batch_plan.per_url.iter().enumerate() {
+                match action {
+                    crate::services::duplicate_detector::BatchUrlAction::KeepOriginal => {
+                        if let Some(u) = request.urls.get(i) {
+                            new_urls.push(u.clone());
+                        }
+                    }
+                    crate::services::duplicate_detector::BatchUrlAction::Replace(urls) => {
+                        new_urls.extend(urls.iter().cloned());
+                    }
+                    crate::services::duplicate_detector::BatchUrlAction::Drop => {
+                        // Skip entirely.
+                    }
+                }
+            }
+
+            if new_urls.is_empty() {
+                emit_app_log(
+                    &app,
+                    "Nothing queued — every track across the batch is already downloaded or queued",
+                );
+                return Ok(StartDownloadResult {
+                    download_id: String::new(),
+                    duplicate_warning: Some(
+                        "Every track in this batch is already downloaded or queued"
+                            .to_string(),
+                    ),
+                });
+            }
+            request.urls = new_urls;
+        }
+    }
+
     // Multi-select artist auto-select: if the URL is an artist URL and
     // multiple modes are configured, split into N separate downloads (one
     // per mode). GAMDL only accepts a single --artist-auto-select value,
