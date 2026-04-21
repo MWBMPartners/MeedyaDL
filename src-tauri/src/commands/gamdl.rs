@@ -510,6 +510,102 @@ pub async fn start_download(
     };
     let _ = playlist_warning; // reserved for future UI surfacing
 
+    // Album URL vs history/queue dedup (#514). Covers the "I already
+    // downloaded the standard edition, then queued the deluxe edition"
+    // case — the bonus tracks get enqueued, the rest are skipped.
+    // Only runs for single-URL requests (batch pastes go through #513).
+    // Album URLs with `?i=song_id` (single-song selectors) are passed
+    // through unchanged.
+    let album_warning: Option<String> = if request.urls.len() == 1
+        && !matches!(
+            settings.duplicate_detection.scope,
+            crate::models::settings::DuplicateDetectionScope::Off
+        ) {
+        let single_url = request.urls[0].clone();
+        let parsed = crate::services::apple_music_api::parse_apple_music_url(&single_url);
+        let is_album_without_song_selector = parsed
+            .as_ref()
+            .is_some_and(|p| p.content_type == "album" && p.song_id.is_none());
+        if is_album_without_song_selector {
+            let parsed = parsed.unwrap();
+            let queued_keys = {
+                let snapshot = {
+                    let q = queue.lock().await;
+                    q.get_status()
+                };
+                crate::services::duplicate_detector::collect_queued_keys(
+                    &snapshot,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                )
+            };
+            let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                &settings.output_path,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            );
+            // Short-circuit the expensive catalog fetch if there's
+            // literally nothing to compare against.
+            if queued_keys.is_empty() && history_keys.is_empty() {
+                None
+            } else {
+                emit_app_log(
+                    &app,
+                    "Checking album against already-queued and previously downloaded tracks...",
+                );
+                let plan = crate::services::duplicate_detector::plan_album_deduplication(
+                    &app,
+                    &parsed,
+                    &settings,
+                    &queued_keys,
+                    &history_keys,
+                )
+                .await;
+                if let Some(plan) = plan {
+                    for line in &plan.activity_lines {
+                        emit_app_log(&app, line);
+                    }
+                    match plan.plan {
+                        crate::services::duplicate_detector::AlbumPlan::TrackUrls(urls) => {
+                            request.urls = urls;
+                            emit_app_log(
+                                &app,
+                                &format!(
+                                    "Album dedup: kept {} new track(s), skipped {}",
+                                    plan.kept_count, plan.skipped_count
+                                ),
+                            );
+                            None
+                        }
+                        crate::services::duplicate_detector::AlbumPlan::SkipEntirely => {
+                            emit_app_log(
+                                &app,
+                                "Nothing queued — every track in this album is already downloaded or queued",
+                            );
+                            return Ok(StartDownloadResult {
+                                download_id: String::new(),
+                                duplicate_warning: Some(
+                                    "Every track in this album is already downloaded or queued. Change scope in Settings > Quality > Duplicate Detection to download anyway."
+                                        .to_string(),
+                                ),
+                            });
+                        }
+                        crate::services::duplicate_detector::AlbumPlan::FallbackToAlbumUrl => {
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let _ = album_warning; // reserved for future UI surfacing
+
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,
     // avoiding potential deadlocks.
