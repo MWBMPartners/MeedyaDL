@@ -491,7 +491,7 @@ pub enum LogLevel {
 /// ## Reference
 ///
 /// - GAMDL `--artist-auto-select` flag: <https://github.com/glomatico/gamdl#usage>
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArtistAutoSelect {
     /// Download main studio albums only.

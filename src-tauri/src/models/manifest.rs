@@ -84,6 +84,11 @@ pub struct ManifestTrack {
     /// ISRC (International Standard Recording Code) for cross-platform matching.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isrc: Option<String>,
+    /// Apple Music song_id (numeric string) — primary dedup key when a user
+    /// enables the duplicate-detection history scope (#510). Older manifests
+    /// written before this field existed will deserialize with `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song_id: Option<String>,
 }
 
 fn default_disc() -> u32 {

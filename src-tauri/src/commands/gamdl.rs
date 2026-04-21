@@ -213,6 +213,95 @@ pub async fn start_download(
         }
     };
 
+    // Batch cross-URL dedup (#513). When the user pastes multiple URLs
+    // in one request (e.g. an album + a playlist that overlap), walk
+    // every album/playlist URL's track list and apply a source-priority
+    // filter (song > album > playlist) so any given track is claimed by
+    // exactly one URL. URLs that end up winning nothing are dropped from
+    // the request; URLs that partially win are rewritten to per-track
+    // URLs. Song/artist/video URLs pass through unchanged.
+    //
+    // Runs BEFORE the single-URL album and playlist planners (#512 /
+    // #514) so the later planners see the already-trimmed URL list.
+    if !matches!(
+        settings.duplicate_detection.scope,
+        crate::models::settings::DuplicateDetectionScope::Off
+    ) && request.urls.len() > 1
+    {
+        let queued_keys = {
+            let snapshot = {
+                let q = queue.lock().await;
+                q.get_status()
+            };
+            crate::services::duplicate_detector::collect_queued_keys(
+                &snapshot,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            )
+        };
+        let history_keys = crate::services::duplicate_detector::collect_history_keys(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+        );
+        if let Some(batch_plan) =
+            crate::services::duplicate_detector::plan_batch_deduplication(
+                &app,
+                &request.urls,
+                &settings,
+                &queued_keys,
+                &history_keys,
+            )
+            .await
+        {
+            for line in &batch_plan.activity_lines {
+                emit_app_log(&app, line);
+            }
+            if batch_plan.skipped_count > 0 || batch_plan.dropped_url_count > 0 {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Batch dedup: {} track(s) skipped, {} URL(s) dropped",
+                        batch_plan.skipped_count, batch_plan.dropped_url_count
+                    ),
+                );
+            }
+
+            // Apply the per-URL actions, preserving original paste order.
+            let mut new_urls: Vec<String> = Vec::with_capacity(request.urls.len());
+            for (i, action) in batch_plan.per_url.iter().enumerate() {
+                match action {
+                    crate::services::duplicate_detector::BatchUrlAction::KeepOriginal => {
+                        if let Some(u) = request.urls.get(i) {
+                            new_urls.push(u.clone());
+                        }
+                    }
+                    crate::services::duplicate_detector::BatchUrlAction::Replace(urls) => {
+                        new_urls.extend(urls.iter().cloned());
+                    }
+                    crate::services::duplicate_detector::BatchUrlAction::Drop => {
+                        // Skip entirely.
+                    }
+                }
+            }
+
+            if new_urls.is_empty() {
+                emit_app_log(
+                    &app,
+                    "Nothing queued — every track across the batch is already downloaded or queued",
+                );
+                return Ok(StartDownloadResult {
+                    download_id: String::new(),
+                    duplicate_warning: Some(
+                        "Every track in this batch is already downloaded or queued"
+                            .to_string(),
+                    ),
+                });
+            }
+            request.urls = new_urls;
+        }
+    }
+
     // Multi-select artist auto-select: if the URL is an artist URL and
     // multiple modes are configured, split into N separate downloads (one
     // per mode). GAMDL only accepts a single --artist-auto-select value,
@@ -225,6 +314,81 @@ pub async fn start_download(
         let urls_display = request.urls.join(", ");
         let mut first_id = String::new();
 
+        // Pre-queue duplicate detection (#510). When enabled, we fetch each
+        // mode's albums/tracks via the Apple Music catalog API and rewrite
+        // per-mode URL lists so that a song appearing in multiple modes
+        // (e.g. on an album AND a compilation) is only downloaded once at
+        // the preferred mode. Companion-format downloads are unaffected.
+        //
+        // Only runs for the first artist URL in the request — batch pastes
+        // of multiple artist URLs fall through with per-mode dedup skipped
+        // for the secondary URLs (rare case; keeps the code bounded).
+        let dedup_plan = if crate::services::duplicate_detector::dedup_enabled_for(
+            &settings.duplicate_detection,
+            artist_modes,
+        ) {
+            let first_artist_url = request
+                .urls
+                .iter()
+                .find(|u| u.contains("/artist/"))
+                .cloned()
+                .unwrap_or_default();
+            let parsed = crate::services::apple_music_api::parse_apple_music_url(&first_artist_url);
+            if let Some(parsed) = parsed.filter(|p| p.content_type == "artist") {
+                // Collect queue / history keys per the configured scope.
+                let queued_keys = {
+                    let snapshot = {
+                        let q = queue.lock().await;
+                        q.get_status()
+                    };
+                    crate::services::duplicate_detector::collect_queued_keys(
+                        &snapshot,
+                        settings.duplicate_detection.scope,
+                        settings.duplicate_detection.key_strategy,
+                    )
+                };
+                let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                    &settings.output_path,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                );
+                emit_app_log(&app, "Checking for duplicate tracks across selected artist modes...");
+                crate::services::duplicate_detector::plan_artist_deduplication(
+                    &app,
+                    &parsed,
+                    &first_artist_url,
+                    artist_modes,
+                    &settings,
+                    &queued_keys,
+                    &history_keys,
+                )
+                .await
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Emit per-skipped-track activity log lines. Done before the enqueue
+        // block so the log messages appear in chronological order relative
+        // to the queue entries that follow.
+        if let Some(plan) = &dedup_plan {
+            for line in &plan.activity_lines {
+                emit_app_log(&app, line);
+            }
+            if plan.skipped_count > 0 {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Duplicate detection: {} track(s) skipped across {} mode(s)",
+                        plan.skipped_count,
+                        artist_modes.len()
+                    ),
+                );
+            }
+        }
+
         {
             let mut q = queue.lock().await;
             for (i, mode) in artist_modes.iter().enumerate() {
@@ -233,15 +397,76 @@ pub async fn start_download(
                 let overrides = split_request.options.get_or_insert_with(Default::default);
                 overrides.artist_auto_select = Some(mode.clone());
 
+                // Apply the dedup plan for this mode, if any.
+                if let Some(plan) = &dedup_plan {
+                    let mode_plan = plan
+                        .per_mode
+                        .iter()
+                        .find(|(m, _)| m == mode)
+                        .map(|(_, p)| p);
+                    match mode_plan {
+                        Some(
+                            crate::services::duplicate_detector::ModePlan::SkipEntirely,
+                        ) => {
+                            emit_app_log(
+                                &app,
+                                &format!(
+                                    "Skipping artist mode {} — every track is a duplicate",
+                                    mode.display_name()
+                                ),
+                            );
+                            continue;
+                        }
+                        Some(crate::services::duplicate_detector::ModePlan::TrackUrls(
+                            urls,
+                        )) => {
+                            // Replace the artist URL with explicit per-track
+                            // URLs; GAMDL will download each as a single
+                            // track. Drop --artist-auto-select because it's
+                            // meaningless for non-artist URLs.
+                            split_request.urls = urls.clone();
+                            let overrides = split_request
+                                .options
+                                .get_or_insert_with(Default::default);
+                            overrides.artist_auto_select = None;
+                        }
+                        Some(
+                            crate::services::duplicate_detector::ModePlan::FallbackToArtistUrl,
+                        )
+                        | None => {
+                            // Keep the original artist URL + mode override.
+                        }
+                    }
+                }
+
                 let download_id = q.enqueue(split_request, &settings);
                 log::info!(
                     "Download {download_id} queued (artist mode: {})",
                     mode.to_cli_string()
                 );
-                if i == 0 {
+                if i == 0 || first_id.is_empty() {
                     first_id = download_id;
                 }
             }
+        }
+
+        if first_id.is_empty() {
+            // Every mode was SkipEntirely — report this to the caller as a
+            // no-op success with a warning. The frontend will show the
+            // duplicate_warning toast and the user sees the activity log.
+            emit_app_log(
+                &app,
+                &format!(
+                    "Nothing queued for {urls_display} — every track is already downloaded or queued"
+                ),
+            );
+            return Ok(StartDownloadResult {
+                download_id: String::new(),
+                duplicate_warning: Some(
+                    "All tracks from this artist URL were duplicates and were not re-queued"
+                        .to_string(),
+                ),
+            });
         }
 
         emit_app_log(
@@ -272,7 +497,7 @@ pub async fn start_download(
     let urls_display = request.urls.join(", ");
 
     // If exactly one multi-mode is set and it's an artist URL, apply it as an override
-    let request = if is_artist_url && artist_modes.len() == 1 {
+    let mut request = if is_artist_url && artist_modes.len() == 1 {
         let mut req = request;
         let overrides = req.options.get_or_insert_with(Default::default);
         if overrides.artist_auto_select.is_none() {
@@ -282,6 +507,193 @@ pub async fn start_download(
     } else {
         request
     };
+
+    // Playlist dedup (#512). When a catalog playlist URL is queued, fetch
+    // its tracks via the Apple Music API and filter out any that match
+    // song_ids / ISRCs already present in the queue or the download
+    // history (per the configured scope). Single-URL requests only —
+    // batch pastes go through the more general cross-URL dedup in #513.
+    //
+    // Like the artist planner, companion-format downloads for the winning
+    // tracks are unaffected (dedup operates on track identity, not codec).
+    let playlist_warning: Option<String> = if request.urls.len() == 1
+        && !matches!(
+            settings.duplicate_detection.scope,
+            crate::models::settings::DuplicateDetectionScope::Off
+        ) {
+        let single_url = request.urls[0].clone();
+        let parsed = crate::services::apple_music_api::parse_apple_music_url(&single_url);
+        let is_playlist = parsed
+            .as_ref()
+            .is_some_and(|p| p.content_type == "playlist");
+        if is_playlist {
+            let parsed = parsed.unwrap();
+            let queued_keys = {
+                let snapshot = {
+                    let q = queue.lock().await;
+                    q.get_status()
+                };
+                crate::services::duplicate_detector::collect_queued_keys(
+                    &snapshot,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                )
+            };
+            let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                &settings.output_path,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            );
+            emit_app_log(&app, "Checking playlist for duplicate tracks...");
+            let plan = crate::services::duplicate_detector::plan_playlist_deduplication(
+                &app,
+                &parsed,
+                &settings,
+                &queued_keys,
+                &history_keys,
+            )
+            .await;
+
+            if let Some(plan) = plan {
+                for line in &plan.activity_lines {
+                    emit_app_log(&app, line);
+                }
+                match plan.plan {
+                    crate::services::duplicate_detector::PlaylistPlan::TrackUrls(urls) => {
+                        request.urls = urls;
+                        emit_app_log(
+                            &app,
+                            &format!(
+                                "Playlist dedup: kept {} track(s), skipped {}",
+                                plan.kept_count, plan.skipped_count
+                            ),
+                        );
+                        None
+                    }
+                    crate::services::duplicate_detector::PlaylistPlan::SkipEntirely => {
+                        emit_app_log(
+                            &app,
+                            "Nothing queued — every track in the playlist is already downloaded or queued",
+                        );
+                        return Ok(StartDownloadResult {
+                            download_id: String::new(),
+                            duplicate_warning: Some(
+                                "All tracks from this playlist were duplicates and were not re-queued"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                    crate::services::duplicate_detector::PlaylistPlan::FallbackToPlaylistUrl => {
+                        // No changes to request.urls — GAMDL will handle the full playlist.
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let _ = playlist_warning; // reserved for future UI surfacing
+
+    // Album URL vs history/queue dedup (#514). Covers the "I already
+    // downloaded the standard edition, then queued the deluxe edition"
+    // case — the bonus tracks get enqueued, the rest are skipped.
+    // Only runs for single-URL requests (batch pastes go through #513).
+    // Album URLs with `?i=song_id` (single-song selectors) are passed
+    // through unchanged.
+    let album_warning: Option<String> = if request.urls.len() == 1
+        && !matches!(
+            settings.duplicate_detection.scope,
+            crate::models::settings::DuplicateDetectionScope::Off
+        ) {
+        let single_url = request.urls[0].clone();
+        let parsed = crate::services::apple_music_api::parse_apple_music_url(&single_url);
+        let is_album_without_song_selector = parsed
+            .as_ref()
+            .is_some_and(|p| p.content_type == "album" && p.song_id.is_none());
+        if is_album_without_song_selector {
+            let parsed = parsed.unwrap();
+            let queued_keys = {
+                let snapshot = {
+                    let q = queue.lock().await;
+                    q.get_status()
+                };
+                crate::services::duplicate_detector::collect_queued_keys(
+                    &snapshot,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                )
+            };
+            let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                &settings.output_path,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            );
+            // Short-circuit the expensive catalog fetch if there's
+            // literally nothing to compare against.
+            if queued_keys.is_empty() && history_keys.is_empty() {
+                None
+            } else {
+                emit_app_log(
+                    &app,
+                    "Checking album against already-queued and previously downloaded tracks...",
+                );
+                let plan = crate::services::duplicate_detector::plan_album_deduplication(
+                    &app,
+                    &parsed,
+                    &settings,
+                    &queued_keys,
+                    &history_keys,
+                )
+                .await;
+                if let Some(plan) = plan {
+                    for line in &plan.activity_lines {
+                        emit_app_log(&app, line);
+                    }
+                    match plan.plan {
+                        crate::services::duplicate_detector::AlbumPlan::TrackUrls(urls) => {
+                            request.urls = urls;
+                            emit_app_log(
+                                &app,
+                                &format!(
+                                    "Album dedup: kept {} new track(s), skipped {}",
+                                    plan.kept_count, plan.skipped_count
+                                ),
+                            );
+                            None
+                        }
+                        crate::services::duplicate_detector::AlbumPlan::SkipEntirely => {
+                            emit_app_log(
+                                &app,
+                                "Nothing queued — every track in this album is already downloaded or queued",
+                            );
+                            return Ok(StartDownloadResult {
+                                download_id: String::new(),
+                                duplicate_warning: Some(
+                                    "Every track in this album is already downloaded or queued. Change scope in Settings > Quality > Duplicate Detection to download anyway."
+                                        .to_string(),
+                                ),
+                            });
+                        }
+                        crate::services::duplicate_detector::AlbumPlan::FallbackToAlbumUrl => {
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let _ = album_warning; // reserved for future UI surfacing
 
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,
