@@ -111,6 +111,10 @@ pub struct ParsedAppleMusicUrl {
     pub song_id: Option<String>,
     /// Optional artist ID for artist URLs (e.g., "368433979")
     pub artist_id: Option<String>,
+    /// Optional playlist identifier for playlist URLs (e.g., "pl.u-GgA567VCXX").
+    /// Catalog playlist IDs start with `pl.`; library playlists are not parsed
+    /// here (they require separate Music-User-Token auth).
+    pub playlist_id: Option<String>,
 }
 
 /// Complete metadata for an Apple Music album and its tracks.
@@ -446,6 +450,18 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             .expect("Invalid artist regex")
     });
 
+    // Match catalog playlist URLs: /storefront/playlist/slug/pl.xxxxx
+    // Library playlists (/library/playlist/...) are intentionally NOT
+    // matched here — they need a different endpoint and Music-User-Token
+    // auth. Callers that need to detect library playlists should do so
+    // via a separate check before calling this parser.
+    static PLAYLIST_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/playlist/[^/]+/(pl\.[a-zA-Z0-9._-]+)",
+        )
+        .expect("Invalid playlist regex")
+    });
+
     if let Some(caps) = ALBUM_RE.captures(url) {
         return Some(ParsedAppleMusicUrl {
             storefront: caps[1].to_string(),
@@ -453,6 +469,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             album_id: caps[2].to_string(),
             song_id: caps.get(3).map(|m| m.as_str().to_string()),
             artist_id: None,
+            playlist_id: None,
         });
     }
 
@@ -463,6 +480,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             album_id: String::new(),
             song_id: Some(caps[2].to_string()),
             artist_id: None,
+            playlist_id: None,
         });
     }
 
@@ -473,6 +491,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             album_id: caps[2].to_string(),
             song_id: None,
             artist_id: None,
+            playlist_id: None,
         });
     }
 
@@ -483,6 +502,18 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
             album_id: String::new(),
             song_id: None,
             artist_id: Some(caps[2].to_string()),
+            playlist_id: None,
+        });
+    }
+
+    if let Some(caps) = PLAYLIST_RE.captures(url) {
+        return Some(ParsedAppleMusicUrl {
+            storefront: caps[1].to_string(),
+            content_type: "playlist".to_string(),
+            album_id: String::new(),
+            song_id: None,
+            artist_id: None,
+            playlist_id: Some(caps[2].to_string()),
         });
     }
 
@@ -1608,6 +1639,163 @@ pub fn classify_album_bucket(
     }
 
     ArtistAutoSelect::MainAlbums
+}
+
+// ============================================================
+// Playlist Tracks (for pre-queue duplicate detection, #512)
+// ============================================================
+
+/// A compact track record returned by the playlist-tracks fetch.
+///
+/// Unlike `TrackMetadata`, this carries only the fields the dedup pipeline
+/// needs plus enough context to reconstruct a per-track download URL — song_id,
+/// ISRC, title, and the album_id the track lives on (`catalogId` from
+/// `playParams`). Tracks without a usable catalog album_id are filtered out
+/// upstream (they can't be downloaded individually).
+#[derive(Debug, Clone)]
+pub struct PlaylistTrackRef {
+    /// Apple Music catalog song ID.
+    pub song_id: String,
+    /// ISRC code, if the API provides one.
+    pub isrc: Option<String>,
+    /// Track title (diagnostic / activity-log only).
+    pub name: String,
+    /// Catalog album ID the track sits on (from `playParams.catalogId` on
+    /// the `songs` resource). Required to build an `album/{id}?i={song_id}`
+    /// URL for GAMDL.
+    pub album_id: String,
+}
+
+/// Fetch every track on a catalog playlist.
+///
+/// Paginates `/v1/catalog/{storefront}/playlists/{playlist_id}/tracks`
+/// with `limit=100` (Apple's maximum) until the `next` cursor is absent.
+/// Used by the playlist dedup planner (#512) to enumerate a playlist's
+/// contents before deciding which tracks to skip.
+///
+/// # Notes
+///
+/// - Catalog playlist IDs start with `pl.`. Library playlists (`p.`) are
+///   out of scope here and need a different endpoint + Music-User-Token.
+/// - Tracks that lack a resolvable catalog album_id (rare — e.g. radio
+///   stations, cloud uploads) are silently dropped. The caller treats
+///   those playlists as non-dedupable.
+pub async fn fetch_playlist_tracks(
+    jwt: &str,
+    storefront: &str,
+    playlist_id: &str,
+) -> Result<Vec<PlaylistTrackRef>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    let mut next_path: Option<String> = Some(format!(
+        "/v1/catalog/{storefront}/playlists/{playlist_id}/tracks?limit=100"
+    ));
+    let mut tracks: Vec<PlaylistTrackRef> = Vec::new();
+
+    const MAX_PAGES: u32 = 50; // supports up to 5k tracks, well above real playlists
+    let mut page = 0u32;
+
+    while let Some(path) = next_path.take() {
+        if page >= MAX_PAGES {
+            log::warn!(
+                "fetch_playlist_tracks: hit max page cap ({MAX_PAGES}) for playlist {playlist_id} in storefront '{storefront}'"
+            );
+            break;
+        }
+        page += 1;
+
+        let url = format!("https://api.music.apple.com{path}");
+        log::debug!("Fetching playlist tracks page {page}: {url}");
+
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("User-Agent", "meedyadl")
+            .send()
+            .await
+            .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            return Err(format!(
+                "Apple Music API returned HTTP {status} for playlist {playlist_id} tracks (page {page})"
+            ));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse playlist tracks response: {e}"))?;
+
+        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+            for item in data {
+                // Only include songs — playlists can contain music-videos, which we don't dedupe.
+                let kind = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                if kind != "songs" {
+                    continue;
+                }
+                let Some(song_id) = item.get("id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let attrs = item.get("attributes");
+                let isrc = attrs
+                    .and_then(|a| a.get("isrc"))
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string);
+                let name = attrs
+                    .and_then(|a| a.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                // Prefer `playParams.catalogId` for album_id; fall back to
+                // the `albums` relationship; fall back to the song id itself
+                // (can't really happen — but keeps the flow defensive).
+                let album_id = attrs
+                    .and_then(|a| a.get("playParams"))
+                    .and_then(|pp| pp.get("catalogId"))
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string)
+                    .or_else(|| {
+                        item.get("relationships")
+                            .and_then(|r| r.get("albums"))
+                            .and_then(|a| a.get("data"))
+                            .and_then(|d| d.get(0))
+                            .and_then(|album| album.get("id"))
+                            .and_then(|v| v.as_str())
+                            .map(std::string::ToString::to_string)
+                    });
+                let Some(album_id) = album_id else {
+                    // Without a catalog album id we can't build a downloadable
+                    // per-track URL — skip. Worst case the overall planner
+                    // falls through for the whole playlist if enough tracks
+                    // are unusable.
+                    continue;
+                };
+
+                tracks.push(PlaylistTrackRef {
+                    song_id: song_id.to_string(),
+                    isrc,
+                    name,
+                    album_id,
+                });
+            }
+        }
+
+        next_path = json
+            .get("next")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+    }
+
+    log::info!(
+        "fetch_playlist_tracks: collected {} track(s) for playlist {playlist_id} in storefront '{storefront}' across {page} page(s)",
+        tracks.len()
+    );
+
+    Ok(tracks)
 }
 
 // ============================================================

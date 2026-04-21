@@ -358,6 +358,203 @@ pub async fn plan_artist_deduplication(
 }
 
 // ============================================================
+// Playlist dedup (#512)
+// ============================================================
+
+/// Dedup outcome for a single playlist URL.
+#[derive(Debug, Clone)]
+pub enum PlaylistPlan {
+    /// Replace the playlist URL with this explicit list of per-track URLs.
+    /// Only the non-duplicate subset of the playlist will be downloaded.
+    TrackUrls(Vec<String>),
+    /// Every track on the playlist matched a queued / history key.
+    /// Don't enqueue the playlist at all.
+    SkipEntirely,
+    /// Dedup couldn't operate (no MusicKit token, API error, library
+    /// playlist, playlist returned zero usable tracks). Keep the original
+    /// playlist URL — behaviour is unchanged vs pre-feature.
+    FallbackToPlaylistUrl,
+}
+
+/// Result of [`plan_playlist_deduplication`].
+#[derive(Debug, Clone)]
+pub struct PlaylistDedupPlan {
+    /// What to do with the playlist URL.
+    pub plan: PlaylistPlan,
+    /// Human-readable "Duplicate skipped" lines — emitted by the caller
+    /// once it has download-event context.
+    pub activity_lines: Vec<String>,
+    /// Count of tracks skipped (diagnostic).
+    pub skipped_count: usize,
+    /// Count of tracks kept (diagnostic).
+    pub kept_count: usize,
+}
+
+/// Plan duplicate detection for a catalog playlist URL.
+///
+/// Returns `None` when the feature is disabled, the URL isn't a catalog
+/// playlist, or there's nothing to compare against (empty queue + empty
+/// history). The caller falls through to the default enqueue path in
+/// those cases.
+///
+/// When `Some(plan)` is returned, the caller should consult
+/// [`PlaylistDedupPlan::plan`] to decide what URL list to enqueue. See
+/// the [`PlaylistPlan`] variants.
+///
+/// # Arguments
+/// * `_app` — Reserved for future activity-log plumbing; callers emit
+///   `activity_lines` directly with the appropriate context.
+/// * `parsed` — Parsed URL; `content_type` must be `"playlist"` and
+///   `playlist_id` must be `Some(pl.xxxx)`.
+/// * `settings` — Full settings bundle (for the MusicKit token chain
+///   and the dedup configuration).
+/// * `queued_keys` — Song keys already present in the active queue.
+/// * `history_keys` — Song keys from prior download manifests.
+pub async fn plan_playlist_deduplication(
+    _app: &AppHandle,
+    parsed: &ParsedAppleMusicUrl,
+    settings: &AppSettings,
+    queued_keys: &HashSet<String>,
+    history_keys: &HashSet<String>,
+) -> Option<PlaylistDedupPlan> {
+    let cfg = &settings.duplicate_detection;
+
+    // Fast-path: disabled, not a playlist URL, or nothing to dedupe against.
+    if matches!(cfg.scope, DuplicateDetectionScope::Off) {
+        return None;
+    }
+    if parsed.content_type != "playlist" {
+        return None;
+    }
+    let Some(playlist_id) = parsed.playlist_id.as_deref() else {
+        return None;
+    };
+    if queued_keys.is_empty() && history_keys.is_empty() {
+        // Without external comparison sources there's nothing for a
+        // playlist to dedupe against (unlike the artist planner which
+        // dedupes across modes in the same request).
+        log::debug!(
+            "Playlist dedup: no queued/history keys — nothing to compare against for {playlist_id}"
+        );
+        return None;
+    }
+
+    // Resolve JWT. Without it we can't fetch the playlist's tracks.
+    let Some(jwt) = resolve_jwt(settings) else {
+        log::info!(
+            "Playlist dedup: no MusicKit token available for {playlist_id}, keeping original URL"
+        );
+        return Some(PlaylistDedupPlan {
+            plan: PlaylistPlan::FallbackToPlaylistUrl,
+            activity_lines: Vec::new(),
+            skipped_count: 0,
+            kept_count: 0,
+        });
+    };
+
+    // Fetch the playlist's tracks (paginated). On failure, graceful
+    // fallback — never block the download.
+    let tracks = match apple_music_api::fetch_playlist_tracks(&jwt, &parsed.storefront, playlist_id)
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            log::warn!("Playlist dedup: fetch_playlist_tracks failed for {playlist_id}: {e}");
+            return Some(PlaylistDedupPlan {
+                plan: PlaylistPlan::FallbackToPlaylistUrl,
+                activity_lines: Vec::new(),
+                skipped_count: 0,
+                kept_count: 0,
+            });
+        }
+    };
+
+    if tracks.is_empty() {
+        log::info!(
+            "Playlist dedup: playlist {playlist_id} returned zero usable tracks — falling back"
+        );
+        return Some(PlaylistDedupPlan {
+            plan: PlaylistPlan::FallbackToPlaylistUrl,
+            activity_lines: Vec::new(),
+            skipped_count: 0,
+            kept_count: 0,
+        });
+    }
+
+    let strategy = cfg.key_strategy;
+    let mut kept_urls: Vec<String> = Vec::with_capacity(tracks.len());
+    let mut activity_lines: Vec<String> = Vec::new();
+    let mut skipped_count: usize = 0;
+
+    // Intra-playlist dedup (a song listed twice in the same playlist
+    // shouldn't be downloaded twice either). Track the keys we've already
+    // kept so we can flag second occurrences.
+    let mut seen_in_playlist: HashSet<String> = HashSet::new();
+
+    for t in &tracks {
+        let Some(key) = build_track_key_from_parts(
+            Some(&t.song_id),
+            t.isrc.as_deref(),
+            strategy,
+        ) else {
+            // Track lacks the fields required by the configured strategy
+            // — can't dedupe it. Keep it so we don't silently drop tracks.
+            if let Some(url) = build_track_url(&parsed.storefront, &t.album_id, &t.song_id) {
+                kept_urls.push(url);
+            }
+            continue;
+        };
+
+        if queued_keys.contains(&key) {
+            skipped_count += 1;
+            activity_lines.push(format!(
+                "Duplicate skipped from playlist: {} — already in download queue",
+                t.name
+            ));
+            continue;
+        }
+        if history_keys.contains(&key) {
+            skipped_count += 1;
+            activity_lines.push(format!(
+                "Duplicate skipped from playlist: {} — already in download history",
+                t.name
+            ));
+            continue;
+        }
+        if !seen_in_playlist.insert(key) {
+            skipped_count += 1;
+            activity_lines.push(format!(
+                "Duplicate skipped from playlist: {} — same track listed twice in playlist",
+                t.name
+            ));
+            continue;
+        }
+
+        if let Some(url) = build_track_url(&parsed.storefront, &t.album_id, &t.song_id) {
+            kept_urls.push(url);
+        }
+    }
+
+    let kept_count = kept_urls.len();
+    let plan = if kept_urls.is_empty() {
+        PlaylistPlan::SkipEntirely
+    } else {
+        PlaylistPlan::TrackUrls(kept_urls)
+    };
+
+    log::info!(
+        "Playlist dedup: {playlist_id} — {kept_count} kept, {skipped_count} skipped"
+    );
+
+    Some(PlaylistDedupPlan {
+        plan,
+        activity_lines,
+        skipped_count,
+        kept_count,
+    })
+}
+
+// ============================================================
 // Internal helpers
 // ============================================================
 
@@ -790,5 +987,32 @@ mod tests {
             extract_song_id_from_url("https://music.apple.com/gb/album/x/1?i=abc"),
             None
         );
+    }
+
+    // ----- Playlist dedup (#512) -----
+
+    #[test]
+    fn playlist_url_parsed_as_playlist_content_type() {
+        use crate::services::apple_music_api::parse_apple_music_url;
+        let parsed = parse_apple_music_url(
+            "https://music.apple.com/gb/playlist/pink-floyd-essentials/pl.u-abc123",
+        )
+        .expect("playlist should parse");
+        assert_eq!(parsed.content_type, "playlist");
+        assert_eq!(parsed.playlist_id.as_deref(), Some("pl.u-abc123"));
+        assert_eq!(parsed.storefront, "gb");
+    }
+
+    #[test]
+    fn library_playlist_url_is_not_parsed_as_catalog_playlist() {
+        // Library playlists (`/library/playlist/...`) must not match the
+        // catalog playlist regex — they need Music-User-Token auth and a
+        // different endpoint, so falling through to the generic path is
+        // the correct behaviour.
+        use crate::services::apple_music_api::parse_apple_music_url;
+        assert!(parse_apple_music_url(
+            "https://music.apple.com/gb/library/playlist/p.abc123"
+        )
+        .is_none());
     }
 }
