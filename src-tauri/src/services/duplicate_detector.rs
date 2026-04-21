@@ -426,9 +426,7 @@ pub async fn plan_playlist_deduplication(
     if parsed.content_type != "playlist" {
         return None;
     }
-    let Some(playlist_id) = parsed.playlist_id.as_deref() else {
-        return None;
-    };
+    let playlist_id = parsed.playlist_id.as_deref()?;
     if queued_keys.is_empty() && history_keys.is_empty() {
         // Without external comparison sources there's nothing for a
         // playlist to dedupe against (unlike the artist planner which
