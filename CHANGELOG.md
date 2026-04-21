@@ -109,6 +109,7 @@ The new function signature is 9 params after adding queue + audio traits
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.35.0] - 2026-04-20
 
