@@ -142,6 +142,7 @@ Replace `let Some(playlist_id) = parsed.playlist_id.as_deref() else {
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.36.0] - 2026-04-21
 
