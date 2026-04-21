@@ -169,14 +169,24 @@ static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 ///   `ValueError: invalid literal for int() with base 10: 'abc'`
 ///   `KeyError: 'missing_key'`
 ///   `requests.exceptions.HTTPError: 403 Client Error`
+///   `httpx.ConnectTimeout: Connection timed out`
+///   `httpx.ReadTimeout: timed out`
 ///
 /// The pattern matches lines that start with an optional dotted module path
-/// followed by a CamelCase word ending in "Error" or "Exception", then
-/// an optional colon with message. The `^` anchor prevents false positives
-/// from mid-line occurrences.
+/// followed by a CamelCase word ending in "Error", "Exception", or
+/// "Timeout", then an optional colon with message. The `^` anchor prevents
+/// false positives from mid-line occurrences.
+///
+/// `Timeout` was added alongside `Error`/`Exception` so httpx's typed
+/// timeout hierarchy (`ConnectTimeout`, `ReadTimeout`, `WriteTimeout`,
+/// `PoolTimeout`) is still captured. Without it these lines fell through
+/// to `GamdlOutputEvent::Unknown` — a silent regression for every
+/// network timeout raised by GAMDL's HTTP stack.
 static PYTHON_EXCEPTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:[a-zA-Z_][a-zA-Z0-9_.]*\.)?[A-Z][a-zA-Z]*(?:Error|Exception)(?::\s*.*)?$")
-        .expect("Invalid Python exception regex")
+    Regex::new(
+        r"^(?:[a-zA-Z_][a-zA-Z0-9_.]*\.)?[A-Z][a-zA-Z]*(?:Error|Exception|Timeout)(?::\s*.*)?$",
+    )
+    .expect("Invalid Python exception regex")
 });
 
 /// Matches ANSI escape sequences (color codes, cursor movement, etc.).
@@ -1329,5 +1339,240 @@ mod tests {
         let trace = "Traceback (most recent call last):\n\
                      KeyError: 'foo'";
         assert!(classify_gamdl_traceback(trace).is_none());
+    }
+
+    // ======================================================================
+    // GAMDL v3.0 synthetic output fixtures
+    // ======================================================================
+    //
+    // These fixtures reproduce what we believe GAMDL v3.0 writes to stderr
+    // based on the upstream source at the v3.0 tag:
+    //
+    //   * `cli/utils.py::custom_structlog_formatter` wraps every user-facing
+    //     log record as `[LEVEL    HH:MM:SS] <event>`. Level is
+    //     left-padded to 8 characters via `f"[{level:<8} ...`", so "ERROR"
+    //     gets 3 trailing spaces, "INFO" gets 4.
+    //   * `cli/cli.py` emits the following INFO/WARNING/ERROR strings:
+    //       `Processing "{url}"`
+    //       `Downloading "{media_title}"`
+    //       `Finished with {N} error(s)`
+    //       `Skipping "{media_title}": {e}`
+    //       `Error processing "{url}": {e}`
+    //       `Error downloading "{media_title}"`
+    //   * When `--no-exceptions` is NOT set (opt-in via
+    //     `verbose_gamdl_exceptions`), raw Python tracebacks reach stderr
+    //     unwrapped — the structlog formatter runs on the `logger.error`
+    //     call that precedes the `raise`, but the traceback is emitted by
+    //     Python itself, unadorned.
+    //
+    // These fixtures are best-effort synthesis. We have NOT captured
+    // real v3.0 output yet (see #521) — when we do, we should refine
+    // the skip-warning string, the exception wording, and any
+    // structlog-action prefixes.
+
+    /// Happy-path album download — structlog INFO lines only.
+    const FIXTURE_V3_SUCCESSFUL_ALBUM: &str =
+        "[INFO     12:00:00] Starting Gamdl 3.0.0\n\
+         [INFO     12:00:01] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
+         [INFO     12:00:02] Downloading \"Track One\"\n\
+         [INFO     12:00:05] Downloading \"Track Two\"\n\
+         [INFO     12:00:08] Finished with 0 error(s)\n";
+
+    /// Codec-skip scenario — triggers gap-fill retry in
+    /// `download_queue::count_codec_skip_warnings`. Structlog prefixes
+    /// every warning. Exact wording inherited from the exception raised
+    /// by the downloader when a requested codec isn't offered.
+    const FIXTURE_V3_CODEC_SKIPS: &str =
+        "[INFO     12:10:00] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
+         [WARNING  12:10:01] You have chosen an experimental song codec without enabling wrapper. They're not guaranteed to work due to API limitations.\n\
+         [INFO     12:10:02] Downloading \"Track One\"\n\
+         [WARNING  12:10:05] Skipping \"Track Two\": Requested format is not available\n\
+         [INFO     12:10:06] Downloading \"Track Three\"\n\
+         [WARNING  12:10:09] Skipping \"Track Four\": Requested format is not available\n\
+         [INFO     12:10:10] Finished with 2 error(s)\n";
+
+    /// Auth / URL error — 404 from the Apple Music catalog. Matches the
+    /// `Error processing "{url}": {e}` emission in `cli/cli.py`.
+    const FIXTURE_V3_AUTH_ERROR: &str =
+        "[INFO     12:20:00] Processing \"https://music.apple.com/us/album/example/9999999999\"\n\
+         [ERROR    12:20:01] Error processing \"https://music.apple.com/us/album/example/9999999999\": 404 Not Found\n\
+         [INFO     12:20:01] Finished with 1 error(s)\n";
+
+    /// Network failure with a verbose traceback (happens when the user
+    /// has flipped `verbose_gamdl_exceptions` on or MeedyaDL is running
+    /// against an older GAMDL that didn't set `--no-exceptions`).
+    const FIXTURE_V3_NETWORK_TRACEBACK: &str =
+        "[INFO     12:30:00] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
+         [ERROR    12:30:05] Error processing \"https://music.apple.com/us/album/example/1234567890\": \
+         Connection timed out\n\
+         Traceback (most recent call last):\n  \
+         File \"gamdl/cli/cli.py\", line 142, in main\n    \
+         downloader.download(url)\n  \
+         File \"httpx/_transports/default.py\", line 118, in map_httpcore_exceptions\n    \
+         raise mapped_exc(message) from exc\n\
+         httpx.ConnectTimeout: Connection timed out\n\
+         [INFO     12:30:05] Finished with 1 error(s)\n";
+
+    /// Helper: walk every non-empty line in `output` through
+    /// `parse_gamdl_output` and return the classifications. Keeps the
+    /// per-fixture assertions focused on the interesting events.
+    fn classify_lines(output: &str) -> Vec<GamdlOutputEvent> {
+        output
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(parse_gamdl_output)
+            .collect()
+    }
+
+    #[test]
+    fn v3_successful_album_classifies_cleanly() {
+        // Every line in the happy-path fixture is either a TrackInfo
+        // (from "Downloading \"...\"" — actually no, that's an INFO
+        // string which doesn't match our regex, so Unknown is fine) or
+        // a plain INFO status line. What matters is that NONE of them
+        // get misclassified as Error.
+        let events = classify_lines(FIXTURE_V3_SUCCESSFUL_ALBUM);
+        let errors: Vec<_> = events
+            .iter()
+            .filter(|e| matches!(e, GamdlOutputEvent::Error { .. }))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "Happy-path fixture must not produce Error events. Got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn v3_successful_album_finished_summary() {
+        // `parse_gamdl_error_count` reads the "Finished with N error(s)"
+        // line — confirm it survives the structlog prefix (the regex is
+        // a substring match, so it should).
+        assert_eq!(parse_gamdl_error_count(FIXTURE_V3_SUCCESSFUL_ALBUM), Some(0));
+    }
+
+    #[test]
+    fn v3_codec_skips_are_detected_as_errors() {
+        // The two "Skipping ... Requested format is not available" lines
+        // are WARNING level from GAMDL's perspective. For MeedyaDL's
+        // parser they should register as Error events so
+        // `count_codec_skip_warnings` / `is_codec_error` can pick them
+        // up — we need that to kick off gap-fill retry.
+        let events = classify_lines(FIXTURE_V3_CODEC_SKIPS);
+        let errors: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                GamdlOutputEvent::Error { message } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            errors.iter().any(|m| m.to_lowercase().contains("format is not available")),
+            "Expected at least one 'format is not available' Error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn v3_codec_skips_trigger_codec_error_classification() {
+        // `is_codec_error` is the signal the fallback chain consumes —
+        // it must return true for the skip warnings, otherwise we stay
+        // on the failed codec instead of trying the next one.
+        let any_codec = FIXTURE_V3_CODEC_SKIPS
+            .lines()
+            .any(is_codec_error);
+        assert!(
+            any_codec,
+            "v3.0 codec-skip fixture must contain at least one line that \
+             `is_codec_error` recognises"
+        );
+    }
+
+    #[test]
+    fn v3_codec_skips_finished_summary_counts_errors() {
+        assert_eq!(parse_gamdl_error_count(FIXTURE_V3_CODEC_SKIPS), Some(2));
+    }
+
+    #[test]
+    fn v3_auth_error_classifies_as_error_with_url_and_reason() {
+        // The `ERROR_PREFIX_REGEX` update in #517 should let this line
+        // through without needing Priority-7 keyword matching. Verify
+        // the URL and the reason both survive.
+        let events = classify_lines(FIXTURE_V3_AUTH_ERROR);
+        let error_messages: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                GamdlOutputEvent::Error { message } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            error_messages.iter().any(|m| {
+                m.contains("music.apple.com") && m.contains("404 Not Found")
+            }),
+            "Expected URL + reason to be preserved in the Error message, \
+             got: {error_messages:?}"
+        );
+    }
+
+    #[test]
+    fn v3_auth_error_classifies_as_not_found() {
+        // `classify_error` is what drives the UI category badge. The
+        // "404 Not Found" string should land in `not_found`, not
+        // `network` or `unknown`.
+        let reason = "404 Not Found";
+        assert_eq!(classify_error(reason), "not_found");
+    }
+
+    #[test]
+    fn v3_network_traceback_stays_classified_as_network() {
+        // Even with the traceback interleaved, the wrapping error line
+        // "Error processing ...: Connection timed out" plus the
+        // `httpx.ConnectTimeout` exception line both carry network
+        // keywords. `classify_error` must see the whole message as
+        // network-category so our retry logic fires.
+        //
+        // Walk every line of the fixture and confirm at least one of
+        // them classifies as `network`. Using the fixture (not
+        // hard-coded snippets) keeps this test honest when we update
+        // the fixture later with real v3.0 output.
+        let any_network = FIXTURE_V3_NETWORK_TRACEBACK
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .any(|line| classify_error(line) == "network");
+        assert!(
+            any_network,
+            "Expected at least one line in the v3 network fixture to \
+             classify as `network`; otherwise retry logic will not fire"
+        );
+
+        // Final Python exception line on its own should also classify
+        // as network via the httpx keyword branch.
+        let exc_line = "httpx.ConnectTimeout: Connection timed out";
+        assert_eq!(classify_error(exc_line), "network");
+    }
+
+    #[test]
+    fn v3_network_traceback_frame_is_not_misclassified_as_error() {
+        // `map_httpcore_exceptions` contains the substring "exception",
+        // which WOULD be picked up by Priority-7 keyword matching — but
+        // `File "..."` traceback frames short-circuit that branch.
+        // Confirm we still skip the frame line.
+        let frame = r#"  File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
+        if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(frame) {
+            panic!("Traceback frame must not be captured as an Error");
+        }
+    }
+
+    #[test]
+    fn v3_network_traceback_exception_line_is_captured() {
+        // The real exception line (`httpx.ConnectTimeout: ...`) MUST be
+        // captured as an Error, so the activity log at least shows the
+        // final cause even when frames are hidden.
+        let exc = "httpx.ConnectTimeout: Connection timed out";
+        match parse_gamdl_output(exc) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("ConnectTimeout"));
+            }
+            other => panic!("Expected Error, got {other:?}"),
+        }
     }
 }
