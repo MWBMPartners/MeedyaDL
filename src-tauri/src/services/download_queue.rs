@@ -2050,6 +2050,19 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         options.fetch_extra_tags = Some(settings.fetch_extra_tags);
     }
 
+    // Default to `--no-exceptions` so GAMDL prints a single user-facing
+    // line per failure instead of a full Python traceback. GAMDL v3.0
+    // interleaves structlog-formatted lines with raw multi-line
+    // tracebacks, which makes the activity log unreadable and confuses
+    // `classify_error()` (frame paths like `httpx/_transports/default.py`
+    // pick up the "Error" keyword falsely). Users debugging upstream
+    // issues can flip the `verbose_gamdl_exceptions` setting to get the
+    // full stack trace back; in that case we leave `no_exceptions` as
+    // `None` so `to_cli_args()` never emits the flag.
+    if !settings.verbose_gamdl_exceptions {
+        options.no_exceptions = Some(true);
+    }
+
     // Apply exclude tags
     if !settings.exclude_tags.is_empty() {
         options.exclude_tags = Some(settings.exclude_tags.join(","));

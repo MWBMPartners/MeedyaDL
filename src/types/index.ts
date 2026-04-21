@@ -625,6 +625,13 @@ export interface AppSettings {
   sentry_enabled: boolean;
   /** When true, emits detailed [VERBOSE] messages to Activity Log (may expose sensitive data). */
   verbose_activity_log: boolean;
+  /**
+   * When true, MeedyaDL stops passing `--no-exceptions` to GAMDL so full Python
+   * tracebacks reach stderr on uncaught exceptions. Default false keeps v3.0's
+   * structlog output readable by collapsing failures to a single line. Mirrors
+   * Rust field `AppSettings::verbose_gamdl_exceptions`.
+   */
+  verbose_gamdl_exceptions: boolean;
   /** Internal developer access mode. Unlocks enhanced features. Not visible in normal Settings UI. */
   dev_access_enabled: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */

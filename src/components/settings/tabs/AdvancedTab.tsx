@@ -398,6 +398,12 @@ export function AdvancedTab() {
             </p>
           </div>
         )}
+        <Toggle
+          label="Show Full GAMDL Tracebacks"
+          description="Stops MeedyaDL from passing --no-exceptions to GAMDL, so uncaught Python exceptions include the full stack trace instead of a single user-facing line. Useful for reporting bugs against upstream GAMDL; noisy for everyday use because v3.0 structlog lines interleave with raw tracebacks."
+          checked={settings.verbose_gamdl_exceptions}
+          onChange={(checked) => updateSettings({ verbose_gamdl_exceptions: checked })}
+        />
       </SettingsSection>
 
       {/* ── Setup ── */}
