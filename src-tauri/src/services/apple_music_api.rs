@@ -1415,6 +1415,202 @@ pub async fn fetch_album_metadata_with_fallback(
 }
 
 // ============================================================
+// Artist Albums (for pre-queue duplicate detection, #510)
+// ============================================================
+
+/// A lightweight summary of an album returned by the artist→albums endpoint.
+///
+/// Used by the duplicate-detection pipeline to enumerate every album that
+/// belongs to an artist under a given auto-select mode (main-albums,
+/// singles-eps, compilation-albums, live-albums). Tracks are fetched in a
+/// second pass via [`fetch_album_metadata`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistAlbumRef {
+    /// Numeric Apple Music album ID.
+    pub album_id: String,
+    /// Album title, if present in the catalog response.
+    pub name: Option<String>,
+    /// Whether the API marks this as a compilation.
+    pub is_compilation: Option<bool>,
+    /// Whether the API marks this as a single release.
+    pub is_single: Option<bool>,
+    /// `attributes.trackCount` — useful for heuristic EP vs album classification.
+    pub track_count: Option<u32>,
+    /// Release date (YYYY-MM-DD), used to order live-album detection heuristics.
+    pub release_date: Option<String>,
+}
+
+/// Fetch every album for an artist from the Apple Music catalog API.
+///
+/// Paginates through `/v1/catalog/{storefront}/artists/{artist_id}/albums`
+/// with `limit=100` (Apple's maximum) until the `next` cursor is absent.
+/// Used by the duplicate-detection pipeline (#510) to enumerate albums
+/// before fanning out one artist URL into per-mode queue items.
+///
+/// # Arguments
+/// * `jwt` — MusicKit Developer Token (ES256-signed JWT)
+/// * `storefront` — Two-letter storefront code (e.g., "us")
+/// * `artist_id` — Numeric Apple Music artist ID
+///
+/// # Returns
+/// * `Ok(Vec<ArtistAlbumRef>)` — Possibly empty list of albums
+/// * `Err(String)` — HTTP / parse error from any page
+pub async fn fetch_artist_albums(
+    jwt: &str,
+    storefront: &str,
+    artist_id: &str,
+) -> Result<Vec<ArtistAlbumRef>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    // Page cursor: Apple Music returns a relative `next` URL (e.g.,
+    // "/v1/catalog/us/artists/123/albums?offset=100") that we append to the
+    // host. Start with the initial page.
+    let mut next_path: Option<String> = Some(format!(
+        "/v1/catalog/{storefront}/artists/{artist_id}/albums?limit=100"
+    ));
+    let mut albums: Vec<ArtistAlbumRef> = Vec::new();
+
+    // Safety cap: even hyper-prolific artists top out well below 50 pages (5,000
+    // albums). Prevents a runaway loop if the API returns a circular `next`.
+    const MAX_PAGES: u32 = 50;
+    let mut page = 0u32;
+
+    while let Some(path) = next_path.take() {
+        if page >= MAX_PAGES {
+            log::warn!(
+                "fetch_artist_albums: hit max page cap ({MAX_PAGES}) for artist {artist_id} in storefront '{storefront}'"
+            );
+            break;
+        }
+        page += 1;
+
+        let url = format!("https://api.music.apple.com{path}");
+        log::debug!("Fetching artist albums page {page}: {url}");
+
+        let response = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {jwt}"))
+            .header("User-Agent", "meedyadl")
+            .send()
+            .await
+            .map_err(|e| format!("Artist albums API request failed: {e}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status().as_u16();
+            return Err(format!(
+                "Apple Music API returned HTTP {status} for artist {artist_id} albums (page {page})"
+            ));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse artist albums response: {e}"))?;
+
+        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+            for item in data {
+                let Some(album_id) = item.get("id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let attrs = item.get("attributes");
+                let name = attrs
+                    .and_then(|a| a.get("name"))
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string);
+                let is_compilation = attrs
+                    .and_then(|a| a.get("isCompilation"))
+                    .and_then(serde_json::Value::as_bool);
+                let is_single = attrs
+                    .and_then(|a| a.get("isSingle"))
+                    .and_then(serde_json::Value::as_bool);
+                let track_count = attrs
+                    .and_then(|a| a.get("trackCount"))
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|v| u32::try_from(v).ok());
+                let release_date = attrs
+                    .and_then(|a| a.get("releaseDate"))
+                    .and_then(|v| v.as_str())
+                    .map(std::string::ToString::to_string);
+
+                albums.push(ArtistAlbumRef {
+                    album_id: album_id.to_string(),
+                    name,
+                    is_compilation,
+                    is_single,
+                    track_count,
+                    release_date,
+                });
+            }
+        }
+
+        // Continue if the API gave us a `next` cursor (relative path).
+        next_path = json
+            .get("next")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+    }
+
+    log::info!(
+        "fetch_artist_albums: collected {} album(s) for artist {artist_id} in storefront '{storefront}' across {page} page(s)",
+        albums.len()
+    );
+
+    Ok(albums)
+}
+
+/// Classify an album into the GAMDL artist-auto-select bucket that would
+/// have downloaded it. Uses the same classification GAMDL itself does when
+/// applying `--artist-auto-select` (best-effort — we don't have GAMDL's
+/// exact source code reference here, but the API fields are the same
+/// signals Apple Music's web client uses).
+///
+/// - `compilation-albums`: `isCompilation == Some(true)`
+/// - `singles-eps`: `isSingle == Some(true)` OR `track_count <= 6`
+/// - `live-albums`: album name heuristics — contains "(Live", "[Live",
+///   ": Live", or ends with " (Live)" / " [Live]" (case-insensitive).
+///   Apple doesn't expose a structured `isLive` flag.
+/// - `main-albums`: everything else (the canonical full studio album).
+///
+/// Returns `None` for modes that this classifier can't resolve from album
+/// metadata (e.g., top-songs — that's a catalog relation, not an album
+/// flag).
+#[must_use]
+pub fn classify_album_bucket(
+    album: &ArtistAlbumRef,
+) -> crate::models::gamdl_options::ArtistAutoSelect {
+    use crate::models::gamdl_options::ArtistAutoSelect;
+
+    if album.is_compilation == Some(true) {
+        return ArtistAutoSelect::CompilationAlbums;
+    }
+
+    if let Some(name) = album.name.as_deref() {
+        let lower = name.to_lowercase();
+        // Match "live" as a standalone token inside parens/brackets or
+        // a trailing " - live" / ": live" suffix. Avoids false-positives
+        // like "Olive" or "Alive" by requiring a word boundary.
+        let live_markers = [" (live", " [live", ": live", " - live"];
+        if live_markers.iter().any(|marker| lower.contains(marker))
+            || lower.ends_with(" (live)")
+            || lower.ends_with(" [live]")
+        {
+            return ArtistAutoSelect::LiveAlbums;
+        }
+    }
+
+    if album.is_single == Some(true)
+        || album.track_count.is_some_and(|tc| tc <= 6)
+    {
+        return ArtistAutoSelect::SinglesEps;
+    }
+
+    ArtistAutoSelect::MainAlbums
+}
+
+// ============================================================
 // Syllable-Level Lyrics (Word-by-Word TTML)
 // ============================================================
 

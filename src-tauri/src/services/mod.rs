@@ -365,6 +365,17 @@ pub mod service_status;
 /// quality source for a given album/track.
 pub mod smart_download;
 
+/// Pre-queue duplicate detector (#510).
+///
+/// When an Apple Music artist URL is queued with multiple
+/// `artist_auto_select_multi` modes, fetches the album list for each mode,
+/// applies the user's preference hierarchy (default: main > singles >
+/// compilations > live > top-songs), and returns a plan indicating which
+/// track URLs to skip in each mode so that any given song is downloaded
+/// exactly once. Operates on track identity (song_id / ISRC) only —
+/// companion format downloads (ALAC / Atmos / AAC, etc.) are unaffected.
+pub mod duplicate_detector;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

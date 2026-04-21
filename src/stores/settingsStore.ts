@@ -109,6 +109,20 @@ const DEFAULT_SETTINGS: AppSettings = {
   musicbrainz_lookup: false, // MusicBrainz video/cross-platform discovery (no creds needed)
   artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
   artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
+  // Pre-queue duplicate detection (#510). On by default, skipping songs that
+  // appear in multiple artist-auto-select modes (e.g. album + single + compilation).
+  // Does NOT affect companion-format downloads (ALAC/Atmos/AAC/etc).
+  duplicate_detection: {
+    scope: 'intra_and_queued',
+    preference_order: [
+      'main-albums',
+      'singles-eps',
+      'compilation-albums',
+      'live-albums',
+      'top-songs',
+    ],
+    key_strategy: 'song_id_isrc_fallback',
+  },
   embed_lyrics_and_sidecar: true, // Embed lyrics in metadata
   keep_lyrics_sidecar: true, // Keep .lrc/.srt/.ttml sidecar files alongside embedded lyrics
   enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
