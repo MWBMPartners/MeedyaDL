@@ -66,3 +66,31 @@ version_flag = "-version"
 minimum_version = "22.0"
 binary_name = "mediainfo"
 version_flag = "--version"
+
+# GAMDL is installed via pip (not as a standalone binary) so the
+# `binary_name` / `version_flag` fields above don't apply. Instead we
+# declare a **support window** that bounds which GAMDL releases this
+# MeedyaDL build has been validated against. Consumed by
+# `services::gamdl_capabilities` for:
+#
+#   * capping `pip install --upgrade` to the tested range,
+#   * suppressing update prompts when upstream ships beyond our
+#     ceiling (users shouldn't be pushed into untested territory), and
+#   * classifying the installed version at startup
+#     (Unsupported / Supported / Untested / NotInstalled).
+#
+# Bump `maximum_tested_version` / `recommended_version` every time we
+# validate a new GAMDL release. `minimum_version` is the oldest
+# release that still supports `--song-codec-priority` for albums
+# (native fallback chain support; older releases silently degrade).
+[gamdl]
+# Lowest release we still support. Anything below degrades features
+# (native codec priority, modern error classification) silently.
+minimum_version = "2.9.1"
+# Highest release MeedyaDL has been tested against. Upstream may ship
+# newer versions before we validate them; see module docs in
+# `gamdl_capabilities.rs` for how that scenario is handled.
+maximum_tested_version = "3.0"
+# What the installer will resolve to when run with no override. Always
+# within `[minimum_version, maximum_tested_version]`.
+recommended_version = "3.0"

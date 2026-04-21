@@ -550,6 +550,15 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
 ///
 /// Called during app setup to log all installed component versions as a
 /// `[System]` entry. Useful for debugging user-reported issues.
+///
+/// Also emits a second `[System]` line classifying the installed GAMDL
+/// version against this build's support window
+/// (`services::gamdl_capabilities::classify`). Users / support staff
+/// can see at a glance whether GAMDL is below our floor
+/// (Unsupported), inside the range (Supported), above the tested
+/// ceiling (Untested), or missing entirely (Not installed) — without
+/// having to correlate version strings against the README support
+/// matrix by hand.
 pub async fn log_component_versions_to_activity(app: &AppHandle) {
     match get_component_versions(app.clone()).await {
         Ok(versions) => {
@@ -569,9 +578,73 @@ pub async fn log_component_versions_to_activity(app: &AppHandle) {
                 emit_app_log(app, &msg);
                 log::info!("{msg}");
             }
+
+            // Pull the GAMDL version directly (the main list above
+            // stringifies everything together, which loses the
+            // ability to classify any one component).
+            let gamdl_version = versions
+                .iter()
+                .find(|v| v.name == "GAMDL")
+                .and_then(|v| v.version.clone());
+
+            emit_gamdl_support_status(app, gamdl_version.as_deref());
         }
         Err(e) => {
             log::warn!("Failed to gather component versions: {e}");
+        }
+    }
+}
+
+/// Renders a `[System]` activity-log entry describing how the
+/// installed GAMDL version relates to this build's support window.
+///
+/// The classification is visible to users (in the activity log) and
+/// to us (in crash reports). On Unsupported / Untested we write a
+/// `log::warn!` so the entry is also captured by the tracing sink
+/// and shows up in the rotated log file even without activity-log
+/// subscribers.
+fn emit_gamdl_support_status(app: &AppHandle, gamdl_version: Option<&str>) {
+    use crate::services::gamdl_capabilities::{classify, support_window, VersionSupport};
+
+    let window = support_window();
+    let status = classify(gamdl_version);
+
+    let line = match &status {
+        VersionSupport::NotInstalled => format!(
+            "GAMDL support: not installed (supported range {min}–{max})",
+            min = window.minimum,
+            max = window.maximum_tested,
+        ),
+        VersionSupport::Supported { installed } => format!(
+            "GAMDL support: {installed} is inside the validated range \
+             {min}–{max}",
+            min = window.minimum,
+            max = window.maximum_tested,
+        ),
+        VersionSupport::Unsupported { installed, minimum } => format!(
+            "GAMDL support: {installed} is below the supported floor \
+             ({minimum}). Some features may silently degrade; update \
+             via Settings > Tools.",
+        ),
+        VersionSupport::Untested {
+            installed,
+            maximum_tested,
+            recommended,
+        } => format!(
+            "GAMDL support: {installed} is newer than this MeedyaDL \
+             build has validated ({maximum_tested}). Downloads may \
+             fail on CLI changes; consider downgrading to \
+             {recommended}.",
+        ),
+    };
+
+    emit_app_log(app, &line);
+    match &status {
+        VersionSupport::Unsupported { .. } | VersionSupport::Untested { .. } => {
+            log::warn!("{line}");
+        }
+        VersionSupport::Supported { .. } | VersionSupport::NotInstalled => {
+            log::info!("{line}");
         }
     }
 }

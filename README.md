@@ -102,6 +102,30 @@
 
 ---
 
+## 🧩 Component Support Matrix
+
+MeedyaDL orchestrates several external components (a portable Python runtime, the GAMDL CLI, and a handful of media tools). Each MeedyaDL release is validated against a specific range of versions for every component. Running outside the validated range may work, but we cannot guarantee functional or security correctness.
+
+| Component | Role | Supported range | Recommended | Source of truth |
+| --- | --- | --- | --- | --- |
+| **Python** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
+| **GAMDL** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.0** | 3.0 | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **FFmpeg** | Audio codec conversion and video remuxing. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
+| **mp4decrypt** (Bento4) | Decrypts Widevine-protected streams. Required by GAMDL v3.0+ for music videos. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
+| **N_m3u8DL-RE** | Alternative HLS/DASH downloader used by some codec paths. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
+| **MP4Box** (GPAC) | Alternative MP4 muxer. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
+| **MediaInfo** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
+
+### How the support window is enforced
+
+- **Install flow**: `install_gamdl()` invokes `pip install --upgrade 'gamdl>={min},<={max}'`, so the resolver never pulls a GAMDL release we haven't validated.
+- **Update prompts**: the update banner (`services::update_checker`) queries `gamdl_capabilities::should_offer_upgrade()` — if PyPI advertises a GAMDL version beyond `maximum_tested_version`, no upgrade is suggested. Users who manually upgrade outside the range will still see their installed version, and a startup activity-log entry warns them that downloads may fail on CLI changes until the next MeedyaDL release catches up.
+- **CLI/INI emission**: `services::gamdl_capabilities` is consulted at every subprocess spawn and every `config.ini` write, so MeedyaDL never emits a flag (e.g. `--fetch-extra-tags`) the installed GAMDL release can't understand.
+
+If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0), please open an issue before upgrading so we can validate and bump the ceiling.
+
+---
+
 ## Wrapper Authentication
 
 The **wrapper** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running server that handles Apple ID authentication and DRM key exchange directly.
