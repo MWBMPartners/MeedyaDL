@@ -86,6 +86,12 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     category: 'playlist',
   },
   {
+    value: 'playlist_id',
+    label: 'Playlist ID',
+    description: "Apple Music's numeric playlist ID — guaranteed unique, use for `.m3u8` filename safety",
+    category: 'playlist',
+  },
+  {
     value: 'platform',
     label: 'Platform',
     description: 'Download platform (e.g., AppleMusic, Spotify)',
@@ -131,6 +137,7 @@ export const SAMPLE_METADATA: Record<string, string> = {
   genre: 'Pop',
   playlist_artist: 'Apple Music',
   playlist_title: "Today's Hits",
+  playlist_id: 'pl.f4d106fed2bd41149aaacabb233eb5eb',
   platform: 'AppleMusic',
 };
 
