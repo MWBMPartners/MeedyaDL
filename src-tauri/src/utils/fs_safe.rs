@@ -187,6 +187,60 @@ pub fn write_non_clobbering(
     Ok(path)
 }
 
+/// Write `contents` to `{dir}/{name}` with content-aware deduplication.
+///
+/// Behaviour:
+/// - **Target absent** → normal write; returns the target path.
+/// - **Target present + identical bytes** → no-op; returns the existing
+///   path. Caller can treat this as "already saved". Avoids the
+///   `.1`, `.2`, ... sprawl when the same content is written repeatedly
+///   (e.g., re-downloading an album whose Apple Music API response
+///   hasn't changed).
+/// - **Target present + different bytes** → disambiguate via
+///   `resolve_non_clobbering_path` and write the new content to
+///   `{name}.1.{ext}` (or further). Preserves the prior file.
+///
+/// Use this instead of `write_non_clobbering` when the write is
+/// idempotent-in-content (the common case for API response dumps,
+/// cached metadata, and other deterministic outputs) so the disk
+/// doesn't accumulate redundant duplicates on every re-run.
+///
+/// # Errors
+/// Returns any I/O error from reading the existing file or writing the
+/// new one.
+pub fn write_deduped(
+    dir: &Path,
+    name: &str,
+    contents: impl AsRef<[u8]>,
+) -> std::io::Result<PathBuf> {
+    let path = dir.join(name);
+    let bytes = contents.as_ref();
+
+    if path.exists() {
+        // Compare content byte-for-byte. For the API-dump use case the
+        // files are on the order of 10–100 KB, so a synchronous read
+        // here is cheaper than the wasted write + eventual disk bloat.
+        match std::fs::read(&path) {
+            Ok(existing) if existing.as_slice() == bytes => {
+                // Identical — no-op.
+                return Ok(path);
+            }
+            Ok(_) | Err(_) => {
+                // Different content, or unreadable (in which case the
+                // old file is effectively garbage anyway). Fall through
+                // to the disambiguating write so the old file is
+                // preserved on its original path.
+                let alt = resolve_non_clobbering_path(dir, name);
+                std::fs::write(&alt, bytes)?;
+                return Ok(alt);
+            }
+        }
+    }
+
+    std::fs::write(&path, bytes)?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,5 +388,62 @@ mod tests {
             fs::read_to_string(dir.path().join("dump.json")).unwrap(),
             "EXISTING"
         );
+    }
+
+    // ------------------------------------------------------------
+    // write_deduped (#553)
+    // ------------------------------------------------------------
+
+    #[test]
+    fn write_deduped_creates_file_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = write_deduped(dir.path(), "data.json", b"hello").unwrap();
+        assert_eq!(out, dir.path().join("data.json"));
+        assert_eq!(fs::read(out).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn write_deduped_is_noop_when_content_identical() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.json");
+        fs::write(&path, b"hello").unwrap();
+
+        let out = write_deduped(dir.path(), "data.json", b"hello").unwrap();
+
+        // Returned path is the original, no `.1.json` sprawl.
+        assert_eq!(out, path);
+        // Original content preserved.
+        assert_eq!(fs::read(&path).unwrap(), b"hello");
+        // Directory has exactly one file (no duplicate).
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn write_deduped_disambiguates_when_content_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        let orig = dir.path().join("data.json");
+        fs::write(&orig, b"old content").unwrap();
+
+        let out = write_deduped(dir.path(), "data.json", b"new content").unwrap();
+
+        // New content landed on a disambiguated path.
+        assert_eq!(out, dir.path().join("data.1.json"));
+        // Original preserved.
+        assert_eq!(fs::read(&orig).unwrap(), b"old content");
+        // New file has the new content.
+        assert_eq!(fs::read(&out).unwrap(), b"new content");
+    }
+
+    #[test]
+    fn write_deduped_handles_repeat_identical_writes_without_sprawl() {
+        // Simulates the real use case: repeated re-downloads of an album
+        // whose API response hasn't changed between runs. After 5
+        // identical writes the directory should still contain exactly
+        // one file.
+        let dir = tempfile::tempdir().unwrap();
+        for _ in 0..5 {
+            write_deduped(dir.path(), "dump.json", b"same bytes every time").unwrap();
+        }
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }
