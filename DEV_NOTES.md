@@ -965,6 +965,33 @@ The `music_video_companion` setting (default: `false`) enables automatic downloa
 | `src-tauri/src/models/settings.rs` | `music_video_companion: bool` setting field |
 | `src/components/settings/tabs/QualityTab.tsx` | Toggle in Video Quality section (gated behind MusicKit credentials) |
 
+### Music-Video Filename & Folder Resolution (#527 #531 #537)
+
+Music video placement on disk is resolved through a four-tier cascade, highest priority first. This section is the spec — any change must update the precedence, the constants, AND the unit tests.
+
+| Tier | Source | Where it plays in | Folder path | Filename pattern | Unique? |
+|------|--------|-------------------|-------------|------------------|---------|
+| 1 | GAMDL's **iTunes Lookup** (`interface_music_video.py:80`) with album linkage | Inside GAMDL (`tags.album` populated → `album_folder_template`) | `{album_artist}/{album}/` | `{track:02d} {title}` or `{disc}-{track:02d} {title}` | Yes (disc/track disambiguate) |
+| 2 | **Apple Music Catalog API** `music-videos/{id}?include=albums` | Not yet wired — tracked as follow-up in #537 | `{album_artist}/{album}/` (pre-filled into `no_album_folder_template` before GAMDL runs) | `{title} ({title_id})` (same last-resort file template; album-aware override planned) | Yes |
+| 3 | **MeedyaDL-known parent album** — when the MV is discovered via `fetch_music_video_relations()` for album X, we already know it belongs to album X | Not yet wired — tracked in #537 | `{album_artist}/{album}/` from our known parent context | `{title} ({title_id})` | Yes |
+| 4 | **Fallback** (`MV_NO_ALBUM_FOLDER_TEMPLATE` + `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue.rs`) | Reached only when all three above fail or the MV genuinely has no album (standalone promo MV) | `{artist}/Music Videos/` | `{title} ({title_id})` — `{title_id}` is Apple Music's numeric MV ID, **guaranteed unique** and **deterministic across re-downloads** | Yes |
+
+**Why `{title_id}` and not a datetime?** `{title_id}` is the Apple Music MV numeric ID — the same ID every time, so re-downloads of the same MV dedupe correctly under GAMDL's `overwrite=false`. A datetime suffix would cause every re-download to create a new file, silently multiplying on-disk copies.
+
+**Why override `no_album_*` templates for MVs only (not globally)?** The user's `no_album_folder_template` and `no_album_file_template` are audio-oriented. Legacy MeedyaDL installs (pre-v0.38 settings) shipped `"{artist}/[Unknown]"` + `"{disc} - "` as those defaults — which for MVs without `{disc}` produces the catastrophic `Artist/[Unknown]/-.mp4` output that motivated #527 in the first place. Forcing a fixed MV-safe pair means an audio download still honours the user's no-album choices while MVs get guaranteed-sane output regardless of settings hygiene.
+
+**Tiers 2 and 3 are scoped out of the initial RC fix.** The current PR covers Tier 4 only (the safety net). Tier 1 already works natively in GAMDL. Tiers 2 and 3 are tracked in #537 and will land as a separate PR once the Apple Music Catalog MV endpoint and the parent-album threading are implemented. Landing Tier 4 alone already resolves the RC blocker — MVs that fell into the buggy `[Unknown]` path now land in a predictable `{artist}/Music Videos/` folder with unique `{title} ({title_id}).mp4` filenames.
+
+**Key constants & locations:**
+
+| Location | Role |
+|----------|------|
+| `src-tauri/src/services/download_queue.rs` → `MV_NO_ALBUM_FOLDER_TEMPLATE` | Tier 4 folder template |
+| `src-tauri/src/services/download_queue.rs` → `MV_NO_ALBUM_FILE_TEMPLATE` | Tier 4 file template (includes `{title_id}` for uniqueness) |
+| `src-tauri/src/services/download_queue.rs` → `download_music_video_by_url()` | Applies Tier 4 overrides to the GAMDL invocation for MVs |
+| `src-tauri/src/services/config_service.rs` → `migrate_settings()` v2→v3 | Heals legacy broken `no_album_*` defaults on upgrade |
+| `src-tauri/src/services/apple_music_api.rs` → `fetch_music_video_relations()` | Currently returns MV ID + name only; to be extended for Tier 2 (`include=albums`) |
+
 ---
 
 ## Animated Cover Art (Motion Artwork)
@@ -976,7 +1003,12 @@ MeedyaDL downloads animated cover art (motion artwork) from Apple Music after al
 | File | Aspect Ratio | Max Resolution | Source API Field |
 |------|-------------|----------------|-----------------|
 | `FrontCover.mp4` | 1:1 (square) | 3840x3840 | `editorialVideo.motionDetailSquare.video` |
-| `PortraitCover.mp4` | 3:4 (portrait) | 2048x2732 | `editorialVideo.motionDetailTall.video` |
+| `FrontCoverPortrait.mp4` | 3:4 (portrait) | 2048x2732 | `editorialVideo.motionDetailTall.video` |
+| `ArtistSpotlightCover.mp4` | 16:9 (landscape) | artist-dependent | `editorialVideo.motionArtistFullscreen16x9.video` (preferred) or `editorialVideo.motionArtistWide16x9.video` (fallback) — queried from the artist endpoint, saved to the artist folder |
+
+> **Filename rationale:** `FrontCover` + `FrontCoverPortrait` are the two orientations of the same album cover and sort adjacent alphabetically, so they stay visually paired in any file browser. `ArtistSpotlightCover` is intentionally narrower than the `motionArtist*` fallback chain used in earlier versions — lower-tier fallbacks (`motionDetailSquare` / `motionDetailTall`) are tightly cropped around cover art and look visually wrong as an artist-page hero, so we skip the download rather than substitute a mismatched source.
+
+> **Legacy filename migration:** Pre-v0.39 releases wrote the portrait variant as `PortraitCover.mp4`. We do **not** auto-rename existing files — renaming without consent is risky (the user may have built scripts or media-player presets around the legacy name). Freshly downloaded albums get the new name; re-downloads leave the old file untouched (GAMDL-style `overwrite=false`). Users who want a clean sweep can delete `PortraitCover.mp4` before re-running animated artwork on an album.
 
 Both are saved as sidecar files alongside downloaded audio in the album directory.
 

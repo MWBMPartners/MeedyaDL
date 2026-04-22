@@ -29,8 +29,109 @@ Adds a fourth `Dedup: scope=..., key=..., preferences=...` line to
   `commands::gamdl::start_download` whenever dedup fires.
 
 
+### 🐛 Bug Fixes
+
+- **(download)** Force MV-safe no-album templates + heal legacy defaults (#531)
+
+Music video companion downloads were landing as `-.mp4` inside
+  `{artist}/[Unknown]/` folders for users upgrading from pre-v2 settings.
+  Two causes, one bug:
+
+  1. `download_music_video_by_url()` inherited the user's audio-oriented
+     `no_album_folder_template` / `no_album_file_template`. A direct
+     `/music-video/` URL has no album context, so GAMDL routes through the
+     no-album template path. Override those two fields with fixed MV-safe
+     values (`{artist}/Music Videos` + `{title}`) regardless of user
+     settings — MVs never have a `{disc}` or `{album}` context, so audio
+     templates are never the right fit.
+
+  2. Pre-v2 MeedyaDL shipped `no_album_folder_template` as
+     `"{artist}/[Unknown]"` and `no_album_file_template` as `"{disc} - "`.
+     Serde only fills missing fields with defaults, so upgraders kept the
+     original broken values. Add a v2 → v3 settings migration that heals
+     exact matches of those legacy defaults to the current defaults
+     (`{artist}/Unknown Album` + `{title}`); custom values are preserved.
+
+  Adds 7 unit tests (762 → 769 passing).
+
+- **(download)** MV filename uniqueness + motion-art renaming pass (#527 #536 #537)
+
+Follow-up to the MV no-album template fix. Three coordinated changes plus
+  the documentation that specifies the resolution order for future tiers.
+
+  1. **MV filename uniqueness** — last-resort template
+     `MV_NO_ALBUM_FILE_TEMPLATE` tightened from `"{title}"` to
+     `"{title} ({title_id})"`. `{title_id}` is Apple Music's numeric MV ID:
+     deterministic across re-downloads (dedupe survives) and unique per MV
+     (same-title cuts — Clean/Explicit, remixes, live versions — no longer
+     silently collide under GAMDL `overwrite=false`). Datetime was
+     deliberately rejected as a disambiguator because it would cause every
+     re-download to create a new file.
+
+     The four-tier resolution spec now lives in `DEV_NOTES.md` under
+     "Music-Video Filename & Folder Resolution". This PR only implements
+     Tier 4 (the safety net); Tiers 2 (Apple Music Catalog `include=albums`)
+     and 3 (MeedyaDL-known parent album context) are tracked in #537 and
+     land in a separate PR. Tier 1 (GAMDL's native iTunes Lookup) already
+     works upstream and is unchanged.
+
+  2. **Motion artwork rename** — `PortraitCover.mp4` →
+     `FrontCoverPortrait.mp4`. The two album-motion variants now sort
+     adjacent (`FrontCover` + `FrontCoverPortrait`) in any alphabetical
+     listing, and the portrait filename is self-describing. No
+     auto-migration of legacy files on disk — renaming without consent is
+     risky; users who want a clean sweep can delete `PortraitCover.mp4`
+     before re-running animated artwork on an album.
+
+  3. **Artist Spotlight priority reorder** —
+     `fetch_artist_promo_video()` now consults only the two 16:9
+     artist-framed feeds (`motionArtistFullscreen16x9` →
+     `motionArtistWide16x9`), with Fullscreen preferred for its typically
+     higher source resolution and full-bleed framing. The previous chain
+     fell through to `motionDetailSquare` / `motionDetailTall`, but those
+     album-detail feeds are tightly cropped around cover art and look
+     visually wrong used as an artist-page hero. Prefer skipping the
+     download over a mismatched fallback.
+
+  Docs updated across DEV_NOTES.md (new "Music-Video Filename & Folder
+  Resolution" section, updated motion-artwork table), CLAUDE.md
+  (animated-artwork and artist-promo bullet points plus a new MV
+  resolution bullet), README.md, Project_Plan.md, help/animated-artwork.md
+  (including stale `ArtistCover.mp4` → `ArtistSpotlightCover.mp4` fixups),
+  and inline docstrings on every touched symbol.
+
+  Test updates: new assertion that `MV_NO_ALBUM_FILE_TEMPLATE` contains
+  `{title_id}` (hard invariant — removing it re-opens the silent-collision
+  regression). All 769 Rust tests pass, clippy clean.
+
+  Follow-ups tracked:
+  - #537 Tiers 2 & 3 (Apple Music Catalog + parent-album context wiring)
+  - New issue (to file): `AlbumSpotlightCover.mp4` — when an album's own
+    `editorialVideo` includes a `motionArtist*` 16:9 feed (as opposed to
+    the artist-page feed), save it to the album folder with that filename
+    so it's distinguishable from the artist-wide spotlight.
+
+- **(download)** MV naming uniqueness + motion-art rename + settings migration (#539)
+
+## Summary
+
+  RC-blocker fix for #527 + motion-art polish pass (#536 partial). Two
+  commits, 14 files, +293 / −49.
+
+  - **`2fff25e`** — force MV-safe no-album templates + v2→v3 settings
+  migration heals legacy broken defaults (#531)
+  - **`b70e200`** — MV filename uniqueness via `{title_id}` +
+  `PortraitCover.mp4` → `FrontCoverPortrait.mp4` rename + Artist Spotlight
+  priority trim + full spec in `DEV_NOTES.md`
+
+  ## What changed
+
+  ### 1. Music-video filename bug (#527) — RC blocker, resolved
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.38.0] - 2026-04-21

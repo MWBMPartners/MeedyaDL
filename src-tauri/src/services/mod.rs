@@ -138,7 +138,7 @@ pub mod login_window_service;
 /// Apple Music catalog API for animated album covers (`editorialVideo`)
 /// and downloads them via `FFmpeg` HLS-to-MP4 conversion.
 ///
-/// Saves `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4`
+/// Saves `FrontCover.mp4` (square, 1:1) and `FrontCoverPortrait.mp4`
 /// (portrait, 3:4) alongside downloaded album files. Requires user-provided
 /// `MusicKit` credentials (Team ID, Key ID, private key in OS keychain).
 pub mod animated_artwork_service;

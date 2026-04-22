@@ -209,7 +209,7 @@ impl Default for CompanionMode {
 ///
 /// GAMDL writes `Cover.<ext>` by default. MeedyaDL renames the file after
 /// download to match this setting. Default: `FrontCover` for consistency
-/// with animated artwork naming (FrontCover.mp4, PortraitCover.mp4).
+/// with animated artwork naming (FrontCover.mp4, FrontCoverPortrait.mp4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CoverArtName {
@@ -849,7 +849,7 @@ pub struct AppSettings {
     /// Whether to download animated cover art (motion artwork) from Apple
     /// Music after each album download. When enabled, `MeedyaDL` queries the
     /// Apple Music catalog API (`extend=editorialVideo`) and saves
-    /// `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4` (portrait,
+    /// `FrontCover.mp4` (square, 1:1) and `FrontCoverPortrait.mp4` (portrait,
     /// 3:4) alongside the audio files, if animated artwork is available.
     ///
     /// Requires valid `MusicKit` credentials (`musickit_team_id`,
@@ -857,7 +857,7 @@ pub struct AppSettings {
     pub animated_artwork_enabled: bool,
 
     /// Whether to set the OS "hidden" attribute on downloaded animated
-    /// artwork files (FrontCover.mp4, PortraitCover.mp4). When `true`
+    /// artwork files (FrontCover.mp4, FrontCoverPortrait.mp4). When `true`
     /// (default), files are hidden from default file browser views but
     /// still accessible to media players and scripts that reference them
     /// by name.
@@ -1323,7 +1323,7 @@ fn default_notification_style() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 2;
+pub const CURRENT_SETTINGS_VERSION: u32 = 3;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1497,7 +1497,7 @@ impl Default for AppSettings {
             // so this effectively means "give me the best you have".
             cover_size: 10000,
             // Rename GAMDL's "Cover" to "FrontCover" for consistency with
-            // animated artwork (FrontCover.mp4, PortraitCover.mp4).
+            // animated artwork (FrontCover.mp4, FrontCoverPortrait.mp4).
             cover_art_name: CoverArtName::FrontCover,
 
             // --- Animated artwork ---
@@ -1506,7 +1506,7 @@ impl Default for AppSettings {
             // when MusicKit credentials are missing or album has no artwork.
             animated_artwork_enabled: true,
             // Show animated artwork files by default (#449) so users can see
-            // FrontCover.mp4/PortraitCover.mp4 in their album folders.
+            // FrontCover.mp4/FrontCoverPortrait.mp4 in their album folders.
             hide_animated_artwork: false,
             // Enabled by default (#453): downloads artist promo video to artist
             // folder when available. Gracefully skips when no credentials or

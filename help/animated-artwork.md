@@ -17,7 +17,7 @@ Many albums on Apple Music include animated cover art -- short, looping video cl
 | Format | Filename | Aspect Ratio | Max Resolution | Description |
 |--------|----------|-------------|----------------|-------------|
 | **Square** | `FrontCover.mp4` | 1:1 | 3840 x 3840 | Standard square artwork, animated |
-| **Portrait** | `PortraitCover.mp4` | 3:4 | 2048 x 2732 | Tall/vertical artwork used on mobile |
+| **Portrait** | `FrontCoverPortrait.mp4` | 3:4 | 2048 x 2732 | Tall/vertical artwork used on mobile |
 
 Both files are saved as MP4 videos (HEVC H.265) alongside your downloaded album files. By default, these files are **hidden** on your filesystem to keep album folders clean (see [File Hiding](#file-hiding) below).
 
@@ -137,7 +137,7 @@ After you configure your MusicKit credentials, animated artwork downloading happ
 3. If animated artwork is available for that album, the HLS video streams are downloaded via FFmpeg
 4. The files are saved in the same folder as your downloaded music:
    - `FrontCover.mp4` (square format)
-   - `PortraitCover.mp4` (portrait format)
+   - `FrontCoverPortrait.mp4` (portrait format)
 
 The artwork download runs in the background and does **not** block your download queue -- other downloads continue processing normally.
 
@@ -148,8 +148,8 @@ The artwork download runs in the background and does **not** block your download
 Some artists on Apple Music have an animated background video on their artist page (sometimes called "editorial video" or "artist highlight"). When **"Download Artist Promo Video"** is enabled in Settings > Cover Art, MeedyaDL will:
 
 1. Look up the artist's Apple Music page for a promotional video
-2. If available, download it as `ArtistCover.mp4` to the **artist folder** (the parent of the album directory)
-3. Skip the download if `ArtistCover.mp4` already exists (idempotent -- won't re-download for every album by the same artist)
+2. If available, download it as `ArtistSpotlightCover.mp4` to the **artist folder** (the parent of the album directory)
+3. Skip the download if `ArtistSpotlightCover.mp4` already exists (idempotent -- won't re-download for every album by the same artist)
 
 > **Note:** Not all artists have a promo video. This feature requires MusicKit credentials (same as animated artwork). The file is hidden automatically if "Hide Animated Artwork Files" is enabled.
 
@@ -161,14 +161,14 @@ The animated artwork files are placed alongside the album's audio files. For exa
 
 ```
 Taylor Swift/
-  ArtistCover.mp4           <-- Artist promo video (in the artist folder)
+  ArtistSpotlightCover.mp4           <-- Artist promo video (in the artist folder)
   Midnights/
     01 Lavender Haze.m4a
     02 Maroon.m4a
     03 Anti-Hero.m4a
     ...
     FrontCover.mp4          <-- Square animated cover
-    PortraitCover.mp4       <-- Portrait animated cover
+    FrontCoverPortrait.mp4  <-- Portrait animated cover
 ```
 
 ---

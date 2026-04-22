@@ -1564,7 +1564,7 @@ export interface UpdateCheckResult {
 export interface ArtworkResult {
   /** Whether the square (1:1) animated cover was downloaded as FrontCover.mp4 */
   square_downloaded: boolean;
-  /** Whether the portrait (3:4) animated cover was downloaded as PortraitCover.mp4 */
+  /** Whether the portrait (3:4) animated cover was downloaded as FrontCoverPortrait.mp4 */
   portrait_downloaded: boolean;
 }
 

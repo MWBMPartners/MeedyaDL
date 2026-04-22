@@ -41,7 +41,7 @@ use crate::services::animated_artwork_service::{self, ArtworkResult};
 /// * `app` - Tauri `AppHandle` for accessing settings, keychain, and `FFmpeg` path
 /// * `urls` - Apple Music URL(s) for the album (used to extract storefront/ID)
 /// * `output_dir` - The album directory where `FrontCover.mp4` and
-///   `PortraitCover.mp4` should be saved
+///   `FrontCoverPortrait.mp4` should be saved
 ///
 /// # Errors
 ///
