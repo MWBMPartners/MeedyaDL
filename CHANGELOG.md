@@ -155,6 +155,7 @@ The verbose-mode API response dump (`{album}-applemusic-data.json`) was
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.40.0] - 2026-04-22
 
