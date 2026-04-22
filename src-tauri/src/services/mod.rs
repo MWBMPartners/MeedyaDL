@@ -384,6 +384,15 @@ pub mod smart_download;
 /// companion format downloads (ALAC / Atmos / AAC, etc.) are unaffected.
 pub mod duplicate_detector;
 
+/// Persistent on-disk activity log writer (#541).
+///
+/// Streams every `ActivityLogEvent` to a daily-rotating, append-only
+/// text file at `{app_data_dir}/logs/activity-YYYY-MM-DD.log`. Runs as
+/// a background Tokio task fed via an unbounded channel so the emit
+/// hot path never blocks on disk I/O. Retained for 7 days by
+/// `clear_old_logs()` in `lib.rs`.
+pub mod activity_log_writer;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

@@ -35,8 +35,9 @@ import { useActivityStore } from '@/stores/activityStore';
 import { Button, Input } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { Download, Trash2, Search, X, Copy, ScrollText } from 'lucide-react';
-import { exportActivityLog } from '@/lib/tauri-commands';
+import { Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen } from 'lucide-react';
+import { exportActivityLog, exportDiskActivityLog, getLogsFolderPath } from '@/lib/tauri-commands';
+import { useUiStore } from '@/stores/uiStore';
 
 /**
  * Formats an ISO 8601 timestamp to a short HH:MM:SS format.
@@ -223,6 +224,45 @@ export function ActivityLog() {
   };
 
   /**
+   * Export the persistent on-disk activity log (#541). Concatenates the
+   * most recent daily log files, which captures the complete forensic
+   * record from the moment the app started — including entries that
+   * were trimmed from the in-memory view when the 10,000 cap was
+   * exceeded, and every verbose line regardless of whether the
+   * Verbose filter is on.
+   */
+  const handleExportDisk = async () => {
+    const addToast = useUiStore.getState().addToast;
+    try {
+      const bytes = await exportDiskActivityLog(3);
+      const kb = (bytes / 1024).toFixed(1);
+      addToast(`Exported on-disk activity log (${kb} KB, last 3 days)`, 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.toLowerCase().includes('cancel')) {
+        addToast(`Failed to export on-disk log: ${msg}`, 'error');
+      }
+    }
+  };
+
+  /**
+   * Open the logs folder in the OS file manager so users can browse,
+   * archive, or attach files to bug reports directly. Uses the shell
+   * plugin (same pattern as QueueItem's "Open Folder" action).
+   */
+  const handleRevealLogsFolder = async () => {
+    const addToast = useUiStore.getState().addToast;
+    try {
+      const path = await getLogsFolderPath();
+      const { open } = await import('@tauri-apps/plugin-shell');
+      await open(path);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast(`Failed to open logs folder: ${msg}`, 'error');
+    }
+  };
+
+  /**
    * Handle search input changes.
    */
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -277,8 +317,27 @@ export function ActivityLog() {
               icon={<Download size={14} />}
               onClick={handleExport}
               disabled={entries.length === 0}
+              title="Export the entries currently visible in this view"
             >
               Export
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<HardDrive size={14} />}
+              onClick={handleExportDisk}
+              title="Export the full on-disk activity log (last 3 days) — includes entries trimmed from the 10,000-line view"
+            >
+              Export Disk
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<FolderOpen size={14} />}
+              onClick={handleRevealLogsFolder}
+              title="Open the logs folder in the OS file manager"
+            >
+              Reveal
             </Button>
             <Button
               variant="ghost"

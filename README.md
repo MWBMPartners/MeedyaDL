@@ -430,6 +430,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Notification style control — 3-way setting (`in_app_only` / `native_and_in_app` / `native_only`) for fine-grained notification delivery in Settings > General
 - ✅ Download history — persistent history with search, status icons, codec badges (max 1000 entries)
 - ✅ Companion lyrics fix — all 4 lyrics conversion formats (LRC, SRT, VTT, ASS) now generated for every companion tier, not just the primary download
+- ✅ Persistent on-disk activity log ([#541](https://github.com/MWBMPartners/MeedyaDL/issues/541)) — every Activity Log event is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered background writer (no hot-path disk I/O, no memory leak). Complete forensic record for bug hunting, unaffected by the 10K in-memory cap or the Verbose filter. **Export Disk** and **Reveal** buttons in the Activity Log toolbar; optional custom log path in Settings > Advanced > Diagnostics. 7-day retention.
 
 ### v2.x — Multi-Service Expansion
 

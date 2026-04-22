@@ -141,6 +141,7 @@ beforeEach(() => {
       sentry_enabled: false,
       verbose_activity_log: false,
       verbose_gamdl_exceptions: false,
+      activity_log_path_override: '',
     },
     isDirty: false,
     isLoading: false,
