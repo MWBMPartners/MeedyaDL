@@ -237,10 +237,10 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Browser cookie auto-import** - Detect installed browsers, extract Apple Music cookies automatically
 - ✅ **Embedded Apple Music login window** - Sign in directly within the app to extract cookies (no browser extension needed)
 - ✅ **Enhanced error handling** - Improved cookie import feedback and error messages
-- ✅ **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, PortraitCover.mp4) via FFmpeg HLS conversion
+- ✅ **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, FrontCoverPortrait.mp4) via FFmpeg HLS conversion
 - ✅ **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
 - ✅ **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
-- ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/PortraitCover.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
+- ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/FrontCoverPortrait.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
 - ✅ **Configurable companion downloads** - 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, Atmos→All Formats) plus Custom mode with multi-select codec checkboxes, with [Lossless]/[Dolby Atmos] file suffixes
 - ✅ **Multi-select artist auto-select** - Checkbox group for selecting multiple artist content types (Main Albums, Singles & EPs, Music Videos, etc.) simultaneously. MeedyaDL creates N separate queue items for artist URLs (one per selected mode) since GAMDL only accepts a single `--artist-auto-select` value per invocation.
 - ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
