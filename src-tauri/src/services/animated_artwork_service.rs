@@ -19,8 +19,13 @@
 // 3. Queries the Apple Music catalog API with `extend=editorialVideo` to
 //    check for animated artwork availability.
 // 4. If available, uses FFmpeg to download the HLS streams directly to MP4:
-//    - `FrontCover.mp4`    -- square (1:1), from `motionDetailSquare`
-//    - `PortraitCover.mp4` -- portrait (3:4), from `motionDetailTall`
+//    - `FrontCover.mp4`         -- square (1:1),  from `motionDetailSquare`
+//    - `FrontCoverPortrait.mp4` -- portrait (3:4), from `motionDetailTall`
+//
+//    The naming pair (`FrontCover` + `FrontCoverPortrait`) keeps both
+//    variants adjacent in an alphabetical listing and makes the
+//    portrait file self-describing about its source (the same album
+//    cover, rotated/reframed for vertical layout).
 //
 // ## Authentication
 //
@@ -30,10 +35,10 @@
 //
 // ## Output files
 //
-// | Artwork Type | Filename           | Aspect Ratio | Max Resolution |
-// |--------------|--------------------|--------------|----------------|
-// | Square       | `FrontCover.mp4`   | 1:1          | 3840x3840      |
-// | Portrait     | `PortraitCover.mp4`| 3:4          | 2048x2732      |
+// | Artwork Type | Filename                  | Aspect Ratio | Max Resolution |
+// |--------------|---------------------------|--------------|----------------|
+// | Square       | `FrontCover.mp4`          | 1:1          | 3840x3840      |
+// | Portrait     | `FrontCoverPortrait.mp4`  | 3:4          | 2048x2732      |
 //
 // ## Error handling
 //
@@ -76,7 +81,7 @@ use crate::services::{apple_music_api, config_service, dependency_manager};
 pub struct ArtworkResult {
     /// Whether the square (1:1) animated cover was downloaded as FrontCover.mp4
     pub square_downloaded: bool,
-    /// Whether the portrait (3:4) animated cover was downloaded as PortraitCover.mp4
+    /// Whether the portrait (3:4) animated cover was downloaded as FrontCoverPortrait.mp4
     pub portrait_downloaded: bool,
 }
 
@@ -269,9 +274,9 @@ async fn download_artwork_from_metadata(
         }
     }
 
-    // Download portrait artwork (PortraitCover.mp4)
+    // Download portrait artwork (FrontCoverPortrait.mp4)
     if let Some(ref tall_url) = metadata.artwork_tall_url {
-        let dest = output_path.join("PortraitCover.mp4");
+        let dest = output_path.join("FrontCoverPortrait.mp4");
         match download_hls_to_mp4(app, tall_url, &dest).await {
             Ok(()) => {
                 log::info!("Downloaded portrait animated artwork to {}", dest.display());
