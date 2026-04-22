@@ -5432,13 +5432,17 @@ pub fn process_queue(
                                     let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
                                         Ok(json_str) => {
-                                            // Non-clobbering write: if a dump
-                                            // from a prior run already sits at
-                                            // the same name (or two albums
-                                            // sanitise to the same stem), the
-                                            // new dump lands on `...data.1.json`
-                                            // instead of silently replacing it.
-                                            match crate::utils::fs_safe::write_non_clobbering(
+                                            // Content-aware deduped write (#553):
+                                            // - identical bytes to an existing
+                                            //   dump → no-op (skips the disk
+                                            //   sprawl when the API response
+                                            //   hasn't changed between runs);
+                                            // - different bytes → disambiguate
+                                            //   to `...data.1.json` so the old
+                                            //   dump is preserved rather than
+                                            //   silently replaced;
+                                            // - no existing file → normal write.
+                                            match crate::utils::fs_safe::write_deduped(
                                                 album_dir_path,
                                                 &json_filename,
                                                 json_str.as_bytes(),
