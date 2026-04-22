@@ -6,6 +6,158 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(playlist)** Add {playlist_id} to default template + settings migration (#545)
+
+Two playlists sharing `{playlist_artist}` + `{playlist_title}` silently
+  overwrote each other's `.m3u8` file under GAMDL's default template
+  `"Playlists/{playlist_artist}/{playlist_title}"`. Heal by adding Apple
+  Music's stable numeric `{playlist_id}` — deterministic across
+  re-downloads, unique per playlist, no datetime foot-guns (same
+  rationale as the MV `{title_id}` fix in #531).
+
+- **(compilation)** Add {album_id} to default template + extend v3→v4 migration (#552)
+
+Two Various-Artists compilations sharing the same `{album}` name
+  (e.g., two different `"Greatest Hits"`) silently intermixed in a
+  shared `Compilations/Greatest Hits/` folder under GAMDL's default
+  `"Compilations/{album}"` template. Tracks with different titles
+  co-located; tracks with identical titles silently skipped under
+  `overwrite=false`; `manifest.meedyadl` overwritten by the last
+  download — breaking smart-redownload detection for both albums.
+
+  Heal by adding `{album_id}` (Apple Music's stable numeric album ID)
+  — same pattern as #545's `{playlist_id}` fix. Both are bundled under
+  the same v3 → v4 migration since they close at the same version
+  boundary.
+
+- **(fs-safe)** Content-aware dedup for API JSON dumps (#553, supersedes #492)
+
+The verbose-mode API response dump (`{album}-applemusic-data.json`) was
+  wrapped in `write_non_clobbering` at `download_queue.rs:5433`, so it
+  never silently overwrote a prior dump — but it did create `.1.json`,
+  `.2.json`, ... on every re-download, even when the API response was
+  byte-identical to the previous run. Disk bloat on repeat runs.
+
+  Add `fs_safe::write_deduped(dir, name, contents)` — compares bytes to
+  any existing file first:
+  - absent                    → normal write
+  - present + identical bytes → no-op, returns existing path
+  - present + different bytes → disambiguates to `.1`, `.2`, ...
+
+  This keeps the collision-proof invariant (never silently replace a
+  file that differs) while avoiding the pointless-duplicate sprawl.
+
+  Swap the API-dump call site from `write_non_clobbering` to
+  `write_deduped`. Future callers with the same idempotent-content
+  pattern (cached metadata, deterministic exports) can opt in too.
+
+  Tests (4 new):
+  - Creates file when absent
+  - No-op when bytes identical; directory count stays at 1
+  - Disambiguates to `.1.ext` when bytes differ; both files preserved
+  - Repeat-identical stress case: 5 writes leave 1 file on disk
+
+- Playlist + compilation + API-dump filename collisions (#545, #552, #553) (#554)
+
+## Summary
+
+  Three filename-collision fixes from the #487 audit pass, each closing
+  its own ticket, unified by a single **settings schema v3 → v4**
+  migration. All concrete-fix-ready risks from the audit; the remaining
+  six investigation/architecture tickets (#546, #547, #548, #549, #550,
+  #551) stay open for follow-up.
+
+  3 commits, 7 files, +218 / −28.
+
+  ## What changed
+
+  ### `b4bf8cd` — Playlist `.m3u8` collision (#545)
+  Two playlists with the same `{playlist_artist}` + `{playlist_title}`
+  silently overwrote each other's `.m3u8`. Default now
+  `"Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"`.
+  `{playlist_id}` is Apple Music's stable numeric ID — unique +
+  deterministic (same pattern as MV `{title_id}` in #531).
+
+  ### `a4bdaa0` — Compilation folder collision (#552)
+  Two Various-Artists compilations with the same `{album}` name intermixed
+  in a shared `Compilations/{album}/` folder (silent track skips under
+  `overwrite=false`, manifest.meedyadl overwritten). Default now
+  `"Compilations/{album} ({album_id})"`. `{album_id}` gives per-release
+  uniqueness with the same semantics.
+
+  ### `6d3255e` — API JSON dump dedup (#553, supersedes #492)
+  Verbose-mode API response dump accumulated `.1.json`, `.2.json`, ... on
+  every re-download even when bytes were identical. Added
+  `fs_safe::write_deduped(dir, name, contents)`:
+
+  | Target state | Action |
+  |---|---|
+  | Absent | Normal write |
+  | Present + bytes identical | No-op (return existing path) |
+  | Present + bytes differ | Disambiguate to `.1.{ext}` |
+
+  Swapped the API-dump call site from `write_non_clobbering` →
+  `write_deduped`. Future idempotent-content writers (cached metadata,
+  deterministic exports) can opt in.
+
+  ## Settings migration v3 → v4
+
+  Bundled under one migration since both #545 and #552 close at the same
+  version boundary. Exact-match heal on the legacy defaults; custom user
+  values preserved. `CURRENT_SETTINGS_VERSION` bumped 3 → 4. Stale test
+  assertions that hard-coded `version == 3` updated to
+  `CURRENT_SETTINGS_VERSION` so they track future bumps.
+
+  ## Frontend
+
+  `TEMPLATE_VARIABLES` in `src/lib/template-parser.ts` now exposes
+  `{playlist_id}` and `{album_id}` in the visual template builder with
+  collision-safety descriptions. Sample-data block extended with
+  representative IDs so the live preview works.
+
+  ## Test plan
+
+  - [x] `cargo test --lib` — 788 passed (780 pre-fix + 8 new)
+  - [x] `cargo clippy --lib --all-targets` — clean
+  - [x] 11 new unit tests across all three fixes (migration heal +
+  preserve-custom + v0→current end-to-end + default-template invariants +
+  `write_deduped` behaviour including a 5-repeat-writes stress case)
+  - [ ] Manual: download two playlists with matching artist+title on macOS
+  (real Apple Music account) and verify no `.m3u8` overwrite — needs
+  maintainer verification
+  - [ ] Manual: download two Various-Artists compilations with matching
+  album name; verify separate folders
+  - [ ] Manual: upgrade from a v3-era settings.json and confirm
+  `playlist_file_template` + `compilation_folder_template` heal on first
+  launch
+
+  ## Follow-up
+
+  Open on #487 umbrella:
+  - #546 — library URL audit
+  - #547 — Classical movement collision audit
+  - #548 — iTunes legacy URL audit
+  - #549 — uploaded-video pipeline
+  - #550 — lyrics sidecar overwrite (docs vs. guard)
+  - #551 — platform-agnostic `FilenameSafetyContract` trait (pre-flight
+  before M8 BBC iPlayer work)
+
+  Auto-closes on merge: #492, #545, #552, #553.
+
+
+  ---
+  _Generated by [Claude
+  Code](https://claude.ai/code/session_01Piay1zSSu6z2uWMsSWNzsA)_
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.40.0] - 2026-04-22
+
 ### ✨ Features
 
 - **(activity-log)** Persistent on-disk activity log for bug hunting (#541)
