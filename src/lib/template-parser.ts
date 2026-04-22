@@ -63,6 +63,12 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     category: 'album',
   },
   { value: 'album', label: 'Album', description: 'Album title', category: 'album' },
+  {
+    value: 'album_id',
+    label: 'Album ID',
+    description: "Apple Music's numeric album ID — guaranteed unique, use for Various-Artists compilation folders",
+    category: 'album',
+  },
   { value: 'title', label: 'Title', description: 'Track title', category: 'track' },
   {
     value: 'track:02d',
@@ -132,6 +138,7 @@ export const SAMPLE_METADATA: Record<string, string> = {
   album: "1989 (Taylor's Version)",
   title: 'Style',
   'track:02d': '03',
+  album_id: '1646756971',
   disc: '1',
   year: '2023',
   genre: 'Pop',
