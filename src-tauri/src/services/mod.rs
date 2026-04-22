@@ -393,6 +393,17 @@ pub mod duplicate_detector;
 /// `clear_old_logs()` in `lib.rs`.
 pub mod activity_log_writer;
 
+/// Engine filename-safety contract (#551).
+///
+/// Design-review-only trait every new engine integration (votify,
+/// yt-dlp, get_iplayer, ...) is expected to implement. Default
+/// conformance checks prove each engine's no-album / no-collection
+/// fallback templates cannot reproduce the #527 / #531 / #537 class
+/// of bug (punctuation-only filenames, `[Unknown]`-sentinel folders,
+/// stable-ID-less dedup collisions). GAMDL's music-video fallback is
+/// bundled as the first conformance example.
+pub mod filename_safety;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

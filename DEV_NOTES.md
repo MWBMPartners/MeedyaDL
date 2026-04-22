@@ -2108,3 +2108,53 @@ Returns "Too many requests. Please wait N seconds" when exceeded.
 
 On save: SHA-256 digest written to companion `settings.json.sha256` file.
 On load: digest verified. Mismatch logs a warning but settings are still loaded (user may have intentionally edited). Missing checksum file (pre-upgrade settings) is accepted and a checksum generated for next time.
+
+## Engine Filename Safety Contract (#551)
+
+A **design-review tool** — not a runtime guard. Every new download-engine integration (votify for Spotify, yt-dlp for YouTube, get_iplayer for BBC iPlayer, ...) is expected to implement `services::filename_safety::FilenameSafetyContract` in a companion `impl` block so that the review PR demonstrates compile-time + unit-test conformance to the invariants that #527 / #531 / #537 chased across the Apple Music pipeline.
+
+Runtime enforcement of safe paths remains the job of `utils/fs_safe.rs` and the #487 umbrella. This contract prevents the bug from *landing* in the first place.
+
+### Failure modes the contract guards against
+
+1. **Punctuation-only filename** — every template placeholder resolves to the empty string, so the final filename is something like `"-.mp4"` (the original #527 MV bug, where `no_album_file_template = "{disc} - "` rendered to `" - "` because `{disc}` was empty).
+2. **`[Unknown]`-sentinel folder** — unknown content gets routed to a literal folder called `[Unknown]` / `Unknown Album` / `(no album)`, silently colliding two distinct unknown items in one directory. Legacy pre-v2 GAMDL default.
+3. **Stable-ID-less dedup collision** — two items with different stable IDs (Clean/Explicit cuts of the same track, remix variants, regional re-releases) produce the same filename, triggering `MediaFileExists` skips under `overwrite=false` with no user-visible warning.
+
+### The trait
+
+```rust
+pub trait FilenameSafetyContract {
+    fn engine_id(&self) -> &str;
+    fn fallback_file_template(&self) -> &str;
+    fn fallback_folder_template(&self) -> &str;
+    fn supported_placeholders(&self) -> &[&str];
+    fn stable_id_placeholder(&self) -> Option<&str>;
+    fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String;
+
+    // Default-provided conformance checks (no per-engine override needed):
+    fn must_reference_stable_id(&self)       -> Result<(), FilenameSafetyViolation>;
+    fn must_not_be_unknown_sentinel(&self)   -> Result<(), FilenameSafetyViolation>;
+    fn must_survive_empty_metadata(&self)    -> Result<(), FilenameSafetyViolation>;
+    fn must_disambiguate_by_stable_id(&self) -> Result<(), FilenameSafetyViolation>;
+    fn run_all_checks(&self) -> Vec<FilenameSafetyViolation>;
+}
+```
+
+### Reviewer checklist — every new engine PR must tick all five
+
+- [ ] Fallback file template includes a stable-unique ID placeholder — `{title_id}` (Apple Music MVs), `{spotify_id}` (Spotify), `{id}` (YouTube), `{pid}` (BBC iPlayer).
+- [ ] Fallback folder template contains no literal `[Unknown]` / `Unknown Album` / `(no album)` segments as the entire path. Route unknown content to a stable named folder instead (`{artist}/Singles/`, `{channel}/`, `{programme_name}/`, ...).
+- [ ] Template-builder UI (`src/lib/template-parser.ts::TEMPLATE_VARIABLES` + `TemplateBuilder.tsx`) exposes the engine's placeholders.
+- [ ] Engine's conformance `impl` is added to `registered_contracts()` in `services/filename_safety.rs::tests` so `all_registered_contracts_conform` covers it in CI.
+- [ ] Engine-specific regression test reproduces the "empty metadata" failure mode in a synthetic fixture (mirror the `GamdlMusicVideoFallback` example).
+
+### Canonical implementation example
+
+`services::filename_safety::GamdlMusicVideoFallback` — pairs with `MV_NO_ALBUM_FILE_TEMPLATE` / `MV_NO_ALBUM_FOLDER_TEMPLATE` in `services/download_queue.rs`. New engines should structure their `impl` the same way: mirror the runtime template constants as string literals inside the contract module to keep the safety-check module free of cross-module coupling.
+
+### Out of scope
+
+- **Runtime enforcement** — the contract does not abort a download when the invariant is violated. A failing conformance test breaks the build; a malformed runtime template (via user override of the default) is caught by `utils/fs_safe.rs`.
+- **Per-placeholder validation** — whether `{artist}` correctly resolves during rendering is the engine's own business; the contract only cares about the no-metadata failure mode.
+- **Forbidden-segment exhaustiveness** — the sentinel-check list (`[Unknown]`, `Unknown`, `(no album)`, ...) is deliberately short; extend it if a new legacy default surfaces, but don't let it become a style rulebook.
