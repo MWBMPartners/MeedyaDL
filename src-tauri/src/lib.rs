@@ -744,6 +744,34 @@ fn emit_startup_settings_summary(app: &tauri::AppHandle, s: &models::settings::A
             flag(s.use_wrapper),
         ),
     );
+
+    // Line 4: Duplicate-detection configuration.
+    //
+    // Surfaced explicitly so bug reports can tell at a glance whether
+    // dedup ran, what scope it consulted, and which key strategy was in
+    // effect. Without this, diagnosing "why did my second album redownload
+    // tracks I already had?" requires digging into settings.json by hand.
+    let dedup_scope = serde_json::to_value(s.duplicate_detection.scope)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.duplicate_detection.scope));
+    let dedup_key = serde_json::to_value(s.duplicate_detection.key_strategy)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.duplicate_detection.key_strategy));
+    // The preference order is usually long; render it as a `>`-joined
+    // CLI-style list so the activity log row stays one line.
+    let dedup_pref = s
+        .duplicate_detection
+        .preference_order
+        .iter()
+        .map(|m| m.to_cli_string().to_string())
+        .collect::<Vec<_>>()
+        .join(">");
+    emit_app_log(
+        app,
+        &format!("Dedup: scope={dedup_scope}, key={dedup_key}, preferences={dedup_pref}"),
+    );
 }
 
 // ---------------------------------------------------------------------------
