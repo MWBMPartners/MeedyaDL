@@ -200,6 +200,29 @@ pub async fn start_download(
         }
     }
 
+    // Diagnostic trace for Apple Music personal-library URLs (#546). The
+    // backend URL validator accepts `/library/{albums,songs,playlists}/l.XXXX`
+    // paths, but `parse_apple_music_url` and `normalize_apple_music_url`
+    // do not recognise them — library URLs pass straight through to GAMDL
+    // without any MeedyaDL-side storefront injection, metadata prefetch,
+    // or Tier 4 filename safety net. GAMDL's iTunes Lookup API is built
+    // around public catalog IDs; whether `l.XXXX` library IDs resolve to
+    // a useful row is unverified. Emit a log line so support can correlate
+    // downstream filename-path behaviour (fell through to `no_album_*`
+    // template? succeeded via GAMDL's own library handling? rejected
+    // outright?) with the URL class at a glance.
+    for url in &request.urls {
+        if url.contains("/library/") {
+            log::info!("Library URL passed through to GAMDL (#546): {url}");
+            emit_app_log(
+                &app,
+                &format!(
+                    "Library URL detected (#546) — passed through to GAMDL unchanged; no MeedyaDL filename safety net applies: {url}"
+                ),
+            );
+        }
+    }
+
     // Check for duplicate URLs already in the active queue. This is a
     // non-blocking warning — the download proceeds regardless, but the
     // frontend can show a toast to let the user know.
