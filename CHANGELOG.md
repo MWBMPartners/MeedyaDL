@@ -133,6 +133,7 @@ Follow-up to the MV no-album template fix. Three coordinated changes plus
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.38.0] - 2026-04-21
 
