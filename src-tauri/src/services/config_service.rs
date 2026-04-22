@@ -171,20 +171,26 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 3;
     }
 
-    // v3 → v4: repair playlist template collision (#545).
+    // v3 → v4: repair playlist + compilation template collisions (#545, #552).
     //
-    // The upstream GAMDL default `"Playlists/{playlist_artist}/{playlist_title}"`
-    // lacks a stable uniqueness placeholder — two playlists with the
-    // same `{playlist_artist}` + `{playlist_title}` silently overwrote
-    // each other's `.m3u8`. Heal by adding `{playlist_id}` (Apple
-    // Music's numeric playlist ID — unique, deterministic, no datetime
-    // foot-guns). Same exact-match style as the v2→v3 migration: only
-    // adjust values that match the pre-v4 default; user-customised
-    // values are left alone.
+    // Two upstream GAMDL defaults we inherited lack stable uniqueness
+    // placeholders:
+    //   - `"Playlists/{playlist_artist}/{playlist_title}"` — two playlists
+    //     with the same artist + title silently overwrote each other's
+    //     `.m3u8` (#545).
+    //   - `"Compilations/{album}"` — two Various-Artists compilations with
+    //     the same album name intermixed in one folder (#552).
+    //
+    // Heal both to include Apple Music's stable numeric ID in the same
+    // exact-match style as the v2→v3 migration: only adjust values that
+    // match the pre-v4 default; user-customised values are left alone.
     if settings.settings_version == 3 {
         if settings.playlist_file_template == "Playlists/{playlist_artist}/{playlist_title}" {
             settings.playlist_file_template =
                 "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".to_string();
+        }
+        if settings.compilation_folder_template == "Compilations/{album}" {
+            settings.compilation_folder_template = "Compilations/{album} ({album_id})".to_string();
         }
         settings.settings_version = 4;
     }
@@ -1446,6 +1452,47 @@ mod tests {
         assert!(
             s.playlist_file_template.contains("{playlist_id}"),
             "default playlist_file_template must include {{playlist_id}} for uniqueness"
+        );
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v3 → v4 compilation template repair (#552)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v3_to_v4_heals_legacy_compilation_folder_template() {
+        let mut s = AppSettings {
+            settings_version: 3,
+            compilation_folder_template: "Compilations/{album}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.compilation_folder_template, "Compilations/{album} ({album_id})");
+    }
+
+    #[test]
+    fn migration_v3_to_v4_preserves_custom_compilation_template() {
+        // A user who intentionally customised their compilation template
+        // should not see it mutated.
+        let mut s = AppSettings {
+            settings_version: 3,
+            compilation_folder_template: "VA/{album}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.compilation_folder_template, "VA/{album}");
+    }
+
+    #[test]
+    fn default_compilation_folder_template_includes_album_id() {
+        // Hard invariant — removing {album_id} re-opens the silent
+        // compilation-folder intermix regression (#552).
+        let s = default_settings();
+        assert!(
+            s.compilation_folder_template.contains("{album_id}"),
+            "default compilation_folder_template must include {{album_id}} for uniqueness"
         );
     }
 }

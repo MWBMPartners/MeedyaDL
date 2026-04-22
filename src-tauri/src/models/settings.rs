@@ -1546,13 +1546,20 @@ impl Default for AppSettings {
 
             // --- Templates ---
             // These match GAMDL's built-in defaults for familiar organization,
-            // except `playlist_file_template` adds `{playlist_id}` (Apple
-            // Music's numeric ID, unique + deterministic) so two playlists
-            // with the same artist + title don't clobber each other's
-            // `.m3u8` file (#545). Same rationale as the MV `{title_id}`
-            // fix in #531.
+            // with two divergences where the upstream default lacks
+            // uniqueness:
+            //   - `playlist_file_template` adds `{playlist_id}` so two
+            //     playlists with the same artist + title don't clobber
+            //     each other's `.m3u8` file (#545).
+            //   - `compilation_folder_template` adds `{album_id}` so two
+            //     Various-Artists compilations with the same title don't
+            //     intermix in one folder (#552).
+            // Both IDs are Apple Music's numeric identifiers — unique per
+            // release/playlist, deterministic across re-downloads, no
+            // datetime foot-guns (same rationale as the MV `{title_id}`
+            // fix in #531).
             album_folder_template: "{album_artist}/{album}".to_string(),
-            compilation_folder_template: "Compilations/{album}".to_string(),
+            compilation_folder_template: "Compilations/{album} ({album_id})".to_string(),
             no_album_folder_template: "{artist}/Unknown Album".to_string(),
             single_disc_file_template: "{track:02d} {title}".to_string(),
             multi_disc_file_template: "{disc}-{track:02d} {title}".to_string(),
