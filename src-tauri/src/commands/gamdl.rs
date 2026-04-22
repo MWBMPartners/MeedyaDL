@@ -272,6 +272,40 @@ pub async fn start_download(
         }
     }
 
+    // Catch-all diagnostic for unrecognised Apple Music URL shapes (#549).
+    // Fires when a URL passes the host allowlist but `parse_apple_music_url`
+    // does not match it after normalisation — i.e. it is neither an
+    // album / song / music-video / artist / catalog-playlist URL nor a
+    // `/library/` URL (those have their own #546 log). Uploaded / "post"
+    // videos (label/artist-uploaded content — backstage clips, live
+    // sessions, interviews) are the concrete case #549 tracks; any other
+    // novel path shape Apple introduces will land here too. Without this
+    // log, such URLs silently pass through to GAMDL with no MeedyaDL-side
+    // metadata prefetch, no storefront normalisation, and no Tier 4
+    // filename safety net — exactly the failure mode the #487 audit
+    // umbrella was opened to surface.
+    for url in &request.urls {
+        if url.contains("/library/") {
+            // Already logged by #546 trace above.
+            continue;
+        }
+        if crate::services::apple_music_api::parse_apple_music_url(url).is_some() {
+            continue;
+        }
+        // URL is on an Apple Music domain (host allowlist passed) but no
+        // parser regex matched it. Log at WARN — this is the uploaded-video
+        // class the #549 audit is trying to quantify.
+        log::warn!(
+            "Unrecognised Apple Music URL shape (#549) — passed to GAMDL without MeedyaDL prefetch or safety net: {url}"
+        );
+        emit_app_log(
+            &app,
+            &format!(
+                "Unrecognised Apple Music URL (#549) — no MeedyaDL metadata prefetch or filename safety net applies; GAMDL compatibility unverified: {url}"
+            ),
+        );
+    }
+
     // Check for duplicate URLs already in the active queue. This is a
     // non-blocking warning — the download proceeds regardless, but the
     // frontend can show a toast to let the user know.
