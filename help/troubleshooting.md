@@ -266,22 +266,47 @@ The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** check
 - **Scrolling up:** The checkbox automatically unchecks, freezing the view so you can read earlier entries without losing your place.
 - **Re-checking:** Jumps back to the bottom and resumes auto-scrolling.
 
-The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Use the **Export** button to save the full log before entries are trimmed.
+The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Trimmed entries are not lost — they are persisted to the on-disk activity log (see below) so post-hoc forensic analysis remains possible.
 
 ---
 
 ### Activity Log Export
 
-#### How to Export the Activity Log
+The Activity Log toolbar offers **three** actions for preserving log data, each suited to a different scenario:
 
-You can export the contents of the Activity Log to a text file for sharing or archival purposes.
+| Button | What it exports | When to use it |
+| --- | --- | --- |
+| **Export** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
+| **Export Disk** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
+| **Reveal** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
+
+#### How to Export the Visible Activity Log
 
 1. Open the **Activity Log** panel (accessible from the sidebar or the bottom panel).
-2. Click the **Export** button in the Activity Log header.
-3. Choose a save location in the native file dialog -- the default filename includes a timestamp (e.g., `activity-log-2026-03-26.log`).
-4. The exported `.log` file is a plain-text file with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
+2. (Optional) Narrow the view with the search box or the System / Download / Verbose category toggles.
+3. Click the **Export** button in the Activity Log header.
+4. Choose a save location in the native file dialog — the default filename includes a timestamp (e.g., `MeedyaDL-activity-log_2026-04-22_14h05m.log`).
+5. The exported `.log` file is plain-text with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
 
-The export captures all entries currently visible in the Activity Log, respecting any active search or filter. To export the complete unfiltered log, clear the search field and ensure all category filters (System, Download, Verbose) are enabled before exporting.
+To export the complete unfiltered in-memory view, clear the search field and enable all category filters (System, Download, Verbose) before exporting.
+
+#### How to Export the On-Disk Activity Log
+
+MeedyaDL writes every activity log event to a daily-rotating file on disk (`activity-YYYY-MM-DD.log`) as it happens. This is the authoritative record for bug hunting because it includes:
+
+- Entries from earlier in the session that were trimmed from the 10,000-line in-memory buffer.
+- Every verbose event, even when the Verbose filter in the UI is off.
+- Events written before the Activity Log panel was ever opened in that session.
+
+To export it, click **Export Disk** in the Activity Log toolbar. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
+
+You can also browse the log files directly by clicking **Reveal** — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
+
+> **Retention:** On-disk activity logs are kept for **7 days** before being pruned automatically, matching the retention window for the tracing log. A heavy download session typically writes under 5 MB per day.
+
+#### Changing where on-disk activity logs are stored
+
+By default, activity logs live in the same `logs/` directory as the tracing and session logs (see *Log File Locations* below). You can point them at a different directory — for example, an external drive — via **Settings > Advanced > Diagnostics > On-disk activity log location**. Click **Browse…** to select a folder, or paste a path directly into the field. Click **Reset** to return to the default. The change applies on the next app restart. If the chosen path is not writable at startup, MeedyaDL falls back to the default and logs a warning.
 
 ---
 
@@ -289,13 +314,23 @@ The export captures all entries currently visible in the Activity Log, respectin
 
 ### Log File Locations
 
-MeedyaDL writes daily-rotating log files to the application data directory on each platform. Log files are named `meedyadl.YYYY-MM-DD.log` and are created automatically:
+MeedyaDL writes three kinds of daily-rotating log files to its `logs/` subdirectory under the platform app data directory:
+
+| Filename pattern | Contents | Retention |
+| --- | --- | --- |
+| `meedyadl.YYYY-MM-DD.log` | `tracing` structured log output from the Rust backend. | 7 days |
+| `activity-YYYY-MM-DD.log` | Persistent on-disk activity log — every event emitted to the Activity Log panel, including events that were trimmed from the in-memory buffer and every verbose line regardless of UI filter state. Written by a dedicated background writer with buffered I/O so it never blocks downloads. | 7 days |
+| `session-YYYY-MM-DD.log` | Older fallback: entries that were trimmed out of the 10,000-line Activity Log as a session overflowed. Largely superseded by `activity-*.log`, but kept for backwards compatibility. | 30 days |
+
+The default `logs/` directory:
 
 | Platform | Log File Location |
 | --- | --- |
 | macOS | `~/Library/Application Support/io.github.meedyadl/logs/` |
 | Windows | `%APPDATA%/io.github.meedyadl/logs/` |
 | Linux | `~/.local/share/io.github.meedyadl/logs/` |
+
+You can override the location of `activity-*.log` files via **Settings > Advanced > Diagnostics > On-disk activity log location** — useful for pointing logs at an external drive. The `meedyadl.*` tracing logs and `session-*` files always live in the default directory.
 
 ### Reading Log Files
 

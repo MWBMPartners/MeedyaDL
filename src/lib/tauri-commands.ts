@@ -692,6 +692,39 @@ export function exportActivityLog(entries: import('@/types').ActivityLogEntry[])
 }
 
 /**
+ * Exports the persistent on-disk activity log (#541) — the complete
+ * forensic record written by `services::activity_log_writer`, not just
+ * the in-memory (possibly-trimmed) entries.
+ *
+ * Concatenates the most recent N daily `activity-YYYY-MM-DD.log` files
+ * (default 3) and saves them via a native save dialog.
+ *
+ * Rust handler: `export_disk_activity_log()` in
+ * `src-tauri/src/commands/activity_log.rs`
+ *
+ * @param daysBack - Number of daily log files to include (default 3, minimum 1).
+ * @returns Promise resolving to the number of bytes written to the exported file.
+ */
+export function exportDiskActivityLog(daysBack?: number): Promise<number> {
+  return invoke<number>('export_disk_activity_log', { daysBack });
+}
+
+/**
+ * Returns the absolute path of the active on-disk activity log
+ * directory, creating it if necessary. Pair with
+ * `@tauri-apps/plugin-shell`'s `open()` to reveal the folder in the
+ * OS file manager (Finder / Explorer / xdg-open).
+ *
+ * Rust handler: `get_logs_folder_path()` in
+ * `src-tauri/src/commands/activity_log.rs`
+ *
+ * Honours the user's `activity_log_path_override` setting when set.
+ */
+export function getLogsFolderPath(): Promise<string> {
+  return invoke<string>('get_logs_folder_path');
+}
+
+/**
  * Imports a `.meedyadl` manifest file via a native open dialog.
  *
  * Rust handler: `import_manifest()` in `src-tauri/src/commands/gamdl.rs`

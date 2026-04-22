@@ -126,7 +126,9 @@ When clipboard monitoring is enabled, MeedyaDL watches your system clipboard for
 
 ### How does the Activity Log work?
 
-The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** checkbox in the toolbar automatically unchecks. Re-check it to jump back to the bottom and resume auto-scrolling. The log retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached). Use the **Export** button to save the full log to a file before it's trimmed. Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
+The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** checkbox in the toolbar automatically unchecks. Re-check it to jump back to the bottom and resume auto-scrolling. The panel retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached, but are not lost — see below). Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
+
+The toolbar offers three export actions: **Export** (what you currently see, respects filters), **Export Disk** (the complete on-disk activity log covering the last 3 days — the authoritative record for bug hunting), and **Reveal** (opens the logs folder in your OS file manager). The on-disk log is written to `activity-YYYY-MM-DD.log` files in the logs directory and is retained for 7 days. You can point the on-disk log at a custom directory (e.g. an external drive) via **Settings > Advanced > Diagnostics > On-disk activity log location**.
 
 ### Does MeedyaDL support library URLs?
 
