@@ -1443,6 +1443,20 @@ Enhanced LRC is always embedded via the native `©lyr` atom when `enhanced_lrc` 
 - `resolve_element_style(node, named_styles)` — Merge named + inline styles
 - `TtmlStyle { bold, italic, underline, color }` — Shared style struct
 
+### Sidecar Overwrite Behaviour (#550)
+
+All sidecar writers (`.lrc`, `.srt`, `.vtt`, `.ass`) unconditionally overwrite their target path on every enrichment run. This is **intentional, not a bug**:
+
+- `enhanced_lyrics_service.rs` writes `.lrc` via `std::fs::write()` (no existence check).
+- `rich_srt_service.rs` writes `.srt` via `std::fs::write()` — deliberately replaces any plain SRT that GAMDL wrote natively, because the rich variant carries styling tags (`<b>`, `<i>`, colour) that the plain SRT lacks.
+- `webvtt_service.rs` writes `.vtt` via `std::fs::write()`.
+- `ass_subtitle_service.rs` writes `.ass` via `std::fs::write()`.
+- The syllable-lyrics upgrade path in `download_queue.rs` also overwrites GAMDL's TTML with the richer `/syllable-lyrics` API response.
+
+The design assumption is that these services are pure generators: same source TTML + same renderer version produces byte-identical output, so overwriting is a no-op in the common case. **Manual edits to any of these sidecar files WILL be silently clobbered** the next time the item is enriched (re-download, quality upgrade, manifest re-import). If you need to preserve hand-tweaked lyrics, copy the edited sidecar out of the output directory before re-running.
+
+Follow-up work (content-hash skip, opt-in preservation flag, `.bak` backups) tracked in the Option B/C/D discussion on #550 — deliberately out of scope for the current design contract.
+
 ---
 
 ## Pre-Release vs Full Release Workflow
