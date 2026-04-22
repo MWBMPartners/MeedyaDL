@@ -63,6 +63,12 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     category: 'album',
   },
   { value: 'album', label: 'Album', description: 'Album title', category: 'album' },
+  {
+    value: 'album_id',
+    label: 'Album ID',
+    description: "Apple Music's numeric album ID — guaranteed unique, use for Various-Artists compilation folders",
+    category: 'album',
+  },
   { value: 'title', label: 'Title', description: 'Track title', category: 'track' },
   {
     value: 'track:02d',
@@ -83,6 +89,12 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     value: 'playlist_title',
     label: 'Playlist Title',
     description: 'Playlist name',
+    category: 'playlist',
+  },
+  {
+    value: 'playlist_id',
+    label: 'Playlist ID',
+    description: "Apple Music's numeric playlist ID — guaranteed unique, use for `.m3u8` filename safety",
     category: 'playlist',
   },
   {
@@ -126,11 +138,13 @@ export const SAMPLE_METADATA: Record<string, string> = {
   album: "1989 (Taylor's Version)",
   title: 'Style',
   'track:02d': '03',
+  album_id: '1646756971',
   disc: '1',
   year: '2023',
   genre: 'Pop',
   playlist_artist: 'Apple Music',
   playlist_title: "Today's Hits",
+  playlist_id: 'pl.f4d106fed2bd41149aaacabb233eb5eb',
   platform: 'AppleMusic',
 };
 
