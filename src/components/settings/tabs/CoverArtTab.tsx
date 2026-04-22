@@ -172,7 +172,7 @@ export function CoverArtTab() {
           {/* Master toggle for animated artwork downloading */}
           <Toggle
             label="Download Animated Cover Art"
-            description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and PortraitCover.mp4 alongside album files."
+            description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and FrontCoverPortrait.mp4 alongside album files."
             checked={settings.animated_artwork_enabled}
             onChange={(checked) => updateSettings({ animated_artwork_enabled: checked })}
             helpTopic="settings-help"
@@ -182,7 +182,7 @@ export function CoverArtTab() {
           {settings.animated_artwork_enabled && (
             <Toggle
               label="Hide Animated Artwork Files"
-              description="Set the OS hidden attribute on FrontCover.mp4 and PortraitCover.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
+              description="Set the OS hidden attribute on FrontCover.mp4 and FrontCoverPortrait.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
               checked={settings.hide_animated_artwork}
               onChange={(checked) => updateSettings({ hide_animated_artwork: checked })}
             />

@@ -2036,12 +2036,22 @@ pub async fn fetch_artist_promo_video(
         .to_string();
 
     // Extract promo video URL from editorialVideo.
-    // The API may use different keys for artist videos:
-    // - motionArtistWide16x9 — wide landscape format (most common for artist pages)
-    // - motionArtistFullscreen16x9 — fullscreen variant
-    // - motionDetailSquare — square format (same as album artwork)
-    // - motionDetailTall — tall/portrait format
-    // Try each in priority order.
+    //
+    // ArtistSpotlightCover.mp4 is a 16:9 full-width panel designed to
+    // play behind the artist's name on an artist page — the hero
+    // motion background. We restrict the source to the two `motionArtist*`
+    // keys because they are the only feeds shot/framed for that role.
+    // The `motionDetailSquare` / `motionDetailTall` feeds that appear on
+    // album detail pages have a different composition (they're tightly
+    // cropped around album cover art) and look wrong used as an artist
+    // spotlight — so we deliberately do NOT fall through to them here.
+    //
+    // Priority: `motionArtistFullscreen16x9` → `motionArtistWide16x9`.
+    // Fullscreen is preferred when available because its source stream
+    // is typically higher-resolution and has full-bleed framing; the
+    // Wide variant is the common fallback. If neither key is present,
+    // we return `None` and the caller skips the download rather than
+    // substituting a visually mismatched fallback (#537).
     let editorial_video = match attributes.get("editorialVideo") {
         Some(ev) => ev,
         None => {
@@ -2050,12 +2060,9 @@ pub async fn fetch_artist_promo_video(
         }
     };
 
-    // Priority order: wide 16:9 → fullscreen 16:9 → square → tall
     let video_keys = [
-        "motionArtistWide16x9",
         "motionArtistFullscreen16x9",
-        "motionDetailSquare",
-        "motionDetailTall",
+        "motionArtistWide16x9",
     ];
 
     let video_url = video_keys.iter().find_map(|key| {

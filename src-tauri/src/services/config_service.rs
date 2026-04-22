@@ -150,6 +150,27 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 2;
     }
 
+    // v2 → v3: repair legacy no-album templates (#531).
+    //
+    // Early MeedyaDL releases shipped `no_album_folder_template` as
+    // `"{artist}/[Unknown]"` and `no_album_file_template` as
+    // `"{disc} - "`. Serde only fills in MISSING fields with defaults,
+    // so upgrading users keep the original (broken) values. The former
+    // yields a literal `[Unknown]` directory, and the latter yields
+    // empty filenames like `-.mp4` for content without `{disc}` or
+    // `{title}` (notably music videos). Heal exact matches of the old
+    // defaults to the current defaults; leave intentionally customised
+    // values untouched.
+    if settings.settings_version == 2 {
+        if settings.no_album_folder_template == "{artist}/[Unknown]" {
+            settings.no_album_folder_template = "{artist}/Unknown Album".to_string();
+        }
+        if settings.no_album_file_template == "{disc} - " {
+            settings.no_album_file_template = "{title}".to_string();
+        }
+        settings.settings_version = 3;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -792,6 +813,7 @@ pub fn get_default_output_path() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::settings::CURRENT_SETTINGS_VERSION;
     use crate::services::gamdl_capabilities;
 
     /// Helper: create default settings for testing
@@ -1260,5 +1282,77 @@ mod tests {
             deserialized.music_fallback_chain,
             settings.music_fallback_chain
         );
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v2 → v3 no-album template repair (#531)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v2_to_v3_heals_legacy_no_album_folder_template() {
+        let mut s = AppSettings {
+            settings_version: 2,
+            no_album_folder_template: "{artist}/[Unknown]".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, 3);
+        assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
+    }
+
+    #[test]
+    fn migration_v2_to_v3_heals_legacy_no_album_file_template() {
+        let mut s = AppSettings {
+            settings_version: 2,
+            no_album_file_template: "{disc} - ".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, 3);
+        assert_eq!(s.no_album_file_template, "{title}");
+    }
+
+    #[test]
+    fn migration_v2_to_v3_preserves_custom_no_album_templates() {
+        // A user who intentionally customised their templates to anything
+        // other than the exact legacy defaults should see no change.
+        let mut s = AppSettings {
+            settings_version: 2,
+            no_album_folder_template: "Singles/{artist}".to_string(),
+            no_album_file_template: "{artist} - {title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, 3);
+        assert_eq!(s.no_album_folder_template, "Singles/{artist}");
+        assert_eq!(s.no_album_file_template, "{artist} - {title}");
+    }
+
+    #[test]
+    fn migration_runs_from_v0_all_the_way_to_current() {
+        // End-to-end: a completely stale v0 settings file with legacy
+        // broken templates should wind up on the current schema version
+        // with both templates repaired.
+        let mut s = AppSettings {
+            settings_version: 0,
+            no_album_folder_template: "{artist}/[Unknown]".to_string(),
+            no_album_file_template: "{disc} - ".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
+        assert_eq!(s.no_album_file_template, "{title}");
+    }
+
+    #[test]
+    fn migration_is_noop_when_already_at_current_version() {
+        let mut s = default_settings();
+        let before_folder = s.no_album_folder_template.clone();
+        let before_file = s.no_album_file_template.clone();
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, before_folder);
+        assert_eq!(s.no_album_file_template, before_file);
     }
 }
