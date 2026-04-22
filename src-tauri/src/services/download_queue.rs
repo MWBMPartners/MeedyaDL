@@ -148,6 +148,13 @@ impl ShutdownSignal {
     pub fn is_triggered(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
+
+    /// Exposes the inner `Arc<AtomicBool>` so long-lived background
+    /// tasks (e.g. the on-disk activity log writer in #541) can poll
+    /// the shutdown flag without holding a Tauri `State` reference.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0)
+    }
 }
 
 // ============================================================
@@ -2727,16 +2734,17 @@ async fn emit_companion_stream_line(
         let _ = app.emit("gamdl-output", &progress);
 
         // Emit to activity-log: last segment only (normal) or all (verbose).
+        // Always mirror the event to the on-disk activity log (#541)
+        // regardless of verbose gating — the file is the forensic record.
         if verbose || Some(idx) == last_segment_idx {
-            let _ = app.emit(
-                "activity-log",
-                &crate::utils::activity_log::ActivityLogEvent {
-                    download_id: dl_id.to_string(),
-                    stream,
-                    line: clean_line,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                },
-            );
+            let event = crate::utils::activity_log::ActivityLogEvent {
+                download_id: dl_id.to_string(),
+                stream,
+                line: clean_line,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+            let _ = app.emit("activity-log", &event);
+            crate::utils::activity_log::write_to_disk(&event);
         }
     }
 
@@ -7160,15 +7168,15 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let _ = app.emit(
-                                "activity-log",
-                                &ActivityLogEvent {
-                                    download_id: download_id.clone(),
-                                    stream: "stdout",
-                                    line: clean_line.clone(),
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                },
-                            );
+                            let log_event = ActivityLogEvent {
+                                download_id: download_id.clone(),
+                                stream: "stdout",
+                                line: clean_line.clone(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            };
+                            let _ = app.emit("activity-log", &log_event);
+                            // Mirror to on-disk log (#541) for post-hoc diagnosis.
+                            crate::utils::activity_log::write_to_disk(&log_event);
                         }
                     }
 
@@ -7220,17 +7228,17 @@ async fn run_download_with_events(
                                 format!("{} — ", parts.join(" — "))
                             }
                         };
-                        let _ = app.emit(
-                            "activity-log",
-                            &ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "internal",
-                                line: format!(
-                                    "──── {track_label} Downloading {context}\"{title}\" ────"
-                                ),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            },
-                        );
+                        let track_event = ActivityLogEvent {
+                            download_id: download_id.clone(),
+                            stream: "internal",
+                            line: format!(
+                                "──── {track_label} Downloading {context}\"{title}\" ────"
+                            ),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        };
+                        let _ = app.emit("activity-log", &track_event);
+                        // Mirror to on-disk log (#541).
+                        crate::utils::activity_log::write_to_disk(&track_event);
                     }
 
                     // Update the queue item's progress
@@ -7323,15 +7331,15 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let _ = app.emit(
-                                "activity-log",
-                                &ActivityLogEvent {
-                                    download_id: download_id.clone(),
-                                    stream: "stderr",
-                                    line: clean_line.clone(),
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                },
-                            );
+                            let log_event = ActivityLogEvent {
+                                download_id: download_id.clone(),
+                                stream: "stderr",
+                                line: clean_line.clone(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            };
+                            let _ = app.emit("activity-log", &log_event);
+                            // Mirror to on-disk log (#541).
+                            crate::utils::activity_log::write_to_disk(&log_event);
                         }
                     }
 

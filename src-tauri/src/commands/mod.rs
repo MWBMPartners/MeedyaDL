@@ -126,3 +126,9 @@ pub mod service_status;
 
 /// Smart Download command — cross-platform quality search.
 pub mod smart_download;
+
+/// Activity log IPC commands (#541) — export the persistent on-disk
+/// activity log and reveal the logs folder in the OS file manager.
+/// Complements `commands::gamdl::export_activity_log`, which exports
+/// the in-memory (possibly-trimmed) entries.
+pub mod activity_log;

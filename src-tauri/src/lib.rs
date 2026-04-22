@@ -149,47 +149,116 @@ fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::Worker
     guard
 }
 
-/// Deletes log files older than 7 days from the logs directory.
+/// Deletes log files older than their retention period from each of the
+/// logging directories used by MeedyaDL.
+///
+/// Three file classes with independent retention windows:
+///
+/// | Prefix                | Contents                              | Retention |
+/// | --------------------- | ------------------------------------- | --------- |
+/// | `meedyadl.*`          | `tracing` structured log output       | 7 days    |
+/// | `session-*`           | Trimmed activity-log entries (dumped  | 30 days   |
+/// |                       |   from `activityStore` on overflow)   |           |
+/// | `activity-*` (#541)   | Persistent on-disk activity log       | 7 days    |
 ///
 /// `tracing_appender::rolling::daily()` creates new log files daily but
-/// never deletes old ones. Without cleanup, log files accumulate indefinitely.
-/// This function provides the same retention policy as `clear_old_reports()`
-/// does for crash reports.
-fn clear_old_logs(app_data_dir: &std::path::Path) {
-    let log_dir = app_data_dir.join("logs");
-    let Ok(entries) = std::fs::read_dir(&log_dir) else {
-        return;
-    };
-    // Tracing logs: 7 days retention
-    let tracing_cutoff =
+/// never deletes old ones. The `activity_log_writer` background task
+/// similarly appends forever. Without cleanup, log files accumulate
+/// indefinitely. This function provides the same retention policy as
+/// `clear_old_reports()` does for crash reports.
+///
+/// # Arguments
+/// * `app_data_dir` — Default app data directory (used for default log folder).
+/// * `extra_log_dir` — Optional user-chosen override directory from
+///   `AppSettings::activity_log_path_override`. When set and different
+///   from the default, it is scanned too so `activity-*.log` files in
+///   the override location also honour the 7-day retention window.
+fn clear_old_logs(app_data_dir: &std::path::Path, extra_log_dir: Option<&std::path::Path>) {
+    let default_log_dir = app_data_dir.join("logs");
+    // Deduplicate directories so we don't scan the same path twice when
+    // the override happens to equal the default.
+    let mut dirs: Vec<std::path::PathBuf> = vec![default_log_dir];
+    if let Some(extra) = extra_log_dir {
+        if !extra.as_os_str().is_empty() && !dirs.iter().any(|d| d == extra) {
+            dirs.push(extra.to_path_buf());
+        }
+    }
+
+    // Tracing + activity logs: 7 days retention
+    let seven_day_cutoff =
         std::time::SystemTime::now() - std::time::Duration::from_secs(7 * 24 * 60 * 60);
-    // Session logs (trimmed activity log entries): 30 days retention
+    // Session logs: 30 days retention (longer — they contain forensic
+    // data from entries that were trimmed out of the in-memory log).
     let session_cutoff =
         std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 60 * 60);
 
     let mut removed = 0u32;
-    for entry in entries.flatten() {
-        let Ok(metadata) = entry.metadata() else {
+    for log_dir in &dirs {
+        let Ok(entries) = std::fs::read_dir(log_dir) else {
             continue;
         };
-        let Ok(modified) = metadata.modified() else {
-            continue;
-        };
-        let filename = entry.file_name();
-        let name = filename.to_string_lossy();
-        // Session logs get longer retention (30 days) since they contain
-        // debugging data from trimmed activity log entries.
-        let cutoff = if name.starts_with("session-") {
-            session_cutoff
-        } else {
-            tracing_cutoff
-        };
-        if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
-            removed += 1;
+        for entry in entries.flatten() {
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let Ok(modified) = metadata.modified() else {
+                continue;
+            };
+            let filename = entry.file_name();
+            let name = filename.to_string_lossy();
+            let cutoff = if name.starts_with("session-") {
+                session_cutoff
+            } else {
+                // `meedyadl.*` and `activity-*` both get the 7-day window.
+                seven_day_cutoff
+            };
+            if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
         }
     }
     if removed > 0 {
-        log::info!("Cleaned up {removed} log file(s) (tracing: >7d, session: >30d)");
+        log::info!(
+            "Cleaned up {removed} log file(s) (tracing/activity: >7d, session: >30d)"
+        );
+    }
+}
+
+/// Resolves the directory for the persistent on-disk activity log (#541).
+///
+/// Honours `AppSettings::activity_log_path_override` when set to a
+/// non-empty, non-whitespace value. Falls back to
+/// `{app_data_dir}/logs/` on any of the following conditions:
+/// * The setting is empty or contains only whitespace.
+/// * The override path cannot be created (permission issue, missing
+///   mount, invalid characters). We log a warning and fall back rather
+///   than crashing — a non-functional log override must not prevent
+///   the app from starting.
+fn resolve_activity_log_dir(
+    app: &tauri::AppHandle,
+    app_data_dir: &std::path::Path,
+) -> std::path::PathBuf {
+    let default_dir = app_data_dir.join("logs");
+    let override_path = services::config_service::load_settings(app)
+        .ok()
+        .map(|s| s.activity_log_path_override)
+        .unwrap_or_default();
+    let trimmed = override_path.trim();
+    if trimmed.is_empty() {
+        return default_dir;
+    }
+    let candidate = std::path::PathBuf::from(trimmed);
+    match std::fs::create_dir_all(&candidate) {
+        Ok(()) => candidate,
+        Err(e) => {
+            log::warn!(
+                "activity_log: override path {:?} is not writable ({e}); \
+                 falling back to default {:?}",
+                candidate,
+                default_dir
+            );
+            default_dir
+        }
     }
 }
 
@@ -1080,6 +1149,9 @@ pub fn run() {
             commands::gamdl::process_queue_manual,
             // Activity log export
             commands::gamdl::export_activity_log,
+            // Persistent on-disk activity log commands (#541)
+            commands::activity_log::export_disk_activity_log,
+            commands::activity_log::get_logs_folder_path,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
@@ -1269,8 +1341,38 @@ pub fn run() {
             // Clean up crash reports older than 30 days
             services::crash_report_service::clear_old_reports(app.handle());
 
-            // Clean up log files older than 7 days
-            clear_old_logs(&app_data_dir);
+            // Resolve the on-disk activity log directory, honouring the
+            // user's `activity_log_path_override` setting when set.
+            // Falls back to `{app_data_dir}/logs/` on error or when empty.
+            let activity_log_dir = resolve_activity_log_dir(app.handle(), &app_data_dir);
+
+            // Clean up log files older than their retention period. The
+            // override dir (if set and different from default) is also
+            // scanned so `activity-*.log` files there get pruned too.
+            let extra_dir = if activity_log_dir != app_data_dir.join("logs") {
+                Some(activity_log_dir.as_path())
+            } else {
+                None
+            };
+            clear_old_logs(&app_data_dir, extra_dir);
+
+            // Start the persistent on-disk activity log writer (#541).
+            // Runs as a background Tokio task consuming events from an
+            // unbounded channel. The shared `ShutdownSignal` trips the
+            // writer into its flush-and-exit path on window close / tray
+            // quit so the final events are not lost.
+            use tauri::Manager;
+            let shutdown = app
+                .state::<services::download_queue::ShutdownSignal>()
+                .flag();
+            let writer_handle =
+                services::activity_log_writer::start(activity_log_dir.clone(), shutdown);
+            utils::activity_log::register_disk_writer(writer_handle);
+            log::info!(
+                "Activity log writer started at {} (retention {}d)",
+                activity_log_dir.display(),
+                services::activity_log_writer::ACTIVITY_LOG_RETENTION_DAYS
+            );
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
