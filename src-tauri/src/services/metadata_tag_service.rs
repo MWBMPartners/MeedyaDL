@@ -1461,11 +1461,28 @@ pub fn apply_advisory_suffixes_from_tags(output_path: &str) {
     }
 }
 
-/// Rename a single M4A file to include its codec suffix.
+/// Lyrics / subtitle sidecar extensions that travel with an audio file.
+/// When we rename the audio to add a codec suffix, these sidecars must be
+/// renamed in lockstep so downstream lyrics conversion and embedding can
+/// still pair them by stem (see #535).
+const CODEC_RENAME_SIDECAR_EXTENSIONS: &[&str] =
+    &["ttml", "lrc", "srt", "vtt", "ass"];
+
+/// Rename a single M4A file to include its codec suffix, plus any
+/// lyrics/subtitle sidecars that share its stem.
 ///
 /// Appends the suffix (e.g., " [Dolby Atmos]", " [Lossless]") before
 /// the file extension. Idempotent: skips files that already contain the
 /// suffix in their stem.
+///
+/// Sidecar handling (#535): when native `--song-codec-priority` is active,
+/// GAMDL writes both audio and sidecars with a clean stem because the
+/// actual codec is unknown until the download completes. Renaming only the
+/// audio here would leave sidecars orphaned — a following companion run
+/// with a clean-filename tier would overwrite them, and the (now suffixed)
+/// primary audio would end up with no lyrics sidecars and no embedded
+/// lyrics. So we also rename any matching `.ttml` / `.lrc` / `.srt` /
+/// `.vtt` / `.ass` next to the audio file.
 fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
     if suffix.is_empty() {
         return;
@@ -1504,6 +1521,49 @@ fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
                 "Failed to rename {} with codec suffix: {e}",
                 file_path.display()
             );
+        }
+    }
+
+    rename_matching_sidecars(file_path, stem, suffix);
+}
+
+/// Rename any lyrics/subtitle sidecars next to `audio_path` that share the
+/// audio's stem, applying the same codec suffix. Silently skips sidecars
+/// that are missing or already suffixed. Errors are logged but don't
+/// propagate — sidecar rename is best-effort (audio was already renamed).
+fn rename_matching_sidecars(audio_path: &Path, stem: &str, suffix: &str) {
+    let parent = match audio_path.parent() {
+        Some(p) => p,
+        None => return,
+    };
+    for sidecar_ext in CODEC_RENAME_SIDECAR_EXTENSIONS {
+        let sidecar = parent.join(format!("{stem}.{sidecar_ext}"));
+        if !sidecar.exists() {
+            continue;
+        }
+        // Idempotency: if a prior run already produced the suffixed
+        // sidecar and something else created the clean-stem one in the
+        // meantime (e.g. an overlapping companion run), leave both alone.
+        let new_sidecar =
+            parent.join(format!("{stem} {suffix}.{sidecar_ext}"));
+        if new_sidecar.exists() {
+            log::debug!(
+                "Codec sidecar rename: target {} already exists — leaving {} in place",
+                new_sidecar.display(),
+                sidecar.display()
+            );
+            continue;
+        }
+        match crate::utils::fs_safe::safe_rename(&sidecar, &new_sidecar) {
+            Ok(final_path) => log::debug!(
+                "Codec sidecar: {} → {}",
+                sidecar.display(),
+                final_path.display()
+            ),
+            Err(e) => log::warn!(
+                "Failed to rename sidecar {} with codec suffix: {e}",
+                sidecar.display()
+            ),
         }
     }
 }
@@ -2524,5 +2584,143 @@ mod tests {
         let stem = "01 Title [Explicit]";
         // Caller should NOT call this if stem already contains the suffix
         assert!(stem.contains("[Explicit]"));
+    }
+
+    // ----------------------------------------------------------
+    // Codec sidecar rename tests (#535)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn rename_matching_sidecars_renames_all_formats() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("01 Track [Dolby Atmos].m4a");
+        std::fs::write(&audio, b"audio").unwrap();
+        for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
+            std::fs::write(
+                dir.path().join(format!("01 Track.{ext}")),
+                b"sidecar",
+            )
+            .unwrap();
+        }
+
+        // Audio is already suffix-renamed; sidecars still on clean stem.
+        rename_matching_sidecars(&audio, "01 Track", "[Dolby Atmos]");
+
+        for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
+            let renamed =
+                dir.path().join(format!("01 Track [Dolby Atmos].{ext}"));
+            assert!(
+                renamed.exists(),
+                "expected sidecar {renamed:?} to be renamed with codec suffix"
+            );
+            let orig = dir.path().join(format!("01 Track.{ext}"));
+            assert!(
+                !orig.exists(),
+                "expected original sidecar {orig:?} to be gone after rename"
+            );
+        }
+    }
+
+    #[test]
+    fn rename_matching_sidecars_skips_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("01 Track [Lossless].m4a");
+        std::fs::write(&audio, b"audio").unwrap();
+        // Only .ttml present — others missing.
+        std::fs::write(dir.path().join("01 Track.ttml"), b"tt").unwrap();
+
+        rename_matching_sidecars(&audio, "01 Track", "[Lossless]");
+
+        assert!(dir.path().join("01 Track [Lossless].ttml").exists());
+        assert!(!dir.path().join("01 Track.ttml").exists());
+        // Missing sidecars don't fail the call.
+        assert!(!dir.path().join("01 Track [Lossless].lrc").exists());
+    }
+
+    #[test]
+    fn rename_matching_sidecars_preserves_existing_suffixed_target() {
+        // If a suffixed sidecar already exists (e.g. from an overlapping
+        // companion run that wrote it with the suffix baked in) and a
+        // stale clean-stem sidecar is also present, neither should be
+        // touched — we don't want safe_rename's auto-disambiguation
+        // creating "01 Track [Dolby Atmos] (1).ttml" noise files.
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("01 Track [Dolby Atmos].m4a");
+        std::fs::write(&audio, b"audio").unwrap();
+        std::fs::write(dir.path().join("01 Track.ttml"), b"old").unwrap();
+        std::fs::write(
+            dir.path().join("01 Track [Dolby Atmos].ttml"),
+            b"new",
+        )
+        .unwrap();
+
+        rename_matching_sidecars(&audio, "01 Track", "[Dolby Atmos]");
+
+        // Both files still exist untouched.
+        assert!(dir.path().join("01 Track.ttml").exists());
+        let suffixed = dir.path().join("01 Track [Dolby Atmos].ttml");
+        assert!(suffixed.exists());
+        assert_eq!(std::fs::read(&suffixed).unwrap(), b"new");
+    }
+
+    #[test]
+    fn apply_codec_rename_suffix_renames_audio_and_sidecars() {
+        // Integration-style test for the full public behaviour: the audio
+        // M4A and every matching sidecar should all land on the same
+        // suffixed stem.
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("05 Song.m4a");
+        std::fs::write(&audio, b"audio").unwrap();
+        for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
+            std::fs::write(
+                dir.path().join(format!("05 Song.{ext}")),
+                b"sidecar",
+            )
+            .unwrap();
+        }
+
+        apply_codec_rename_suffix(&audio, "[Lossless]");
+
+        assert!(dir.path().join("05 Song [Lossless].m4a").exists());
+        assert!(!dir.path().join("05 Song.m4a").exists());
+        for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
+            let renamed =
+                dir.path().join(format!("05 Song [Lossless].{ext}"));
+            assert!(
+                renamed.exists(),
+                "sidecar .{ext} should follow audio rename"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_codec_rename_suffix_idempotent_on_already_suffixed_stem() {
+        // Companion tier that wrote suffix-in-template already has the
+        // suffix baked in — re-running rename should be a no-op and
+        // must not touch adjacent sidecars either.
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("05 Song [Lossless].m4a");
+        std::fs::write(&audio, b"audio").unwrap();
+        std::fs::write(
+            dir.path().join("05 Song [Lossless].ttml"),
+            b"side",
+        )
+        .unwrap();
+
+        apply_codec_rename_suffix(&audio, "[Lossless]");
+
+        assert!(dir.path().join("05 Song [Lossless].m4a").exists());
+        assert!(dir.path().join("05 Song [Lossless].ttml").exists());
+        // No double-suffixed variants produced.
+        assert!(
+            !dir.path()
+                .join("05 Song [Lossless] [Lossless].m4a")
+                .exists()
+        );
+        assert!(
+            !dir.path()
+                .join("05 Song [Lossless] [Lossless].ttml")
+                .exists()
+        );
     }
 }
