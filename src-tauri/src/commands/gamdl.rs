@@ -223,6 +223,34 @@ pub async fn start_download(
         }
     }
 
+    // Diagnostic trace for legacy iTunes Store URLs (#548). The validator
+    // permits `itunes.apple.com` in `SUPPORTED_HOSTS`, and `NON_GEO_RE`
+    // (`apple_music_api.rs:1353`) includes `itunes` in its alternation so
+    // non-geographic iTunes URLs can have a storefront injected. However,
+    // the main parser regexes at lines 430, 437, 443, 449, 460 only cover
+    // `(?:classical|music)\.apple\.com` — they do NOT include `itunes`.
+    // An `itunes.apple.com/{sf}/album/...` URL therefore passes validation,
+    // fails `parse_apple_music_url()`, skips normalization (the parser
+    // returns `None`), and reaches GAMDL raw. Whether GAMDL's own URL
+    // regex accepts iTunes Store URLs is unverified; if it silently
+    // rejects them the download errors mid-pipeline with no user-facing
+    // "this URL format is legacy" hint. Emit a WARN-level log so the
+    // audit in #548 can classify outcomes and decide whether to reject
+    // at the validator with a clear message.
+    for url in &request.urls {
+        if url.contains("itunes.apple.com") {
+            log::warn!(
+                "Legacy iTunes URL submitted (#548) — GAMDL compatibility unverified: {url}"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "Legacy iTunes URL detected (#548) — copy the music.apple.com link if the download fails: {url}"
+                ),
+            );
+        }
+    }
+
     // Diagnostic trace for Apple Music Classical URLs (#547). The backend
     // parser's regexes explicitly cover both `music.apple.com` and
     // `classical.apple.com` (`apple_music_api.rs` lines 430–460) with no
