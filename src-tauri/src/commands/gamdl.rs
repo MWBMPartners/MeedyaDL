@@ -223,20 +223,17 @@ pub async fn start_download(
         }
     }
 
-    // Diagnostic trace for legacy iTunes Store URLs (#548). The validator
-    // permits `itunes.apple.com` in `SUPPORTED_HOSTS`, and `NON_GEO_RE`
-    // (`apple_music_api.rs:1353`) includes `itunes` in its alternation so
-    // non-geographic iTunes URLs can have a storefront injected. However,
-    // the main parser regexes at lines 430, 437, 443, 449, 460 only cover
-    // `(?:classical|music)\.apple\.com` — they do NOT include `itunes`.
-    // An `itunes.apple.com/{sf}/album/...` URL therefore passes validation,
-    // fails `parse_apple_music_url()`, skips normalization (the parser
-    // returns `None`), and reaches GAMDL raw. Whether GAMDL's own URL
-    // regex accepts iTunes Store URLs is unverified; if it silently
-    // rejects them the download errors mid-pipeline with no user-facing
-    // "this URL format is legacy" hint. Emit a WARN-level log so the
-    // audit in #548 can classify outcomes and decide whether to reject
-    // at the validator with a clear message.
+    // Diagnostic trace for legacy iTunes Store URLs (#548). The parser
+    // regex gap was closed so `parse_apple_music_url` now matches
+    // `itunes.apple.com/{sf}/{album,song,music-video,artist,playlist}/...`
+    // and MeedyaDL's metadata prefetch + storefront normalisation kick
+    // in the same way they do for `music.apple.com` / `classical.apple.com`.
+    // What remains unverified is GAMDL's own URL regex: MeedyaDL does not
+    // rewrite `itunes.apple.com` → `music.apple.com`, so the iTunes URL
+    // is still handed to the subprocess as-is. If GAMDL rejects it, the
+    // download errors mid-pipeline with no user-facing "this URL format
+    // is legacy" hint. Emit a WARN-level log so support can correlate
+    // downloads that fail on iTunes URLs with the URL class at a glance.
     for url in &request.urls {
         if url.contains("itunes.apple.com") {
             log::warn!(
