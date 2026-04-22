@@ -77,6 +77,7 @@ When native --song-codec-priority is active, GAMDL writes audio and
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.39.0] - 2026-04-22
 
