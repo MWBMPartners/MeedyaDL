@@ -2094,3 +2094,19 @@ Returns "Too many requests. Please wait N seconds" when exceeded.
 
 On save: SHA-256 digest written to companion `settings.json.sha256` file.
 On load: digest verified. Mismatch logs a warning but settings are still loaded (user may have intentionally edited). Missing checksum file (pre-upgrade settings) is accepted and a checksum generated for next time.
+
+## Lyric Sidecar Regeneration Policy (#550)
+
+Lyric/subtitle generators run on every enrichment pass (first download, companion pass, retry, manifest re-import). The write policy is non-uniform today:
+
+| Generator                  | File               | Source (`src-tauri/src/services/`)          | Existing file behaviour                                                                 |
+| -------------------------- | ------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Enhanced LRC converter     | `.lrc`             | `enhanced_lyrics_service.rs:191`            | **Overwrites** — no `exists()` guard                                                    |
+| Rich SRT generator         | `.srt`             | `rich_srt_service.rs:132`                   | **Overwrites** by design (including GAMDL's plain `.srt`)                               |
+| Syllable-lyrics upgrade    | `.ttml`            | `download_queue.rs:~5594` and `~5618`       | **Overwrites** when Apple Music's `/syllable-lyrics` returns a word-level version       |
+| WebVTT generator           | `.vtt`             | `webvtt_service.rs:85-87`                   | **Skips** (`if vtt_path.exists() { continue; }`)                                        |
+| ASS generator              | `.ass`             | `ass_subtitle_service.rs:91-95`             | **Skips** (`if ass_path.exists() { continue; }`)                                        |
+
+**Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
+
+**If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
