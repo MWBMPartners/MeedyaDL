@@ -10,32 +10,77 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(activity-log)** Persistent on-disk activity log for bug hunting (#541)
 
-Adds a dedicated, daily-rotating `activity-YYYY-MM-DD.log` file under
-  the logs directory that mirrors **every** `ActivityLogEvent` as it
-  happens — including events that get trimmed from the 10,000-line
-  in-memory buffer, every verbose line regardless of the Verbose UI
-  filter, and every event written before the Activity Log panel is
-  opened. Complementary to the existing `meedyadl.*` tracing log and
-  `session-*` trimmed-entries dump; retained for 7 days.
+Adds a daily-rotating `activity-YYYY-MM-DD.log` file under the logs
+  directory that mirrors every `ActivityLogEvent` as it happens — the
+  complete forensic record for bug hunting, unaffected by the 10,000-line
+  in-memory cap or the Verbose UI filter.
 
-  Implemented as a buffered Tokio background task fed via an unbounded
-  `mpsc` channel so the emit hot path never blocks on disk I/O and the
-  in-memory activity store / virtualiser / RAF batching are all
-  untouched (no risk of reintroducing the 14 GB WebView RAM leak fixed
-  by #370). UTC date rollover is detected at write time; the shared
-  `ShutdownSignal` flushes and drains the channel on window close /
-  tray quit.
+  Implementation highlights:
 
-  Two new actions on the Activity Log toolbar: **Export Disk** (native
-  save dialog, concatenates the last 3 daily files) and **Reveal**
-  (opens the logs folder in Finder / Explorer / xdg-open). The
-  existing **Export** button continues to export the in-memory view.
+  - New `services/activity_log_writer.rs` — buffered Tokio background task
+    fed via an unbounded `mpsc` channel. Uses `BufWriter<File>` with a
+    500ms flush tick and UTC date rollover detection. Polls the shared
+    `ShutdownSignal` to flush and drain on window close / tray quit.
+  - `utils/activity_log.rs` — new `register_disk_writer()` + `write_to_disk()`
+    helpers backed by a `OnceLock`. All four `emit_*` helpers fan out to
+    disk after emitting the Tauri event; verbose events persist to disk
+    regardless of the UI filter (the file is the forensic record).
+  - `services/download_queue.rs` — the four direct-emit sites
+    (`emit_companion_stream_line`, stdout/stderr readers, track separator)
+    now call `write_to_disk(&event)` alongside `app.emit(...)`.
+  - No change to the in-memory activity store, virtualiser, or RAF
+    batching. No hot-path disk I/O. No risk of reintroducing the 14 GB
+    WebView RAM leak (#370).
 
-  New `activity_log_path_override` setting in Settings > Advanced >
-  Diagnostics lets users relocate `activity-*.log` files to a custom
-  directory (e.g. an external drive); empty = default. Browse / Reset
-  buttons for ergonomics; unreachable paths fall back to the default
-  with a warning on the next startup.
+  Frontend UX:
+
+  - **Export Disk** — concatenates the last 3 daily files via
+    `export_disk_activity_log` IPC, opens a native save dialog.
+  - **Reveal** — opens the logs folder via `@tauri-apps/plugin-shell`'s
+    `open()` using the path returned by `get_logs_folder_path` IPC.
+  - Existing **Export** (in-memory view, respects filters) preserved.
+
+  User-configurable location:
+
+  - New `activity_log_path_override: String` setting (empty = default
+    `{app_data_dir}/logs/`).
+  - `lib.rs::resolve_activity_log_dir()` validates the override via
+    `create_dir_all`; falls back to default with `log::warn!` if
+    unwritable.
+  - UI: Browse + Reset buttons in Settings > Advanced > Diagnostics.
+    Applies on next app restart (writer owns the file handle).
+  - `clear_old_logs()` scans the override dir too, honouring the 7-day
+    retention.
+
+- **(activity-log)** Persistent on-disk activity log for bug hunting (#541) (#542)
+
+### 🐛 Bug Fixes
+
+- **(lyrics)** Rename sidecars alongside codec-suffixed audio (#535)
+
+When native --song-codec-priority is active, GAMDL writes audio and
+  lyrics/subtitle sidecars on a clean stem because the actual codec is
+  unknown until the download finishes. The post-enrichment codec-suffix
+  rename only touched the audio file, so .ttml/.lrc/.srt/.vtt/.ass
+  sidecars stayed on the clean stem — leaving Dolby Atmos tracks with no
+  lyrics once an overlapping companion tier with a clean-filename slot
+  took over those files.
+
+  Add rename_matching_sidecars() to move all five sidecar formats in
+  lockstep with the audio rename. Idempotent: skips missing sources and
+  existing suffixed targets so safe_rename's auto-disambiguation can't
+  produce "[Dolby Atmos] (1).ttml" noise files when an overlapping run
+  has already written a suffixed sidecar.
+
+- **(lyrics)** Rename sidecars alongside codec-suffixed audio (#540)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.39.0] - 2026-04-22
+
+### ✨ Features
 
 - **(activity-log)** Emit dedup settings in startup summary (#530)
 
