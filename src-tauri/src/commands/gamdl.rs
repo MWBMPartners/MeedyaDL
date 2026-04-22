@@ -200,19 +200,27 @@ pub async fn start_download(
         }
     }
 
-    // Diagnostic trace for Apple Music personal-library URLs (#546). The
-    // backend URL validator accepts `/library/{albums,songs,playlists}/l.XXXX`
-    // paths, but `parse_apple_music_url` and `normalize_apple_music_url`
-    // do not recognise them — library URLs pass straight through to GAMDL
-    // without any MeedyaDL-side storefront injection, metadata prefetch,
-    // or Tier 4 filename safety net. GAMDL's iTunes Lookup API is built
-    // around public catalog IDs; whether `l.XXXX` library IDs resolve to
-    // a useful row is unverified. Emit a log line so support can correlate
-    // downstream filename-path behaviour (fell through to `no_album_*`
-    // template? succeeded via GAMDL's own library handling? rejected
-    // outright?) with the URL class at a glance.
+    // URL audit diagnostics (#546/#547/#548/#549 — part of the #487
+    // umbrella). Classify each URL and emit one log line per matching
+    // class so downstream filename-path behaviour can be correlated with
+    // the URL class without replaying the download. Per-URL (not batched)
+    // so each offending URL lands as its own activity-log entry in
+    // timestamp order. All four classes are orthogonal except library,
+    // which is skipped by the #549 catch-all (library URLs already have
+    // their own #546 trace).
+    //
+    // - #546: `/library/` URLs pass through to GAMDL unchanged; no
+    //   MeedyaDL storefront injection, prefetch, or Tier 4 safety net.
+    // - #547: `classical.apple.com` URLs ride the same templates as
+    //   `music.apple.com` — movement-title collisions are the risk.
+    // - #548: `itunes.apple.com` URLs parse cleanly after the regex gap
+    //   fix, but GAMDL's own URL regex compatibility is unverified — WARN.
+    // - #549: host-allowed URLs that fail `parse_apple_music_url` after
+    //   normalisation (uploaded / post videos and any novel path) — WARN.
     for url in &request.urls {
-        if url.contains("/library/") {
+        let is_library = url.contains("/library/");
+
+        if is_library {
             log::info!("Library URL passed through to GAMDL (#546): {url}");
             emit_app_log(
                 &app,
@@ -221,20 +229,7 @@ pub async fn start_download(
                 ),
             );
         }
-    }
 
-    // Diagnostic trace for legacy iTunes Store URLs (#548). The parser
-    // regex gap was closed so `parse_apple_music_url` now matches
-    // `itunes.apple.com/{sf}/{album,song,music-video,artist,playlist}/...`
-    // and MeedyaDL's metadata prefetch + storefront normalisation kick
-    // in the same way they do for `music.apple.com` / `classical.apple.com`.
-    // What remains unverified is GAMDL's own URL regex: MeedyaDL does not
-    // rewrite `itunes.apple.com` → `music.apple.com`, so the iTunes URL
-    // is still handed to the subprocess as-is. If GAMDL rejects it, the
-    // download errors mid-pipeline with no user-facing "this URL format
-    // is legacy" hint. Emit a WARN-level log so support can correlate
-    // downloads that fail on iTunes URLs with the URL class at a glance.
-    for url in &request.urls {
         if url.contains("itunes.apple.com") {
             log::warn!(
                 "Legacy iTunes URL submitted (#548) — GAMDL compatibility unverified: {url}"
@@ -246,21 +241,7 @@ pub async fn start_download(
                 ),
             );
         }
-    }
 
-    // Diagnostic trace for Apple Music Classical URLs (#547). The backend
-    // parser's regexes explicitly cover both `music.apple.com` and
-    // `classical.apple.com` (`apple_music_api.rs` lines 430–460) with no
-    // differentiation — classical albums/songs/MVs are treated identically
-    // to their pop counterparts. Templates, metadata fetch, artwork, and
-    // filename resolution are all shared. Classical movement titles
-    // ("Allegro", "Andante", "Adagio", …) are extremely non-unique; if a
-    // classical URL falls through to `no_album_file_template` (e.g. direct
-    // song URL with sparse album context, or a curated playlist across
-    // multiple works), identical movement names will collide. Emit a log
-    // line so support can correlate downstream filename-path behaviour
-    // with classical-vs-pop content at a glance.
-    for url in &request.urls {
         if url.contains("classical.apple.com") {
             log::info!("Classical URL routed through shared Apple Music pipeline (#547): {url}");
             emit_app_log(
@@ -270,40 +251,20 @@ pub async fn start_download(
                 ),
             );
         }
-    }
 
-    // Catch-all diagnostic for unrecognised Apple Music URL shapes (#549).
-    // Fires when a URL passes the host allowlist but `parse_apple_music_url`
-    // does not match it after normalisation — i.e. it is neither an
-    // album / song / music-video / artist / catalog-playlist URL nor a
-    // `/library/` URL (those have their own #546 log). Uploaded / "post"
-    // videos (label/artist-uploaded content — backstage clips, live
-    // sessions, interviews) are the concrete case #549 tracks; any other
-    // novel path shape Apple introduces will land here too. Without this
-    // log, such URLs silently pass through to GAMDL with no MeedyaDL-side
-    // metadata prefetch, no storefront normalisation, and no Tier 4
-    // filename safety net — exactly the failure mode the #487 audit
-    // umbrella was opened to surface.
-    for url in &request.urls {
-        if url.contains("/library/") {
-            // Already logged by #546 trace above.
-            continue;
+        if !is_library
+            && crate::services::apple_music_api::parse_apple_music_url(url).is_none()
+        {
+            log::warn!(
+                "Unrecognised Apple Music URL shape (#549) — passed to GAMDL without MeedyaDL prefetch or safety net: {url}"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "Unrecognised Apple Music URL (#549) — no MeedyaDL metadata prefetch or filename safety net applies; GAMDL compatibility unverified: {url}"
+                ),
+            );
         }
-        if crate::services::apple_music_api::parse_apple_music_url(url).is_some() {
-            continue;
-        }
-        // URL is on an Apple Music domain (host allowlist passed) but no
-        // parser regex matched it. Log at WARN — this is the uploaded-video
-        // class the #549 audit is trying to quantify.
-        log::warn!(
-            "Unrecognised Apple Music URL shape (#549) — passed to GAMDL without MeedyaDL prefetch or safety net: {url}"
-        );
-        emit_app_log(
-            &app,
-            &format!(
-                "Unrecognised Apple Music URL (#549) — no MeedyaDL metadata prefetch or filename safety net applies; GAMDL compatibility unverified: {url}"
-            ),
-        );
     }
 
     // Check for duplicate URLs already in the active queue. This is a
