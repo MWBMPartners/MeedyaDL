@@ -171,6 +171,30 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 3;
     }
 
+    // v3 → v4: repair playlist + compilation template collisions (#545, #552).
+    //
+    // Two upstream GAMDL defaults we inherited lack stable uniqueness
+    // placeholders:
+    //   - `"Playlists/{playlist_artist}/{playlist_title}"` — two playlists
+    //     with the same artist + title silently overwrote each other's
+    //     `.m3u8` (#545).
+    //   - `"Compilations/{album}"` — two Various-Artists compilations with
+    //     the same album name intermixed in one folder (#552).
+    //
+    // Heal both to include Apple Music's stable numeric ID in the same
+    // exact-match style as the v2→v3 migration: only adjust values that
+    // match the pre-v4 default; user-customised values are left alone.
+    if settings.settings_version == 3 {
+        if settings.playlist_file_template == "Playlists/{playlist_artist}/{playlist_title}" {
+            settings.playlist_file_template =
+                "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".to_string();
+        }
+        if settings.compilation_folder_template == "Compilations/{album}" {
+            settings.compilation_folder_template = "Compilations/{album} ({album_id})".to_string();
+        }
+        settings.settings_version = 4;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -1296,7 +1320,10 @@ mod tests {
             ..default_settings()
         };
         migrate_settings(&mut s);
-        assert_eq!(s.settings_version, 3);
+        // Migration runs sequentially through all versions; end state is
+        // always CURRENT_SETTINGS_VERSION regardless of which individual
+        // version-gate this test is exercising.
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
     }
 
@@ -1308,7 +1335,10 @@ mod tests {
             ..default_settings()
         };
         migrate_settings(&mut s);
-        assert_eq!(s.settings_version, 3);
+        // Migration runs sequentially through all versions; end state is
+        // always CURRENT_SETTINGS_VERSION regardless of which individual
+        // version-gate this test is exercising.
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(s.no_album_file_template, "{title}");
     }
 
@@ -1323,7 +1353,10 @@ mod tests {
             ..default_settings()
         };
         migrate_settings(&mut s);
-        assert_eq!(s.settings_version, 3);
+        // Migration runs sequentially through all versions; end state is
+        // always CURRENT_SETTINGS_VERSION regardless of which individual
+        // version-gate this test is exercising.
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(s.no_album_folder_template, "Singles/{artist}");
         assert_eq!(s.no_album_file_template, "{artist} - {title}");
     }
@@ -1354,5 +1387,112 @@ mod tests {
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(s.no_album_folder_template, before_folder);
         assert_eq!(s.no_album_file_template, before_file);
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v3 → v4 playlist template repair (#545)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v3_to_v4_heals_legacy_playlist_file_template() {
+        let mut s = AppSettings {
+            settings_version: 3,
+            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, 4);
+        assert_eq!(
+            s.playlist_file_template,
+            "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"
+        );
+    }
+
+    #[test]
+    fn migration_v3_to_v4_preserves_custom_playlist_template() {
+        // A user who intentionally customised their playlist template to
+        // anything other than the exact legacy default should see no change.
+        let mut s = AppSettings {
+            settings_version: 3,
+            playlist_file_template: "MyPlaylists/{playlist_title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, 4);
+        assert_eq!(s.playlist_file_template, "MyPlaylists/{playlist_title}");
+    }
+
+    #[test]
+    fn migration_v3_to_v4_runs_from_v0_with_every_legacy_default() {
+        // End-to-end: a v0 settings file with the v0 / v2 broken defaults
+        // AND the v3 broken playlist default should wind up on v4 with
+        // all three healed.
+        let mut s = AppSettings {
+            settings_version: 0,
+            no_album_folder_template: "{artist}/[Unknown]".to_string(),
+            no_album_file_template: "{disc} - ".to_string(),
+            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
+        assert_eq!(s.no_album_file_template, "{title}");
+        assert_eq!(
+            s.playlist_file_template,
+            "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"
+        );
+    }
+
+    #[test]
+    fn default_playlist_file_template_includes_playlist_id() {
+        // Hard invariant — removing {playlist_id} re-opens the silent
+        // .m3u8 collision regression (#545).
+        let s = default_settings();
+        assert!(
+            s.playlist_file_template.contains("{playlist_id}"),
+            "default playlist_file_template must include {{playlist_id}} for uniqueness"
+        );
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v3 → v4 compilation template repair (#552)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v3_to_v4_heals_legacy_compilation_folder_template() {
+        let mut s = AppSettings {
+            settings_version: 3,
+            compilation_folder_template: "Compilations/{album}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.compilation_folder_template, "Compilations/{album} ({album_id})");
+    }
+
+    #[test]
+    fn migration_v3_to_v4_preserves_custom_compilation_template() {
+        // A user who intentionally customised their compilation template
+        // should not see it mutated.
+        let mut s = AppSettings {
+            settings_version: 3,
+            compilation_folder_template: "VA/{album}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.compilation_folder_template, "VA/{album}");
+    }
+
+    #[test]
+    fn default_compilation_folder_template_includes_album_id() {
+        // Hard invariant — removing {album_id} re-opens the silent
+        // compilation-folder intermix regression (#552).
+        let s = default_settings();
+        assert!(
+            s.compilation_folder_template.contains("{album_id}"),
+            "default compilation_folder_template must include {{album_id}} for uniqueness"
+        );
     }
 }
