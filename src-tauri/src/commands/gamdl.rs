@@ -223,6 +223,30 @@ pub async fn start_download(
         }
     }
 
+    // Diagnostic trace for Apple Music Classical URLs (#547). The backend
+    // parser's regexes explicitly cover both `music.apple.com` and
+    // `classical.apple.com` (`apple_music_api.rs` lines 430–460) with no
+    // differentiation — classical albums/songs/MVs are treated identically
+    // to their pop counterparts. Templates, metadata fetch, artwork, and
+    // filename resolution are all shared. Classical movement titles
+    // ("Allegro", "Andante", "Adagio", …) are extremely non-unique; if a
+    // classical URL falls through to `no_album_file_template` (e.g. direct
+    // song URL with sparse album context, or a curated playlist across
+    // multiple works), identical movement names will collide. Emit a log
+    // line so support can correlate downstream filename-path behaviour
+    // with classical-vs-pop content at a glance.
+    for url in &request.urls {
+        if url.contains("classical.apple.com") {
+            log::info!("Classical URL routed through shared Apple Music pipeline (#547): {url}");
+            emit_app_log(
+                &app,
+                &format!(
+                    "Classical URL detected (#547) — same templates as music.apple.com; watch for movement-title collisions: {url}"
+                ),
+            );
+        }
+    }
+
     // Check for duplicate URLs already in the active queue. This is a
     // non-blocking warning — the download proceeds regardless, but the
     // frontend can show a toast to let the user know.
