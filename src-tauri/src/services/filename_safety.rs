@@ -25,8 +25,6 @@
 // `impl` blocks and exercised by unit tests. Runtime enforcement remains
 // the job of `fs_safe.rs` and the #487 umbrella.
 
-use std::collections::HashSet;
-
 /// Minimal tag set that every engine is expected to populate when
 /// rendering its fallback templates. All fields are `Option<&str>` so
 /// the contract can simulate the "every field is missing" failure mode
@@ -338,6 +336,7 @@ impl FilenameSafetyContract for GamdlMusicVideoFallback {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     /// Every engine registered in the contract must pass every default
     /// conformance check. Add new engines (votify / yt-dlp /
