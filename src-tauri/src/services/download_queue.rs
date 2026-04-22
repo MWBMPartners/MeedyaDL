@@ -2877,19 +2877,62 @@ async fn extract_music_video_subtitles_for_new_files(
 }
 
 /// Folder template applied to GAMDL music-video downloads when the MV
-/// has no album context (direct `/music-video/` URLs). Uses a fixed
+/// has no album context (direct `/music-video/` URLs AND upstream
+/// iTunes Lookup did not return album linkage). Uses a fixed
 /// `{artist}/Music Videos` layout rather than inheriting the user's
 /// `no_album_folder_template` — that setting is audio-oriented and
 /// legacy installs may still hold the pre-v2 default `"{artist}/[Unknown]"`
 /// which produces a literal `[Unknown]` directory (#531).
+///
+/// ## Resolution order for MV → album folder
+///
+/// This constant is the **last-resort** template. The actual placement
+/// cascade is (highest to lowest priority):
+///
+/// 1. **GAMDL's internal iTunes Lookup** (`interface_music_video.py`):
+///    if the MV's iTunes entry exposes a collection row, GAMDL
+///    populates `tags.album` / `tags.album_artist` and uses
+///    `album_folder_template` — MV lands alongside the audio tracks
+///    in `{album_artist}/{album}/`. GAMDL handles this natively.
+/// 2. **Apple Music Catalog API** (not yet wired in — tracked in #537):
+///    when iTunes returns no collection row, fall back to Apple's
+///    `music-videos/{id}?include=albums` endpoint and pre-fill
+///    `no_album_folder_template` with the resolved literal path.
+/// 3. **MeedyaDL-known parent album context** (not yet wired in — #537):
+///    when the MV is discovered as a companion to an album URL we
+///    already downloaded, we *know* the parent album regardless of
+///    what either API says — override the folder template directly.
+/// 4. **This constant**: `{artist}/Music Videos/` — reached only when
+///    all three lookups above fail or are unavailable. Safe and
+///    predictable; never empty.
 pub(crate) const MV_NO_ALBUM_FOLDER_TEMPLATE: &str = "{artist}/Music Videos";
 
 /// File template applied to GAMDL music-video downloads when the MV has
-/// no album context. Uses a fixed `{title}` value so MV filenames always
-/// include the track title. Legacy installs may still hold the pre-v2
-/// default `"{disc} - "` which produces empty `-.mp4` filenames for
-/// content without a `{disc}` (#531).
-pub(crate) const MV_NO_ALBUM_FILE_TEMPLATE: &str = "{title}";
+/// no album context. Uses `{title} ({title_id})` so the filename is
+/// **guaranteed unique within the Apple Music catalogue** — `{title_id}`
+/// is the numeric MV ID, deterministic across re-downloads and unique
+/// per MV. Legacy installs may still hold the pre-v2 default
+/// `"{disc} - "` which produces empty `-.mp4` filenames for content
+/// without a `{disc}` (#531).
+///
+/// ## Why include `{title_id}` instead of just `{title}`?
+///
+/// Same-artist MVs with identical titles do occur in real catalogues
+/// (Clean/Explicit cuts, remixes, live versions, region-specific
+/// re-releases). With `overwrite=false` (MeedyaDL's default), the
+/// second download would silently skip with a `MediaFileExists`
+/// exception — no data loss but no user-visible warning either.
+///
+/// `{title_id}` is chosen over any datetime suffix because datetimes
+/// defeat GAMDL's own dedup: every re-download would create a new file
+/// rather than being recognised as the same MV.
+///
+/// This template is only reached in the last-resort path (see the
+/// docstring on `MV_NO_ALBUM_FOLDER_TEMPLATE`). Apple-Music-linked or
+/// iTunes-linked MVs land in their album folder via GAMDL's native
+/// `single_disc_file_template` / `multi_disc_file_template` and do not
+/// use this constant at all — their filenames remain clean.
+pub(crate) const MV_NO_ALBUM_FILE_TEMPLATE: &str = "{title} ({title_id})";
 
 /// Shared helper used by both the MusicKit-based video companion pipeline
 /// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
@@ -5353,7 +5396,7 @@ pub fn process_queue(
                             // --- Post-step 1: Rename cover art per user setting (#448) ---
                             // GAMDL saves static cover art as Cover.<ext>. Rename to the
                             // user's configured name (default: FrontCover for consistency
-                            // with animated artwork FrontCover.mp4/PortraitCover.mp4).
+                            // with animated artwork FrontCover.mp4/FrontCoverPortrait.mp4).
                             rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
@@ -5954,12 +5997,12 @@ pub fn process_queue(
                                                 if result.portrait_downloaded {
                                                     if let Err(e) =
                                                         super::animated_artwork_service::hide_file(
-                                                            &dir.join("PortraitCover.mp4"),
+                                                            &dir.join("FrontCoverPortrait.mp4"),
                                                         )
                                                         .await
                                                     {
                                                         log::debug!(
-                                                            "Failed to hide PortraitCover.mp4: {e}"
+                                                            "Failed to hide FrontCoverPortrait.mp4: {e}"
                                                         );
                                                     }
                                                 }
@@ -9769,5 +9812,18 @@ mod tests {
         // resolves to `-.mp4` for content without a disc number.
         assert!(super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title}"));
         assert!(!super::MV_NO_ALBUM_FILE_TEMPLATE.trim().is_empty());
+    }
+
+    #[test]
+    fn mv_no_album_file_template_includes_title_id_for_uniqueness() {
+        // `{title_id}` (Apple Music's numeric MV ID) is the
+        // guaranteed-unique disambiguator for same-title MVs in the
+        // last-resort path. Its presence is a hard invariant — dropping
+        // it re-opens the silent-collision regression where a second MV
+        // with the same title would skip with `MediaFileExists`.
+        assert!(
+            super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title_id}"),
+            "MV_NO_ALBUM_FILE_TEMPLATE must include {{title_id}} for uniqueness"
+        );
     }
 }
