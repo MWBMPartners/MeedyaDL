@@ -6,6 +6,37 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(lyrics)** Document sidecar regeneration policy (#550)
+
+The four lyric/subtitle generators have non-uniform write behaviour:
+  .lrc and .srt overwrite unconditionally, .ttml is overwritten by the
+  syllable-lyrics upgrade path, while .vtt and .ass already skip when
+  the target file exists. Hand-edited .lrc/.srt/.ttml sidecars are
+  therefore silently replaced on the next enrichment pass.
+
+  After considering four policies (status quo + docs / content-hash
+  skip / opt-in preservation / .bak backup), the audit settled on
+  Option A: document the behaviour so users with hand-edited sidecars
+  know to rename or disable the generator before re-running enrichment.
+
+  - Add "Lyric Sidecar Regeneration" section to help/lyrics-and-metadata.md
+    with a per-generator behaviour table and workaround guidance.
+  - Add "Lyric Sidecar Regeneration Policy (#550)" section to DEV_NOTES.md
+    with file:line anchors for every write site and a note on what a
+    future guard would need to change.
+
+  No code changes — behaviour is unchanged from current releases.
+
+- **(lyrics)** Document sidecar regeneration policy (#550) (#556)
+
+## Summary
+
+
+## [0.40.1] - 2026-04-22
+
 ### 🐛 Bug Fixes
 
 - **(playlist)** Add {playlist_id} to default template + settings migration (#545)
