@@ -181,6 +181,28 @@ Lyric sidecar files are saved in the same directory as the downloaded audio or v
 
 This convention ensures that most media players will automatically detect and load the lyrics or subtitles when you play the corresponding file.
 
+### Lyric Sidecar Regeneration
+
+Every time enrichment runs on a download folder — the first download, any companion pass, and any retry or re-import via `.meedyadl` manifest — MeedyaDL's lyric/subtitle generators run again. Whether the regenerated file replaces or preserves an existing sidecar depends on which generator produced it:
+
+| Generator              | Extension   | Behaviour on re-run                                                                                                   |
+| ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------- |
+| Enhanced LRC converter | `.lrc`      | **Overwrites** any existing file.                                                                                     |
+| Rich SRT generator     | `.srt`      | **Overwrites** any existing file (including GAMDL's plain `.srt`; the rich variant with styling tags replaces it).    |
+| Syllable-lyrics upgrade | `.ttml`    | **Overwrites** GAMDL's TTML when a word-level version is fetched from Apple Music's `/syllable-lyrics` endpoint.       |
+| WebVTT generator       | `.vtt`      | **Skips** if the file already exists.                                                                                 |
+| ASS generator          | `.ass`      | **Skips** if the file already exists.                                                                                 |
+
+**Implication for users who edit sidecars manually:** `.lrc`, `.srt`, and upgraded `.ttml` files written by MeedyaDL are not treated as user data — any edits you make to them may be silently replaced on the next enrichment run (re-download, companion download, or manifest re-import). If you want to keep hand-edited lyrics or subtitles, either:
+
+- Rename the file to a variant the generators don't touch (e.g., `Song Title.user.lrc`), OR
+- Disable the corresponding generator in **Settings > Lyrics** before re-running enrichment, OR
+- Copy the edited file elsewhere before triggering another enrichment pass.
+
+`.vtt` and `.ass` sidecars are safe to edit in place — the generators detect the existing file and skip it.
+
+This behaviour is intentional: the generators are idempotent converters whose inputs (TTML, SRT) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case (first-time generation and upstream content updates). The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; if you'd prefer a uniform guard, file an issue.
+
 ---
 
 ## Metadata Embedding
