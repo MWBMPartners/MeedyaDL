@@ -2913,6 +2913,19 @@ async fn extract_music_video_subtitles_for_new_files(
 /// 4. **This constant**: `{artist}/Music Videos/` — reached only when
 ///    all three lookups above fail or are unavailable. Safe and
 ///    predictable; never empty.
+///
+/// ## Not reached by uploaded videos (#549)
+///
+/// Apple Music's label/artist-uploaded videos (backstage clips, live
+/// sessions, interviews) have their own GAMDL entry points
+/// (`downloader_uploaded_video.py` / `interface_uploaded_video.py`) and
+/// tag shape (`{artist, date, title, title_id, storefront}` — no album
+/// context). MeedyaDL does NOT currently detect uploaded-video URLs or
+/// route them through `download_music_video_by_url()`, so this template
+/// constant is never applied to uploaded videos today. If an
+/// uploaded-video URL reaches GAMDL at all, it inherits the user's
+/// audio-oriented `no_album_*` templates — same collision risk class as
+/// #527/#531, different URL scheme. Tracked in #549.
 pub(crate) const MV_NO_ALBUM_FOLDER_TEMPLATE: &str = "{artist}/Music Videos";
 
 /// File template applied to GAMDL music-video downloads when the MV has
