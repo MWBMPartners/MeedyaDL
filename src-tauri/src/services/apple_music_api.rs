@@ -394,15 +394,22 @@ pub async fn fetch_itunes_lookup(
 
 /// Parse an Apple Music URL to extract the storefront, content type, and IDs.
 ///
-/// Supports these URL patterns (both `music.apple.com` and `classical.apple.com`):
+/// Supports these URL patterns (`music.apple.com`, `classical.apple.com`,
+/// and legacy `itunes.apple.com`):
 /// - `https://music.apple.com/us/album/album-name/1234567890`
 /// - `https://classical.apple.com/us/album/beethoven-symphony/1234567890`
+/// - `https://itunes.apple.com/us/album/album-name/1234567890`
 /// - `https://music.apple.com/us/album/album-name/1234567890?i=9876543210`
 /// - `https://music.apple.com/us/song/song-name/9876543210`
 /// - `https://music.apple.com/us/music-video/video-name/1234567890`
 ///
-/// Apple Music Classical URLs (`classical.apple.com`) share the same path
-/// structure as standard Apple Music URLs and are treated identically.
+/// Apple Music Classical URLs (`classical.apple.com`) and legacy iTunes
+/// Store URLs (`itunes.apple.com`) share the same path structure as
+/// standard Apple Music URLs and are treated identically. The `itunes`
+/// alternation was added so iTunes URLs get the same metadata prefetch,
+/// storefront normalisation, and Tier 4 safety-net treatment as the
+/// other two domains (#548) — previously they passed host validation
+/// but failed every parser branch and reached GAMDL raw.
 ///
 /// For album URLs with `?i=` query parameter, both the album ID and the
 /// individual song ID are extracted.
@@ -424,30 +431,37 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // compilation failure here indicates a code defect, not a runtime error.
 
     // Match album URLs: /storefront/album/slug/album_id with optional ?i=song_id
-    // Accepts both music.apple.com and classical.apple.com domains
+    // Accepts music.apple.com, classical.apple.com, and legacy
+    // itunes.apple.com domains. The `itunes` alternation closes the gap
+    // where iTunes URLs passed host validation but failed every parser
+    // branch and reached GAMDL raw with no metadata prefetch (#548).
     static ALBUM_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?",
+            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?",
         )
         .expect("Invalid album regex")
     });
 
     // Match song URLs: /storefront/song/slug/song_id
     static SONG_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)")
+        Regex::new(r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)")
             .expect("Invalid song regex")
     });
 
     // Match music-video URLs: /storefront/music-video/slug/video_id
     static MV_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)")
-            .expect("Invalid music-video regex")
+        Regex::new(
+            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)",
+        )
+        .expect("Invalid music-video regex")
     });
 
     // Match artist URLs: /storefront/artist/slug/artist_id
     static ARTIST_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/artist/[^/]+/(\d+)")
-            .expect("Invalid artist regex")
+        Regex::new(
+            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/artist/[^/]+/(\d+)",
+        )
+        .expect("Invalid artist regex")
     });
 
     // Match catalog playlist URLs: /storefront/playlist/slug/pl.xxxxx
@@ -457,7 +471,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // via a separate check before calling this parser.
     static PLAYLIST_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"https?://(?:classical|music)\.apple\.com/([a-z]{2})/playlist/[^/]+/(pl\.[a-zA-Z0-9._-]+)",
+            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/playlist/[^/]+/(pl\.[a-zA-Z0-9._-]+)",
         )
         .expect("Invalid playlist regex")
     });
@@ -2238,6 +2252,83 @@ mod tests {
         assert_eq!(parsed.content_type, "album");
         assert_eq!(parsed.album_id, "1234567890");
         assert_eq!(parsed.song_id.unwrap(), "9876543210");
+    }
+
+    // Legacy iTunes Store URLs (#548). Before the alternation was extended
+    // to include `itunes`, these passed host validation but failed every
+    // parser branch and reached GAMDL raw with no MeedyaDL metadata
+    // prefetch or storefront normalisation. The regex gap was the fix;
+    // these tests lock it in.
+
+    #[test]
+    fn parse_itunes_legacy_album_url() {
+        let url = "https://itunes.apple.com/us/album/some-album/1234567890";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.content_type, "album");
+        assert_eq!(parsed.album_id, "1234567890");
+        assert!(parsed.song_id.is_none());
+    }
+
+    #[test]
+    fn parse_itunes_legacy_album_url_with_track() {
+        let url = "https://itunes.apple.com/gb/album/some-album/1234567890?i=9876543210";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "gb");
+        assert_eq!(parsed.content_type, "album");
+        assert_eq!(parsed.album_id, "1234567890");
+        assert_eq!(parsed.song_id.unwrap(), "9876543210");
+    }
+
+    #[test]
+    fn parse_itunes_legacy_song_url() {
+        let url = "https://itunes.apple.com/us/song/some-song/9876543210";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.content_type, "song");
+        assert_eq!(parsed.song_id.unwrap(), "9876543210");
+    }
+
+    #[test]
+    fn parse_itunes_legacy_music_video_url() {
+        let url = "https://itunes.apple.com/us/music-video/some-video/1234567890";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.content_type, "music-video");
+        assert_eq!(parsed.album_id, "1234567890");
+    }
+
+    #[test]
+    fn parse_itunes_legacy_artist_url() {
+        let url = "https://itunes.apple.com/us/artist/some-artist/159260351";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.content_type, "artist");
+        assert_eq!(parsed.artist_id, Some("159260351".to_string()));
+    }
+
+    #[test]
+    fn parse_itunes_legacy_playlist_url() {
+        let url = "https://itunes.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
+        let result = parse_apple_music_url(url);
+        assert!(result.is_some());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.storefront, "us");
+        assert_eq!(parsed.content_type, "playlist");
+        assert_eq!(
+            parsed.playlist_id,
+            Some("pl.f4d106fed2bd41149aaacabb233eb5eb".to_string())
+        );
     }
 
     // ----------------------------------------------------------
