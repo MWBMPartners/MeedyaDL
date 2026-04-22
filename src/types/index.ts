@@ -632,6 +632,13 @@ export interface AppSettings {
    * Rust field `AppSettings::verbose_gamdl_exceptions`.
    */
   verbose_gamdl_exceptions: boolean;
+  /**
+   * Optional user-chosen directory for the persistent on-disk activity log
+   * (`activity-YYYY-MM-DD.log` files, #541). Empty string = use default
+   * `{app_data_dir}/logs/`. Changes apply on the next app restart.
+   * Mirrors Rust field `AppSettings::activity_log_path_override`.
+   */
+  activity_log_path_override: string;
   /** Internal developer access mode. Unlocks enhanced features. Not visible in normal Settings UI. */
   dev_access_enabled: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */

@@ -404,6 +404,58 @@ export function AdvancedTab() {
           checked={settings.verbose_gamdl_exceptions}
           onChange={(checked) => updateSettings({ verbose_gamdl_exceptions: checked })}
         />
+
+        {/* ── On-disk activity log location (#541) ── */}
+        <div className="pt-2">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm font-medium text-content-primary">
+              On-disk activity log location
+            </label>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { open } = await import('@tauri-apps/plugin-dialog');
+                    const selected = await open({
+                      multiple: false,
+                      directory: true,
+                      title: 'Choose a folder for MeedyaDL activity logs',
+                    });
+                    if (typeof selected === 'string' && selected.length > 0) {
+                      updateSettings({ activity_log_path_override: selected });
+                    }
+                  } catch {
+                    /* User cancelled */
+                  }
+                }}
+              >
+                Browse…
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!settings.activity_log_path_override}
+                onClick={() => updateSettings({ activity_log_path_override: '' })}
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+          <Input
+            value={settings.activity_log_path_override}
+            onChange={(e) => updateSettings({ activity_log_path_override: e.target.value })}
+            placeholder="Default — uses the app data directory"
+            aria-label="On-disk activity log path override"
+          />
+          <p className="text-xs text-content-secondary mt-1">
+            Optional. Leave blank to store on-disk activity logs in the default
+            location alongside the tracing log. Pointing at an external drive
+            can save space on the system disk. Files older than 7 days are
+            pruned automatically. <strong>Applies on the next app restart.</strong>
+          </p>
+        </div>
       </SettingsSection>
 
       {/* ── Setup ── */}

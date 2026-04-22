@@ -1142,6 +1142,24 @@ pub struct AppSettings {
     #[serde(default)]
     pub verbose_gamdl_exceptions: bool,
 
+    /// Optional user-chosen directory for the persistent on-disk
+    /// activity log (`activity-YYYY-MM-DD.log` files, #541).
+    ///
+    /// When empty / absent, the writer falls back to the default
+    /// `{app_data_dir}/logs/` location alongside the tracing and
+    /// session logs. When set, the writer opens log files under the
+    /// configured directory instead — useful for pointing logs at an
+    /// external drive to save space on the system disk.
+    ///
+    /// Changes apply on the next app restart because the writer is
+    /// started once during `setup()` and owns the file handle for
+    /// the process lifetime. Relocating mid-session would require
+    /// tearing down the writer, which is not worth the complexity.
+    ///
+    /// Controlled in Settings > Advanced > Diagnostics.
+    #[serde(default)]
+    pub activity_log_path_override: String,
+
     // ================================================================
     // Internal / Developer
     // ================================================================
@@ -1592,6 +1610,10 @@ impl Default for AppSettings {
             // stderr is unreadable with raw tracebacks interleaved. Users
             // debugging upstream issues can flip this in Settings > Advanced.
             verbose_gamdl_exceptions: false,
+            // Empty string = use default {app_data_dir}/logs/. Users can
+            // point the on-disk activity log at an external drive via
+            // Settings > Advanced > Diagnostics.
+            activity_log_path_override: String::new(),
 
             // --- Internal / Developer ---
             // Developer access is disabled by default; activated via hidden gesture.

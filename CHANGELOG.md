@@ -8,6 +8,35 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(activity-log)** Persistent on-disk activity log for bug hunting (#541)
+
+Adds a dedicated, daily-rotating `activity-YYYY-MM-DD.log` file under
+  the logs directory that mirrors **every** `ActivityLogEvent` as it
+  happens — including events that get trimmed from the 10,000-line
+  in-memory buffer, every verbose line regardless of the Verbose UI
+  filter, and every event written before the Activity Log panel is
+  opened. Complementary to the existing `meedyadl.*` tracing log and
+  `session-*` trimmed-entries dump; retained for 7 days.
+
+  Implemented as a buffered Tokio background task fed via an unbounded
+  `mpsc` channel so the emit hot path never blocks on disk I/O and the
+  in-memory activity store / virtualiser / RAF batching are all
+  untouched (no risk of reintroducing the 14 GB WebView RAM leak fixed
+  by #370). UTC date rollover is detected at write time; the shared
+  `ShutdownSignal` flushes and drains the channel on window close /
+  tray quit.
+
+  Two new actions on the Activity Log toolbar: **Export Disk** (native
+  save dialog, concatenates the last 3 daily files) and **Reveal**
+  (opens the logs folder in Finder / Explorer / xdg-open). The
+  existing **Export** button continues to export the in-memory view.
+
+  New `activity_log_path_override` setting in Settings > Advanced >
+  Diagnostics lets users relocate `activity-*.log` files to a custom
+  directory (e.g. an external drive); empty = default. Browse / Reset
+  buttons for ergonomics; unreachable paths fall back to the default
+  with a warning on the next startup.
+
 - **(activity-log)** Emit dedup settings in startup summary (#530)
 
 Adds a fourth `Dedup: scope=..., key=..., preferences=...` line to
