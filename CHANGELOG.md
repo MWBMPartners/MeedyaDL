@@ -8,6 +8,35 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(activity-log)** Emit dedup settings in startup summary (#530)
+
+Adds a fourth `Dedup: scope=..., key=..., preferences=...` line to
+  `emit_startup_settings_summary`. Surfaces all three duplicate-detection
+  configuration knobs on the `[System]` channel at every app launch:
+
+  - `scope` — off / intra_session / intra_and_queued (default) /
+  intra_and_queued_and_history
+  - `key_strategy` — song_id+isrc_fallback (default) / isrc_only /
+  song_id_only
+  - `preference_order` — the artist-auto-select mode priority, rendered as
+  a `>`-joined CLI-style list (e.g.
+  `main-albums>singles-eps>compilation-albums>live-albums>top-songs`)
+
+  Without this, diagnosing "why did my second album redownload tracks I
+  already had?" requires digging into settings.json by hand. Companion to
+  the per-download `Album dedup: kept N, skipped M` / `Checking album
+  against already-queued ...` lines that already emit from
+  `commands::gamdl::start_download` whenever dedup fires.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.38.0] - 2026-04-21
+
+### ✨ Features
+
 - **(gamdl)** V3.0 compatibility + long-term version management (#525)
 
 ### 📚 Documentation
@@ -222,6 +251,26 @@ GAMDL v3.0 migrated logging to structlog but still lets Python print raw
   debugging upstream GAMDL issues can flip a new AppSettings field
   `verbose_gamdl_exceptions` (default false) from Settings > Advanced >
   Diagnostics to restore the full traceback.
+
+- **(activity-log)** Emit dedup settings in startup summary
+
+Adds a fourth `Dedup: scope=..., key=..., preferences=...` line to
+  `emit_startup_settings_summary`. Surfaces all three duplicate-detection
+  configuration knobs on the `[System]` channel at every app launch:
+
+  - `scope` — off / intra_session / intra_and_queued (default) /
+    intra_and_queued_and_history
+  - `key_strategy` — song_id+isrc_fallback (default) / isrc_only /
+    song_id_only
+  - `preference_order` — the artist-auto-select mode priority, rendered
+    as a `>`-joined CLI-style list (e.g.
+    `main-albums>singles-eps>compilation-albums>live-albums>top-songs`)
+
+  Without this, diagnosing "why did my second album redownload tracks I
+  already had?" requires digging into settings.json by hand. Companion
+  to the per-download `Album dedup: kept N, skipped M` / `Checking album
+  against already-queued ...` lines that already emit from
+  `commands::gamdl::start_download` whenever dedup fires.
 
 
 ### 🐛 Bug Fixes
