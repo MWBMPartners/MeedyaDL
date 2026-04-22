@@ -2876,6 +2876,21 @@ async fn extract_music_video_subtitles_for_new_files(
     }
 }
 
+/// Folder template applied to GAMDL music-video downloads when the MV
+/// has no album context (direct `/music-video/` URLs). Uses a fixed
+/// `{artist}/Music Videos` layout rather than inheriting the user's
+/// `no_album_folder_template` — that setting is audio-oriented and
+/// legacy installs may still hold the pre-v2 default `"{artist}/[Unknown]"`
+/// which produces a literal `[Unknown]` directory (#531).
+pub(crate) const MV_NO_ALBUM_FOLDER_TEMPLATE: &str = "{artist}/Music Videos";
+
+/// File template applied to GAMDL music-video downloads when the MV has
+/// no album context. Uses a fixed `{title}` value so MV filenames always
+/// include the track title. Legacy installs may still hold the pre-v2
+/// default `"{disc} - "` which produces empty `-.mp4` filenames for
+/// content without a `{disc}` (#531).
+pub(crate) const MV_NO_ALBUM_FILE_TEMPLATE: &str = "{title}";
+
 /// Shared helper used by both the MusicKit-based video companion pipeline
 /// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
 /// minimal `GamdlOptions` using the user's video quality settings and
@@ -2894,6 +2909,15 @@ async fn download_music_video_by_url(
     // settings so the music video output matches what the primary pipeline
     // produces. Without these, GAMDL falls back to its own defaults which
     // can yield empty filenames like "-.mp4" for music videos (#481).
+    //
+    // The `no_album_*` templates are an exception: a direct
+    // `/music-video/` URL has no album context, so GAMDL routes it
+    // through the no-album template path. The user's audio-oriented
+    // no-album templates are unsuitable here — legacy installs may still
+    // have them set to `"{artist}/[Unknown]"` + `"{disc} - "` (the
+    // pre-v2 defaults), which yield literal `[Unknown]` directories and
+    // empty `-.mp4` filenames for MVs (#531). Override with MV-safe
+    // fixed templates regardless of user settings.
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: Some(settings.output_path.clone()),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
@@ -2911,14 +2935,16 @@ async fn download_music_video_by_url(
         } else {
             None
         },
-        // Filename / folder templates — shared with the audio pipeline so
-        // videos land with `{artist}/{album}/{title}` style names.
+        // Filename / folder templates — album-context paths inherit the
+        // user's templates (MVs discovered via album URLs land alongside
+        // their album tracks). The no-album paths force fixed MV-safe
+        // templates — see rationale above.
         album_folder_template: Some(settings.album_folder_template.clone()),
         compilation_folder_template: Some(settings.compilation_folder_template.clone()),
-        no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+        no_album_folder_template: Some(MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()),
         single_disc_file_template: Some(settings.single_disc_file_template.clone()),
         multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
-        no_album_file_template: Some(settings.no_album_file_template.clone()),
+        no_album_file_template: Some(MV_NO_ALBUM_FILE_TEMPLATE.to_string()),
         playlist_file_template: Some(settings.playlist_file_template.clone()),
         // Tool paths (ffmpeg, mp4decrypt, mp4box, N_m3u8DL-RE) so GAMDL can
         // resolve the managed binaries instead of relying on PATH lookup.
@@ -9720,5 +9746,28 @@ mod tests {
         let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
         assert_eq!(kept.len(), 1);
         assert!(skipped.is_empty());
+    }
+
+    // ============================================================
+    // Music-video no-album template overrides (#531)
+    // ============================================================
+
+    #[test]
+    fn mv_no_album_folder_template_includes_artist_and_music_videos() {
+        // Guards against accidental changes that would re-introduce the
+        // `[Unknown]` sentinel path. The template MUST contain `{artist}`
+        // (GAMDL's placeholder) and the literal `Music Videos` folder,
+        // and MUST NOT contain the legacy `[Unknown]` marker.
+        assert!(super::MV_NO_ALBUM_FOLDER_TEMPLATE.contains("{artist}"));
+        assert!(super::MV_NO_ALBUM_FOLDER_TEMPLATE.contains("Music Videos"));
+        assert!(!super::MV_NO_ALBUM_FOLDER_TEMPLATE.contains("[Unknown]"));
+    }
+
+    #[test]
+    fn mv_no_album_file_template_includes_title_placeholder() {
+        // Guards against regressions like the legacy `"{disc} - "` which
+        // resolves to `-.mp4` for content without a disc number.
+        assert!(super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title}"));
+        assert!(!super::MV_NO_ALBUM_FILE_TEMPLATE.trim().is_empty());
     }
 }

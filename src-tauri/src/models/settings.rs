@@ -1323,7 +1323,7 @@ fn default_notification_style() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 2;
+pub const CURRENT_SETTINGS_VERSION: u32 = 3;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
