@@ -181,6 +181,14 @@ Lyric sidecar files are saved in the same directory as the downloaded audio or v
 
 This convention ensures that most media players will automatically detect and load the lyrics or subtitles when you play the corresponding file.
 
+### Re-Generation and Manual Edits
+
+Lyric and subtitle sidecar files (`.lrc`, `.srt`, `.vtt`, `.ass`) are **regenerated from scratch** every time MeedyaDL enriches a track. This happens on the original download, on re-downloads, on quality upgrades, and when you re-import a `manifest.meedyadl` file.
+
+**If you manually edit a sidecar file** — for example to correct a lyric, adjust timing, or clean up punctuation — **your edits will be overwritten the next time the track is enriched.** MeedyaDL does not detect user edits and does not back up the previous version before writing the new one.
+
+If you need to keep hand-edited lyrics, copy the edited file out of the output directory before re-downloading or re-importing. This behaviour applies equally to Rich SRT, which deliberately replaces the plain SRT that Apple Music provides natively so that styling tags (bold, italic, colour) can be included.
+
 ---
 
 ## Metadata Embedding
