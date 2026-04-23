@@ -8,6 +8,123 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(settings)** Make Settings panel fill horizontal space + wrap long checkbox labels (#601)
+
+## Summary
+
+  Settings panel now fills available horizontal space + long checkbox
+  labels no longer truncate. Addresses the UI reported in-session:
+  Settings > Quality > Audio Quality > Custom Companion Codecs had "AAC
+  (256kbps) Binaural (Experi..." cut off with an ellipsis, and the whole
+  Settings panel was capped at 576px leaving a large empty gutter on
+  anything bigger than a small laptop window.
+
+  ## Changes
+
+  Two surgical 1-line edits, applied across 11 files:
+
+  1. **`max-w-xl` removed from all 10 settings tab wrappers.** The
+  responsive chain (`MainLayout > main (flex-1) > SettingsPage > tab area
+  (flex-1)`) already fills available width — the `max-w-xl` (576px) was
+  the only constraint. With it gone, the Settings panel dynamically
+  expands/shrinks with the window.
+
+  2. **`CheckboxGroup` label span changed from `truncate` → `leading-tight
+  break-words`.** Long labels now wrap within the checkbox cell instead of
+  being cut off with an ellipsis. This fixes the truncation at the default
+  window width, and the wrap behaviour remains correct when cells expand
+  on wider windows.
+
+  ## Affected files
+
+  - `src/components/common/CheckboxGroup.tsx` — label wrap
+  -
+  `src/components/settings/tabs/{Advanced,Cookies,CoverArt,Fallback,General,Lyrics,Metadata,Quality,Templates,Tools}Tab.tsx`
+  — 10 × remove `max-w-xl`
+
+  ## Test plan
+
+  - [x] `npm run type-check` — clean
+  - [x] `npm run test -- --run` — 303 passed / 0 failed
+  - [ ] Visual check: Settings panel fills window width at multiple sizes
+  - [ ] Visual check: Custom Companion Codecs grid shows full labels at
+  default width
+  - [ ] Visual check: labels wrap gracefully when cells are narrow (e.g.,
+  Settings sidebar hidden or small window)
+  - [ ] No regression on any other settings tab
+
+  ## Not included
+
+  No design-level refactor of the responsive grid breakpoints on
+  `CheckboxGroup` — on ultra-wide windows, the 2-column grid will have
+  very wide cells. If that looks wrong in practice we can bump the column
+  count at larger breakpoints as a follow-up.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.44.1] - 2026-04-23
+
+### 🐛 Bug Fixes
+
+- **(settings)** Make Settings panel fill horizontal space + wrap long checkbox labels
+
+The Settings page was capped at max-w-xl (576px), leaving a wide empty
+  right-hand gutter on anything bigger than a small laptop window. On top
+  of that, CheckboxGroup's labels were `truncate`d at the cell edge, so
+  labels like "AAC (256kbps) Binaural (Experimental)" in Settings >
+  Quality > Audio Quality > Custom Companion Codecs got cut off with an
+  ellipsis even at the default window width.
+
+  Two surgical changes:
+
+  1. Remove `max-w-xl` from all 10 settings tab wrappers. The Settings
+     content area now expands to fill the available horizontal space and
+     shrinks with the window — the responsive chain of flex-1 parents
+     handles everything.
+
+  2. Replace `truncate` with `leading-tight break-words` on the
+     CheckboxGroup label span. Long labels now wrap within their cell
+     instead of being cut off, eliminating the ellipsis at narrow widths
+     while still looking clean when cells expand.
+
+- **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521)
+
+The live-fire capture for #521 revealed that GAMDL v3.0 emits
+  per-track/per-URL errors with two stacked bracket groups:
+
+      [ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"
+
+  `ERROR_PREFIX_REGEX` required the error keyword to immediately follow
+  the optional structlog banner, so the `[Track ...]` infix pushed the
+  line out of the regex's match space. Priority-7 keyword matching
+  doesn't list "error" on its own, so these lines fell through to
+  `GamdlOutputEvent::Unknown` — silently losing every track-scoped error
+  from the activity log.
+
+  The regex now permits zero or more `[...]` infixes between the banner
+  and the error keyword.
+
+  Also refines the v3.0 test fixtures with verbatim patterns from the
+  captures (Starting Gamdl 3.0, `[URL   1/1  ]`, `[Track   N/M ]`, double
+  traceback with `During handling of the above exception, another
+  exception occurred:`, `gamdl.api.exceptions.GamdlApiResponseError`),
+  and adds 7 regression tests covering:
+
+    - bracketed [Track N/M] Error downloading lines
+    - bracketed [URL N/M] Error processing lines
+    - nested-exception marker captured as Error
+    - multi-dot-module-path GamdlApiResponseError via PYTHON_EXCEPTION_REGEX
+    - full double-traceback fixture → complete Error chain
+    - Finished-with-N-errors summary survives interleaved traceback
+    - experimental-codec WARNING is not misclassified as Error
+
+  The codec-skip fixture remains synthetic — none of the four live-fire
+  captures exercised a real codec-unavailable scenario (all errored on
+  cover-fetch or catalog 404 before reaching a track-download stage).
+
 - **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521) (#599)
 
 ## Summary
@@ -291,41 +408,6 @@ Apple Music Classical cross-work playlists hit a GAMDL upstream
 
   - cargo clippy -- -D warnings clean
   - cargo test --lib utils::process = 68 passed (3 new + 65 existing)
-
-- **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521)
-
-The live-fire capture for #521 revealed that GAMDL v3.0 emits
-  per-track/per-URL errors with two stacked bracket groups:
-
-      [ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"
-
-  `ERROR_PREFIX_REGEX` required the error keyword to immediately follow
-  the optional structlog banner, so the `[Track ...]` infix pushed the
-  line out of the regex's match space. Priority-7 keyword matching
-  doesn't list "error" on its own, so these lines fell through to
-  `GamdlOutputEvent::Unknown` — silently losing every track-scoped error
-  from the activity log.
-
-  The regex now permits zero or more `[...]` infixes between the banner
-  and the error keyword.
-
-  Also refines the v3.0 test fixtures with verbatim patterns from the
-  captures (Starting Gamdl 3.0, `[URL   1/1  ]`, `[Track   N/M ]`, double
-  traceback with `During handling of the above exception, another
-  exception occurred:`, `gamdl.api.exceptions.GamdlApiResponseError`),
-  and adds 7 regression tests covering:
-
-    - bracketed [Track N/M] Error downloading lines
-    - bracketed [URL N/M] Error processing lines
-    - nested-exception marker captured as Error
-    - multi-dot-module-path GamdlApiResponseError via PYTHON_EXCEPTION_REGEX
-    - full double-traceback fixture → complete Error chain
-    - Finished-with-N-errors summary survives interleaved traceback
-    - experimental-codec WARNING is not misclassified as Error
-
-  The codec-skip fixture remains synthetic — none of the four live-fire
-  captures exercised a real codec-unavailable scenario (all errored on
-  cover-fetch or catalog 404 before reaching a track-download stage).
 
 
 ### 📚 Documentation
