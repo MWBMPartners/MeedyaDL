@@ -774,6 +774,36 @@ fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
 }
 
 // ============================================================
+// Enrichment stage progress weights (#576)
+// ============================================================
+//
+// Cumulative weights emitted as each enrichment stage begins, so the
+// queue-level progress bar shows visible forward motion DURING the
+// `Processing` state rather than sitting at a single flat "partial
+// credit" value for 20+ minutes on large box sets.
+//
+// Values are anchored so that:
+//   - 0.00 = GAMDL finished; enrichment task just spawned.
+//   - 1.00 = all enrichment stages complete; completion task about to
+//            flip the item from `Processing` to `Complete`.
+//
+// Each constant represents the fraction-complete AT THE START of the
+// named stage (i.e. the fraction-complete of everything BEFORE it).
+// The progression is deliberately roughly equal-weight across
+// user-observable stages; rebalance when real-world timing data (e.g.
+// from #579 repros) warrants.
+//
+// The constants are exposed at module scope so unit tests can verify
+// monotonicity and the 0–1 bound without reaching into the enrichment
+// closure.
+const PROGRESS_METADATA_STAGE: f32 = 0.05;
+const PROGRESS_WORD_LYRICS_STAGE: f32 = 0.15;
+const PROGRESS_LRC_CONVERSION_STAGE: f32 = 0.25;
+const PROGRESS_ANIMATED_ARTWORK_STAGE: f32 = 0.40;
+const PROGRESS_ACOUSTID_STAGE: f32 = 0.55;
+const PROGRESS_REPLAYGAIN_STAGE: f32 = 0.75;
+
+// ============================================================
 // Manifest writer
 // ============================================================
 
@@ -1191,6 +1221,7 @@ impl DownloadQueue {
                     speed: None,
                     eta: None,
                     processing_label: None,
+                    processing_progress: None,
                     error: None,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -1450,6 +1481,21 @@ impl DownloadQueue {
     pub fn set_processing_label(&mut self, download_id: &str, label: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.processing_label = Some(label.to_string());
+        }
+    }
+
+    /// Updates the intra-Processing progress fraction for a download
+    /// item (#576). `progress` is clamped to `[0.0, 1.0]` before storing.
+    ///
+    /// Drives the queue-level progress bar's within-Processing forward
+    /// motion. Called by each enrichment stage with its cumulative
+    /// contribution (see `ENRICHMENT_STAGE_WEIGHTS`) so the user sees
+    /// the aggregate bar advancing through the enrichment phase rather
+    /// than sitting on a fixed "partial credit" value for 20+ minutes
+    /// on large box sets.
+    pub fn set_processing_progress(&mut self, download_id: &str, progress: f32) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_progress = Some(progress.clamp(0.0, 1.0));
         }
     }
 
@@ -1937,6 +1983,7 @@ impl DownloadQueue {
                     speed: None,
                     eta: None,
                     processing_label: None,
+                    processing_progress: None,
                     error,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -2032,6 +2079,53 @@ impl DownloadQueue {
 /// The resulting `GamdlOptions` struct is what actually gets passed to
 /// `gamdl_service::build_gamdl_command_public()` to construct the CLI command.
 #[allow(clippy::field_reassign_with_default)]
+/// Inject zero-padding into bare `{track}` / `{disc}` placeholders (#587).
+///
+/// Takes a user-provided filename template and rewrites any bare
+/// `{track}` / `{disc}` token to `{track:{width}d}` / `{disc:{width}d}`
+/// using the caller's preferred padding widths. Tokens that already
+/// carry an explicit format spec (`{track:02d}`, `{disc:02d}`,
+/// `{track:!s}`, etc.) are left untouched — the user's explicit
+/// template always wins. Case-sensitive: `{Track}` is not recognised.
+///
+/// `track_width` / `disc_width` of 0 means "no padding" (emit bare
+/// `{track}` / `{disc}`), so the Python-style format spec becomes the
+/// unpadded placeholder rather than `{track:0d}` which would produce
+/// garbage output.
+///
+/// Extracted as a pure function so it can be exercised by unit tests
+/// without a full settings/queue setup.
+#[must_use]
+fn apply_padding_to_template(template: &str, track_width: usize, disc_width: usize) -> String {
+    // Regex-free implementation: walk the string, find literal `{track}`
+    // and `{disc}` substrings (no format spec after the name), replace
+    // in-place. Robust against tokens that appear multiple times in one
+    // template (e.g. `{artist} - {track} of {track_total}` — only
+    // `{track}` is substituted; `{track_total}` stays untouched because
+    // we match the exact bare form).
+    let track_replacement = if track_width == 0 {
+        "{track}".to_string()
+    } else {
+        format!("{{track:0{track_width}d}}")
+    };
+    let disc_replacement = if disc_width == 0 {
+        "{disc}".to_string()
+    } else {
+        format!("{{disc:0{disc_width}d}}")
+    };
+    // Only substitute when the bare form is what's in the template.
+    // Ordering: track first, since `{track}` is lexically a superset of
+    // nothing that would interfere with `{disc}` processing.
+    let after_track = template.replace("{track}", &track_replacement);
+    after_track.replace("{disc}", &disc_replacement)
+}
+
+// Large builder-style function: assigns ~50 `GamdlOptions` fields in
+// layered order (global settings → computed per-download adjustments →
+// per-download overrides). Rewriting as a single struct literal per
+// clippy's suggestion would produce a 400-line initialiser and bury
+// the layered-assignment logic that makes the merge order readable.
+#[allow(clippy::field_reassign_with_default)]
 fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
     let mut options = GamdlOptions::default();
 
@@ -2052,8 +2146,23 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.album_folder_template = Some(settings.album_folder_template.clone());
     options.compilation_folder_template = Some(settings.compilation_folder_template.clone());
     options.no_album_folder_template = Some(settings.no_album_folder_template.clone());
-    options.single_disc_file_template = Some(settings.single_disc_file_template.clone());
-    options.multi_disc_file_template = Some(settings.multi_disc_file_template.clone());
+    // Apply user-configurable zero-padding (#587). Padding widths are
+    // derived from the user's settings; `resolve_width(None)` passes
+    // `None` because `track_total` / `disc_total` aren't known at merge
+    // time — they come from the Apple Music API prefetch later in the
+    // pipeline. `Auto` mode falls back to pre-#587 defaults in that
+    // case; fixed widths take effect immediately. See
+    // `apply_padding_to_template` for the substitution rules.
+    options.single_disc_file_template = Some(apply_padding_to_template(
+        &settings.single_disc_file_template,
+        settings.track_number_padding.resolve_width(None),
+        settings.disc_number_padding.resolve_width(None),
+    ));
+    options.multi_disc_file_template = Some(apply_padding_to_template(
+        &settings.multi_disc_file_template,
+        settings.track_number_padding.resolve_width(None),
+        settings.disc_number_padding.resolve_width(None),
+    ));
     options.no_album_file_template = Some(settings.no_album_file_template.clone());
     options.playlist_file_template = Some(settings.playlist_file_template.clone());
     options.use_wrapper = Some(settings.use_wrapper);
@@ -5266,25 +5375,28 @@ pub fn process_queue(
                                 )
                             };
 
-                            // Helper: update the processing label in the queue item
-                            // so the progress bar shows what's happening.
-                            // Also appends album context (Artist: Album) when available.
+                            // Helper: update the processing label AND the
+                            // intra-Processing progress fraction for the queue
+                            // item, then emit `queue-updated` so the frontend
+                            // re-fetches. Callers pass both a human-readable
+                            // label (#574) and a cumulative progress weight
+                            // (#576) picked from `ENRICHMENT_STAGE_WEIGHTS`
+                            // below. Weights are cumulative: stage N's weight
+                            // is the fraction-complete AFTER stage N finishes.
                             //
-                            // Emits a `queue-updated` event after mutating the label
-                            // so the frontend's `refreshQueue()` listener in App.tsx
-                            // re-fetches the queue state. Without this emit, label
-                            // changes during enrichment stay invisible until the
-                            // final `download-complete` event fires — which means
-                            // the progress bar keeps showing "DOWNLOADING..." for
-                            // the entire enrichment phase even though the backend
-                            // label has been updated to "Converting lyrics (Enhanced LRC)...",
-                            // "AcoustID fingerprinting...", etc. (#574 root cause).
+                            // Label format appends album context
+                            // (Artist: Album) so the progress bar surfaces
+                            // which album the stage is acting on — useful
+                            // when the user has a busy queue.
+                            //
+                            // Emit errors are swallowed: worst case is the UI
+                            // stays stale until the next stage transition, no
+                            // worse than pre-#574 behaviour.
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
                             let label_app = enrich_app.clone();
-                            let set_label = move |label: &str| {
+                            let set_label = move |label: &str, progress: f32| {
                                 if let Ok(mut q) = label_queue.try_lock() {
-                                    // Look up album context for richer labels
                                     let context = q
                                         .items
                                         .iter()
@@ -5303,11 +5415,8 @@ pub fn process_queue(
                                         .unwrap_or_default();
                                     let full_label = format!("{label}{context}");
                                     q.set_processing_label(&label_dl_id, &full_label);
+                                    q.set_processing_progress(&label_dl_id, progress);
                                 }
-                                // Notify frontend to re-fetch queue state so the
-                                // progress bar picks up the new label. Errors on
-                                // emit are non-fatal — the worst case is the UI
-                                // stays stale for one extra stage transition.
                                 let _ = label_app.emit("queue-updated", &label_dl_id);
                             };
 
@@ -5412,7 +5521,7 @@ pub fn process_queue(
                             ),
                         );
 
-                            set_label("Enriching metadata tags...");
+                            set_label("Enriching metadata tags...", PROGRESS_METADATA_STAGE);
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
@@ -5731,7 +5840,10 @@ pub fn process_queue(
                                             .collect();
 
                                         if !tracks_needing_upgrade.is_empty() {
-                                            set_label("Fetching word-level lyrics...");
+                                            set_label(
+                                                "Fetching word-level lyrics...",
+                                                PROGRESS_WORD_LYRICS_STAGE,
+                                            );
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
@@ -5842,7 +5954,10 @@ pub fn process_queue(
                                             }
                                         }
                                     } else {
-                                        set_label("Skipping word-level lyrics (no credentials)");
+                                        set_label(
+                                            "Skipping word-level lyrics (no credentials)",
+                                            PROGRESS_WORD_LYRICS_STAGE,
+                                        );
                                         log::debug!(
                                             "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
                                         );
@@ -5856,7 +5971,10 @@ pub fn process_queue(
                                 }
                             }
 
-                            set_label("Converting lyrics (Enhanced LRC)...");
+                            set_label(
+                                "Converting lyrics (Enhanced LRC)...",
+                                PROGRESS_LRC_CONVERSION_STAGE,
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
@@ -6121,7 +6239,10 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
-                            set_label("Downloading animated artwork...");
+                            set_label(
+                                "Downloading animated artwork...",
+                                PROGRESS_ANIMATED_ARTWORK_STAGE,
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
@@ -6313,7 +6434,7 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...");
+                            set_label("AcoustID fingerprinting...", PROGRESS_ACOUSTID_STAGE);
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
@@ -6377,7 +6498,10 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ AcoustID fingerprinting completed{}", album_context()));
 
-                            set_label("ReplayGain loudness analysis...");
+                            set_label(
+                                "ReplayGain loudness analysis...",
+                                PROGRESS_REPLAYGAIN_STAGE,
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                             // When enabled, analyses each file's loudness via FFmpeg's
@@ -7989,6 +8113,181 @@ mod tests {
     use super::*;
     use crate::models::download::{DownloadRequest, DownloadState};
     use crate::models::gamdl_options::{GamdlOptions, SongCodec};
+    use crate::models::settings::{DiscNumberPadding, TrackNumberPadding};
+
+    // ----------------------------------------------------------
+    // Track / disc padding template mutation (#587)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn padding_leaves_explicit_format_spec_untouched() {
+        // User's explicit {track:02d} must take precedence over the
+        // padding setting — their template wins.
+        let out = apply_padding_to_template("{disc}-{track:02d} {title}", 3, 0);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn padding_substitutes_bare_track_token() {
+        let out = apply_padding_to_template("{track} {title}", 3, 0);
+        assert_eq!(out, "{track:03d} {title}");
+    }
+
+    #[test]
+    fn padding_substitutes_bare_disc_and_track_tokens() {
+        let out = apply_padding_to_template("{disc}-{track} {title}", 3, 2);
+        assert_eq!(out, "{disc:02d}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn padding_width_zero_emits_bare_placeholder() {
+        // `None` padding or 0-digit Auto shouldn't produce "{track:0d}"
+        // which would be a broken format spec.
+        let out = apply_padding_to_template("{track} {title}", 0, 0);
+        assert_eq!(out, "{track} {title}");
+    }
+
+    #[test]
+    fn padding_leaves_similar_but_distinct_tokens_alone() {
+        // `{track_total}` is a different placeholder — must not match
+        // the bare `{track}` substitution target.
+        let out = apply_padding_to_template("{track} of {track_total}", 2, 0);
+        assert_eq!(out, "{track:02d} of {track_total}");
+    }
+
+    #[test]
+    fn padding_auto_mode_derives_width_from_track_total() {
+        // Album of 200 tracks → 3 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(200)), 3);
+        // Album of 12 tracks → 2 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(12)), 2);
+        // Pathological 10 000-track dump → 4 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(10_000)), 4);
+        // No track_total known → safe default 2 digits (matches pre-#587).
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(None), 2);
+    }
+
+    #[test]
+    fn padding_fixed_modes_ignore_track_total() {
+        // Fixed settings are library-wide preferences; album size
+        // shouldn't alter them.
+        assert_eq!(TrackNumberPadding::None.resolve_width(Some(200)), 0);
+        assert_eq!(TrackNumberPadding::TwoDigits.resolve_width(Some(200)), 2);
+        assert_eq!(TrackNumberPadding::ThreeDigits.resolve_width(Some(5)), 3);
+        assert_eq!(TrackNumberPadding::FourDigits.resolve_width(None), 4);
+    }
+
+    #[test]
+    fn padding_disc_auto_mode_stays_unpadded_for_small_sets() {
+        // Most multi-disc albums are 2-3 discs; unpadded reads more
+        // naturally than `01-`, `02-`.
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(2)), 0);
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(9)), 0);
+        // 10+ disc box set → 2 digits needed for sort-correct listing.
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(10)), 2);
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(50)), 2);
+    }
+
+    // ----------------------------------------------------------
+    // Multi-disc naming + padding interaction (#589)
+    //
+    // Verifies that the common multi-disc template (`{disc}-{track} {title}`)
+    // produces correct output across the interesting combinations of
+    // `TrackNumberPadding` and `DiscNumberPadding`. Covers the
+    // originating user scenario from the #547 audit — a 10-disc box
+    // set where track numbering exceeds 99 on at least one disc.
+    // ----------------------------------------------------------
+
+    #[test]
+    fn multidisc_template_typical_2_disc_album_with_auto() {
+        // Typical case: 2-disc album with 12-20 tracks per disc.
+        // Auto mode should produce unpadded disc, 2-digit track.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_10_disc_box_set_with_auto() {
+        // Originating case from #589: 10-disc box set forces 2-digit
+        // disc padding so `10-01` doesn't sort between `1-01` and
+        // `2-01` lexicographically.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(10));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc:02d}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_deep_classical_box_set() {
+        // Pathological Brilliant-Classics-style "Mozart 225" case:
+        // 200 discs, some with 100+ tracks. Auto should produce
+        // 3-digit disc AND 3-digit track to keep everything
+        // sort-correct.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(120));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(200));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc:03d}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_user_fixed_three_digit_track_with_auto_disc() {
+        // Settings mix-and-match: user picks fixed `ThreeDigits` for
+        // track (for library-wide consistency) but leaves disc on
+        // `Auto`. Small-disc-count album should still get unpadded
+        // disc while the fixed track pad applies.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::ThreeDigits.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_user_explicit_spec_takes_precedence() {
+        // If the user has set an explicit `{disc:02d}` in their
+        // template (e.g. from a manual power-user edit), that spec
+        // must win over the setting's choice. `TrackNumberPadding` +
+        // `DiscNumberPadding` only apply to BARE tokens.
+        let tmpl = "{disc:02d}-{track:02d} {title}";
+        let track_width = TrackNumberPadding::ThreeDigits.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::TwoDigits.resolve_width(Some(10));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        // Unchanged — user's explicit spec wins.
+        assert_eq!(out, "{disc:02d}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_direct_song_url_no_metadata() {
+        // User downloads a single track from a multi-disc album via
+        // a `?i=` song URL. At merge time no album metadata is known
+        // (`None` passed to resolve_width). Auto must fall back to
+        // pre-#587 safe defaults: 2-digit track, unpadded disc.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(None);
+        let disc_width = DiscNumberPadding::Auto.resolve_width(None);
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_compilation_various_artists() {
+        // Compilation folder template uses `{album_id}` from #552 for
+        // collision-proofing. Track-level template is a separate
+        // concern — padding applies to tracks, not to album_id.
+        let tmpl = "Compilations/{album} ({album_id})/{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(30));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(
+            out,
+            "Compilations/{album} ({album_id})/{disc}-{track:02d} {title}"
+        );
+    }
 
     // ----------------------------------------------------------
     // Completion-task timeout scaling (#579)

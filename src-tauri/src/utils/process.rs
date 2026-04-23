@@ -647,6 +647,16 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // Codec/format errors: the requested quality is not available; try fallback.
     } else if is_codec_error(error_message) {
         "codec"
+    // GAMDL playlist template KeyError (#588). Specific to classical /
+    // cross-work Apple Music Classical playlists where some tracks
+    // lack a `title` attribute in the catalog response — GAMDL's
+    // `get_playlist_file_path` template renderer unconditionally
+    // dereferences `kwargs["title"]` and raises `KeyError: 'title'`.
+    // Matched before the generic "unknown" bucket so users get a
+    // specific "this is a known upstream limitation" message rather
+    // than a raw Python traceback excerpt.
+    } else if is_playlist_title_keyerror(error_message) {
+        "playlist_title_keyerror"
     // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
@@ -679,8 +689,29 @@ pub fn error_guidance(category: &str) -> &'static str {
         "not_found" => "This content may have been removed from Apple Music or the URL may be incorrect.",
         "rate_limit" => "Apple Music is rate-limiting requests. Wait a few minutes and retry.",
         "tool" => "A required tool (FFmpeg, mp4decrypt, etc.) may be missing or outdated. Check Settings > Tools.",
+        "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
+}
+
+/// Detect GAMDL's playlist-template `KeyError: 'title'` traceback (#588).
+///
+/// Pattern captured 2026-04-23 during #547 scenario 4 repro on an Apple
+/// Music Classical cross-work playlist. GAMDL's `get_playlist_file_path`
+/// unconditionally dereferences `kwargs["title"]` even when the track's
+/// catalog entry lacks a `name` attribute, raising `KeyError: 'title'`
+/// on every affected track.
+///
+/// Matches the exact traceback signature to avoid false positives on
+/// other `KeyError: 'title'` causes (e.g. an unrelated metadata-parser
+/// failure).
+#[must_use]
+pub fn is_playlist_title_keyerror(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    lower.contains("keyerror: 'title'")
+        && (lower.contains("get_playlist_file_path")
+            || lower.contains("downloader_base")
+            || lower.contains("playlist_file_path"))
 }
 
 // ============================================================
@@ -1126,6 +1157,37 @@ mod tests {
         assert_eq!(classify_error("Cookie file expired"), "auth");
         assert_eq!(classify_error("Authentication failed"), "auth");
         assert_eq!(classify_error("Login required"), "auth");
+    }
+
+    #[test]
+    fn classifies_gamdl_playlist_title_keyerror() {
+        // The exact traceback signature captured 2026-04-23 during
+        // #547 scenario 4 repro (#588). Must route to the dedicated
+        // category, not fall through to "unknown".
+        let stderr = "Traceback (most recent call last):\n\
+            File \".../gamdl/downloader/downloader_base.py\", line 377, in get_playlist_file_path\n\
+            formatted_part = CustomStringFormatter().format(\n\
+            KeyError: 'title'";
+        assert_eq!(classify_error(stderr), "playlist_title_keyerror");
+    }
+
+    #[test]
+    fn classifies_unrelated_keyerror_title_as_unknown() {
+        // Regression canary: a `KeyError: 'title'` without the
+        // playlist-renderer frame must NOT be mis-classified as a
+        // playlist bug. Some unrelated upstream code path could
+        // legitimately raise the same error with a different cause.
+        let stderr = "KeyError: 'title' in unrelated module";
+        assert_eq!(classify_error(stderr), "unknown");
+    }
+
+    #[test]
+    fn playlist_keyerror_guidance_points_users_upstream() {
+        // Users hitting this should be told (a) it's a known limitation
+        // and (b) where to escalate — not just "check the log".
+        let guidance = error_guidance("playlist_title_keyerror");
+        assert!(guidance.contains("Apple Music Classical"));
+        assert!(guidance.contains("glomatico/gamdl"));
     }
 
     #[test]

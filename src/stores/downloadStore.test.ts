@@ -46,6 +46,7 @@ function createMockQueueItem(overrides: Partial<QueueItemStatus> = {}): QueueIte
     speed: null,
     eta: null,
     processing_label: null,
+    processing_progress: null,
     error: null,
     output_path: null,
     codec_used: null,
