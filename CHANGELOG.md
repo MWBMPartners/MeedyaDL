@@ -9,6 +9,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.41.0] - 2026-04-23
 
