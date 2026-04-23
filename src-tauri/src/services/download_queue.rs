@@ -8189,6 +8189,107 @@ mod tests {
     }
 
     // ----------------------------------------------------------
+    // Multi-disc naming + padding interaction (#589)
+    //
+    // Verifies that the common multi-disc template (`{disc}-{track} {title}`)
+    // produces correct output across the interesting combinations of
+    // `TrackNumberPadding` and `DiscNumberPadding`. Covers the
+    // originating user scenario from the #547 audit — a 10-disc box
+    // set where track numbering exceeds 99 on at least one disc.
+    // ----------------------------------------------------------
+
+    #[test]
+    fn multidisc_template_typical_2_disc_album_with_auto() {
+        // Typical case: 2-disc album with 12-20 tracks per disc.
+        // Auto mode should produce unpadded disc, 2-digit track.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_10_disc_box_set_with_auto() {
+        // Originating case from #589: 10-disc box set forces 2-digit
+        // disc padding so `10-01` doesn't sort between `1-01` and
+        // `2-01` lexicographically.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(10));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc:02d}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_deep_classical_box_set() {
+        // Pathological Brilliant-Classics-style "Mozart 225" case:
+        // 200 discs, some with 100+ tracks. Auto should produce
+        // 3-digit disc AND 3-digit track to keep everything
+        // sort-correct.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(120));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(200));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc:03d}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_user_fixed_three_digit_track_with_auto_disc() {
+        // Settings mix-and-match: user picks fixed `ThreeDigits` for
+        // track (for library-wide consistency) but leaves disc on
+        // `Auto`. Small-disc-count album should still get unpadded
+        // disc while the fixed track pad applies.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::ThreeDigits.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_user_explicit_spec_takes_precedence() {
+        // If the user has set an explicit `{disc:02d}` in their
+        // template (e.g. from a manual power-user edit), that spec
+        // must win over the setting's choice. `TrackNumberPadding` +
+        // `DiscNumberPadding` only apply to BARE tokens.
+        let tmpl = "{disc:02d}-{track:02d} {title}";
+        let track_width = TrackNumberPadding::ThreeDigits.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::TwoDigits.resolve_width(Some(10));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        // Unchanged — user's explicit spec wins.
+        assert_eq!(out, "{disc:02d}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_direct_song_url_no_metadata() {
+        // User downloads a single track from a multi-disc album via
+        // a `?i=` song URL. At merge time no album metadata is known
+        // (`None` passed to resolve_width). Auto must fall back to
+        // pre-#587 safe defaults: 2-digit track, unpadded disc.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(None);
+        let disc_width = DiscNumberPadding::Auto.resolve_width(None);
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_compilation_various_artists() {
+        // Compilation folder template uses `{album_id}` from #552 for
+        // collision-proofing. Track-level template is a separate
+        // concern — padding applies to tracks, not to album_id.
+        let tmpl = "Compilations/{album} ({album_id})/{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(30));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(
+            out,
+            "Compilations/{album} ({album_id})/{disc}-{track:02d} {title}"
+        );
+    }
+
+    // ----------------------------------------------------------
     // Completion-task timeout scaling (#579)
     // ----------------------------------------------------------
 
