@@ -81,21 +81,21 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
   const contentType = detectContentType(trimmed);
 
   /*
-   * A URL is submittable only if we could classify it into a *downloadable*
-   * content type. `recording` is a new Apple Music Classical entity (a
-   * specific performance of a work) — recognised so the UI can show a
-   * specific actionable message, but NOT submittable because GAMDL's URL
-   * vocabulary doesn't yet include `/recording/` paths. Blocking the
-   * submit avoids the misleading-success UX bug documented in #548 / #567
-   * where an unparseable URL lands GAMDL at "Could not parse ..., skipping"
-   * while the activity log claims lyrics companions succeeded.
+   * A URL is valid (submittable) if it classifies into a known content
+   * type — including `recording`. An earlier iteration (#573) rejected
+   * `recording` URLs on the grounds that GAMDL's URL vocabulary doesn't
+   * include `/recording/` paths, but that was reverted 2026-04-23: the
+   * correct UX is to accept what the user pasted and let the pipeline
+   * give a clear outcome. With #567's broadened empty-output guard now
+   * on main, a URL GAMDL can't handle fails cleanly (single
+   * "Enrichment skipped — primary download produced no output files"
+   * line instead of cascading false-success noise), so the rationale
+   * for pre-emptive rejection no longer holds.
    */
-  const isSubmittable = contentType !== 'unknown' && contentType !== 'recording';
-
   return {
     url: trimmed,
     contentType,
-    isValid: isSubmittable,
+    isValid: contentType !== 'unknown',
   };
 }
 

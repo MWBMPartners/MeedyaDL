@@ -281,12 +281,15 @@ describe('getContentTypeLabel', () => {
 /*
  * Apple Music Classical recording URLs — see url-parser.ts for the path
  * shape documentation. The parser must:
- *   1. Recognise the content type as `recording` (so the UI can show a
- *      specific "use the album URL instead" message rather than the
- *      generic "invalid URL" error).
- *   2. Mark `isValid: false` (so the submit button stays disabled and
- *      the UI doesn't pass the URL downstream — GAMDL's URL vocabulary
- *      doesn't include `/recording/` paths).
+ *   1. Recognise the content type as `recording`.
+ *   2. Mark `isValid: true` so the URL can be submitted like any other
+ *      Apple Music URL. Earlier behaviour (#573) rejected recording
+ *      URLs on the grounds that GAMDL can't handle them, but that was
+ *      reversed 2026-04-23 after reviewer feedback: the correct UX is
+ *      to accept what the user pasted and let the pipeline give a
+ *      clear outcome. With #567's broadened empty-output guard, a URL
+ *      GAMDL can't parse fails cleanly rather than cascading into
+ *      false lyrics-companion "success" lines.
  */
 describe('parseAppleMusicUrl - classical recording URLs', () => {
   it('classifies recording URLs as `recording` content type', () => {
@@ -296,23 +299,25 @@ describe('parseAppleMusicUrl - classical recording URLs', () => {
     expect(result.contentType).toBe('recording');
   });
 
-  it('marks recording URLs as NOT submittable', () => {
-    // This is the critical guard — even though the URL is recognised as
-    // Apple Music, it cannot be downloaded yet.
+  it('marks recording URLs as submittable', () => {
+    // Reversed from the #573 behaviour: recording URLs now pass the
+    // validator so the user isn't asked to re-navigate for a different
+    // link. GAMDL may still fail on the URL — that failure is handled
+    // cleanly by the #567 empty-output enrichment guard.
     const result = parseAppleMusicUrl(
       'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808'
     );
-    expect(result.isValid).toBe(false);
+    expect(result.isValid).toBe(true);
   });
 
-  it('classifies recording URL with locale query param', () => {
+  it('classifies recording URL with locale query param as submittable', () => {
     // Real-world URL shape from Apple Music Classical Share → Copy Link,
     // captured 2026-04-23.
     const result = parseAppleMusicUrl(
       'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB'
     );
     expect(result.contentType).toBe('recording');
-    expect(result.isValid).toBe(false);
+    expect(result.isValid).toBe(true);
   });
 
   it('does not misclassify album URLs as recordings', () => {
