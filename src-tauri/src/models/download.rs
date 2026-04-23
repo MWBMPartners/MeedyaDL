@@ -243,6 +243,24 @@ pub struct QueueItemStatus {
     /// "ReplayGain 12/28"). `None` outside of Processing state.
     pub processing_label: Option<String>,
 
+    /// Intra-Processing progress estimate in the range 0.0–1.0 (#576).
+    ///
+    /// Set by each enrichment stage at its start / end so the queue-level
+    /// progress bar shows visible forward motion DURING the Processing
+    /// state — not just a single 0 → 1 jump when the item transitions
+    /// from `Processing` to `Complete`.
+    ///
+    /// Cumulative across all enrichment stages: 0.0 when the item first
+    /// enters Processing, 1.0 when the final stage (manifest write)
+    /// completes. Each stage contributes a fixed weight from the
+    /// stage-weights table in `services::download_queue`.
+    ///
+    /// `None` in non-Processing states. The UI's queue-level aggregation
+    /// treats `None` within a Processing item as 0.5 — a safe mid-credit
+    /// default, equivalent to the pre-#576 flat credit.
+    #[serde(default)]
+    pub processing_progress: Option<f32>,
+
     /// Error message if the download failed (`state == Error`). Contains
     /// the stderr output or exception message from the GAMDL subprocess.
     /// `None` in all non-error states.
@@ -461,6 +479,7 @@ mod tests {
             speed: Some("2.5 MB/s".to_string()),
             eta: Some("00:45".to_string()),
             processing_label: None,
+            processing_progress: None,
             error: None,
             output_path: None,
             codec_used: Some("alac".to_string()),
@@ -511,6 +530,7 @@ mod tests {
             speed: None,
             eta: None,
             processing_label: None,
+            processing_progress: None,
             error: Some("Network timeout after 30 seconds".to_string()),
             output_path: None,
             codec_used: None,
@@ -554,6 +574,7 @@ mod tests {
             speed: None,
             eta: None,
             processing_label: None,
+            processing_progress: None,
             error: None,
             output_path: Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()),
             codec_used: Some("aac".to_string()),
