@@ -4,7 +4,7 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.42.2] - 2026-04-23
 
 ### 🐛 Bug Fixes
 
@@ -254,6 +254,7 @@ The activity-log virtualiser renders overlapping text during dense
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
