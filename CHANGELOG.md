@@ -10,6 +10,19 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(codeql)** Enable security-and-quality query suite (#564)
+
+Adds CodeQL code quality queries alongside the existing security
+  queries for the actions and javascript-typescript language matrix.
+  Surfaces code-quality findings in the Security tab.
+
+  Rust remains excluded from CodeQL (see workflow header); clippy
+  covers Rust quality in ci.yml.
+
 
 ## [0.41.0] - 2026-04-23
 
