@@ -746,6 +746,7 @@ function App() {
     let unlistenError: (() => void) | undefined;
     let unlistenCancelled: (() => void) | undefined;
     let unlistenQueued: (() => void) | undefined;
+    let unlistenQueueUpdated: (() => void) | undefined;
     let unlistenPreflight: (() => void) | undefined;
     let unlistenPreflightCleared: (() => void) | undefined;
 
@@ -793,6 +794,22 @@ function App() {
             refreshQueue();
           } catch (err) {
             console.error('Error in download-queued handler:', err);
+          }
+        });
+
+        /* 4a. Generic queue state change — fires whenever the backend
+         * mutates a queue item (currently: processing_label updates at
+         * each enrichment stage). Without this listener, backend label
+         * changes during enrichment stay invisible until download-complete
+         * fires, and the progress bar keeps showing "DOWNLOADING..." for
+         * the entire enrichment phase (#574). The emit is debounced on the
+         * backend by the rate of stage transitions (typically <15 per
+         * download) so no throttling needed client-side. */
+        unlistenQueueUpdated = await listen('queue-updated', () => {
+          try {
+            refreshQueue();
+          } catch (err) {
+            console.error('Error in queue-updated handler:', err);
           }
         });
 
@@ -847,6 +864,7 @@ function App() {
       unlistenError?.();
       unlistenCancelled?.();
       unlistenQueued?.();
+      unlistenQueueUpdated?.();
       unlistenPreflight?.();
       unlistenPreflightCleared?.();
     };
