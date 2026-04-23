@@ -5235,8 +5235,19 @@ pub fn process_queue(
                             // Helper: update the processing label in the queue item
                             // so the progress bar shows what's happening.
                             // Also appends album context (Artist: Album) when available.
+                            //
+                            // Emits a `queue-updated` event after mutating the label
+                            // so the frontend's `refreshQueue()` listener in App.tsx
+                            // re-fetches the queue state. Without this emit, label
+                            // changes during enrichment stay invisible until the
+                            // final `download-complete` event fires — which means
+                            // the progress bar keeps showing "DOWNLOADING..." for
+                            // the entire enrichment phase even though the backend
+                            // label has been updated to "Converting lyrics (Enhanced LRC)...",
+                            // "AcoustID fingerprinting...", etc. (#574 root cause).
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
+                            let label_app = enrich_app.clone();
                             let set_label = move |label: &str| {
                                 if let Ok(mut q) = label_queue.try_lock() {
                                     // Look up album context for richer labels
@@ -5259,6 +5270,11 @@ pub fn process_queue(
                                     let full_label = format!("{label}{context}");
                                     q.set_processing_label(&label_dl_id, &full_label);
                                 }
+                                // Notify frontend to re-fetch queue state so the
+                                // progress bar picks up the new label. Errors on
+                                // emit are non-fatal — the worst case is the UI
+                                // stays stale for one extra stage transition.
+                                let _ = label_app.emit("queue-updated", &label_dl_id);
                             };
 
                             // Helper: get album context for activity log messages.
