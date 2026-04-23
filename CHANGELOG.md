@@ -82,9 +82,179 @@ This changelog is automatically generated from [conventional commits](https://ww
   return { url: trimmed, contentType, isValid: isSubmittable };
   ```
 
+- **(activity-log)** Stable key + stable measureElement to prevent row overlap (#575)
+
+The activity-log virtualiser renders overlapping text during dense
+  log bursts — captured live 2026-04-23 on a 200-track box set
+  download to an external USB volume, hundreds of ffprobe / MediaInfo
+  verbose lines per second. Class of bug is the same as #442 (closed
+  2026-04-12 by adding `measureElement`), but #442's fix was
+  incomplete — the regression resurfaces under real workloads.
+
+  ### Root cause (this PR fixes it)
+
+  Two related gaps in the `useVirtualizer` config:
+
+  1. **No `getItemKey` option** — TanStack virtual defaults to keying
+     its measurement cache by positional index. Any event that shifts
+     positions — the 10,000-entry trimming cap firing, filter toggles
+     changing `filteredEntries.length`, RAF-batched bursts inserting
+     new entries — causes cached row heights to attach to the wrong
+     entries. Rows then get laid out at `translateY(start)` values
+     computed from mis-keyed heights, producing the visual overlap.
+  2. **Inline `measureElement` closure** — re-created on every render.
+     At ~60 flushes/sec from App.tsx's RAF batching, that's a lot of
+     reference thrash in the virtualiser's internal config sync.
+
+  ### Fix
+
+  - **`getItemKey`**: wrap in `useCallback`, return `filteredEntries[index]?._id`
+    with a fallback to the positional index. `_id` is the auto-
+    incrementing ID set by `activityStore.addEntries()` (per CLAUDE.md),
+    so it's stable across filter toggles, trim cycles, and burst inserts.
+  - **`measureElement`**: extract from the config object and wrap in
+    `useCallback` with an empty dep list. One stable function for the
+    component's lifetime.
+
+  No other changes — the `estimateSize`, `overscan`, row rendering
+  (JSX, refs, CSS), filter logic, and RAF batching are all left alone.
+
+  Verified locally: tsc --noEmit clean; npx vitest run = 303 tests
+  passed across 19 files.
+
+- **(activity-log)** Stable key + stable measureElement to prevent row overlap (#575) (#585)
+
+## Summary
+
+  Closes **#575**. Fixes the activity-log overlapping-text regression
+  captured live 2026-04-23 during the Beethoven box-set download. The
+  virtualiser was laying out rows at stale `translateY()` offsets during
+  burst log ingestion, producing visual overlap between consecutive
+  entries whose wrapped heights didn't match what the cache thought they
+  should be.
+
+  #442 (closed 2026-04-12) was the original fix for the same symptom — it
+  added `measureElement` so that dynamic row heights were actually
+  measured. That fix was necessary but not sufficient; under real
+  workloads the bug recurs because TanStack virtual's measurement cache is
+  keyed by **index** by default, and indices shift whenever the filtered
+  entry list changes.
+
+  ## Root cause analysis
+
+  Two related gaps in the `useVirtualizer` config in
+  `src/components/download/ActivityLog.tsx`:
+
+  ### Gap 1 — no `getItemKey`
+
+  Without `getItemKey`, TanStack virtual uses the positional index as the
+  cache key. Every time the entry list changes position:
+
+  - **10 000-entry trimming cap** (per CLAUDE.md) — oldest entries drop,
+  remaining entries shift down by N.
+  - **Filter toggles** (System / Download / Verbose) —
+  `filteredEntries.length` changes; a row that was index 47 in the
+  all-visible set is index 12 in the filtered set.
+  - **RAF-batched bursts** — App.tsx feeds entries in batches at ~60
+  flushes/sec; during a dense burst (200+ entries/sec from MediaInfo codec
+  detection on a 200-track album) the virtualiser sees rapid `count`
+  deltas.
+
+  Every shift invalidates the index→height mapping. Cached heights for
+  entry-at-index-47 get applied to the new-entry-at-index-47, which has
+  completely different content (and therefore different wrapped height).
+  `translateY(row.start)` for subsequent rows computes using stale
+  heights, and rows overlap.
+
+  ### Gap 2 — inline `measureElement`
+
+  ```typescript
+  // Before:
+  const virtualizer = useVirtualizer({
+    ...
+    measureElement: (element) => element?.getBoundingClientRect().height ?? 26,
+  });
+  ```
+
+  Inline arrow function — re-created on every render. At 60 flushes/sec,
+  that's 60 new function references per second, each one syncing into the
+  virtualiser's internal config. TanStack's behaviour when the
+  `measureElement` reference changes is to re-walk its cache; in a tight
+  burst scenario this was observed to interact with the index-based keying
+  to produce worse overlap than either issue alone.
+
+  ## Fix
+
+  - **`getItemKey`** added, wrapped in `useCallback`. Keys by
+  `filteredEntries[index]?._id` (the stable auto-incrementing ID set by
+  `activityStore.addEntries()` per CLAUDE.md), falls back to index when
+  `_id` is absent (defensive; shouldn't trigger in normal flow).
+  - **`measureElement`** extracted from the inline config and wrapped in
+  `useCallback([])`. One stable function for the component's lifetime.
+
+  Full change is **45 lines added, 1 removed, single file**:
+
+  ```typescript
+  const measureElement = useCallback(
+    (element: Element | null | undefined) =>
+      element?.getBoundingClientRect().height ?? 26,
+    [],
+  );
+
+  const getItemKey = useCallback(
+    (index: number) => filteredEntries[index]?._id ?? index,
+    [filteredEntries],
+  );
+
+  const virtualizer = useVirtualizer({
+    count: filteredEntries.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 26,
+    overscan: 50,
+    measureElement,
+    getItemKey,
+  });
+  ```
+
+  No other changes. `estimateSize`, `overscan`, JSX row rendering (still
+  uses `ref={virtualizer.measureElement}`), CSS classes, filter logic, and
+  App.tsx's RAF batching are all left alone.
+
+  ## Why this completes #442's intended fix
+
+  #442 added the missing `measureElement` option. That made the
+  virtualiser *capable* of measuring dynamic heights, but the measurements
+  were then stored against volatile keys. The fix works when the entry
+  list is static, but fails under the exact workloads MeedyaDL encounters
+  in practice — box-set downloads, external USB filesystems, MediaInfo
+  verbose streams. This PR is the belt-and-braces completion: dynamic
+  measurements stored against stable keys.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                 ✓ clean
+  npx vitest run (all files)   303 tests passed across 19 files
+  ```
+
+  ## Post-merge test plan
+
+  Reproducing the original #575 observation requires the exact conditions
+  captured 2026-04-23:
+
+  - Output path on an external exFAT / FAT32 / HFS USB drive (forces macOS
+  to create `._*` AppleDouble sidecars, which inflate the ffprobe-failure
+  log volume and trigger the rapid-burst path).
+  - Verbose activity log enabled.
+  - 100+ track album download (forces MediaInfo codec detection to iterate
+  many files rapidly).
+  - Watch Activity Log during enrichment phase — no row overlap should
+  occur.
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.42.1] - 2026-04-23
