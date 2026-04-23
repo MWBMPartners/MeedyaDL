@@ -597,7 +597,29 @@ pub struct GamdlOptions {
     pub music_video_resolution: Option<VideoResolution>,
     /// Video container format ("mp4" or "m4v")
     pub music_video_remux_format: Option<String>,
-    /// Uploaded/post video quality ("best" or "ask")
+    /// Uploaded/post video quality ("best" or "ask").
+    ///
+    /// **State of the uploaded-video pipeline (#549):** this field is a
+    /// pass-through CLI flag only. GAMDL ships `downloader_uploaded_video.py`
+    /// and `interface_uploaded_video.py` for Apple Music's label/artist-uploaded
+    /// videos (behind-the-scenes clips, live sessions, interviews — distinct
+    /// from catalog music videos), but MeedyaDL does not:
+    /// - detect uploaded-video URLs in `parse_apple_music_url` / the
+    ///   frontend `detectContentType`,
+    /// - route them through `download_music_video_by_url()` (so the
+    ///   MV-safe `MV_NO_ALBUM_FOLDER_TEMPLATE` / `MV_NO_ALBUM_FILE_TEMPLATE`
+    ///   in `download_queue.rs:2916, 2943` are NOT applied),
+    /// - expose any UI surface for uploaded-video discovery.
+    ///
+    /// If an uploaded-video URL is somehow submitted (deep link,
+    /// drag-drop, or direct IPC call) its tag shape — per the upstream
+    /// `interface_uploaded_video.py` — is `{artist, date, title,
+    /// title_id, storefront}` with no `album`, `disc`, `track`, or
+    /// `album_artist`. That routes straight through GAMDL's `no_album_*`
+    /// templates. Post-v3 migration the default is safe
+    /// (`{artist}/Unknown Album/{title}`) but loses the `{title_id}`
+    /// uniqueness guarantee — two same-artist uploaded videos sharing a
+    /// title ("Live Session") collide. See #549 for the pipeline plan.
     pub uploaded_video_quality: Option<String>,
     /// Whether to skip music videos in album/playlist downloads
     pub disable_music_video_skip: Option<bool>,

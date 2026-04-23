@@ -200,6 +200,73 @@ pub async fn start_download(
         }
     }
 
+    // URL audit diagnostics (#546/#547/#548/#549 — part of the #487
+    // umbrella). Classify each URL and emit one log line per matching
+    // class so downstream filename-path behaviour can be correlated with
+    // the URL class without replaying the download. Per-URL (not batched)
+    // so each offending URL lands as its own activity-log entry in
+    // timestamp order. All four classes are orthogonal except library,
+    // which is skipped by the #549 catch-all (library URLs already have
+    // their own #546 trace).
+    //
+    // - #546: `/library/` URLs pass through to GAMDL unchanged; no
+    //   MeedyaDL storefront injection, prefetch, or Tier 4 safety net.
+    // - #547: `classical.apple.com` URLs ride the same templates as
+    //   `music.apple.com` — movement-title collisions are the risk.
+    // - #548: `itunes.apple.com` URLs parse cleanly after the regex gap
+    //   fix, but GAMDL's own URL regex compatibility is unverified — WARN.
+    // - #549: host-allowed URLs that fail `parse_apple_music_url` after
+    //   normalisation (uploaded / post videos and any novel path) — WARN.
+    for url in &request.urls {
+        let is_library = url.contains("/library/");
+
+        if is_library {
+            log::info!("Library URL passed through to GAMDL (#546): {url}");
+            emit_app_log(
+                &app,
+                &format!(
+                    "Library URL detected (#546) — passed through to GAMDL unchanged; no MeedyaDL filename safety net applies: {url}"
+                ),
+            );
+        }
+
+        if url.contains("itunes.apple.com") {
+            log::warn!(
+                "Legacy iTunes URL submitted (#548) — GAMDL compatibility unverified: {url}"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "Legacy iTunes URL detected (#548) — copy the music.apple.com link if the download fails: {url}"
+                ),
+            );
+        }
+
+        if url.contains("classical.apple.com") {
+            log::info!("Classical URL routed through shared Apple Music pipeline (#547): {url}");
+            emit_app_log(
+                &app,
+                &format!(
+                    "Classical URL detected (#547) — same templates as music.apple.com; watch for movement-title collisions: {url}"
+                ),
+            );
+        }
+
+        if !is_library
+            && crate::services::apple_music_api::parse_apple_music_url(url).is_none()
+        {
+            log::warn!(
+                "Unrecognised Apple Music URL shape (#549) — passed to GAMDL without MeedyaDL prefetch or safety net: {url}"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "Unrecognised Apple Music URL (#549) — no MeedyaDL metadata prefetch or filename safety net applies; GAMDL compatibility unverified: {url}"
+                ),
+            );
+        }
+    }
+
     // Check for duplicate URLs already in the active queue. This is a
     // non-blocking warning — the download proceeds regardless, but the
     // frontend can show a toast to let the user know.
