@@ -6,6 +6,97 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521) (#599)
+
+## Summary
+
+  - Fix a latent regression in every MeedyaDL release against GAMDL v3.0
+  where track-scoped errors (`[ERROR HH:MM:SS] [Track N/M ] Error
+  downloading "..."`) fell through to `Unknown` and silently disappeared
+  from the activity log.
+  - Refine v3.0 test fixtures with verbatim patterns from the #521
+  live-fire capture (2026-04-23).
+  - Add 7 regression tests pinning the newly observed v3.0 formatting
+  invariants.
+
+  ## The bug
+
+  The live-fire capture on #521 revealed that GAMDL v3.0 emits per-track
+  errors with **two stacked bracket groups**:
+
+  ```
+  [ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"
+  ```
+
+  `ERROR_PREFIX_REGEX` required the `Error` keyword to immediately follow
+  the optional structlog banner, so the `[Track 1/14 ]` infix pushed the
+  whole line out of the regex's match space. Priority-7 keyword matching
+  doesn't list `error` on its own, so these lines fell through to
+  `GamdlOutputEvent::Unknown` — **silently losing every track-scoped
+  error** from the activity log on v3.0.
+
+  ## The fix
+
+  ```diff
+  -r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:ERROR|error|Error):?\s+(.+)"
+  +r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)"
+  ```
+
+  The new `(?:\[[^\]]+\]\s*)*` group allows zero or more bracketed infixes
+  between the structlog banner and the error keyword. Covers both the
+  `[Track N/M ]` and `[URL N/M ]` variants observed in the capture.
+
+  ## Fixtures updated with real data
+
+  | Fixture | Status |
+  |---|---|
+  | `FIXTURE_V3_SUCCESSFUL_ALBUM` | Refreshed with verbatim v3.0
+  formatting (`Starting Gamdl 3.0`, `[URL 1/1 ]`, `[Track N/M ]`) |
+  | `FIXTURE_V3_AUTH_ERROR` | Replaced with the full double-traceback from
+  capture D (httpx.HTTPStatusError → `During handling of the above
+  exception` → `gamdl.api.exceptions.GamdlApiResponseError`) |
+  | `FIXTURE_V3_CODEC_SKIPS` | Still synthetic — no capture exercised a
+  real codec-unavailable scenario (all four errored on cover-fetch or
+  catalog 404 pre-download) |
+  | `FIXTURE_V3_NETWORK_TRACEBACK` | Unchanged (synthetic; no network
+  timeout observed) |
+
+  ## New regression tests
+
+  ```
+  v3_real_bracketed_track_error_is_captured_as_error
+  v3_real_bracketed_url_error_is_captured_as_error
+  v3_real_nested_exception_marker_captured_by_keyword_match
+  v3_real_gamdl_api_response_error_captured_by_python_regex
+  v3_real_auth_fixture_produces_full_error_chain
+  v3_real_finished_summary_survives_nested_traceback
+  v3_real_experimental_codec_warning_is_not_misclassified_as_error
+  ```
+
+  ## Test plan
+
+  - [x] `cargo test --lib` — 850 passed, 0 failed
+  - [x] `cargo clippy --lib --tests -- -D warnings` — clean
+  - [ ] CI passes on the PR
+  - [ ] No spurious errors on successful v3.0 download (activity log
+  check)
+
+  ## Still open on #521
+
+  Codec-skip / gap-fill / `find_album_directory` remain untested against
+  real v3.0 — need a successful-download capture. Likely blocked by a
+  separate upstream GAMDL v3.0 cover-URL template-substitution regression
+  surfaced by the same captures (see #521 analysis comment).
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.44.0] - 2026-04-23
+
 ### ✨ Features
 
 - **(progress-bar)** Intra-Processing progress fraction (#576)
@@ -199,6 +290,41 @@ Apple Music Classical cross-work playlists hit a GAMDL upstream
 
   - cargo clippy -- -D warnings clean
   - cargo test --lib utils::process = 68 passed (3 new + 65 existing)
+
+- **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521)
+
+The live-fire capture for #521 revealed that GAMDL v3.0 emits
+  per-track/per-URL errors with two stacked bracket groups:
+
+      [ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"
+
+  `ERROR_PREFIX_REGEX` required the error keyword to immediately follow
+  the optional structlog banner, so the `[Track ...]` infix pushed the
+  line out of the regex's match space. Priority-7 keyword matching
+  doesn't list "error" on its own, so these lines fell through to
+  `GamdlOutputEvent::Unknown` — silently losing every track-scoped error
+  from the activity log.
+
+  The regex now permits zero or more `[...]` infixes between the banner
+  and the error keyword.
+
+  Also refines the v3.0 test fixtures with verbatim patterns from the
+  captures (Starting Gamdl 3.0, `[URL   1/1  ]`, `[Track   N/M ]`, double
+  traceback with `During handling of the above exception, another
+  exception occurred:`, `gamdl.api.exceptions.GamdlApiResponseError`),
+  and adds 7 regression tests covering:
+
+    - bracketed [Track N/M] Error downloading lines
+    - bracketed [URL N/M] Error processing lines
+    - nested-exception marker captured as Error
+    - multi-dot-module-path GamdlApiResponseError via PYTHON_EXCEPTION_REGEX
+    - full double-traceback fixture → complete Error chain
+    - Finished-with-N-errors summary survives interleaved traceback
+    - experimental-codec WARNING is not misclassified as Error
+
+  The codec-skip fixture remains synthetic — none of the four live-fire
+  captures exercised a real codec-unavailable scenario (all errored on
+  cover-fetch or catalog 404 before reaching a track-download stage).
 
 
 ### 📚 Documentation
