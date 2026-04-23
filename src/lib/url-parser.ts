@@ -98,7 +98,12 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
  *
  * Accepted domains:
  * - `music.apple.com` - Current Apple Music web player domain
- * - `classical.apple.com` - Apple Music Classical domain
+ * - `classical.apple.com` - Legacy Apple Music Classical domain
+ * - `classical.music.apple.com` - Current Apple Music Classical domain
+ *   (Apple moved Classical under music.apple.com's subdomain hierarchy
+ *   in 2026; the app now shares Share-link format with `music.apple.com`
+ *   but drops the slug segment: `/album/{id}` instead of
+ *   `/album/{slug}/{id}`)
  * - `itunes.apple.com` - Legacy iTunes Store domain (still used in some links)
  *
  * @param url - The URL string to validate
@@ -110,10 +115,11 @@ export function isAppleMusicUrl(url: string): boolean {
   try {
     /* Use the URL constructor for standards-compliant URL parsing */
     const parsed = new URL(url);
-    /* Check hostname against both the current and legacy Apple Music domains */
+    /* Check hostname against the current and legacy Apple Music domains */
     return (
       parsed.hostname === 'music.apple.com' ||
       parsed.hostname === 'classical.apple.com' ||
+      parsed.hostname === 'classical.music.apple.com' ||
       parsed.hostname === 'itunes.apple.com'
     );
   } catch {
@@ -235,7 +241,7 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
  * (e.g., music.youtube.com before youtube.com).
  */
 const SERVICE_DOMAINS: Array<{ service: MediaServiceId; domains: string[] }> = [
-  { service: 'apple-music', domains: ['music.apple.com', 'classical.apple.com', 'itunes.apple.com'] },
+  { service: 'apple-music', domains: ['classical.music.apple.com', 'music.apple.com', 'classical.apple.com', 'itunes.apple.com'] },
   { service: 'youtube-music', domains: ['music.youtube.com'] },
   { service: 'youtube', domains: ['youtube.com', 'youtu.be'] },
   { service: 'spotify', domains: ['open.spotify.com'] },
