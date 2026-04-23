@@ -105,7 +105,11 @@ import {
   hasWebplayerToken,
   clearWebplayerToken,
   deactivateDevAccess,
+  getLogsFolderPath,
 } from '@/lib/tauri-commands';
+
+// Toast notifications for the "Open folder" button failure modes.
+import { useUiStore } from '@/stores/uiStore';
 
 // Crash report list sub-component with GitHub reporting functionality.
 import { CrashReportSection } from './CrashReportSection';
@@ -432,6 +436,31 @@ export function AdvancedTab() {
                 }}
               >
                 Browse…
+              </Button>
+              {/*
+                Open the currently-configured log folder in the OS
+                native file viewer (Finder / Explorer / Nautilus). Uses
+                the same `get_logs_folder_path` IPC + `plugin-shell`
+                open() pattern that powers the Activity Log page's
+                "Reveal" button, so the behaviour is consistent across
+                the two entry points (#581).
+              */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  const addToast = useUiStore.getState().addToast;
+                  try {
+                    const path = await getLogsFolderPath();
+                    const { open } = await import('@tauri-apps/plugin-shell');
+                    await open(path);
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    addToast(`Failed to open logs folder: ${msg}`, 'error');
+                  }
+                }}
+              >
+                Open folder
               </Button>
               <Button
                 variant="ghost"
