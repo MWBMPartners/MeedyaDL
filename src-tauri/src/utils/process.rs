@@ -147,6 +147,9 @@ static SAVED_REGEX: LazyLock<Regex> =
 ///   - `[ERROR    12:34:56] Error processing "https://...": 404 Not Found`
 ///     (GAMDL >= v3.0 structlog format — see `cli/utils.py`
 ///     `custom_structlog_formatter`)
+///   - `[ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"`
+///     (GAMDL >= v3.0 with per-track/URL bracketed infix — observed
+///     in real v3.0 captures, see #521)
 ///
 /// The `(?i)` flag makes the match case-insensitive. The `:?` makes the
 /// trailing colon optional.
@@ -157,9 +160,16 @@ static SAVED_REGEX: LazyLock<Regex> =
 /// the `^` anchor rejected the whole line, silently downgrading every
 /// GAMDL error to Priority 7 keyword matching (which does not include
 /// the word "error" on its own) and in the worst case to `Unknown`.
+///
+/// The optional `(?:\[[^\]]+\]\s*)*` allows zero or more bracketed
+/// infixes between the structlog banner and the error keyword — real
+/// v3.0 emits context prefixes like `[Track   1/14 ]` and `[URL   1/1 ]`
+/// after the banner (#521 capture data, 2026-04-23).
 static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:ERROR|error|Error):?\s+(.+)")
-        .expect("Invalid error regex")
+    Regex::new(
+        r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)",
+    )
+    .expect("Invalid error regex")
 });
 
 /// Matches Python exception lines that appear as the final line of a traceback.
@@ -1404,61 +1414,94 @@ mod tests {
     }
 
     // ======================================================================
-    // GAMDL v3.0 synthetic output fixtures
+    // GAMDL v3.0 output fixtures — derived from real live-fire capture data
     // ======================================================================
     //
-    // These fixtures reproduce what we believe GAMDL v3.0 writes to stderr
-    // based on the upstream source at the v3.0 tag:
+    // The happy-path, bracketed-track-error, and double-traceback fixtures
+    // are verbatim transcriptions of stderr from a v3.0 run on macOS
+    // (2026-04-23, see #521 capture comment). The codec-skip fixture is
+    // still synthetic — no capture exercised a real codec-unavailable
+    // scenario (all four captures errored pre-download on cover-fetch or
+    // catalog 404). The wording for `Skipping "{title}": {e}` comes from
+    // upstream source at `cli/cli.py`.
     //
-    //   * `cli/utils.py::custom_structlog_formatter` wraps every user-facing
-    //     log record as `[LEVEL    HH:MM:SS] <event>`. Level is
-    //     left-padded to 8 characters via `f"[{level:<8} ...`", so "ERROR"
-    //     gets 3 trailing spaces, "INFO" gets 4.
-    //   * `cli/cli.py` emits the following INFO/WARNING/ERROR strings:
-    //       `Processing "{url}"`
-    //       `Downloading "{media_title}"`
-    //       `Finished with {N} error(s)`
-    //       `Skipping "{media_title}": {e}`
-    //       `Error processing "{url}": {e}`
-    //       `Error downloading "{media_title}"`
-    //   * When `--no-exceptions` is NOT set (opt-in via
-    //     `verbose_gamdl_exceptions`), raw Python tracebacks reach stderr
-    //     unwrapped — the structlog formatter runs on the `logger.error`
-    //     call that precedes the `raise`, but the traceback is emitted by
-    //     Python itself, unadorned.
+    // Key v3.0 formatting patterns verified against real output:
     //
-    // These fixtures are best-effort synthesis. We have NOT captured
-    // real v3.0 output yet (see #521) — when we do, we should refine
-    // the skip-warning string, the exception wording, and any
-    // structlog-action prefixes.
+    //   * `cli/utils.py::custom_structlog_formatter` pads the level name
+    //     to 8 characters: `[INFO     HH:MM:SS]`, `[WARNING  HH:MM:SS]`,
+    //     `[ERROR    HH:MM:SS]`.
+    //   * Per-URL/per-track context prefixes have an internal-padded form:
+    //     `[URL   1/1  ]`, `[Track   1/14 ]`, `[Track   2/4  ]`.
+    //   * Track-scoped errors stack TWO bracket groups:
+    //     `[ERROR    HH:MM:SS] [Track   N/M ] Error downloading "Title"`.
+    //   * When a previous exception is re-raised, Python emits the marker:
+    //     `During handling of the above exception, another exception occurred:`
+    //     followed by a second traceback.
+    //   * The final line is always `[INFO     HH:MM:SS] Finished with N error(s)`.
+    //   * Startup line is `[INFO     HH:MM:SS] Starting Gamdl 3.0`
+    //     (just major.minor, no patch).
 
     /// Happy-path album download — structlog INFO lines only.
+    ///
+    /// Uses the real v3.0 formatting verified from capture data:
+    /// `Starting Gamdl 3.0`, `[URL   1/1  ]` prefix, `[Track   N/M ]` prefix.
     const FIXTURE_V3_SUCCESSFUL_ALBUM: &str =
-        "[INFO     12:00:00] Starting Gamdl 3.0.0\n\
-         [INFO     12:00:01] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
-         [INFO     12:00:02] Downloading \"Track One\"\n\
-         [INFO     12:00:05] Downloading \"Track Two\"\n\
+        "[INFO     12:00:00] Starting Gamdl 3.0\n\
+         [INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
+         [INFO     12:00:02] [Track   1/2  ] Downloading \"Track One\"\n\
+         [INFO     12:00:05] [Track   2/2  ] Downloading \"Track Two\"\n\
          [INFO     12:00:08] Finished with 0 error(s)\n";
 
     /// Codec-skip scenario — triggers gap-fill retry in
     /// `download_queue::count_codec_skip_warnings`. Structlog prefixes
     /// every warning. Exact wording inherited from the exception raised
     /// by the downloader when a requested codec isn't offered.
+    ///
+    /// NOTE: still synthetic as of 2026-04-23 (#521). The live-fire
+    /// captures all errored on cover-fetch or catalog 404 before
+    /// reaching a track-download stage, so we haven't verified the exact
+    /// `Skipping "..."` wording against a real v3.0 run.
     const FIXTURE_V3_CODEC_SKIPS: &str =
-        "[INFO     12:10:00] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
+        "[INFO     12:10:00] [URL   1/1  ] Processing \"https://music.apple.com/us/album/example/1234567890\"\n\
          [WARNING  12:10:01] You have chosen an experimental song codec without enabling wrapper. They're not guaranteed to work due to API limitations.\n\
-         [INFO     12:10:02] Downloading \"Track One\"\n\
-         [WARNING  12:10:05] Skipping \"Track Two\": Requested format is not available\n\
-         [INFO     12:10:06] Downloading \"Track Three\"\n\
-         [WARNING  12:10:09] Skipping \"Track Four\": Requested format is not available\n\
+         [INFO     12:10:02] [Track   1/4  ] Downloading \"Track One\"\n\
+         [WARNING  12:10:05] [Track   2/4  ] Skipping \"Track Two\": Requested format is not available\n\
+         [INFO     12:10:06] [Track   3/4  ] Downloading \"Track Three\"\n\
+         [WARNING  12:10:09] [Track   4/4  ] Skipping \"Track Four\": Requested format is not available\n\
          [INFO     12:10:10] Finished with 2 error(s)\n";
 
-    /// Auth / URL error — 404 from the Apple Music catalog. Matches the
-    /// `Error processing "{url}": {e}` emission in `cli/cli.py`.
-    const FIXTURE_V3_AUTH_ERROR: &str =
-        "[INFO     12:20:00] Processing \"https://music.apple.com/us/album/example/9999999999\"\n\
-         [ERROR    12:20:01] Error processing \"https://music.apple.com/us/album/example/9999999999\": 404 Not Found\n\
-         [INFO     12:20:01] Finished with 1 error(s)\n";
+    /// Auth / URL error — 404 from the Apple Music catalog, as a
+    /// nested-exception traceback. Real v3.0 capture data (#521,
+    /// Capture D, 2026-04-23).
+    ///
+    /// Two distinctive features only present in real v3.0:
+    ///   1. The error line carries a `[Track   1/1  ]` bracketed infix
+    ///      between the structlog banner and `Error downloading`.
+    ///   2. `During handling of the above exception, another exception
+    ///      occurred:` boundary between an httpx 404 and the wrapping
+    ///      `GamdlApiResponseError`.
+    const FIXTURE_V3_AUTH_ERROR: &str = concat!(
+        "[INFO     12:20:00] Starting Gamdl 3.0\n",
+        "[WARNING  12:20:01] You have chosen an experimental song codec without enabling wrapper. They're not guaranteed to work due to API limitations.\n",
+        "[INFO     12:20:01] [URL   1/1  ] Processing \"https://music.apple.com/gb/album/fake-album-test/999999999999\"\n",
+        "[INFO     12:20:01] [Track   1/1  ] Downloading \"Unknown Title\"\n",
+        "[ERROR    12:20:01] [Track   1/1  ] Error downloading \"Unknown Title\"\n",
+        "Traceback (most recent call last):\n",
+        "  File \"/site-packages/gamdl/api/apple_music.py\", line 274, in _amp_request\n",
+        "    response.raise_for_status()\n",
+        "  File \"/site-packages/httpx/_models.py\", line 829, in raise_for_status\n",
+        "    raise HTTPStatusError(message, request=request, response=self)\n",
+        "httpx.HTTPStatusError: Client error '404 Not Found' for url 'https://amp-api.music.apple.com/v1/catalog/gb/albums/999999999999?extend=extendedAssetUrls'\n",
+        "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404\n",
+        "During handling of the above exception, another exception occurred:\n",
+        "Traceback (most recent call last):\n",
+        "  File \"/site-packages/gamdl/cli/cli.py\", line 279, in main\n",
+        "    await downloader.download(download_item)\n",
+        "  File \"/site-packages/gamdl/api/apple_music.py\", line 277, in _amp_request\n",
+        "    raise GamdlApiResponseError(\n",
+        "gamdl.api.exceptions.GamdlApiResponseError: Error fetching from AMP API (Status code: 404): {\"errors\":[{\"id\":\"NJWPW6PVGQY53KULKAYYOVHBMI\",\"title\":\"Resource Not Found\",\"detail\":\"Resource with requested id was not found\",\"status\":\"404\",\"code\":\"40400\"}]}\n",
+        "[INFO     12:20:01] Finished with 1 error(s)\n",
+    );
 
     /// Network failure with a verbose traceback (happens when the user
     /// has flipped `verbose_gamdl_exceptions` on or MeedyaDL is running
@@ -1635,6 +1678,136 @@ mod tests {
                 assert!(message.contains("ConnectTimeout"));
             }
             other => panic!("Expected Error, got {other:?}"),
+        }
+    }
+
+    // ===================================================================
+    // Real v3.0 capture regression tests (#521)
+    // ===================================================================
+    //
+    // These tests encode invariants derived directly from the 2026-04-23
+    // capture data. They're separate from the fixture-based tests above
+    // so a future fixture refactor cannot accidentally relax them.
+
+    #[test]
+    fn v3_real_bracketed_track_error_is_captured_as_error() {
+        // Regression for #521: the real v3.0 per-track error line carries
+        // a `[Track   N/M ]` infix between the structlog banner and the
+        // `Error downloading` keyword. Before the regex fix this fell
+        // through to `Unknown` because neither `ERROR_PREFIX_REGEX` nor
+        // Priority-7 keyword matching ("error" alone is not a keyword)
+        // would pick it up. After the fix the infix is allowed.
+        let line = r#"[ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze""#;
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(
+                    message.contains("Lavender Haze"),
+                    "Track title must survive in Error message, got: {message}"
+                );
+            }
+            other => panic!(
+                "Real v3.0 bracketed Track-error line must classify as Error, \
+                 not {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn v3_real_bracketed_url_error_is_captured_as_error() {
+        // Sibling regression: GAMDL v3.0 also emits URL-level errors with
+        // the `[URL   1/1  ]` infix.
+        let line = r#"[ERROR    23:02:03] [URL   1/1  ] Error processing "https://music.apple.com/gb/album/example/1649434004""#;
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("music.apple.com"));
+            }
+            other => panic!("Expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v3_real_nested_exception_marker_captured_by_keyword_match() {
+        // `During handling of the above exception, another exception
+        // occurred:` is Python's marker for a re-raised exception chain.
+        // Priority-7 keyword matching picks up the "exception" substring
+        // and surfaces it as an Error event — which is the right
+        // behaviour (it signals "another error is coming" in the log).
+        let line = "During handling of the above exception, another exception occurred:";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { .. } => {}
+            other => panic!(
+                "Nested-exception marker must be captured as Error so the \
+                 activity log preserves the chain, got: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn v3_real_gamdl_api_response_error_captured_by_python_regex() {
+        // `gamdl.api.exceptions.GamdlApiResponseError` has a three-dot
+        // module path. The Python-exception regex uses `[a-zA-Z0-9_.]*`
+        // in the optional module-path prefix, so multi-dot paths must
+        // work. This is the exception class GAMDL v3.0 raises for
+        // every AMP API failure (404s, 403s, etc.).
+        let line = r#"gamdl.api.exceptions.GamdlApiResponseError: Error fetching from AMP API (Status code: 404): {"errors":[{"title":"Resource Not Found"}]}"#;
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(message.contains("GamdlApiResponseError"));
+                assert!(message.contains("404"));
+            }
+            other => panic!(
+                "GamdlApiResponseError line must be captured by PYTHON_EXCEPTION_REGEX, \
+                 got: {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn v3_real_auth_fixture_produces_full_error_chain() {
+        // End-to-end: the real double-traceback fixture should yield an
+        // Error-event chain that contains BOTH the bracketed track error
+        // AND the final GamdlApiResponseError. These are the two pieces
+        // the activity log surfaces to the user.
+        let events = classify_lines(FIXTURE_V3_AUTH_ERROR);
+        let messages: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                GamdlOutputEvent::Error { message } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+
+        // `ERROR_PREFIX_REGEX` consumes the `Error ` prefix word itself
+        // so the captured message starts at `downloading "Title"` — check
+        // for the tail, not the prefix.
+        assert!(
+            messages.iter().any(|m| m.contains("downloading") && m.contains("Unknown Title")),
+            "Expected bracketed Track-error line in Error chain, got: {messages:?}"
+        );
+        assert!(
+            messages.iter().any(|m| m.contains("GamdlApiResponseError")),
+            "Expected GamdlApiResponseError in Error chain, got: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn v3_real_finished_summary_survives_nested_traceback() {
+        // After a double-traceback, the `Finished with N error(s)` line
+        // must still be discoverable — `parse_gamdl_error_count` scans
+        // for the "Finished with N error(s)" substring anywhere in the
+        // output, so interleaved tracebacks before it shouldn't block it.
+        assert_eq!(parse_gamdl_error_count(FIXTURE_V3_AUTH_ERROR), Some(1));
+    }
+
+    #[test]
+    fn v3_real_experimental_codec_warning_is_not_misclassified_as_error() {
+        // Every v3.0 cookie-auth download emits this WARNING on startup
+        // when the codec priority includes experimental codecs. It must
+        // NOT be classified as an Error, otherwise every successful
+        // ALAC+Atmos+... run would have a spurious error in the log.
+        let line = "[WARNING  23:02:02] You have chosen an experimental song codec without enabling wrapper. They're not guaranteed to work due to API limitations.";
+        if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
+            panic!("Experimental-codec warning must not be captured as Error");
         }
     }
 }
