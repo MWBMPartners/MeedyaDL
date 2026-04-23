@@ -169,6 +169,49 @@ export function ActivityLog() {
     });
   }, [entries, searchQuery, showSystem, showDownload, showVerbose]);
 
+  /*
+   * Stable height-measurement callback. Wrapped in `useCallback` so the
+   * virtualizer's internal config doesn't thrash its reference identity
+   * on every render — rapid log bursts at ~60 flushes/sec (per
+   * App.tsx's RAF batching) produce a lot of renders, and a fresh
+   * `measureElement` closure on each one was observed to interact
+   * with the measurement cache in ways that produce the overlapping-
+   * text regression reported in #575.
+   */
+  const measureElement = useCallback(
+    (element: Element | null | undefined) =>
+      element?.getBoundingClientRect().height ?? 26,
+    [],
+  );
+
+  /*
+   * Stable per-item key. This is the critical fix for #575: without
+   * `getItemKey`, TanStack virtual keys its measurement cache by
+   * positional index. When the entry list shifts (10,000-entry
+   * trimming cap triggering, filter toggles changing `filteredEntries.length`,
+   * RAF-batched bursts prepending new entries), cached row heights
+   * attach to the wrong entries and the resulting `translateY()`
+   * offsets overlap adjacent rows.
+   *
+   * Keying by the entry's stable `_id` means a measurement made for
+   * entry id=1234 stays attached to entry id=1234 regardless of what
+   * position it currently occupies in the filtered list. Entries
+   * without an `_id` fall back to the index — that path is only
+   * reached if an upstream emitter skips the auto-increment, which
+   * shouldn't happen in normal flow.
+   *
+   * #442 (closed 2026-04-12) was the original fix for the same
+   * symptom but only added `measureElement`; it didn't add the
+   * stable-key layer, which is why this class of bug regressed
+   * under real workloads (200-track box set on external USB, per #575
+   * repro). This commit is the belt-and-braces completion of #442's
+   * fix.
+   */
+  const getItemKey = useCallback(
+    (index: number) => filteredEntries[index]?._id ?? index,
+    [filteredEntries],
+  );
+
   /** Virtualizer for efficient rendering of large entry lists.
    * Uses dynamic height measurement so wrapped multi-line entries
    * don't overlap with subsequent rows. */
@@ -177,7 +220,8 @@ export function ActivityLog() {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 26, // text-xs + leading-relaxed + py-0.5 + border (single-line estimate)
     overscan: 50, // render 50 extra rows above/below viewport
-    measureElement: (element) => element?.getBoundingClientRect().height ?? 26,
+    measureElement,
+    getItemKey,
   });
 
   /**
