@@ -6,6 +6,140 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(ux)** Add "Open folder" button alongside Browse in Diagnostics (#581)
+
+Settings → Advanced → Diagnostics → On-disk activity log location now
+  has three buttons: Browse… (change the folder), Open folder (reveal
+  in OS file viewer), Reset (revert to default).
+
+  The Open folder button reuses the existing `get_logs_folder_path` IPC
+  command + `@tauri-apps/plugin-shell`'s `open()` — the same pattern
+  that powers the Activity Log page's "Reveal" button (line 297 of
+  `src/components/download/ActivityLog.tsx`). No new Rust code needed;
+  behaviour is consistent across the two entry points.
+
+  Failures surface via a toast (`Failed to open logs folder: {error}`)
+  using the existing `useUiStore.addToast()`. Same failure-handling
+  shape as the Activity Log page.
+
+  No backend changes. No new dependencies. One new import (`getLogsFolderPath`),
+  one new button, one toast import.
+
+  Verified locally: tsc --noEmit clean; npx vitest run = 303 tests.
+
+- **(ux)** Add "Open folder" button alongside Browse in Diagnostics (#581) (#594)
+
+## Summary
+
+  Closes **#581**. Settings → Advanced → Diagnostics → *On-disk activity
+  log location* gets a new **Open folder** button between the existing
+  **Browse…** and **Reset** buttons.
+
+  ## Reviewer ask
+
+  > *"In Settings > Advanced > Diagnostics > On-Disk Activity Log
+  location, add a button to open the on-disk activity log location in the
+  OS set/native directory viewer. We have a Browse button to set the
+  folder, but we also should have a simple way to open the folder for
+  quick access to logs."*
+
+  ## Implementation
+
+  Reuses the existing `get_logs_folder_path` IPC command +
+  `@tauri-apps/plugin-shell`'s `open()` — the identical pattern that
+  powers the Activity Log page's "Reveal" button (see
+  `src/components/download/ActivityLog.tsx:297`). No new Rust code;
+  behaviour is consistent across the two entry points, which was the
+  express ask.
+
+  ```tsx
+  <Button
+    variant="secondary"
+    size="sm"
+    onClick={async () => {
+      const addToast = useUiStore.getState().addToast;
+      try {
+        const path = await getLogsFolderPath();
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open(path);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        addToast(`Failed to open logs folder: ${msg}`, 'error');
+      }
+    }}
+  >
+    Open folder
+  </Button>
+  ```
+
+  Failure path: errors surface as a toast via `useUiStore.addToast` with
+  the same failure-handling shape as the Activity Log page. Silent success
+  (the OS file viewer popping open).
+
+  ## Placement
+
+  Button order (left to right): **Browse…** / **Open folder** / **Reset**.
+  Matches natural action order — change the folder (Browse), visit the
+  folder (Open), reset back (Reset).
+
+  ## Diff summary
+
+  Single file changed (`src/components/settings/tabs/AdvancedTab.tsx`),
+  +29 / -0:
+
+  - 1 new import: `getLogsFolderPath` (already a public IPC).
+  - 1 new import: `useUiStore` (for the error-case toast).
+  - 1 new `<Button>` (Open folder).
+
+  No backend changes. No new dependencies. No schema changes.
+
+  ## Acceptance criteria from #581
+
+  - [x] **Open folder** button added between Browse and Reset.
+  - [x] Reuses the existing `get_logs_folder_path` IPC command.
+  - [x] Reuses `@tauri-apps/plugin-shell`'s `open()`.
+  - [x] Placement: Browse / Open / Reset.
+  - [x] Consistent with the Activity Log page's "Reveal" button pattern.
+  - [x] Honours the `activity_log_path_override` setting
+  (`get_logs_folder_path` already does).
+  - [x] Error toast on failure.
+
+  Labelling choice: "Open folder" rather than "Reveal" — the Activity Log
+  page uses "Reveal" to match macOS-native Finder terminology, but in a
+  Settings panel "Open folder" is more immediately understandable to
+  non-Mac users. This is a minor label divergence; if consistency
+  preference flips the other way, trivial rename either place.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                  ✓ clean
+  npx vitest run                303 tests passed, 0 failed (no new tests; UI-only change)
+  ```
+
+  ## Test plan (post-merge)
+
+  - [ ] Open Settings → Advanced → Diagnostics. The On-disk activity log
+  location row shows three buttons in order.
+  - [ ] Click **Open folder** with default path (blank override). System
+  file viewer opens at the default app data logs directory.
+  - [ ] Set a custom path via **Browse…**, click **Open folder**. File
+  viewer opens at the custom path.
+  - [ ] Set an invalid path (e.g. a removed external drive), click **Open
+  folder**. Toast shows "Failed to open logs folder: ..." with a clear
+  error.
+  - [ ] Cross-platform: macOS Finder, Windows Explorer, Linux Nautilus /
+  Files — all open the folder.
+
+  ## Related
+
+  - **#581** — closed by this PR.
+  - **CLAUDE.md** — Activity Log section documents the
+  `get_logs_folder_path` + `plugin-shell` pattern this reuses.
+
+
 ### 🐛 Bug Fixes
 
 - **(ux)** Replace 'Pre-flight checks passed' with plain-English activity-log messages (#578)
@@ -117,6 +251,7 @@ User feedback on 2026-04-23: the phrase was jargon-first — "even I (as
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.42.3] - 2026-04-23
