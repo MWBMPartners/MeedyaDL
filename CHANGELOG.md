@@ -6,7 +6,113 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.41.0] - 2026-04-23
+
 ### ✨ Features
+
+- **(logging)** Trace Apple Music library URL submissions (#546)
+
+Library URLs (e.g. music.apple.com/{sf}/library/albums/l.XXXX) pass the
+  backend URL validator's host allowlist but are not matched by
+  parse_apple_music_url or normalize_apple_music_url, so they fall through
+  to GAMDL with no MeedyaDL-side metadata prefetch or filename safety net.
+
+  Whether GAMDL's iTunes Lookup resolves l.XXXX library IDs is unverified.
+  Emit a log line at start_download so downstream behaviour (album folder
+  vs. no_album_* template fallback vs. outright rejection) can be
+  correlated with the URL class without re-running the download.
+
+  Investigation only; no behaviour change.
+
+- **(logging)** Trace Apple Music Classical URL submissions (#547)
+
+classical.apple.com URLs are treated identically to music.apple.com in
+  parse_apple_music_url and normalize_apple_music_url (shared regex
+  alternation at apple_music_api.rs:430-460) and share every filename
+  template, metadata prefetch path, and artwork fetch.
+
+  Classical movement titles ("Allegro", "Andante", "Adagio", "Finale",
+  "Intermezzo", ...) are extremely non-unique. Within a single symphony,
+  {disc}-{track:02d} prefixes disambiguate; but when album context is lost
+  (direct song URL, curated cross-work playlist, no_album_* fallback),
+  identical movement names collide.
+
+  Emit a log line so support can correlate downstream filename-path
+  behaviour with classical-vs-pop content without replaying the download.
+  Investigation only; no behaviour change.
+
+- **(logging)** Warn on legacy itunes.apple.com URL submissions (#548)
+
+itunes.apple.com is in SUPPORTED_HOSTS (validator passes) and in the
+  NON_GEO_RE alternation (storefront injection works). But the main
+  parse_apple_music_url regexes (apple_music_api.rs:430, 437, 443, 449,
+  460) only alternate `(?:classical|music)` — iTunes URLs fail every
+  parser branch, so they reach GAMDL raw with no metadata prefetch.
+
+  Whether GAMDL's own URL regex accepts iTunes Store URLs is unverified;
+  if it rejects silently, the download errors mid-pipeline with no
+  user-facing "this URL format is legacy" hint. Emit a WARN so the audit
+  can classify outcomes and decide whether to reject at the validator
+  with a clear message.
+
+  Investigation only; no behaviour change.
+
+- **(logging)** Warn on unrecognised Apple Music URL shapes (#549)
+
+Catch-all for any URL that passes the host allowlist but is not matched
+  by parse_apple_music_url after normalisation — i.e. neither an
+  album / song / music-video / artist / catalog-playlist URL nor a
+  `/library/` URL (those already have a #546 trace).
+
+  Uploaded / "post" videos (backstage clips, live sessions, interviews)
+  are the concrete case #549 tracks, and the exact URL path Apple uses
+  for them isn't documented anywhere MeedyaDL can rely on. Rather than
+  guess a path substring to match, catch every unrecognised shape in a
+  single WARN log. Gives the audit the telemetry to decide between
+  rejecting at the validator (A) and building a parser/pipeline for the
+  unrecognised class (B), without having to reproduce the specific URL
+  shape first.
+
+  Investigation only; no behaviour change.
+
+- **(filename-safety)** Engine-contract trait scaffold (#551)
+
+Introduces `services::filename_safety` — a design-time invariant
+  checker every engine integration must satisfy before being wired
+  into the download pipeline.
+
+  Trait `FilenameSafetyContract` codifies four invariants:
+  1. stable_unique_id_placeholder is declared in supported_placeholders
+  2. fallback_file_template contains the stable unique ID placeholder
+     in the engine's native syntax (prevents the #527 empty-{title}
+     class of bug)
+  3. fallback_folder_template is not a bare [Unknown] / Unknown Album
+     sentinel (prevents the #531 class)
+  4. Neither template is empty
+
+  `verify_contract()` enforces these statically — suitable for unit
+  tests in each engine's test module. Not a runtime guard; runtime
+  filename safety remains in utils::fs_safe.
+
+  Four conformance impls ship with this commit:
+
+  - GamdlFilenameSafety — the reference implementation, mirrors
+    MV_NO_ALBUM_FILE_TEMPLATE / MV_NO_ALBUM_FOLDER_TEMPLATE in
+    download_queue.rs with a lockstep test that fails if either
+    constant drifts from the contract declaration.
+  - VotifyFilenameSafety, YtdlpFilenameSafety,
+    GetIplayerFilenameSafety — stubs for #101 / #102 / #103 / #104
+    with placeholder syntax hooks (CurlyBraces / PercentParens /
+    AngleBrackets). Must be tightened when each engine is actually
+    wired into engine_runner::get_command_builder.
+
+  DEV_NOTES.md gets a new "Engine Integration Checklist (#551)"
+  section with the reviewer checklist from the issue body, plus
+  instructions for adding a new engine's contract.
 
 - **(filename-safety)** Engine filename-safety contract (#551)
 
@@ -20,6 +126,47 @@ Design-review trait every new engine integration (votify, yt-dlp,
 
 ### 🐛 Bug Fixes
 
+- **(parser)** Accept itunes.apple.com in parse_apple_music_url (#548)
+
+parse_apple_music_url's five entity regexes (album, song, music-video,
+  artist, catalog playlist) only alternated `(?:classical|music)` — legacy
+  `itunes.apple.com` URLs fell through every branch despite passing the
+  backend host allowlist and the NON_GEO_RE storefront-injection check.
+  Net effect: iTunes URLs missed metadata prefetch, missed Tier 4 safety
+  net candidacy, and reached GAMDL with no MeedyaDL-side preparation.
+
+  Extend each alternation to `(?:classical|music|itunes)` so iTunes URLs
+  ride the same prefetch + normalisation rails as the other two domains.
+  GAMDL still receives the iTunes URL verbatim (we don't rewrite the
+  domain); the #548 WARN log in start_download stays in place to flag
+  downloads where GAMDL itself may reject the legacy scheme.
+
+  Adds six unit tests locking the fix in (album, album+track, song,
+  music-video, artist, catalog playlist), mirroring the existing
+  classical-domain test coverage.
+
+- **(ci)** Clippy doc_lazy_continuation + verifier check ordering
+
+Two CI-breaking issues from the initial #551 scaffold:
+
+  1. `gamdl_options.rs:603` — the uploaded-video docstring started a
+     line with `+ interface_uploaded_video.py` which clippy's
+     doc_lazy_continuation lint interprets as an un-indented Markdown
+     list continuation. Reword `+` to `and` so the bullet-list parse
+     doesn't trigger.
+
+  2. `filename_safety::verify_contract` — the empty-template check
+     ran AFTER the "template contains ID placeholder" check, so an
+     empty `fallback_file_template` got the confusing "does not
+     contain '{id}'" error instead of the intended "must not be
+     empty". The `verifier_rejects_empty_templates` test explicitly
+     asserted the clearer message; it was catching a real UX bug in
+     the verifier. Move the emptiness checks above the contains
+     check so diagnostics are clearest.
+
+  Verified locally: cargo clippy -- -D warnings passes; cargo test
+  --lib reports 810 passed, 0 failed.
+
 - **(filename-safety)** Scope HashSet import to tests module
 
 clippy -D warnings rejected the top-level `use std::collections::HashSet`
@@ -31,13 +178,6 @@ clippy -D warnings rejected the top-level `use std::collections::HashSet`
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
-- Document lyrics sidecar overwrite behaviour (#550)
-
-Add intentional-generator note to DEV_NOTES.md and end-user warning to
-  help/lyrics-and-metadata.md. Sidecar writers (.lrc .srt .vtt .ass) and
-  the syllable-lyrics TTML upgrade path all overwrite unconditionally by
-  design; manual edits are not preserved across re-enrichment.
-
 - **(lyrics)** Document sidecar regeneration policy (#550)
 
 The four lyric/subtitle generators have non-uniform write behaviour:
@@ -64,7 +204,64 @@ The four lyric/subtitle generators have non-uniform write behaviour:
 ## Summary
 
 - Update CHANGELOG.md [skip ci]
+- Document uploaded-video pipeline gap (#549)
+
+Apple Music ships label/artist-uploaded videos (backstage, live
+  sessions, interviews) with their own GAMDL entry points
+  (downloader_uploaded_video.py / interface_uploaded_video.py) and a
+  sparse tag shape — {artist, date, title, title_id, storefront}, no
+  album/disc/track/album_artist.
+
+  MeedyaDL has no URL detection, no routing through
+  download_music_video_by_url(), and no UI surface for uploaded videos.
+  The MV-safe MV_NO_ALBUM_*_TEMPLATE constants therefore never apply to
+  them — if an uploaded-video URL reaches GAMDL (deep link, drag-drop,
+  direct IPC), it inherits the audio-oriented no_album_* templates and
+  loses the {title_id} uniqueness guarantee. Same class as #527/#531,
+  different URL scheme.
+
+  Annotate both the `uploaded_video_quality` field and the
+  `MV_NO_ALBUM_FOLDER_TEMPLATE` constant so the gap is visible from the
+  code; implementation follow-up tracked in #549.
+
+  Documentation only; no behaviour change.
+
+- **(claude)** Document URL audit diagnostics (#546/#547/#548/#549)
+
+Records the four URL-classification logs added to start_download as
+  part of the #487 audit umbrella, and notes that the parse_apple_music_url
+  regex alternation now includes itunes consistently across all five
+  entity patterns.
+
+- Document lyrics sidecar overwrite behaviour (#550)
+
+Add intentional-generator note to DEV_NOTES.md and end-user warning to
+  help/lyrics-and-metadata.md. Sidecar writers (.lrc .srt .vtt .ass) and
+  the syllable-lyrics TTML upgrade path all overwrite unconditionally by
+  design; manual edits are not preserved across re-enrichment.
+
 - Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- **(gamdl)** Merge four URL audit loops into one (#546/#547/#548/#549)
+
+The per-class diagnostic logs introduced earlier this session each ran
+  their own `for url in &request.urls` iteration, producing four
+  near-identical loops over the same slice. Consolidate into a single
+  loop that classifies each URL against all four conditions in order,
+  preserving the exact set of log lines emitted for every URL class
+  (library, iTunes, classical, unrecognised) — same messages, same
+  levels, same sequencing.
+
+  - Reduces per-enqueue iteration count from 4×N to 1×N.
+  - Caches `is_library` so the #549 catch-all guard doesn't re-check the
+    path substring.
+  - Replaces the "Already logged by #546 trace above" continue+comment
+    with a structural `!is_library` guard inside the catch-all branch.
+
+  No behaviour change — the set of log entries per URL is identical.
+
 
 ## [0.40.1] - 2026-04-22
 
