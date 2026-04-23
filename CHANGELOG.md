@@ -6,8 +6,146 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(parser)** Accept classical.music.apple.com + slug-less Share URLs
+
+Apple migrated Apple Music Classical to the `classical.music.apple.com`
+  subdomain in 2026 and dropped the human-readable slug segment from
+  Share-link URLs. The new shape is `/{sf}/{type}/{id}` instead of the
+  classic `/{sf}/{type}/{slug}/{id}`, often with a `?l=en-GB` locale
+  hint appended. Both changes broke MeedyaDL's URL validators, which is
+  a live production regression — classical downloads via the Apple Music
+  Classical Share button were rejected with "Please enter a valid Apple
+  Music URL".
+
+- **(parser)** Accept classical.music.apple.com + slug-less Share URLs (urgent live regression) (#565)
+
+## Urgent production regression fix
+
+  Apple migrated Apple Music Classical to the `classical.music.apple.com`
+  subdomain in 2026 and dropped the slug segment from Share-link URLs.
+  **Current state on `main`**: pasting a Classical Share link into
+  MeedyaDL is rejected with `"Please enter a valid Apple Music URL"` —
+  classical downloads via the native Share button are unreachable.
+
+  Captured live 2026-04-23 from the Apple Music Classical app Share → Copy
+  Link:
+
+  ```
+  https://classical.music.apple.com/gb/album/1844602145?l=en-GB
+  ```
+
+  Two axes of breakage:
+
+  1. **Domain**: `classical.apple.com` → `classical.music.apple.com` (a
+  sub-subdomain of `music.apple.com`).
+  2. **Path shape**: `/album/{slug}/{id}` → `/album/{id}` — the
+  human-readable slug is gone.
+
+  Cosmetically there's also a `?l=en-GB` locale hint our `?i=` capture
+  group harmlessly ignores.
+
+  ## Changes
+
+  ### Frontend (`src/lib/url-parser.ts`)
+
+  - `isAppleMusicUrl()` adds `classical.music.apple.com` to the accepted
+  hostname list.
+  - `SERVICE_DOMAINS` routing list gets the same domain so
+  `detectService()` returns `apple-music`.
+
+  ### Backend (`src-tauri/src/services/apple_music_api.rs`)
+
+  All five entity regexes (album, song, music-video, artist,
+  catalog-playlist) + `NON_GEO_RE` updated:
+
+  - Domain alternation `(?:classical|music|itunes)` →
+  `(?:classical(?:\.music)?|music|itunes)`. Covers all four hostnames:
+  `music.apple.com`, `classical.apple.com`, `classical.music.apple.com`,
+  `itunes.apple.com`.
+  - Slug segment `[^/]+/` → `(?:[^/]+/)?`, making it optional. Both
+  classic `/album/slug/id` and new `/album/id` forms parse.
+  - Docstrings on `parse_apple_music_url` and `normalize_apple_music_url`
+  updated.
+
+  ### Backend (`src-tauri/src/commands/gamdl.rs`)
+
+  **No change** — `SUPPORTED_HOSTS` already allows subdomains via
+  `strip_suffix` at line 174, so `classical.music.apple.com` passes host
+  validation. Only the parser regexes needed fixing.
+
+  ## Test coverage
+
+  **Rust** — 9 new tests in `apple_music_api::tests`:
+
+  - `parse_new_classical_album_url_without_slug`
+  - `parse_new_classical_album_url_with_locale_query` (`?l=en-GB`)
+  - `parse_new_classical_album_url_with_track_id` (`?i=`)
+  - `parse_new_classical_song_url_without_slug`
+  - `parse_new_classical_music_video_url_without_slug`
+  - `parse_new_classical_artist_url_without_slug`
+  - `parse_new_classical_playlist_url_without_slug`
+  - `parse_new_classical_album_url_with_slug_still_works` (defensive — if
+  Apple keeps emitting slugged URLs for back-compat, we're covered)
+  - `parse_classic_slugless_form_on_music_apple_com` (defensive — if Apple
+  rolls slug-less out to main domain, we're covered)
+
+  Plus 2 normalize tests:
+
+  - `normalize_new_classical_url_without_storefront` — storefront
+  injection on the new domain
+  - `normalize_new_classical_url_with_storefront_unchanged` — idempotency
+  check
+
+  **TypeScript** — 4 new tests in `url-parser.test.ts`:
+
+  - `accepts classical.apple.com URLs` (filled in missing legacy coverage
+  while I was there)
+  - `accepts classical.music.apple.com URLs`
+  - `accepts classical.music.apple.com URLs with slug-less path + locale
+  query` (the live shape)
+  - `classifies new classical.music.apple.com album URLs (slug-less)`
+  - `classifies new classical.music.apple.com album URL with ?l= locale
+  query`
+  - `classifies new classical.music.apple.com song URL with ?i= track id`
+
+  ## Local verification
+
+  ```
+  cargo clippy -- -D warnings  ✓ clean
+  cargo test --lib services::apple_music_api::tests  65 passed, 0 failed
+  npx vitest run url-parser.test.ts  45 passed
+  ```
+
+  ## Risk
+
+  Low. All changes are additive in regex alternation (existing URL shapes
+  still parse identically; new shapes gain coverage). No behaviour change
+  for the three hostnames that were already supported. Regex correctness
+  is covered by the existing 65-test suite plus the new 9 tests.
+
+  ## Related
+
+  - **#547** — Apple Music Classical movement-title collision audit was
+  blocked on this same regression (can't paste a Classical URL to
+  reproduce). With this PR merged, the #547 repro is unblocked.
+  - **#560** — independent PR with orthogonal classical-URL diagnostic
+  logging. No conflict; this fix landing on main first will cleanly merge
+  into #560.
+
+  ## Test plan (post-merge)
+
+  - [ ] Paste the URL from the original bug report into MeedyaDL —
+  download starts (auth permitting)
+  - [ ] Paste a slugged classical URL from the old app — still parses
+  - [ ] Paste a regular `music.apple.com` URL — no regression
+  - [ ] Proceed with #547 manual repro (unblocked)
+
+
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
