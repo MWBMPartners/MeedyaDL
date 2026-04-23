@@ -8,6 +8,121 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(ux)** Replace 'Pre-flight checks passed' with plain-English activity-log messages (#578)
+
+User feedback on 2026-04-23: the phrase was jargon-first — "even I (as
+  a dev) thought something was broke when the progress bars disappeared.
+  For a moment I didn't realise this vague statement meant ALL actions
+  completed successfully."
+
+  ### Changes to `services/download_queue.rs` pre-flight block
+
+  Three string updates:
+
+  1. **Before the checks run**: new activity-log emit announcing what's
+     about to happen — "Checking internet connection, output folder,
+     and account..." So users see the app pause, know what it's doing,
+     then get a matching answer.
+
+  2. **All-clear message**: "Pre-flight checks passed" → "Ready to
+     download — internet, output folder, and account all verified".
+     Leads with the user-facing action (what happens next), enumerates
+     the verified prerequisites in plain English, no aviation jargon.
+
+  3. **Warning message**: "Pre-flight: {message}" → "Pre-flight warning:
+     {message}". Keeps the prefix (the word "warning" gives more context
+     than the technical phrase alone) but makes it explicit that this is
+     a problem the user should act on.
+
+  ### Not changed
+
+  - The RUST log::warn! in the warning path keeps "Pre-flight warning"
+    as it's aimed at log-file inspection (dev-facing), not the
+    activity-log UI.
+  - The existing `preflight-warning` / `preflight-cleared` event names
+    are left alone — they're internal wire-protocol identifiers the
+    frontend listens for.
+  - Out of scope: broader audit of every [System] activity-log string
+    (the issue mentions this as a follow-up; scope kept tight to the
+    specific symptom reported).
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings clean
+  - cargo test --lib services::download_queue::tests = 120 passed
+
+- **(ux)** Replace "Pre-flight checks passed" jargon with plain-English activity log (#578) (#593)
+
+## Summary
+
+  Closes **#578**. Replaces the jargon-first `[System] Pre-flight checks
+  passed` activity-log message with plain-English before/after pair so
+  users know what was verified and what happens next.
+
+  ## Reviewer feedback
+
+  > *"It needs to be something meaningful to the end user! This is partly
+  why even I (as a dev) thought something was broken when the progress
+  bars disappeared. For a moment I didn't realise this vague statement
+  meant ALL actions completed successfully."*
+
+  ## Changes
+
+  Three string tweaks in the pre-flight block of
+  `services/download_queue.rs`:
+
+  ### 1. New "before" message
+
+  Emitted at the moment pre-flight checks begin, so the activity log has a
+  clear question-and-answer shape:
+
+  ```
+  [System] Checking internet connection, output folder, and account...
+  ```
+
+  ### 2. "All-clear" message
+
+  ```diff
+  - [System] Pre-flight checks passed
+  + [System] Ready to download — internet, output folder, and account all verified
+  ```
+
+  Leads with the user-facing action ("Ready to download"), enumerates the
+  verified prerequisites in plain English, no aviation jargon.
+
+  ### 3. Warning message prefix
+
+  ```diff
+  - [System] Pre-flight: {message}
+  + [System] Pre-flight warning: {message}
+  ```
+
+  Kept the "Pre-flight" prefix because adding "warning" makes it explicit
+  that this is a problem the user should act on; removing the prefix
+  entirely would drop useful context. (The backend `preflight-warning`
+  event that drives the user-visible toast is also left alone — it's a
+  wire-protocol identifier, not a UI string.)
+
+  ## Not in scope
+
+  - Broader audit of every `[System]` activity-log string for similar
+  jargon (the issue body mentions this as a follow-up). Done separately if
+  the pattern recurs.
+  - The Rust `log::warn!` line keeps the old phrasing — that's aimed at
+  log-file inspection for support / dev debugging, not the user-facing
+  activity log.
+
+  ## Before / after (typical happy path)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.3] - 2026-04-23
+
+### 🐛 Bug Fixes
+
 - **(enrichment)** Skip macOS AppleDouble + known filesystem sidecars in audio walkers (#577)
 
 When the user's output path is on a non-native filesystem (exFAT /
