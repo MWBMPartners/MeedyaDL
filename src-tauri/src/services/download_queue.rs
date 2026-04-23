@@ -774,6 +774,36 @@ fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
 }
 
 // ============================================================
+// Enrichment stage progress weights (#576)
+// ============================================================
+//
+// Cumulative weights emitted as each enrichment stage begins, so the
+// queue-level progress bar shows visible forward motion DURING the
+// `Processing` state rather than sitting at a single flat "partial
+// credit" value for 20+ minutes on large box sets.
+//
+// Values are anchored so that:
+//   - 0.00 = GAMDL finished; enrichment task just spawned.
+//   - 1.00 = all enrichment stages complete; completion task about to
+//            flip the item from `Processing` to `Complete`.
+//
+// Each constant represents the fraction-complete AT THE START of the
+// named stage (i.e. the fraction-complete of everything BEFORE it).
+// The progression is deliberately roughly equal-weight across
+// user-observable stages; rebalance when real-world timing data (e.g.
+// from #579 repros) warrants.
+//
+// The constants are exposed at module scope so unit tests can verify
+// monotonicity and the 0–1 bound without reaching into the enrichment
+// closure.
+const PROGRESS_METADATA_STAGE: f32 = 0.05;
+const PROGRESS_WORD_LYRICS_STAGE: f32 = 0.15;
+const PROGRESS_LRC_CONVERSION_STAGE: f32 = 0.25;
+const PROGRESS_ANIMATED_ARTWORK_STAGE: f32 = 0.40;
+const PROGRESS_ACOUSTID_STAGE: f32 = 0.55;
+const PROGRESS_REPLAYGAIN_STAGE: f32 = 0.75;
+
+// ============================================================
 // Manifest writer
 // ============================================================
 
@@ -1191,6 +1221,7 @@ impl DownloadQueue {
                     speed: None,
                     eta: None,
                     processing_label: None,
+                    processing_progress: None,
                     error: None,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -1450,6 +1481,21 @@ impl DownloadQueue {
     pub fn set_processing_label(&mut self, download_id: &str, label: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.processing_label = Some(label.to_string());
+        }
+    }
+
+    /// Updates the intra-Processing progress fraction for a download
+    /// item (#576). `progress` is clamped to `[0.0, 1.0]` before storing.
+    ///
+    /// Drives the queue-level progress bar's within-Processing forward
+    /// motion. Called by each enrichment stage with its cumulative
+    /// contribution (see `ENRICHMENT_STAGE_WEIGHTS`) so the user sees
+    /// the aggregate bar advancing through the enrichment phase rather
+    /// than sitting on a fixed "partial credit" value for 20+ minutes
+    /// on large box sets.
+    pub fn set_processing_progress(&mut self, download_id: &str, progress: f32) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_progress = Some(progress.clamp(0.0, 1.0));
         }
     }
 
@@ -1937,6 +1983,7 @@ impl DownloadQueue {
                     speed: None,
                     eta: None,
                     processing_label: None,
+                    processing_progress: None,
                     error,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -5266,25 +5313,28 @@ pub fn process_queue(
                                 )
                             };
 
-                            // Helper: update the processing label in the queue item
-                            // so the progress bar shows what's happening.
-                            // Also appends album context (Artist: Album) when available.
+                            // Helper: update the processing label AND the
+                            // intra-Processing progress fraction for the queue
+                            // item, then emit `queue-updated` so the frontend
+                            // re-fetches. Callers pass both a human-readable
+                            // label (#574) and a cumulative progress weight
+                            // (#576) picked from `ENRICHMENT_STAGE_WEIGHTS`
+                            // below. Weights are cumulative: stage N's weight
+                            // is the fraction-complete AFTER stage N finishes.
                             //
-                            // Emits a `queue-updated` event after mutating the label
-                            // so the frontend's `refreshQueue()` listener in App.tsx
-                            // re-fetches the queue state. Without this emit, label
-                            // changes during enrichment stay invisible until the
-                            // final `download-complete` event fires — which means
-                            // the progress bar keeps showing "DOWNLOADING..." for
-                            // the entire enrichment phase even though the backend
-                            // label has been updated to "Converting lyrics (Enhanced LRC)...",
-                            // "AcoustID fingerprinting...", etc. (#574 root cause).
+                            // Label format appends album context
+                            // (Artist: Album) so the progress bar surfaces
+                            // which album the stage is acting on — useful
+                            // when the user has a busy queue.
+                            //
+                            // Emit errors are swallowed: worst case is the UI
+                            // stays stale until the next stage transition, no
+                            // worse than pre-#574 behaviour.
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
                             let label_app = enrich_app.clone();
-                            let set_label = move |label: &str| {
+                            let set_label = move |label: &str, progress: f32| {
                                 if let Ok(mut q) = label_queue.try_lock() {
-                                    // Look up album context for richer labels
                                     let context = q
                                         .items
                                         .iter()
@@ -5303,11 +5353,8 @@ pub fn process_queue(
                                         .unwrap_or_default();
                                     let full_label = format!("{label}{context}");
                                     q.set_processing_label(&label_dl_id, &full_label);
+                                    q.set_processing_progress(&label_dl_id, progress);
                                 }
-                                // Notify frontend to re-fetch queue state so the
-                                // progress bar picks up the new label. Errors on
-                                // emit are non-fatal — the worst case is the UI
-                                // stays stale for one extra stage transition.
                                 let _ = label_app.emit("queue-updated", &label_dl_id);
                             };
 
@@ -5412,7 +5459,7 @@ pub fn process_queue(
                             ),
                         );
 
-                            set_label("Enriching metadata tags...");
+                            set_label("Enriching metadata tags...", PROGRESS_METADATA_STAGE);
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
@@ -5731,7 +5778,10 @@ pub fn process_queue(
                                             .collect();
 
                                         if !tracks_needing_upgrade.is_empty() {
-                                            set_label("Fetching word-level lyrics...");
+                                            set_label(
+                                                "Fetching word-level lyrics...",
+                                                PROGRESS_WORD_LYRICS_STAGE,
+                                            );
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
@@ -5842,7 +5892,10 @@ pub fn process_queue(
                                             }
                                         }
                                     } else {
-                                        set_label("Skipping word-level lyrics (no credentials)");
+                                        set_label(
+                                            "Skipping word-level lyrics (no credentials)",
+                                            PROGRESS_WORD_LYRICS_STAGE,
+                                        );
                                         log::debug!(
                                             "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
                                         );
@@ -5856,7 +5909,10 @@ pub fn process_queue(
                                 }
                             }
 
-                            set_label("Converting lyrics (Enhanced LRC)...");
+                            set_label(
+                                "Converting lyrics (Enhanced LRC)...",
+                                PROGRESS_LRC_CONVERSION_STAGE,
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
@@ -6121,7 +6177,10 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
-                            set_label("Downloading animated artwork...");
+                            set_label(
+                                "Downloading animated artwork...",
+                                PROGRESS_ANIMATED_ARTWORK_STAGE,
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
@@ -6313,7 +6372,7 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...");
+                            set_label("AcoustID fingerprinting...", PROGRESS_ACOUSTID_STAGE);
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
@@ -6377,7 +6436,10 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ AcoustID fingerprinting completed{}", album_context()));
 
-                            set_label("ReplayGain loudness analysis...");
+                            set_label(
+                                "ReplayGain loudness analysis...",
+                                PROGRESS_REPLAYGAIN_STAGE,
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
                             // When enabled, analyses each file's loudness via FFmpeg's
