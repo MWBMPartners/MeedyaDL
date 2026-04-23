@@ -169,7 +169,7 @@ export function ToolsTab() {
   };
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* ============================================================ */}
       {/* Section: Core Dependencies                                    */}
       {/* ============================================================ */}
