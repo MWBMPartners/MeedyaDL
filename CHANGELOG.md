@@ -30,6 +30,7 @@ Two related completion-task fixes that share infrastructure in
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.42.0] - 2026-04-23
 
