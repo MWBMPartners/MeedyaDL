@@ -241,6 +241,73 @@ pub fn write_deduped(
     Ok(path)
 }
 
+/// Returns `true` if `path`'s file name is a known filesystem-sidecar
+/// artifact that must be excluded from audio-file enrichment walkers
+/// (#577).
+///
+/// # Why this exists
+///
+/// When MeedyaDL's output path lives on a non-native filesystem
+/// (exFAT / FAT32 / HFS on an external drive, SMB / NFS share, etc.),
+/// the host OS can create hidden sidecar files alongside every real
+/// file to store metadata the underlying filesystem can't natively
+/// represent:
+///
+/// - **macOS** creates `._{filename}` **AppleDouble** files on every
+///   non-HFS+/APFS volume. These store extended attributes, Finder
+///   tags, resource forks, and the `com.apple.quarantine` flag. They
+///   share the audio file's extension (`._track.m4a`) but contain
+///   binary metadata, not audio.
+/// - **macOS** Finder writes `.DS_Store` files in every directory it
+///   visits.
+/// - **Windows** creates `Thumbs.db` thumbnail caches and
+///   `desktop.ini` folder-customisation files.
+///
+/// Without filtering, every enrichment walker that iterates `.m4a` /
+/// `.mp4` / `.m4v` / `.flac` / `.mp3` files (codec detection,
+/// ReplayGain, AcoustID, BPM, subtitle embed, advisory rename,
+/// codec-suffix rename, etc.) processes the AppleDouble files too —
+/// running `ffprobe` on a non-audio binary, erroring, logging a warning,
+/// and contributing hundreds of noisy lines per album to the activity
+/// log (on a 100-track album: 100 spurious failures). Captured live
+/// 2026-04-23 on a 200-track Beethoven box set download to an exFAT
+/// USB drive.
+///
+/// This predicate is the single point of truth for the "what should
+/// audio walkers ignore" question so that future sidecar patterns
+/// (Linux `.fuse_hidden*`, network-share `@eaDir/`, etc.) can be
+/// added in one place.
+///
+/// # Returns
+///
+/// `true` when the basename matches one of the known sidecar patterns,
+/// `false` otherwise (including when the path has no basename — those
+/// callers should discard the path on their own path-is-valid check
+/// before reaching here).
+#[must_use]
+pub fn is_filesystem_sidecar(path: &std::path::Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+
+    // macOS AppleDouble on non-APFS/HFS+ filesystems (exFAT, FAT32,
+    // SMB shares, etc.). Any file whose basename starts with `._`
+    // is an AppleDouble sidecar — by convention, real filenames
+    // never start with `._` (dot-underscore is reserved).
+    if name.starts_with("._") {
+        return true;
+    }
+
+    // Known non-AppleDouble metadata sidecars across platforms.
+    matches!(
+        name,
+        ".DS_Store"         // macOS Finder folder metadata
+            | "Thumbs.db"   // Windows XP/Vista thumbnail cache
+            | "thumbs.db"   // case-insensitive filesystems
+            | "desktop.ini" // Windows folder-customisation metadata
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +512,53 @@ mod tests {
             write_deduped(dir.path(), "dump.json", b"same bytes every time").unwrap();
         }
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    // -----------------------------------------------------------
+    // is_filesystem_sidecar (#577)
+    // -----------------------------------------------------------
+
+    #[test]
+    fn appledouble_sidecar_is_detected() {
+        // The single most impactful case: macOS `._*` files on
+        // exFAT / FAT32 / HFS external drives.
+        assert!(is_filesystem_sidecar(std::path::Path::new("._1 - 01 Track.m4a")));
+        assert!(is_filesystem_sidecar(std::path::Path::new("/full/path/._Cover.jpg")));
+    }
+
+    #[test]
+    fn ds_store_is_detected() {
+        assert!(is_filesystem_sidecar(std::path::Path::new(".DS_Store")));
+        assert!(is_filesystem_sidecar(std::path::Path::new("/Users/bob/Music/.DS_Store")));
+    }
+
+    #[test]
+    fn thumbs_db_both_cases_detected() {
+        assert!(is_filesystem_sidecar(std::path::Path::new("Thumbs.db")));
+        assert!(is_filesystem_sidecar(std::path::Path::new("thumbs.db")));
+    }
+
+    #[test]
+    fn desktop_ini_is_detected() {
+        assert!(is_filesystem_sidecar(std::path::Path::new("desktop.ini")));
+    }
+
+    #[test]
+    fn real_audio_files_are_not_sidecars() {
+        // Regression canary: real audio filenames, including those
+        // that START with legal single dots or underscores, must NOT
+        // be misclassified. Only `._` (dot-underscore together at the
+        // start) is reserved.
+        assert!(!is_filesystem_sidecar(std::path::Path::new("1 - 01 Track.m4a")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new("Cover.jpg")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new(".hidden_file.m4a")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new("_underscore_start.m4a")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new("Ds_Store.m4a")));
+    }
+
+    #[test]
+    fn paths_without_filename_component_return_false() {
+        // Defensive: path consisting of `/` only has no file_name.
+        assert!(!is_filesystem_sidecar(std::path::Path::new("/")));
     }
 }

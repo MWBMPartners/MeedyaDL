@@ -570,6 +570,11 @@ fn collect_audio_files(output_path: &str) -> Vec<PathBuf> {
 }
 
 /// Recursively collect supported audio/video file paths from a directory tree.
+///
+/// Skips filesystem sidecars (macOS `._*` AppleDouble, `.DS_Store`,
+/// Windows `Thumbs.db`, etc.) — running FFmpeg loudness analysis on
+/// a non-audio binary fails and contributes noise to the activity
+/// log (#577).
 fn collect_audio_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -577,6 +582,9 @@ fn collect_audio_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 
     for entry in entries.flatten() {
         let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
         if path.is_dir() {
             collect_audio_recursive(&path, files);
         } else if detect_format(&path).is_some() {

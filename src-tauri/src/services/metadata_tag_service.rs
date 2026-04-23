@@ -193,6 +193,13 @@ fn tag_directory_recursive(dir: &Path, tag_writer: &dyn Fn(&mut Tag)) -> usize {
     for entry in entries.flatten() {
         let entry_path = entry.path();
 
+        // Skip filesystem sidecars (macOS `._*` AppleDouble,
+        // `.DS_Store`, Windows `Thumbs.db`, etc.) — writing
+        // `mp4ameta` atoms into a non-M4A binary fails noisily (#577).
+        if crate::utils::fs_safe::is_filesystem_sidecar(&entry_path) {
+            continue;
+        }
+
         if entry_path.is_dir() {
             // Recurse into subdirectories (album folders may contain disc subfolders)
             count += tag_directory_recursive(&entry_path, tag_writer);
@@ -1865,6 +1872,9 @@ fn collect_m4a_depth_limited(dir: &Path, files: &mut Vec<PathBuf>, depth: u32, m
 
     for entry in entries.flatten() {
         let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
         if path.is_dir() && depth < max_depth {
             collect_m4a_depth_limited(&path, files, depth + 1, max_depth);
         } else if is_m4a(&path) {
