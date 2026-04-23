@@ -2110,3 +2110,40 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 
 **If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
+
+## Engine Integration Checklist (#551)
+
+Every new engine integration (votify / yt-dlp / get_iplayer / future
+additions) must satisfy the filename-safety contract in
+`src-tauri/src/services/filename_safety.rs` **before** the engine is
+wired into the user-visible download pipeline. The contract encodes
+the lesson of #527 / #531 / #481: an empty `{title}` must never
+produce `-.mp4`, and `{album}` empty must never route content into
+`[Unknown]/`.
+
+Reviewer checklist for engine-integration PRs:
+
+- [ ] **Fallback file template contains the stable-unique-ID placeholder.** Verified by `verify_contract()` in `filename_safety.rs`. GAMDL uses `{title_id}`, Spotify will use `{spotify_id}`, YouTube uses `%(id)s`, BBC iPlayer uses `<pid>`. The ID must be present in the engine's API response for every downloadable item.
+- [ ] **Fallback folder template is not a bare sentinel.** `[Unknown]`, `Unknown Album`, `Unknown Artist` as the entire path are rejected. Safe defaults scope under an artist-like bucket (e.g. `{artist}/Music Videos`, `%(uploader)s/Videos`, `<channel>/iPlayer Downloads`).
+- [ ] **Template builder UI exposes every placeholder** from `supported_placeholders()` so users composing custom templates get autocomplete and validation. The frontend side lives in `src/lib/template-parser.ts`.
+- [ ] **Unit test asserts `verify_contract(&YourFilenameSafety).is_ok()`** — add it to the engine's test module so CI catches regressions.
+- [ ] **Regression test for the empty-metadata failure mode**: synthesize a call where every tag except the stable ID is empty, render the fallback template, and assert the output contains the ID and is non-empty.
+- [ ] **Tie templates to the engine runner.** If the engine exposes runtime-configurable templates (e.g. votify `output_template`, yt-dlp `-o`, get_iplayer `--file-prefix`), document how the engine's command builder wires the user's configured template vs. the contract's fallback template.
+- [ ] **Lockstep test** where the engine has Rust constants mirroring TypeScript or TOML defaults (like GAMDL's `MV_NO_ALBUM_*_TEMPLATE`): add a test that asserts both sources match. See `gamdl_templates_match_download_queue_constants` in `filename_safety.rs` for the precedent.
+
+**Not enforced at runtime.** The contract is a design-review tool —
+the runtime filename safety layer is `utils::fs_safe`
+(`safe_rename`, `rename_if_dest_free`, `write_deduped`) which catches
+collisions when (despite the contract) a template produces a name
+that clashes with an existing file.
+
+**Adding a new engine?** Start with:
+1. Add `YourFilenameSafety` struct to `filename_safety.rs` with stub
+   template values and the four trait methods.
+2. Add a `verify_contract(&YourFilenameSafety)` test.
+3. Add a match arm for your engine ID in
+   `get_filename_safety_contract()`.
+4. When the engine is actually wired into
+   `engine_runner::get_command_builder()`, tighten the stub templates
+   to match the engine's real CLI syntax (GAMDL / votify curly braces,
+   yt-dlp `%(name)s`, get_iplayer `<name>`).
