@@ -2914,6 +2914,14 @@ async fn extract_music_video_subtitles_for_new_files(
 ///    all three lookups above fail or are unavailable. Safe and
 ///    predictable; never empty.
 ///
+/// ## Filename-safety contract (#551)
+///
+/// `services::filename_safety::GamdlFilenameSafety` exposes this and
+/// `MV_NO_ALBUM_FILE_TEMPLATE` as the engine's conforming fallback
+/// templates. If either constant changes, the
+/// `gamdl_templates_match_download_queue_constants` test in
+/// `filename_safety.rs` will fail — keeping both in lockstep.
+///
 /// ## Not reached by uploaded videos (#549)
 ///
 /// Apple Music's label/artist-uploaded videos (backstage clips, live
