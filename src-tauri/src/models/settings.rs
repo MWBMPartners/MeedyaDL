@@ -237,6 +237,102 @@ fn default_cover_art_name() -> CoverArtName {
     CoverArtName::FrontCover
 }
 
+/// User-configurable zero-padding for the `{track}` placeholder in
+/// filename templates (#587).
+///
+/// `Auto` is the preferred default: padding width derives from the
+/// album's `track_total` at download time so a 12-track album gets
+/// `01`-`12` and a 200-track box set gets `001`-`200` without user
+/// intervention. Fixed widths are offered for users who want
+/// library-wide filename consistency regardless of album size.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackNumberPadding {
+    /// Auto-derive padding width from album's track_total. Produces
+    /// `01` for <100-track albums, `001` for <1000, `0001` for larger.
+    Auto,
+    /// No padding: `1`, `2`, ..., `9`, `10`, `100`.
+    None,
+    /// 2 digits: `01`, `02`, ..., `99`, `100`. (Pre-#587 default
+    /// behaviour — sorts wrong on albums >99 tracks.)
+    TwoDigits,
+    /// 3 digits: `001`, `002`, ..., `999`, `1000`.
+    ThreeDigits,
+    /// 4 digits: `0001`, ..., `9999`.
+    FourDigits,
+}
+
+impl TrackNumberPadding {
+    /// Resolve to a concrete padding width for the given album
+    /// `track_total`. `Auto` is the only mode that consults the
+    /// album metadata; the fixed modes ignore the argument entirely.
+    ///
+    /// Returns the number of digits in the format specifier
+    /// (e.g. `3` → `{track:03d}` in Python-style templates).
+    #[must_use]
+    pub fn resolve_width(&self, track_total: Option<u32>) -> usize {
+        match self {
+            Self::None => 0,
+            Self::TwoDigits => 2,
+            Self::ThreeDigits => 3,
+            Self::FourDigits => 4,
+            Self::Auto => match track_total {
+                Some(n) if n <= 99 => 2,
+                Some(n) if n <= 999 => 3,
+                Some(_) => 4,
+                // No album metadata available yet — match the
+                // pre-#587 `{track:02d}` default so single-track
+                // downloads don't regress.
+                None => 2,
+            },
+        }
+    }
+}
+
+fn default_track_number_padding() -> TrackNumberPadding {
+    TrackNumberPadding::Auto
+}
+
+/// User-configurable zero-padding for the `{disc}` placeholder in
+/// filename templates (#587). Mirrors `TrackNumberPadding` but scoped
+/// to disc numbers (typically much smaller than track counts).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscNumberPadding {
+    /// Auto-derive padding width from `disc_total`. 1-digit for <10
+    /// discs, 2-digit for <100, 3-digit for >99 (pathological). Most
+    /// real-world albums hit the 1-digit branch.
+    Auto,
+    /// No padding: `1`, `2`, `10`. (Pre-#587 behaviour.)
+    None,
+    /// 1 digit (same as `None` for values < 10).
+    OneDigit,
+    /// 2 digits: `01`, `02`, `10`, `99`.
+    TwoDigits,
+}
+
+impl DiscNumberPadding {
+    /// Resolve to a concrete padding width for the given
+    /// `disc_total`. See `TrackNumberPadding::resolve_width`.
+    #[must_use]
+    pub fn resolve_width(&self, disc_total: Option<u32>) -> usize {
+        match self {
+            Self::None | Self::OneDigit => 0,
+            Self::TwoDigits => 2,
+            Self::Auto => match disc_total {
+                Some(n) if n <= 9 => 0,
+                Some(n) if n <= 99 => 2,
+                Some(_) => 3,
+                None => 0,
+            },
+        }
+    }
+}
+
+fn default_disc_number_padding() -> DiscNumberPadding {
+    DiscNumberPadding::Auto
+}
+
 // ============================================================
 // Duplicate Detection (#510)
 // ============================================================
@@ -975,6 +1071,21 @@ pub struct AppSettings {
     /// Default: `"Playlists/{playlist_artist}/{playlist_title}"`.
     pub playlist_file_template: String,
 
+    /// User-configurable zero-padding width for `{track}` placeholders
+    /// (#587). `Auto` (the default) derives the width from the album's
+    /// `track_total` at download time, producing sort-correct filenames
+    /// for albums of any size. Fixed widths available for users who want
+    /// uniform padding across their entire library.
+    #[serde(default = "default_track_number_padding")]
+    pub track_number_padding: TrackNumberPadding,
+
+    /// User-configurable zero-padding width for `{disc}` placeholders
+    /// (#587). Mirrors `track_number_padding` but scoped to disc
+    /// numbers. `Auto` (the default) keeps the pre-#587 unpadded
+    /// format for the common <10-disc case.
+    #[serde(default = "default_disc_number_padding")]
+    pub disc_number_padding: DiscNumberPadding,
+
     // ================================================================
     // Tool Paths (None = use managed/bundled tools)
     // ================================================================
@@ -1565,6 +1676,8 @@ impl Default for AppSettings {
             multi_disc_file_template: "{disc}-{track:02d} {title}".to_string(),
             no_album_file_template: "{title}".to_string(),
             playlist_file_template: "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".to_string(),
+            track_number_padding: TrackNumberPadding::Auto,
+            disc_number_padding: DiscNumberPadding::Auto,
 
             // --- Tool paths ---
             // All None = use managed (auto-installed) tools from the app's

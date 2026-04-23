@@ -2079,6 +2079,53 @@ impl DownloadQueue {
 /// The resulting `GamdlOptions` struct is what actually gets passed to
 /// `gamdl_service::build_gamdl_command_public()` to construct the CLI command.
 #[allow(clippy::field_reassign_with_default)]
+/// Inject zero-padding into bare `{track}` / `{disc}` placeholders (#587).
+///
+/// Takes a user-provided filename template and rewrites any bare
+/// `{track}` / `{disc}` token to `{track:{width}d}` / `{disc:{width}d}`
+/// using the caller's preferred padding widths. Tokens that already
+/// carry an explicit format spec (`{track:02d}`, `{disc:02d}`,
+/// `{track:!s}`, etc.) are left untouched — the user's explicit
+/// template always wins. Case-sensitive: `{Track}` is not recognised.
+///
+/// `track_width` / `disc_width` of 0 means "no padding" (emit bare
+/// `{track}` / `{disc}`), so the Python-style format spec becomes the
+/// unpadded placeholder rather than `{track:0d}` which would produce
+/// garbage output.
+///
+/// Extracted as a pure function so it can be exercised by unit tests
+/// without a full settings/queue setup.
+#[must_use]
+fn apply_padding_to_template(template: &str, track_width: usize, disc_width: usize) -> String {
+    // Regex-free implementation: walk the string, find literal `{track}`
+    // and `{disc}` substrings (no format spec after the name), replace
+    // in-place. Robust against tokens that appear multiple times in one
+    // template (e.g. `{artist} - {track} of {track_total}` — only
+    // `{track}` is substituted; `{track_total}` stays untouched because
+    // we match the exact bare form).
+    let track_replacement = if track_width == 0 {
+        "{track}".to_string()
+    } else {
+        format!("{{track:0{track_width}d}}")
+    };
+    let disc_replacement = if disc_width == 0 {
+        "{disc}".to_string()
+    } else {
+        format!("{{disc:0{disc_width}d}}")
+    };
+    // Only substitute when the bare form is what's in the template.
+    // Ordering: track first, since `{track}` is lexically a superset of
+    // nothing that would interfere with `{disc}` processing.
+    let after_track = template.replace("{track}", &track_replacement);
+    after_track.replace("{disc}", &disc_replacement)
+}
+
+// Large builder-style function: assigns ~50 `GamdlOptions` fields in
+// layered order (global settings → computed per-download adjustments →
+// per-download overrides). Rewriting as a single struct literal per
+// clippy's suggestion would produce a 400-line initialiser and bury
+// the layered-assignment logic that makes the merge order readable.
+#[allow(clippy::field_reassign_with_default)]
 fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
     let mut options = GamdlOptions::default();
 
@@ -2099,8 +2146,23 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.album_folder_template = Some(settings.album_folder_template.clone());
     options.compilation_folder_template = Some(settings.compilation_folder_template.clone());
     options.no_album_folder_template = Some(settings.no_album_folder_template.clone());
-    options.single_disc_file_template = Some(settings.single_disc_file_template.clone());
-    options.multi_disc_file_template = Some(settings.multi_disc_file_template.clone());
+    // Apply user-configurable zero-padding (#587). Padding widths are
+    // derived from the user's settings; `resolve_width(None)` passes
+    // `None` because `track_total` / `disc_total` aren't known at merge
+    // time — they come from the Apple Music API prefetch later in the
+    // pipeline. `Auto` mode falls back to pre-#587 defaults in that
+    // case; fixed widths take effect immediately. See
+    // `apply_padding_to_template` for the substitution rules.
+    options.single_disc_file_template = Some(apply_padding_to_template(
+        &settings.single_disc_file_template,
+        settings.track_number_padding.resolve_width(None),
+        settings.disc_number_padding.resolve_width(None),
+    ));
+    options.multi_disc_file_template = Some(apply_padding_to_template(
+        &settings.multi_disc_file_template,
+        settings.track_number_padding.resolve_width(None),
+        settings.disc_number_padding.resolve_width(None),
+    ));
     options.no_album_file_template = Some(settings.no_album_file_template.clone());
     options.playlist_file_template = Some(settings.playlist_file_template.clone());
     options.use_wrapper = Some(settings.use_wrapper);
@@ -8051,6 +8113,80 @@ mod tests {
     use super::*;
     use crate::models::download::{DownloadRequest, DownloadState};
     use crate::models::gamdl_options::{GamdlOptions, SongCodec};
+    use crate::models::settings::{DiscNumberPadding, TrackNumberPadding};
+
+    // ----------------------------------------------------------
+    // Track / disc padding template mutation (#587)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn padding_leaves_explicit_format_spec_untouched() {
+        // User's explicit {track:02d} must take precedence over the
+        // padding setting — their template wins.
+        let out = apply_padding_to_template("{disc}-{track:02d} {title}", 3, 0);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn padding_substitutes_bare_track_token() {
+        let out = apply_padding_to_template("{track} {title}", 3, 0);
+        assert_eq!(out, "{track:03d} {title}");
+    }
+
+    #[test]
+    fn padding_substitutes_bare_disc_and_track_tokens() {
+        let out = apply_padding_to_template("{disc}-{track} {title}", 3, 2);
+        assert_eq!(out, "{disc:02d}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn padding_width_zero_emits_bare_placeholder() {
+        // `None` padding or 0-digit Auto shouldn't produce "{track:0d}"
+        // which would be a broken format spec.
+        let out = apply_padding_to_template("{track} {title}", 0, 0);
+        assert_eq!(out, "{track} {title}");
+    }
+
+    #[test]
+    fn padding_leaves_similar_but_distinct_tokens_alone() {
+        // `{track_total}` is a different placeholder — must not match
+        // the bare `{track}` substitution target.
+        let out = apply_padding_to_template("{track} of {track_total}", 2, 0);
+        assert_eq!(out, "{track:02d} of {track_total}");
+    }
+
+    #[test]
+    fn padding_auto_mode_derives_width_from_track_total() {
+        // Album of 200 tracks → 3 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(200)), 3);
+        // Album of 12 tracks → 2 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(12)), 2);
+        // Pathological 10 000-track dump → 4 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(10_000)), 4);
+        // No track_total known → safe default 2 digits (matches pre-#587).
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(None), 2);
+    }
+
+    #[test]
+    fn padding_fixed_modes_ignore_track_total() {
+        // Fixed settings are library-wide preferences; album size
+        // shouldn't alter them.
+        assert_eq!(TrackNumberPadding::None.resolve_width(Some(200)), 0);
+        assert_eq!(TrackNumberPadding::TwoDigits.resolve_width(Some(200)), 2);
+        assert_eq!(TrackNumberPadding::ThreeDigits.resolve_width(Some(5)), 3);
+        assert_eq!(TrackNumberPadding::FourDigits.resolve_width(None), 4);
+    }
+
+    #[test]
+    fn padding_disc_auto_mode_stays_unpadded_for_small_sets() {
+        // Most multi-disc albums are 2-3 discs; unpadded reads more
+        // naturally than `01-`, `02-`.
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(2)), 0);
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(9)), 0);
+        // 10+ disc box set → 2 digits needed for sort-correct listing.
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(10)), 2);
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(50)), 2);
+    }
 
     // ----------------------------------------------------------
     // Completion-task timeout scaling (#579)
