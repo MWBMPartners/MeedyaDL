@@ -625,11 +625,16 @@ fn find_deepest_audio_dir(
 
 /// Checks if the given directory directly contains audio files (non-recursive).
 /// Unlike `has_audio_files()`, this does NOT recurse into subdirectories.
+///
+/// Skips filesystem sidecars (macOS `._*` AppleDouble, `.DS_Store`,
+/// Windows `Thumbs.db`, etc.) via `fs_safe::is_filesystem_sidecar`
+/// so a directory containing only such sidecars reports `false` even
+/// if some of those sidecars end in audio-file extensions like `._track.m4a`.
 fn has_direct_audio_files(dir: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_file() && !crate::utils::fs_safe::is_filesystem_sidecar(&path) {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if ext.eq_ignore_ascii_case("m4a")
                         || ext.eq_ignore_ascii_case("m4v")
@@ -697,7 +702,7 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_file() && !crate::utils::fs_safe::is_filesystem_sidecar(&path) {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if ext.eq_ignore_ascii_case("m4a")
                         || ext.eq_ignore_ascii_case("m4v")
@@ -3248,8 +3253,11 @@ fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
     let mut audio = 0;
     let mut video = 0;
     for entry in entries.flatten() {
-        let ext = entry
-            .path()
+        let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
+        let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
