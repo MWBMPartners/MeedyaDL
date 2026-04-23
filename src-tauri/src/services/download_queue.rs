@@ -4238,6 +4238,17 @@ pub fn process_queue(
 
                 let settings = load_settings_for_queue(&app);
 
+                // Tell the user we're about to verify the prerequisites.
+                // The old wording ("Pre-flight checks passed") was flagged
+                // in #578 as jargon — even dev-literate users couldn't tell
+                // whether something had broken or succeeded. Emitting a
+                // user-facing "Checking..." line before the result gives
+                // the activity log a clear question-and-answer shape.
+                emit_app_log(
+                    &app,
+                    "Checking internet connection, output folder, and account...",
+                );
+
                 // Run internet + wrapper checks concurrently (both are HTTP GETs)
                 let internet_future =
                     crate::services::health_check_service::check_internet_connectivity();
@@ -4313,7 +4324,11 @@ pub fn process_queue(
                     if let Some(w) = warning {
                         any_warnings = true;
                         log::warn!("Pre-flight warning ({check:?}): {}", w.message);
-                        emit_app_log(&app, &format!("Pre-flight: {}", w.message));
+                        // Warnings keep the "Pre-flight:" prefix — the word
+                        // "warning" is more useful context than the technical
+                        // phrase on the all-OK path, and the preflight-warning
+                        // event below drives a user-visible toast regardless.
+                        emit_app_log(&app, &format!("Pre-flight warning: {}", w.message));
                         let _ = app.emit("preflight-warning", &w);
                     } else {
                         // Check passed — dismiss any stale toast for this check type
@@ -4324,7 +4339,18 @@ pub fn process_queue(
                     }
                 }
                 if !any_warnings {
-                    emit_app_log(&app, "Pre-flight checks passed");
+                    // Plain-English all-clear message (#578). Describes what
+                    // was verified and what happens next, so the user — dev
+                    // or otherwise — doesn't have to infer the outcome from
+                    // the phrase "Pre-flight checks passed". The explicit
+                    // enumeration of the three verified prerequisites matches
+                    // the "Checking..." line that fired at the start so the
+                    // activity-log pair reads as a coherent question-and-
+                    // answer.
+                    emit_app_log(
+                        &app,
+                        "Ready to download — internet, output folder, and account all verified",
+                    );
                 }
             }
         }
