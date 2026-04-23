@@ -2916,11 +2916,12 @@ async fn extract_music_video_subtitles_for_new_files(
 ///
 /// ## Filename-safety contract (#551)
 ///
-/// `services::filename_safety::GamdlFilenameSafety` exposes this and
-/// `MV_NO_ALBUM_FILE_TEMPLATE` as the engine's conforming fallback
-/// templates. If either constant changes, the
-/// `gamdl_templates_match_download_queue_constants` test in
-/// `filename_safety.rs` will fail — keeping both in lockstep.
+/// `services::filename_safety::GamdlMusicVideoFallback` mirrors this
+/// constant (and `MV_NO_ALBUM_FILE_TEMPLATE`) as string literals so the
+/// design-review checks can prove the engine's no-album fallback is
+/// collision-safe without dragging this module into the contract's
+/// compilation unit. If either constant changes, update the literals
+/// in `services/filename_safety.rs` too.
 ///
 /// ## Not reached by uploaded videos (#549)
 ///

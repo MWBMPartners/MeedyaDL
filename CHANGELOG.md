@@ -6,9 +6,38 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(filename-safety)** Engine filename-safety contract (#551)
+
+Design-review trait every new engine integration (votify, yt-dlp,
+  get_iplayer) is expected to implement. Four default conformance checks
+  catch the #527/#531/#537 class of bug: stable-ID-less filenames,
+  [Unknown]-sentinel folders, empty-metadata renders, same-filename dedup
+  collisions. Ships GAMDL's music-video fallback as the first conformance
+  example plus a reviewer checklist in DEV_NOTES.md.
+
+
+### 🐛 Bug Fixes
+
+- **(filename-safety)** Scope HashSet import to tests module
+
+clippy -D warnings rejected the top-level `use std::collections::HashSet`
+  because the type is only referenced inside `#[cfg(test)] mod tests`. Move
+  the import under the tests module to silence `unused_imports` without
+  touching runtime code.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Document lyrics sidecar overwrite behaviour (#550)
+
+Add intentional-generator note to DEV_NOTES.md and end-user warning to
+  help/lyrics-and-metadata.md. Sidecar writers (.lrc .srt .vtt .ass) and
+  the syllable-lyrics TTML upgrade path all overwrite unconditionally by
+  design; manual edits are not preserved across re-enrichment.
+
 - **(lyrics)** Document sidecar regeneration policy (#550)
 
 The four lyric/subtitle generators have non-uniform write behaviour:
@@ -34,6 +63,8 @@ The four lyric/subtitle generators have non-uniform write behaviour:
 
 ## Summary
 
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.40.1] - 2026-04-22
 

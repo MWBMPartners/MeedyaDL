@@ -1,657 +1,517 @@
 // Copyright (c) 2026 MeedyaDL
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Platform-agnostic filename safety contract (#551).
+// Engine filename-safety contract (#551).
+// =======================================
 //
-// This module codifies a design-time invariant that every engine
-// integration (GAMDL, votify, yt-dlp, get_iplayer, …) MUST satisfy:
-// the fallback / no-album filename template produces a non-empty,
-// unique output even when every other metadata field is missing.
+// A **design-review tool**, not a runtime guard. Every new download-engine
+// integration (votify / yt-dlp / get_iplayer / ...) is expected to
+// implement `FilenameSafetyContract` so that the review PR can demonstrate
+// — via compile-time `impl` and the unit tests below — that the engine's
+// default templates cannot reproduce the class of bug chased across the
+// Apple Music pipeline in #527 / #531 / #537:
 //
-// The contract is a design-review tool — it is NOT a runtime guard.
-// Runtime filename safety lives in `utils::fs_safe` (`safe_rename`,
-// `rename_if_dest_free`, `write_deduped`). The trait here exists so
-// we can prove at review time that a new engine's defaults cannot
-// reintroduce the class of bug tracked by #527 / #531 / #481, where
-// an empty `{title}` produced filenames like `-.mp4` and empty
-// `{album}` produced folders like `[Unknown]/`.
+//   - **Fallback filename consists only of punctuation** because every
+//     placeholder resolved to the empty string (the original `"{disc} - "`
+//     MV bug → `"-.mp4"`).
+//   - **Fallback folder path contains a literal `[Unknown]` or
+//     `Unknown Album` sentinel** as the entire path segment (silent
+//     collisions between two distinct unknown items).
+//   - **Two items with different stable IDs but identical metadata
+//     produce the same filename**, triggering `MediaFileExists` skips
+//     under `overwrite=false` with no user-visible warning.
 //
-// ## How to use
-//
-// When adding a new engine, implement `FilenameSafetyContract` for
-// it (or a marker struct next to the engine's CLI builder) and add
-// a unit test that calls `verify_contract(&YourImpl)`. The verifier
-// enforces four invariants:
-//
-// 1. `stable_unique_id_placeholder` is declared in
-//    `supported_placeholders`.
-// 2. `fallback_file_template` contains the stable unique ID
-//    placeholder (so the template is guaranteed to produce
-//    distinguishing output even with all other fields empty).
-// 3. `fallback_folder_template` is not a bare sentinel string like
-//    `"[Unknown]"` or `"Unknown Album"`.
-// 4. Neither template is the empty string.
-//
-// ## Parent
-//
-// - Issue: #551
-// - Umbrella: #487
+// The trait carries no runtime behaviour — it's a contract surfaced via
+// `impl` blocks and exercised by unit tests. Runtime enforcement remains
+// the job of `fs_safe.rs` and the #487 umbrella.
 
-use std::collections::HashSet;
-
-/// Placeholder syntax used by the engine's template renderer.
+/// Minimal tag set that every engine is expected to populate when
+/// rendering its fallback templates. All fields are `Option<&str>` so
+/// the contract can simulate the "every field is missing" failure mode
+/// without constructing full engine-specific tag structs.
 ///
-/// Different engines use different substitution conventions:
-/// - GAMDL / votify: `{name}` (curly braces)
-/// - yt-dlp: `%(name)s` (percent-parens)
-/// - get_iplayer: `<name>` (angle brackets)
-///
-/// The verifier uses this to construct the literal placeholder string
-/// it searches for inside the engine's fallback templates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaceholderSyntax {
-    /// `{name}` — GAMDL, votify.
-    CurlyBraces,
-    /// `%(name)s` — yt-dlp.
-    PercentParens,
-    /// `<name>` — get_iplayer.
-    AngleBrackets,
+/// Engines may internally carry richer tag objects; this struct is only
+/// what the contract's template-rendering assertions need.
+#[derive(Debug, Default, Clone)]
+pub struct FilenameTags<'a> {
+    /// Human-readable title (may be empty on API miss).
+    pub title: Option<&'a str>,
+    /// Primary artist (may be empty).
+    pub artist: Option<&'a str>,
+    /// Collection / album / show name (may be empty).
+    pub collection: Option<&'a str>,
+    /// Engine-stable unique ID for the item being rendered.
+    ///
+    /// This is the placeholder that carries the uniqueness guarantee
+    /// when every other field is empty. For Apple Music this is
+    /// `{title_id}` / `{album_id}` / `{playlist_id}`; for Spotify it
+    /// will be `{spotify_id}`; for YouTube `{id}`; for BBC iPlayer
+    /// `{pid}`. **Templates rendered without a stable ID placeholder
+    /// are the headline failure the contract exists to prevent.**
+    pub stable_id: Option<&'a str>,
 }
 
-impl PlaceholderSyntax {
-    /// Renders a bare placeholder name (no syntax) into the engine's
-    /// literal form — e.g. `render("title_id")` on `CurlyBraces`
-    /// returns `"{title_id}"`.
-    #[must_use]
-    pub fn render(self, placeholder_name: &str) -> String {
-        match self {
-            Self::CurlyBraces => format!("{{{placeholder_name}}}"),
-            Self::PercentParens => format!("%({placeholder_name})s"),
-            Self::AngleBrackets => format!("<{placeholder_name}>"),
-        }
-    }
-}
-
-/// The design-time safety contract every engine integration must
-/// satisfy. See module docs.
+/// Design-review contract every engine integration must satisfy BEFORE
+/// being wired into the download pipeline.
+///
+/// See module-level docs for the motivation and failure modes. See
+/// `DEV_NOTES.md` → "Engine Filename Safety Contract (#551)" for the
+/// human-facing review checklist.
 pub trait FilenameSafetyContract {
-    /// Engine identifier — matches the ID used in `engines.toml` and
-    /// `engine_runner::get_command_builder`.
+    /// Stable engine identifier, matching `engines.toml`.
     fn engine_id(&self) -> &str;
 
     /// Default filename template used when the engine has no album /
-    /// collection context (MV direct URLs, uploaded posts, sparse
-    /// API responses, etc.).
+    /// collection context to anchor the filename on.
     ///
-    /// **Must** contain the `stable_unique_id_placeholder` in the
-    /// engine's `placeholder_syntax` form, so the template produces
-    /// a unique non-empty output even when every other field is empty.
+    /// **Invariant**: the rendered filename MUST be guaranteed unique
+    /// across the engine's ID space for a given content type even when
+    /// every other metadata field is empty. The canonical way to
+    /// satisfy this is to reference the engine's stable unique ID
+    /// placeholder — `{title_id}` (Apple Music MVs), `{spotify_id}`
+    /// (Spotify), `{id}` (YouTube), `{pid}` (BBC iPlayer).
     fn fallback_file_template(&self) -> &str;
 
-    /// Default folder template for content without album context.
+    /// Default folder template used when the engine has no album /
+    /// collection context.
     ///
-    /// **Must not** be a bare sentinel string like `"[Unknown]"` or
-    /// `"Unknown Album"`. A safe default routes content under an
-    /// artist-scoped bucket (e.g. `"{artist}/Music Videos"`) so the
-    /// folder is stable and human-readable.
+    /// **Invariant**: MUST NOT consist of a single literal sentinel
+    /// (`[Unknown]`, `Unknown Album`, `(no album)`, ...) as the whole
+    /// segment. Route genuinely-unknown content to a stable, named
+    /// fallback folder (`{artist}/Music Videos/`, `{artist}/Singles/`,
+    /// `{channel}/`, `{programme_name}/`, ...) so two distinct unknown
+    /// items don't silently collide in the same directory.
     fn fallback_folder_template(&self) -> &str;
 
-    /// The placeholder name (without syntax) for the engine's stable
-    /// unique ID. Examples:
+    /// Placeholder names the engine's template renderer supports.
     ///
-    /// | Engine | Placeholder | Example value |
-    /// |---|---|---|
-    /// | GAMDL (Apple Music) | `title_id` | `1649434280` |
-    /// | votify (Spotify) | `spotify_id` | `7qiZfU4dY1lWllzX7mPBI3` |
-    /// | yt-dlp (YouTube) | `id` | `dQw4w9WgXcQ` |
-    /// | get_iplayer (BBC) | `pid` | `b00snr0w` |
-    ///
-    /// This ID **must** be present in the engine's API response for
-    /// every downloadable item — it's the primary key by definition.
-    /// If your engine has items without a stable ID, the contract
-    /// cannot guarantee uniqueness and the engine should not be
-    /// wired until that's resolved.
-    fn stable_unique_id_placeholder(&self) -> &str;
-
-    /// All placeholders this engine's template renderer recognises,
-    /// surfaced in the template builder UI so users can compose
-    /// their own templates with autocomplete.
+    /// Surfaced by the template-builder UI so users can discover which
+    /// variables are available per engine. Every name returned here
+    /// must be a valid `{name}` substitution in the engine's renderer.
     fn supported_placeholders(&self) -> &[&str];
 
-    /// Template syntax for this engine. Default: `CurlyBraces`
-    /// (matches GAMDL and votify).
-    fn placeholder_syntax(&self) -> PlaceholderSyntax {
-        PlaceholderSyntax::CurlyBraces
-    }
-}
+    /// Name of the stable-ID placeholder this engine's fallback file
+    /// template references, if any. Used by the `must_reference_stable_id`
+    /// conformance check.
+    ///
+    /// Returning `None` is a deliberate signal that the engine's fallback
+    /// template does NOT include a stable ID placeholder — the
+    /// conformance assertion will fail and force the reviewer to fix the
+    /// template.
+    fn stable_id_placeholder(&self) -> Option<&str>;
 
-/// Sentinel strings that must never appear as a complete
-/// `fallback_folder_template`. Each one is a literal path segment that
-/// degrades the user's library organisation by routing unrelated
-/// content into a single folder.
-const FORBIDDEN_FOLDER_SENTINELS: &[&str] = &[
-    "[Unknown]",
-    "Unknown",
-    "Unknown Album",
-    "Unknown Artist",
-    "[Unknown]/[Unknown]",
-    "Unknown/Unknown",
-];
+    /// Renders the fallback file template against the provided tags.
+    ///
+    /// Implementations should substitute sensible fallback values for
+    /// missing fields (e.g. literal `"Unknown Title"` for a missing
+    /// `title`) rather than letting placeholders resolve to the empty
+    /// string. The trim-only-punctuation invariant below depends on
+    /// this contract.
+    fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String;
 
-/// Verifies a `FilenameSafetyContract` implementation against the
-/// four design invariants. Intended for unit tests in each engine's
-/// test module — any new engine integration should include
-/// `verify_contract(&YourImpl).unwrap()` in its test suite.
-///
-/// # Errors
-///
-/// Returns a human-readable diagnostic when any invariant is
-/// violated. The diagnostic always leads with the engine ID so
-/// failures in a multi-engine test report clearly.
-pub fn verify_contract(contract: &dyn FilenameSafetyContract) -> Result<(), String> {
-    let engine = contract.engine_id();
-    let file_tpl = contract.fallback_file_template();
-    let folder_tpl = contract.fallback_folder_template();
-    let id_placeholder = contract.stable_unique_id_placeholder();
-    let syntax = contract.placeholder_syntax();
-    let rendered_id = syntax.render(id_placeholder);
-    let supported: HashSet<&&str> = contract.supported_placeholders().iter().collect();
+    // ----------------------------------------------------------------
+    // Default-provided conformance checks (engines inherit these).
+    // Each corresponds to one item on the DEV_NOTES review checklist.
+    // ----------------------------------------------------------------
 
-    // Invariant 0: engine ID is non-empty (defensive).
-    if engine.is_empty() {
-        return Err("engine_id must not be empty".to_string());
-    }
-
-    // Invariant 1: templates are non-empty. Runs before the
-    // template-content checks below so an empty template produces a
-    // clear diagnostic rather than a confusing "does not contain …"
-    // error.
-    if file_tpl.is_empty() {
-        return Err(format!("[{engine}] fallback_file_template must not be empty"));
-    }
-    if folder_tpl.is_empty() {
-        return Err(format!("[{engine}] fallback_folder_template must not be empty"));
-    }
-
-    // Invariant 2: stable unique ID placeholder is declared in
-    // supported_placeholders. Prevents a refactor from silently
-    // dropping the ID from the autocomplete list while leaving it
-    // in the template.
-    if !supported.contains(&id_placeholder) {
-        return Err(format!(
-            "[{engine}] stable_unique_id_placeholder '{id_placeholder}' is not listed in supported_placeholders"
-        ));
-    }
-
-    // Invariant 3: fallback_file_template contains the stable
-    // unique ID in the engine's native syntax. This is the core
-    // uniqueness guarantee.
-    if !file_tpl.contains(&rendered_id) {
-        return Err(format!(
-            "[{engine}] fallback_file_template '{file_tpl}' does not contain '{rendered_id}' — uniqueness not guaranteed when other fields are empty (see #527)"
-        ));
-    }
-
-    // Invariant 4: fallback_folder_template is not a bare sentinel.
-    for &sentinel in FORBIDDEN_FOLDER_SENTINELS {
-        if folder_tpl == sentinel {
-            return Err(format!(
-                "[{engine}] fallback_folder_template '{folder_tpl}' is a forbidden sentinel (see #531) — route content under an artist-scoped bucket instead"
-            ));
+    /// Checklist item 1 — fallback file template includes the engine's
+    /// declared stable-ID placeholder.
+    fn must_reference_stable_id(&self) -> Result<(), FilenameSafetyViolation> {
+        let Some(placeholder) = self.stable_id_placeholder() else {
+            return Err(FilenameSafetyViolation::MissingStableId {
+                engine: self.engine_id().to_string(),
+            });
+        };
+        let needle = format!("{{{placeholder}}}");
+        if self.fallback_file_template().contains(&needle) {
+            Ok(())
+        } else {
+            Err(FilenameSafetyViolation::StableIdNotInTemplate {
+                engine: self.engine_id().to_string(),
+                placeholder: placeholder.to_string(),
+                template: self.fallback_file_template().to_string(),
+            })
         }
     }
 
-    Ok(())
+    /// Checklist item 2 — fallback folder template contains no literal
+    /// `[Unknown]` / `Unknown*` segment as the entire path.
+    fn must_not_be_unknown_sentinel(&self) -> Result<(), FilenameSafetyViolation> {
+        let template = self.fallback_folder_template().trim();
+        const FORBIDDEN: &[&str] = &[
+            "[Unknown]",
+            "Unknown",
+            "Unknown Album",
+            "Unknown Artist",
+            "(no album)",
+            "(unknown)",
+        ];
+        if FORBIDDEN.iter().any(|bad| template.eq_ignore_ascii_case(bad)) {
+            return Err(FilenameSafetyViolation::UnknownSentinelFolder {
+                engine: self.engine_id().to_string(),
+                template: template.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Checklist item 4 — rendering the fallback file template against a
+    /// fully-empty tag set still yields a filename that isn't pure
+    /// punctuation or whitespace.
+    fn must_survive_empty_metadata(&self) -> Result<(), FilenameSafetyViolation> {
+        let rendered = self.render_fallback_filename(&FilenameTags::default());
+        let meaningful = rendered
+            .chars()
+            .any(|c| c.is_alphanumeric() || !c.is_ascii());
+        if meaningful {
+            Ok(())
+        } else {
+            Err(FilenameSafetyViolation::EmptyRendered {
+                engine: self.engine_id().to_string(),
+                rendered,
+            })
+        }
+    }
+
+    /// Checklist item 5 — two items that differ ONLY in stable ID render
+    /// to different filenames. Guards the dedup path for same-title
+    /// re-releases (Clean/Explicit, remix, live, regional variants).
+    fn must_disambiguate_by_stable_id(&self) -> Result<(), FilenameSafetyViolation> {
+        let a = self.render_fallback_filename(&FilenameTags {
+            title: Some("Song"),
+            artist: Some("Artist"),
+            stable_id: Some("id-A"),
+            ..Default::default()
+        });
+        let b = self.render_fallback_filename(&FilenameTags {
+            title: Some("Song"),
+            artist: Some("Artist"),
+            stable_id: Some("id-B"),
+            ..Default::default()
+        });
+        if a != b {
+            Ok(())
+        } else {
+            Err(FilenameSafetyViolation::NoStableIdDisambiguation {
+                engine: self.engine_id().to_string(),
+                rendered: a,
+            })
+        }
+    }
+
+    /// Convenience: run every default conformance check and collect
+    /// every violation, not just the first.
+    fn run_all_checks(&self) -> Vec<FilenameSafetyViolation> {
+        let mut violations = Vec::new();
+        if let Err(v) = self.must_reference_stable_id() {
+            violations.push(v);
+        }
+        if let Err(v) = self.must_not_be_unknown_sentinel() {
+            violations.push(v);
+        }
+        if let Err(v) = self.must_survive_empty_metadata() {
+            violations.push(v);
+        }
+        if let Err(v) = self.must_disambiguate_by_stable_id() {
+            violations.push(v);
+        }
+        violations
+    }
 }
 
-// ============================================================
-// Conformance implementations
-// ============================================================
-
-/// GAMDL (Apple Music) — the reference implementation and the first
-/// engine to retrofit the contract.
+/// Structured violation produced by the default conformance checks.
 ///
-/// Tracks `MV_NO_ALBUM_FILE_TEMPLATE` and `MV_NO_ALBUM_FOLDER_TEMPLATE`
-/// in `services::download_queue` — if those constants change, this
-/// impl must change in lockstep (enforced by `gamdl_templates_match`
-/// test below).
-pub struct GamdlFilenameSafety;
+/// Printed by the unit tests on failure so the offending engine is
+/// identified in CI output without stepping through a debugger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilenameSafetyViolation {
+    /// Engine declared no stable-ID placeholder at all.
+    MissingStableId { engine: String },
+    /// Engine's declared stable-ID placeholder isn't referenced by the
+    /// fallback file template.
+    StableIdNotInTemplate {
+        engine: String,
+        placeholder: String,
+        template: String,
+    },
+    /// Fallback folder template is a literal `[Unknown]`-style sentinel.
+    UnknownSentinelFolder { engine: String, template: String },
+    /// Fallback file template rendered against empty tags produced a
+    /// filename with no alphanumeric content (pure punctuation).
+    EmptyRendered { engine: String, rendered: String },
+    /// Two items differing only in stable ID produced identical
+    /// filenames.
+    NoStableIdDisambiguation { engine: String, rendered: String },
+}
 
-impl FilenameSafetyContract for GamdlFilenameSafety {
+impl std::fmt::Display for FilenameSafetyViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingStableId { engine } => write!(
+                f,
+                "[{engine}] declares no stable-ID placeholder — fallback filenames cannot be disambiguated",
+            ),
+            Self::StableIdNotInTemplate {
+                engine,
+                placeholder,
+                template,
+            } => write!(
+                f,
+                "[{engine}] fallback file template {template:?} does not reference declared stable-ID placeholder {{{placeholder}}}",
+            ),
+            Self::UnknownSentinelFolder { engine, template } => write!(
+                f,
+                "[{engine}] fallback folder template {template:?} is a literal unknown-sentinel — route to a stable named folder instead",
+            ),
+            Self::EmptyRendered { engine, rendered } => write!(
+                f,
+                "[{engine}] fallback file template rendered to {rendered:?} against empty tags — no alphanumeric content",
+            ),
+            Self::NoStableIdDisambiguation { engine, rendered } => write!(
+                f,
+                "[{engine}] rendering two items that differ only in stable ID both produced {rendered:?}",
+            ),
+        }
+    }
+}
+
+// ====================================================================
+// First conformance example — GAMDL (Apple Music) music-video fallback
+// ====================================================================
+
+/// GAMDL's music-video fallback path (the original #527 / #531 / #537
+/// failure mode). The rest of the GAMDL pipeline anchors on
+/// `{album_folder_template}` + `{single_disc_file_template}` which
+/// already satisfy the contract via `{album}` + `{title}` + `{track}`;
+/// it's the no-album fallback where the hazard actually lived.
+pub struct GamdlMusicVideoFallback;
+
+impl FilenameSafetyContract for GamdlMusicVideoFallback {
     fn engine_id(&self) -> &str {
         "gamdl"
     }
 
     fn fallback_file_template(&self) -> &str {
-        // Matches `download_queue::MV_NO_ALBUM_FILE_TEMPLATE`.
-        // `{title_id}` is Apple's numeric MV / track ID, stable across
-        // re-downloads. Guarantees uniqueness even when `{title}` is
-        // empty or duplicated across releases.
+        // Mirrors `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue.rs`.
+        // Kept as a string literal here rather than importing the
+        // constant so this module has zero cross-module coupling —
+        // that way future engines can add their own conformance impls
+        // without dragging `download_queue` into the compilation unit.
         "{title} ({title_id})"
     }
 
     fn fallback_folder_template(&self) -> &str {
-        // Matches `download_queue::MV_NO_ALBUM_FOLDER_TEMPLATE`.
-        // `{artist}` scopes the bucket so different artists' MVs don't
-        // intermix; `Music Videos` is a predictable human-readable
-        // landing spot.
+        // Mirrors `MV_NO_ALBUM_FOLDER_TEMPLATE` in `download_queue.rs`.
         "{artist}/Music Videos"
     }
 
-    fn stable_unique_id_placeholder(&self) -> &str {
-        "title_id"
-    }
-
     fn supported_placeholders(&self) -> &[&str] {
-        // Mirrors the `TEMPLATE_VARIABLES` set in
-        // `src/lib/template-parser.ts`. Kept in sync manually —
-        // when adding a placeholder to the frontend builder, add it
-        // here too, and vice versa.
-        &[
-            "title",
-            "title_id",
-            "artist",
-            "album_artist",
-            "album",
-            "album_id",
-            "disc",
-            "disc_total",
-            "track",
-            "track_total",
-            "year",
-            "release_date",
-            "genre",
-            "composer",
-            "platform",
-            "playlist_artist",
-            "playlist_title",
-            "playlist_id",
-        ]
+        // Subset that the MV fallback path itself references. The full
+        // GAMDL placeholder set is documented in
+        // `src/lib/template-parser.ts::TEMPLATE_VARIABLES`.
+        &["artist", "title", "title_id"]
+    }
+
+    fn stable_id_placeholder(&self) -> Option<&str> {
+        Some("title_id")
+    }
+
+    fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String {
+        // Emulate GAMDL's substitution semantics: missing `{title}`
+        // falls back to the literal "Unknown Title" (matching the
+        // user-facing help copy) and missing `{title_id}` falls back
+        // to a deterministic `"no-id"` token. Any implementation that
+        // lets either placeholder resolve to the empty string would
+        // reproduce the #527 class of bug.
+        let title = tags.title.unwrap_or("Unknown Title");
+        let id = tags.stable_id.unwrap_or("no-id");
+        format!("{title} ({id})")
     }
 }
 
-/// Votify (Spotify) — stub for the planned M9 integration (#101).
-///
-/// Template values are placeholders based on the assumed Spotify
-/// track / episode ID. Must be reviewed and tightened when the votify
-/// engine is actually wired into `engine_runner::VotifyCommandBuilder`.
-/// The stub is here so the trait exists and the verifier exercises
-/// some non-GAMDL surface area before the integration begins.
-pub struct VotifyFilenameSafety;
-
-impl FilenameSafetyContract for VotifyFilenameSafety {
-    fn engine_id(&self) -> &str {
-        "votify"
-    }
-
-    fn fallback_file_template(&self) -> &str {
-        "{title} ({spotify_id})"
-    }
-
-    fn fallback_folder_template(&self) -> &str {
-        "{artist}/Unknown Release"
-    }
-
-    fn stable_unique_id_placeholder(&self) -> &str {
-        "spotify_id"
-    }
-
-    fn supported_placeholders(&self) -> &[&str] {
-        &[
-            "title",
-            "spotify_id",
-            "artist",
-            "album",
-            "album_artist",
-            "track",
-            "disc",
-            "year",
-            "platform",
-        ]
-    }
-}
-
-/// yt-dlp (YouTube, YouTube Music, shared by BBC iPlayer fallback) —
-/// stub for the planned M10 integration (#103, #104).
-///
-/// yt-dlp uses `%(name)s` placeholder syntax, which the verifier
-/// handles via `PlaceholderSyntax::PercentParens`. The fallback
-/// templates here are chosen to satisfy the contract with the video
-/// `id` as the uniqueness anchor — yt-dlp guarantees every downloadable
-/// item has an 11-character video ID.
-pub struct YtdlpFilenameSafety;
-
-impl FilenameSafetyContract for YtdlpFilenameSafety {
-    fn engine_id(&self) -> &str {
-        "ytdlp"
-    }
-
-    fn fallback_file_template(&self) -> &str {
-        "%(title)s (%(id)s)"
-    }
-
-    fn fallback_folder_template(&self) -> &str {
-        "%(uploader)s/Videos"
-    }
-
-    fn stable_unique_id_placeholder(&self) -> &str {
-        "id"
-    }
-
-    fn supported_placeholders(&self) -> &[&str] {
-        &[
-            "id",
-            "title",
-            "uploader",
-            "channel",
-            "uploader_id",
-            "upload_date",
-            "duration",
-            "ext",
-            "platform",
-        ]
-    }
-
-    fn placeholder_syntax(&self) -> PlaceholderSyntax {
-        PlaceholderSyntax::PercentParens
-    }
-}
-
-/// get_iplayer (BBC iPlayer) — stub for the planned M8 integration
-/// (#102).
-///
-/// get_iplayer uses `<name>` placeholder syntax via its
-/// `--file-prefix` flag. BBC programme IDs (PIDs) are 8-character
-/// stable identifiers — the uniqueness anchor.
-pub struct GetIplayerFilenameSafety;
-
-impl FilenameSafetyContract for GetIplayerFilenameSafety {
-    fn engine_id(&self) -> &str {
-        "get_iplayer"
-    }
-
-    fn fallback_file_template(&self) -> &str {
-        "<name> (<pid>)"
-    }
-
-    fn fallback_folder_template(&self) -> &str {
-        "<channel>/iPlayer Downloads"
-    }
-
-    fn stable_unique_id_placeholder(&self) -> &str {
-        "pid"
-    }
-
-    fn supported_placeholders(&self) -> &[&str] {
-        &[
-            "pid",
-            "name",
-            "channel",
-            "category",
-            "series",
-            "episode",
-            "duration",
-            "firstbcast",
-            "platform",
-        ]
-    }
-
-    fn placeholder_syntax(&self) -> PlaceholderSyntax {
-        PlaceholderSyntax::AngleBrackets
-    }
-}
-
-/// Factory mirroring `engine_runner::get_command_builder`. Returns
-/// `None` for unknown engine IDs.
-#[must_use]
-pub fn get_filename_safety_contract(
-    engine_id: &str,
-) -> Option<Box<dyn FilenameSafetyContract + Send + Sync>> {
-    match engine_id {
-        "gamdl" => Some(Box::new(GamdlFilenameSafety)),
-        "votify" => Some(Box::new(VotifyFilenameSafety)),
-        "ytdlp" => Some(Box::new(YtdlpFilenameSafety)),
-        "get_iplayer" => Some(Box::new(GetIplayerFilenameSafety)),
-        _ => None,
-    }
-}
-
-// ============================================================
-// Tests
-// ============================================================
+// ====================================================================
+// Tests — the actual enforcement mechanism
+// ====================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
-    #[test]
-    fn placeholder_syntax_renders_curly_braces() {
-        assert_eq!(PlaceholderSyntax::CurlyBraces.render("title_id"), "{title_id}");
+    /// Every engine registered in the contract must pass every default
+    /// conformance check. Add new engines (votify / yt-dlp /
+    /// get_iplayer / ...) to this slice when they are wired.
+    fn registered_contracts() -> Vec<Box<dyn FilenameSafetyContract>> {
+        vec![Box::new(GamdlMusicVideoFallback)]
     }
 
     #[test]
-    fn placeholder_syntax_renders_percent_parens() {
-        assert_eq!(PlaceholderSyntax::PercentParens.render("id"), "%(id)s");
-    }
-
-    #[test]
-    fn placeholder_syntax_renders_angle_brackets() {
-        assert_eq!(PlaceholderSyntax::AngleBrackets.render("pid"), "<pid>");
-    }
-
-    // ---- Conformance: the four shipping / stub implementations ----
-
-    #[test]
-    fn gamdl_contract_verifies() {
-        verify_contract(&GamdlFilenameSafety).expect("GAMDL contract must verify");
-    }
-
-    #[test]
-    fn votify_contract_verifies() {
-        verify_contract(&VotifyFilenameSafety).expect("votify contract must verify");
-    }
-
-    #[test]
-    fn ytdlp_contract_verifies() {
-        verify_contract(&YtdlpFilenameSafety).expect("yt-dlp contract must verify");
-    }
-
-    #[test]
-    fn get_iplayer_contract_verifies() {
-        verify_contract(&GetIplayerFilenameSafety).expect("get_iplayer contract must verify");
-    }
-
-    // ---- Lockstep with download_queue constants ----
-
-    #[test]
-    fn gamdl_templates_match_download_queue_constants() {
-        // If the MV safety-net templates in download_queue.rs change,
-        // this test must be updated too — the contract documents the
-        // canonical templates and must not drift.
-        use crate::services::download_queue::{
-            MV_NO_ALBUM_FILE_TEMPLATE, MV_NO_ALBUM_FOLDER_TEMPLATE,
-        };
-        assert_eq!(
-            GamdlFilenameSafety.fallback_file_template(),
-            MV_NO_ALBUM_FILE_TEMPLATE,
-            "Gamdl FilenameSafetyContract diverged from MV_NO_ALBUM_FILE_TEMPLATE"
-        );
-        assert_eq!(
-            GamdlFilenameSafety.fallback_folder_template(),
-            MV_NO_ALBUM_FOLDER_TEMPLATE,
-            "Gamdl FilenameSafetyContract diverged from MV_NO_ALBUM_FOLDER_TEMPLATE"
-        );
-    }
-
-    // ---- Verifier rejects known failure modes ----
-
-    struct BadEngine {
-        engine_id: &'static str,
-        file_tpl: &'static str,
-        folder_tpl: &'static str,
-        id_ph: &'static str,
-        supported: &'static [&'static str],
-        syntax: PlaceholderSyntax,
-    }
-
-    impl FilenameSafetyContract for BadEngine {
-        fn engine_id(&self) -> &str {
-            self.engine_id
-        }
-        fn fallback_file_template(&self) -> &str {
-            self.file_tpl
-        }
-        fn fallback_folder_template(&self) -> &str {
-            self.folder_tpl
-        }
-        fn stable_unique_id_placeholder(&self) -> &str {
-            self.id_ph
-        }
-        fn supported_placeholders(&self) -> &[&str] {
-            self.supported
-        }
-        fn placeholder_syntax(&self) -> PlaceholderSyntax {
-            self.syntax
-        }
-    }
-
-    #[test]
-    fn verifier_rejects_missing_id_in_template() {
-        // This is the #527 root cause: template doesn't reference the
-        // unique ID, so empty {title} produces degenerate filenames.
-        let bad = BadEngine {
-            engine_id: "test-engine",
-            file_tpl: "{title}",
-            folder_tpl: "{artist}/Music Videos",
-            id_ph: "id",
-            supported: &["title", "id", "artist"],
-            syntax: PlaceholderSyntax::CurlyBraces,
-        };
-        let err = verify_contract(&bad).unwrap_err();
-        assert!(err.contains("does not contain '{id}'"), "err was: {err}");
-        assert!(err.contains("#527"), "diagnostic should cite the originating bug");
-    }
-
-    #[test]
-    fn verifier_rejects_bare_unknown_folder_sentinel() {
-        let bad = BadEngine {
-            engine_id: "test-engine",
-            file_tpl: "{title} ({id})",
-            folder_tpl: "[Unknown]",
-            id_ph: "id",
-            supported: &["title", "id"],
-            syntax: PlaceholderSyntax::CurlyBraces,
-        };
-        let err = verify_contract(&bad).unwrap_err();
-        assert!(err.contains("forbidden sentinel"), "err was: {err}");
-        assert!(err.contains("#531"), "diagnostic should cite the originating bug");
-    }
-
-    #[test]
-    fn verifier_rejects_undeclared_id_placeholder() {
-        let bad = BadEngine {
-            engine_id: "test-engine",
-            file_tpl: "{title} ({secret_id})",
-            folder_tpl: "{artist}/Videos",
-            id_ph: "secret_id",
-            supported: &["title", "artist"], // secret_id not listed
-            syntax: PlaceholderSyntax::CurlyBraces,
-        };
-        let err = verify_contract(&bad).unwrap_err();
+    fn gamdl_mv_fallback_conforms() {
+        let c = GamdlMusicVideoFallback;
+        let violations = c.run_all_checks();
         assert!(
-            err.contains("not listed in supported_placeholders"),
-            "err was: {err}"
+            violations.is_empty(),
+            "GamdlMusicVideoFallback failed conformance checks: {violations:?}",
         );
     }
 
     #[test]
-    fn verifier_rejects_empty_templates() {
-        let bad_file = BadEngine {
-            engine_id: "test-engine",
-            file_tpl: "",
-            folder_tpl: "{artist}/Videos",
-            id_ph: "id",
-            supported: &["id", "artist"],
-            syntax: PlaceholderSyntax::CurlyBraces,
-        };
-        assert!(verify_contract(&bad_file)
-            .unwrap_err()
-            .contains("fallback_file_template must not be empty"));
-
-        let bad_folder = BadEngine {
-            engine_id: "test-engine",
-            file_tpl: "{title} ({id})",
-            folder_tpl: "",
-            id_ph: "id",
-            supported: &["id", "title"],
-            syntax: PlaceholderSyntax::CurlyBraces,
-        };
-        assert!(verify_contract(&bad_folder)
-            .unwrap_err()
-            .contains("fallback_folder_template must not be empty"));
+    fn all_registered_contracts_conform() {
+        // Gatekeeper test — every engine in `registered_contracts()`
+        // must pass every default check. Adding a new engine that
+        // fails the checklist causes this to break the build.
+        for contract in registered_contracts() {
+            let violations = contract.run_all_checks();
+            assert!(
+                violations.is_empty(),
+                "engine {:?} failed filename-safety checks: {}",
+                contract.engine_id(),
+                violations
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
+        }
     }
 
     #[test]
-    fn verifier_rejects_bare_unknown_album_sentinel() {
-        let bad = BadEngine {
-            engine_id: "test-engine",
-            file_tpl: "{title} ({id})",
-            folder_tpl: "Unknown Album",
-            id_ph: "id",
-            supported: &["title", "id"],
-            syntax: PlaceholderSyntax::CurlyBraces,
-        };
-        assert!(verify_contract(&bad)
-            .unwrap_err()
-            .contains("forbidden sentinel"));
+    fn engine_ids_are_unique() {
+        // Two engines registering under the same `engine_id()` would
+        // silently shadow each other in the factory — catch it here.
+        let ids: HashSet<String> = registered_contracts()
+            .iter()
+            .map(|c| c.engine_id().to_string())
+            .collect();
+        assert_eq!(ids.len(), registered_contracts().len());
     }
 
-    // ---- Verifier accepts good non-CurlyBraces syntaxes ----
-
     #[test]
-    fn verifier_accepts_percent_parens_syntax() {
-        struct YtdlpOk;
-        impl FilenameSafetyContract for YtdlpOk {
+    fn contract_detects_missing_stable_id_placeholder() {
+        // Synthetic bad-actor engine that doesn't declare a stable ID —
+        // proves the contract rejects it rather than silently passing.
+        struct BadEngine;
+        impl FilenameSafetyContract for BadEngine {
             fn engine_id(&self) -> &str {
-                "ytdlp"
+                "bad"
             }
             fn fallback_file_template(&self) -> &str {
-                "%(title)s (%(id)s)"
+                "{title}"
             }
             fn fallback_folder_template(&self) -> &str {
-                "%(uploader)s/Videos"
-            }
-            fn stable_unique_id_placeholder(&self) -> &str {
-                "id"
+                "{artist}/Music Videos"
             }
             fn supported_placeholders(&self) -> &[&str] {
-                &["id", "title", "uploader"]
+                &["title", "artist"]
             }
-            fn placeholder_syntax(&self) -> PlaceholderSyntax {
-                PlaceholderSyntax::PercentParens
+            fn stable_id_placeholder(&self) -> Option<&str> {
+                None
+            }
+            fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String {
+                tags.title.unwrap_or("").to_string()
             }
         }
-        verify_contract(&YtdlpOk).expect("percent-parens verifier path should work");
+        let violations = BadEngine.run_all_checks();
+        assert!(violations.iter().any(|v| matches!(v, FilenameSafetyViolation::MissingStableId { .. })));
     }
 
     #[test]
-    fn factory_returns_correct_impls() {
-        assert!(get_filename_safety_contract("gamdl").is_some());
-        assert!(get_filename_safety_contract("votify").is_some());
-        assert!(get_filename_safety_contract("ytdlp").is_some());
-        assert!(get_filename_safety_contract("get_iplayer").is_some());
-        assert!(get_filename_safety_contract("nonexistent").is_none());
+    fn contract_detects_unknown_sentinel_folder() {
+        // Synthetic engine that routes unknown content to a literal
+        // `[Unknown]` folder — the exact pre-v2 GAMDL bug.
+        struct LegacyEngine;
+        impl FilenameSafetyContract for LegacyEngine {
+            fn engine_id(&self) -> &str {
+                "legacy"
+            }
+            fn fallback_file_template(&self) -> &str {
+                "{title} ({id})"
+            }
+            fn fallback_folder_template(&self) -> &str {
+                "[Unknown]"
+            }
+            fn supported_placeholders(&self) -> &[&str] {
+                &["title", "id"]
+            }
+            fn stable_id_placeholder(&self) -> Option<&str> {
+                Some("id")
+            }
+            fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String {
+                format!(
+                    "{} ({})",
+                    tags.title.unwrap_or("Unknown Title"),
+                    tags.stable_id.unwrap_or("no-id"),
+                )
+            }
+        }
+        let violations = LegacyEngine.run_all_checks();
+        assert!(violations
+            .iter()
+            .any(|v| matches!(v, FilenameSafetyViolation::UnknownSentinelFolder { .. })));
     }
 
     #[test]
-    fn factory_output_verifies_for_all_known_engines() {
-        for engine in ["gamdl", "votify", "ytdlp", "get_iplayer"] {
-            let contract = get_filename_safety_contract(engine).unwrap_or_else(|| {
-                panic!("missing contract for engine '{engine}'")
-            });
-            verify_contract(contract.as_ref()).unwrap_or_else(|e| {
-                panic!("contract for '{engine}' failed verification: {e}")
-            });
+    fn contract_detects_punctuation_only_filename() {
+        // Synthetic reproduction of the original #527 bug: the template
+        // was `"{disc} - "` and rendered to `"-.mp4"` because
+        // `{disc}` resolved to an empty string.
+        struct BugIssue527;
+        impl FilenameSafetyContract for BugIssue527 {
+            fn engine_id(&self) -> &str {
+                "bug-527"
+            }
+            fn fallback_file_template(&self) -> &str {
+                "{disc} - "
+            }
+            fn fallback_folder_template(&self) -> &str {
+                "{artist}/Music Videos"
+            }
+            fn supported_placeholders(&self) -> &[&str] {
+                &["disc"]
+            }
+            fn stable_id_placeholder(&self) -> Option<&str> {
+                Some("disc")
+            }
+            fn render_fallback_filename(&self, _tags: &FilenameTags<'_>) -> String {
+                // Deliberately model the bug: empty disc → " - "
+                " - ".to_string()
+            }
         }
+        let violations = BugIssue527.run_all_checks();
+        assert!(violations
+            .iter()
+            .any(|v| matches!(v, FilenameSafetyViolation::EmptyRendered { .. })));
+    }
+
+    #[test]
+    fn contract_detects_stable_id_not_disambiguating() {
+        // Synthetic engine that declares a stable-ID placeholder but
+        // doesn't actually substitute it during rendering.
+        struct IgnoresId;
+        impl FilenameSafetyContract for IgnoresId {
+            fn engine_id(&self) -> &str {
+                "ignores-id"
+            }
+            fn fallback_file_template(&self) -> &str {
+                "{title} ({id})"
+            }
+            fn fallback_folder_template(&self) -> &str {
+                "{artist}/Music Videos"
+            }
+            fn supported_placeholders(&self) -> &[&str] {
+                &["title", "id", "artist"]
+            }
+            fn stable_id_placeholder(&self) -> Option<&str> {
+                Some("id")
+            }
+            fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String {
+                // Bug: ignores the id field entirely.
+                tags.title.unwrap_or("Unknown Title").to_string()
+            }
+        }
+        let violations = IgnoresId.run_all_checks();
+        assert!(violations
+            .iter()
+            .any(|v| matches!(v, FilenameSafetyViolation::NoStableIdDisambiguation { .. })));
     }
 }

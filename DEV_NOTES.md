@@ -1443,6 +1443,20 @@ Enhanced LRC is always embedded via the native `©lyr` atom when `enhanced_lrc` 
 - `resolve_element_style(node, named_styles)` — Merge named + inline styles
 - `TtmlStyle { bold, italic, underline, color }` — Shared style struct
 
+### Sidecar Overwrite Behaviour (#550)
+
+All sidecar writers (`.lrc`, `.srt`, `.vtt`, `.ass`) unconditionally overwrite their target path on every enrichment run. This is **intentional, not a bug**:
+
+- `enhanced_lyrics_service.rs` writes `.lrc` via `std::fs::write()` (no existence check).
+- `rich_srt_service.rs` writes `.srt` via `std::fs::write()` — deliberately replaces any plain SRT that GAMDL wrote natively, because the rich variant carries styling tags (`<b>`, `<i>`, colour) that the plain SRT lacks.
+- `webvtt_service.rs` writes `.vtt` via `std::fs::write()`.
+- `ass_subtitle_service.rs` writes `.ass` via `std::fs::write()`.
+- The syllable-lyrics upgrade path in `download_queue.rs` also overwrites GAMDL's TTML with the richer `/syllable-lyrics` API response.
+
+The design assumption is that these services are pure generators: same source TTML + same renderer version produces byte-identical output, so overwriting is a no-op in the common case. **Manual edits to any of these sidecar files WILL be silently clobbered** the next time the item is enriched (re-download, quality upgrade, manifest re-import). If you need to preserve hand-tweaked lyrics, copy the edited sidecar out of the output directory before re-running.
+
+Follow-up work (content-hash skip, opt-in preservation flag, `.bak` backups) tracked in the Option B/C/D discussion on #550 — deliberately out of scope for the current design contract.
+
 ---
 
 ## Pre-Release vs Full Release Workflow
@@ -2095,6 +2109,56 @@ Returns "Too many requests. Please wait N seconds" when exceeded.
 On save: SHA-256 digest written to companion `settings.json.sha256` file.
 On load: digest verified. Mismatch logs a warning but settings are still loaded (user may have intentionally edited). Missing checksum file (pre-upgrade settings) is accepted and a checksum generated for next time.
 
+## Engine Filename Safety Contract (#551)
+
+A **design-review tool** — not a runtime guard. Every new download-engine integration (votify for Spotify, yt-dlp for YouTube, get_iplayer for BBC iPlayer, ...) is expected to implement `services::filename_safety::FilenameSafetyContract` in a companion `impl` block so that the review PR demonstrates compile-time + unit-test conformance to the invariants that #527 / #531 / #537 chased across the Apple Music pipeline.
+
+Runtime enforcement of safe paths remains the job of `utils/fs_safe.rs` and the #487 umbrella. This contract prevents the bug from *landing* in the first place.
+
+### Failure modes the contract guards against
+
+1. **Punctuation-only filename** — every template placeholder resolves to the empty string, so the final filename is something like `"-.mp4"` (the original #527 MV bug, where `no_album_file_template = "{disc} - "` rendered to `" - "` because `{disc}` was empty).
+2. **`[Unknown]`-sentinel folder** — unknown content gets routed to a literal folder called `[Unknown]` / `Unknown Album` / `(no album)`, silently colliding two distinct unknown items in one directory. Legacy pre-v2 GAMDL default.
+3. **Stable-ID-less dedup collision** — two items with different stable IDs (Clean/Explicit cuts of the same track, remix variants, regional re-releases) produce the same filename, triggering `MediaFileExists` skips under `overwrite=false` with no user-visible warning.
+
+### The trait
+
+```rust
+pub trait FilenameSafetyContract {
+    fn engine_id(&self) -> &str;
+    fn fallback_file_template(&self) -> &str;
+    fn fallback_folder_template(&self) -> &str;
+    fn supported_placeholders(&self) -> &[&str];
+    fn stable_id_placeholder(&self) -> Option<&str>;
+    fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String;
+
+    // Default-provided conformance checks (no per-engine override needed):
+    fn must_reference_stable_id(&self)       -> Result<(), FilenameSafetyViolation>;
+    fn must_not_be_unknown_sentinel(&self)   -> Result<(), FilenameSafetyViolation>;
+    fn must_survive_empty_metadata(&self)    -> Result<(), FilenameSafetyViolation>;
+    fn must_disambiguate_by_stable_id(&self) -> Result<(), FilenameSafetyViolation>;
+    fn run_all_checks(&self) -> Vec<FilenameSafetyViolation>;
+}
+```
+
+### Reviewer checklist — every new engine PR must tick all five
+
+- [ ] Fallback file template includes a stable-unique ID placeholder — `{title_id}` (Apple Music MVs), `{spotify_id}` (Spotify), `{id}` (YouTube), `{pid}` (BBC iPlayer).
+- [ ] Fallback folder template contains no literal `[Unknown]` / `Unknown Album` / `(no album)` segments as the entire path. Route unknown content to a stable named folder instead (`{artist}/Singles/`, `{channel}/`, `{programme_name}/`, ...).
+- [ ] Template-builder UI (`src/lib/template-parser.ts::TEMPLATE_VARIABLES` + `TemplateBuilder.tsx`) exposes the engine's placeholders.
+- [ ] Engine's conformance `impl` is added to `registered_contracts()` in `services/filename_safety.rs::tests` so `all_registered_contracts_conform` covers it in CI.
+- [ ] Engine-specific regression test reproduces the "empty metadata" failure mode in a synthetic fixture (mirror the `GamdlMusicVideoFallback` example).
+
+### Canonical implementation example
+
+`services::filename_safety::GamdlMusicVideoFallback` — pairs with `MV_NO_ALBUM_FILE_TEMPLATE` / `MV_NO_ALBUM_FOLDER_TEMPLATE` in `services/download_queue.rs`. New engines should structure their `impl` the same way: mirror the runtime template constants as string literals inside the contract module to keep the safety-check module free of cross-module coupling.
+
+### Out of scope
+
+- **Runtime enforcement** — the contract does not abort a download when the invariant is violated. A failing conformance test breaks the build; a malformed runtime template (via user override of the default) is caught by `utils/fs_safe.rs`.
+- **Per-placeholder validation** — whether `{artist}` correctly resolves during rendering is the engine's own business; the contract only cares about the no-metadata failure mode.
+- **Forbidden-segment exhaustiveness** — the sentinel-check list (`[Unknown]`, `Unknown`, `(no album)`, ...) is deliberately short; extend it if a new legacy default surfaces, but don't let it become a style rulebook.
+
 ## Lyric Sidecar Regeneration Policy (#550)
 
 Lyric/subtitle generators run on every enrichment pass (first download, companion pass, retry, manifest re-import). The write policy is non-uniform today:
@@ -2110,40 +2174,3 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 
 **If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
-
-## Engine Integration Checklist (#551)
-
-Every new engine integration (votify / yt-dlp / get_iplayer / future
-additions) must satisfy the filename-safety contract in
-`src-tauri/src/services/filename_safety.rs` **before** the engine is
-wired into the user-visible download pipeline. The contract encodes
-the lesson of #527 / #531 / #481: an empty `{title}` must never
-produce `-.mp4`, and `{album}` empty must never route content into
-`[Unknown]/`.
-
-Reviewer checklist for engine-integration PRs:
-
-- [ ] **Fallback file template contains the stable-unique-ID placeholder.** Verified by `verify_contract()` in `filename_safety.rs`. GAMDL uses `{title_id}`, Spotify will use `{spotify_id}`, YouTube uses `%(id)s`, BBC iPlayer uses `<pid>`. The ID must be present in the engine's API response for every downloadable item.
-- [ ] **Fallback folder template is not a bare sentinel.** `[Unknown]`, `Unknown Album`, `Unknown Artist` as the entire path are rejected. Safe defaults scope under an artist-like bucket (e.g. `{artist}/Music Videos`, `%(uploader)s/Videos`, `<channel>/iPlayer Downloads`).
-- [ ] **Template builder UI exposes every placeholder** from `supported_placeholders()` so users composing custom templates get autocomplete and validation. The frontend side lives in `src/lib/template-parser.ts`.
-- [ ] **Unit test asserts `verify_contract(&YourFilenameSafety).is_ok()`** — add it to the engine's test module so CI catches regressions.
-- [ ] **Regression test for the empty-metadata failure mode**: synthesize a call where every tag except the stable ID is empty, render the fallback template, and assert the output contains the ID and is non-empty.
-- [ ] **Tie templates to the engine runner.** If the engine exposes runtime-configurable templates (e.g. votify `output_template`, yt-dlp `-o`, get_iplayer `--file-prefix`), document how the engine's command builder wires the user's configured template vs. the contract's fallback template.
-- [ ] **Lockstep test** where the engine has Rust constants mirroring TypeScript or TOML defaults (like GAMDL's `MV_NO_ALBUM_*_TEMPLATE`): add a test that asserts both sources match. See `gamdl_templates_match_download_queue_constants` in `filename_safety.rs` for the precedent.
-
-**Not enforced at runtime.** The contract is a design-review tool —
-the runtime filename safety layer is `utils::fs_safe`
-(`safe_rename`, `rename_if_dest_free`, `write_deduped`) which catches
-collisions when (despite the contract) a template produces a name
-that clashes with an existing file.
-
-**Adding a new engine?** Start with:
-1. Add `YourFilenameSafety` struct to `filename_safety.rs` with stub
-   template values and the four trait methods.
-2. Add a `verify_contract(&YourFilenameSafety)` test.
-3. Add a match arm for your engine ID in
-   `get_filename_safety_contract()`.
-4. When the engine is actually wired into
-   `engine_runner::get_command_builder()`, tighten the stub templates
-   to match the engine's real CLI syntax (GAMDL / votify curly braces,
-   yt-dlp `%(name)s`, get_iplayer `<name>`).

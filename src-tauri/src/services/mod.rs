@@ -393,16 +393,15 @@ pub mod duplicate_detector;
 /// `clear_old_logs()` in `lib.rs`.
 pub mod activity_log_writer;
 
-/// Platform-agnostic filename safety contract (#551).
+/// Engine filename-safety contract (#551).
 ///
-/// Design-time invariant checker that every engine integration
-/// (GAMDL, votify, yt-dlp, get_iplayer) must satisfy before being
-/// wired. Exposes the `FilenameSafetyContract` trait, a
-/// `verify_contract()` function, and conformance stubs for each
-/// engine. Prevents re-introduction of the empty-template class of
-/// bug tracked by #527 / #531 / #481 as new engines are added.
-///
-/// Not a runtime guard — runtime safety lives in `utils::fs_safe`.
+/// Design-review-only trait every new engine integration (votify,
+/// yt-dlp, get_iplayer, ...) is expected to implement. Default
+/// conformance checks prove each engine's no-album / no-collection
+/// fallback templates cannot reproduce the #527 / #531 / #537 class
+/// of bug (punctuation-only filenames, `[Unknown]`-sentinel folders,
+/// stable-ID-less dedup collisions). GAMDL's music-video fallback is
+/// bundled as the first conformance example.
 pub mod filename_safety;
 
 /// Only compiled in test mode (`cargo test`).
