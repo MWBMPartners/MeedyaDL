@@ -265,7 +265,7 @@ describe('non-geographic URLs (no storefront code)', () => {
  * test serves as a safety net against accidental typos in the labels.
  */
 describe('getContentTypeLabel', () => {
-  /** Exhaustively tests all seven content type variants */
+  /** Exhaustively tests all content type variants */
   it('returns correct labels for all content types', () => {
     expect(getContentTypeLabel('song')).toBe('Song');
     expect(getContentTypeLabel('album')).toBe('Album');
@@ -273,7 +273,56 @@ describe('getContentTypeLabel', () => {
     expect(getContentTypeLabel('music-video')).toBe('Music Video');
     expect(getContentTypeLabel('artist')).toBe('Artist');
     expect(getContentTypeLabel('library')).toBe('Library');
+    expect(getContentTypeLabel('recording')).toBe('Classical Recording');
     expect(getContentTypeLabel('unknown')).toBe('Unknown');
+  });
+});
+
+/*
+ * Apple Music Classical recording URLs — see url-parser.ts for the path
+ * shape documentation. The parser must:
+ *   1. Recognise the content type as `recording` (so the UI can show a
+ *      specific "use the album URL instead" message rather than the
+ *      generic "invalid URL" error).
+ *   2. Mark `isValid: false` (so the submit button stays disabled and
+ *      the UI doesn't pass the URL downstream — GAMDL's URL vocabulary
+ *      doesn't include `/recording/` paths).
+ */
+describe('parseAppleMusicUrl - classical recording URLs', () => {
+  it('classifies recording URLs as `recording` content type', () => {
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808'
+    );
+    expect(result.contentType).toBe('recording');
+  });
+
+  it('marks recording URLs as NOT submittable', () => {
+    // This is the critical guard — even though the URL is recognised as
+    // Apple Music, it cannot be downloaded yet.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808'
+    );
+    expect(result.isValid).toBe(false);
+  });
+
+  it('classifies recording URL with locale query param', () => {
+    // Real-world URL shape from Apple Music Classical Share → Copy Link,
+    // captured 2026-04-23.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB'
+    );
+    expect(result.contentType).toBe('recording');
+    expect(result.isValid).toBe(false);
+  });
+
+  it('does not misclassify album URLs as recordings', () => {
+    // Regression canary — `/album/` URLs must NOT accidentally hit the
+    // `recording` branch if someone refactors the detection order.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/album/1844602145'
+    );
+    expect(result.contentType).toBe('album');
+    expect(result.isValid).toBe(true);
   });
 });
 
