@@ -37,16 +37,27 @@ all-features = true
 # @see https://embarkstudios.github.io/cargo-deny/checks/advisories.html
 # @see https://github.com/RustSec/advisory-db
 [advisories]
-# Ignore unmaintained crate advisories that come from Tauri's transitive
-# dependencies. Tauri 2.x still uses GTK3 bindings on Linux, which the gtk-rs
-# team has archived in favour of gtk4-rs. These are outside our control and
-# will be resolved when Tauri migrates to GTK4. Similarly, several other
-# unmaintained crates (derivative, fxhash, instant, proc-macro-error, unic-*)
-# are transitive dependencies from Tauri, tao, or wry that we cannot update
-# independently.
+# Ignore policy — two narrow carve-outs:
 #
-# All entries below are "unmaintained" advisories (not security vulnerabilities).
-# If a genuine security vulnerability appears, it will NOT be ignored.
+#   (a) Unmaintained-crate advisories that come from Tauri's transitive
+#       dependencies. Tauri 2.x still uses GTK3 bindings on Linux, which
+#       the gtk-rs team has archived in favour of gtk4-rs. These are
+#       outside our control and will be resolved when Tauri migrates to
+#       GTK4. Similarly, several other unmaintained crates (derivative,
+#       fxhash, instant, proc-macro-error, unic-*) are transitive
+#       dependencies from Tauri, tao, or wry that we cannot update
+#       independently.
+#
+#   (b) Security advisories whose vulnerable code path is demonstrably
+#       unreachable in MeedyaDL's build/runtime AND that are tracked
+#       upstream (Tauri or the intermediate crate) for permanent fix.
+#       Each (b) entry MUST cite (i) the specific trigger conditions
+#       from the advisory that do not apply to our usage, (ii) an
+#       internal tracker issue, and (iii) the upstream tracker once
+#       filed. An (b) entry without all three is not acceptable.
+#
+# If a genuine security vulnerability with a reachable code path
+# appears, it will NOT be ignored — fix it, don't hide it.
 ignore = [
     # GTK3 bindings (Tauri Linux dependency — awaiting Tauri GTK4 migration)
     "RUSTSEC-2024-0411", # cairo-rs — unmaintained
@@ -75,6 +86,26 @@ ignore = [
 
     # paste — unmaintained (transitive dependency from lofty, used for ReplayGain tagging)
     "RUSTSEC-2024-0436", # paste — unmaintained (archived by dtolnay, no security issue)
+
+    # Security advisories with demonstrably unreachable code paths (carve-out
+    # (b) in the policy comment above). Each entry MUST cite the specific
+    # advisory trigger conditions that do NOT apply to our usage, an internal
+    # tracker issue, and an upstream tracker URL.
+
+    # RUSTSEC-2026-0097 / GHSA-cq8v-f236-94qc — `rand 0.7.3` soundness.
+    # Chain: tauri-utils 2.8.3 → kuchikiki 0.8.8-speedreader → selectors 0.24.0
+    # → phf_codegen 0.8.0 → phf_generator 0.8.0 → rand 0.7.3 (build-only).
+    # Advisory trigger requires ALL of: `log` + `thread_rng` features; a
+    # custom `log::Log` implementation; that logger calls `rand::rng()` →
+    # `TryRng` on `ThreadRng`; ThreadRng reseeding during logger callback
+    # (every 64 kB of rand output); trace-level logging active. None of
+    # these conditions are met by `phf_codegen`'s build-time PHF-seeding
+    # use of `rand`. Shipping MeedyaDL binary does not link against
+    # `rand 0.7.3` (runtime uses rand 0.8.6 / 0.9.4 only). `rand 0.7.x`
+    # has no backported fix — patch requires 0.8 API. Internal tracker:
+    # #562. Upstream tracker: (to be filed against tauri-apps/tauri — see
+    # ready-to-paste template in #562 body).
+    "RUSTSEC-2026-0097", # rand — soundness; build-only, conditions not met (see #562)
 ]
 
 # ============================================================
