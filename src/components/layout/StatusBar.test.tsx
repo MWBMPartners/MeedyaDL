@@ -40,6 +40,7 @@ function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStat
     speed: null,
     eta: null,
     processing_label: null,
+  processing_progress: null,
     error: state === 'error' ? 'Test error' : null,
     output_path: state === 'complete' ? '/tmp/output' : null,
     codec_used: 'alac',

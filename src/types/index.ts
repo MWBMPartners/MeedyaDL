@@ -820,6 +820,15 @@ export interface QueueItemStatus {
   eta: string | null;
   /** Processing activity label (e.g., "Enriching metadata...", "Companion: ALAC 5/28") */
   processing_label: string | null;
+  /**
+   * Intra-Processing progress fraction in the range 0.0–1.0 (#576).
+   *
+   * Set by each enrichment stage at its start so the queue-level
+   * progress bar shows visible forward motion DURING the Processing
+   * state rather than a single 0→1 jump at completion. `null` when the
+   * item isn't in Processing state or when no stage has updated yet.
+   */
+  processing_progress: number | null;
   /** Error message if state is 'error', otherwise null */
   error: string | null;
   /** Output directory where files were saved, or null if not complete */
