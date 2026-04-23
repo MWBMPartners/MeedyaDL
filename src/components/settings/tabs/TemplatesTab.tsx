@@ -78,7 +78,7 @@ export function TemplatesTab() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* Template variable reference (useful when in raw edit mode) */}
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated">
         <h4 className="text-xs font-semibold text-content-primary mb-2">

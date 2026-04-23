@@ -895,7 +895,7 @@ export function CookiesTab() {
 
   /* ---- Render ---- */
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       <SettingsSection title="Authentication Cookies">
         {/* Status Badge */}
         <div className="flex items-center justify-between -mt-2 mb-2">
