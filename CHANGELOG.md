@@ -6,6 +6,184 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(parser)** Recognise Apple Music Classical `/recording/` URLs with helpful error
+
+Apple Music Classical's 2026 rollout introduced a new content type path
+  segment, `/recording/`, which identifies a specific performance of a
+  classical work (distinct from the album release that contains it).
+  Example URL shape from the Apple Music Classical app Share → Copy Link:
+
+    https://classical.music.apple.com/gb/recording/
+      gustav-mahler-1860-pp1-1452377808?l=en-GB
+
+  Previous behaviour: frontend `detectContentType()` did not recognise
+  `/recording/`, returned `'unknown'`, and the UI showed the generic red
+  error "Please enter a valid Apple Music URL" — no actionable guidance.
+
+  New behaviour: recording URLs are classified as a new content type,
+  `recording`. `parseAppleMusicUrl()` marks them `isValid: false` (since
+  GAMDL's URL vocabulary doesn't include `/recording/` paths, attempting
+  to download would hit the misleading-success bug documented in #567 /
+  #568). The DownloadForm shows a specific actionable message:
+
+    "Apple Music Classical *recording* URLs aren't supported yet. Open
+     the recording in Apple Music Classical, then use **Go to Album**
+     and share that URL instead."
+
+  Also adds `Classical Recording` label for display in the content-type
+  badge UI elements (`CONTENT_TYPE_LABELS`, `CONTENT_TYPE_ICONS`,
+  `getContentTypeLabel`).
+
+- **(parser)** Recognise Apple Music Classical `/recording/` URLs with helpful error message (#573)
+
+## Summary
+
+  Apple Music Classical's 2026 rollout introduced a new content type,
+  `/recording/`, which represents a specific performance of a classical
+  work (distinct from the album release that contains it). User
+  encountered it whilst collecting #547 audit data on 2026-04-23 — the URL
+  they pasted was:
+
+  ```
+  https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB
+  ```
+
+  **Current behaviour on `main`**: frontend `detectContentType()` doesn't
+  recognise `/recording/`, returns `'unknown'`, and the UI shows the
+  generic red error *"Please enter a valid Apple Music URL"* — no
+  actionable guidance.
+
+  **New behaviour with this PR**: recording URLs are classified as a new
+  content type, `recording`. `parseAppleMusicUrl()` marks them `isValid:
+  false` so the submit button stays disabled. The DownloadForm shows a
+  specific actionable message:
+
+  > *"Apple Music Classical **recording** URLs aren't supported yet. Open
+  the recording in Apple Music Classical, then use **Go to Album** and
+  share that URL instead."*
+
+  ## Why not pass to GAMDL and let it try?
+
+  GAMDL's URL regex vocabulary does not include `/recording/`. Attempting
+  to download would hit the exact misleading-success bug documented in
+  #567 / #568: GAMDL emits *"Could not parse URL, skipping"*, exits 0,
+  MeedyaDL's lyrics companion pipeline runs and claims success, but no
+  files land on disk. Frontend rejection with a helpful message is the
+  honest UX until we know how to handle recordings properly.
+
+  If we ever add a proper `/recording/` download pipeline (e.g. by
+  resolving recording → album via the Apple Music Catalog API and
+  rewriting the URL), flipping `isValid: true` re-enables submission — the
+  type system is already in place.
+
+  ## Changes
+
+  ### `src/types/index.ts`
+  Add `recording` to the `AppleMusicContentType` union.
+
+  ### `src/lib/url-parser.ts`
+  - `detectContentType()`: recognise `/recording/` path segment and return
+  `'recording'`.
+  - `parseAppleMusicUrl()`: new `isSubmittable` guard that excludes
+  `recording` (and still excludes `unknown`) from `isValid: true`.
+  Detailed docstring explaining why.
+  - `getContentTypeLabel()`: add `"Classical Recording"` label for the new
+  type.
+
+  ### `src/components/download/DownloadForm.tsx`
+  - `CONTENT_TYPE_ICONS` / `CONTENT_TYPE_LABELS` registries: add entries
+  for `recording`.
+  - Validation feedback block: when `urlContentType === 'recording'`, show
+  the specific actionable message; generic "Please enter a valid Apple
+  Music URL" still fires for truly unrecognised URLs.
+
+  ### `src/lib/url-parser.test.ts`
+  Four new tests in a dedicated `parseAppleMusicUrl - classical recording
+  URLs` describe block:
+
+  1. `classifies recording URLs as 'recording' content type`
+  2. `marks recording URLs as NOT submittable` (the critical guard)
+  3. `classifies recording URL with locale query param` (real-world shape,
+  `?l=en-GB`)
+  4. `does not misclassify album URLs as recordings` (regression canary
+  against detection-order mistakes)
+
+  Plus an extended assertion on the existing `getContentTypeLabel`
+  exhaustive test.
+
+  ## Backend parser — intentionally NOT touched
+
+  Recording URLs are blocked at the frontend now, so they never reach the
+  Rust side during normal flow. If a recording URL bypasses the frontend
+  (deep-link, drag-drop, manifest import), the existing `#549 catch-all
+  WARN` in `start_download` will flag it. Adding a backend regex branch
+  for `/recording/` would add complexity with no observed benefit —
+  keeping the surface small.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                   ✓ clean
+  npx vitest run url-parser      49 tests passed (45 existing + 4 new)
+  npx vitest run (all files)     303 tests passed across 19 files
+  ```
+
+  ## Risk
+
+  Very low. Purely additive frontend classification:
+
+  - Existing URL shapes still parse identically (unchanged detection
+  order; `/recording/` check inserted *after* the other 6 path-type
+  checks).
+  - No backend changes.
+  - New content type exclusion from `isValid` means one specific URL shape
+  is *rejected* rather than *accepted* — strictly safer than current
+  behaviour (which was also rejecting it, just with a worse message).
+
+  ## Test plan (post-merge)
+
+  - [ ] Paste the URL from the bug report — UI shows the specific "Go to
+  Album" message instead of "Please enter a valid Apple Music URL".
+  - [ ] Paste any `/album/` URL on `classical.music.apple.com` — still
+  works (no regression).
+  - [ ] Paste the recording URL with whitespace around it — still detected
+  and rejected correctly (trim still runs first).
+  - [ ] Unblocks #547 repro — users can now share-link to a recording, see
+  the helpful message, tap "Go to Album" in the app, and get the album URL
+  for the actual download.
+
+  ## Out of scope
+
+  - Downloading classical recordings. Separate future work; needs Apple
+  Music Catalog API investigation
+  (`/v1/catalog/{sf}/recordings/{id}?include=albums`?) to resolve
+  recording → album before GAMDL handoff.
+  - Other Classical-specific path segments (`/work/`, `/composer/`,
+  `/ensemble/`, `/conductor/`). These haven't appeared in the wild yet; if
+  they do, the #549 catch-all WARN will flag them and we can extend the
+  same pattern.
+
+  ## Related
+
+  - **#547** — manual repro blocked on this URL shape being unparseable;
+  clicking "Go to Album" per the new error message produces a URL that
+  works.
+  - **#567** — why we block at validator instead of passing through
+  (misleading-success bug).
+  - **#568** — similar rationale for rewriting iTunes URLs rather than
+  passing them raw.
+  - **#549** — catch-all WARN in `start_download` for any URL that
+  bypasses frontend validation.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.41.1] - 2026-04-23
+
 ### 🐛 Bug Fixes
 
 - **(parser)** Accept classical.music.apple.com + slug-less Share URLs
