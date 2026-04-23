@@ -181,6 +181,7 @@ Apple Music Classical's 2026 rollout introduced a new content type path
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.41.1] - 2026-04-23
 
