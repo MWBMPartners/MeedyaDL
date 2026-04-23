@@ -714,6 +714,60 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     count
 }
 
+/// Completion-task timeout scaled by the number of output files
+/// produced by the primary download (#579).
+///
+/// **Why a timeout exists in the first place** (#461): the completion
+/// task awaits the enrichment + companion `JoinHandle`s. If any stage
+/// deadlocks (e.g. an API client waiting on a response without its own
+/// timeout, a `Mutex` held by a dead task), the queue would stall
+/// forever. The timeout is a belt-and-braces safety net that force-
+/// completes the item after the deadline so the queue keeps moving.
+///
+/// **Why a fixed 10 minutes was too short** (#579): on a 200-track box
+/// set, each of ReplayGain / AcoustID / MusicBrainz iterates every
+/// file in the output directory at ~1–1.5 s per track. Total legitimate
+/// enrichment wall-clock time can exceed 15–20 min for large albums,
+/// triggering the original `Duration::from_secs(600)` mid-stage —
+/// marking the item "complete" with some tracks missing their tags.
+/// Captured live 2026-04-23 with *Complete Beethoven Piano Sonatas
+/// (Virtual Box Set)*, 200 tracks, `Enrichment timed out after 10
+/// minutes — marking complete` firing at ReplayGain analysis.
+///
+/// **Scaling formula**: base 10 min + 10 s per output file, capped at
+/// 4 h. The per-track slice covers the dominant per-track cost of
+/// ReplayGain + AcoustID (each ~1.5 s/track) plus per-track overhead
+/// of the subtitle generators with margin. The cap prevents a
+/// pathologically large directory from proposing an unbounded timeout.
+///
+/// | Track count | Scaled timeout |
+/// |---|---|
+/// | 0 (primary produced no files) | 10 min (but enrichment guard #567 should early-exit anyway) |
+/// | 12 (typical album) | 12 min |
+/// | 50 (double album / EP bundle) | ~18 min |
+/// | 200 (box set) | ~43 min |
+/// | 1000 (entire artist discography dump) | ~3 h |
+/// | > 1200 | capped at 4 h |
+///
+/// Extracted as a pure function so it can be exercised by unit tests
+/// without spinning up a completion task.
+fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
+    /// 10-minute base timeout (unchanged from #461's original design).
+    const BASE_SECS: u64 = 600;
+    /// Per-output-file slice. 10 s covers the dominant per-track cost of
+    /// ReplayGain + AcoustID + subtitle generation with margin.
+    const PER_TRACK_SECS: u64 = 10;
+    /// Absolute cap — refuses to propose a timeout above 4 h regardless
+    /// of how many files are in the directory. Protects against accidental
+    /// recursion into a user's full music library if the output-path
+    /// check ever mis-resolves.
+    const MAX_SECS: u64 = 4 * 3600;
+
+    let scaled = BASE_SECS.saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64));
+    let clamped = scaled.min(MAX_SECS);
+    std::time::Duration::from_secs(clamped)
+}
+
 // ============================================================
 // Manifest writer
 // ============================================================
@@ -5244,6 +5298,53 @@ pub fn process_queue(
                                 return;
                             }
 
+                            // Guard: skip the ENTIRE enrichment pipeline when the
+                            // primary download produced zero output files (#567).
+                            //
+                            // This happens in three observed scenarios:
+                            //   - GAMDL rejects the URL outright (e.g. legacy
+                            //     iTunes URLs, #548 before the #568 rewrite fix).
+                            //   - GAMDL's webplayback API returns an unexpected
+                            //     shape and every track errors (#546 library-URL
+                            //     case).
+                            //   - Mid-pipeline decryption / network truncation
+                            //     kills every track before any file lands.
+                            //
+                            // Without this guard, every enrichment stage (codec
+                            // detection, metadata tagging, lyrics conversion,
+                            // subtitle generation, ReplayGain, AcoustID,
+                            // MusicBrainz, MV companion lookup, artwork fetch,
+                            // advisory rename, manifest write — 20+ stages total)
+                            // iterates zero files and either no-ops silently or
+                            // emits a misleading "success" message. The most
+                            // visible offender historically was the lyrics
+                            // companion pipeline ("Lyrics companion (lrc)
+                            // downloaded" lines despite zero audio files) —
+                            // documented in #548 repro and broadened here to
+                            // cover every post-GAMDL enrichment stage.
+                            //
+                            // Uses recursive counting via `count_audio_files_in_directory`
+                            // so MV direct-URL downloads (which land deeper in
+                            // `{artist}/Music Videos/{title} ({title_id}).mp4`)
+                            // are correctly detected as "primary succeeded".
+                            {
+                                let dir_path = std::path::Path::new(&album_dir);
+                                let output_file_count =
+                                    count_audio_files_in_directory(dir_path);
+                                if output_file_count == 0 {
+                                    log::info!(
+                                        "Skipping enrichment for {} — primary download produced no output files",
+                                        enrich_dl_id,
+                                    );
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "Enrichment skipped — primary download produced no output files",
+                                    );
+                                    return;
+                                }
+                            }
+
                             // Log enrichment settings summary so users can see
                             // which steps will run in the Activity Log.
                             let enrich_settings = load_settings_for_queue(&enrich_app);
@@ -6492,45 +6593,90 @@ pub fn process_queue(
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
-                            // we force completion after 10 minutes to prevent the
-                            // queue from stalling indefinitely.
-                            // IMPORTANT: on timeout, abort() the task so it is actually
-                            // cancelled rather than merely detached (dropping a JoinHandle
-                            // detaches the task and lets it keep running, which can
-                            // reintroduce the cross-contamination this fix aims to prevent).
-                            let enrichment_timeout = std::time::Duration::from_secs(600);
+                            // we force completion after the deadline to prevent
+                            // the queue from stalling indefinitely.
+                            //
+                            // IMPORTANT: on timeout, abort() the task so it is
+                            // actually cancelled rather than merely detached
+                            // (dropping a JoinHandle detaches the task and lets
+                            // it keep running, which can reintroduce the
+                            // cross-contamination #461 was opened to prevent).
+                            //
+                            // The deadline scales with the number of output
+                            // files (#579): a 200-track box set legitimately
+                            // needs 15–20 min for ReplayGain + AcoustID + the
+                            // other per-track enrichment stages, and the fixed
+                            // 10 min from #461 was force-completing mid-
+                            // ReplayGain with tracks missing their tags.
+                            let output_path_for_timeout = {
+                                let q = completion_queue.lock().await;
+                                q.items
+                                    .iter()
+                                    .find(|i| i.status.id == completion_dl_id)
+                                    .and_then(|i| i.status.output_path.clone())
+                            };
+                            let track_count = output_path_for_timeout
+                                .as_deref()
+                                .map(std::path::Path::new)
+                                .map(|p| {
+                                    if p.is_dir() {
+                                        count_audio_files_in_directory(p)
+                                    } else {
+                                        // Single-file output (e.g. direct MV URL) —
+                                        // count its parent directory.
+                                        p.parent()
+                                            .map(count_audio_files_in_directory)
+                                            .unwrap_or(0)
+                                    }
+                                })
+                                .unwrap_or(0);
+                            let enrichment_timeout = compute_completion_timeout(track_count);
+                            let timeout_mins = enrichment_timeout.as_secs() / 60;
+                            log::info!(
+                                "Completion timeout for {}: {} min ({} track(s) in output)",
+                                completion_dl_id,
+                                timeout_mins,
+                                track_count,
+                            );
                             if let Some(mut handle) = enrichment_handle {
                                 if tokio::time::timeout(enrichment_timeout, &mut handle)
                                     .await
                                     .is_err()
                                 {
                                     log::warn!(
-                                        "Enrichment timed out after 10 minutes for {}",
-                                        completion_dl_id
+                                        "Enrichment timed out after {} minutes for {} ({} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags",
+                                        timeout_mins,
+                                        completion_dl_id,
+                                        track_count,
                                     );
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
-                                        "⚠ Enrichment timed out after 10 minutes — marking complete",
+                                        &format!(
+                                            "⚠ Enrichment timed out after {timeout_mins} minutes ({track_count} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags"
+                                        ),
                                     );
                                     handle.abort();
                                     let _ = handle.await;
                                 }
                             }
-                            // Wait for companion downloads with the same timeout
+                            // Wait for companion downloads with the same scaled timeout
                             if let Some(mut handle) = companion_handle {
                                 if tokio::time::timeout(enrichment_timeout, &mut handle)
                                     .await
                                     .is_err()
                                 {
                                     log::warn!(
-                                        "Companion downloads timed out after 10 minutes for {}",
-                                        completion_dl_id
+                                        "Companion downloads timed out after {} minutes for {}",
+                                        timeout_mins,
+                                        completion_dl_id,
                                     );
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
-                                        "⚠ Companion downloads timed out after 10 minutes — marking complete",
+                                        &format!(
+                                            "⚠ Companion downloads timed out after {timeout_mins} minutes — marking complete"
+                                        ),
                                     );
                                     handle.abort();
                                     let _ = handle.await;
@@ -7793,6 +7939,73 @@ mod tests {
     use super::*;
     use crate::models::download::{DownloadRequest, DownloadState};
     use crate::models::gamdl_options::{GamdlOptions, SongCodec};
+
+    // ----------------------------------------------------------
+    // Completion-task timeout scaling (#579)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_completion_timeout_small_album_gets_base() {
+        // Single-track single → should land just above the 10-minute base.
+        let t = compute_completion_timeout(1);
+        assert_eq!(t.as_secs(), 600 + 10);
+    }
+
+    #[test]
+    fn compute_completion_timeout_zero_tracks_is_exactly_base() {
+        // Shouldn't normally reach the timeout with zero tracks — the
+        // #567 enrichment guard short-circuits earlier — but if it does,
+        // the base still applies.
+        let t = compute_completion_timeout(0);
+        assert_eq!(t.as_secs(), 600);
+    }
+
+    #[test]
+    fn compute_completion_timeout_typical_album_under_15_minutes() {
+        // 12-track album — should stay under 15 min so small albums
+        // don't see a regression from the scaling.
+        let t = compute_completion_timeout(12);
+        assert_eq!(t.as_secs(), 600 + 120);
+        assert!(t.as_secs() / 60 < 15);
+    }
+
+    #[test]
+    fn compute_completion_timeout_box_set_accommodates_reality() {
+        // 200-track box set — the originating #579 case. Must give
+        // enough time for ReplayGain + AcoustID + MusicBrainz to complete
+        // on a 200-track directory at ~1.5 s per track per stage.
+        let t = compute_completion_timeout(200);
+        assert_eq!(t.as_secs(), 600 + 2000); // 43.3 min
+        assert!(t.as_secs() / 60 >= 40);
+    }
+
+    #[test]
+    fn compute_completion_timeout_caps_at_four_hours() {
+        // Pathologically large directories get capped so an accidental
+        // recursion into a full music library doesn't propose an
+        // unbounded deadline.
+        let t = compute_completion_timeout(100_000);
+        assert_eq!(t.as_secs(), 4 * 3600);
+    }
+
+    #[test]
+    fn compute_completion_timeout_saturates_on_usize_max() {
+        // usize::MAX must not overflow the internal arithmetic.
+        let t = compute_completion_timeout(usize::MAX);
+        assert_eq!(t.as_secs(), 4 * 3600);
+    }
+
+    #[test]
+    fn compute_completion_timeout_monotonic() {
+        // Scaling should never go backwards as track count rises.
+        let mut prev = compute_completion_timeout(0);
+        for n in (1..1000).step_by(37) {
+            let t = compute_completion_timeout(n);
+            assert!(t >= prev, "non-monotonic at n={n}: {t:?} vs prev {prev:?}");
+            prev = t;
+        }
+    }
+
     use crate::models::settings::AppSettings;
     use crate::utils::process::GamdlOutputEvent;
 
