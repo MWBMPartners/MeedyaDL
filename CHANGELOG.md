@@ -253,6 +253,7 @@ User feedback on 2026-04-23: the phrase was jargon-first — "even I (as
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.42.3] - 2026-04-23
 
