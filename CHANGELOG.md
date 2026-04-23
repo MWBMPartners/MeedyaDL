@@ -204,6 +204,7 @@ Apple Music Classical cross-work playlists hit a GAMDL upstream
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
