@@ -149,6 +149,7 @@ Apple migrated Apple Music Classical to the `classical.music.apple.com`
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
