@@ -147,6 +147,7 @@ const CONTENT_TYPE_ICONS: Record<AppleMusicContentType, typeof Music> = {
   'music-video': Video, // Music video URL
   artist: User, // Artist page URL
   library: Library, // Personal library URL
+  recording: Music, // Apple Music Classical recording (currently unsupported for download)
   unknown: HelpCircle, // Unrecognised or unparseable URL
 };
 
@@ -162,6 +163,7 @@ const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
   'music-video': 'Music Video',
   artist: 'Artist',
   library: 'Library',
+  recording: 'Classical Recording',
   unknown: 'Unknown',
 };
 
@@ -849,10 +851,19 @@ export function DownloadForm() {
 
           {/*
            * Validation feedback messages (mutually exclusive):
-           *  - Red error text when the input has text but URL is invalid.
+           *  - Specific error text for recognised-but-unsupported content types
+           *    (currently just `recording` — see url-parser.ts), so the user
+           *    gets actionable guidance rather than "your URL is invalid".
+           *  - Generic red error text when the input is recognised as Apple
+           *    Music but classifies as unknown.
            *  - Grey helper text when the input is empty (shows supported types).
            */}
-          {urlInput && !canSubmit && !isMultiUrl && (
+          {urlInput && !canSubmit && !isMultiUrl && urlContentType === 'recording' && (
+            <p className="text-xs text-status-error">
+              Apple Music Classical <em>recording</em> URLs aren't supported yet. Open the recording in Apple Music Classical, then use <strong>Go to Album</strong> and share that URL instead.
+            </p>
+          )}
+          {urlInput && !canSubmit && !isMultiUrl && urlContentType !== 'recording' && (
             <p className="text-xs text-status-error">Please enter a valid Apple Music URL</p>
           )}
           {urlInput && !canSubmit && isMultiUrl && (

@@ -1240,6 +1240,7 @@ export type AppleMusicContentType =
   | 'music-video'
   | 'artist'
   | 'library'
+  | 'recording'
   | 'unknown';
 
 /**

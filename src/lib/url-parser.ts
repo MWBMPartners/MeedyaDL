@@ -80,11 +80,22 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
   /* Step 3: Analyze the URL path to determine content type */
   const contentType = detectContentType(trimmed);
 
+  /*
+   * A URL is submittable only if we could classify it into a *downloadable*
+   * content type. `recording` is a new Apple Music Classical entity (a
+   * specific performance of a work) — recognised so the UI can show a
+   * specific actionable message, but NOT submittable because GAMDL's URL
+   * vocabulary doesn't yet include `/recording/` paths. Blocking the
+   * submit avoids the misleading-success UX bug documented in #548 / #567
+   * where an unparseable URL lands GAMDL at "Could not parse ..., skipping"
+   * while the activity log claims lyrics companions succeeded.
+   */
+  const isSubmittable = contentType !== 'unknown' && contentType !== 'recording';
+
   return {
     url: trimmed,
     contentType,
-    /* A URL is valid only if we could classify it into a known content type */
-    isValid: contentType !== 'unknown',
+    isValid: isSubmittable,
   };
 }
 
@@ -191,6 +202,24 @@ function detectContentType(url: string): AppleMusicContentType {
       return 'library';
     }
 
+    /*
+     * Apple Music Classical recording URLs (`classical.music.apple.com`).
+     * A "recording" is a specific performance of a classical work — e.g.
+     * Beethoven's 5th as performed by Karajan / Berliner Philharmoniker
+     * in 1977, distinct from the album release that contains it. The
+     * path shape is `/recording/{composer-year-piece}-{id}` (example:
+     * `/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB`).
+     *
+     * Recognised here so the UI can surface a specific "not yet
+     * supported — use the album URL instead" message rather than the
+     * generic "Please enter a valid Apple Music URL". Marked
+     * non-submittable in `parseAppleMusicUrl()` to block downloads —
+     * GAMDL's URL vocabulary does not include `/recording/` paths.
+     */
+    if (path.includes('/recording/')) {
+      return 'recording';
+    }
+
     /* No recognized content type path segment found */
     return 'unknown';
   } catch {
@@ -226,6 +255,8 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
       return 'Artist';
     case 'library':
       return 'Library';
+    case 'recording':
+      return 'Classical Recording';
     default:
       return 'Unknown';
   }
