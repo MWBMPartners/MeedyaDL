@@ -8,6 +8,244 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(progress-bar)** Intra-Processing progress fraction (#576)
+
+Queue-level progress bar now shows visible forward motion DURING the
+  enrichment phase, not a flat partial-credit value for 15–40 minutes
+  on large box sets. Complements #574 (per-item caption labels) — both
+  halves of the "RC polish for the download-progress surface" item land
+  together.
+
+  ### Backend
+
+  - `QueueItemStatus` gains `processing_progress: Option<f32>` (nullable,
+    serde-defaulted so old persistence files load unchanged).
+  - `DownloadQueue::set_processing_progress(dl_id, progress)` clamps to
+    [0.0, 1.0] and stores.
+  - New `PROGRESS_*_STAGE` constants near `compute_completion_timeout`
+    defining cumulative weights per enrichment stage (metadata 0.05,
+    word-lyrics 0.15, LRC conversion 0.25, animated artwork 0.40,
+    AcoustID 0.55, ReplayGain 0.75). Deliberately monotonic; rebalance
+    later as real-world timing data from #579 repros accumulates.
+  - `set_label` closure signature changes from `(label)` to
+    `(label, progress)`. All 7 existing call sites updated to pass the
+    corresponding stage weight. Each call still emits `queue-updated`
+    (shipped in #590) so the frontend refreshes in real time.
+
+  ### Frontend
+
+  - `QueueItemStatus` TS type gains `processing_progress: number | null`.
+  - `GlobalProgressBar.tsx` queue-level aggregation rewritten: instead
+    of counting `processing` items as a flat 1.0, it now sums the
+    weighted contribution per state:
+      - complete / error / cancelled → 1.0
+      - processing → `processing_progress ?? 0.5` (clamped)
+      - downloading / queued → 0.0
+    Integer "N of M complete" caption kept as-is (processing still
+    counts as "done" in the integer display; the fractional upgrade
+    only affects the bar fill).
+
+  ### Why processing_progress defaults to 0.5 when null
+
+  An item in `processing` state has produced its primary files (audio
+  on disk) but hasn't yet seen its first enrichment stage emit. 0.5 is
+  the same flat partial-credit value the pre-#576 UI showed; the
+  upgrade from 0.5 to the stage weight is additive, never regressive.
+
+  ### Test fixtures updated
+
+  - `src/stores/downloadStore.test.ts` — QueueItemStatus fixture.
+  - `src/components/layout/StatusBar.test.tsx` — QueueItemStatus fixture.
+  - 3 backend default-construction sites in models/download.rs
+    and 2 in services/download_queue.rs (MembershipFixture /
+    retry-insert / from_persisted).
+
+  ### Verified locally
+
+  - tsc --noEmit clean
+  - npx vitest run = 303 passed, 0 failed
+  - cargo clippy -- -D warnings clean
+  - cargo test --lib = 825 passed, 0 failed
+
+- **(naming)** User-configurable disc + track number padding (#587)
+
+Settings gain two new enums — `TrackNumberPadding` and `DiscNumberPadding`
+  — that control how bare `{track}` / `{disc}` tokens in filename templates
+  are padded with leading zeros. Closes #587's "I'd like more control over
+  padding" UX request from the #547 audit (100-track Beethoven box set
+  where track 100 sorted between 10 and 11 lexicographically).
+
+  ### Core change
+
+  - Two new enum settings (both default `Auto`):
+    - `TrackNumberPadding::{Auto, None, TwoDigits, ThreeDigits, FourDigits}`
+    - `DiscNumberPadding::{Auto, None, OneDigit, TwoDigits}`
+  - Both enums expose `resolve_width(total) -> usize` that returns the
+    number of padding digits for a given total. `Auto` derives width
+    from the album's `track_total` / `disc_total`; fixed modes ignore
+    the argument and return their constant width.
+  - New `apply_padding_to_template()` pure function in `download_queue.rs`
+    that rewrites bare `{track}` / `{disc}` placeholders to
+    `{track:{width}d}` / `{disc:{width}d}`. Tokens with an explicit
+    format spec (`{track:02d}`) are left untouched — the user's template
+    always wins. Similar-looking tokens like `{track_total}` are
+    correctly distinguished.
+  - `merge_options()` now applies the padding to `single_disc_file_template`
+    and `multi_disc_file_template` at merge time so GAMDL sees the
+    already-formatted template.
+
+  ### Defaults preserve existing behaviour
+
+  - `Auto` with no album metadata known yet → 2-digit track, 0-digit
+    disc. Matches pre-#587 `{track:02d}` / `{disc}-` exactly.
+  - Users who've customised their templates with explicit format specs
+    (`{track:03d}`) keep working identically — `apply_padding_to_template`
+    is a no-op on explicit specs.
+
+  ### Auto mode and album metadata
+
+  `merge_options()` runs before the Apple Music API prefetch returns
+  `track_total` / `disc_total`, so `Auto` currently resolves with
+  `None` → fallback defaults. Upgrading `Auto` to consult the actual
+  album totals (producing `001` for 200-track box sets, `01` for 12-track
+  albums) is a follow-up that requires threading the totals through the
+  pipeline. Fixed widths (`TwoDigits` / `ThreeDigits` / `FourDigits`)
+  take effect immediately for users who want library-wide consistency
+  without waiting for that follow-up.
+
+  ### Tests
+
+  Eight new unit tests in `download_queue::tests`:
+
+  - `padding_leaves_explicit_format_spec_untouched`
+  - `padding_substitutes_bare_track_token`
+  - `padding_substitutes_bare_disc_and_track_tokens`
+  - `padding_width_zero_emits_bare_placeholder`
+  - `padding_leaves_similar_but_distinct_tokens_alone` (e.g. `{track_total}`)
+  - `padding_auto_mode_derives_width_from_track_total`
+  - `padding_fixed_modes_ignore_track_total`
+  - `padding_disc_auto_mode_stays_unpadded_for_small_sets`
+
+  ### Out of scope
+
+  - Settings UI for the new controls (radio buttons / dropdowns). Backend
+    infrastructure ships first; UI follows in a separate PR so this one
+    stays reviewable.
+  - `Auto` mode reading real album metadata at enrichment time — requires
+    plumbing that isn't strictly necessary for the user's immediate ask
+    (fixed widths already solve the box-set problem).
+  - Settings migration bumping the default template to use `{track:03d}`
+    — left as a future micro-PR if it turns out users don't discover
+    the new setting.
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings clean (one narrowly-scoped allow on
+    merge_options itself for the field_reassign_with_default lint —
+    rewriting a 50-field builder function as a struct literal would
+    destroy its readability).
+  - cargo test --lib = 833 passed, 0 failed (8 new + 825 existing).
+
+
+### 🐛 Bug Fixes
+
+- **(errors)** Classify GAMDL playlist-title KeyError with actionable guidance (#588)
+
+Apple Music Classical cross-work playlists hit a GAMDL upstream
+  bug (#547 scenario 4 repro, 2026-04-23) where the playlist template
+  renderer unconditionally dereferences `kwargs["title"]` even when
+  the track's catalog entry lacks a `name` attribute, raising
+  `KeyError: 'title'` on every affected track. The error cascades
+  through GAMDL's async framework and lands in MeedyaDL's stderr
+  buffer as a Python traceback. Pre-#588 it was mis-classified as
+  `"unknown"` and the user saw only a generic "check the log" toast.
+
+  ### Fix
+
+  New classifier branch in `utils::process::classify_error`:
+  `is_playlist_title_keyerror(error_message)` matches the exact
+  signature (both the `KeyError: 'title'` string AND a GAMDL
+  playlist-renderer frame like `get_playlist_file_path` or
+  `downloader_base`) so unrelated `KeyError: 'title'` failures
+  don't false-positive as playlist bugs.
+
+  New `error_guidance` arm `"playlist_title_keyerror"` emits a
+  user-friendly message with:
+  - Specific framing ("this is a known upstream GAMDL limitation
+    with certain Apple Music Classical playlists").
+  - Actionable workaround ("try downloading the individual albums
+    instead").
+  - Upstream escalation link (https://github.com/glomatico/gamdl/issues).
+
+  ### Out of scope
+
+  - Fixing the upstream bug in GAMDL itself.
+  - Auto-retry or fallback to per-track downloads when the classifier
+    fires (separate follow-up if desired).
+  - MusicBrainz / Discogs playlist-title resolution as a workaround.
+
+  ### Tests
+
+  Three new unit tests in `utils::process`:
+  - `classifies_gamdl_playlist_title_keyerror` — canonical traceback
+    routes correctly.
+  - `classifies_unrelated_keyerror_title_as_unknown` — regression
+    canary: a `KeyError: 'title'` without a playlist-renderer frame
+    stays in "unknown".
+  - `playlist_keyerror_guidance_points_users_upstream` — validates
+    the user-visible message.
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings clean
+  - cargo test --lib utils::process = 68 passed (3 new + 65 existing)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(naming)** Multi-disc + padding interaction unit tests (#589)
+
+Adds seven unit tests covering the interaction between multi-disc
+  filename templates and the new #587 padding settings. Closes #589's
+  test-tracker ask now that the #587 infrastructure is in place.
+
+  Scenarios covered:
+
+  1. **Typical 2-disc album with Auto** — baseline: unpadded disc,
+     2-digit track.
+  2. **10-disc box set with Auto** — disc count ≥ 10 forces
+     2-digit disc padding so `10-01` sorts after `9-01` correctly.
+     The originating case from the #587 discussion.
+  3. **Deep classical box set (200 discs × 120 tracks each)** —
+     pathological Brilliant-Classics-style case. Auto correctly
+     produces 3-digit disc AND 3-digit track.
+  4. **User mixes fixed ThreeDigits track + Auto disc** — settings
+     can be independently configured; small-disc album with fixed
+     3-digit track produces `{disc}-{track:03d}`.
+  5. **User explicit `{disc:02d}` spec takes precedence** — regression
+     canary: user's explicit format always wins over the setting.
+  6. **Direct song URL (no album metadata)** — `None` passed to
+     `resolve_width` triggers Auto's safe default (2-digit track,
+     unpadded disc), matching pre-#587 behaviour.
+  7. **Compilation folder template with `{album_id}`** — padding
+     applies to tracks only; `{album_id}` and other non-track
+     placeholders are untouched.
+
+  ### Verified locally
+
+  - cargo test --lib services::download_queue::tests::multidisc = 7 passed
+  - cargo test --lib (full) = 843 passed, 0 failed (7 new + 836 existing)
+
+
+## [0.43.0] - 2026-04-23
+
+### ✨ Features
+
 - **(ux)** Add "Open folder" button alongside Browse in Diagnostics (#581)
 
 Settings → Advanced → Diagnostics → On-disk activity log location now
