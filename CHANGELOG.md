@@ -4,6 +4,227 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- **(progress-bar)** Emit queue-updated event on enrichment label changes (#574)
+
+The per-item progress bar kept showing `DOWNLOADING...Artist — Album — Track` for
+  the entire enrichment phase of a download, even though the backend was correctly
+  updating `processing_label` at every enrichment stage start (metadata, lyrics,
+  artwork, AcoustID, ReplayGain) via `set_processing_label()`.
+
+  ### Root cause
+
+  The frontend's `refreshQueue()` in App.tsx is only wired to lifecycle events —
+  `download-complete`, `download-error`, `download-queued`, `download-cancelled`.
+  There is no periodic poll of `get_queue_status()`. During enrichment, the backend
+  mutates `processing_label` on the queue item, but no lifecycle event fires, so
+  the frontend never re-fetches. The progress-bar caption stays locked on the
+  last known state (the final "DOWNLOADING..." from the primary GAMDL download)
+  until `download-complete` finally fires at the very end.
+
+  `GlobalProgressBar.tsx` already correctly reads `activeItem.processing_label`
+  and prioritises it over the download caption (line 278) — the labels just
+  never reach it.
+
+  ### Fix
+
+  Two changes, single commit:
+
+  1. **Backend** (`services/download_queue.rs`): the `set_label` closure in the
+     enrichment task now emits a `queue-updated` event after mutating the label.
+     Stage transitions are low-frequency (typically <15 per download); no
+     throttling needed.
+
+  2. **Frontend** (`App.tsx`): new `queue-updated` event listener that calls
+     `refreshQueue()`. The listener is registered alongside the existing
+     `download-queued` listener (similar pattern, same cleanup path).
+
+  ### Observable result
+
+  During the enrichment phase of a download, the progress-bar caption now cycles
+  through the existing labels in real time:
+    - "Enriching metadata tags..."
+    - "Fetching word-level lyrics..."
+    - "Converting lyrics (Enhanced LRC)..."
+    - "Downloading animated artwork..."
+    - "AcoustID fingerprinting..."
+    - "ReplayGain loudness analysis..."
+
+  Previously these were all invisible — the caption stayed on
+  "DOWNLOADING...{last track}" until `download-complete` fired.
+
+  ### Scope
+
+  This PR fixes only #574 (visible caption stagnation). **#576** (queue-level
+  partial progress — showing >0% while in Processing state) needs a separate
+  architectural change: a new `processing_progress: Option<f32>` field on
+  `QueueItemStatus`, new emit sites per stage, and a rewrite of
+  `GlobalProgressBar.tsx`'s queue-level aggregation to use it. Deferred to a
+  follow-up PR to keep this change tight.
+
+  ### Verified locally
+
+  - tsc --noEmit clean
+  - npx vitest run = 303 tests passed across 19 files
+  - cargo clippy -- -D warnings clean
+
+- **(progress-bar)** Emit queue-updated event so enrichment labels reach the UI (#574) (#590)
+
+## Summary
+
+  Closes **#574** — the per-item progress bar caption stagnating on
+  `DOWNLOADING...Artist — Album — Track` for the entire enrichment phase,
+  even though the backend was updating `processing_label` at every stage.
+
+  **Not** closing **#576** (queue-level partial progress during
+  enrichment) — that needs a larger architectural change I want to keep in
+  its own PR.
+
+  ## Root cause
+
+  `GlobalProgressBar.tsx` already reads `activeItem.processing_label`
+  correctly and prioritises it over the download caption (line 278). The 5
+  existing enrichment stages (metadata, word-lyrics, lyrics-conversion,
+  animated-artwork, AcoustID, ReplayGain) all call
+  `set_processing_label()` with human-readable strings.
+
+  **The labels weren't reaching the frontend.** `App.tsx`'s
+  `refreshQueue()` is only triggered by four lifecycle events
+  (`download-complete`, `download-error`, `download-queued`,
+  `download-cancelled`) — there's **no periodic poll** of
+  `get_queue_status()`. During enrichment, `set_processing_label()`
+  mutates backend queue state but emits no event, so the frontend never
+  re-fetches. The caption stays frozen on the last known state (the final
+  `DOWNLOADING...{last track}` from the primary GAMDL download) until
+  `download-complete` finally fires at the very end.
+
+  Captured live 2026-04-23 on a 200-track Beethoven box set, where
+  enrichment takes 20+ minutes and the user sees `DOWNLOADING...Piano
+  Sonata No. 32 in C Minor, Op. 111...` frozen for the entire time.
+
+  ## Fix
+
+  Two surgical changes, one commit:
+
+  ### Backend — `src-tauri/src/services/download_queue.rs`
+
+  The `set_label` closure in the enrichment task now emits a
+  `queue-updated` event after mutating the label:
+
+  ```rust
+  let label_app = enrich_app.clone();
+  let set_label = move |label: &str| {
+      if let Ok(mut q) = label_queue.try_lock() {
+          // ...existing label mutation...
+          q.set_processing_label(&label_dl_id, &full_label);
+      }
+      let _ = label_app.emit("queue-updated", &label_dl_id);
+  };
+  ```
+
+  Stage transitions are low-frequency (~5–15 per download, driven by
+  human-observable enrichment boundaries). No throttling needed.
+
+  ### Frontend — `src/App.tsx`
+
+  New `queue-updated` event listener alongside the existing four lifecycle
+  listeners:
+
+  ```typescript
+  unlistenQueueUpdated = await listen('queue-updated', () => {
+    try {
+      refreshQueue();
+    } catch (err) {
+      console.error('Error in queue-updated handler:', err);
+    }
+  });
+  ```
+
+  Declared, cleaned up, and registered using the exact same pattern as the
+  four existing unlisteners. Zero structural change to the listener setup.
+
+  ## Observable result
+
+  During enrichment, the progress-bar caption now cycles through the
+  existing labels in real time:
+
+  - "Enriching metadata tags..."
+  - "Fetching word-level lyrics..."
+  - "Converting lyrics (Enhanced LRC)..."
+  - "Downloading animated artwork..."
+  - "AcoustID fingerprinting..."
+  - "ReplayGain loudness analysis..."
+
+  Previously these were all invisible — the caption stayed on
+  `DOWNLOADING...{last track}` until `download-complete` fired 10–20
+  minutes later on large albums.
+
+  ## Out of scope (deferred to follow-up)
+
+  - **#576 queue-level partial progress** — the "0 of 1 complete, 0%"
+  screen caption from the same #547 repro. Needs: new
+  `processing_progress: Option<f32>` field on `QueueItemStatus`, per-stage
+  progress emit sites, rewrite of `GlobalProgressBar.tsx`'s queue-level
+  aggregation formula. Deferred to a follow-up PR because it changes data
+  model + a non-trivial fraction of the progress-bar rendering logic.
+  - **Labels for the 10+ enrichment stages that currently don't call
+  `set_label`** (lyrics fallback, WebVTT, Rich SRT, ASS, subtitle embed,
+  artist promo, BPM, MV companion discovery, MusicBrainz, advisory rename,
+  cover rename, manifest write). Each would be a one-line addition but
+  proliferation of call sites is best done alongside the #576 work where
+  the stage taxonomy gets consolidated into a single source of truth.
+  - **"ENRICHMENT..." prefix** proposed in #574 body. Current labels are
+  already self-descriptive (`"ReplayGain loudness analysis..."`);
+  prefixing would add noise. If desired, trivial follow-up — prepend in
+  `GlobalProgressBar.tsx` when `activeItem.state === 'processing'`.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                 ✓ clean
+  npx vitest run (all files)   303 tests passed across 19 files
+  cargo clippy -- -D warnings  ✓ clean
+  ```
+
+  ## Risk
+
+  Low. Backend change is an additive `app.emit()` call inside an existing
+  closure; errors non-fatal (swallowed with `let _ =`). Frontend change is
+  an additive listener following the existing four-listener pattern
+  exactly. No data model changes, no migration, no behavioural change
+  beyond the intended one.
+
+  ## Test plan (post-merge)
+
+  - [ ] Download a typical album. During enrichment phase, progress-bar
+  caption should transition through the stage labels ("Enriching metadata
+  tags..." → "AcoustID fingerprinting..." → "ReplayGain loudness
+  analysis..."). No more frozen-on-DOWNLOADING.
+  - [ ] Download a large box set (e.g. #547's 100-track Beethoven). Over
+  ~15 minutes of enrichment, the caption visibly changes at each stage
+  boundary.
+  - [ ] Cancel a download mid-enrichment. No spurious events, no memory
+  leaks (listener cleaned up on unmount via existing pattern).
+  - [ ] Queue with multiple items. Each item's enrichment updates only its
+  own caption; queue progress-bar unaffected (that's #576 territory).
+
+  ## Related
+
+  - **#574** — this PR closes it.
+  - **#576** — separate follow-up for queue-level partial progress.
+  - **#582** — recently-shipped empty-output guard + timeout scaling; also
+  lives in the completion-task area.
+  - **CLAUDE.md** — "Global progress bars" section documents the
+  `processing_label` infrastructure this PR finally makes visible.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
 ## [0.42.2] - 2026-04-23
 
 ### 🐛 Bug Fixes
