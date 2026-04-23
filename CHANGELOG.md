@@ -64,6 +64,7 @@ The four lyric/subtitle generators have non-uniform write behaviour:
 ## Summary
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.40.1] - 2026-04-22
 
