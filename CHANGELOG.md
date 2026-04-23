@@ -8,6 +8,70 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(enrichment)** Skip macOS AppleDouble + known filesystem sidecars in audio walkers (#577)
+
+When the user's output path is on a non-native filesystem (exFAT /
+  FAT32 / HFS on external drives, SMB / NFS shares), macOS creates
+  AppleDouble `._*` sidecar files alongside every real file to store
+  resource-fork metadata the underlying filesystem can't natively
+  represent. Similar sidecars exist on other platforms: `.DS_Store`,
+  `Thumbs.db` / `thumbs.db`, `desktop.ini`.
+
+  Every enrichment walker that iterates audio extensions was processing
+  these sidecars too — running ffprobe / MediaInfo / Chromaprint /
+  FFmpeg loudness analysis / mp4ameta on non-audio binaries, failing
+  noisily, and contributing hundreds of spurious warning lines to the
+  activity log on a large album. Captured live 2026-04-23 on a 200-track
+  Beethoven box set download to an exFAT USB drive.
+
+  ### Fix
+
+  New shared predicate `utils::fs_safe::is_filesystem_sidecar(path)`
+  returning `true` for:
+    - `._*` prefix (macOS AppleDouble — the dominant case)
+    - `.DS_Store` (macOS Finder metadata)
+    - `Thumbs.db` / `thumbs.db` (Windows thumbnail cache)
+    - `desktop.ini` (Windows folder customisation)
+
+  Applied as a guard at every enrichment walker call site:
+
+    - `download_queue::has_direct_audio_files` — non-recursive check;
+      now ignores sidecars when deciding if a dir has "real" content.
+      Via inheritance, `find_deepest_audio_dir` gets the same filter.
+    - `download_queue::count_audio_files_in_directory` — recursive
+      counter used by the completion-task timeout (#579).
+    - `download_queue::count_media_files` — audio-vs-video split
+      counter.
+    - `acoustid_service::collect_m4a_recursive` — Chromaprint
+      fingerprinting walker.
+    - `replaygain_service::collect_audio_recursive` — FFmpeg loudness
+      walker.
+    - `metadata_tag_service::tag_directory_recursive` — mp4ameta atom
+      writer.
+    - `metadata_tag_service::collect_m4a_depth_limited` — codec
+      detection + API-tag injection walker (#452).
+
+  Seven new unit tests on the predicate lock in the positive cases
+  (`._track.m4a`, `.DS_Store`, `Thumbs.db`, `thumbs.db`, `desktop.ini`)
+  and the regression canaries (real audio files, files with legal
+  leading dots/underscores not misclassified, paths without basenames
+  return false).
+
+  ### Observable result
+
+  On a 100-track album download to an exFAT USB drive, the activity
+  log previously emitted ~100 `ffprobe failed for ._N - Title.m4a` +
+  MediaInfo fallback warnings during codec detection. After this fix:
+  zero. Bonus: faster enrichment (no wasted ffprobe subprocess spawns)
+  and less activity-log burst pressure (which complements the #575
+  virtualiser keying fix).
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings  ✓ clean
+  - cargo test --lib             825 passed, 0 failed (7 new sidecar
+    tests + inheritance through every existing walker test)
+
 - **(progress-bar)** Emit queue-updated event on enrichment label changes (#574)
 
 The per-item progress bar kept showing `DOWNLOADING...Artist — Album — Track` for
@@ -220,9 +284,51 @@ The per-item progress bar kept showing `DOWNLOADING...Artist — Album — Track
   - **CLAUDE.md** — "Global progress bars" section documents the
   `processing_label` infrastructure this PR finally makes visible.
 
+- **(enrichment)** Skip macOS AppleDouble + known filesystem sidecars in audio walkers (#577) (#591)
+
+## Summary
+
+  Closes **#577**. Every enrichment walker that iterates audio-file
+  extensions now skips filesystem sidecars: macOS `._*` AppleDouble files,
+  `.DS_Store`, Windows `Thumbs.db` / `desktop.ini`. Captured live
+  2026-04-23 on a 200-track Beethoven box set download to an exFAT USB
+  drive — ~100 spurious `ffprobe failed for ._N - Title.m4a` warnings per
+  album, now zero.
+
+  ## Why this happens
+
+  When the user's output path is on a non-native filesystem (exFAT / FAT32
+  / HFS on external drives, SMB / NFS shares), macOS automatically creates
+  **AppleDouble** `._{filename}` sidecar files alongside every real file.
+  These sidecars hold resource-fork metadata (extended attributes, Finder
+  tags, `com.apple.quarantine` flags) that the underlying filesystem can't
+  natively represent. They share the real file's extension (`._track.m4a`
+  sits next to `track.m4a`) but contain binary metadata, not audio.
+
+  Every enrichment walker that filters by extension (`.m4a` / `.mp4` /
+  `.m4v` / `.flac` / `.mp3`) was processing these sidecars:
+
+  - `ffprobe` / MediaInfo tried to detect codec on them → failed noisily →
+  fallback codec used.
+  - Chromaprint tried to fingerprint them → failed.
+  - FFmpeg loudness analysis (ReplayGain) tried to analyse them → failed.
+  - `mp4ameta` tried to write atoms to them → failed.
+
+  On a 100-track album, that's ~500 spurious errors across the enrichment
+  stages, cluttering the activity log and wasting CPU on subprocess
+  spawns.
+
+  Same class of sidecar exists on Windows (`Thumbs.db`, `desktop.ini`) and
+  even on macOS itself (`.DS_Store` for Finder metadata).
+
+  ## Fix — one predicate, seven call sites
+
+  ### New shared predicate
+
 
 ### 📚 Documentation
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.42.2] - 2026-04-23
