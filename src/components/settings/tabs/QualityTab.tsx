@@ -166,7 +166,7 @@ export function QualityTab() {
   ];
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* Section: Audio */}
       <SettingsSection title="Audio Quality">
 

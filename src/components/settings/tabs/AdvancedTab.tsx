@@ -297,7 +297,7 @@ export function AdvancedTab() {
   };
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* ── Processing ── */}
       <SettingsSection title="Processing" description="Download and remux tool selection.">
         <Select

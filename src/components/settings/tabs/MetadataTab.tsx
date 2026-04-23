@@ -53,7 +53,7 @@ export function MetadataTab() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* ================================================================
           Section 1: Automatic Tags
           ================================================================ */}

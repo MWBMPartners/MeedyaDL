@@ -118,7 +118,7 @@ export function LyricsTab() {
   }
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       <SettingsSection title="Synced Lyrics">
           {/* Enhanced LRC (word-by-word sync) */}
           <Toggle
