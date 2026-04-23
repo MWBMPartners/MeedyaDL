@@ -601,7 +601,7 @@ pub struct GamdlOptions {
     ///
     /// **State of the uploaded-video pipeline (#549):** this field is a
     /// pass-through CLI flag only. GAMDL ships `downloader_uploaded_video.py`
-    /// + `interface_uploaded_video.py` for Apple Music's label/artist-uploaded
+    /// and `interface_uploaded_video.py` for Apple Music's label/artist-uploaded
     /// videos (behind-the-scenes clips, live sessions, interviews — distinct
     /// from catalog music videos), but MeedyaDL does not:
     /// - detect uploaded-video URLs in `parse_apple_music_url` / the

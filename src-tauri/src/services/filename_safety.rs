@@ -162,7 +162,18 @@ pub fn verify_contract(contract: &dyn FilenameSafetyContract) -> Result<(), Stri
         return Err("engine_id must not be empty".to_string());
     }
 
-    // Invariant 1: stable unique ID placeholder is declared in
+    // Invariant 1: templates are non-empty. Runs before the
+    // template-content checks below so an empty template produces a
+    // clear diagnostic rather than a confusing "does not contain …"
+    // error.
+    if file_tpl.is_empty() {
+        return Err(format!("[{engine}] fallback_file_template must not be empty"));
+    }
+    if folder_tpl.is_empty() {
+        return Err(format!("[{engine}] fallback_folder_template must not be empty"));
+    }
+
+    // Invariant 2: stable unique ID placeholder is declared in
     // supported_placeholders. Prevents a refactor from silently
     // dropping the ID from the autocomplete list while leaving it
     // in the template.
@@ -172,7 +183,7 @@ pub fn verify_contract(contract: &dyn FilenameSafetyContract) -> Result<(), Stri
         ));
     }
 
-    // Invariant 2: fallback_file_template contains the stable
+    // Invariant 3: fallback_file_template contains the stable
     // unique ID in the engine's native syntax. This is the core
     // uniqueness guarantee.
     if !file_tpl.contains(&rendered_id) {
@@ -181,21 +192,13 @@ pub fn verify_contract(contract: &dyn FilenameSafetyContract) -> Result<(), Stri
         ));
     }
 
-    // Invariant 3: fallback_folder_template is not a bare sentinel.
+    // Invariant 4: fallback_folder_template is not a bare sentinel.
     for &sentinel in FORBIDDEN_FOLDER_SENTINELS {
         if folder_tpl == sentinel {
             return Err(format!(
                 "[{engine}] fallback_folder_template '{folder_tpl}' is a forbidden sentinel (see #531) — route content under an artist-scoped bucket instead"
             ));
         }
-    }
-
-    // Invariant 4: both templates are non-empty.
-    if file_tpl.is_empty() {
-        return Err(format!("[{engine}] fallback_file_template must not be empty"));
-    }
-    if folder_tpl.is_empty() {
-        return Err(format!("[{engine}] fallback_folder_template must not be empty"));
     }
 
     Ok(())
