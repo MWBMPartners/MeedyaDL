@@ -59,6 +59,23 @@ describe('isAppleMusicUrl', () => {
     expect(isAppleMusicUrl('https://itunes.apple.com/us/album/test/123')).toBe(true);
   });
 
+  /** Accepts legacy Apple Music Classical domain */
+  it('accepts classical.apple.com URLs', () => {
+    expect(isAppleMusicUrl('https://classical.apple.com/us/album/test/123')).toBe(true);
+  });
+
+  /** Accepts current Apple Music Classical domain (post-2026 migration) */
+  it('accepts classical.music.apple.com URLs', () => {
+    expect(isAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145')).toBe(true);
+  });
+
+  /** Accepts slug-less Classical URL with locale query — the real live shape */
+  it('accepts classical.music.apple.com URLs with slug-less path + locale query', () => {
+    expect(
+      isAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145?l=en-GB')
+    ).toBe(true);
+  });
+
   /** Ensures non-Apple domains are rejected, even if the path looks valid */
   it('rejects non-Apple Music URLs', () => {
     expect(isAppleMusicUrl('https://example.com/music')).toBe(false);
@@ -199,6 +216,36 @@ describe('non-geographic URLs (no storefront code)', () => {
     );
     expect(result.contentType).toBe('album');
     expect(result.isValid).toBe(true);
+  });
+
+  // Apple Music Classical domain migration (2026) — Apple moved Classical
+  // to `classical.music.apple.com` and dropped the slug segment from
+  // Share-link URLs. The frontend parser must classify both the new
+  // hostname and the slug-less path shape.
+
+  it('classifies new classical.music.apple.com album URLs (slug-less)', () => {
+    const result = parseAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145');
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('album');
+  });
+
+  it('classifies new classical.music.apple.com album URL with ?l= locale query', () => {
+    // The real-world shape captured from the Apple Music Classical app
+    // Share → Copy Link, 2026-04-23.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/album/1844602145?l=en-GB'
+    );
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('album');
+  });
+
+  it('classifies new classical.music.apple.com song URL with ?i= track id', () => {
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/album/1844602145?i=1844602150'
+    );
+    expect(result.isValid).toBe(true);
+    // contentType is 'song' when `?i=` is present on an album URL (per detectContentType).
+    expect(result.contentType).toBe('song');
   });
 
   it('detects song URL path without storefront', () => {

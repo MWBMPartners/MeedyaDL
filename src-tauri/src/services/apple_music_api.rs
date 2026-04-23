@@ -394,22 +394,36 @@ pub async fn fetch_itunes_lookup(
 
 /// Parse an Apple Music URL to extract the storefront, content type, and IDs.
 ///
-/// Supports these URL patterns (`music.apple.com`, `classical.apple.com`,
-/// and legacy `itunes.apple.com`):
+/// Supports four domains (`music.apple.com`, `classical.apple.com`,
+/// `classical.music.apple.com`, and legacy `itunes.apple.com`) and two
+/// path styles:
+///
+/// - **Slugged** (classic): `{domain}/{sf}/{type}/{slug}/{id}` — the
+///   original music.apple.com share-link format.
+/// - **Slug-less** (new Apple Music Classical): `{domain}/{sf}/{type}/{id}` —
+///   Apple's native Classical app dropped the human-readable slug in
+///   2026 when Classical migrated to the `classical.music.apple.com`
+///   subdomain. The new Share links ship without a slug segment.
+///
+/// Examples:
 /// - `https://music.apple.com/us/album/album-name/1234567890`
 /// - `https://classical.apple.com/us/album/beethoven-symphony/1234567890`
+/// - `https://classical.music.apple.com/gb/album/1844602145`
+///   (new domain, no slug, no track ID)
+/// - `https://classical.music.apple.com/gb/album/1844602145?i=9876543210`
+///   (new domain, no slug, with track ID)
 /// - `https://itunes.apple.com/us/album/album-name/1234567890`
 /// - `https://music.apple.com/us/album/album-name/1234567890?i=9876543210`
 /// - `https://music.apple.com/us/song/song-name/9876543210`
 /// - `https://music.apple.com/us/music-video/video-name/1234567890`
 ///
-/// Apple Music Classical URLs (`classical.apple.com`) and legacy iTunes
-/// Store URLs (`itunes.apple.com`) share the same path structure as
-/// standard Apple Music URLs and are treated identically. The `itunes`
-/// alternation was added so iTunes URLs get the same metadata prefetch,
-/// storefront normalisation, and Tier 4 safety-net treatment as the
-/// other two domains (#548) — previously they passed host validation
-/// but failed every parser branch and reached GAMDL raw.
+/// All four domains share the same path structure (up to slug
+/// presence) and are parsed identically. The `itunes` alternation was
+/// added in #548 to close the same gap; the `classical\.music` branch
+/// added here closes the same gap for Apple's domain migration.
+/// Trailing query parameters beyond `?i=` (e.g. `?l=en-GB` locale
+/// hints) are ignored — the regexes stop capturing at the album /
+/// song / artist ID.
 ///
 /// For album URLs with `?i=` query parameter, both the album ID and the
 /// individual song ID are extracted.
@@ -430,48 +444,65 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // queue restore). The .expect() on a LazyLock only runs once — a regex
     // compilation failure here indicates a code defect, not a runtime error.
 
-    // Match album URLs: /storefront/album/slug/album_id with optional ?i=song_id
-    // Accepts music.apple.com, classical.apple.com, and legacy
-    // itunes.apple.com domains. The `itunes` alternation closes the gap
-    // where iTunes URLs passed host validation but failed every parser
-    // branch and reached GAMDL raw with no metadata prefetch (#548).
+    // Domain alternation + optional slug segment.
+    //
+    // Domain alternation `(?:classical(?:\.music)?|music|itunes)\.apple\.com`
+    // matches four hostnames: `music.apple.com`, `classical.apple.com`,
+    // `classical.music.apple.com`, `itunes.apple.com`. The
+    // `classical(?:\.music)?` construct tries `classical.music` first
+    // (greedy), falls back to plain `classical` when the next chars
+    // aren't `.music` — so both Classical hostnames parse cleanly.
+    //
+    // Optional slug segment `(?:[^/]+/)?` matches both the classic
+    // `/album/slug/id` format and the new Apple Music Classical
+    // slug-less `/album/id` format. See function doc for the URL-shape
+    // migration that drove this change.
+    //
+    // The `itunes` alternation closes the gap where iTunes URLs passed
+    // host validation but failed every parser branch (#548); the
+    // `classical\.music` branch closes the equivalent gap for
+    // Apple's Classical domain migration.
+
+    // Match album URLs: /storefront/album/[slug/]album_id with optional ?i=song_id
     static ALBUM_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/album/[^/]+/(\d+)(?:\?i=(\d+))?",
+            r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)(?:\?i=(\d+))?",
         )
         .expect("Invalid album regex")
     });
 
-    // Match song URLs: /storefront/song/slug/song_id
+    // Match song URLs: /storefront/song/[slug/]song_id
     static SONG_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/song/[^/]+/(\d+)")
-            .expect("Invalid song regex")
+        Regex::new(
+            r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/song/(?:[^/]+/)?(\d+)",
+        )
+        .expect("Invalid song regex")
     });
 
-    // Match music-video URLs: /storefront/music-video/slug/video_id
+    // Match music-video URLs: /storefront/music-video/[slug/]video_id
     static MV_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/music-video/[^/]+/(\d+)",
+            r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/music-video/(?:[^/]+/)?(\d+)",
         )
         .expect("Invalid music-video regex")
     });
 
-    // Match artist URLs: /storefront/artist/slug/artist_id
+    // Match artist URLs: /storefront/artist/[slug/]artist_id
     static ARTIST_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/artist/[^/]+/(\d+)",
+            r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)",
         )
         .expect("Invalid artist regex")
     });
 
-    // Match catalog playlist URLs: /storefront/playlist/slug/pl.xxxxx
+    // Match catalog playlist URLs: /storefront/playlist/[slug/]pl.xxxxx
     // Library playlists (/library/playlist/...) are intentionally NOT
     // matched here — they need a different endpoint and Music-User-Token
     // auth. Callers that need to detect library playlists should do so
     // via a separate check before calling this parser.
     static PLAYLIST_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"https?://(?:classical|music|itunes)\.apple\.com/([a-z]{2})/playlist/[^/]+/(pl\.[a-zA-Z0-9._-]+)",
+            r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/playlist/(?:[^/]+/)?(pl\.[a-zA-Z0-9._-]+)",
         )
         .expect("Invalid playlist regex")
     });
@@ -1317,7 +1348,8 @@ pub async fn fetch_music_video_relations(
 /// 2. OS locale — fast, no network, uses `detect_storefront()` from login_window_service
 /// 3. Fallback — defaults to "us" (Apple's own redirect default)
 ///
-/// Also supports `classical.apple.com` and `itunes.apple.com` domains.
+/// Also supports `classical.apple.com`, `classical.music.apple.com`,
+/// and legacy `itunes.apple.com` domains.
 ///
 /// # Arguments
 /// * `url` - The Apple Music URL to normalize
@@ -1364,7 +1396,7 @@ fn detect_non_geographic_url(url: &str) -> Option<(&str, &str)> {
     // The rest of the URL after group 1 starts with /{content_type}/...
     static NON_GEO_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-            r"^(https?://(?:classical|music|itunes)\.apple\.com)/(album|song|playlist|music-video|artist)(/.*)?$",
+            r"^(https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com)/(album|song|playlist|music-video|artist)(/.*)?$",
         )
         .expect("Invalid non-geographic URL regex")
     });
@@ -2254,6 +2286,96 @@ mod tests {
         assert_eq!(parsed.song_id.unwrap(), "9876543210");
     }
 
+    // Apple Music Classical domain migration (2026): Apple moved Classical
+    // under the `music.apple.com` subdomain hierarchy and dropped the slug
+    // segment from Share-link URLs. These tests lock in parser support for
+    // the new `classical.music.apple.com` domain and the slug-less
+    // `/album/{id}` / `/song/{id}` / etc. path style. Regression canary
+    // against Apple's UI rolling the change back.
+
+    #[test]
+    fn parse_new_classical_album_url_without_slug() {
+        // Real-world URL shape captured 2026-04-23 from Apple Music
+        // Classical app's Share → Copy Link.
+        let url = "https://classical.music.apple.com/gb/album/1844602145";
+        let parsed = parse_apple_music_url(url).expect("new classical URL should parse");
+        assert_eq!(parsed.storefront, "gb");
+        assert_eq!(parsed.content_type, "album");
+        assert_eq!(parsed.album_id, "1844602145");
+        assert!(parsed.song_id.is_none());
+    }
+
+    #[test]
+    fn parse_new_classical_album_url_with_locale_query() {
+        // `?l=en-GB` locale hint appended by Apple's new Share UI.
+        // Regex must not capture it as a song ID.
+        let url = "https://classical.music.apple.com/gb/album/1844602145?l=en-GB";
+        let parsed = parse_apple_music_url(url).expect("?l= query should not block parsing");
+        assert_eq!(parsed.storefront, "gb");
+        assert_eq!(parsed.album_id, "1844602145");
+        assert!(parsed.song_id.is_none(), "song_id should be None; ?l= is a locale hint");
+    }
+
+    #[test]
+    fn parse_new_classical_album_url_with_track_id() {
+        let url = "https://classical.music.apple.com/gb/album/1844602145?i=1844602150";
+        let parsed = parse_apple_music_url(url).expect("?i= form must still work");
+        assert_eq!(parsed.album_id, "1844602145");
+        assert_eq!(parsed.song_id.as_deref(), Some("1844602150"));
+    }
+
+    #[test]
+    fn parse_new_classical_song_url_without_slug() {
+        let url = "https://classical.music.apple.com/us/song/9876543210";
+        let parsed = parse_apple_music_url(url).expect("new classical song URL should parse");
+        assert_eq!(parsed.content_type, "song");
+        assert_eq!(parsed.song_id.as_deref(), Some("9876543210"));
+    }
+
+    #[test]
+    fn parse_new_classical_music_video_url_without_slug() {
+        let url = "https://classical.music.apple.com/us/music-video/1234567890";
+        let parsed = parse_apple_music_url(url).expect("new classical MV URL should parse");
+        assert_eq!(parsed.content_type, "music-video");
+        assert_eq!(parsed.album_id, "1234567890");
+    }
+
+    #[test]
+    fn parse_new_classical_artist_url_without_slug() {
+        let url = "https://classical.music.apple.com/us/artist/123456789";
+        let parsed = parse_apple_music_url(url).expect("new classical artist URL should parse");
+        assert_eq!(parsed.content_type, "artist");
+        assert_eq!(parsed.artist_id.as_deref(), Some("123456789"));
+    }
+
+    #[test]
+    fn parse_new_classical_playlist_url_without_slug() {
+        let url = "https://classical.music.apple.com/us/playlist/pl.u-ABCDefgh123456";
+        let parsed = parse_apple_music_url(url).expect("new classical playlist URL should parse");
+        assert_eq!(parsed.content_type, "playlist");
+        assert_eq!(parsed.playlist_id.as_deref(), Some("pl.u-ABCDefgh123456"));
+    }
+
+    #[test]
+    fn parse_new_classical_album_url_with_slug_still_works() {
+        // If Apple keeps emitting slugged URLs for backward compat,
+        // the slug-optional regex must still accept them on the new
+        // hostname.
+        let url = "https://classical.music.apple.com/us/album/beethoven-9-symphonies/1844602145";
+        let parsed = parse_apple_music_url(url).expect("slugged form on new domain must still parse");
+        assert_eq!(parsed.album_id, "1844602145");
+    }
+
+    #[test]
+    fn parse_classic_slugless_form_on_music_apple_com() {
+        // If Apple rolls the slug-less format out to the main
+        // music.apple.com domain, the parser should keep up.
+        // Defensive coverage — may or may not exist in the wild yet.
+        let url = "https://music.apple.com/us/album/1649434004";
+        let parsed = parse_apple_music_url(url).expect("slugless form on music.apple.com should parse");
+        assert_eq!(parsed.album_id, "1649434004");
+    }
+
     // Legacy iTunes Store URLs (#548). Before the alternation was extended
     // to include `itunes`, these passed host validation but failed every
     // parser branch and reached GAMDL raw with no MeedyaDL metadata
@@ -2676,6 +2798,24 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
         assert!(result.starts_with("https://itunes.apple.com/"));
         assert!(result.contains("/album/some-album/1234567890"));
         assert_ne!(result, url);
+    }
+
+    #[test]
+    fn normalize_new_classical_url_without_storefront() {
+        // The new Classical domain must also get storefront injection
+        // when the URL arrives in the non-geographic shape.
+        let url = "https://classical.music.apple.com/album/1844602145";
+        let result = normalize_apple_music_url(url);
+        assert!(result.starts_with("https://classical.music.apple.com/"));
+        assert!(result.contains("/album/1844602145"));
+        assert_ne!(result, url, "storefront should be injected");
+    }
+
+    #[test]
+    fn normalize_new_classical_url_with_storefront_unchanged() {
+        // Already has a storefront → returned unchanged (parser matches).
+        let url = "https://classical.music.apple.com/gb/album/1844602145";
+        assert_eq!(normalize_apple_music_url(url), url);
     }
 
     #[test]
