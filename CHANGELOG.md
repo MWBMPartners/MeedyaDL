@@ -8,6 +8,89 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(parser)** Accept /recording/ URLs as submittable (revert #573 rejection UX)
+
+#573 classified Classical recording URLs as `recording` content type
+  and set `isValid: false` on the grounds that GAMDL's URL vocabulary
+  doesn't include `/recording/` paths, so passing them through would
+  hit the misleading-success cascade documented in #567/#548 (primary
+  download produces zero files → lyrics companion pipeline runs anyway
+  → activity log reports fake success).
+
+  Reviewer feedback on 2026-04-23:
+
+    "why are we showing a notice/error for Apple Music Classical
+    /recording/ URLs if theyre valid? why not just accept them?
+    Asking the user to enter another is not user friendly!"
+
+  Fair call. Two things changed since #573 that make pre-emptive
+  rejection the wrong UX:
+
+  1. PR #582 broadened #567's guard from "skip lyrics companion when
+     primary produced no audio" to "skip the ENTIRE enrichment pipeline
+     when primary produced zero output files". So if GAMDL rejects a
+     recording URL, the user now sees ONE clean "Enrichment skipped —
+     primary download produced no output files" activity-log line
+     instead of 5+ cascading fake successes.
+
+  2. Recording URLs ARE Apple Music Classical URLs — the user's mental
+     model is that if they copied the link from the Apple Music
+     Classical app, it should work. Forcing them to navigate back to
+     the app and find the containing album URL is paternalistic.
+
+- **(parser)** Accept Apple Music Classical `/recording/` URLs as submittable (revert #573 rejection UX) (#583)
+
+## Summary
+
+  Reverses the reject-at-validator UX from #573 for Apple Music Classical
+  `/recording/` URLs. Recording URLs are now treated like any other
+  recognised Apple Music URL — the user can paste and submit, GAMDL
+  attempts the download, the pipeline gives a clean outcome.
+
+  ## Reviewer feedback that drove this change
+
+  > *"why are we showing a notice/error for Apple Music Classical
+  /recording/ URLs if theyre valid? why not just accept them? Asking the
+  user to enter another is not user friendly!"*
+
+  Fair call. Two things changed since #573 that make pre-emptive rejection
+  the wrong UX:
+
+  1. **PR #582** (currently in CI) broadened #567's guard from *"skip
+  lyrics companion when primary produced no audio"* to *"skip the ENTIRE
+  enrichment pipeline when primary produced zero output files"*. So if
+  GAMDL rejects a recording URL, the user now sees **one** clean
+  `Enrichment skipped — primary download produced no output files`
+  activity-log line instead of 5+ cascading fake "success" lines.
+  2. **Recording URLs ARE Apple Music Classical URLs** — the user's mental
+  model is that if they copied the link from the Apple Music Classical
+  app, it should work. Forcing them to navigate back to the app and find
+  the containing album URL is paternalistic UX.
+
+  ## Changes
+
+  ### `src/lib/url-parser.ts`
+
+  `parseAppleMusicUrl()`: removes the `contentType !== 'recording'`
+  exclusion from the `isValid` calculation. Recording URLs now return
+  `isValid: true`. The docstring block explaining the old rationale is
+  replaced with the new one.
+
+  **Before** (merged in #573):
+  ```ts
+  const isSubmittable = contentType !== 'unknown' && contentType !== 'recording';
+  return { url: trimmed, contentType, isValid: isSubmittable };
+  ```
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.1] - 2026-04-23
+
+### 🐛 Bug Fixes
+
 - **(enrichment)** Skip all enrichments on empty output + scale timeout by track count (#567 #579)
 
 Two related completion-task fixes that share infrastructure in
