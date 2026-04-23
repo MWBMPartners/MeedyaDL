@@ -89,7 +89,7 @@ export function CheckboxGroup<T extends string>({
               disabled={disabled}
               className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
             />
-            <span className="truncate">{optLabel}</span>
+            <span className="leading-tight break-words">{optLabel}</span>
           </label>
         ))}
       </div>

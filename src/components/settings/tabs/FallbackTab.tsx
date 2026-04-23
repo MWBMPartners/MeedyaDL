@@ -91,7 +91,7 @@ export function FallbackTab() {
   const [activeChain, setActiveChain] = useState<'music' | 'video'>('music');
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       <SettingsSection
         title="Fallback Chain"
         description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Drag items to reorder priority (top = highest priority). Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."

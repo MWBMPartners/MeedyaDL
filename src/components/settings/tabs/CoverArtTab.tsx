@@ -97,7 +97,7 @@ export function CoverArtTab() {
   const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* ============================================================ */}
       {/* Section 1: Static Cover Art (GAMDL) */}
       {/* ============================================================ */}
