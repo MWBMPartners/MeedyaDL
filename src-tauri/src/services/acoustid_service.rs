@@ -479,6 +479,11 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
 }
 
 /// Recursively collect M4A file paths from a directory tree.
+///
+/// Skips filesystem sidecars (macOS `._*` AppleDouble, `.DS_Store`,
+/// Windows `Thumbs.db`, etc.) — running Chromaprint / fingerprint
+/// extraction on a non-audio binary produces errors and contributes
+/// noise to the activity log (#577).
 fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -486,6 +491,9 @@ fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 
     for entry in entries.flatten() {
         let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
         if path.is_dir() {
             collect_m4a_recursive(&path, files);
         } else if is_m4a(&path) {
