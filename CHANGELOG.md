@@ -6,6 +6,33 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(enrichment)** Skip all enrichments on empty output + scale timeout by track count (#567 #579)
+
+Two related completion-task fixes that share infrastructure in
+  `services/download_queue.rs`:
+
+- **(enrichment)** Skip all enrichments on empty output + scale completion timeout by track count (#567 #579) (#582)
+
+## Summary
+
+  Two related completion-task fixes, one PR because they live in the same
+  ~100-line region of `services/download_queue.rs`:
+
+  - **Closes #567** (broadened): skip **all** post-GAMDL enrichment stages
+  when the primary download produced zero output files.
+  - **Closes #579**: scale the completion-task timeout by output track
+  count so large box sets don't hit the fixed 10-minute deadline
+  mid-ReplayGain.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.0] - 2026-04-23
+
 ### ✨ Features
 
 - **(parser)** Recognise Apple Music Classical `/recording/` URLs with helpful error
