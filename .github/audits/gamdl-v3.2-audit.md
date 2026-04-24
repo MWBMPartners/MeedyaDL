@@ -235,6 +235,27 @@ The bump is the last step. It waits on #614 (must-fix) and #615
 
 Filed as #619. Single-file PR once the gates are met.
 
+## Umbrella — Issue 613
+
+Filed as #613 with a roll-up of the findings above. Post-audit
+verification clarified that:
+
+- The `--song-codec` bug (#614) and the `song_codec_piority` INI typo
+  (#617) are **pre-existing** across every v2.9.1+ release, not v3.x
+  regressions.
+- The v2.9.1 floor remains valid for the v3.2 bump — no raise needed.
+- The fix strategy (`--song-codec-priority` for every version; drop
+  the vestigial INI codec block) unlocks both #614 and #617 in one
+  coherent change.
+- v3.2's sequential-metadata change aligns with MeedyaDL's own
+  serial-queue decision (#455) — worth documenting in the user-facing
+  release notes.
+
+Umbrella links all six child issues (#614–#619) and records the
+"non-change" decisions (declining `--database-path` again per #523,
+deferring `--log-file`, no floor raise).
+
+
 
 
 
