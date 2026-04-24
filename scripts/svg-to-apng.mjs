@@ -99,8 +99,10 @@ async function main() {
         deviceScaleFactor: 1,
       });
 
-      // Build HTML with mode applied via query param
-      const modeParam = modeConfig.mode ? `?mode=${modeConfig.mode}` : '';
+      // Build HTML with mode applied via inline script (modeConfig.mode
+      // is referenced directly in the <script> block below, not via a
+      // query param on the SVG — kept as inline JS for Puppeteer's
+      // `setContent` flow).
       const html = `<!DOCTYPE html>
 <html>
 <head>
