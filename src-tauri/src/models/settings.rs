@@ -1258,6 +1258,13 @@ pub struct AppSettings {
     /// Flip this on when filing upstream bug reports against GAMDL —
     /// you lose a clean activity log but gain the full call stack.
     ///
+    /// **GAMDL v3.1 compatibility note (#606):** Upstream commit
+    /// `dc6f2e8` removed every `traceback.print_exc()` site and routes
+    /// exceptions through `structlog.ExceptionPrettyPrinter` instead.
+    /// `--no-exceptions` is a no-op on v3.1+, so flipping this setting
+    /// does not change activity-log verbosity on that release. The
+    /// MeedyaDL output parser handles the new format; see #607.
+    ///
     /// Controlled in Settings > Advanced > Diagnostics.
     #[serde(default)]
     pub verbose_gamdl_exceptions: bool,
