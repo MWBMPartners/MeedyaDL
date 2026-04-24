@@ -336,6 +336,24 @@ pub enum GamdlFeature {
     /// feature to stay self-consistent with the detected CLI.
     WrapperM3u8Ip,
 
+    /// `--playlist-folder-template` CLI flag and `playlist_folder_template`
+    /// INI key.
+    ///
+    /// Introduced in GAMDL v3.0. v2.9.x accepts the other folder templates
+    /// (`--album-folder-template`, `--compilation-folder-template`,
+    /// `--no-album-folder-template`) but does NOT recognise
+    /// `--playlist-folder-template` — passing it crashes Click with
+    /// "no such option". Emission must therefore be gated the same way
+    /// [`Self::WrapperM3u8Ip`] is.
+    ///
+    /// On v2.9.x the flag's absence just means GAMDL falls back to its
+    /// own built-in default (`"Playlists/{playlist_artist}"`), so skipping
+    /// the emission is safe — the user may just not see the custom
+    /// template they configured. MeedyaDL's Settings UI greys the input
+    /// with a tooltip referencing this fact when the detected version is
+    /// below 3.0.
+    PlaylistFolderTemplate,
+
     /// `--no-exceptions` CLI flag has an observable effect.
     ///
     /// Present in every release, but v3.1 (`dc6f2e8`, "Use
@@ -364,6 +382,8 @@ impl GamdlFeature {
             Self::NativeCodecPriority => is_version_at_least(version, "2.9.1"),
             // Added in v3.1.
             Self::WrapperM3u8Ip => is_version_at_least(version, "3.1"),
+            // Added in v3.0 — v2.9.x rejects it at CLI parse time.
+            Self::PlaylistFolderTemplate => is_version_at_least(version, "3.0"),
             // No-op starting v3.1 — flag is accepted but ignored.
             Self::NoExceptionsFlag => !is_version_at_least(version, "3.1"),
         }
@@ -462,7 +482,24 @@ mod tests {
         assert!(!supports(GamdlFeature::FetchExtraTags));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
         assert!(!supports(GamdlFeature::WrapperM3u8Ip));
+        assert!(!supports(GamdlFeature::PlaylistFolderTemplate));
         assert!(!supports(GamdlFeature::NoExceptionsFlag));
+    }
+
+    #[test]
+    fn playlist_folder_template_requires_v30() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        set_detected_version(Some("2.9.1".to_string()));
+        assert!(!supports(GamdlFeature::PlaylistFolderTemplate));
+        set_detected_version(Some("2.9.3".to_string()));
+        assert!(!supports(GamdlFeature::PlaylistFolderTemplate));
+        set_detected_version(Some("3.0".to_string()));
+        assert!(supports(GamdlFeature::PlaylistFolderTemplate));
+        set_detected_version(Some("3.0.1".to_string()));
+        assert!(supports(GamdlFeature::PlaylistFolderTemplate));
+        set_detected_version(Some("3.2".to_string()));
+        assert!(supports(GamdlFeature::PlaylistFolderTemplate));
+        set_detected_version(None);
     }
 
     #[test]

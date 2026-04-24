@@ -2244,6 +2244,13 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.album_folder_template = Some(settings.album_folder_template.clone());
     options.compilation_folder_template = Some(settings.compilation_folder_template.clone());
     options.no_album_folder_template = Some(settings.no_album_folder_template.clone());
+    // `playlist_folder_template` is a GAMDL v3.0+ CLI flag (#618). We can
+    // safely set the field on `options` unconditionally — the CLI-emission
+    // path in `GamdlOptions::to_cli_args` gates the actual `--playlist-
+    // folder-template` arg behind `GamdlFeature::PlaylistFolderTemplate`,
+    // so v2.9.x still gets a crash-free invocation. Setting the field on
+    // every version keeps `GamdlOptions` the canonical debug dump.
+    options.playlist_folder_template = Some(settings.playlist_folder_template.clone());
     // Apply user-configurable zero-padding (#587). Padding widths are
     // derived from the user's settings; `resolve_width(None)` passes
     // `None` because `track_total` / `disc_total` aren't known at merge

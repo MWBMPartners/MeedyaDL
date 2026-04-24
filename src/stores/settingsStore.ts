@@ -157,6 +157,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
   no_album_folder_template: '{artist}/Unknown Album',
+  // GAMDL v3.0+ only (#618). Stored unconditionally; the Rust side gates
+  // CLI emission behind the detected GAMDL version so v2.9.x falls back to
+  // upstream's built-in default.
+  playlist_folder_template: 'Playlists/{playlist_artist}',
   single_disc_file_template: '{track:02d} {title}', // Zero-padded track number
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
