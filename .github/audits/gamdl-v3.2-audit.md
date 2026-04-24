@@ -198,6 +198,44 @@ the full 2.9.1–3.2 range, so the flag must be gated behind
 Filed as #618 with updated wording that treats the capability gate as
 required. Low priority but a clean win.
 
+## Issue 619 — `tool-versions.toml` support-window bump to 3.2
+
+Current window (`src-tauri/tool-versions.toml:86-106`):
+
+```toml
+[gamdl]
+minimum_version = "2.9.1"
+maximum_tested_version = "3.1"
+recommended_version = "3.1"
+```
+
+### Floor analysis
+
+`minimum_version = "2.9.1"` remains correct for v3.2. Every capability
+MeedyaDL depends on is still present across the full window:
+
+- Native `--song-codec-priority` for albums (v2.9.1+)
+- `--artist-auto-select` (v2.9.1+)
+- `structlog`-wrapped errors (v3.0+) — already handled via
+  `ERROR_PREFIX_REGEX`
+- `--wrapper-m3u8-ip` (v3.1+) — already gated
+- `--no-exceptions` is a no-op (v3.1+) — already gated
+
+The pre-existing latent bugs surfaced by the audit (#614, #617) affect
+every v2.9.1+ release; they are **not v3.2 regressions** and don't
+constrain the floor.
+
+### Gating
+
+The bump is the last step. It waits on #614 (must-fix) and #615
+(regression tests), with #616 (docs), #617 (INI cleanup, folds into
+#614), and #618 (playlist template) landable in parallel.
+
+### Resolution
+
+Filed as #619. Single-file PR once the gates are met.
+
+
 
 
 
