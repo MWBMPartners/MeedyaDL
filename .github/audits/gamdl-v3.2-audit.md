@@ -255,6 +255,34 @@ Umbrella links all six child issues (#614–#619) and records the
 "non-change" decisions (declining `--database-path` again per #523,
 deferring `--log-file`, no floor raise).
 
+## Related feature request: abort button (#620)
+
+User request surfaced during the audit review:
+
+> *"Create a GitHub Issue to add an abort button to abort any current
+> downloads or queue processing immediately?"*
+
+Filed as #620. Cross-reference recorded here because the audit-related
+bug in #614 (crash on `fallback_enabled=false`) is exactly the scenario
+where a one-click abort is most useful: a user experimenting with
+non-default settings hits the crash, and without an abort button their
+only recourse is per-item cancel of every remaining queue entry or
+force-quitting the app. Not a GAMDL-side fix — purely a MeedyaDL UX gap
+that the audit made visible.
+
+Existing infrastructure we can reuse:
+
+- `ShutdownSignal` (`services/download_queue.rs:116-160`) — model for
+  the new `AbortSignal` (narrower scope: queue-abort vs. app-shutdown).
+- Per-item `cancel_download` IPC — shape for the new
+  `abort_all_downloads`.
+- Enrichment / companion / lyrics loops already poll a shutdown signal
+  between iterations; extending them to also poll the abort signal is
+  a small change.
+
+Scope and design captured in #620; this document cross-references only.
+
+
 
 
 
