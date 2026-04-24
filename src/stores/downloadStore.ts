@@ -217,6 +217,25 @@ interface DownloadState {
   clearAll: () => Promise<number>;
 
   /**
+   * Abort every active AND queued download in one IPC call (#620).
+   *
+   * Unlike {@link cancelDownload} (per-item) and {@link clearAll}
+   * (non-active only), this is the destructive "stop everything now"
+   * action for a running batch. It cancels every Queued / Downloading
+   * / Processing item, reaps the active GAMDL subprocess via the
+   * cancellation-poll loop, and preserves terminal items (Complete /
+   * Cancelled / Error) so history stays intact.
+   *
+   * IPC call: `commands.abortAllDownloads()` -> Rust `abort_all_downloads`.
+   *
+   * Emits a single toast summarising what was stopped. Callers should
+   * confirm with the user before invoking — this is a destructive action.
+   *
+   * @returns the number of items aborted (sum of all three pre-states).
+   */
+  abortAll: () => Promise<number>;
+
+  /**
    * Fetch the full queue snapshot from the Rust backend.
    * IPC call: `commands.getQueueStatus()` -> Rust `get_queue_status`
    * Called on app startup, after mutations, and periodically for consistency.
@@ -530,6 +549,48 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       }
 
       return removed;
+    } catch (e) {
+      set({ error: String(e) });
+      return 0;
+    }
+  },
+
+  /**
+   * Abort every active + queued download (#620).
+   *
+   * Destructive action — callers should confirm with the user before
+   * invoking. Emits a single summary toast and refreshes the queue
+   * snapshot so the UI reflects the post-abort state immediately
+   * (cancellation-poll loops on active tasks reap the subprocesses
+   * asynchronously, but their state is already Cancelled in the
+   * snapshot).
+   */
+  abortAll: async () => {
+    try {
+      const summary = await commands.abortAllDownloads();
+      const total = summary.queuedCancelled + summary.downloadingStopped + summary.processingStopped;
+
+      // Refresh the queue snapshot so the UI reflects the state change
+      // without waiting for the subsequent `queue-updated` event.
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+
+      if (total > 0) {
+        const { addToast } = useUiStore.getState();
+        const parts: string[] = [];
+        if (summary.queuedCancelled > 0) {
+          parts.push(`${summary.queuedCancelled} queued`);
+        }
+        if (summary.downloadingStopped > 0) {
+          parts.push(`${summary.downloadingStopped} downloading`);
+        }
+        if (summary.processingStopped > 0) {
+          parts.push(`${summary.processingStopped} processing`);
+        }
+        addToast(`Aborted — stopped ${parts.join(', ')}`, 'info');
+      }
+
+      return total;
     } catch (e) {
       set({ error: String(e) });
       return 0;
