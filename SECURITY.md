@@ -22,9 +22,10 @@ Running MeedyaDL with components **outside** the listed ranges (e.g. a manually 
 If you discover a security vulnerability in MeedyaDL, please report it responsibly:
 
 1. **Do NOT open a public GitHub issue** for security vulnerabilities.
-2. **Email**: Send details to the repository maintainers via the email listed in the GitHub organisation profile.
-3. **Include**: A description of the vulnerability, steps to reproduce, and any potential impact.
-4. **Response time**: We aim to acknowledge reports within 48 hours and provide a fix within 7 days for critical issues.
+2. **Preferred — GitHub Private Vulnerability Reporting**: submit a report via [the MeedyaDL private advisory form](https://github.com/MWBMPartners/MeedyaDL/security/advisories/new). This keeps the report invisible to the public, lets us collaborate on a fix in a private fork, and issues a CVE on publication.
+3. **Alternative — Email**: send details to the repository maintainers via the email listed on the [MWBMPartners GitHub organisation profile](https://github.com/MWBMPartners).
+4. **Include**: a description of the vulnerability, steps to reproduce, affected MeedyaDL version(s), and any potential impact.
+5. **Response time**: we aim to acknowledge reports within 48 hours and provide a fix within 7 days for critical issues.
 
 ## Security Measures
 
@@ -43,7 +44,9 @@ MeedyaDL implements the following security measures:
 - **SHA-256 checksum verification** for downloaded dependencies
 - **GitHub Actions hardening**: all actions pinned to immutable commit SHAs
 - **cargo-deny** licence scanning and source allowlisting in CI (org-level `[sources.allow-org]`)
-- **CodeQL** static analysis for JavaScript/TypeScript and GitHub Actions
+- **CodeQL** static analysis for JavaScript/TypeScript and GitHub Actions, with the `security-and-quality` query suite enabled
+- **GitHub Advanced Security features**: Private Vulnerability Reporting, secret scanning + push protection, and Dependabot security updates are enabled on the repository
+- **Dependabot version updates** — weekly PRs for npm and cargo ecosystems (security updates are delivered immediately out-of-schedule)
 - **Activity log memory bounds** — capped at 10,000 entries to prevent unbounded WebView memory growth
 - **Updater artifact signing** — `.app.tar.gz.sig` signature files verified by Tauri updater before installation
 
