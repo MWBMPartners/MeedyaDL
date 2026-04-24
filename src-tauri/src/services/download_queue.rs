@@ -1155,6 +1155,14 @@ pub struct DownloadQueue {
     /// is called recursively for each item). Reset to `None` when the queue drains.
     /// A 60-second cooldown prevents duplicate warnings during rapid re-processing.
     last_preflight_at: Option<std::time::Instant>,
+    /// One-shot flag set by [`Self::abort_all`] (#620) and consumed by
+    /// [`Self::take_recently_aborted`] when the queue would otherwise fire
+    /// its post-queue action. Abort is a user-directed terminal action; the
+    /// user did not want their system to shut down / play a sound / open a
+    /// folder just because they stopped the queue. The flag is automatically
+    /// cleared on consumption so the next legitimate queue-drain still runs
+    /// the configured post-queue action.
+    recently_aborted: bool,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -1188,6 +1196,7 @@ impl DownloadQueue {
             max_network_retries: 3,
             gamdl_version: None,
             last_preflight_at: None,
+            recently_aborted: false,
         }
     }
 
@@ -1469,8 +1478,27 @@ impl DownloadQueue {
                 dl = summary.downloading_stopped,
                 proc = summary.processing_stopped,
             );
+            // Arm the post-queue-action suppression flag. Abort is a
+            // user-directed terminal action; suppress the configured
+            // post-queue action (shutdown, hibernate, play sound,
+            // etc.) that would otherwise fire when the queue drains.
+            // Consumed once by `take_recently_aborted` on the next
+            // would-be post-action trigger, so subsequent legitimate
+            // drains still run the configured action.
+            self.recently_aborted = true;
         }
         summary
+    }
+
+    /// Consumes the one-shot "recently aborted" flag set by
+    /// [`Self::abort_all`]. Returns `true` and clears the flag if the
+    /// queue was aborted since the last drain; returns `false`
+    /// otherwise. The post-queue-action dispatch path calls this to
+    /// decide whether to suppress the configured action (#620).
+    pub fn take_recently_aborted(&mut self) -> bool {
+        let was_aborted = self.recently_aborted;
+        self.recently_aborted = false;
+        was_aborted
     }
 
     /// Updates the state of a queue item.
@@ -4653,14 +4681,27 @@ pub fn process_queue(
 
         // If no items are pending (queue empty or max concurrent reached), exit.
         // When the queue is truly idle (no active + no pending), execute the
-        // configured after-queue action (e.g., shutdown, close app).
+        // configured after-queue action (e.g., shutdown, close app) — unless
+        // the drain was caused by a user-initiated abort (#620), in which
+        // case `take_recently_aborted` returns `true` and we suppress the
+        // post-queue action this time around.
         let Some((download_id, urls, mut options, item_service)) = pending else {
-            let is_idle = {
-                let q = queue.lock().await;
-                q.is_idle()
+            let (is_idle, was_aborted) = {
+                let mut q = queue.lock().await;
+                (q.is_idle(), q.take_recently_aborted())
             };
             if is_idle {
-                execute_after_queue_action(&app);
+                if was_aborted {
+                    log::info!(
+                        "Queue idle after abort — suppressing post-queue action (#620)"
+                    );
+                    emit_app_log(
+                        &app,
+                        "Queue drained by abort — skipping post-queue action",
+                    );
+                } else {
+                    execute_after_queue_action(&app);
+                }
             }
             return;
         };
@@ -9062,6 +9103,31 @@ mod tests {
         let mut queue = DownloadQueue::new();
         let summary = queue.abort_all();
         assert_eq!(summary.total(), 0);
+    }
+
+    /// Verifies that abort_all() arms the one-shot suppression flag and
+    /// that `take_recently_aborted()` consumes it exactly once (#620).
+    #[test]
+    fn abort_all_arms_post_queue_action_suppression() {
+        let mut queue = DownloadQueue::new();
+        // Fresh queue: no suppression armed.
+        assert!(!queue.take_recently_aborted(), "flag must start clear");
+
+        // No-op abort (empty queue) must NOT arm the flag — the suppression
+        // is scoped to actual abort events, not ceremonial calls.
+        queue.abort_all();
+        assert!(
+            !queue.take_recently_aborted(),
+            "zero-summary abort must not arm suppression"
+        );
+
+        // Real abort: flag arms.
+        let _id = enqueue_one(&mut queue);
+        let summary = queue.abort_all();
+        assert_eq!(summary.queued_cancelled, 1);
+        assert!(queue.take_recently_aborted(), "abort must arm suppression");
+        // Consumption is one-shot.
+        assert!(!queue.take_recently_aborted(), "flag must be consumed on read");
     }
 
     /// Verifies that abort_all() on a queue of only-terminal items is a

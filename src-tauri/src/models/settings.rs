@@ -664,6 +664,17 @@ pub struct AppSettings {
     #[serde(default = "default_auto_start_queue")]
     pub auto_start_queue: bool,
 
+    /// Whether to show a confirmation modal before the "Abort Queue"
+    /// action fires (#620). Default: `true`. Users who've grown
+    /// comfortable with the destructive action can tick "Don't ask
+    /// again" on the modal to flip this to `false` and invoke the
+    /// abort via a single click (keyboard shortcut or button).
+    ///
+    /// Exposed by the modal's "Don't ask again" checkbox and in
+    /// Settings > General > Preferences for explicit re-enable.
+    #[serde(default = "default_true")]
+    pub abort_queue_confirm: bool,
+
     /// Whether to send native OS desktop notifications for download events
     /// (completion and terminal failure). Notifications are only sent when
     /// the main application window is not focused, so they do not interrupt
@@ -1571,6 +1582,7 @@ impl Default for AppSettings {
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
             auto_start_queue: true,
+            abort_queue_confirm: true,
             // Desktop notifications enabled by default — OS-native alerts
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
