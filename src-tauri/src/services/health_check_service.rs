@@ -53,6 +53,9 @@ pub enum PreflightCheck {
     Cookies,
     /// Wrapper service health check (HTTP GET to wrapper URL)
     Wrapper,
+    /// Wrapper m3u8 socket reachability (TCP connect to `wrapper_m3u8_ip`),
+    /// required by GAMDL v3.1+ when `--use-wrapper` is set.
+    WrapperM3u8,
     /// Output directory writability check (filesystem probe)
     OutputPath,
 }
@@ -394,6 +397,60 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
                 message,
             })
         }
+    }
+}
+
+/// Probes the wrapper's m3u8 service (GAMDL v3.1+) via a 3-second TCP
+/// connect.
+///
+/// Format: `"host:port"` (e.g. `"127.0.0.1:20020"`). The split is strict —
+/// the wrapper m3u8 protocol opens a raw TCP socket, so there is no URL
+/// parsing to do.
+///
+/// Returns:
+/// - `None` if the socket accepts the connection.
+/// - `Some(PreflightWarning)` on parse error, connect refusal, or timeout.
+pub async fn check_wrapper_m3u8_health(wrapper_m3u8_ip: &str) -> Option<PreflightWarning> {
+    // Parse `host:port`. Reject empty, missing colon, or un-parseable port.
+    let (host, port_str) = match wrapper_m3u8_ip.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() && !p.is_empty() => (h, p),
+        _ => {
+            return Some(PreflightWarning {
+                check: PreflightCheck::WrapperM3u8,
+                message: format!(
+                    "Wrapper m3u8 address '{wrapper_m3u8_ip}' is malformed — expected host:port (e.g. 127.0.0.1:20020)"
+                ),
+            });
+        }
+    };
+    let port: u16 = match port_str.parse() {
+        Ok(p) => p,
+        Err(_) => {
+            return Some(PreflightWarning {
+                check: PreflightCheck::WrapperM3u8,
+                message: format!(
+                    "Wrapper m3u8 port '{port_str}' in '{wrapper_m3u8_ip}' is not a valid number"
+                ),
+            });
+        }
+    };
+
+    let connect =
+        tokio::net::TcpStream::connect((host, port));
+    match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
+        Ok(Ok(_stream)) => None,
+        Ok(Err(err)) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperM3u8,
+            message: format!(
+                "Wrapper m3u8 socket at {wrapper_m3u8_ip} is unreachable — GAMDL 3.1+ needs your wrapper to expose an m3u8 service here ({err})"
+            ),
+        }),
+        Err(_) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperM3u8,
+            message: format!(
+                "Wrapper m3u8 socket at {wrapper_m3u8_ip} timed out — check that your wrapper's m3u8 service is running"
+            ),
+        }),
     }
 }
 

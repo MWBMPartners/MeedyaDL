@@ -136,6 +136,7 @@ beforeEach(() => {
       use_wrapper: false,
       auto_retry_without_wrapper: false,
       wrapper_account_url: 'http://127.0.0.1:30020',
+      wrapper_m3u8_ip: '127.0.0.1:20020',
       download_mode: 'ytdlp',
       remux_mode: 'ffmpeg',
       sentry_enabled: false,

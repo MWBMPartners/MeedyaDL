@@ -211,6 +211,7 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
     const REDACTED_FIELDS: &[&str] = &[
         "cookies_path",
         "wrapper_account_url",
+        "wrapper_m3u8_ip",
         "musickit_team_id",
         "musickit_key_id",
         "acoustid_api_key",
@@ -775,8 +776,10 @@ fn sanitize_imported_settings(settings: &mut AppSettings) {
     truncate_opt(&mut settings.mp4box_path, MAX_PATH);
     truncate_opt(&mut settings.nm3u8dlre_path, MAX_PATH);
 
-    // URLs
+    // URLs / addresses
     truncate(&mut settings.wrapper_account_url, MAX_URL);
+    // `host:port` address — 64 chars is plenty (IPv6 + port fits in ~45).
+    truncate(&mut settings.wrapper_m3u8_ip, 64);
 
     // Templates
     truncate(&mut settings.album_folder_template, MAX_TEMPLATE);

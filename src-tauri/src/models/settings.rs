@@ -1147,6 +1147,15 @@ pub struct AppSettings {
     /// `"http://127.0.0.1:30020"` (local server).
     pub wrapper_account_url: String,
 
+    /// m3u8 server address (`host:port`) used by GAMDL v3.1+ to fetch the
+    /// HLS master playlist from the wrapper service instead of Apple's
+    /// API. Required for wrapper downloads on GAMDL 3.1+. Emitted as
+    /// `--wrapper-m3u8-ip` / `wrapper_m3u8_ip` only when the detected
+    /// GAMDL version supports it. Default: `"127.0.0.1:20020"` (matches
+    /// upstream GAMDL's default).
+    #[serde(default = "default_wrapper_m3u8_ip")]
+    pub wrapper_m3u8_ip: String,
+
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
     /// for tracks with very long titles that would exceed filesystem
@@ -1450,6 +1459,12 @@ fn default_notification_style() -> String {
     "native_and_in_app".to_string()
 }
 
+/// Default wrapper m3u8 service address — matches upstream GAMDL v3.1's
+/// `AppleMusicBaseInterface.create(wrapper_m3u8_ip="127.0.0.1:20020")`.
+fn default_wrapper_m3u8_ip() -> String {
+    "127.0.0.1:20020".to_string()
+}
+
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
 pub const CURRENT_SETTINGS_VERSION: u32 = 4;
@@ -1704,6 +1719,9 @@ impl Default for AppSettings {
             auto_retry_without_wrapper: false,
             // Default wrapper URL assumes a locally-running server.
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
+            // Default wrapper m3u8 service address (GAMDL v3.1+). Matches
+            // upstream's default port 20020.
+            wrapper_m3u8_ip: default_wrapper_m3u8_ip(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // Fetch extra metadata (normalization, smooth playback info, etc.)

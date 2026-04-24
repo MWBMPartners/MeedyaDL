@@ -1844,6 +1844,7 @@ impl DownloadQueue {
                 item.merged_options.use_wrapper = Some(false);
                 item.merged_options.wrapper_account_url = None;
                 item.merged_options.wrapper_decrypt_ip = None;
+                item.merged_options.wrapper_m3u8_ip = None;
                 // Reset counters and state
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
@@ -2167,6 +2168,17 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.playlist_file_template = Some(settings.playlist_file_template.clone());
     options.use_wrapper = Some(settings.use_wrapper);
     options.wrapper_account_url = Some(settings.wrapper_account_url.clone());
+    // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the
+    // detected GAMDL release supports it and the user has wrapper mode on.
+    // Older releases don't know the flag (would parse-error), and cookie-
+    // mode downloads never consult the wrapper m3u8 socket.
+    if settings.use_wrapper
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+        )
+    {
+        options.wrapper_m3u8_ip = Some(settings.wrapper_m3u8_ip.clone());
+    }
     options.truncate = settings.truncate;
 
     if !settings.output_path.is_empty() {
@@ -4376,6 +4388,23 @@ pub fn process_queue(
                 } else {
                     None
                 };
+                // GAMDL v3.1+ fetches HLS URLs from the wrapper's m3u8 socket
+                // when `--use-wrapper` is set. Skip the probe on older
+                // releases (flag is ignored there) and when wrapper mode is
+                // off (cookie downloads don't consult the socket).
+                let wrapper_m3u8_future = if settings.use_wrapper
+                    && crate::services::gamdl_capabilities::supports(
+                        crate::services::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+                    )
+                {
+                    Some(
+                        crate::services::health_check_service::check_wrapper_m3u8_health(
+                            &settings.wrapper_m3u8_ip,
+                        ),
+                    )
+                } else {
+                    None
+                };
 
                 // Output path writability check — verify the resolved output directory
                 // is accessible before starting downloads. Catches disconnected cloud
@@ -4409,6 +4438,10 @@ pub fn process_queue(
                     Some(fut) => fut.await,
                     None => None,
                 };
+                let wrapper_m3u8_warning = match wrapper_m3u8_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
                 let output_path_warning = match output_path_future {
                     Some(fut) => fut.await,
                     None => None,
@@ -4430,6 +4463,11 @@ pub fn process_queue(
                     }
                     if settings.use_wrapper {
                         v.push((PreflightCheck::Wrapper, wrapper_warning));
+                        // Only checked when GAMDL supports it; when the
+                        // capability gate returned `None` above, this entry
+                        // carries `None` and the loop emits a "cleared"
+                        // event so any stale toast is dismissed.
+                        v.push((PreflightCheck::WrapperM3u8, wrapper_m3u8_warning));
                     }
                     // Always check output path (applies to all auth modes)
                     v.push((PreflightCheck::OutputPath, output_path_warning));
