@@ -1147,6 +1147,15 @@ pub struct AppSettings {
     /// `"http://127.0.0.1:30020"` (local server).
     pub wrapper_account_url: String,
 
+    /// m3u8 server address (`host:port`) used by GAMDL v3.1+ to fetch the
+    /// HLS master playlist from the wrapper service instead of Apple's
+    /// API. Required for wrapper downloads on GAMDL 3.1+. Emitted as
+    /// `--wrapper-m3u8-ip` / `wrapper_m3u8_ip` only when the detected
+    /// GAMDL version supports it. Default: `"127.0.0.1:20020"` (matches
+    /// upstream GAMDL's default).
+    #[serde(default = "default_wrapper_m3u8_ip")]
+    pub wrapper_m3u8_ip: String,
+
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
     /// for tracks with very long titles that would exceed filesystem
@@ -1248,6 +1257,13 @@ pub struct AppSettings {
     ///
     /// Flip this on when filing upstream bug reports against GAMDL —
     /// you lose a clean activity log but gain the full call stack.
+    ///
+    /// **GAMDL v3.1 compatibility note (#606):** Upstream commit
+    /// `dc6f2e8` removed every `traceback.print_exc()` site and routes
+    /// exceptions through `structlog.ExceptionPrettyPrinter` instead.
+    /// `--no-exceptions` is a no-op on v3.1+, so flipping this setting
+    /// does not change activity-log verbosity on that release. The
+    /// MeedyaDL output parser handles the new format; see #607.
     ///
     /// Controlled in Settings > Advanced > Diagnostics.
     #[serde(default)]
@@ -1448,6 +1464,12 @@ const fn default_gamdl_idle_timeout() -> u32 {
 /// Default notification style: native + in-app (both).
 fn default_notification_style() -> String {
     "native_and_in_app".to_string()
+}
+
+/// Default wrapper m3u8 service address — matches upstream GAMDL v3.1's
+/// `AppleMusicBaseInterface.create(wrapper_m3u8_ip="127.0.0.1:20020")`.
+fn default_wrapper_m3u8_ip() -> String {
+    "127.0.0.1:20020".to_string()
 }
 
 /// Current settings schema version.
@@ -1704,6 +1726,9 @@ impl Default for AppSettings {
             auto_retry_without_wrapper: false,
             // Default wrapper URL assumes a locally-running server.
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
+            // Default wrapper m3u8 service address (GAMDL v3.1+). Matches
+            // upstream's default port 20020.
+            wrapper_m3u8_ip: default_wrapper_m3u8_ip(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // Fetch extra metadata (normalization, smooth playback info, etc.)

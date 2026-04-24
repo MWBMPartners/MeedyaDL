@@ -792,6 +792,18 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
             "wrapper_account_url = {}",
             sanitize_ini_value(&settings.wrapper_account_url)
         ));
+        // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write keeps the
+        // emitted INI self-consistent with the detected CLI — older releases
+        // drop unknown keys via `cleanup_unknown_params()` but we stay
+        // explicit. Skipped silently on v3.0 and below.
+        if super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+        ) {
+            lines.push(format!(
+                "wrapper_m3u8_ip = {}",
+                sanitize_ini_value(&settings.wrapper_m3u8_ip)
+            ));
+        }
     }
 }
 
@@ -1064,6 +1076,30 @@ mod tests {
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("use_wrapper = true"));
         assert!(ini.contains("wrapper_account_url = http://localhost:9999"));
+    }
+
+    #[test]
+    fn ini_includes_wrapper_m3u8_ip_on_v31() {
+        use crate::services::gamdl_capabilities::set_detected_version;
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
+        set_detected_version(Some("3.1".to_string()));
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("wrapper_m3u8_ip = 10.0.0.1:20020"));
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn ini_omits_wrapper_m3u8_ip_on_v30() {
+        use crate::services::gamdl_capabilities::set_detected_version;
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
+        set_detected_version(Some("3.0".to_string()));
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("wrapper_m3u8_ip"));
+        set_detected_version(None);
     }
 
     // ----------------------------------------------------------

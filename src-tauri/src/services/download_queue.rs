@@ -1427,7 +1427,13 @@ impl DownloadQueue {
                     item.status.eta = Some(eta.clone());
                     item.status.state = DownloadState::Downloading;
                 }
-                process::GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                process::GamdlOutputEvent::TrackInfo {
+                    title,
+                    artist,
+                    track_number,
+                    track_total,
+                    ..
+                } => {
                     // Format the current track as "Artist - Title" or just "Title"
                     let track_name = if artist.is_empty() {
                         title.clone()
@@ -1435,6 +1441,18 @@ impl DownloadQueue {
                         format!("{artist} - {title}")
                     };
                     item.status.current_track = Some(track_name);
+                    // Wire the parsed "[Track N/M]" counters through to
+                    // `QueueItemStatus` so the UI can display "(Track N
+                    // of M)" context on album / playlist / artist-bucket
+                    // downloads. GAMDL v3.1 also emits `[Track 1/1]` for
+                    // single-song URLs; the frontend suppresses the
+                    // counter when `total_tracks == 1` (#609).
+                    if let Some(n) = track_number {
+                        item.status.completed_tracks = Some(*n as usize);
+                    }
+                    if let Some(t) = track_total {
+                        item.status.total_tracks = Some(*t as usize);
+                    }
                 }
                 process::GamdlOutputEvent::ProcessingStep { .. } => {
                     // Processing state covers post-download steps like remuxing,
@@ -1844,6 +1862,7 @@ impl DownloadQueue {
                 item.merged_options.use_wrapper = Some(false);
                 item.merged_options.wrapper_account_url = None;
                 item.merged_options.wrapper_decrypt_ip = None;
+                item.merged_options.wrapper_m3u8_ip = None;
                 // Reset counters and state
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
@@ -2167,6 +2186,17 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.playlist_file_template = Some(settings.playlist_file_template.clone());
     options.use_wrapper = Some(settings.use_wrapper);
     options.wrapper_account_url = Some(settings.wrapper_account_url.clone());
+    // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the
+    // detected GAMDL release supports it and the user has wrapper mode on.
+    // Older releases don't know the flag (would parse-error), and cookie-
+    // mode downloads never consult the wrapper m3u8 socket.
+    if settings.use_wrapper
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+        )
+    {
+        options.wrapper_m3u8_ip = Some(settings.wrapper_m3u8_ip.clone());
+    }
     options.truncate = settings.truncate;
 
     if !settings.output_path.is_empty() {
@@ -2226,16 +2256,46 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     }
 
     // Default to `--no-exceptions` so GAMDL prints a single user-facing
-    // line per failure instead of a full Python traceback. GAMDL v3.0
-    // interleaves structlog-formatted lines with raw multi-line
-    // tracebacks, which makes the activity log unreadable and confuses
-    // `classify_error()` (frame paths like `httpx/_transports/default.py`
-    // pick up the "Error" keyword falsely). Users debugging upstream
-    // issues can flip the `verbose_gamdl_exceptions` setting to get the
-    // full stack trace back; in that case we leave `no_exceptions` as
-    // `None` so `to_cli_args()` never emits the flag.
+    // line per failure instead of a full Python traceback. Version matrix:
+    //
+    //   * v2.x: flag suppresses `traceback.print_exc()` — fully
+    //     effective.
+    //   * v3.0: flag still suppresses `traceback.print_exc()`, but
+    //     structlog's default processors prepend
+    //     `[ERROR  HH:MM:SS]` to the printed line, which keeps the
+    //     activity log mostly clean.
+    //   * v3.1+: flag is a no-op. Upstream commit `dc6f2e8` removed
+    //     every `traceback.print_exc()` call and switched to
+    //     `structlog.processors.ExceptionPrettyPrinter` + `log.exception`.
+    //     The flag is still accepted by the CLI parser but nothing
+    //     consumes it.
+    //
+    // MeedyaDL's activity log may therefore surface pretty-printed
+    // exception blocks on v3.1 regardless of `verbose_gamdl_exceptions`.
+    // Users debugging upstream issues can still flip the
+    // `verbose_gamdl_exceptions` setting to get the full stack trace
+    // back; in that case we leave `no_exceptions` as `None` so
+    // `to_cli_args()` never emits the flag.
+    //
+    // The actual CLI arg emission is further gated by
+    // `GamdlFeature::NoExceptionsFlag` in `to_cli_args()` — on v3.1 we
+    // silently drop the flag to avoid adding noise to the debug log and
+    // to make it clear to anyone reading the spawned command line that
+    // the flag would have no effect.
     if !settings.verbose_gamdl_exceptions {
         options.no_exceptions = Some(true);
+    }
+    // Drop the flag when we've positively detected a v3.1+ release —
+    // upstream ignores it there, so emitting would be log noise and
+    // misleading to anyone reading the spawned command line. When the
+    // version is unknown (capability cache not yet populated, first
+    // download of the session), keep emitting: the flag is accepted on
+    // every GAMDL version since 2.x and suppresses tracebacks on the
+    // majority of our user base (v2.x / v3.0).
+    if let Some(ver) = super::gamdl_capabilities::detected_version() {
+        if super::gamdl_service::is_version_at_least(&ver, "3.1") {
+            options.no_exceptions = None;
+        }
     }
 
     // Apply exclude tags
@@ -4376,6 +4436,23 @@ pub fn process_queue(
                 } else {
                     None
                 };
+                // GAMDL v3.1+ fetches HLS URLs from the wrapper's m3u8 socket
+                // when `--use-wrapper` is set. Skip the probe on older
+                // releases (flag is ignored there) and when wrapper mode is
+                // off (cookie downloads don't consult the socket).
+                let wrapper_m3u8_future = if settings.use_wrapper
+                    && crate::services::gamdl_capabilities::supports(
+                        crate::services::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+                    )
+                {
+                    Some(
+                        crate::services::health_check_service::check_wrapper_m3u8_health(
+                            &settings.wrapper_m3u8_ip,
+                        ),
+                    )
+                } else {
+                    None
+                };
 
                 // Output path writability check — verify the resolved output directory
                 // is accessible before starting downloads. Catches disconnected cloud
@@ -4409,6 +4486,10 @@ pub fn process_queue(
                     Some(fut) => fut.await,
                     None => None,
                 };
+                let wrapper_m3u8_warning = match wrapper_m3u8_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
                 let output_path_warning = match output_path_future {
                     Some(fut) => fut.await,
                     None => None,
@@ -4430,6 +4511,11 @@ pub fn process_queue(
                     }
                     if settings.use_wrapper {
                         v.push((PreflightCheck::Wrapper, wrapper_warning));
+                        // Only checked when GAMDL supports it; when the
+                        // capability gate returned `None` above, this entry
+                        // carries `None` and the loop emits a "cleared"
+                        // event so any stale toast is dismissed.
+                        v.push((PreflightCheck::WrapperM3u8, wrapper_m3u8_warning));
                     }
                     // Always check output path (applies to all auth modes)
                     v.push((PreflightCheck::OutputPath, output_path_warning));
@@ -7300,6 +7386,26 @@ pub fn process_queue(
 /// the "Traceback" header. This function finds the last traceback block
 /// in the stderr output and extracts that exception line.
 ///
+/// ## GAMDL 3.1 format note (#607)
+///
+/// Upstream replaced `traceback.print_exc()` with structlog's
+/// `ExceptionPrettyPrinter`, which prints the traceback **before** the
+/// `[ERROR HH:MM:SS] …` log line (the processor runs earlier in
+/// structlog's pipeline than the formatter). So the output order on
+/// v3.1 is:
+/// ```text
+/// Traceback (most recent call last):
+///   File "…/downloader.py", line 123, in download
+/// KeyError: 'title'
+/// [ERROR    17:09:23] [Track 1/14] Error downloading "Lavender Haze"
+/// ```
+///
+/// Without the structlog-line detection below, the walker would pick up
+/// the trailing `[ERROR …]` log line as the "last non-indented line"
+/// and return it instead of the real exception. The stop rule treats
+/// any line that looks like a fresh structlog entry
+/// (`[LEVEL   HH:MM:SS]`) as the end of the traceback block.
+///
 /// Returns `None` if no traceback is found in the stderr lines.
 fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
     // Find the last occurrence of "Traceback" in stderr
@@ -7308,7 +7414,9 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
         .rposition(|line| line.trim().to_lowercase().contains("traceback"))?;
 
     // Walk forward from the traceback line to find the exception.
-    // The exception is the last non-empty, non-indented line in the traceback block.
+    // The exception is the last non-empty, non-indented line in the
+    // traceback block — but we stop as soon as a line clearly belongs
+    // to a new structlog log entry (see GAMDL 3.1 note above).
     let mut exception_line: Option<&str> = None;
     for line in &stderr_lines[traceback_idx + 1..] {
         let trimmed = line.trim();
@@ -7319,6 +7427,14 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
             }
             continue;
         }
+        // Structlog-formatted log line ends the traceback block (v3.1).
+        // Match `[LEVEL...]` where LEVEL is one of the standard log levels
+        // GAMDL emits. We don't match bare `[...]` since Python exception
+        // messages can contain square brackets (`[Errno 60] Operation timed
+        // out`).
+        if is_structlog_line_start(trimmed) {
+            break;
+        }
         // Exception lines are NOT indented (don't start with space/tab).
         // Indented lines are stack frame details (File "...", code).
         if !line.starts_with(' ') && !line.starts_with('\t') {
@@ -7327,6 +7443,35 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
     }
 
     exception_line.map(std::string::ToString::to_string)
+}
+
+/// Returns `true` when `trimmed` looks like the start of a GAMDL v3.x
+/// structlog log entry, i.e. `[LEVEL    HH:MM:SS] …`. Used by
+/// [`extract_python_exception`] to detect the end of an exception
+/// block on v3.1 where the traceback appears **before** its
+/// accompanying log line.
+fn is_structlog_line_start(trimmed: &str) -> bool {
+    // Fast path: must start with `[` and contain `]`.
+    let Some(rest) = trimmed.strip_prefix('[') else {
+        return false;
+    };
+    let Some(close_idx) = rest.find(']') else {
+        return false;
+    };
+    let inside = &rest[..close_idx];
+    // Recognised level tokens GAMDL emits via structlog.
+    for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] {
+        if let Some(after_level) = inside.strip_prefix(level) {
+            // Ensure the next char is whitespace (structlog pads with
+            // `{level:<8}`) — this guards against false positives like
+            // `[ERROR] some bracketed exception text` that isn't actually
+            // a log line.
+            if after_level.starts_with(' ') || after_level.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Runs a GAMDL download while forwarding parsed events to both
@@ -9088,6 +9233,52 @@ mod tests {
         );
     }
 
+    /// Verifies that a TrackInfo event carrying `track_number` and
+    /// `track_total` propagates those into `completed_tracks` and
+    /// `total_tracks` on the queue item so the UI can render a
+    /// "Track N of M" context counter (#609).
+    #[test]
+    fn update_item_progress_track_info_sets_counter_fields() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Track One".to_string(),
+            artist: String::new(),
+            album: String::new(),
+            track_number: Some(3),
+            track_total: Some(12),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].completed_tracks, Some(3));
+        assert_eq!(statuses[0].total_tracks, Some(12));
+    }
+
+    /// GAMDL v3.1 emits `[Track 1/1]` for single-song URLs (new — older
+    /// GAMDL stayed silent). The backend must still propagate the
+    /// counter; the UI is responsible for suppressing the "1 of 1"
+    /// cosmetic (#609).
+    #[test]
+    fn update_item_progress_track_info_propagates_single_song_counter() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Flowers".to_string(),
+            artist: "Miley Cyrus".to_string(),
+            album: String::new(),
+            track_number: Some(1),
+            track_total: Some(1),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].completed_tracks, Some(1));
+        assert_eq!(statuses[0].total_tracks, Some(1));
+    }
+
     /// Verifies that a TrackInfo event with an empty artist just uses the title.
     #[test]
     fn update_item_progress_track_info_without_artist() {
@@ -9905,6 +10096,78 @@ mod tests {
         ];
         // All lines after Traceback are indented, so no exception found
         assert_eq!(extract_python_exception(&lines), None);
+    }
+
+    #[test]
+    fn extracts_exception_when_structlog_log_line_follows_traceback_v31() {
+        // GAMDL 3.1 emits the Traceback BEFORE the accompanying
+        // `[ERROR HH:MM:SS]` log line because ExceptionPrettyPrinter
+        // runs earlier in structlog's processor chain than the
+        // formatter. Without structlog-line detection the walker would
+        // pick up the trailing log line instead of the actual
+        // exception.
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"gamdl/downloader/song.py\", line 96, in download".to_string(),
+            "    await self._decrypt_amdecrypt(...)".to_string(),
+            "KeyError: 'title'".to_string(),
+            "[ERROR    17:09:23] [Track   1/14] Error downloading \"Lavender Haze\"".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("KeyError: 'title'".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_exception_with_structlog_info_line_follows_v31() {
+        // Catches the case where a subsequent INFO log line follows
+        // the traceback (e.g., "Finished with 1 error(s)").
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"b.py\", line 2".to_string(),
+            "ValueError: boom".to_string(),
+            "[INFO     17:09:24] Finished with 1 error(s)".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("ValueError: boom".to_string())
+        );
+    }
+
+    #[test]
+    fn structlog_line_detector_tolerates_bracketed_exception_text() {
+        // Python exception messages can legitimately contain square
+        // brackets (errno-style prefixes). The detector must NOT treat
+        // `[Errno 60] ...` as a structlog line even though it starts
+        // with `[...]`.
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"x.py\", line 1".to_string(),
+            "TimeoutError: [Errno 60] Operation timed out: '/mnt/cover.jpg'".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("TimeoutError: [Errno 60] Operation timed out: '/mnt/cover.jpg'".to_string())
+        );
+    }
+
+    #[test]
+    fn is_structlog_line_start_recognises_all_log_levels() {
+        assert!(is_structlog_line_start("[INFO     17:09:24] hello"));
+        assert!(is_structlog_line_start("[DEBUG    17:09:24] hello"));
+        assert!(is_structlog_line_start("[WARNING  17:09:24] hello"));
+        assert!(is_structlog_line_start("[ERROR    17:09:24] hello"));
+        assert!(is_structlog_line_start("[CRITICAL 17:09:24] hello"));
+    }
+
+    #[test]
+    fn is_structlog_line_start_rejects_non_log_brackets() {
+        assert!(!is_structlog_line_start("[Errno 60] Operation timed out"));
+        assert!(!is_structlog_line_start("[not a log] line"));
+        assert!(!is_structlog_line_start("plain text"));
+        assert!(!is_structlog_line_start(""));
+        assert!(!is_structlog_line_start("ERRORISH but no bracket"));
     }
 
     // ----------------------------------------------------------

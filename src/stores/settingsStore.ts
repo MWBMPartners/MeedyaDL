@@ -173,6 +173,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
   wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
+  wrapper_m3u8_ip: '127.0.0.1:20020', // Wrapper m3u8 address (GAMDL v3.1+)
   truncate: null, // Max filename length in characters; null = no truncation
   fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [], // Metadata tags to exclude from output files

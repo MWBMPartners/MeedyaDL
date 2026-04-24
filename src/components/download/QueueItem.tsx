@@ -427,12 +427,19 @@ export function QueueItem({
            * When `total_tracks` and `completed_tracks` are both available
            * and the item is in an active state, a "Track N of M" counter
            * is appended after the track name for aggregate progress context.
+           *
+           * Suppress the counter for `total_tracks === 1` — GAMDL v3.1
+           * emits `[Track   1/1  ]` for single-song URLs (new in 3.1;
+           * older GAMDL releases stayed silent), so the counter would
+           * read a redundant "(Track 1 of 1)" on every single-song
+           * download. #609.
            */}
           {item.current_track && (
             <p className="text-xs text-content-secondary mt-0.5 truncate">
               {item.current_track}
               {isActive &&
                 item.total_tracks != null &&
+                item.total_tracks > 1 &&
                 item.completed_tracks != null && (
                   <span className="text-content-tertiary ml-1.5">
                     (Track {item.completed_tracks} of {item.total_tracks})
