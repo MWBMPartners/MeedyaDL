@@ -128,5 +128,42 @@ help FAQ so the design consistency is visible to users.
 Filed as #616. Ships alongside the `tool-versions.toml` 3.2 bump (#619).
 No code change — CHANGELOG + help FAQ entry only.
 
+## Issue 617 — Upstream INI typo `song_codec_piority`
+
+GAMDL's `cli_config.py` has declared the codec-priority dataclass field
+as `song_codec_piority` (missing the `r` in `priority`) on every release
+from v2.9.1 onward. `dataclass_click` sets `click.Parameter.name` from
+the Python field name, so the INI key GAMDL reads and writes is the
+typo'd one — not `song_codec_priority` (which MeedyaDL writes).
+
+### Verified via local repro
+
+```text
+$ python3 -c "from dataclass_click import dataclass_click, option; ..."
+param.name: song_codec_piority || opts: ['--song-codec-priority']
+```
+
+`ConfigFile.update_params_from_config()` reads values keyed by
+`param.name`. `cleanup_unknown_params()` silently removes keys not in
+the Click param set. So MeedyaDL's `song_codec_priority = …` INI line
+has been decorative — silently dropped — on every release in our
+support window.
+
+### Why downloads still work
+
+MeedyaDL passes `--song-codec-priority <chain>` on every subprocess
+call. Click matches on `opts:` (the `--flag` form), not `param.name`,
+so the CLI path is unaffected. Codec preference reaches GAMDL via the
+CLI; the INI has been a no-op for it.
+
+### Resolution
+
+Filed as #617. Recommended resolution: **Option D** — drop the codec
+block from `ini_audio_section` entirely (both `song_codec` and
+`song_codec_priority`). The CLI path is authoritative; the INI emission
+has never worked on v2.9.1+. Optionally file upstream PR (Option C) to
+rename the misspelled field; no hard dependency either way.
+
+
 
 
