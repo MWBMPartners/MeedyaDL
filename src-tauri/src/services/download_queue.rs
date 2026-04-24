@@ -2238,16 +2238,46 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     }
 
     // Default to `--no-exceptions` so GAMDL prints a single user-facing
-    // line per failure instead of a full Python traceback. GAMDL v3.0
-    // interleaves structlog-formatted lines with raw multi-line
-    // tracebacks, which makes the activity log unreadable and confuses
-    // `classify_error()` (frame paths like `httpx/_transports/default.py`
-    // pick up the "Error" keyword falsely). Users debugging upstream
-    // issues can flip the `verbose_gamdl_exceptions` setting to get the
-    // full stack trace back; in that case we leave `no_exceptions` as
-    // `None` so `to_cli_args()` never emits the flag.
+    // line per failure instead of a full Python traceback. Version matrix:
+    //
+    //   * v2.x: flag suppresses `traceback.print_exc()` — fully
+    //     effective.
+    //   * v3.0: flag still suppresses `traceback.print_exc()`, but
+    //     structlog's default processors prepend
+    //     `[ERROR  HH:MM:SS]` to the printed line, which keeps the
+    //     activity log mostly clean.
+    //   * v3.1+: flag is a no-op. Upstream commit `dc6f2e8` removed
+    //     every `traceback.print_exc()` call and switched to
+    //     `structlog.processors.ExceptionPrettyPrinter` + `log.exception`.
+    //     The flag is still accepted by the CLI parser but nothing
+    //     consumes it.
+    //
+    // MeedyaDL's activity log may therefore surface pretty-printed
+    // exception blocks on v3.1 regardless of `verbose_gamdl_exceptions`.
+    // Users debugging upstream issues can still flip the
+    // `verbose_gamdl_exceptions` setting to get the full stack trace
+    // back; in that case we leave `no_exceptions` as `None` so
+    // `to_cli_args()` never emits the flag.
+    //
+    // The actual CLI arg emission is further gated by
+    // `GamdlFeature::NoExceptionsFlag` in `to_cli_args()` — on v3.1 we
+    // silently drop the flag to avoid adding noise to the debug log and
+    // to make it clear to anyone reading the spawned command line that
+    // the flag would have no effect.
     if !settings.verbose_gamdl_exceptions {
         options.no_exceptions = Some(true);
+    }
+    // Drop the flag when we've positively detected a v3.1+ release —
+    // upstream ignores it there, so emitting would be log noise and
+    // misleading to anyone reading the spawned command line. When the
+    // version is unknown (capability cache not yet populated, first
+    // download of the session), keep emitting: the flag is accepted on
+    // every GAMDL version since 2.x and suppresses tracebacks on the
+    // majority of our user base (v2.x / v3.0).
+    if let Some(ver) = super::gamdl_capabilities::detected_version() {
+        if super::gamdl_service::is_version_at_least(&ver, "3.1") {
+            options.no_exceptions = None;
+        }
     }
 
     // Apply exclude tags
