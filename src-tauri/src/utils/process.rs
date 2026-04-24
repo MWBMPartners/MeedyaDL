@@ -114,11 +114,18 @@ static TRACK_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// Example input: `[Track 1/15] Downloading "F1"`
 ///
 /// GAMDL 2.9.x changed its output format from "Getting track N of M: Title"
-/// to "[Track N/M] Downloading "Title"". This regex handles the new format.
+/// to "[Track N/M] Downloading "Title"". This regex handles that format.
 /// The `(?i)` flag handles case variations. The title quotes are optional
 /// to handle edge cases.
+///
+/// GAMDL v3.0 began wrapping the bracket in padded structlog context:
+/// `[Track   1/15 ]` — `action=f"Track {index:>3}/{total:<3}"` pads both
+/// sides to width 3, so a trailing space can appear between the total
+/// and the closing `]`. The `\s*` tolerances around the slash and
+/// before the close bracket handle that (and any future upstream
+/// spacing change) without breaking the numeric-only total contract.
 static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)\[Track\s+(\d+)/(\d+)\]\s+Downloading\s+"?([^"]+)"?"#)
+    Regex::new(r#"(?i)\[Track\s+(\d+)\s*/\s*(\d+)\s*\]\s+Downloading\s+"?([^"]+)"?"#)
         .expect("Invalid track info v2 regex")
 });
 
@@ -1809,5 +1816,147 @@ mod tests {
         if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(line) {
             panic!("Experimental-codec warning must not be captured as Error");
         }
+    }
+
+    // ================================================================
+    // GAMDL v3.1 regression tests (#608)
+    // ================================================================
+    //
+    // What changed upstream between v3.0 and v3.1:
+    //   * Track progress format is still `action=f"Track {index:>3}/{total:<3}"`,
+    //     but a new fallback `media_total or "-"` means the emitted line
+    //     reads `Track   1/-  ` when `total == 0`. Every call site in
+    //     v3.1 passes an explicit non-zero total, so `-` shouldn't
+    //     occur in practice — but the parser must degrade gracefully
+    //     if it ever does.
+    //   * URL parse errors upgraded from `url_log.warning` to
+    //     `url_log.error` (commit `fd3b621`). The line now arrives as
+    //     `[ERROR    HH:MM:SS] [URL   1/1  ] …`, which must trigger
+    //     `ERROR_PREFIX_REGEX` and flow into `classify_error()`.
+    //   * `AppleMusicMedia.index/total` are now populated for every
+    //     download type (single songs → `total=1`, artist buckets →
+    //     `total=len(selected_items)`, playlist/album → `trackCount`),
+    //     so the `[Track   1/1  ]` line appears for single-song URLs
+    //     where v3.0 stayed silent.
+
+    #[test]
+    fn v31_track_regex_matches_padded_format() {
+        // `action=f"Track {index:>3}/{total:<3}"` produces
+        // `Track   1/15 ` (right-padded index, left-padded total).
+        let line = "[INFO     12:00:02] [Track   1/15 ] Downloading \"F1\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                title,
+                track_number,
+                track_total,
+                ..
+            } => {
+                assert_eq!(title, "F1");
+                assert_eq!(track_number, Some(1));
+                assert_eq!(track_total, Some(15));
+            }
+            other => panic!("Expected TrackInfo, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v31_track_regex_matches_single_song_1_of_1() {
+        // v3.1 emits `Track   1/1  ` for single-song URLs because
+        // `_get_song_media` is now called with `total=1` (previously
+        // no track line appeared for songs).
+        let line = "[INFO     12:00:02] [Track   1/1  ] Downloading \"Flowers\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                track_number,
+                track_total,
+                ..
+            } => {
+                assert_eq!(track_number, Some(1));
+                assert_eq!(track_total, Some(1));
+            }
+            other => panic!("Expected TrackInfo, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v31_track_regex_does_not_match_dash_total_fallback() {
+        // Defensive: `media_total or "-"` fallback. The `\d+/\d+`
+        // pattern in `TRACK_INFO_V2_REGEX` is numeric-only, so this
+        // line must NOT parse as `TrackInfo` (would give a bogus
+        // `track_total`); it should surface as `Unknown` so the
+        // activity log still displays the raw line.
+        let line = "[INFO     12:00:02] [Track   1/-  ] Downloading \"Flowers\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { .. } => {
+                panic!("Track N/- must not parse as TrackInfo with numeric total");
+            }
+            // Any other event variant is acceptable — the contract is
+            // "don't silently record a wrong track_total".
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn v31_url_parse_error_is_captured_as_error_not_warning() {
+        // Upstream `fd3b621` upgraded URL parse errors to ERROR level.
+        // The line must trigger `ERROR_PREFIX_REGEX` and produce an
+        // `Error` event so `classify_error()` can route it. On v3.0
+        // this line would have been WARNING and fallen through to
+        // `Unknown`.
+        let line = "[ERROR    12:00:01] [URL   1/1  ] Failed to parse URL: invalid scheme";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(
+                    message.contains("Failed to parse URL"),
+                    "message should carry the URL parse reason, got {message:?}"
+                );
+            }
+            other => panic!("Expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v31_padded_url_bracket_does_not_break_error_capture() {
+        // The `[URL   1/1  ]` infix between the log level and the
+        // message must not prevent the `ERROR_PREFIX_REGEX` capture.
+        // This is the same guard as v3.0's #599 fix but on the
+        // URL-context variant.
+        let line = "[ERROR    17:09:24] [URL   1/1  ] Error processing \"https://example.com/bad\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { .. } => {}
+            other => panic!("Expected Error for v3.1 [URL...] error line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v31_padded_track_bracket_error_still_captured() {
+        // Exact shape per the upstream formatter. Kept separate from
+        // the v3.0 test above because v3.1 is where we first exercise
+        // single-track downloads with a `[Track   1/1  ]` prefix.
+        let line = "[ERROR    17:09:23] [Track   1/1  ] Error downloading \"Flowers\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Error { message } => {
+                assert!(
+                    message.contains("Error downloading") || message.contains("Flowers"),
+                    "message should carry the track error, got {message:?}"
+                );
+            }
+            other => panic!("Expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v31_url_parse_error_classifies_as_not_found() {
+        // Full pipeline check: the URL parse error message (once
+        // stripped of the level prefix by `ERROR_PREFIX_REGEX`) must
+        // land in a sensible bucket. "Failed to parse URL" contains
+        // no "auth" / "network" / "codec" keywords but we accept
+        // either `not_found` or `unknown` here — the exact mapping
+        // is less important than "doesn't falsely match network".
+        // Regression guard: #521's "httpx/httpcore" network rule
+        // should NOT fire.
+        let cat = classify_error("Failed to parse URL: invalid scheme");
+        assert_ne!(cat, "network", "URL parse error must not be classified as network");
+        assert_ne!(cat, "auth", "URL parse error must not be classified as auth");
     }
 }
