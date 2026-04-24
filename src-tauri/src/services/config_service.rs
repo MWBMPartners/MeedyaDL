@@ -754,6 +754,21 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
             sanitize_ini_value(&settings.no_album_folder_template)
         ));
     }
+    // `playlist_folder_template` is GAMDL v3.0+ only (#618). On v2.9.x the
+    // key is silently dropped by `cleanup_unknown_params()`, but we still
+    // gate the emission so the generated INI is self-consistent with the
+    // detected CLI — same pattern as `wrapper_m3u8_ip` and (formerly)
+    // `fetch_extra_tags`.
+    if !settings.playlist_folder_template.is_empty()
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate,
+        )
+    {
+        lines.push(format!(
+            "playlist_folder_template = {}",
+            sanitize_ini_value(&settings.playlist_folder_template)
+        ));
+    }
     if !settings.single_disc_file_template.is_empty() {
         lines.push(format!(
             "single_disc_file_template = {}",

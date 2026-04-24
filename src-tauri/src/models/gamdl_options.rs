@@ -684,6 +684,11 @@ pub struct GamdlOptions {
     pub compilation_folder_template: Option<String>,
     /// Folder template for non-album tracks
     pub no_album_folder_template: Option<String>,
+    /// Folder template for playlists (GAMDL v3.0+). Emission is gated by
+    /// [`crate::services::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate`]
+    /// — `--playlist-folder-template` does not exist on v2.9.x and would
+    /// crash the subprocess with "no such option". See #618.
+    pub playlist_folder_template: Option<String>,
     /// File template for single-disc albums
     pub single_disc_file_template: Option<String>,
     /// File template for multi-disc albums
@@ -935,6 +940,18 @@ impl GamdlOptions {
         if let Some(ref t) = self.no_album_folder_template {
             args.push("--no-album-folder-template".to_string());
             args.push(t.clone());
+        }
+        // `--playlist-folder-template` is GAMDL v3.0+ only (#618). On
+        // v2.9.x the flag does not exist and emission would crash the
+        // subprocess with "no such option", so we gate it the same way
+        // `wrapper_m3u8_ip` is gated in `path_cli_args` above.
+        if let Some(ref t) = self.playlist_folder_template {
+            if crate::services::gamdl_capabilities::supports(
+                crate::services::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate,
+            ) {
+                args.push("--playlist-folder-template".to_string());
+                args.push(t.clone());
+            }
         }
         if let Some(ref t) = self.single_disc_file_template {
             args.push("--single-disc-file-template".to_string());
@@ -1461,6 +1478,69 @@ mod tests {
         let args = options.to_cli_args();
         assert!(!args.contains(&"--song-codec".to_string()));
         assert!(!args.contains(&"--song-codec-priority".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // playlist_folder_template capability gate (#618)
+    //
+    // These tests mutate the process-global capability cache so they
+    // share a `Mutex` to avoid interfering with each other (same
+    // pattern as the `gamdl_capabilities` module's own tests).
+    // ----------------------------------------------------------
+
+    /// Shared lock for `playlist_folder_template` tests — see
+    /// `gamdl_capabilities::tests::TEST_LOCK` for the pattern.
+    static PLAYLIST_TEMPLATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn playlist_folder_template_emitted_on_v30_plus() {
+        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.0".to_string()));
+        let options = GamdlOptions {
+            playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(args.contains(&"--playlist-folder-template".to_string()));
+        assert!(args.contains(&"MyPlaylists/{playlist_artist}".to_string()));
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn playlist_folder_template_suppressed_on_v29x() {
+        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        crate::services::gamdl_capabilities::set_detected_version(Some("2.9.3".to_string()));
+        let options = GamdlOptions {
+            playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(
+            !args.contains(&"--playlist-folder-template".to_string()),
+            "v2.9.x must not receive --playlist-folder-template (no such option)"
+        );
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn playlist_folder_template_suppressed_when_version_unknown() {
+        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        crate::services::gamdl_capabilities::set_detected_version(None);
+        let options = GamdlOptions {
+            playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(
+            !args.contains(&"--playlist-folder-template".to_string()),
+            "unknown-version default is 'no capability' per the module contract"
+        );
     }
 
     // ----------------------------------------------------------

@@ -390,6 +390,12 @@ export interface GamdlOptions {
   compilation_folder_template?: string;
   /** Template for folder names when album folder is disabled */
   no_album_folder_template?: string;
+  /**
+   * Template for playlist folder names (GAMDL v3.0+ only, #618).
+   * On v2.9.x the `--playlist-folder-template` flag does not exist; the
+   * Rust side gates emission behind `GamdlFeature::PlaylistFolderTemplate`.
+   */
+  playlist_folder_template?: string;
   /** Template for file names on single-disc albums */
   single_disc_file_template?: string;
   /** Template for file names on multi-disc albums (includes disc number) */
@@ -590,6 +596,13 @@ export interface AppSettings {
   compilation_folder_template: string;
   /** Template for folder naming when album folders are disabled */
   no_album_folder_template: string;
+  /**
+   * Template for playlist folder naming (GAMDL v3.0+ only, #618).
+   * MeedyaDL stores this unconditionally; the Rust side gates emission
+   * behind `GamdlFeature::PlaylistFolderTemplate` so v2.9.x users just
+   * fall back to GAMDL's upstream default layout.
+   */
+  playlist_folder_template: string;
   /** Template for file naming on single-disc albums */
   single_disc_file_template: string;
   /** Template for file naming on multi-disc albums */
