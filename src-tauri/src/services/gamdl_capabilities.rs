@@ -324,6 +324,17 @@ pub enum GamdlFeature {
     /// Introduced in v2.9.1. Older releases require `MeedyaDL` to spawn
     /// one subprocess per codec via `try_fallback`.
     NativeCodecPriority,
+
+    /// `--wrapper-m3u8-ip` CLI flag and `wrapper_m3u8_ip` INI key.
+    ///
+    /// Introduced in v3.1. When `--use-wrapper` is set, v3.1+ fetches the
+    /// HLS master playlist URL from a TCP socket on this address instead
+    /// of the Apple Music API response. Older releases do not recognise
+    /// the flag; emitting it would either be dropped silently
+    /// (GAMDL v3.0's `cleanup_unknown_params()`) or — at the CLI layer —
+    /// cause a click argument-parse error. Gate all emission on this
+    /// feature to stay self-consistent with the detected CLI.
+    WrapperM3u8Ip,
 }
 
 impl GamdlFeature {
@@ -337,6 +348,8 @@ impl GamdlFeature {
             Self::FetchExtraTags => !is_version_at_least(version, "3.0"),
             // Added in v2.9.1.
             Self::NativeCodecPriority => is_version_at_least(version, "2.9.1"),
+            // Added in v3.1.
+            Self::WrapperM3u8Ip => is_version_at_least(version, "3.1"),
         }
     }
 }
@@ -397,11 +410,26 @@ mod tests {
     }
 
     #[test]
+    fn wrapper_m3u8_ip_requires_v31() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        set_detected_version(Some("3.0".to_string()));
+        assert!(!supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(Some("3.0.1".to_string()));
+        assert!(!supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(Some("3.1".to_string()));
+        assert!(supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(Some("3.1.2".to_string()));
+        assert!(supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(None);
+    }
+
+    #[test]
     fn unknown_version_reports_no_capabilities() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         set_detected_version(None);
         assert!(!supports(GamdlFeature::FetchExtraTags));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
+        assert!(!supports(GamdlFeature::WrapperM3u8Ip));
     }
 
     #[test]

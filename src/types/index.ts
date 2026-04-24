@@ -369,6 +369,11 @@ export interface GamdlOptions {
   wrapper_account_url?: string;
   /** IP address hint for the wrapper's decryption service */
   wrapper_decrypt_ip?: string;
+  /**
+   * m3u8 service address (host:port) used by GAMDL v3.1+ to fetch HLS stream
+   * URLs from the wrapper. Required for wrapper downloads on 3.1+.
+   */
+  wrapper_m3u8_ip?: string;
   /** Language/locale for metadata (e.g., "en-US", "ja-JP") */
   language?: string;
   /** Comma-separated list of metadata tags to exclude from output */
@@ -615,6 +620,12 @@ export interface AppSettings {
   auto_retry_without_wrapper: boolean;
   /** URL for the API wrapper account endpoint */
   wrapper_account_url: string;
+  /**
+   * m3u8 service address (host:port) used by GAMDL v3.1+ to fetch the HLS
+   * master playlist from the wrapper instead of Apple's API. Required for
+   * wrapper downloads on GAMDL 3.1+. Default: `"127.0.0.1:20020"`.
+   */
+  wrapper_m3u8_ip: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
   /** Whether to fetch extra metadata tags (normalization, smooth playback) */
@@ -862,7 +873,12 @@ export interface QueueItemStatus {
  *
  * Mirrors: Rust enum `PreflightCheck` in `src-tauri/src/services/health_check_service.rs`
  */
-export type PreflightCheck = 'internet' | 'cookies' | 'wrapper' | 'output_path';
+export type PreflightCheck =
+  | 'internet'
+  | 'cookies'
+  | 'wrapper'
+  | 'wrapper_m3u8'
+  | 'output_path';
 
 /**
  * Payload of a `"preflight-warning"` Tauri event, emitted by the Rust
