@@ -1977,7 +1977,54 @@ mod tests {
     // bracketed `[Track N/M]` shape and the classifier targets substring
     // heuristics — so both changes should be transparent. These tests lock
     // that invariant in.
+    //
+    // Fixtures live in `.github/audits/fixtures/gamdl-3.2/`. Each `.log`
+    // file captures a representative scenario with shape derived from the
+    // v3.2 upstream source (`cli.py` + `cli/utils.py` — `custom_structlog_formatter`).
+    // When real-sample captures from a live v3.2 run become available, they
+    // should drop in as replacements for the synthesised fixtures without
+    // any test rewrites; the assertions target structural properties
+    // (counter values, event types), not exact whitespace.
     // ========================================================================
+
+    /// Loads a fixture file from `.github/audits/fixtures/gamdl-3.2/` and
+    /// returns its content as a `String`. Panics with a clear error if
+    /// the fixture is missing — the tests that call this are specifically
+    /// there to catch parser regressions, so a missing fixture is always
+    /// a setup bug worth surfacing loudly.
+    fn load_v32_fixture(name: &str) -> String {
+        // `CARGO_MANIFEST_DIR` points at `src-tauri/`, so the repo root
+        // is one level up. The fixtures directory is at
+        // `<repo_root>/.github/audits/fixtures/gamdl-3.2/<name>`.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".github")
+            .join("audits")
+            .join("fixtures")
+            .join("gamdl-3.2")
+            .join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("failed to load v3.2 fixture {name} at {path:?}: {e}")
+        })
+    }
+
+    /// Iterates over lines in a fixture, parses each through
+    /// `parse_gamdl_output`, and returns only the matching variant. Useful
+    /// for extracting just the `TrackInfo` events from a long run-log.
+    fn fixture_track_events(fixture: &str) -> Vec<(Option<u32>, Option<u32>, String)> {
+        load_v32_fixture(fixture)
+            .lines()
+            .filter_map(|line| match parse_gamdl_output(line) {
+                GamdlOutputEvent::TrackInfo {
+                    track_number,
+                    track_total,
+                    title,
+                    ..
+                } => Some((track_number, track_total, title)),
+                _ => None,
+            })
+            .collect()
+    }
 
     #[test]
     fn v32_song_track_info_still_captured() {
@@ -2096,5 +2143,97 @@ mod tests {
             ],
             "all three v3.2 album tracks must emit correctly-numbered TrackInfo events",
         );
+    }
+
+    // ----------------------------------------------------------------
+    // Fixture-driven v3.2 tests (#615)
+    //
+    // The above inline-string tests pin the exact whitespace. The
+    // fixture-driven tests below assert structural properties over
+    // realistic multi-line captures, so they continue passing even if a
+    // future real-sample capture tweaks alignment details.
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn v32_fixture_album_multi_track_counter_correct() {
+        let events = fixture_track_events("album-multi-track-stderr.log");
+        assert_eq!(
+            events,
+            vec![
+                (Some(1), Some(3), "Opening Track".to_string()),
+                (Some(2), Some(3), "Second Song".to_string()),
+                (Some(3), Some(3), "Closing Track".to_string()),
+            ],
+            "3-track album fixture must produce exactly 3 TrackInfo events in order"
+        );
+    }
+
+    #[test]
+    fn v32_fixture_single_song_emits_one_track_event() {
+        let events = fixture_track_events("single-song-stderr.log");
+        assert_eq!(events.len(), 1, "single-song fixture must emit exactly one TrackInfo event");
+        let (num, total, title) = &events[0];
+        assert_eq!(*num, Some(1));
+        assert_eq!(*total, Some(1));
+        assert_eq!(title, "Standalone Single");
+    }
+
+    #[test]
+    fn v32_fixture_music_video_emits_one_track_event() {
+        let events = fixture_track_events("music-video-stderr.log");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, Some(1));
+        assert_eq!(events[0].1, Some(1));
+        assert!(events[0].2.contains("Live From London"));
+    }
+
+    #[test]
+    fn v32_fixture_playlist_emits_four_track_events() {
+        let events = fixture_track_events("playlist-stderr.log");
+        assert_eq!(events.len(), 4, "4-track playlist fixture must emit exactly 4 TrackInfo events");
+        for (i, (num, total, _)) in events.iter().enumerate() {
+            assert_eq!(*num, Some((i + 1) as u32), "track {} number mismatch", i + 1);
+            assert_eq!(*total, Some(4), "track {} total mismatch", i + 1);
+        }
+    }
+
+    #[test]
+    fn v32_fixture_flat_filter_excluded_does_not_break_track_counter() {
+        // The `GamdlInterfaceFlatFilterExcludedError` warning line uses
+        // the same `[Track N/M]` bracket shape as the Downloading line
+        // (both pass through `custom_structlog_formatter`). The Track
+        // event must not fire for the warning line (it lacks the
+        // `Downloading "..."` suffix the regex requires).
+        let events = fixture_track_events("flat-filter-excluded-stderr.log");
+        assert!(
+            events.is_empty(),
+            "flat-filter fixture contains no `Downloading \"...\"` lines; no TrackInfo should fire — got {events:?}"
+        );
+    }
+
+    #[test]
+    fn v32_fixture_url_context_line_not_misclassified_as_track() {
+        // Every fixture starts with `[URL   1/1  ] Processing "..."`.
+        // Across all fixtures combined, none of these lines should
+        // produce a TrackInfo — they are URL-level progress markers.
+        for name in [
+            "album-multi-track-stderr.log",
+            "single-song-stderr.log",
+            "music-video-stderr.log",
+            "playlist-stderr.log",
+            "flat-filter-excluded-stderr.log",
+        ] {
+            let content = load_v32_fixture(name);
+            for line in content.lines() {
+                if line.contains("[URL") && line.contains("Processing") {
+                    match parse_gamdl_output(line) {
+                        GamdlOutputEvent::TrackInfo { .. } => {
+                            panic!("URL-context line from {name} must not parse as TrackInfo: {line}");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 }
