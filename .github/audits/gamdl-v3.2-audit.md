@@ -282,6 +282,42 @@ Existing infrastructure we can reuse:
 
 Scope and design captured in #620; this document cross-references only.
 
+## Implementation roll-up (2026-04-24)
+
+All seven child issues (#614–#620) landed on
+`claude/audit-gamdl-v3.2-eI87q`:
+
+| # | Commit | Kind |
+| --- | --- | --- |
+| #614 | `4ca228f` | Bug fix — `--song-codec` crash avoided on every v2.9.1+ release |
+| #615 | `f7158e5` | Tests — synthesised v3.2 parser regression fixtures |
+| #616 | `9dfcbc0` | Docs — FAQ entry + CLAUDE.md update for sequential metadata fetch |
+| #617 | `34bb4ea` | Bug fix — INI codec block dropped (dead emission on v2.9.1+) |
+| #618 | `a8efb07` | Feature — `--playlist-folder-template` wired with mandatory v3.0+ gate |
+| #619 | `8a7ec5b` | Chore — `tool-versions.toml` ceiling bumped to 3.2 |
+| #620 | `090fe11` | Feature — abort-all queue action (backend + minimal UI) |
+
+### Follow-ups (not blocking)
+
+- #615: capture real-sample v3.2 stderr under
+  `.github/audits/fixtures/gamdl-3.2/` to replace synthesised fixtures.
+- #618: Settings UI control for `playlist_folder_template` (greyed on
+  v2.9.x with tooltip, mirroring the `wrapper_m3u8_ip` UI pattern).
+- #620: UX polish — status-bar global `⏹` affordance, Cmd/Ctrl+Shift+.
+  keyboard shortcut, "Don't ask again" modal option, explicit
+  post-queue-action suppression.
+- #619: manual smoke test (fresh install, upgrade from v3.1, stay on
+  v2.9.x). Deferred to whoever cuts the release — requires a live
+  Tauri environment not available in the audit sandbox.
+
+### Umbrella closure
+
+The umbrella #613 now has all seven children in "implemented"
+status. Can be closed once the follow-ups above are either addressed
+in their respective children or spun out to new tickets. No further
+audit-scope work remains.
+
+
 
 
 
