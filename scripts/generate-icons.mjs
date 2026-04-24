@@ -129,8 +129,6 @@ async function main() {
     const dir = resolve(TEMP_DIR, name.replace('.icns', '.iconset'));
     if (existsSync(dir)) rmSync(dir, { recursive: true });
     mkdirSync(dir, { recursive: true });
-    const map = [[16,16],[32,32],[32,64],[64,128],[128,256],[256,512],[512,1024]];
-    const names = ['icon_16x16','icon_16x16@2x','icon_32x32','icon_32x32@2x','icon_128x128','icon_128x128@2x','icon_256x256','icon_256x256@2x','icon_512x512','icon_512x512@2x'];
     const entries = [[16,'icon_16x16'],[32,'icon_16x16@2x'],[32,'icon_32x32'],[64,'icon_32x32@2x'],[128,'icon_128x128'],[256,'icon_128x128@2x'],[256,'icon_256x256'],[512,'icon_256x256@2x'],[512,'icon_512x512'],[1024,'icon_512x512@2x']];
     for (const [sz, fname] of entries) {
       execSync(`cp "${src(sz)}" "${resolve(dir, fname + '.png')}"`);
