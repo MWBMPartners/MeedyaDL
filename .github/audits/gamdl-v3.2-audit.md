@@ -100,4 +100,33 @@ v3.2 made two changes that interact with MeedyaDL's stdout parser:
    classifier branch if we later adopt `--database-path` (#523 currently
    declined; would need re-litigation).
 
+## Issue 616 — Sequential metadata fetch (observability only)
+
+v3.2 flipped the `AppleMusicInterface.concurrency` default from 5 → 1.
+Effect: the metadata fan-out phase for albums / playlists / artist buckets
+is now serialised. No CLI surface was added and MeedyaDL can't tune it.
+
+### Alignment with MeedyaDL's own serial-queue design (#455)
+
+MeedyaDL already processes the queue serially — one queue item's entire
+pipeline (download → companions → enrichment → lyrics → manifest)
+completes before the next starts. Upstream's v3.2 switch is philosophically
+aligned, reaching the same reliability-over-throughput conclusion at a
+different scope (metadata fan-out within one download vs. queue-level
+fan-out across downloads). The audit recommends calling this out in the
+help FAQ so the design consistency is visible to users.
+
+### Behaviour delta (measured on audit host, indicative only)
+
+- Single-song URL: no observable change.
+- ~10-track album: v3.1 ~2s metadata phase; v3.2 ~5–10s.
+- 100-track playlist: v3.1 ~5s but occasional AMP 429 cascades; v3.2 ~30–60s
+  and reliably completes.
+
+### Resolution
+
+Filed as #616. Ships alongside the `tool-versions.toml` 3.2 bump (#619).
+No code change — CHANGELOG + help FAQ entry only.
+
+
 
