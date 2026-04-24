@@ -90,7 +90,17 @@ minimum_version = "2.9.1"
 # Highest release MeedyaDL has been tested against. Upstream may ship
 # newer versions before we validate them; see module docs in
 # `gamdl_capabilities.rs` for how that scenario is handled.
-maximum_tested_version = "3.0"
+#
+# 3.1 validation (#604, landed on `claude/audit-gamdl-v3-1-Qlyug`):
+#   * `--wrapper-m3u8-ip` / `wrapper_m3u8_ip` CLI + INI gated behind
+#     `GamdlFeature::WrapperM3u8Ip` — #605.
+#   * `--no-exceptions` suppressed on 3.1+ (no-op upstream) — #606.
+#   * `extract_python_exception()` handles the new
+#     `ExceptionPrettyPrinter` output ordering — #607.
+#   * `TRACK_INFO_V2_REGEX` + `ERROR_PREFIX_REGEX` verified against
+#     v3.1 padded Track/URL brackets — #608.
+#   * QueueItem counter wiring for per-track index/total — #609.
+maximum_tested_version = "3.1"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.0"
+recommended_version = "3.1"

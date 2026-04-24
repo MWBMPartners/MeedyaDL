@@ -659,6 +659,11 @@ pub struct GamdlOptions {
     pub wrapper_account_url: Option<String>,
     /// Decryption server address
     pub wrapper_decrypt_ip: Option<String>,
+    /// m3u8 server address (host:port) used by GAMDL v3.1+ to fetch the HLS
+    /// master playlist URL from the wrapper instead of Apple's API. Only
+    /// emitted when the detected GAMDL release supports it (see
+    /// `GamdlFeature::WrapperM3u8Ip`). Default on upstream: `127.0.0.1:20020`.
+    pub wrapper_m3u8_ip: Option<String>,
 
     // --- Metadata ---
     /// Language for metadata (ISO 639-1 code, e.g., "en-US")
@@ -884,6 +889,10 @@ impl GamdlOptions {
         }
         if let Some(ref ip) = self.wrapper_decrypt_ip {
             args.push("--wrapper-decrypt-ip".to_string());
+            args.push(ip.clone());
+        }
+        if let Some(ref ip) = self.wrapper_m3u8_ip {
+            args.push("--wrapper-m3u8-ip".to_string());
             args.push(ip.clone());
         }
 
@@ -1270,6 +1279,16 @@ mod tests {
         };
         let args = options.to_cli_args();
         assert_eq!(args, vec!["--language", "ja-JP"]);
+    }
+
+    #[test]
+    fn wrapper_m3u8_ip_option() {
+        let options = GamdlOptions {
+            wrapper_m3u8_ip: Some("127.0.0.1:20020".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--wrapper-m3u8-ip", "127.0.0.1:20020"]);
     }
 
     // ----------------------------------------------------------

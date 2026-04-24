@@ -547,6 +547,13 @@ export function AdvancedTab() {
               value={settings.wrapper_account_url}
               onChange={(e) => updateSettings({ wrapper_account_url: e.target.value })}
             />
+            <Input
+              label="Wrapper m3u8 Address"
+              description="GAMDL 3.1+ fetches the HLS master playlist URL from a TCP socket on this address (default: 127.0.0.1:20020). Your wrapper must expose an m3u8 service on this host:port. Ignored on GAMDL 3.0 and earlier."
+              value={settings.wrapper_m3u8_ip}
+              onChange={(e) => updateSettings({ wrapper_m3u8_ip: e.target.value })}
+              placeholder="127.0.0.1:20020"
+            />
             <div className="flex items-center gap-2">
               <Button
                 variant="secondary"
