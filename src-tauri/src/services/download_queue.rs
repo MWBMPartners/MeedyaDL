@@ -7368,6 +7368,26 @@ pub fn process_queue(
 /// the "Traceback" header. This function finds the last traceback block
 /// in the stderr output and extracts that exception line.
 ///
+/// ## GAMDL 3.1 format note (#607)
+///
+/// Upstream replaced `traceback.print_exc()` with structlog's
+/// `ExceptionPrettyPrinter`, which prints the traceback **before** the
+/// `[ERROR HH:MM:SS] …` log line (the processor runs earlier in
+/// structlog's pipeline than the formatter). So the output order on
+/// v3.1 is:
+/// ```text
+/// Traceback (most recent call last):
+///   File "…/downloader.py", line 123, in download
+/// KeyError: 'title'
+/// [ERROR    17:09:23] [Track 1/14] Error downloading "Lavender Haze"
+/// ```
+///
+/// Without the structlog-line detection below, the walker would pick up
+/// the trailing `[ERROR …]` log line as the "last non-indented line"
+/// and return it instead of the real exception. The stop rule treats
+/// any line that looks like a fresh structlog entry
+/// (`[LEVEL   HH:MM:SS]`) as the end of the traceback block.
+///
 /// Returns `None` if no traceback is found in the stderr lines.
 fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
     // Find the last occurrence of "Traceback" in stderr
@@ -7376,7 +7396,9 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
         .rposition(|line| line.trim().to_lowercase().contains("traceback"))?;
 
     // Walk forward from the traceback line to find the exception.
-    // The exception is the last non-empty, non-indented line in the traceback block.
+    // The exception is the last non-empty, non-indented line in the
+    // traceback block — but we stop as soon as a line clearly belongs
+    // to a new structlog log entry (see GAMDL 3.1 note above).
     let mut exception_line: Option<&str> = None;
     for line in &stderr_lines[traceback_idx + 1..] {
         let trimmed = line.trim();
@@ -7387,6 +7409,14 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
             }
             continue;
         }
+        // Structlog-formatted log line ends the traceback block (v3.1).
+        // Match `[LEVEL...]` where LEVEL is one of the standard log levels
+        // GAMDL emits. We don't match bare `[...]` since Python exception
+        // messages can contain square brackets (`[Errno 60] Operation timed
+        // out`).
+        if is_structlog_line_start(trimmed) {
+            break;
+        }
         // Exception lines are NOT indented (don't start with space/tab).
         // Indented lines are stack frame details (File "...", code).
         if !line.starts_with(' ') && !line.starts_with('\t') {
@@ -7395,6 +7425,36 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
     }
 
     exception_line.map(std::string::ToString::to_string)
+}
+
+/// Returns `true` when `trimmed` looks like the start of a GAMDL v3.x
+/// structlog log entry, i.e. `[LEVEL    HH:MM:SS] …`. Used by
+/// [`extract_python_exception`] to detect the end of an exception
+/// block on v3.1 where the traceback appears **before** its
+/// accompanying log line.
+fn is_structlog_line_start(trimmed: &str) -> bool {
+    // Fast path: must start with `[` and contain `]`.
+    let Some(rest) = trimmed.strip_prefix('[') else {
+        return false;
+    };
+    let Some(close_idx) = rest.find(']') else {
+        return false;
+    };
+    let inside = &rest[..close_idx];
+    // Recognised level tokens GAMDL emits via structlog.
+    for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] {
+        if inside.starts_with(level) {
+            // Ensure the next char is whitespace (structlog pads with
+            // `{level:<8}`) — this guards against false positives like
+            // `[ERROR] some bracketed exception text` that isn't actually
+            // a log line.
+            let after_level = &inside[level.len()..];
+            if after_level.starts_with(' ') || after_level.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Runs a GAMDL download while forwarding parsed events to both
@@ -9973,6 +10033,78 @@ mod tests {
         ];
         // All lines after Traceback are indented, so no exception found
         assert_eq!(extract_python_exception(&lines), None);
+    }
+
+    #[test]
+    fn extracts_exception_when_structlog_log_line_follows_traceback_v31() {
+        // GAMDL 3.1 emits the Traceback BEFORE the accompanying
+        // `[ERROR HH:MM:SS]` log line because ExceptionPrettyPrinter
+        // runs earlier in structlog's processor chain than the
+        // formatter. Without structlog-line detection the walker would
+        // pick up the trailing log line instead of the actual
+        // exception.
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"gamdl/downloader/song.py\", line 96, in download".to_string(),
+            "    await self._decrypt_amdecrypt(...)".to_string(),
+            "KeyError: 'title'".to_string(),
+            "[ERROR    17:09:23] [Track   1/14] Error downloading \"Lavender Haze\"".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("KeyError: 'title'".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_exception_with_structlog_info_line_follows_v31() {
+        // Catches the case where a subsequent INFO log line follows
+        // the traceback (e.g., "Finished with 1 error(s)").
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"b.py\", line 2".to_string(),
+            "ValueError: boom".to_string(),
+            "[INFO     17:09:24] Finished with 1 error(s)".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("ValueError: boom".to_string())
+        );
+    }
+
+    #[test]
+    fn structlog_line_detector_tolerates_bracketed_exception_text() {
+        // Python exception messages can legitimately contain square
+        // brackets (errno-style prefixes). The detector must NOT treat
+        // `[Errno 60] ...` as a structlog line even though it starts
+        // with `[...]`.
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"x.py\", line 1".to_string(),
+            "TimeoutError: [Errno 60] Operation timed out: '/mnt/cover.jpg'".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("TimeoutError: [Errno 60] Operation timed out: '/mnt/cover.jpg'".to_string())
+        );
+    }
+
+    #[test]
+    fn is_structlog_line_start_recognises_all_log_levels() {
+        assert!(is_structlog_line_start("[INFO     17:09:24] hello"));
+        assert!(is_structlog_line_start("[DEBUG    17:09:24] hello"));
+        assert!(is_structlog_line_start("[WARNING  17:09:24] hello"));
+        assert!(is_structlog_line_start("[ERROR    17:09:24] hello"));
+        assert!(is_structlog_line_start("[CRITICAL 17:09:24] hello"));
+    }
+
+    #[test]
+    fn is_structlog_line_start_rejects_non_log_brackets() {
+        assert!(!is_structlog_line_start("[Errno 60] Operation timed out"));
+        assert!(!is_structlog_line_start("[not a log] line"));
+        assert!(!is_structlog_line_start("plain text"));
+        assert!(!is_structlog_line_start(""));
+        assert!(!is_structlog_line_start("ERRORISH but no bracket"));
     }
 
     // ----------------------------------------------------------
