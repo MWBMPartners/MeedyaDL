@@ -164,6 +164,41 @@ block from `ini_audio_section` entirely (both `song_codec` and
 has never worked on v2.9.1+. Optionally file upstream PR (Option C) to
 rename the misspelled field; no hard dependency either way.
 
+## Issue 618 — `--playlist-folder-template` (new in v3.0)
+
+Cross-version check of `cli_config.py`:
+
+```text
+v2.9.1: not declared
+v2.9.2: not declared
+v2.9.3: not declared
+v3.0:   line 382 — playlist_folder_template: Annotated[str, option("--playlist-folder-template", …)]
+v3.1:   line 390 — (same)
+v3.2:   line 390 — (same)
+```
+
+Upstream default (`gamdl/downloader/base.py:35` on 3.2):
+
+```python
+playlist_folder_template: str = "Playlists/{playlist_artist}"
+```
+
+### Capability gate mandatory (not optional)
+
+The original #516 deferral framed the capability gate as optional. The
+audit re-confirms it's mandatory: passing `--playlist-folder-template
+…` to v2.9.x crashes Click with `no such option`. MeedyaDL supports
+the full 2.9.1–3.2 range, so the flag must be gated behind
+`GamdlFeature::PlaylistFolderTemplate` with
+`is_version_at_least(version, "3.0")`, mirroring the shape of
+`GamdlFeature::WrapperM3u8Ip` (#605).
+
+### Resolution
+
+Filed as #618 with updated wording that treats the capability gate as
+required. Low priority but a clean win.
+
+
 
 
 
