@@ -66,3 +66,38 @@ onward because:
 Filed as #614 with Option B (always emit `--song-codec-priority`). Support
 window remains `[2.9.1, 3.2]`.
 
+## Issue 615 — Parser regression tests against v3.2 output
+
+v3.2 made two changes that interact with MeedyaDL's stdout parser:
+
+1. `track_log.info(f'Downloading "{media_title}"')` in `gamdl/cli/cli.py` is
+   now conditional on `download_item.media.partial AND media_type in {songs,
+   library-songs, music-videos, library-music-videos, uploaded-videos, None}`.
+   The wrapper media types (`albums`, `playlists`, `artists`) no longer emit
+   the line — a cleanup, not a regression for us, since those don't have
+   individual `[Track N/M]` counters anyway.
+2. The exception class previously raised as
+   `GamdlDownloaderFlatFilterExcludedError` is now
+   `GamdlInterfaceFlatFilterExcludedError`.
+
+### MeedyaDL parser audit
+
+- `TRACK_INFO_V2_REGEX` (`src-tauri/src/utils/process.rs:127`) matches on the
+  bracket + `Downloading` + quoted title shape — independent of which
+  `media_type` the line is emitted for. The v3.2 change makes the line fire
+  less often but not incorrectly.
+- `classify_error()` has no branch for `FlatFilterExcluded` today.
+  `grep -n "FlatFilterExcluded"` against `process.rs` +
+  `download_queue.rs` returns zero matches. The rename is invisible to our
+  parser — any such line is bucketed as `"unknown"`.
+
+### Scope confirmed
+
+1. Add real-sample captures from a v3.2 run (album, single song, MV, playlist,
+   artist-bucket) under `.github/audits/fixtures/gamdl-3.2/`.
+2. Add parser regression tests keyed off those captures.
+3. Recommend — not block on — adding a dedicated `flat_filter_excluded`
+   classifier branch if we later adopt `--database-path` (#523 currently
+   declined; would need re-litigation).
+
+
