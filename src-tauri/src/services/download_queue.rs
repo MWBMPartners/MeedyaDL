@@ -1099,6 +1099,35 @@ pub struct ExportedItem {
 /// Queued -> Downloading -> Error -> (retry/fallback) -> Queued (retry path)
 /// Queued -> Cancelled (user cancellation)
 ///
+/// Summary returned by [`DownloadQueue::abort_all`] describing how many
+/// items were stopped, grouped by their pre-abort state. Used by the
+/// `abort_all_downloads` IPC to surface a meaningful toast / activity-log
+/// line without re-iterating the queue on the frontend (#620).
+///
+/// Items already in a terminal state (`Complete`, `Cancelled`, `Error`)
+/// are NOT counted — they were not stopped by this action.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbortSummary {
+    /// Items that were `Queued` (not yet started) and are now `Cancelled`.
+    pub queued_cancelled: u32,
+    /// Items that were actively `Downloading` when the abort fired. The
+    /// download task will reap its subprocess on the next cancellation
+    /// poll and transition out of the main loop.
+    pub downloading_stopped: u32,
+    /// Items that were in post-download `Processing` (enrichment,
+    /// companion downloads, etc.) when the abort fired.
+    pub processing_stopped: u32,
+}
+
+impl AbortSummary {
+    /// Total number of items affected (sum of all three fields).
+    #[must_use]
+    pub fn total(&self) -> u32 {
+        self.queued_cancelled + self.downloading_stopped + self.processing_stopped
+    }
+}
+
 /// Only `max_concurrent` downloads run simultaneously. When a download
 /// finishes, the queue automatically starts the next queued item.
 #[derive(Debug)]
@@ -1392,6 +1421,56 @@ impl DownloadQueue {
             log::info!("Cleared all {removed} items from queue (active downloads preserved)");
         }
         removed
+    }
+
+    /// Aborts every non-terminal item in the queue and returns a summary of
+    /// what was stopped.
+    ///
+    /// Each matching item is transitioned directly to `DownloadState::Cancelled`
+    /// in the same way the per-item `cancel()` does — the running task's
+    /// cancellation-poll loop will detect the state change on its next tick,
+    /// reap the subprocess via `Child::kill_on_drop(true)`, and short-circuit
+    /// any enrichment / companion / lyrics tasks that poll
+    /// [`ShutdownSignal`]-style flags.
+    ///
+    /// Items already in `Complete`, `Cancelled`, or `Error` are untouched so
+    /// the user keeps their history intact.
+    ///
+    /// The returned [`AbortSummary`] exposes per-pre-abort-state counts so
+    /// the caller can produce a meaningful activity-log line + toast without
+    /// having to iterate the queue themselves (#620).
+    pub fn abort_all(&mut self) -> AbortSummary {
+        let mut summary = AbortSummary::default();
+        for item in &mut self.items {
+            match item.status.state {
+                DownloadState::Queued => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.queued_cancelled += 1;
+                }
+                DownloadState::Downloading => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.downloading_stopped += 1;
+                }
+                DownloadState::Processing => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.processing_stopped += 1;
+                }
+                DownloadState::Complete
+                | DownloadState::Cancelled
+                | DownloadState::Error => {
+                    // Terminal — leave alone.
+                }
+            }
+        }
+        if summary.total() > 0 {
+            log::info!(
+                "Abort: cancelled {queued} queued, stopped {dl} downloading, stopped {proc} processing",
+                queued = summary.queued_cancelled,
+                dl = summary.downloading_stopped,
+                proc = summary.processing_stopped,
+            );
+        }
+        summary
     }
 
     /// Updates the state of a queue item.
@@ -8933,6 +9012,67 @@ mod tests {
         assert_eq!(statuses[0].id, ids[0], "Queued item should remain");
         assert_eq!(statuses[1].id, ids[1], "Downloading item should remain");
         assert_eq!(statuses[2].id, ids[3], "Errored item should remain");
+    }
+
+    /// Verifies the abort_all() summary counts each pre-abort state correctly
+    /// and leaves terminal items untouched (#620).
+    #[test]
+    fn abort_all_counts_per_state_and_preserves_terminal_items() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 6);
+
+        // ids[0] = Queued (→ cancelled, queued_cancelled)
+        // ids[1] = Downloading (→ cancelled, downloading_stopped)
+        queue.update_item_state(&ids[1], DownloadState::Downloading);
+        // ids[2] = Processing (→ cancelled, processing_stopped)
+        queue.update_item_state(&ids[2], DownloadState::Processing);
+        // ids[3] = Complete — terminal, must not be touched
+        queue.set_complete(&ids[3]);
+        // ids[4] = Error — terminal, must not be touched
+        queue.set_error(&ids[4], "whatever");
+        // ids[5] = already Cancelled — terminal, must not be counted twice
+        queue.cancel(&ids[5]);
+
+        let summary = queue.abort_all();
+
+        assert_eq!(summary.queued_cancelled, 1, "one queued item aborted");
+        assert_eq!(summary.downloading_stopped, 1, "one downloading item aborted");
+        assert_eq!(summary.processing_stopped, 1, "one processing item aborted");
+        assert_eq!(summary.total(), 3, "three items affected total");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Cancelled);
+        assert_eq!(statuses[1].state, DownloadState::Cancelled);
+        assert_eq!(statuses[2].state, DownloadState::Cancelled);
+        assert_eq!(statuses[3].state, DownloadState::Complete, "Complete preserved");
+        assert_eq!(statuses[4].state, DownloadState::Error, "Error preserved");
+        assert_eq!(statuses[5].state, DownloadState::Cancelled, "already-Cancelled unchanged");
+    }
+
+    /// Verifies that abort_all() on an empty queue is a no-op with a zero summary.
+    #[test]
+    fn abort_all_on_empty_queue_returns_zero_summary() {
+        let mut queue = DownloadQueue::new();
+        let summary = queue.abort_all();
+        assert_eq!(summary.total(), 0);
+    }
+
+    /// Verifies that abort_all() on a queue of only-terminal items is a
+    /// zero-summary no-op — no item's state changes.
+    #[test]
+    fn abort_all_with_only_terminal_items_is_no_op() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+        queue.set_complete(&ids[0]);
+        queue.set_error(&ids[1], "err");
+        queue.cancel(&ids[2]);
+
+        let summary = queue.abort_all();
+        assert_eq!(summary.total(), 0);
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Complete);
+        assert_eq!(statuses[1].state, DownloadState::Error);
+        assert_eq!(statuses[2].state, DownloadState::Cancelled);
     }
 
     /// Verifies that clear_finished() returns 0 when there are no terminal items.

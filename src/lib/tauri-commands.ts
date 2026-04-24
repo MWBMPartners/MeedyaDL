@@ -531,6 +531,42 @@ export function cancelDownload(downloadId: string): Promise<void> {
 }
 
 /**
+ * Summary returned by {@link abortAllDownloads} describing how many items
+ * were stopped, grouped by their pre-abort state. Mirrors the Rust
+ * `AbortSummary` struct in `download_queue.rs` (#620).
+ *
+ * Items already in `Complete` / `Cancelled` / `Error` are not counted —
+ * the user keeps their history.
+ */
+export interface AbortSummary {
+  queuedCancelled: number;
+  downloadingStopped: number;
+  processingStopped: number;
+}
+
+/**
+ * Aborts every active and queued download in one IPC call (#620).
+ *
+ * Rust handler: `abort_all_downloads()` in `src-tauri/src/commands/gamdl.rs`.
+ *
+ * Unlike per-item cancel (which leaves the subprocess running until the
+ * cancellation-poll loop ticks), this is the "stop everything now" escape
+ * hatch — every `Queued` / `Downloading` / `Processing` item transitions
+ * to `Cancelled` in one shot. The already-running cancellation polls then
+ * reap their subprocesses on the next tick.
+ *
+ * Terminal items (`Complete` / `Cancelled` / `Error`) are untouched so
+ * the user keeps their history.
+ *
+ * Emits a `downloads-aborted` event carrying the {@link AbortSummary}.
+ *
+ * @returns summary of items stopped, grouped by pre-abort state.
+ */
+export function abortAllDownloads(): Promise<AbortSummary> {
+  return invoke<AbortSummary>('abort_all_downloads');
+}
+
+/**
  * Retries a failed or cancelled download.
  *
  * Rust handler: `retry_download()` in `src-tauri/src/commands/download.rs`
