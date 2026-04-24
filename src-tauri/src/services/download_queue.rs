@@ -1427,7 +1427,13 @@ impl DownloadQueue {
                     item.status.eta = Some(eta.clone());
                     item.status.state = DownloadState::Downloading;
                 }
-                process::GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                process::GamdlOutputEvent::TrackInfo {
+                    title,
+                    artist,
+                    track_number,
+                    track_total,
+                    ..
+                } => {
                     // Format the current track as "Artist - Title" or just "Title"
                     let track_name = if artist.is_empty() {
                         title.clone()
@@ -1435,6 +1441,18 @@ impl DownloadQueue {
                         format!("{artist} - {title}")
                     };
                     item.status.current_track = Some(track_name);
+                    // Wire the parsed "[Track N/M]" counters through to
+                    // `QueueItemStatus` so the UI can display "(Track N
+                    // of M)" context on album / playlist / artist-bucket
+                    // downloads. GAMDL v3.1 also emits `[Track 1/1]` for
+                    // single-song URLs; the frontend suppresses the
+                    // counter when `total_tracks == 1` (#609).
+                    if let Some(n) = track_number {
+                        item.status.completed_tracks = Some(*n as usize);
+                    }
+                    if let Some(t) = track_total {
+                        item.status.total_tracks = Some(*t as usize);
+                    }
                 }
                 process::GamdlOutputEvent::ProcessingStep { .. } => {
                     // Processing state covers post-download steps like remuxing,
@@ -9214,6 +9232,52 @@ mod tests {
             Some("Taylor Swift - Anti-Hero"),
             "Should format as 'Artist - Title'"
         );
+    }
+
+    /// Verifies that a TrackInfo event carrying `track_number` and
+    /// `track_total` propagates those into `completed_tracks` and
+    /// `total_tracks` on the queue item so the UI can render a
+    /// "Track N of M" context counter (#609).
+    #[test]
+    fn update_item_progress_track_info_sets_counter_fields() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Track One".to_string(),
+            artist: String::new(),
+            album: String::new(),
+            track_number: Some(3),
+            track_total: Some(12),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].completed_tracks, Some(3));
+        assert_eq!(statuses[0].total_tracks, Some(12));
+    }
+
+    /// GAMDL v3.1 emits `[Track 1/1]` for single-song URLs (new — older
+    /// GAMDL stayed silent). The backend must still propagate the
+    /// counter; the UI is responsible for suppressing the "1 of 1"
+    /// cosmetic (#609).
+    #[test]
+    fn update_item_progress_track_info_propagates_single_song_counter() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Flowers".to_string(),
+            artist: "Miley Cyrus".to_string(),
+            album: String::new(),
+            track_number: Some(1),
+            track_total: Some(1),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].completed_tracks, Some(1));
+        assert_eq!(statuses[0].total_tracks, Some(1));
     }
 
     /// Verifies that a TrackInfo event with an empty artist just uses the title.
