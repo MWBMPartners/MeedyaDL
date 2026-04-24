@@ -7461,12 +7461,11 @@ fn is_structlog_line_start(trimmed: &str) -> bool {
     let inside = &rest[..close_idx];
     // Recognised level tokens GAMDL emits via structlog.
     for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] {
-        if inside.starts_with(level) {
+        if let Some(after_level) = inside.strip_prefix(level) {
             // Ensure the next char is whitespace (structlog pads with
             // `{level:<8}`) — this guards against false positives like
             // `[ERROR] some bracketed exception text` that isn't actually
             // a log line.
-            let after_level = &inside[level.len()..];
             if after_level.starts_with(' ') || after_level.is_empty() {
                 return true;
             }
