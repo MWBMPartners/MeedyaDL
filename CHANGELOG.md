@@ -102,6 +102,7 @@ CI failure on PR #611 — `cargo clippy -- -D warnings` flagged the
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -143,6 +144,54 @@ Closes the final child of #604. All sibling changes have landed on this
     * #608 TRACK_INFO_V2_REGEX + ERROR_PREFIX_REGEX regression tests for
       v3.1 padded brackets + URL parse ERROR upgrade
     * #609 QueueItem counter wiring + single-song 1/1 suppression
+
+- **(scripts)** Remove unused variables flagged by CodeQL
+
+Three dead declarations flagged by CodeQL code scanning on main
+  (findings #16/#17/#18, all Note-severity):
+
+    * scripts/generate-icons.mjs:132 — const map (stale size pairing,
+      superseded by const entries on the next line)
+    * scripts/generate-icons.mjs:133 — const names (unused filename list)
+    * scripts/svg-to-apng.mjs:103   — const modeParam (query-param
+      string built but never interpolated — the HTML template below
+      uses modeConfig.mode directly in an inline <script> block)
+
+  All three were left over from earlier iterations of the build scripts
+  and have zero runtime impact. Output icons + APNGs are unaffected.
+
+- **(scripts)** Remove unused variables flagged by CodeQL (#603)
+
+## Summary
+
+  Cleans up three unused-variable Note-level findings raised by CodeQL on
+  `main` (findings #16/#17/#18 in the Code Scanning dashboard). All three
+  are stale declarations with zero runtime impact.
+
+  | File | Line | Variable | Why it was unused |
+  |---|---|---|---|
+  | `scripts/generate-icons.mjs` | 132 | `const map` | Superseded by
+  `const entries` on the very next line |
+  | `scripts/generate-icons.mjs` | 133 | `const names` | Filename list
+  that was never consumed |
+  | `scripts/svg-to-apng.mjs` | 103 | `const modeParam` | Built as a
+  `?mode=...` query string, but the HTML template below uses
+  `modeConfig.mode` directly in an inline `<script>` block — the param was
+  never interpolated |
+
+  ## Test plan
+
+  - [x] `node --check scripts/generate-icons.mjs` — clean
+  - [x] `node --check scripts/svg-to-apng.mjs` — clean
+  - [ ] Manual run of the icon generator produces identical output (not
+  run in-session; these scripts need `sharp` + `iconutil` + Puppeteer)
+  - [ ] CodeQL rescan on this PR clears findings #16/#17/#18
+
+  ## Risk
+
+  Zero. Dead locals only — no exports, no side effects, no references
+  anywhere else in the repo (verified by `grep`). Output icons and APNGs
+  are unaffected.
 
 
 ## [0.44.2] - 2026-04-24
