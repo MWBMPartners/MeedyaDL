@@ -27,10 +27,12 @@
  * @see https://react.dev/learn/rendering-lists       -- conditional rendering of count spans.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 // Tauri app API for reading the version from tauri.conf.json at runtime.
 import { getVersion } from '@tauri-apps/api/app';
+
+import { Square } from 'lucide-react';
 
 /**
  * Zustand store hook for the download queue.
@@ -42,6 +44,7 @@ import { getVersion } from '@tauri-apps/api/app';
  */
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUiStore } from '@/stores/uiStore';
 
 /** Human-readable labels for after-queue actions (status bar display). */
 const AFTER_QUEUE_LABELS: Record<string, string> = {
@@ -129,6 +132,35 @@ export function StatusBar() {
   /** Number of items that have finished successfully. */
   const completedCount = queueItems.filter((i) => i.state === 'complete').length;
 
+  /**
+   * Fires the abort-all action (#620). Honours the
+   * `abort_queue_confirm` setting: when enabled, uses a native
+   * `window.confirm()` rather than the queue-page modal — duplicating
+   * the modal here would require lifting state into a shared context,
+   * and the StatusBar affordance is the "quick escape" path where a
+   * lightweight confirmation is appropriate. When disabled, fires
+   * immediately.
+   */
+  const abortAll = useDownloadStore((s) => s.abortAll);
+  const abortQueueConfirm = useSettingsStore(
+    (s) => s.settings.abort_queue_confirm,
+  );
+  const addToast = useUiStore((s) => s.addToast);
+  const triggerAbort = useCallback(() => {
+    if (abortQueueConfirm) {
+      // `window.confirm` is a blocking native modal — acceptable here
+      // because the action is destructive and the StatusBar doesn't
+      // own the shared Modal component the Queue page uses. The Queue
+      // page's richer confirmation (with "Don't ask again") remains
+      // the canonical flow.
+      const confirmed = window.confirm(
+        'Abort every active and queued download? This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
+    void abortAll().catch((e) => addToast(`Abort failed: ${e}`, 'error'));
+  }, [abortAll, abortQueueConfirm, addToast]);
+
   return (
     /**
      * Status bar container.
@@ -171,6 +203,24 @@ export function StatusBar() {
         )}
         {/* Queued count -- items waiting to start */}
         {queuedCount > 0 && <span>{queuedCount} queued</span>}
+        {/*
+          Global "Abort Queue" affordance (#620). Always available — even
+          when the user is on Settings / History pages and can't reach the
+          queue-page button. Fires the same abort path (confirmation
+          respects `abort_queue_confirm`).
+        */}
+        {(activeCount > 0 || queuedCount > 0) && (
+          <button
+            type="button"
+            onClick={triggerAbort}
+            aria-label="Abort queue"
+            title="Abort queue — stop every active and queued download (Cmd/Ctrl+Shift+.)"
+            className="flex items-center gap-1 text-status-error hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
+          >
+            <Square size={12} />
+            <span className="text-xs">Abort</span>
+          </button>
+        )}
         {/* Completed count -- successfully finished items */}
         {completedCount > 0 && <span>{completedCount} completed</span>}
         {/* Empty-queue fallback message */}

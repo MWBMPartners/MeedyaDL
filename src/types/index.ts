@@ -485,6 +485,13 @@ export interface AppSettings {
   gamdl_idle_timeout_minutes: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
+  /**
+   * Whether the "Abort Queue" action (#620) prompts for confirmation
+   * before firing. Default `true`. Users who tick "Don't ask again"
+   * on the confirmation modal flip this to `false` for single-click
+   * aborts from the button / keyboard shortcut.
+   */
+  abort_queue_confirm: boolean;
   /** Whether to send native OS desktop notifications for download events (completion/failure).
    * Notifications are only sent when the app window is not focused. */
   desktop_notifications: boolean;
