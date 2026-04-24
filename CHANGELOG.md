@@ -6,6 +6,147 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(gamdl)** Add wrapper_m3u8_ip CLI/INI/UI support for GAMDL v3.1 (#605)
+
+GAMDL v3.1 introduced --wrapper-m3u8-ip (default 127.0.0.1:20020) and
+  changed wrapper semantics: when --use-wrapper is set on v3.1+, the HLS
+  master playlist URL is fetched from a TCP socket on this address instead
+  of from Apple's API response. Users running a wrapper must now expose an
+  m3u8 service on the configured host:port.
+
+  - GamdlFeature::WrapperM3u8Ip capability gate (is_version_at_least 3.1).
+  - GamdlOptions + AppSettings field wrapper_m3u8_ip with
+    #[serde(default)] so pre-v3.1 settings.json files get the upstream
+    default 127.0.0.1:20020 on load (no schema migration needed).
+  - ini_advanced_section emits wrapper_m3u8_ip only when use_wrapper=true
+    AND the gate passes; merge_options() propagates the CLI arg under the
+    same conditions. retry_without_wrapper() clears the new field along
+    with the existing wrapper fields.
+  - New preflight health check (check_wrapper_m3u8_health) does a 3-second
+    TCP connect, emits PreflightCheck::WrapperM3u8 toast on failure.
+  - Settings > Advanced > Wrapper UI exposes the field when wrapper is on.
+  - Import sanitisation truncates to 64 chars; diff-logging redacts.
+
+  Part of #604.
+
+- **(ux)** Surface GAMDL v3.1 track counter + suppress 1-of-1 (#609)
+
+GAMDL v3.1 now emits `[Track 1/1]` for single-song URLs, and
+  `AppleMusicMedia.index/total` are populated across every download path
+  (artist buckets, single songs, music videos). MeedyaDL's parser was
+  already capturing `track_number`/`track_total` from TrackInfo events,
+  but `update_item_progress()` discarded them — the QueueItemStatus
+  fields existed as dead letters.
+
+  Wire the parsed counters through to the queue item and gate the
+  frontend "(Track N of M)" span on `total_tracks > 1` so single-song
+  downloads show the track name only (no redundant "1 of 1").
+
+  - update_item_progress() propagates track_number → completed_tracks,
+    track_total → total_tracks on TrackInfo events.
+  - QueueItem.tsx gates the counter span on total_tracks > 1.
+  - Two new tests cover the 3/12 album case and the 1/1 single-song case.
+
+  Part of #604.
+
+
+### 🐛 Bug Fixes
+
+- **(gamdl)** Stop emitting --no-exceptions on GAMDL v3.1 (#606)
+
+Upstream commit dc6f2e8 removed every traceback.print_exc() call and
+  routes exceptions through structlog's ExceptionPrettyPrinter unconditionally,
+  making --no-exceptions a no-op. The flag is still accepted by the CLI
+  parser but nothing consumes it.
+
+  Keep emitting the flag on v2.x / v3.0 (where it still suppresses raw
+  tracebacks) and on unknown versions (safe default — the flag is accepted
+  everywhere since 2.x). Drop it only when we've positively detected 3.1+.
+
+  - GamdlFeature::NoExceptionsFlag capability gate
+    (!is_version_at_least(version, "3.1")).
+  - merge_options() clears options.no_exceptions = None when detected
+    version is >= 3.1.
+  - verbose_gamdl_exceptions setting doc updated with v3.1 note.
+
+  Part of #604. The companion parser work for ExceptionPrettyPrinter
+  output is tracked in #607.
+
+- **(parser)** Handle GAMDL v3.1 ExceptionPrettyPrinter output ordering (#607)
+
+GAMDL v3.1's switch from traceback.print_exc() to structlog's
+  ExceptionPrettyPrinter processor changes the stderr line ordering: the
+  traceback now appears BEFORE its accompanying [ERROR HH:MM:SS ...] log
+  line because the processor runs earlier in structlog's pipeline than
+  custom_structlog_formatter.
+
+  extract_python_exception() previously walked forward from the last
+  Traceback header capturing the "last non-empty, non-indented line", so
+  on v3.1 it would pick up the trailing [ERROR ...] structlog entry
+  instead of the actual exception (e.g. KeyError: 'title').
+
+- **(parser)** Use strip_prefix in is_structlog_line_start (clippy::manual_strip)
+
+CI failure on PR #611 — `cargo clippy -- -D warnings` flagged the
+  manual `&inside[level.len()..]` prefix-strip introduced in #607's
+  is_structlog_line_start helper. Swap to the idiomatic
+  `inside.strip_prefix(level)` pattern. No behaviour change — the two
+  is_structlog_line_start tests still pass unchanged.
+
+  Detected in the v3.1 rollout's ExceptionPrettyPrinter parser fix (#607),
+  but is a local style cleanup rather than a separate issue.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(parser)** Regression tests for GAMDL v3.1 Track/URL brackets + WARNING→ERROR (#608)
+
+Adding v3.1 parser regression tests exposed a latent bug in
+  TRACK_INFO_V2_REGEX: the pattern did not tolerate the trailing space
+  that GAMDL's `action=f"Track {index:>3}/{total:<3}"` emits for padded
+  totals (e.g. `15 ` before `]`). The regex required a bare `\]`, so the
+  `Downloading "..."` line silently routed to Unknown. Existing v3.0
+  tests only asserted "no Error events", so the bug went undetected.
+
+  Extend TRACK_INFO_V2_REGEX with `\s*` tolerance around the slash and
+  before the closing bracket. Works on v2.9.x, v3.0, and v3.1 alike.
+
+  Seven new tests cover:
+  - Padded bracket formats `[Track   1/15 ]` and `[Track   1/1  ]`.
+  - Dash-total fallback `[Track   1/-  ]` (media_total or "-" in v3.1)
+    — must NOT parse as TrackInfo with a bogus numeric total.
+  - WARNING→ERROR upgrade for URL parse errors (commit fd3b621).
+  - `[ERROR ...] [URL   1/1  ] ...` and `[ERROR ...] [Track   1/1  ] ...`
+    captured via ERROR_PREFIX_REGEX.
+  - classify_error() on URL parse errors does not fall into the
+    httpx/httpcore "network" bucket (#521 regression guard).
+
+  Part of #604. No regression in the 82 utils::process::tests.
+
+
+### 🧹 Maintenance
+
+- **(gamdl)** Bump support window to GAMDL 3.1 (#610)
+
+Closes the final child of #604. All sibling changes have landed on this
+  branch:
+    * #605 wrapper_m3u8_ip CLI/INI/UI
+    * #606 --no-exceptions suppressed on v3.1 (no-op upstream)
+    * #607 extract_python_exception() handles ExceptionPrettyPrinter
+      output ordering
+    * #608 TRACK_INFO_V2_REGEX + ERROR_PREFIX_REGEX regression tests for
+      v3.1 padded brackets + URL parse ERROR upgrade
+    * #609 QueueItem counter wiring + single-song 1/1 suppression
+
+
+## [0.44.2] - 2026-04-24
+
 ### 🐛 Bug Fixes
 
 - **(settings)** Make Settings panel fill horizontal space + wrap long checkbox labels (#601)
