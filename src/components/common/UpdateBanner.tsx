@@ -151,8 +151,13 @@ export function UpdateBanner() {
     try {
       const version = await upgradeGamdl(target ?? undefined);
       addToast(`GAMDL upgraded to v${version}`, 'success');
-    } catch {
-      addToast('Failed to upgrade GAMDL', 'error');
+    } catch (e) {
+      // Surface the underlying pip error string the Rust handler
+      // returned. Without this, all failures collapse to "Failed to
+      // upgrade GAMDL" with no way to see which pip step actually broke
+      // (resolver, network, dep conflict, …).
+      const message = e instanceof Error ? e.message : String(e);
+      addToast(message || 'Failed to upgrade GAMDL', 'error');
     }
   };
 

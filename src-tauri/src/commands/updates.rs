@@ -165,11 +165,23 @@ pub async fn upgrade_gamdl(
         log::info!("Upgrading GAMDL...");
         emit_app_log(&app, "Upgrading GAMDL...");
     }
-    let version =
-        crate::services::gamdl_service::install_gamdl(&app, target_version.as_deref()).await?;
-    log::info!("GAMDL upgraded to {version}");
-    emit_app_log(&app, &format!("GAMDL upgraded to v{version}"));
-    Ok(version)
+    match crate::services::gamdl_service::install_gamdl(&app, target_version.as_deref()).await {
+        Ok(version) => {
+            log::info!("GAMDL upgraded to {version}");
+            emit_app_log(&app, &format!("GAMDL upgraded to v{version}"));
+            Ok(version)
+        }
+        Err(err) => {
+            // Echo the failure into the activity log (the Rust log file
+            // already has it via `install_gamdl`'s logging). Without this,
+            // a failed Upgrade click in the UI vanishes from the in-app
+            // diagnostics — users had to dig through the OS log file to
+            // find the pip stderr that caused the toast.
+            log::warn!("GAMDL upgrade failed: {err}");
+            emit_app_log(&app, &format!("GAMDL upgrade failed: {err}"));
+            Err(err)
+        }
+    }
 }
 
 /// Upgrades any pip-based engine to the latest version.

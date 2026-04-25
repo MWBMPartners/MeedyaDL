@@ -1069,7 +1069,13 @@ export function checkAllUpdates(): Promise<UpdateCheckResult> {
  * @returns Promise resolving to the installed version string
  */
 export function upgradeGamdl(targetVersion?: string): Promise<string> {
-  return invoke<string>('upgrade_gamdl', { targetVersion });
+  // Pass `null` (not `undefined`) when no explicit target is requested —
+  // JSON.stringify drops `undefined` keys, which can interact awkwardly
+  // with how Tauri 2 deserialises `Option<String>` arguments. Explicit
+  // `null` always round-trips cleanly to `None` on the Rust side.
+  return invoke<string>('upgrade_gamdl', {
+    targetVersion: targetVersion ?? null,
+  });
 }
 
 /**
