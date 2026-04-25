@@ -93,8 +93,14 @@ export function UpdatesPage() {
       // support-window spec to pick the newest validated release.
       const version = await upgradeGamdl(target ?? undefined);
       addToast(`GAMDL upgraded to v${version}`, 'success');
-    } catch {
-      addToast('Failed to upgrade GAMDL', 'error');
+    } catch (e) {
+      // Surface the underlying pip error (e.g. "pip install gamdl failed:
+      // ERROR: Could not find a version…") instead of a generic message —
+      // a swallowed error makes upgrade failures un-diagnosable in the
+      // field. The activity log already gets the same string from the
+      // Rust handler.
+      const message = e instanceof Error ? e.message : String(e);
+      addToast(message || 'Failed to upgrade GAMDL', 'error');
     }
   };
 
