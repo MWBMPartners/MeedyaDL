@@ -6,9 +6,330 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(queue)** Abort-all destructive action (#620)
+
+Adds a one-click "Abort Queue" escape hatch that stops every active
+  and queued download in a single IPC call — faster and more decisive
+  than today's per-item cancel flow.
+
+  Backend (`download_queue.rs` + `commands/gamdl.rs`):
+
+    * New `AbortSummary` serialisable struct (queued_cancelled,
+      downloading_stopped, processing_stopped).
+    * New `DownloadQueue::abort_all()` method transitioning every
+      non-terminal item to `Cancelled` and returning the summary.
+      Terminal items (Complete/Cancelled/Error) are untouched so the
+      user keeps their history.
+    * New `abort_all_downloads` IPC command — persists the updated
+      queue, emits a `downloads-aborted` event, writes a `[System]`
+      activity-log entry. Rides the existing cancellation-poll loops
+      to reap subprocesses (already `kill_on_drop(true)`).
+    * Three new unit tests covering empty queue, mixed pre-states,
+      and terminal-only queue.
+
+  Frontend (`tauri-commands.ts`, `downloadStore.ts`, `DownloadQueue.tsx`):
+
+    * `abortAllDownloads()` IPC wrapper + `AbortSummary` TS interface.
+    * `downloadStore.abortAll()` action with refresh + summary toast.
+    * Red-styled "Abort Queue" button in the queue header, shown only
+      when there's something to abort. Confirmation modal mirrors the
+      existing "Clear All" pattern.
+
+  Remaining UX polish tracked in the issue's acceptance criteria:
+  status-bar affordance, Cmd/Ctrl+Shift+. shortcut, "don't ask again",
+  post-queue-action suppression, manual mid-batch abort test.
+
+- **(gamdl)** Wire --playlist-folder-template (GAMDL v3.0+, #618)
+
+Adds playlist-specific folder template support with mandatory version
+  gating so v2.9.x users don't receive a flag that crashes Click.
+
+- **(settings)** Settings UI for playlist_folder_template (#618)
+
+Follow-up on #618. Adds a `TemplateBuilder` entry under Settings >
+  Templates > Folder Templates for the new `playlist_folder_template`
+  field, with `variableCategories={['playlist']}` so the variable-picker
+  chips narrow to the playlist-scoped tokens (`{playlist_artist}`,
+  `{playlist_title}`, `{playlist_id}`) already present in
+  `TEMPLATE_VARIABLES`.
+
+  The description makes the GAMDL v3.0+ requirement explicit — users on
+  v2.9.x see the value persist but GAMDL falls back to the upstream
+  default layout until they upgrade. This is the expectation-setting
+  pattern used for `wrapper_m3u8_ip` in the Advanced tab.
+
+- **(queue)** Abort-all UX polish — shortcut, status-bar, don't-ask, suppression (#620)
+
+Ships the four outstanding items from #620's original acceptance
+  criteria:
+
+    1. `abort_queue_confirm` setting (default true) — user-facing
+       "Don't ask again" checkbox on the confirmation modal. When
+       ticked, `updateSettings({ abort_queue_confirm: false })`
+       persists before the abort IPC fires, so subsequent aborts
+       skip the modal entirely.
+
+    2. Status-bar global abort affordance — red `Square` icon +
+       "Abort" label, shown whenever there's a non-terminal item.
+       Honours `abort_queue_confirm` via `window.confirm()` since
+       StatusBar doesn't own the shared Modal component; the
+       queue-page modal remains the canonical rich confirmation.
+
+    3. Cmd/Ctrl+Shift+. keyboard shortcut. Shift-gated to avoid
+       colliding with macOS Cmd+. platform interrupt. Honours the
+       confirm setting the same way the StatusBar does.
+
+    4. Post-queue-action suppression — new one-shot `recently_aborted`
+       flag on DownloadQueue, armed by `abort_all()` on non-zero
+       summaries, consumed by `take_recently_aborted()` at the
+       post-action dispatch site. Auto-clears so subsequent
+       legitimate drains still fire the configured action. New
+       unit test locks the one-shot semantics.
+
+  Type-check passes. Manual mid-batch abort test deferred to a live
+  environment (sandbox can't run Tauri).
+
+
+### 🐛 Bug Fixes
+
+- **(gamdl)** Always emit --song-codec-priority, never --song-codec (#614)
+
+The `--song-codec` single-codec flag was removed when GAMDL split
+  `cli.py` into `cli/cli_config.py` in v2.9.1 — it doesn't exist in
+  any release in our support window (2.9.1–3.2). MeedyaDL's
+  `else if self.song_codec` fallback in `audio_cli_args()` crashed the
+  subprocess with `Error: No such option: --song-codec` whenever a
+  user disabled the fallback chain on any supported GAMDL version.
+
+  Collapse the two emission paths into one: when `song_codec_priority`
+  is unset, promote the scalar `song_codec` field into a one-element
+  `--song-codec-priority` CSV. Safe across v2.9.1+ because the flag
+  accepts `Csv(SongCodec)` and a single codec is a valid one-element
+  list.
+
+  Tests added: `song_codec_promotes_to_priority_csv`,
+  `song_codec_priority_wins_over_scalar`, `song_codec_both_none_emits_nothing`,
+  `song_codec_promotes_when_priority_unset`. `multiple_options_combined`
+  updated to assert the new emission shape.
+
+- **(config)** Drop vestigial song_codec / song_codec_priority INI keys (#617)
+
+Neither key round-trips through GAMDL's INI loader on any release in
+  our support window (v2.9.1 → v3.2):
+
+    * `song_codec` was removed from the CLI in the v2.9.1 restructure; it
+      never registered in the Click param set, so `cleanup_unknown_params()`
+      silently drops our emission.
+    * `song_codec_priority` is declared upstream as `song_codec_piority`
+      (missing the `r`). `dataclass_click` propagates the Python field name
+      to `click.Parameter.name`, which GAMDL uses to key INI lookups.
+      Our correctly-spelled key was therefore also silently dropped.
+
+  Codec preference reaches GAMDL via `--song-codec-priority` (emitted by
+  `GamdlOptions::audio_cli_args`), which is authoritative and unaffected.
+  `ini_audio_section` is now intentionally empty and kept as a section
+  anchor for future audio INI keys that do round-trip through Click.
+
+  Tests updated to assert both keys are absent (negative assertions
+  covering the upstream typo form as well). File-level doc example
+  updated to point at the CLI-authoritative path.
+
+- **(config)** Drop stale song_codec_priority tests + unused import (#617, PR #621)
+
+Two pre-existing follow-up bugs from #617 ("Drop vestigial song_codec /
+  song_codec_priority INI keys") that were missed when that commit landed
+  and surfaced as backend CI failures on PR #621:
+
+  1. **Unused import** — `crate::models::gamdl_options::SongCodec` was
+     left at the top of `config_service.rs` after #617 emptied
+     `ini_audio_section()`. With CI running `cargo clippy -- -D warnings`,
+     the unused import promoted to a hard error on every backend
+     platform (macos / windows / ubuntu).
+
+  2. **Stale `cargo test` assertions** — two tests in the
+     `settings_to_ini: song_codec_priority` block still asserted the
+     pre-#617 invariant ("INI must contain `song_codec_priority =`"). The
+     new invariant (key never emitted regardless of `fallback_enabled`)
+     is already locked in by `ini_does_not_emit_song_codec` and
+     `ini_does_not_emit_song_codec_priority` further up in the file, so
+     the obsolete tests are removed entirely (with a comment pointing at
+     the canonical replacements).
+
+  Verified locally: `cargo clippy -- -D warnings` clean, `cargo test --lib`
+  shows 889 passed / 0 failed, all six v32_fixture_* tests green against
+  the synthesised fixtures shipped earlier in this branch.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- **(audit)** GAMDL v3.2 audit scaffold + #614 verification
+
+Adds `.github/audits/gamdl-v3.2-audit.md` capturing the verified facts
+  behind the GAMDL v3.2 audit finding set (issues #613–#619). The #614
+  section records the v2.9.1–v3.2 cross-version check that confirms
+  `--song-codec` has never existed in our support window and
+  `--song-codec-priority` is safe on every release we ship against, so
+  no support-floor change is needed.
+
+- **(audit)** GAMDL v3.2 #615 parser-validation findings
+
+Records the audit verification that MeedyaDL's `TRACK_INFO_V2_REGEX` and
+  `classify_error()` are unaffected by v3.2's conditional `Downloading`
+  log line and the `GamdlDownloaderFlatFilterExcludedError` →
+  `GamdlInterfaceFlatFilterExcludedError` rename. The rename is invisible
+  to our parser (no class-name matching), so the rename is a cleanup and
+  not a regression. Real-sample fixtures still need to be captured from
+  a live v3.2 run.
+
+- **(audit)** GAMDL v3.2 #616 sequential-fetch observability notes
+
+Records the alignment between upstream's v3.2 concurrency 5 → 1 default
+  flip and MeedyaDL's own serial-queue decision (#455). Docs-only follow-up:
+  CHANGELOG entry + help FAQ when the tool-versions.toml 3.2 bump (#619)
+  ships, no code change.
+
+- **(audit)** GAMDL v3.2 #617 INI-typo analysis
+
+Records verification that upstream's `song_codec_piority` (misspelled)
+  dataclass field — combined with `dataclass_click`'s param-name
+  propagation rule — means MeedyaDL's correctly-spelled
+  `song_codec_priority` INI line has been silently dropped by every
+  GAMDL release since v2.9.1. CLI emission is authoritative and remains
+  unaffected. Recommended resolution is Option D (drop the INI codec
+  block entirely); the CLI path has always been the one doing the work.
+
+- **(audit)** GAMDL v3.2 #618 playlist_folder_template gating
+
+Records the cross-version check of `--playlist-folder-template` — v3.0+
+  only CLI flag — and promotes the capability-gate requirement from
+  optional (as originally framed in #516's deferral) to mandatory.
+  v2.9.1–v2.9.3 users would otherwise see a Click `no such option` crash.
+  Feature-gate pattern mirrors `GamdlFeature::WrapperM3u8Ip` from #605.
+
+- **(audit)** GAMDL v3.2 #619 support-window bump analysis
+
+Records that `minimum_version = \"2.9.1\"` remains correct for v3.2 —
+  every capability MeedyaDL depends on is present across the full
+  2.9.1–3.2 window. The pre-existing latent bugs (#614, #617) affect
+  every release in that window and don't constrain the floor, so the
+  bump can proceed as soon as #614/#615 land.
+
+- **(audit)** GAMDL v3.2 #613 umbrella roll-up
+
+Closes the audit trail for the v3.2 compatibility umbrella. Post-audit
+  verification found that #614 (`--song-codec` crash) and #617 (INI-key
+  typo) are pre-existing since v2.9.1, not v3.x regressions. The v2.9.1
+  floor stays intact, and the `--song-codec-priority`-only fix strategy
+  unlocks both bugs in one coherent change. Aligns with MeedyaDL's own
+  serial-queue decision (#455).
+
+- **(audit)** Link abort-button feature request (#620) to v3.2 audit
+
+Records the rationale for the user-requested abort-button feature
+  (#620) in the audit trail. Scenarios uncovered by the audit — such as
+  the v2.9.1+ `--song-codec` crash (#614) in the `fallback_enabled=false`
+  path — are exactly when a one-click abort becomes most valuable, since
+  per-item cancel doesn't scale to large batch queues. No GAMDL-side
+  change; pure MeedyaDL UX. Existing `ShutdownSignal` is a model for a
+  narrower queue-level `AbortSignal`.
+
+- GAMDL v3.2 sequential metadata fetch + capability notes (#616)
+
+Adds a user-facing FAQ entry explaining why album metadata phase
+  may feel slower after upgrading to GAMDL 3.2 (upstream changed the
+  AppleMusicInterface concurrency default from 5 → 1, trading
+  throughput for reliability against AMP API rate-limits). Highlights
+  the alignment with MeedyaDL's own serial-queue decision (#455) so
+  the design consistency is discoverable.
+
+  Extended the existing "Version-aware GAMDL dispatch" CLAUDE.md
+  bullet with the v3.2 behaviour + cross-references to the new
+  `song_codec` / `song_codec_priority` emission rules (#614, #617),
+  the playlist_folder_template gate (#618), and the abort-all queue
+  action (#620). Each pulls a thread to the audit trail in
+  `.github/audits/gamdl-v3.2-audit.md` for full rationale.
+
+  CHANGELOG.md intentionally not edited — it's generated from
+  conventional commits via git-cliff.
+
+- **(audit)** GAMDL v3.2 umbrella closure roll-up (#613)
+
+All seven child issues of the v3.2 audit umbrella (#614–#620) have
+  landed on this branch. Records the per-issue commit hash + kind, and
+  lists the non-blocking follow-ups tracked in their respective children
+  (real-sample fixtures, Settings UI control, abort-button UX polish,
+  manual smoke test). Umbrella is ready to close pending those
+  follow-ups being addressed or spun out to new tickets.
+
+- **(audit)** GAMDL v3.2 release smoke-test procedure (#619)
+
+Committed prescriptive manual-verification checklist for whoever cuts
+  the first MeedyaDL release that includes the v3.2 support-window bump.
+  Covers seven scenarios with pass criteria:
+
+    A. Fresh install resolves gamdl==3.2
+    B. Existing v3.1 user sees the upgrade offer
+    C. Existing v2.9.x user remains Supported (floor intact)
+    D. Fallback-disabled codec path (#614 regression guard)
+    E. Playlist folder template gate (#618, v3.0+ only)
+    F. Abort queue end-to-end (#620) — button, status-bar, shortcut,
+       "don't ask again", post-queue-action suppression
+    G. Sequential metadata fetch FAQ entry (#616)
+
+  Plus a failure-reporting template and sign-off rubric. Document can
+  be forked as a template for future GAMDL version bumps.
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(parser)** Regression tests for GAMDL v3.2 output shapes (#615)
+
+Synthesised tests covering the v3.2 parser-adjacent changes derived
+  from the source-tree diff between the 3.1 and 3.2 tags:
+
+    * Conditional `track_log.info(f'Downloading "{media_title}"')` —
+      only fires for partial media of specific types (songs, MVs,
+      uploaded videos). Wrapper entities (albums, playlists, artists)
+      no longer emit it. Positive tests confirm song + MV lines still
+      parse as TrackInfo; negative tests confirm banner-style lines
+      don't.
+    * `GamdlInterfaceFlatFilterExcludedError` rename — both the old
+      and new class names classify identically via `classify_error()`
+      and fall through to `unknown`, not a real error bucket.
+
+  Also adds `.github/audits/fixtures/gamdl-3.2/` with a `README.md`
+  documenting the capture workflow + redaction checklist, so real-sample
+  captures can land later without re-deriving the procedure.
+
+- **(parser)** Synthesised v3.2 fixture files + fixture-driven tests (#615)
+
+Follow-up on #615. Previously the v3.2 regression tests used inline
+  string literals that pinned exact whitespace. Extracted five realistic
+  scenarios into committed `.log` files under
+  `.github/audits/fixtures/gamdl-3.2/` (album, single song, music video,
+  playlist, flat-filter-excluded WARNING line), derived structurally
+  from the v3.2 upstream source (`cli/utils.py` +  `cli.py`).
+
+  New test helpers load the fixtures relative to `CARGO_MANIFEST_DIR`;
+  six new fixture-driven tests assert counter values and event counts
+  rather than whitespace so real-sample replacements drop in cleanly.
+
+  Original inline-string tests preserved — they still pin exact
+  alignment as a belt-and-braces check. The fixtures README documents
+  the drop-in replacement workflow for anyone with a live v3.2
+  environment.
+
+- **(parser)** Add missing v3.2 stderr fixture .log files (#615, PR #621)
+
+The v3.2 fixture-driven parser tests added in PR #621 (v32_fixture_*)
+  load five `.log` files from `.github/audits/fixtures/gamdl-3.2/`, but
+  only the README.md actually shipped — the `.log` files were silently
+  dropped on commit by `.gitignore`'s blanket `*.log` rule.
+
 
 ### 🔄 CI/CD
 
@@ -26,6 +347,33 @@ Wrap the changelog workflow's final git push in a pull-rebase +
   live CodeQL security-and-quality query suite.
 
 - Harden changelog push race + document GHAS posture (#544, #564) (#622)
+
+### 🧹 Maintenance
+
+- **(gamdl)** Bump support window to GAMDL 3.2 (#619)
+
+All gating child issues for the v3.2 umbrella (#613) have landed on
+  this branch:
+
+    * #614 — --song-codec crash fix
+    * #615 — parser regression tests
+    * #616 — sequential-fetch docs
+    * #617 — INI codec-block cleanup
+    * #618 — --playlist-folder-template wiring
+    * #620 — abort-all queue action
+
+  `install_gamdl()` now resolves `pip install --upgrade 'gamdl>=2.9.1,<=3.2'`,
+  classify() reports Supported for v3.2, and `is_gamdl_compatible("3.2")`
+  returns true so the UpdatesPage surfaces the new release.
+
+  README Component Support Matrix bumped to reflect the new ceiling.
+  CLAUDE.md was already updated in #616 with the v3.2 behaviour notes
+  + cross-references to the new capability gates.
+
+  Manual smoke test (fresh install resolves gamdl==3.2, v3.1 user sees
+  the upgrade offer) is deferred to whoever cuts the release — the
+  sandbox can't run Tauri.
+
 
 ## [0.45.0] - 2026-04-24
 
