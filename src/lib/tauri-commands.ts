@@ -1049,20 +1049,27 @@ export function checkAllUpdates(): Promise<UpdateCheckResult> {
 }
 
 /**
- * Upgrades GAMDL to the latest compatible version via pip.
+ * Upgrades GAMDL via pip.
  *
- * Rust handler: `upgrade_gamdl()` in `src-tauri/src/commands/update.rs`
- * Returns: string message (e.g., "GAMDL upgraded to 1.5.2")
+ * Rust handler: `upgrade_gamdl()` in `src-tauri/src/commands/updates.rs`
+ * Returns: the new GAMDL version string (e.g., "3.3").
  *
  * Runs `pip install --upgrade gamdl` in the portable Python environment.
  * This may take a minute as pip resolves and downloads dependencies.
  *
- * Called by: UpdateBanner "Update" button, SettingsPage update section
+ * @param targetVersion - When provided, pip pins to exactly this version
+ *   (`gamdl=={targetVersion}`). The Updates page passes the latest PyPI
+ *   version when the user is upgrading to an above-ceiling "Untested"
+ *   release — without the pin, the bounded support-window spec would
+ *   silently resolve down to `maximum_tested_version`. Omit this for
+ *   routine "Upgrade" clicks on tested updates.
  *
- * @returns Promise resolving to a success message string
+ * Called by: UpdateBanner / UpdatesPage "Upgrade" buttons
+ *
+ * @returns Promise resolving to the installed version string
  */
-export function upgradeGamdl(): Promise<string> {
-  return invoke<string>('upgrade_gamdl');
+export function upgradeGamdl(targetVersion?: string): Promise<string> {
+  return invoke<string>('upgrade_gamdl', { targetVersion });
 }
 
 /**

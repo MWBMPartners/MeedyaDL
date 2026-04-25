@@ -232,7 +232,9 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
     // Delegates to gamdl_service which runs pip and parses the output
     log::info!("Installing GAMDL...");
     emit_app_log(&app, "Installing GAMDL...");
-    let version = gamdl_service::install_gamdl(&app).await?;
+    // Routine setup-wizard install: no explicit version target, use the
+    // bounded `[minimum, maximum_tested]` spec.
+    let version = gamdl_service::install_gamdl(&app, None).await?;
     log::info!("GAMDL v{version} installed");
     emit_app_log(&app, &format!("GAMDL v{version} installed"));
     Ok(version)

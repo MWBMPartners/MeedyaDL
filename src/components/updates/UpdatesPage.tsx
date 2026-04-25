@@ -86,9 +86,12 @@ export function UpdatesPage() {
     return app?.current_version ?? null;
   }, [lastResult]);
 
-  const handleUpgradeGamdl = async () => {
+  const handleUpgradeGamdl = async (target?: string | null) => {
     try {
-      const version = await upgradeGamdl();
+      // Pass the explicit target only for above-ceiling "Untested"
+      // upgrades — otherwise the backend uses the bounded
+      // support-window spec to pick the newest validated release.
+      const version = await upgradeGamdl(target ?? undefined);
       addToast(`GAMDL upgraded to v${version}`, 'success');
     } catch {
       addToast('Failed to upgrade GAMDL', 'error');
@@ -281,6 +284,14 @@ export function UpdatesPage() {
                         Pre-Release
                       </span>
                     )}
+                    {update.is_untested && (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning"
+                        title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
+                      >
+                        Untested
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -291,7 +302,9 @@ export function UpdatesPage() {
                         size="sm"
                         icon={<RefreshCw size={12} />}
                         loading={isUpgrading}
-                        onClick={handleUpgradeGamdl}
+                        onClick={() =>
+                          handleUpgradeGamdl(update.is_untested ? update.latest_version : null)
+                        }
                       >
                         Upgrade
                       </Button>
@@ -362,6 +375,23 @@ export function UpdatesPage() {
                   <p className="text-[11px] text-status-warning mb-3">
                     This is a pre-release version and may contain bugs or incomplete features. Not
                     recommended for production use.
+                  </p>
+                )}
+
+                {/*
+                 * Untested warning -- shown for GAMDL releases above this
+                 * MeedyaDL build's `maximum_tested_version` ceiling. The
+                 * upgrade is installable but hasn't been audited against
+                 * MeedyaDL's GAMDL CLI / INI surface yet. Hidden when
+                 * `is_prerelease` already covers the warning so users don't
+                 * see two stacked amber paragraphs.
+                 */}
+                {update.is_untested && !update.is_prerelease && (
+                  <p className="text-[11px] text-status-warning mb-3">
+                    This GAMDL release was published after MeedyaDL&apos;s last validation pass and
+                    hasn&apos;t been audited yet. The upgrade is installable, but compatibility with
+                    MeedyaDL&apos;s download pipeline isn&apos;t guaranteed — install at your own
+                    risk, or wait for the next MeedyaDL build to validate it.
                   </p>
                 )}
 
