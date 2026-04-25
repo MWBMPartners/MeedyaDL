@@ -8,13 +8,14 @@
  *
  * ## Supported shortcuts
  *
- * | Shortcut              | Action                                         |
- * |-----------------------|------------------------------------------------|
- * | `Cmd/Ctrl + D`        | Navigate to Download page and focus URL input  |
- * | `Cmd/Ctrl + ,`        | Navigate to Settings page                      |
- * | `Cmd/Ctrl + Q`        | Navigate to Queue page                         |
- * | `Cmd/Ctrl + Enter`    | Start download (when URL input is focused)     |
- * | `Escape`              | Close active modal                             |
+ * | Shortcut                | Action                                         |
+ * |-------------------------|------------------------------------------------|
+ * | `Cmd/Ctrl + D`          | Navigate to Download page and focus URL input  |
+ * | `Cmd/Ctrl + ,`          | Navigate to Settings page                      |
+ * | `Cmd/Ctrl + Q`          | Navigate to Queue page                         |
+ * | `Cmd/Ctrl + Shift + .`  | Abort all active and queued downloads (#620)   |
+ * | `Cmd/Ctrl + Enter`      | Start download (when URL input is focused)     |
+ * | `Escape`                | Close active modal                             |
  *
  * ## Design decisions
  *
@@ -59,6 +60,19 @@ import { useEffect } from 'react';
  * @see ./stores/uiStore.ts
  */
 import { useUiStore } from '@/stores/uiStore';
+
+/**
+ * Zustand download store for the abort-all action (#620).
+ * @see ./stores/downloadStore.ts
+ */
+import { useDownloadStore } from '@/stores/downloadStore';
+
+/**
+ * Zustand settings store — consulted for `abort_queue_confirm` to decide
+ * whether the Cmd/Ctrl+Shift+. shortcut fires immediately or raises a
+ * confirmation prompt.
+ */
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * ID of the URL input element in DownloadForm.
@@ -167,6 +181,33 @@ export function useKeyboardShortcuts(): void {
         case 'q': {
           e.preventDefault();
           useUiStore.getState().setPage('queue');
+          break;
+        }
+
+        /*
+         * Cmd/Ctrl+Shift+. (period): Abort all active and queued downloads
+         * (#620). macOS convention for "stop loading" uses Cmd+. but that
+         * conflicts with browser dev-console shortcuts and platform-level
+         * interrupts on some terminals. Requiring Shift scopes the binding
+         * to the app alone and is unambiguous across all three platforms.
+         *
+         * Honours the `abort_queue_confirm` setting: fires immediately
+         * when disabled, uses a native `window.confirm()` when enabled.
+         * The Queue-page modal is the canonical rich confirmation with
+         * "Don't ask again"; the shortcut and status-bar button share
+         * this lighter-weight path.
+         */
+        case '.': {
+          if (!e.shiftKey) break;
+          e.preventDefault();
+          const settings = useSettingsStore.getState().settings;
+          if (settings.abort_queue_confirm) {
+            const confirmed = window.confirm(
+              'Abort every active and queued download? This cannot be undone.',
+            );
+            if (!confirmed) break;
+          }
+          void useDownloadStore.getState().abortAll();
           break;
         }
 

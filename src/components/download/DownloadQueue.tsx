@@ -44,14 +44,14 @@
  * @see https://react.dev/reference/react/useEffect
  * @see https://react.dev/reference/react/useMemo
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 /**
  * Lucide icons for the page header action buttons.
  * - `RefreshCw` -- manual refresh button (@see https://lucide.dev/icons/refresh-cw)
  * - `Trash2`    -- "Clear Finished" button (@see https://lucide.dev/icons/trash-2)
  */
-import { Download, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { Download, Play, RefreshCw, Square, Trash2, Upload } from 'lucide-react';
 
 /**
  * Zustand store hooks.
@@ -59,6 +59,7 @@ import { Download, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
  * @see useUiStore in @/stores/uiStore.ts            -- toast notifications.
  */
 import { useDownloadStore } from '@/stores/downloadStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 
 /** Reusable UI components from the common library. */
@@ -161,6 +162,57 @@ export function DownloadQueue() {
 
   /** Confirmation modal state for "Clear All". */
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+
+  /**
+   * Confirmation modal state for "Abort Queue" (#620). The destructive
+   * nature of this action (cancels every active + queued item at once)
+   * warrants a confirmation gate rather than a bare click.
+   */
+  const [showAbortConfirm, setShowAbortConfirm] = useState(false);
+
+  /**
+   * Aborts every active + queued download in one IPC call. The store's
+   * `abortAll` surfaces its own summary toast; this wrapper dispatches
+   * and closes the confirmation modal.
+   */
+  const abortAll = useDownloadStore((s) => s.abortAll);
+
+  /**
+   * Per-session snapshot of the "Don't ask again" checkbox state inside
+   * the modal. When the user confirms with the box ticked, we flip
+   * `abort_queue_confirm` off in settings so subsequent aborts fire
+   * immediately from the button / keyboard shortcut (#620).
+   */
+  const [abortDontAskAgain, setAbortDontAskAgain] = useState(false);
+
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  const handleAbortAll = useCallback(async () => {
+    setShowAbortConfirm(false);
+    if (abortDontAskAgain) {
+      // User opted to skip the confirmation next time. Persist before
+      // kicking off the abort so a race between the IPC and the
+      // settings save can't lose the preference.
+      await updateSettings({ abort_queue_confirm: false });
+      setAbortDontAskAgain(false);
+    }
+    await abortAll();
+  }, [abortAll, abortDontAskAgain, updateSettings]);
+
+  /**
+   * Entry point for the "Abort Queue" action. Honours the
+   * `abort_queue_confirm` setting: shows the modal on `true` (the
+   * default), fires directly on `false` (user has opted in to
+   * single-click aborts).
+   */
+  const triggerAbort = useCallback(() => {
+    if (settings.abort_queue_confirm) {
+      setShowAbortConfirm(true);
+    } else {
+      void abortAll();
+    }
+  }, [abortAll, settings.abort_queue_confirm]);
 
   // ---------------------------------------------------------------
   // Polling effect
@@ -464,6 +516,25 @@ export function DownloadQueue() {
             )}
 
             {/*
+             * "Abort Queue" button (#620). Shown whenever there is at least
+             * one item in a non-terminal state that could be stopped.
+             * Destructive-styled + confirmation-gated — a misclick here
+             * would cancel an entire batch download.
+             */}
+            {(activeCount > 0 || queuedCount > 0) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Square size={14} />}
+                onClick={triggerAbort}
+                className="text-status-error hover:bg-status-error/10"
+                title="Stop every active and queued download immediately (Cmd/Ctrl+Shift+.)"
+              >
+                Abort Queue
+              </Button>
+            )}
+
+            {/*
              * Manual refresh button -- fetches the latest queue state
              * from the backend. Useful if real-time events are delayed
              * or if the user wants an instant update.
@@ -575,6 +646,43 @@ export function DownloadQueue() {
             onClick={handleClearAllConfirmed}
           >
             Clear All
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Confirmation modal for "Abort Queue" (#620) */}
+      <Modal
+        open={showAbortConfirm}
+        onClose={() => setShowAbortConfirm(false)}
+        title="Abort Queue"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          This will stop the current download <em>immediately</em> and cancel
+          every item that is still queued or processing. Already-completed
+          downloads are kept so you don&apos;t lose your history.
+        </p>
+        <p className="text-sm text-content-secondary mb-4">
+          This action cannot be undone. Cancelled items can be retried
+          individually from the queue.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-content-secondary mb-6 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={abortDontAskAgain}
+            onChange={(e) => setAbortDontAskAgain(e.target.checked)}
+            className="h-4 w-4 cursor-pointer"
+          />
+          <span>
+            Don&apos;t ask again — single-click abort from now on. Re-enable
+            in Settings &gt; General &gt; Preferences.
+          </span>
+        </label>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setShowAbortConfirm(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleAbortAll}>
+            Abort Queue
           </Button>
         </div>
       </Modal>

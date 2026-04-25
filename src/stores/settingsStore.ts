@@ -74,6 +74,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   update_check_interval_hours: 6, // Check for updates every 6 hours
   gamdl_idle_timeout_minutes: 5, // Kill hung GAMDL after 5 min of silent output (#505)
   auto_start_queue: true, // Start processing immediately when items are enqueued
+  abort_queue_confirm: true, // Show confirmation modal before abort fires (#620)
   desktop_notifications: true, // OS-native notifications for download events when window not focused
   notification_style: 'native_and_in_app' as const, // Both native + in-app by default
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
@@ -157,6 +158,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
   no_album_folder_template: '{artist}/Unknown Album',
+  // GAMDL v3.0+ only (#618). Stored unconditionally; the Rust side gates
+  // CLI emission behind the detected GAMDL version so v2.9.x falls back to
+  // upstream's built-in default.
+  playlist_folder_template: 'Playlists/{playlist_artist}',
   single_disc_file_template: '{track:02d} {title}', // Zero-padded track number
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',

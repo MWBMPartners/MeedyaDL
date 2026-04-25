@@ -293,6 +293,15 @@ fn default_track_number_padding() -> TrackNumberPadding {
     TrackNumberPadding::Auto
 }
 
+/// Mirrors GAMDL v3.0+'s upstream default for `--playlist-folder-template`
+/// (`gamdl/downloader/base.py::playlist_folder_template`). Kept in sync here
+/// so users who haven't customised the template see the same layout
+/// regardless of whether the flag is emitted (v3.0+) or not (v2.9.x
+/// silently falls back to its own equivalent default).
+fn default_playlist_folder_template() -> String {
+    "Playlists/{playlist_artist}".to_string()
+}
+
 /// User-configurable zero-padding for the `{disc}` placeholder in
 /// filename templates (#587). Mirrors `TrackNumberPadding` but scoped
 /// to disc numbers (typically much smaller than track counts).
@@ -654,6 +663,17 @@ pub struct AppSettings {
     /// Queue page.
     #[serde(default = "default_auto_start_queue")]
     pub auto_start_queue: bool,
+
+    /// Whether to show a confirmation modal before the "Abort Queue"
+    /// action fires (#620). Default: `true`. Users who've grown
+    /// comfortable with the destructive action can tick "Don't ask
+    /// again" on the modal to flip this to `false` and invoke the
+    /// abort via a single click (keyboard shortcut or button).
+    ///
+    /// Exposed by the modal's "Don't ask again" checkbox and in
+    /// Settings > General > Preferences for explicit re-enable.
+    #[serde(default = "default_true")]
+    pub abort_queue_confirm: bool,
 
     /// Whether to send native OS desktop notifications for download events
     /// (completion and terminal failure). Notifications are only sent when
@@ -1054,6 +1074,23 @@ pub struct AppSettings {
     /// Folder naming template for non-album tracks (singles, loose tracks).
     /// Default: `"{artist}/Unknown Album"`.
     pub no_album_folder_template: String,
+
+    /// Folder naming template for playlist downloads (#618).
+    ///
+    /// Default: `"Playlists/{playlist_artist}"` — matches GAMDL's own
+    /// upstream default (`gamdl/downloader/base.py::playlist_folder_template`)
+    /// so users who haven't customised the template see the same layout
+    /// MeedyaDL has always produced.
+    ///
+    /// Gated on GAMDL ≥ v3.0 (when the corresponding CLI flag
+    /// `--playlist-folder-template` was introduced). On v2.9.x the flag
+    /// does not exist and emission would crash the subprocess with
+    /// `no such option`. The gate lives in
+    /// [`gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate`] and is
+    /// consulted by both `GamdlOptions::to_cli_args` and
+    /// `config_service::ini_template_section`.
+    #[serde(default = "default_playlist_folder_template")]
+    pub playlist_folder_template: String,
 
     /// File naming template for tracks on single-disc albums.
     /// Default: `"{track:02d} {title}"` -- zero-padded track number + title.
@@ -1545,6 +1582,7 @@ impl Default for AppSettings {
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
             auto_start_queue: true,
+            abort_queue_confirm: true,
             // Desktop notifications enabled by default — OS-native alerts
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
@@ -1694,6 +1732,7 @@ impl Default for AppSettings {
             album_folder_template: "{album_artist}/{album}".to_string(),
             compilation_folder_template: "Compilations/{album} ({album_id})".to_string(),
             no_album_folder_template: "{artist}/Unknown Album".to_string(),
+            playlist_folder_template: default_playlist_folder_template(),
             single_disc_file_template: "{track:02d} {title}".to_string(),
             multi_disc_file_template: "{disc}-{track:02d} {title}".to_string(),
             no_album_file_template: "{title}".to_string(),

@@ -390,6 +390,12 @@ export interface GamdlOptions {
   compilation_folder_template?: string;
   /** Template for folder names when album folder is disabled */
   no_album_folder_template?: string;
+  /**
+   * Template for playlist folder names (GAMDL v3.0+ only, #618).
+   * On v2.9.x the `--playlist-folder-template` flag does not exist; the
+   * Rust side gates emission behind `GamdlFeature::PlaylistFolderTemplate`.
+   */
+  playlist_folder_template?: string;
   /** Template for file names on single-disc albums */
   single_disc_file_template?: string;
   /** Template for file names on multi-disc albums (includes disc number) */
@@ -479,6 +485,13 @@ export interface AppSettings {
   gamdl_idle_timeout_minutes: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
+  /**
+   * Whether the "Abort Queue" action (#620) prompts for confirmation
+   * before firing. Default `true`. Users who tick "Don't ask again"
+   * on the confirmation modal flip this to `false` for single-click
+   * aborts from the button / keyboard shortcut.
+   */
+  abort_queue_confirm: boolean;
   /** Whether to send native OS desktop notifications for download events (completion/failure).
    * Notifications are only sent when the app window is not focused. */
   desktop_notifications: boolean;
@@ -590,6 +603,13 @@ export interface AppSettings {
   compilation_folder_template: string;
   /** Template for folder naming when album folders are disabled */
   no_album_folder_template: string;
+  /**
+   * Template for playlist folder naming (GAMDL v3.0+ only, #618).
+   * MeedyaDL stores this unconditionally; the Rust side gates emission
+   * behind `GamdlFeature::PlaylistFolderTemplate` so v2.9.x users just
+   * fall back to GAMDL's upstream default layout.
+   */
+  playlist_folder_template: string;
   /** Template for file naming on single-disc albums */
   single_disc_file_template: string;
   /** Template for file naming on multi-disc albums */
