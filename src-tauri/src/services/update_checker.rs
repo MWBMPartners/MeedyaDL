@@ -86,9 +86,24 @@ pub struct ComponentUpdate {
     /// True if not installed and a version is available on the remote source.
     pub update_available: bool,
     /// Whether this update is compatible with the current app version.
-    /// For GAMDL: checked via `is_gamdl_compatible()` range gate.
-    /// For app and Python: always true (updates are self-compatible).
+    /// For GAMDL: any parseable semver passes (we only reject obviously
+    /// malformed strings like `v3-rc`). The "untested vs tested" status
+    /// is communicated separately via [`Self::is_untested`] so users see
+    /// the new release as soon as upstream ships it. For app and Python:
+    /// always true (updates are self-compatible).
     pub is_compatible: bool,
+    /// Whether the latest available version is **above** the
+    /// `maximum_tested_version` declared in this MeedyaDL build's
+    /// `tool-versions.toml`.
+    ///
+    /// `true` here flags an upgrade we have not validated against the
+    /// MeedyaDL CLI / INI surface — installation works (the user opts in
+    /// via an explicit-version pin in `pip_target_spec`), but the
+    /// frontend should render an amber "Untested" badge and a short
+    /// disclaimer. Currently only set for the GAMDL component;
+    /// always `false` for the app, Python, pip engines, and binary tools.
+    #[serde(default)]
+    pub is_untested: bool,
     /// Human-readable description of the update (e.g., release notes excerpt).
     /// For app updates: truncated first 200 chars of the GitHub release body.
     pub description: Option<String>,
@@ -159,12 +174,15 @@ pub struct UpdateCheckResult {
 // owns the single source of truth (`tool-versions.toml` → `[gamdl]`)
 // and exposes typed classification helpers.
 
-/// Checks whether a GAMDL version is safe to auto-upgrade to.
+/// Checks whether a GAMDL version is safe to surface as an update.
 ///
 /// Thin wrapper over [`gamdl_capabilities::should_offer_upgrade`] kept
 /// so the surrounding `check_gamdl_update` call site stays readable.
-/// Returns `false` for versions above the `maximum_tested_version`
-/// baked into this MeedyaDL build, and for unparseable strings.
+/// Returns `false` only for unparseable version strings. Above-ceiling
+/// versions DO pass — the "untested" state is communicated via the
+/// separate [`ComponentUpdate::is_untested`] field rather than by
+/// hiding the update entirely. See `gamdl_capabilities.rs` for the
+/// rationale.
 fn is_gamdl_compatible(version: &str) -> bool {
     gamdl_capabilities::should_offer_upgrade(version)
 }
@@ -593,10 +611,28 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         _ => false,
     };
 
-    // Apply the compatibility gate: only offer the update if the latest version
-    // falls within [MIN_COMPATIBLE_GAMDL, MAX_COMPATIBLE_GAMDL].
-    // This prevents upgrading to a GAMDL version with incompatible CLI changes.
+    // Compatibility now permits any parseable semver — the strict "is
+    // it inside the validated window?" check moved to `is_untested`.
+    // Hiding above-ceiling versions silently meant users couldn't see
+    // newly released GAMDL versions until we'd audited them; surfacing
+    // them with a warning badge is the better default.
     let is_compatible = latest.as_ref().is_some_and(|v| is_gamdl_compatible(v));
+    let is_untested = latest
+        .as_ref()
+        .is_some_and(|v| gamdl_capabilities::is_above_tested_ceiling(v));
+
+    let description = if update_available {
+        Some(if is_untested {
+            // Surface the warning in the description text so it shows up
+            // even in places that don't render the dedicated badge.
+            "New GAMDL version available on PyPI (untested with this MeedyaDL build)"
+                .to_string()
+        } else {
+            "New GAMDL version available on PyPI".to_string()
+        })
+    } else {
+        None
+    };
 
     Ok(ComponentUpdate {
         name: "GAMDL".to_string(),
@@ -604,11 +640,8 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         latest_version: latest.clone(),
         update_available,
         is_compatible,
-        description: if update_available {
-            Some("New GAMDL version available on PyPI".to_string())
-        } else {
-            None
-        },
+        is_untested,
+        description,
         release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{v}/")),
         release_body: None,
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
@@ -685,6 +718,7 @@ async fn check_app_update(
                 latest_version: None,
                 update_available: false,
                 is_compatible: true,
+                is_untested: false,
                 description: None,
                 release_url: None,
                 release_body: None,
@@ -724,6 +758,7 @@ async fn check_app_update(
                 latest_version: None,
                 update_available: false,
                 is_compatible: true,
+                is_untested: false,
                 description: None,
                 release_url: None,
                 release_body: None,
@@ -849,6 +884,9 @@ fn parse_release_from_response(
         // App updates are always "compatible" — the new version replaces the old one entirely.
         // Unlike GAMDL (which has a CLI interface contract), the app is self-contained.
         is_compatible: true,
+        // Untested-vs-tested only applies to GAMDL (whose CLI surface
+        // we audit per-version). MeedyaDL releases are self-contained.
+        is_untested: false,
         description: body,
         release_url: html_url,
         release_body: full_body,
@@ -1049,6 +1087,7 @@ async fn check_github_tool_update(
         latest_version: latest_semver.or(latest_version),
         update_available,
         is_compatible: true,
+        is_untested: false,
         description: if update_available {
             Some(format!("Newer version of {display_name} available"))
         } else {
@@ -1088,6 +1127,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // Python updates are always compatible since we control the version
         // and test it with GAMDL before shipping.
         is_compatible: true,
+        is_untested: false,
         description: if update_available {
             Some(format!("Python {target} available (portable runtime)"))
         } else {
@@ -1181,6 +1221,7 @@ async fn check_pip_engine_update(
         latest_version: latest,
         update_available,
         is_compatible: true, // Pip engines don't have compatibility gates (unlike GAMDL)
+        is_untested: false,  // Untested-vs-tested only applies to GAMDL
         description,
         release_url,
         release_body: None,
@@ -1259,31 +1300,27 @@ mod tests {
         assert!(!is_newer("2.0.0", "1.0.0"));
     }
 
-    /// `is_gamdl_compatible` is now a thin alias over
-    /// `gamdl_capabilities::should_offer_upgrade`, so the test focuses
-    /// on the candidate-upgrade semantics: offer only when the
-    /// PyPI-advertised "latest" is inside our validated ceiling.
-    ///
-    /// The floor check that used to live here applies to the
-    /// **installed** version (via `classify` in `gamdl_capabilities`),
-    /// not to the **candidate upgrade**, so it was always dead code
-    /// for this call site — PyPI never advertises a past release as
-    /// `latest`.
+    /// `is_gamdl_compatible` is a thin alias over
+    /// `gamdl_capabilities::should_offer_upgrade`, which now permits any
+    /// parseable semver. The "untested vs tested" gate moved to
+    /// `is_above_tested_ceiling` and the `ComponentUpdate.is_untested`
+    /// field — that way users see new GAMDL releases as soon as upstream
+    /// ships them instead of having to wait for a MeedyaDL audit + ceiling
+    /// bump before the Updates page admits the upgrade.
     #[test]
     fn test_is_gamdl_compatible() {
-        // Current ceiling is the `maximum_tested_version` baked into
-        // tool-versions.toml; these cases must stay within it.
+        // Inside the validated window: surface as a normal upgrade.
         assert!(is_gamdl_compatible("2.9.1"));
         assert!(is_gamdl_compatible("2.9.2"));
         assert!(is_gamdl_compatible("3.0"));
         assert!(is_gamdl_compatible("3.0.0"));
 
-        // Above the validated ceiling: suppress the upgrade prompt.
-        // (Pinned to a far-future major so the test stays green as we
-        // bump the ceiling.)
-        assert!(!is_gamdl_compatible("99.0.0"));
+        // Above the validated ceiling: STILL surfaced (the
+        // `is_untested` flag carries the warning context to the UI).
+        assert!(is_gamdl_compatible("99.0.0"));
 
-        // Unparseable string: refuse to offer.
+        // Unparseable string: refuse to offer (we can't reason about it,
+        // and downstream version comparisons would coerce it to 0.0.0).
         assert!(!is_gamdl_compatible("invalid"));
         assert!(!is_gamdl_compatible(""));
     }

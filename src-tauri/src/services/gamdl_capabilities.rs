@@ -214,23 +214,44 @@ pub fn classify(installed: Option<&str>) -> VersionSupport {
 
 /// Should the "GAMDL update available" notice be shown to the user?
 ///
-/// Returns `false` when:
-/// * `latest_available` is above the `maximum_tested_version` baked
-///   into this MeedyaDL build — we don't want to push users into
-///   untested territory. They can still upgrade manually if they
-///   want to.
-/// * `latest_available` is not a parseable semver string (we won't
-///   offer upgrades to a version we can't understand — `1.2.3`,
-///   `2.9` are fine; `invalid`, `v3-rc` are not).
+/// Returns `false` only when `latest_available` is not a parseable semver
+/// string (e.g. `invalid`, `v3-rc`, empty). Above-ceiling versions are
+/// **still surfaced** so users learn about new GAMDL releases as soon as
+/// upstream ships them — the "tested vs untested" distinction is
+/// communicated separately via [`is_above_tested_ceiling`] and the
+/// frontend's amber "Untested" badge.
+///
+/// # History
+///
+/// This previously hard-capped at `maximum_tested_version`, which silently
+/// hid every upstream release until MeedyaDL bumped its support window.
+/// In practice that meant the Updates page kept saying "All components up
+/// to date" while a new GAMDL release sat unnoticed on PyPI for days,
+/// blocking us from validating the new build's compatibility against real
+/// downloads. Surfacing the version (with a warning badge) is the
+/// MeedyaDL-side fix; the install path now also handles untested targets
+/// via [`pip_target_spec`].
 #[must_use]
 pub fn should_offer_upgrade(latest_available: &str) -> bool {
-    if !is_parseable_semver(latest_available) {
+    is_parseable_semver(latest_available)
+}
+
+/// Is `version` strictly above this MeedyaDL build's
+/// `maximum_tested_version`?
+///
+/// Used by [`crate::services::update_checker`] to set the `is_untested`
+/// flag on a `ComponentUpdate`, which in turn drives the frontend's
+/// "Untested" warning badge. `false` for unparseable strings — we can't
+/// reason about them, so we don't claim they're untested.
+#[must_use]
+pub fn is_above_tested_ceiling(version: &str) -> bool {
+    if !is_parseable_semver(version) {
         return false;
     }
     let window = support_window();
-    // Cap the suggested upgrade at `maximum_tested`: offer only when
-    // the latest PyPI release is still inside our validated window.
-    is_version_at_least(&window.maximum_tested, latest_available)
+    // `is_version_at_least(a, b)` ⇔ `a >= b`. Above-ceiling means
+    // `version > maximum_tested`, i.e. `!(maximum_tested >= version)`.
+    !is_version_at_least(&window.maximum_tested, version)
 }
 
 /// Returns `true` if `version` is a leading-numeric semver-ish string
@@ -262,6 +283,23 @@ pub fn pip_version_spec() -> String {
         minimum = window.minimum,
         maximum = window.maximum_tested,
     )
+}
+
+/// Pip version specifier pinning GAMDL to a single explicit version.
+///
+/// Used when the user has consciously opted into installing an
+/// **above-ceiling, untested** GAMDL release from the Updates page (the
+/// amber "Untested" badge route). The bounded [`pip_version_spec`] would
+/// silently downgrade their click on "Upgrade to v3.4" into "install
+/// v3.3" — confusing UX and not what the user asked for. This helper
+/// pins to exactly the version the frontend showed in the banner.
+///
+/// `target` should be a parseable semver. We don't sanity-check it here
+/// because the caller (`install_gamdl`) has already obtained it from
+/// `check_latest_gamdl_version` (PyPI) and surfaced it to the user.
+#[must_use]
+pub fn pip_target_spec(target: &str) -> String {
+    format!("gamdl=={target}")
 }
 
 /// Process-global cache of the last detected GAMDL version string.
@@ -607,19 +645,35 @@ mod tests {
     }
 
     #[test]
-    fn should_not_offer_upgrade_above_ceiling() {
-        // Upstream shipped something newer than we've validated —
-        // don't push users into it.
-        assert!(!should_offer_upgrade("99.0.0"));
+    fn should_offer_upgrade_above_ceiling() {
+        // Above-ceiling versions ARE now surfaced to the user (with an
+        // "Untested" warning badge). Hiding them silently caused real
+        // upgrades to sit unnoticed on PyPI for days. The is_above_tested_ceiling
+        // helper communicates the warning state separately.
+        assert!(should_offer_upgrade("99.0.0"));
     }
 
     #[test]
     fn should_not_offer_upgrade_for_unparseable_version() {
         // Without the semver guard, garbage strings would coerce to
-        // (0, 0, 0) and pass the ceiling check. Reject them instead.
+        // (0, 0, 0) and pass downstream is_newer comparisons. Reject
+        // them instead — we won't surface a version we can't reason about.
         assert!(!should_offer_upgrade("invalid"));
         assert!(!should_offer_upgrade(""));
         assert!(!should_offer_upgrade("v3-rc"));
+    }
+
+    #[test]
+    fn is_above_tested_ceiling_flags_future_versions() {
+        // Above the ceiling → flagged.
+        assert!(is_above_tested_ceiling("99.0.0"));
+        // At the ceiling → not flagged (it's the highest tested).
+        assert!(!is_above_tested_ceiling(&support_window().maximum_tested));
+        // Below the ceiling → not flagged.
+        assert!(!is_above_tested_ceiling(&support_window().minimum));
+        // Unparseable → not flagged (we can't reason about it).
+        assert!(!is_above_tested_ceiling("garbage"));
+        assert!(!is_above_tested_ceiling(""));
     }
 
     #[test]
@@ -629,5 +683,14 @@ mod tests {
         assert!(spec.starts_with("gamdl>="));
         assert!(spec.contains(&format!(">={}", window.minimum)));
         assert!(spec.contains(&format!("<={}", window.maximum_tested)));
+    }
+
+    #[test]
+    fn pip_target_spec_pins_exact_version() {
+        // Explicit-target installs (untested upgrade flow) must pin to
+        // an exact version so pip can't silently resolve to something
+        // else under the user's `gamdl>=…,<=…` cap.
+        assert_eq!(pip_target_spec("3.3"), "gamdl==3.3");
+        assert_eq!(pip_target_spec("4.0.1"), "gamdl==4.0.1");
     }
 }

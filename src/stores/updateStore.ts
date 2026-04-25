@@ -172,10 +172,15 @@ interface UpdateState {
    * After the upgrade completes, automatically re-checks all components
    * to refresh version information in the UI.
    *
+   * @param targetVersion - When provided, pin pip to install exactly this
+   *   version (e.g. an above-ceiling "Untested" upgrade the user opted into
+   *   via the amber badge). Omit for routine "Upgrade" clicks on tested
+   *   updates — the bounded support-window spec is used in that case.
+   *
    * @returns The newly-installed GAMDL version string
    * @throws If the pip upgrade fails
    */
-  upgradeGamdl: () => Promise<string>;
+  upgradeGamdl: (targetVersion?: string) => Promise<string>;
 
   /**
    * Download and install a MeedyaDL app update from a specific release tag.
@@ -307,12 +312,16 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
    * immediately reflects the new GAMDL version and removes the update
    * notification for GAMDL (since `update_available` will now be `false`).
    */
-  upgradeGamdl: async () => {
+  upgradeGamdl: async (targetVersion?: string) => {
     // Signal upgrade in progress and clear stale errors.
     set({ isUpgrading: true, error: null });
     try {
-      // Run `pip install --upgrade gamdl` in the portable Python environment.
-      const version = await commands.upgradeGamdl();
+      // Run `pip install --upgrade gamdl` (or `gamdl=={target}` when an
+      // explicit-version target was requested — the Updates page passes
+      // the latest PyPI version when upgrading to an above-ceiling
+      // "Untested" release so pip lands on the version the banner
+      // actually advertised).
+      const version = await commands.upgradeGamdl(targetVersion);
       // Re-check all components to refresh version info post-upgrade.
       const result = await commands.checkAllUpdates();
       // Store the fresh result and clear the upgrading flag.

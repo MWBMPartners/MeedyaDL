@@ -121,7 +121,18 @@ minimum_version = "2.9.1"
 #     a new `GamdlFeature::PlaylistFolderTemplate` gate — #618.
 #   * Queue-level "Abort All" destructive action surfaced in the UI
 #     for fast escape from batch downloads — #620.
-maximum_tested_version = "3.2"
+#
+# 3.3 validation (audit landed on `claude/fix-meedyadl-gamdl-updates-ucJWJ`):
+#   * Upstream change set is a single commit — `c83e47d` "Remove total
+#     arg from media fetch calls" — which deletes a stale `total=...`
+#     kwarg from two `_get_*_media` invocations inside
+#     `interface.py::_get_playlist_media`. Pure internal bugfix that
+#     unbreaks playlist downloads when a fetch helper signature drifted.
+#   * Zero CLI flag changes, zero INI key changes, zero output-format
+#     or regex changes. `TRACK_INFO_V2_REGEX`, `ERROR_PREFIX_REGEX`,
+#     and every `GamdlFeature` gate behave identically on 3.3 and 3.2.
+#   * Safe to admit to the support window without further code changes.
+maximum_tested_version = "3.3"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.2"
+recommended_version = "3.3"
