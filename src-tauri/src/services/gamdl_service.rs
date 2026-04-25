@@ -90,6 +90,12 @@ pub struct GamdlProgress {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
+/// * `target_version` - When `Some`, pin pip to install exactly this
+///   version (e.g. an above-ceiling "Untested" upgrade the user has
+///   explicitly opted into). When `None`, use the bounded support-window
+///   spec — pip resolves to the newest release inside
+///   `[minimum, maximum_tested]`. See [`super::gamdl_capabilities::pip_target_spec`]
+///   for the rationale on explicit targeting.
 ///
 /// # Errors
 ///
@@ -99,7 +105,10 @@ pub struct GamdlProgress {
 /// # Returns
 /// * `Ok(version)` - The installed GAMDL version (e.g., "2.8.4")
 /// * `Err(message)` - If installation failed (Python not found, pip error, etc.)
-pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
+pub async fn install_gamdl(
+    app: &AppHandle,
+    target_version: Option<&str>,
+) -> Result<String, String> {
     log::info!("Installing GAMDL via pip...");
 
     // Resolve the Python binary path
@@ -114,22 +123,31 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
         );
     }
 
-    // Run `python -m pip install --upgrade {spec}` where `{spec}` is
-    // bounded by the GAMDL support window compiled into this build
-    // (e.g. `gamdl>=2.9.1,<=3.0`). Without the ceiling, `--upgrade`
-    // silently pulls future GAMDL majors that remove or rename CLI
-    // flags MeedyaDL depends on — GAMDL v3.0 dropped
-    // `--fetch-extra-tags` and caused exactly this class of fire.
+    // Pip spec selection:
+    // * `target_version = None` → bounded support-window spec
+    //   (e.g. `gamdl>=2.9.1,<=3.3`). This is the routine path used by
+    //   the setup wizard and by `Upgrade` clicks on tested updates.
+    //   `--upgrade` + the bounded spec means "pick the newest release
+    //   inside the tested range, even if an older one is installed".
+    //   Without the ceiling, `--upgrade` silently pulls future majors
+    //   that remove CLI flags MeedyaDL depends on — GAMDL v3.0
+    //   dropped `--fetch-extra-tags` and caused exactly this class of
+    //   fire.
+    // * `target_version = Some(v)` → exact pin (`gamdl==v`). Used when
+    //   the user has consciously opted into installing an above-ceiling
+    //   "Untested" release from the Updates page (amber warning badge).
+    //   Pinning bypasses the ceiling so the install actually lands on
+    //   the version the banner advertised, instead of silently
+    //   resolving down to `maximum_tested`.
     //
     // `-m pip` invokes pip as a module of our managed Python, so we
     // always use the correct pip instance (not any system pip).
-    // `--upgrade` + the bounded spec together mean "pick the newest
-    // release inside the tested range, even if an older one exists".
-    // The spec is defined in `tool-versions.toml` → `[gamdl]` and
-    // read via `services::gamdl_capabilities::pip_version_spec()`.
     //
     // GAMDL's PyPI page: https://pypi.org/project/gamdl/
-    let pip_spec = super::gamdl_capabilities::pip_version_spec();
+    let pip_spec = match target_version {
+        Some(v) => super::gamdl_capabilities::pip_target_spec(v),
+        None => super::gamdl_capabilities::pip_version_spec(),
+    };
     log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
         .args(["-m", "pip", "install", "--upgrade", &pip_spec])

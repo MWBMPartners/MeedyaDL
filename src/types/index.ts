@@ -1560,6 +1560,18 @@ export interface ComponentUpdate {
   update_available: boolean;
   /** Whether the latest version is compatible with this app version */
   is_compatible: boolean;
+  /**
+   * Whether the latest version is **above** the `maximum_tested_version`
+   * declared in this MeedyaDL build's `tool-versions.toml`.
+   *
+   * `true` here means the upgrade has not been validated against MeedyaDL's
+   * GAMDL CLI / INI surface — the install will work (an explicit-version
+   * pin bypasses the bounded support-window spec) but the user should
+   * understand they're upgrading ahead of our audit cycle. The Updates
+   * page renders an amber "Untested" badge plus a short disclaimer when
+   * this flag is set. Currently only set for the GAMDL component.
+   */
+  is_untested: boolean;
   /** Release notes or description of the update, or null */
   description: string | null;
   /** URL to the release page (GitHub releases, PyPI, etc.), or null */

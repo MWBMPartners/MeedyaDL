@@ -126,7 +126,7 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 
 /// Upgrades GAMDL to the latest compatible version via pip.
 ///
-/// **Frontend caller:** `upgradeGamdl()` in `src/lib/tauri-commands.ts`
+/// **Frontend caller:** `upgradeGamdl(targetVersion?)` in `src/lib/tauri-commands.ts`
 ///
 /// Runs `pip install --upgrade gamdl` using the managed Python runtime.
 /// This reuses the same `install_gamdl()` service function used during
@@ -138,6 +138,13 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for locating the Python/pip binaries.
+/// * `target_version` - When `Some`, install exactly this version. The
+///   frontend passes the latest PyPI version when the user is upgrading
+///   to an above-ceiling "Untested" release (amber warning badge in the
+///   Updates page) — pinning bypasses the bounded support-window spec
+///   so the install actually lands on the version the banner advertised.
+///   When `None`, the bounded spec is used (routine "Upgrade" clicks on
+///   tested updates, cap-at-`maximum_tested_version`).
 ///
 /// # Returns
 /// * `Ok(String)` - The new version string after upgrade (e.g., "2.9.0").
@@ -147,13 +154,19 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 /// Returns an error if the pip upgrade subprocess fails (network timeout,
 /// dependency conflict, disk full, missing Python runtime, etc.).
 #[tauri::command]
-pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
-    log::info!("Upgrading GAMDL...");
-    emit_app_log(&app, "Upgrading GAMDL...");
-    // Reuses install_gamdl() which runs `pip install --upgrade gamdl`.
-    // The --upgrade flag ensures pip upgrades to the latest version if
-    // an older version is already installed.
-    let version = crate::services::gamdl_service::install_gamdl(&app).await?;
+pub async fn upgrade_gamdl(
+    app: AppHandle,
+    target_version: Option<String>,
+) -> Result<String, String> {
+    if let Some(target) = target_version.as_deref() {
+        log::info!("Upgrading GAMDL to explicit target v{target}...");
+        emit_app_log(&app, &format!("Upgrading GAMDL to v{target}..."));
+    } else {
+        log::info!("Upgrading GAMDL...");
+        emit_app_log(&app, "Upgrading GAMDL...");
+    }
+    let version =
+        crate::services::gamdl_service::install_gamdl(&app, target_version.as_deref()).await?;
     log::info!("GAMDL upgraded to {version}");
     emit_app_log(&app, &format!("GAMDL upgraded to v{version}"));
     Ok(version)

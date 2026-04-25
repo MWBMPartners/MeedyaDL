@@ -140,12 +140,16 @@ export function UpdateBanner() {
 
   /**
    * Handles the GAMDL in-app upgrade flow.
-   * Calls the store's `upgradeGamdl` action (which invokes the Rust backend)
-   * and shows a success or error toast based on the outcome.
+   *
+   * For tested updates we let the backend pick the newest version inside
+   * the bounded support-window spec. For above-ceiling "Untested" upgrades
+   * we forward the exact `latest_version` so pip lands on the version the
+   * banner actually advertised — without the explicit pin, the bounded
+   * spec would silently resolve down to `maximum_tested_version`.
    */
-  const handleUpgradeGamdl = async () => {
+  const handleUpgradeGamdl = async (target?: string | null) => {
     try {
-      const version = await upgradeGamdl();
+      const version = await upgradeGamdl(target ?? undefined);
       addToast(`GAMDL upgraded to v${version}`, 'success');
     } catch {
       addToast('Failed to upgrade GAMDL', 'error');
@@ -260,6 +264,22 @@ export function UpdateBanner() {
                       Pre-Release
                     </span>
                   )}
+                  {/*
+                   * Untested badge -- amber indicator for GAMDL versions
+                   * shipped above this MeedyaDL build's `maximum_tested_version`
+                   * ceiling. The upgrade is installable (pin via
+                   * `pip_target_spec`) but hasn't been validated against the
+                   * MeedyaDL CLI / INI surface yet. Distinct from
+                   * `is_prerelease`, which only applies to MeedyaDL itself.
+                   */}
+                  {update.is_untested && (
+                    <span
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning"
+                      title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
+                    >
+                      Untested
+                    </span>
+                  )}
                 </span>
 
                 {/* Action buttons (right side) */}
@@ -277,7 +297,9 @@ export function UpdateBanner() {
                       size="sm"
                       icon={<RefreshCw size={12} />}
                       loading={isUpgrading}
-                      onClick={handleUpgradeGamdl}
+                      onClick={() =>
+                        handleUpgradeGamdl(update.is_untested ? update.latest_version : null)
+                      }
                     >
                       Upgrade
                     </Button>
@@ -388,6 +410,21 @@ export function UpdateBanner() {
                 <p className="text-[11px] text-status-warning pl-0.5">
                   This is a pre-release version and may contain bugs or incomplete features. Not
                   recommended for production use.
+                </p>
+              )}
+
+              {/*
+               * Untested disclaimer -- shown below the update row when the
+               * release is above this MeedyaDL build's `maximum_tested_version`
+               * ceiling. The upgrade is still installable (pip pins to the
+               * exact target), but the user should know it hasn't been
+               * validated against MeedyaDL's GAMDL CLI / INI surface yet.
+               */}
+              {update.is_untested && !update.is_prerelease && (
+                <p className="text-[11px] text-status-warning pl-0.5">
+                  This GAMDL release was published after MeedyaDL&apos;s last validation pass and
+                  hasn&apos;t been audited yet. Install at your own risk, or wait for the next
+                  MeedyaDL build.
                 </p>
               )}
             </div>
