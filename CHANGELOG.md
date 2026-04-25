@@ -136,6 +136,7 @@ The update check previously hard-capped `is_compatible` at
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.46.0] - 2026-04-25
 
