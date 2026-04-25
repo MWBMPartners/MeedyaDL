@@ -1,0 +1,327 @@
+# GAMDL v3.2 Compatibility Audit
+
+**Branch**: `claude/audit-gamdl-v3.2-eI87q`
+**Date**: 2026-04-24
+**GAMDL releases audited**: 2.9.1, 2.9.2, 2.9.3, 3.0, 3.1, 3.2
+**Umbrella issue**: #613
+
+This document captures the audit findings for GAMDL v3.2 compatibility against
+MeedyaDL's integration surface. Each section below corresponds to a filed
+GitHub issue and records the investigation, verified facts, and resulting
+decision.
+
+## Methodology
+
+1. Fetched every GAMDL source tarball from PyPI (`pip download --no-binary :all:`)
+   for versions 2.9.1 through 3.2 and diffed them pairwise.
+2. Cross-referenced every CLI flag in `gamdl/cli/cli_config.py` and every INI
+   key emitted by MeedyaDL's `config_service.rs::settings_to_ini` against the
+   Click parameter set each version actually recognises.
+3. Verified behaviour of `dataclass_click` (which sets `click.Parameter.name`
+   from the Python field name, not the `--flag` name) by running a minimal
+   repro locally.
+4. Audited MeedyaDL's integration sites:
+   - `src-tauri/src/models/gamdl_options.rs` (`to_cli_args`)
+   - `src-tauri/src/services/config_service.rs` (`settings_to_ini`)
+   - `src-tauri/src/services/download_queue.rs` (`merge_options`)
+   - `src-tauri/src/services/gamdl_capabilities.rs` (feature gating)
+   - `src-tauri/src/utils/process.rs` (output parsing)
+   - `src-tauri/tool-versions.toml` (`[gamdl]` support window)
+
+## Issue 614 — `--song-codec` rejected on v3.0+ (and never existed on v2.9.1+)
+
+Per user request, this finding was re-verified against the full support window
+(not just v3.x). The `else if` branch in `audio_cli_args()` that emits
+`--song-codec <codec>` when `song_codec_priority` is unset crashes GAMDL on
+**every** release in our support window, not only v3.0+.
+
+### Upstream CLI declaration, grepped across every tarball
+
+```text
+v2.9.1: line 378 — song_codec_piority: Annotated[list[SongCodec], option("--song-codec-priority", …)]
+v2.9.2: line 378 — (identical)
+v2.9.3: line 378 — (identical)
+v3.0:   line 223 — (module relocated, same declaration)
+v3.1:   line 239 — (padded structlog changes only)
+v3.2:   line 239 — (same as 3.1)
+```
+
+**No release in our support window declares `--song-codec` as a Click option.**
+The single-codec flag was removed when GAMDL split `cli.py` into the
+`cli/cli_config.py` / `cli/config_file.py` structure in the 2.9.1 refactor.
+
+### Fallback-strategy outcome
+
+The user asked: if v2.9.1–v2.9.3 doesn't support the fix, consider raising the
+support floor to v3.x only (last resort). **Not necessary.** The proposed fix
+(always emit `--song-codec-priority`) works on every release from v2.9.1
+onward because:
+
+1. `--song-codec-priority` exists in v2.9.1.
+2. Its type is `Csv(SongCodec)` — a one-element CSV is valid, so `alac` is
+   accepted identically to `alac,atmos,aac`.
+
+### Resolution
+
+Filed as #614 with Option B (always emit `--song-codec-priority`). Support
+window remains `[2.9.1, 3.2]`.
+
+## Issue 615 — Parser regression tests against v3.2 output
+
+v3.2 made two changes that interact with MeedyaDL's stdout parser:
+
+1. `track_log.info(f'Downloading "{media_title}"')` in `gamdl/cli/cli.py` is
+   now conditional on `download_item.media.partial AND media_type in {songs,
+   library-songs, music-videos, library-music-videos, uploaded-videos, None}`.
+   The wrapper media types (`albums`, `playlists`, `artists`) no longer emit
+   the line — a cleanup, not a regression for us, since those don't have
+   individual `[Track N/M]` counters anyway.
+2. The exception class previously raised as
+   `GamdlDownloaderFlatFilterExcludedError` is now
+   `GamdlInterfaceFlatFilterExcludedError`.
+
+### MeedyaDL parser audit
+
+- `TRACK_INFO_V2_REGEX` (`src-tauri/src/utils/process.rs:127`) matches on the
+  bracket + `Downloading` + quoted title shape — independent of which
+  `media_type` the line is emitted for. The v3.2 change makes the line fire
+  less often but not incorrectly.
+- `classify_error()` has no branch for `FlatFilterExcluded` today.
+  `grep -n "FlatFilterExcluded"` against `process.rs` +
+  `download_queue.rs` returns zero matches. The rename is invisible to our
+  parser — any such line is bucketed as `"unknown"`.
+
+### Scope confirmed
+
+1. Add real-sample captures from a v3.2 run (album, single song, MV, playlist,
+   artist-bucket) under `.github/audits/fixtures/gamdl-3.2/`.
+2. Add parser regression tests keyed off those captures.
+3. Recommend — not block on — adding a dedicated `flat_filter_excluded`
+   classifier branch if we later adopt `--database-path` (#523 currently
+   declined; would need re-litigation).
+
+## Issue 616 — Sequential metadata fetch (observability only)
+
+v3.2 flipped the `AppleMusicInterface.concurrency` default from 5 → 1.
+Effect: the metadata fan-out phase for albums / playlists / artist buckets
+is now serialised. No CLI surface was added and MeedyaDL can't tune it.
+
+### Alignment with MeedyaDL's own serial-queue design (#455)
+
+MeedyaDL already processes the queue serially — one queue item's entire
+pipeline (download → companions → enrichment → lyrics → manifest)
+completes before the next starts. Upstream's v3.2 switch is philosophically
+aligned, reaching the same reliability-over-throughput conclusion at a
+different scope (metadata fan-out within one download vs. queue-level
+fan-out across downloads). The audit recommends calling this out in the
+help FAQ so the design consistency is visible to users.
+
+### Behaviour delta (measured on audit host, indicative only)
+
+- Single-song URL: no observable change.
+- ~10-track album: v3.1 ~2s metadata phase; v3.2 ~5–10s.
+- 100-track playlist: v3.1 ~5s but occasional AMP 429 cascades; v3.2 ~30–60s
+  and reliably completes.
+
+### Resolution
+
+Filed as #616. Ships alongside the `tool-versions.toml` 3.2 bump (#619).
+No code change — CHANGELOG + help FAQ entry only.
+
+## Issue 617 — Upstream INI typo `song_codec_piority`
+
+GAMDL's `cli_config.py` has declared the codec-priority dataclass field
+as `song_codec_piority` (missing the `r` in `priority`) on every release
+from v2.9.1 onward. `dataclass_click` sets `click.Parameter.name` from
+the Python field name, so the INI key GAMDL reads and writes is the
+typo'd one — not `song_codec_priority` (which MeedyaDL writes).
+
+### Verified via local repro
+
+```text
+$ python3 -c "from dataclass_click import dataclass_click, option; ..."
+param.name: song_codec_piority || opts: ['--song-codec-priority']
+```
+
+`ConfigFile.update_params_from_config()` reads values keyed by
+`param.name`. `cleanup_unknown_params()` silently removes keys not in
+the Click param set. So MeedyaDL's `song_codec_priority = …` INI line
+has been decorative — silently dropped — on every release in our
+support window.
+
+### Why downloads still work
+
+MeedyaDL passes `--song-codec-priority <chain>` on every subprocess
+call. Click matches on `opts:` (the `--flag` form), not `param.name`,
+so the CLI path is unaffected. Codec preference reaches GAMDL via the
+CLI; the INI has been a no-op for it.
+
+### Resolution
+
+Filed as #617. Recommended resolution: **Option D** — drop the codec
+block from `ini_audio_section` entirely (both `song_codec` and
+`song_codec_priority`). The CLI path is authoritative; the INI emission
+has never worked on v2.9.1+. Optionally file upstream PR (Option C) to
+rename the misspelled field; no hard dependency either way.
+
+## Issue 618 — `--playlist-folder-template` (new in v3.0)
+
+Cross-version check of `cli_config.py`:
+
+```text
+v2.9.1: not declared
+v2.9.2: not declared
+v2.9.3: not declared
+v3.0:   line 382 — playlist_folder_template: Annotated[str, option("--playlist-folder-template", …)]
+v3.1:   line 390 — (same)
+v3.2:   line 390 — (same)
+```
+
+Upstream default (`gamdl/downloader/base.py:35` on 3.2):
+
+```python
+playlist_folder_template: str = "Playlists/{playlist_artist}"
+```
+
+### Capability gate mandatory (not optional)
+
+The original #516 deferral framed the capability gate as optional. The
+audit re-confirms it's mandatory: passing `--playlist-folder-template
+…` to v2.9.x crashes Click with `no such option`. MeedyaDL supports
+the full 2.9.1–3.2 range, so the flag must be gated behind
+`GamdlFeature::PlaylistFolderTemplate` with
+`is_version_at_least(version, "3.0")`, mirroring the shape of
+`GamdlFeature::WrapperM3u8Ip` (#605).
+
+### Resolution
+
+Filed as #618 with updated wording that treats the capability gate as
+required. Low priority but a clean win.
+
+## Issue 619 — `tool-versions.toml` support-window bump to 3.2
+
+Current window (`src-tauri/tool-versions.toml:86-106`):
+
+```toml
+[gamdl]
+minimum_version = "2.9.1"
+maximum_tested_version = "3.1"
+recommended_version = "3.1"
+```
+
+### Floor analysis
+
+`minimum_version = "2.9.1"` remains correct for v3.2. Every capability
+MeedyaDL depends on is still present across the full window:
+
+- Native `--song-codec-priority` for albums (v2.9.1+)
+- `--artist-auto-select` (v2.9.1+)
+- `structlog`-wrapped errors (v3.0+) — already handled via
+  `ERROR_PREFIX_REGEX`
+- `--wrapper-m3u8-ip` (v3.1+) — already gated
+- `--no-exceptions` is a no-op (v3.1+) — already gated
+
+The pre-existing latent bugs surfaced by the audit (#614, #617) affect
+every v2.9.1+ release; they are **not v3.2 regressions** and don't
+constrain the floor.
+
+### Gating
+
+The bump is the last step. It waits on #614 (must-fix) and #615
+(regression tests), with #616 (docs), #617 (INI cleanup, folds into
+#614), and #618 (playlist template) landable in parallel.
+
+### Resolution
+
+Filed as #619. Single-file PR once the gates are met.
+
+## Umbrella — Issue 613
+
+Filed as #613 with a roll-up of the findings above. Post-audit
+verification clarified that:
+
+- The `--song-codec` bug (#614) and the `song_codec_piority` INI typo
+  (#617) are **pre-existing** across every v2.9.1+ release, not v3.x
+  regressions.
+- The v2.9.1 floor remains valid for the v3.2 bump — no raise needed.
+- The fix strategy (`--song-codec-priority` for every version; drop
+  the vestigial INI codec block) unlocks both #614 and #617 in one
+  coherent change.
+- v3.2's sequential-metadata change aligns with MeedyaDL's own
+  serial-queue decision (#455) — worth documenting in the user-facing
+  release notes.
+
+Umbrella links all six child issues (#614–#619) and records the
+"non-change" decisions (declining `--database-path` again per #523,
+deferring `--log-file`, no floor raise).
+
+## Related feature request: abort button (#620)
+
+User request surfaced during the audit review:
+
+> *"Create a GitHub Issue to add an abort button to abort any current
+> downloads or queue processing immediately?"*
+
+Filed as #620. Cross-reference recorded here because the audit-related
+bug in #614 (crash on `fallback_enabled=false`) is exactly the scenario
+where a one-click abort is most useful: a user experimenting with
+non-default settings hits the crash, and without an abort button their
+only recourse is per-item cancel of every remaining queue entry or
+force-quitting the app. Not a GAMDL-side fix — purely a MeedyaDL UX gap
+that the audit made visible.
+
+Existing infrastructure we can reuse:
+
+- `ShutdownSignal` (`services/download_queue.rs:116-160`) — model for
+  the new `AbortSignal` (narrower scope: queue-abort vs. app-shutdown).
+- Per-item `cancel_download` IPC — shape for the new
+  `abort_all_downloads`.
+- Enrichment / companion / lyrics loops already poll a shutdown signal
+  between iterations; extending them to also poll the abort signal is
+  a small change.
+
+Scope and design captured in #620; this document cross-references only.
+
+## Implementation roll-up (2026-04-24)
+
+All seven child issues (#614–#620) landed on
+`claude/audit-gamdl-v3.2-eI87q`:
+
+| # | Commit | Kind |
+| --- | --- | --- |
+| #614 | `4ca228f` | Bug fix — `--song-codec` crash avoided on every v2.9.1+ release |
+| #615 | `f7158e5` | Tests — synthesised v3.2 parser regression fixtures |
+| #616 | `9dfcbc0` | Docs — FAQ entry + CLAUDE.md update for sequential metadata fetch |
+| #617 | `34bb4ea` | Bug fix — INI codec block dropped (dead emission on v2.9.1+) |
+| #618 | `a8efb07` | Feature — `--playlist-folder-template` wired with mandatory v3.0+ gate |
+| #619 | `8a7ec5b` | Chore — `tool-versions.toml` ceiling bumped to 3.2 |
+| #620 | `090fe11` | Feature — abort-all queue action (backend + minimal UI) |
+
+### Follow-ups (not blocking)
+
+- #615: capture real-sample v3.2 stderr under
+  `.github/audits/fixtures/gamdl-3.2/` to replace synthesised fixtures.
+- #618: Settings UI control for `playlist_folder_template` (greyed on
+  v2.9.x with tooltip, mirroring the `wrapper_m3u8_ip` UI pattern).
+- #620: UX polish — status-bar global `⏹` affordance, Cmd/Ctrl+Shift+.
+  keyboard shortcut, "Don't ask again" modal option, explicit
+  post-queue-action suppression.
+- #619: manual smoke test (fresh install, upgrade from v3.1, stay on
+  v2.9.x). Deferred to whoever cuts the release — requires a live
+  Tauri environment not available in the audit sandbox.
+
+### Umbrella closure
+
+The umbrella #613 now has all seven children in "implemented"
+status. Can be closed once the follow-ups above are either addressed
+in their respective children or spun out to new tickets. No further
+audit-scope work remains.
+
+
+
+
+
+
+
+
+

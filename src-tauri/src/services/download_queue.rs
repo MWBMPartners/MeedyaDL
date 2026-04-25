@@ -1099,6 +1099,35 @@ pub struct ExportedItem {
 /// Queued -> Downloading -> Error -> (retry/fallback) -> Queued (retry path)
 /// Queued -> Cancelled (user cancellation)
 ///
+/// Summary returned by [`DownloadQueue::abort_all`] describing how many
+/// items were stopped, grouped by their pre-abort state. Used by the
+/// `abort_all_downloads` IPC to surface a meaningful toast / activity-log
+/// line without re-iterating the queue on the frontend (#620).
+///
+/// Items already in a terminal state (`Complete`, `Cancelled`, `Error`)
+/// are NOT counted — they were not stopped by this action.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbortSummary {
+    /// Items that were `Queued` (not yet started) and are now `Cancelled`.
+    pub queued_cancelled: u32,
+    /// Items that were actively `Downloading` when the abort fired. The
+    /// download task will reap its subprocess on the next cancellation
+    /// poll and transition out of the main loop.
+    pub downloading_stopped: u32,
+    /// Items that were in post-download `Processing` (enrichment,
+    /// companion downloads, etc.) when the abort fired.
+    pub processing_stopped: u32,
+}
+
+impl AbortSummary {
+    /// Total number of items affected (sum of all three fields).
+    #[must_use]
+    pub fn total(&self) -> u32 {
+        self.queued_cancelled + self.downloading_stopped + self.processing_stopped
+    }
+}
+
 /// Only `max_concurrent` downloads run simultaneously. When a download
 /// finishes, the queue automatically starts the next queued item.
 #[derive(Debug)]
@@ -1126,6 +1155,14 @@ pub struct DownloadQueue {
     /// is called recursively for each item). Reset to `None` when the queue drains.
     /// A 60-second cooldown prevents duplicate warnings during rapid re-processing.
     last_preflight_at: Option<std::time::Instant>,
+    /// One-shot flag set by [`Self::abort_all`] (#620) and consumed by
+    /// [`Self::take_recently_aborted`] when the queue would otherwise fire
+    /// its post-queue action. Abort is a user-directed terminal action; the
+    /// user did not want their system to shut down / play a sound / open a
+    /// folder just because they stopped the queue. The flag is automatically
+    /// cleared on consumption so the next legitimate queue-drain still runs
+    /// the configured post-queue action.
+    recently_aborted: bool,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -1159,6 +1196,7 @@ impl DownloadQueue {
             max_network_retries: 3,
             gamdl_version: None,
             last_preflight_at: None,
+            recently_aborted: false,
         }
     }
 
@@ -1392,6 +1430,75 @@ impl DownloadQueue {
             log::info!("Cleared all {removed} items from queue (active downloads preserved)");
         }
         removed
+    }
+
+    /// Aborts every non-terminal item in the queue and returns a summary of
+    /// what was stopped.
+    ///
+    /// Each matching item is transitioned directly to `DownloadState::Cancelled`
+    /// in the same way the per-item `cancel()` does — the running task's
+    /// cancellation-poll loop will detect the state change on its next tick,
+    /// reap the subprocess via `Child::kill_on_drop(true)`, and short-circuit
+    /// any enrichment / companion / lyrics tasks that poll
+    /// [`ShutdownSignal`]-style flags.
+    ///
+    /// Items already in `Complete`, `Cancelled`, or `Error` are untouched so
+    /// the user keeps their history intact.
+    ///
+    /// The returned [`AbortSummary`] exposes per-pre-abort-state counts so
+    /// the caller can produce a meaningful activity-log line + toast without
+    /// having to iterate the queue themselves (#620).
+    pub fn abort_all(&mut self) -> AbortSummary {
+        let mut summary = AbortSummary::default();
+        for item in &mut self.items {
+            match item.status.state {
+                DownloadState::Queued => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.queued_cancelled += 1;
+                }
+                DownloadState::Downloading => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.downloading_stopped += 1;
+                }
+                DownloadState::Processing => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.processing_stopped += 1;
+                }
+                DownloadState::Complete
+                | DownloadState::Cancelled
+                | DownloadState::Error => {
+                    // Terminal — leave alone.
+                }
+            }
+        }
+        if summary.total() > 0 {
+            log::info!(
+                "Abort: cancelled {queued} queued, stopped {dl} downloading, stopped {proc} processing",
+                queued = summary.queued_cancelled,
+                dl = summary.downloading_stopped,
+                proc = summary.processing_stopped,
+            );
+            // Arm the post-queue-action suppression flag. Abort is a
+            // user-directed terminal action; suppress the configured
+            // post-queue action (shutdown, hibernate, play sound,
+            // etc.) that would otherwise fire when the queue drains.
+            // Consumed once by `take_recently_aborted` on the next
+            // would-be post-action trigger, so subsequent legitimate
+            // drains still run the configured action.
+            self.recently_aborted = true;
+        }
+        summary
+    }
+
+    /// Consumes the one-shot "recently aborted" flag set by
+    /// [`Self::abort_all`]. Returns `true` and clears the flag if the
+    /// queue was aborted since the last drain; returns `false`
+    /// otherwise. The post-queue-action dispatch path calls this to
+    /// decide whether to suppress the configured action (#620).
+    pub fn take_recently_aborted(&mut self) -> bool {
+        let was_aborted = self.recently_aborted;
+        self.recently_aborted = false;
+        was_aborted
     }
 
     /// Updates the state of a queue item.
@@ -2165,6 +2272,13 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.album_folder_template = Some(settings.album_folder_template.clone());
     options.compilation_folder_template = Some(settings.compilation_folder_template.clone());
     options.no_album_folder_template = Some(settings.no_album_folder_template.clone());
+    // `playlist_folder_template` is a GAMDL v3.0+ CLI flag (#618). We can
+    // safely set the field on `options` unconditionally — the CLI-emission
+    // path in `GamdlOptions::to_cli_args` gates the actual `--playlist-
+    // folder-template` arg behind `GamdlFeature::PlaylistFolderTemplate`,
+    // so v2.9.x still gets a crash-free invocation. Setting the field on
+    // every version keeps `GamdlOptions` the canonical debug dump.
+    options.playlist_folder_template = Some(settings.playlist_folder_template.clone());
     // Apply user-configurable zero-padding (#587). Padding widths are
     // derived from the user's settings; `resolve_width(None)` passes
     // `None` because `track_total` / `disc_total` aren't known at merge
@@ -4567,14 +4681,27 @@ pub fn process_queue(
 
         // If no items are pending (queue empty or max concurrent reached), exit.
         // When the queue is truly idle (no active + no pending), execute the
-        // configured after-queue action (e.g., shutdown, close app).
+        // configured after-queue action (e.g., shutdown, close app) — unless
+        // the drain was caused by a user-initiated abort (#620), in which
+        // case `take_recently_aborted` returns `true` and we suppress the
+        // post-queue action this time around.
         let Some((download_id, urls, mut options, item_service)) = pending else {
-            let is_idle = {
-                let q = queue.lock().await;
-                q.is_idle()
+            let (is_idle, was_aborted) = {
+                let mut q = queue.lock().await;
+                (q.is_idle(), q.take_recently_aborted())
             };
             if is_idle {
-                execute_after_queue_action(&app);
+                if was_aborted {
+                    log::info!(
+                        "Queue idle after abort — suppressing post-queue action (#620)"
+                    );
+                    emit_app_log(
+                        &app,
+                        "Queue drained by abort — skipping post-queue action",
+                    );
+                } else {
+                    execute_after_queue_action(&app);
+                }
             }
             return;
         };
@@ -8933,6 +9060,92 @@ mod tests {
         assert_eq!(statuses[0].id, ids[0], "Queued item should remain");
         assert_eq!(statuses[1].id, ids[1], "Downloading item should remain");
         assert_eq!(statuses[2].id, ids[3], "Errored item should remain");
+    }
+
+    /// Verifies the abort_all() summary counts each pre-abort state correctly
+    /// and leaves terminal items untouched (#620).
+    #[test]
+    fn abort_all_counts_per_state_and_preserves_terminal_items() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 6);
+
+        // ids[0] = Queued (→ cancelled, queued_cancelled)
+        // ids[1] = Downloading (→ cancelled, downloading_stopped)
+        queue.update_item_state(&ids[1], DownloadState::Downloading);
+        // ids[2] = Processing (→ cancelled, processing_stopped)
+        queue.update_item_state(&ids[2], DownloadState::Processing);
+        // ids[3] = Complete — terminal, must not be touched
+        queue.set_complete(&ids[3]);
+        // ids[4] = Error — terminal, must not be touched
+        queue.set_error(&ids[4], "whatever");
+        // ids[5] = already Cancelled — terminal, must not be counted twice
+        queue.cancel(&ids[5]);
+
+        let summary = queue.abort_all();
+
+        assert_eq!(summary.queued_cancelled, 1, "one queued item aborted");
+        assert_eq!(summary.downloading_stopped, 1, "one downloading item aborted");
+        assert_eq!(summary.processing_stopped, 1, "one processing item aborted");
+        assert_eq!(summary.total(), 3, "three items affected total");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Cancelled);
+        assert_eq!(statuses[1].state, DownloadState::Cancelled);
+        assert_eq!(statuses[2].state, DownloadState::Cancelled);
+        assert_eq!(statuses[3].state, DownloadState::Complete, "Complete preserved");
+        assert_eq!(statuses[4].state, DownloadState::Error, "Error preserved");
+        assert_eq!(statuses[5].state, DownloadState::Cancelled, "already-Cancelled unchanged");
+    }
+
+    /// Verifies that abort_all() on an empty queue is a no-op with a zero summary.
+    #[test]
+    fn abort_all_on_empty_queue_returns_zero_summary() {
+        let mut queue = DownloadQueue::new();
+        let summary = queue.abort_all();
+        assert_eq!(summary.total(), 0);
+    }
+
+    /// Verifies that abort_all() arms the one-shot suppression flag and
+    /// that `take_recently_aborted()` consumes it exactly once (#620).
+    #[test]
+    fn abort_all_arms_post_queue_action_suppression() {
+        let mut queue = DownloadQueue::new();
+        // Fresh queue: no suppression armed.
+        assert!(!queue.take_recently_aborted(), "flag must start clear");
+
+        // No-op abort (empty queue) must NOT arm the flag — the suppression
+        // is scoped to actual abort events, not ceremonial calls.
+        queue.abort_all();
+        assert!(
+            !queue.take_recently_aborted(),
+            "zero-summary abort must not arm suppression"
+        );
+
+        // Real abort: flag arms.
+        let _id = enqueue_one(&mut queue);
+        let summary = queue.abort_all();
+        assert_eq!(summary.queued_cancelled, 1);
+        assert!(queue.take_recently_aborted(), "abort must arm suppression");
+        // Consumption is one-shot.
+        assert!(!queue.take_recently_aborted(), "flag must be consumed on read");
+    }
+
+    /// Verifies that abort_all() on a queue of only-terminal items is a
+    /// zero-summary no-op — no item's state changes.
+    #[test]
+    fn abort_all_with_only_terminal_items_is_no_op() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+        queue.set_complete(&ids[0]);
+        queue.set_error(&ids[1], "err");
+        queue.cancel(&ids[2]);
+
+        let summary = queue.abort_all();
+        assert_eq!(summary.total(), 0);
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Complete);
+        assert_eq!(statuses[1].state, DownloadState::Error);
+        assert_eq!(statuses[2].state, DownloadState::Cancelled);
     }
 
     /// Verifies that clear_finished() returns 0 when there are no terminal items.

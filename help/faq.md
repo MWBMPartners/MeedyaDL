@@ -196,6 +196,22 @@ GAMDL is a command-line Apple Music download tool created by glomatico. It handl
 
 This is not recommended. Running the GUI and CLI simultaneously may cause conflicts over shared cookie files or output directories, leading to authentication errors or corrupted downloads. Use one at a time to avoid issues.
 
+### Why did my album's initial metadata phase get slower after upgrading GAMDL?
+
+Starting with **GAMDL 3.2**, track metadata is fetched from Apple Music sequentially by default — one track at a time. Previously, GAMDL fanned out up to 5 parallel requests per album during the metadata phase.
+
+This is an intentional upstream change. The parallel fetch was triggering Apple Music API rate-limits and occasional cascading failures (one bad response could cause the whole metadata gather to fail). The slower phase is a fair trade for more reliable downloads; **actual download speed per track is unchanged** once the metadata is gathered.
+
+This change aligns with MeedyaDL's own serial-queue processing, which already completes one queue item's full pipeline (download → companions → enrichment → lyrics → manifest) before starting the next. Both decisions favour reliability over throughput for music-downloader workloads where the Apple Music API is the slowest and most failure-prone component.
+
+The typical real-world impact:
+
+- **Single song**: no observable change.
+- **~10-track album**: metadata phase ~5–10 s instead of ~1–2 s.
+- **100-track playlist**: metadata phase ~30–60 s but reliably completes (previously prone to rate-limit cascades).
+
+There is no setting to re-enable parallel fetch — the knob is internal to GAMDL and was not exposed as a CLI flag. If upstream adds one in a future release, MeedyaDL will expose it in **Settings &gt; Quality**.
+
 ### How do I update MeedyaDL?
 
 MeedyaDL checks for updates automatically in two ways:

@@ -18,13 +18,21 @@
 // settings.json (source of truth)     config.ini (derived, for GAMDL CLI)
 // ================================     ====================================
 // {                                    [gamdl]
-//   "default_song_codec": "alac",      song_codec = alac
+//   "default_song_codec": "alac",      (not synced - see note below)
 //   "save_cover": true,         -->    save_cover = true
 //   "cover_format": "raw",             cover_format = raw
 //   "theme": "dark",                   (not synced - GUI-only setting)
 //   ...                                ...
 // }
 // ```
+//
+// Note: codec preference is NOT written to config.ini (#617). Neither
+// `song_codec` nor `song_codec_priority` round-trips through GAMDL's INI
+// loader on any release in our support window — `song_codec` was removed
+// in v2.9.1, and `song_codec_priority` is dropped because upstream's
+// dataclass field is misspelled as `song_codec_piority`. The CLI flag
+// path (`--song-codec-priority`, emitted by `GamdlOptions::audio_cli_args`)
+// is authoritative. See `.github/audits/gamdl-v3.2-audit.md`.
 //
 // ## Key Names: Underscores, Not Hyphens
 //
@@ -62,7 +70,6 @@ use tauri::AppHandle;
 // AppSettings is the Rust struct that mirrors all GUI settings.
 // It derives Serialize/Deserialize for JSON round-tripping and Default for first-run defaults.
 // Defined in models/settings.rs.
-use crate::models::gamdl_options::SongCodec;
 use crate::models::settings::AppSettings;
 // Platform utilities for resolving the app data directory and config file paths
 // across macOS, Windows, and Linux.
@@ -450,10 +457,11 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 /// ```ini
 /// [gamdl]
 /// cookies_path = /path/to/cookies.txt
-/// song_codec = alac
 /// save_cover = true
 /// cover_format = raw
 /// ```
+/// Codec preference is transmitted via the CLI flag path
+/// (`--song-codec-priority`), not the INI — see `ini_audio_section` and #617.
 ///
 /// Key names use underscores (matching GAMDL's Click parameter names).
 /// Boolean flags use `key = true` (omitted when false).
@@ -563,26 +571,34 @@ fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     }
 }
 
-/// Appends audio quality INI key-value pairs (song codec, codec priority).
-fn ini_audio_section(lines: &mut Vec<String>, settings: &AppSettings) {
-    // Write single codec for GAMDL < 2.9.1 compatibility
-    lines.push(format!(
-        "song_codec = {}",
-        settings.default_song_codec.to_cli_string()
-    ));
-
-    // Also write the full fallback chain as song_codec_priority for GAMDL >= 2.9.1.
-    // GAMDL 2.9.1+ reads this key and ignores song_codec when it's present.
-    // GAMDL < 2.9.1 silently ignores the unknown key.
-    if settings.fallback_enabled && !settings.music_fallback_chain.is_empty() {
-        let priority: String = settings
-            .music_fallback_chain
-            .iter()
-            .map(SongCodec::to_cli_string)
-            .collect::<Vec<&str>>()
-            .join(",");
-        lines.push(format!("song_codec_priority = {priority}"));
-    }
+/// Appends audio quality INI key-value pairs.
+///
+/// **Intentionally empty (#617).** Neither `song_codec` nor
+/// `song_codec_priority` are valid INI keys on any GAMDL release in our
+/// support window (v2.9.1 → v3.2):
+///
+/// * `song_codec` was removed from GAMDL's CLI in the v2.9.1 CLI
+///   restructure. The parameter never made it into the Click param set,
+///   so GAMDL's `cleanup_unknown_params()` silently drops any
+///   `song_codec = …` line we write.
+/// * `song_codec_priority` looks valid, but upstream declares the
+///   dataclass field as **`song_codec_piority`** (missing the `r` — see
+///   `.github/audits/gamdl-v3.2-audit.md` and upstream
+///   `gamdl/cli/cli_config.py`). The `dataclass_click` library
+///   propagates the Python field name to `click.Parameter.name`, which
+///   is the key GAMDL reads from the INI. Our correctly-spelled
+///   `song_codec_priority = …` line is therefore also silently
+///   dropped.
+///
+/// Codec preference reaches GAMDL via the CLI flag path
+/// (`--song-codec-priority`, emitted by
+/// [`GamdlOptions::audio_cli_args`](crate::models::gamdl_options::GamdlOptions)) which is authoritative and
+/// unaffected by the INI quirks above. The INI codec block was
+/// decorative at best and misleading at worst, so this function is now
+/// a no-op and kept as a section anchor for future audio-related INI
+/// keys that *do* round-trip through Click.
+fn ini_audio_section(_lines: &mut Vec<String>, _settings: &AppSettings) {
+    // Deliberately empty. See function docs for the v2.9.1+ rationale.
 }
 
 /// Appends video quality INI key-value pairs (resolution, codec priority, remux format).
@@ -735,6 +751,21 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "no_album_folder_template = {}",
             sanitize_ini_value(&settings.no_album_folder_template)
+        ));
+    }
+    // `playlist_folder_template` is GAMDL v3.0+ only (#618). On v2.9.x the
+    // key is silently dropped by `cleanup_unknown_params()`, but we still
+    // gate the emission so the generated INI is self-consistent with the
+    // detected CLI — same pattern as `wrapper_m3u8_ip` and (formerly)
+    // `fetch_extra_tags`.
+    if !settings.playlist_folder_template.is_empty()
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate,
+        )
+    {
+        lines.push(format!(
+            "playlist_folder_template = {}",
+            sanitize_ini_value(&settings.playlist_folder_template)
         ));
     }
     if !settings.single_disc_file_template.is_empty() {
@@ -916,22 +947,48 @@ mod tests {
     }
 
     // ----------------------------------------------------------
-    // settings_to_ini: audio codec
+    // settings_to_ini: audio codec (#617)
+    //
+    // Both `song_codec` and `song_codec_priority` are silently dropped by
+    // GAMDL's `cleanup_unknown_params()` on every release in the support
+    // window — `song_codec` because the parameter was removed in the
+    // v2.9.1 CLI restructure, and `song_codec_priority` because the
+    // upstream dataclass field is misspelled as `song_codec_piority`.
+    // Codec preference is transmitted via the CLI flag (--song-codec-priority)
+    // which is authoritative; the INI path must emit neither key.
     // ----------------------------------------------------------
 
     #[test]
-    fn ini_contains_default_song_codec() {
+    fn ini_does_not_emit_song_codec() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec = alac"));
+        assert!(
+            !ini.contains("song_codec ="),
+            "`song_codec` INI key must not be emitted — upstream removed it in v2.9.1; see #617"
+        );
     }
 
     #[test]
-    fn ini_uses_custom_song_codec() {
+    fn ini_does_not_emit_song_codec_priority() {
         let mut settings = default_settings();
-        settings.default_song_codec = crate::models::gamdl_options::SongCodec::Aac;
+        // Even with fallback enabled and a populated chain, the INI key must
+        // not appear. GAMDL's upstream field name is `song_codec_piority`
+        // (typo) so our correctly-spelled key would be dropped regardless —
+        // we leave emission to the CLI path entirely.
+        settings.fallback_enabled = true;
+        settings.music_fallback_chain = vec![
+            crate::models::gamdl_options::SongCodec::Alac,
+            crate::models::gamdl_options::SongCodec::Aac,
+        ];
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec = aac"));
+        assert!(
+            !ini.contains("song_codec_priority"),
+            "`song_codec_priority` INI key must not be emitted — upstream dataclass field is misspelled, see #617"
+        );
+        assert!(
+            !ini.contains("song_codec_piority"),
+            "`song_codec_piority` (upstream typo) must also not be emitted — CLI path is authoritative, see #617"
+        );
     }
 
     // ----------------------------------------------------------
@@ -1188,7 +1245,11 @@ mod tests {
         assert!(!ini.contains("fetch-extra-tags"));
         // All use underscores
         assert!(ini.contains("save_cover = true"));
-        assert!(ini.contains("song_codec"));
+        // Note: `song_codec` is deliberately no longer emitted — #617. The CLI
+        // flag path is authoritative. Assert a different snake_case key that
+        // IS emitted so the "underscores not hyphens" invariant is still
+        // exercised.
+        assert!(ini.contains("cover_format"));
         assert!(ini.contains("output_path"));
         assert!(ini.contains("cover_size"));
         assert!(ini.contains("fetch_extra_tags = true"));
@@ -1266,26 +1327,11 @@ mod tests {
         assert!(ini.contains("fetch_extra_tags = true"));
     }
 
-    // ----------------------------------------------------------
-    // settings_to_ini: song_codec_priority
-    // ----------------------------------------------------------
-
-    #[test]
-    fn ini_contains_song_codec_priority_when_fallback_enabled() {
-        let settings = default_settings(); // fallback_enabled is true by default
-        let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec_priority ="));
-        // Should contain the full default fallback chain
-        assert!(ini.contains("alac"));
-    }
-
-    #[test]
-    fn ini_omits_song_codec_priority_when_fallback_disabled() {
-        let mut settings = default_settings();
-        settings.fallback_enabled = false;
-        let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("song_codec_priority ="));
-    }
+    // settings_to_ini: song_codec_priority — the pre-#617 tests for this
+    // section have been removed. The new invariant (key never emitted on
+    // any GAMDL release in our support window, regardless of
+    // `fallback_enabled`) is locked in by `ini_does_not_emit_song_codec`
+    // and `ini_does_not_emit_song_codec_priority` further up.
 
     // ----------------------------------------------------------
     // settings_to_ini: artist_auto_select

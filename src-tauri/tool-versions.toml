@@ -100,7 +100,28 @@ minimum_version = "2.9.1"
 #   * `TRACK_INFO_V2_REGEX` + `ERROR_PREFIX_REGEX` verified against
 #     v3.1 padded Track/URL brackets — #608.
 #   * QueueItem counter wiring for per-track index/total — #609.
-maximum_tested_version = "3.1"
+#
+# 3.2 validation (#613, landed on `claude/audit-gamdl-v3.2-eI87q`):
+#   * Upstream flipped `AppleMusicInterface.concurrency` 5 → 1
+#     (sequential by default); no MeedyaDL code change needed,
+#     aligns with our serial-queue design (#455). Docs only — #616.
+#   * `track_log.info('Downloading ...')` now conditional on partial
+#     media + specific media types; `TRACK_INFO_V2_REGEX` unaffected
+#     since it keys on the bracket shape. Regression tests — #615.
+#   * `GamdlDownloaderFlatFilterExcludedError` →
+#     `GamdlInterfaceFlatFilterExcludedError` rename is invisible to
+#     our classifier (matches substrings, not class names) — #615.
+#   * Latent pre-existing bugs surfaced during the audit:
+#     — `--song-codec` flag never existed in v2.9.1+ CLI; MeedyaDL
+#       now always emits `--song-codec-priority` — #614.
+#     — Upstream dataclass field misspelled `song_codec_piority`
+#       caused our INI emission to be silently dropped; INI codec
+#       block now empty, CLI path is authoritative — #617.
+#   * `--playlist-folder-template` (v3.0+ flag) finally wired with
+#     a new `GamdlFeature::PlaylistFolderTemplate` gate — #618.
+#   * Queue-level "Abort All" destructive action surfaced in the UI
+#     for fast escape from batch downloads — #620.
+maximum_tested_version = "3.2"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.1"
+recommended_version = "3.2"

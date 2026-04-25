@@ -120,6 +120,24 @@ export function TemplatesTab() {
           value={settings.no_album_folder_template}
           onChange={(v) => updateSettings({ no_album_folder_template: v })}
         />
+
+        {/*
+          Playlist Folder template — GAMDL v3.0+ only (#618). MeedyaDL stores
+          the value on every profile, but the CLI / INI emission is gated
+          behind `GamdlFeature::PlaylistFolderTemplate` in the Rust layer.
+          Users on v2.9.x can still edit the field here (it's persisted
+          to settings.json) but GAMDL will fall back to its own built-in
+          default until they upgrade. We show a small advisory under the
+          description to make that expectation-setting obvious, matching
+          the pattern used for `wrapper_m3u8_ip` in the Advanced tab.
+        */}
+        <TemplateBuilder
+          label="Playlist Folder"
+          description="Folder structure for playlist downloads. Requires GAMDL v3.0+ — earlier versions fall back to the upstream default layout regardless of this value."
+          value={settings.playlist_folder_template}
+          onChange={(v) => updateSettings({ playlist_folder_template: v })}
+          variableCategories={['playlist']}
+        />
       </SettingsSection>
 
       {/* Section: File Templates */}

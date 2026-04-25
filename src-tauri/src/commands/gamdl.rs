@@ -1048,6 +1048,75 @@ pub async fn clear_all_queue(
     Ok(removed)
 }
 
+/// Aborts every active and queued download (#620).
+///
+/// **Frontend caller:** `abortAllDownloads()` in `src/lib/tauri-commands.ts`.
+///
+/// Per-item cancellation is a click per queue row and leaves the subprocess
+/// running until the next cancellation poll tick. For a user who wants to
+/// halt a 50-item batch *now*, that's painful. `abort_all_downloads` is the
+/// "stop everything" escape hatch:
+///
+/// 1. Transitions every `Queued` / `Downloading` / `Processing` item to
+///    `Cancelled`.
+/// 2. The already-running cancellation-poll loops on each active task see
+///    the state change on their next tick and kill the subprocess (`Child`
+///    already has `kill_on_drop(true)`), exiting the enrichment / companion
+///    / lyrics pipelines cleanly.
+/// 3. Terminal items (`Complete` / `Cancelled` / `Error`) are untouched so
+///    the user keeps their history.
+/// 4. The updated queue is persisted to disk and a `"downloads-aborted"`
+///    event is emitted carrying the [`AbortSummary`] so the frontend can
+///    show a single summary toast instead of N per-item state changes.
+///
+/// # Arguments
+/// * `app` - Tauri handle for event emission + disk persistence.
+/// * `queue` - Managed download queue state.
+///
+/// # Returns
+/// An [`AbortSummary`] with per-pre-state counts. The frontend uses this to
+/// craft the user-facing toast ("Cancelled 12 queued, stopped 1 downloading").
+///
+/// # Errors
+/// Infallible in practice; `Result` satisfies the Tauri IPC convention.
+///
+/// # Events Emitted
+/// * `"downloads-aborted"` — payload: [`AbortSummary`].
+#[tauri::command]
+pub async fn abort_all_downloads(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<download_queue::AbortSummary, String> {
+    let summary = {
+        let mut q = queue.lock().await;
+        q.abort_all()
+    };
+
+    // Persist the post-abort queue so a crash or accidental quit doesn't
+    // leave behind a stale "Downloading" state that would confuse the
+    // startup recovery path.
+    let queue_handle = queue.inner().clone();
+    download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+    if summary.total() > 0 {
+        emit_app_log(
+            &app,
+            &format!(
+                "Aborted queue — cancelled {q} queued, stopped {d} downloading, \
+                 stopped {p} processing",
+                q = summary.queued_cancelled,
+                d = summary.downloading_stopped,
+                p = summary.processing_stopped,
+            ),
+        );
+        // Event emission is best-effort; the state change already landed,
+        // so a failed emit is non-critical.
+        let _ = app.emit("downloads-aborted", &summary);
+    }
+
+    Ok(summary)
+}
+
 /// Returns the current status of all items in the download queue.
 ///
 /// **Frontend caller:** `getQueueStatus()` in `src/lib/tauri-commands.ts`

@@ -1959,4 +1959,281 @@ mod tests {
         assert_ne!(cat, "network", "URL parse error must not be classified as network");
         assert_ne!(cat, "auth", "URL parse error must not be classified as auth");
     }
+
+    // ========================================================================
+    // GAMDL v3.2 regression tests (#615)
+    //
+    // v3.2 made two parser-adjacent changes:
+    //
+    //   1. `track_log.info(f'Downloading "{media_title}"')` in `cli.py` is now
+    //      conditional on `download_item.media.partial` AND
+    //      `media_type in {None, songs, library-songs, music-videos,
+    //      library-music-videos, uploaded-videos}`. Wrapper media types
+    //      (albums, playlists, artists) no longer emit the line.
+    //   2. The exception class `GamdlDownloaderFlatFilterExcludedError` was
+    //      renamed to `GamdlInterfaceFlatFilterExcludedError`.
+    //
+    // MeedyaDL matches neither by class name — the regex path targets the
+    // bracketed `[Track N/M]` shape and the classifier targets substring
+    // heuristics — so both changes should be transparent. These tests lock
+    // that invariant in.
+    //
+    // Fixtures live in `.github/audits/fixtures/gamdl-3.2/`. Each `.log`
+    // file captures a representative scenario with shape derived from the
+    // v3.2 upstream source (`cli.py` + `cli/utils.py` — `custom_structlog_formatter`).
+    // When real-sample captures from a live v3.2 run become available, they
+    // should drop in as replacements for the synthesised fixtures without
+    // any test rewrites; the assertions target structural properties
+    // (counter values, event types), not exact whitespace.
+    // ========================================================================
+
+    /// Loads a fixture file from `.github/audits/fixtures/gamdl-3.2/` and
+    /// returns its content as a `String`. Panics with a clear error if
+    /// the fixture is missing — the tests that call this are specifically
+    /// there to catch parser regressions, so a missing fixture is always
+    /// a setup bug worth surfacing loudly.
+    fn load_v32_fixture(name: &str) -> String {
+        // `CARGO_MANIFEST_DIR` points at `src-tauri/`, so the repo root
+        // is one level up. The fixtures directory is at
+        // `<repo_root>/.github/audits/fixtures/gamdl-3.2/<name>`.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".github")
+            .join("audits")
+            .join("fixtures")
+            .join("gamdl-3.2")
+            .join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("failed to load v3.2 fixture {name} at {path:?}: {e}")
+        })
+    }
+
+    /// Iterates over lines in a fixture, parses each through
+    /// `parse_gamdl_output`, and returns only the matching variant. Useful
+    /// for extracting just the `TrackInfo` events from a long run-log.
+    fn fixture_track_events(fixture: &str) -> Vec<(Option<u32>, Option<u32>, String)> {
+        load_v32_fixture(fixture)
+            .lines()
+            .filter_map(|line| match parse_gamdl_output(line) {
+                GamdlOutputEvent::TrackInfo {
+                    track_number,
+                    track_total,
+                    title,
+                    ..
+                } => Some((track_number, track_total, title)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn v32_song_track_info_still_captured() {
+        // Positive: a song-track `[Track N/M] Downloading "…"` line still
+        // parses as TrackInfo. The media_type filter is applied upstream
+        // of the log emission, so once MeedyaDL sees the line the parse is
+        // identical to v3.1.
+        let line = "[INFO     12:00:02] [Track   3/15 ] Downloading \"Song Three\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                track_number,
+                track_total,
+                title,
+                ..
+            } => {
+                assert_eq!(track_number, Some(3));
+                assert_eq!(track_total, Some(15));
+                assert_eq!(title, "Song Three");
+            }
+            other => panic!("Expected TrackInfo for v3.2 song line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v32_music_video_track_info_still_captured() {
+        // Positive: music-video media-type is in the `partial` allowlist —
+        // the line still fires and our regex still matches.
+        let line = "[INFO     12:00:02] [Track   1/1  ] Downloading \"Vevo Live Cut\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { title, .. } => {
+                assert_eq!(title, "Vevo Live Cut");
+            }
+            other => panic!("Expected TrackInfo for v3.2 MV line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v32_album_wrapper_line_not_misclassified_as_track() {
+        // Negative: a plain album-name banner line (no `[Track N/M]`) must
+        // NOT match TRACK_INFO_V2_REGEX. v3.2 no longer emits this for
+        // wrapper entities, but defensive testing ensures that if
+        // something similar ever does land in stdout it doesn't silently
+        // populate a bogus track counter.
+        let line = "[INFO     12:00:01] Processing album \"Midnights (3am Edition)\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { .. } => {
+                panic!("Album-wrapper line must not parse as TrackInfo");
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn v32_playlist_wrapper_line_not_misclassified_as_track() {
+        // Same guard as the album case, for playlists. The `[URL N/M]`
+        // prefix is for URL-level progress, not per-track.
+        let line = "[INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/.../pl.abc\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo { .. } => {
+                panic!("URL-wrapper line must not parse as TrackInfo");
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn v32_flat_filter_excluded_rename_invisible_to_classifier() {
+        // v3.2 renamed the class. Neither the old nor the new name is
+        // mentioned anywhere in the classifier, so both should fall
+        // through to `unknown`. Locking this in here means a future
+        // parser change that accidentally keys on the old name will fail
+        // loudly instead of silently regressing.
+        let old_name = "GamdlDownloaderFlatFilterExcludedError: 123456 already in DB";
+        let new_name = "GamdlInterfaceFlatFilterExcludedError: 123456 already in DB";
+        // Both should classify identically — whatever that is today.
+        let cat_old = classify_error(old_name);
+        let cat_new = classify_error(new_name);
+        assert_eq!(
+            cat_old, cat_new,
+            "rename must not change classification bucket (old={cat_old}, new={cat_new})",
+        );
+        // And it must not be misclassified as a real error class.
+        assert_ne!(cat_new, "auth", "flat-filter excluded is not an auth error");
+        assert_ne!(cat_new, "network", "flat-filter excluded is not a network error");
+        assert_ne!(cat_new, "io", "flat-filter excluded is not an I/O error");
+    }
+
+    #[test]
+    fn v32_multi_track_album_counter_populates_for_every_track() {
+        // End-to-end: synthesised v3.2 album output with a 3-track
+        // album. Each `[Track N/M] Downloading "…"` line must produce a
+        // TrackInfo with the correct counter.
+        let lines = [
+            "[INFO     12:00:02] [Track   1/3  ] Downloading \"Track One\"",
+            "[INFO     12:00:03] [Track   2/3  ] Downloading \"Track Two\"",
+            "[INFO     12:00:04] [Track   3/3  ] Downloading \"Track Three\"",
+        ];
+        let mut observed = Vec::new();
+        for line in lines {
+            if let GamdlOutputEvent::TrackInfo {
+                track_number,
+                track_total,
+                title,
+                ..
+            } = parse_gamdl_output(line)
+            {
+                observed.push((track_number, track_total, title));
+            }
+        }
+        assert_eq!(
+            observed,
+            vec![
+                (Some(1), Some(3), "Track One".to_string()),
+                (Some(2), Some(3), "Track Two".to_string()),
+                (Some(3), Some(3), "Track Three".to_string()),
+            ],
+            "all three v3.2 album tracks must emit correctly-numbered TrackInfo events",
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Fixture-driven v3.2 tests (#615)
+    //
+    // The above inline-string tests pin the exact whitespace. The
+    // fixture-driven tests below assert structural properties over
+    // realistic multi-line captures, so they continue passing even if a
+    // future real-sample capture tweaks alignment details.
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn v32_fixture_album_multi_track_counter_correct() {
+        let events = fixture_track_events("album-multi-track-stderr.log");
+        assert_eq!(
+            events,
+            vec![
+                (Some(1), Some(3), "Opening Track".to_string()),
+                (Some(2), Some(3), "Second Song".to_string()),
+                (Some(3), Some(3), "Closing Track".to_string()),
+            ],
+            "3-track album fixture must produce exactly 3 TrackInfo events in order"
+        );
+    }
+
+    #[test]
+    fn v32_fixture_single_song_emits_one_track_event() {
+        let events = fixture_track_events("single-song-stderr.log");
+        assert_eq!(events.len(), 1, "single-song fixture must emit exactly one TrackInfo event");
+        let (num, total, title) = &events[0];
+        assert_eq!(*num, Some(1));
+        assert_eq!(*total, Some(1));
+        assert_eq!(title, "Standalone Single");
+    }
+
+    #[test]
+    fn v32_fixture_music_video_emits_one_track_event() {
+        let events = fixture_track_events("music-video-stderr.log");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, Some(1));
+        assert_eq!(events[0].1, Some(1));
+        assert!(events[0].2.contains("Live From London"));
+    }
+
+    #[test]
+    fn v32_fixture_playlist_emits_four_track_events() {
+        let events = fixture_track_events("playlist-stderr.log");
+        assert_eq!(events.len(), 4, "4-track playlist fixture must emit exactly 4 TrackInfo events");
+        for (i, (num, total, _)) in events.iter().enumerate() {
+            assert_eq!(*num, Some((i + 1) as u32), "track {} number mismatch", i + 1);
+            assert_eq!(*total, Some(4), "track {} total mismatch", i + 1);
+        }
+    }
+
+    #[test]
+    fn v32_fixture_flat_filter_excluded_does_not_break_track_counter() {
+        // The `GamdlInterfaceFlatFilterExcludedError` warning line uses
+        // the same `[Track N/M]` bracket shape as the Downloading line
+        // (both pass through `custom_structlog_formatter`). The Track
+        // event must not fire for the warning line (it lacks the
+        // `Downloading "..."` suffix the regex requires).
+        let events = fixture_track_events("flat-filter-excluded-stderr.log");
+        assert!(
+            events.is_empty(),
+            "flat-filter fixture contains no `Downloading \"...\"` lines; no TrackInfo should fire — got {events:?}"
+        );
+    }
+
+    #[test]
+    fn v32_fixture_url_context_line_not_misclassified_as_track() {
+        // Every fixture starts with `[URL   1/1  ] Processing "..."`.
+        // Across all fixtures combined, none of these lines should
+        // produce a TrackInfo — they are URL-level progress markers.
+        for name in [
+            "album-multi-track-stderr.log",
+            "single-song-stderr.log",
+            "music-video-stderr.log",
+            "playlist-stderr.log",
+            "flat-filter-excluded-stderr.log",
+        ] {
+            let content = load_v32_fixture(name);
+            for line in content.lines() {
+                if line.contains("[URL") && line.contains("Processing") {
+                    match parse_gamdl_output(line) {
+                        GamdlOutputEvent::TrackInfo { .. } => {
+                            panic!("URL-context line from {name} must not parse as TrackInfo: {line}");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 }

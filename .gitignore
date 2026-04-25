@@ -82,6 +82,8 @@ coverage/
 # ============================================================
 *.log
 logs/
+# Test fixtures: committed `.log` captures used by parser regression tests
+!.github/audits/fixtures/**/*.log
 
 # ============================================================
 # Temporary files
