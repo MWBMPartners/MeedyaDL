@@ -8,6 +8,139 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### ✨ Features
 
+- **(updates)** Surface above-ceiling GAMDL updates as untested + admit v3.3
+
+The update check previously hard-capped `is_compatible` at
+  `maximum_tested_version`, so any GAMDL release shipped above the
+  support-window ceiling was silently filtered out of the Updates page —
+  operators had no signal that a new build was waiting for validation,
+  which blocked us from testing v3.2 and v3.3 against MeedyaDL until we
+  shipped a new release of our own.
+
+  Split the two concerns:
+  * `gamdl_capabilities::should_offer_upgrade` now only rejects
+    unparseable strings (above-ceiling versions DO surface).
+  * New `gamdl_capabilities::is_above_tested_ceiling` plus
+    `ComponentUpdate.is_untested` carry the warning state to the UI.
+  * `UpdateBanner` and `UpdatesPage` render an amber "Untested" badge +
+    disclaimer when `is_untested` is set.
+  * `pip_target_spec(target)` + `install_gamdl(app, Some(target))` give
+    the user-explicit Upgrade path an exact pin so pip lands on the
+    version the banner advertised, instead of silently resolving down to
+    the bounded `[minimum, maximum_tested]` spec.
+
+  Also audited and admitted GAMDL v3.3 to the support window. The entire
+  3.2 → 3.3 delta is one internal commit (`c83e47d`) that drops a stale
+  `total=` kwarg from two `_get_*_media` calls inside
+  `interface.py::_get_playlist_media` — a pure playlist-download bugfix
+  with zero CLI / INI / output / regex surface changes, so admission
+  needs no `GamdlFeature` gate adjustments.
+
+  20 gamdl_capabilities tests + 10 update_checker tests + 891 total
+  backend tests + 303 frontend tests all pass.
+
+- **(updates)** Surface above-ceiling GAMDL updates as Untested + admit v3.3 (#624)
+
+## Summary
+
+  Two related fixes:
+
+  1. **MeedyaDL was silently hiding GAMDL updates above the validated
+  ceiling.** `update_checker::is_gamdl_compatible` was a thin wrapper over
+  `gamdl_capabilities::should_offer_upgrade`, which hard-capped at
+  `maximum_tested_version`. The frontend's `getActiveUpdates()` filters by
+  `is_compatible`, so any PyPI release above the ceiling never reached the
+  Updates page — operators had no signal that a new GAMDL build was
+  waiting for validation, which created a chicken-and-egg problem (we
+  couldn't validate until we shipped, and we couldn't see the upgrade
+  until we'd validated).
+  2. **GAMDL v3.3 audited and admitted.** Upstream shipped 3.3 the same
+  day as 3.2.
+
+  ## Fix details
+
+  ### Architectural fix: surface untested upgrades, don't hide them
+
+  - `gamdl_capabilities::should_offer_upgrade` now only rejects
+  unparseable semver strings — above-ceiling versions DO surface.
+  - New `gamdl_capabilities::is_above_tested_ceiling(version)` helper.
+  - New `ComponentUpdate.is_untested: bool` field on the IPC payload
+  (mirrored in TypeScript types).
+  - `UpdateBanner.tsx` and `UpdatesPage.tsx` render an amber
+  **"Untested"** badge + a short disclaimer paragraph for above-ceiling
+  GAMDL releases.
+  - The Upgrade button on those rows passes the explicit `latest_version`
+  through `upgradeGamdl(targetVersion)` → `upgrade_gamdl` IPC →
+  `install_gamdl(app, Some(target))` → `pip_target_spec`
+  (`gamdl=={target}`), so pip lands on exactly the version the banner
+  advertised instead of silently resolving down to the bounded `[min,
+  maximum_tested]` spec.
+  - Routine "Upgrade tested" clicks still go through `pip_version_spec`
+  (no target argument), so an unaudited release can never sneak in via a
+  future-version `--upgrade` resolution.
+
+  ### GAMDL v3.3 audit
+
+  - Reviewed the entire 3.2 → 3.3 diff: it's a single internal commit
+  (`c83e47d`, "Remove total arg from media fetch calls") that drops a
+  stale `total=...` kwarg from two `_get_*_media` calls inside
+  `interface.py::_get_playlist_media`.
+  - Pure playlist-download bugfix — **zero CLI flag changes, zero INI key
+  changes, zero output/regex/format changes**.
+  - `maximum_tested_version` and `recommended_version` bumped to `3.3` in
+  `tool-versions.toml`. No `GamdlFeature` gate adjustments needed.
+
+  ## Test plan
+
+  - [x] `cargo test --lib gamdl_capabilities` — 20 tests pass (added
+  `is_above_tested_ceiling_flags_future_versions`,
+  `pip_target_spec_pins_exact_version`, updated
+  `should_offer_upgrade_above_ceiling`)
+  - [x] `cargo test --lib update_checker` — 10 tests pass
+  (`test_is_gamdl_compatible` semantics updated)
+  - [x] `cargo test --lib` — 891 tests pass
+  - [x] `npm test` — 303 tests pass
+  - [x] `cargo check` — clean
+  - [x] `npm run type-check` — clean
+  - [x] `npm run build` — clean
+  - [ ] Manual smoke test: launch the app with GAMDL 3.0 installed,
+  confirm Updates page shows GAMDL → v3.3 row with no "Untested" badge
+  (3.3 is now inside the window)
+  - [ ] Manual smoke test: temporarily lower `maximum_tested_version` to
+  "3.2" locally, confirm the GAMDL → v3.3 row gains the amber "Untested"
+  badge + disclaimer, and the Upgrade button installs exactly v3.3 (not
+  v3.2)
+
+  ## Files changed
+
+  - `src-tauri/tool-versions.toml` — admit v3.3
+  - `src-tauri/src/services/gamdl_capabilities.rs` — split
+  `should_offer_upgrade` from ceiling check; add `is_above_tested_ceiling`
+  and `pip_target_spec`
+  - `src-tauri/src/services/gamdl_service.rs` — `install_gamdl` accepts
+  optional explicit-version target
+  - `src-tauri/src/services/update_checker.rs` — add
+  `ComponentUpdate.is_untested`; populate for GAMDL above ceiling
+  - `src-tauri/src/commands/updates.rs` — `upgrade_gamdl` IPC accepts
+  `target_version`
+  - `src-tauri/src/commands/dependencies.rs` — pass `None` (routine setup)
+  - `src/types/index.ts` — add `is_untested` to `ComponentUpdate`
+  - `src/lib/tauri-commands.ts` — `upgradeGamdl(targetVersion?)` signature
+  - `src/stores/updateStore.ts` — `upgradeGamdl(targetVersion?)` action
+  - `src/components/common/UpdateBanner.tsx` — "Untested" badge +
+  disclaimer + target-version pin on Upgrade
+  - `src/components/updates/UpdatesPage.tsx` — same as banner
+  - `.claude/CLAUDE.md` — audit + fix notes
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.46.0] - 2026-04-25
+
+### ✨ Features
+
 - **(queue)** Abort-all destructive action (#620)
 
 Adds a one-click "Abort Queue" escape hatch that stops every active
