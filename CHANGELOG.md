@@ -6,6 +6,35 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(updates)** GAMDL upgrade follow-ups — surface real pip error + don't conflate refresh failure with upgrade failure (#626)
+
+## Summary
+
+  Two follow-up fixes to PR #624 (the GAMDL "Untested" upgrade flow), both
+  motivated by a real reproduction in v0.47.0: the user clicked Upgrade,
+  pip succeeded ("GAMDL upgraded to v3.3" appeared in the activity log),
+  but the toast showed a generic "Failed to upgrade GAMDL" error.
+
+  ### 1. Don't conflate post-upgrade refresh failure with upgrade failure
+  (`008cae8`)
+
+  The `upgradeGamdl` Zustand action wrapped both the pip upgrade and the
+  post-upgrade `checkAllUpdates()` refresh in a single try/catch. The
+  `check_all_updates` IPC has a 1/min rate limiter — when a user clicks
+  Upgrade within 60s of the startup update check (very common), pip
+  succeeds in ~1s (cached wheel) but the refresh hits the rate limiter,
+  the rate-limit error gets caught by the outer try/catch, and the action
+  re-throws it as if the upgrade itself failed.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.47.0] - 2026-04-25
+
 ### ✨ Features
 
 - **(updates)** Surface above-ceiling GAMDL updates as untested + admit v3.3
@@ -131,6 +160,39 @@ The update check previously hard-capped `is_compatible` at
   disclaimer + target-version pin on Upgrade
   - `src/components/updates/UpdatesPage.tsx` — same as banner
   - `.claude/CLAUDE.md` — audit + fix notes
+
+
+### 🐛 Bug Fixes
+
+- **(updates)** Surface real pip error when GAMDL upgrade fails
+
+A failed Upgrade click was collapsing into a generic "Failed to upgrade
+  GAMDL" toast, hiding the actual pip stderr the Rust handler had
+  returned. This made upgrade failures un-diagnosable in the field.
+
+- **(updates)** Don't surface post-upgrade refresh failure as an upgrade failure
+
+The `upgradeGamdl` action wrapped both `commands.upgradeGamdl()` and
+  the post-upgrade `commands.checkAllUpdates()` refresh in a single
+  try/catch. When pip succeeded but the refresh hit the
+  `check_all_updates` IPC's 1/min rate limiter (typical when a user
+  clicks "Upgrade" within 60s of the startup update check), the rate
+  limit error was caught and re-thrown as if the upgrade itself had
+  failed. The toast read "Failed to upgrade GAMDL" while the activity
+  log showed a successful "GAMDL upgraded to v3.3" entry — confusing
+  contradiction reported in #624 review feedback.
+
+  Split the two operations:
+  * The pip upgrade keeps its existing try/catch and rejection contract,
+    so genuine upgrade failures still surface in the toast.
+  * The post-upgrade refresh runs in its own try block. On failure we
+    `console.warn`, patch `lastResult` locally (mark GAMDL's
+    `current_version` to the new value and clear `update_available`),
+    and clear `isUpgrading`. The next periodic refresh catches up.
+
+  Net effect: a successful pip upgrade always reports success, and the
+  Updates page reflects the new version immediately even when the
+  refresh is rate-limited.
 
 
 ### 📚 Documentation
