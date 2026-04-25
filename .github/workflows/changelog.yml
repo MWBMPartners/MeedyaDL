@@ -146,10 +146,31 @@ jobs:
       # any workflows for this push, providing a second layer of infinite loop prevention.
       #
       # @see https://docs.github.com/en/actions/managing-workflow-runs/skipping-workflow-runs
+      # Push is wrapped in a pull-rebase + bounded retry loop to survive the
+      # race where another workflow (e.g. release-please, or a concurrent
+      # changelog run from a fast-follow merge) lands on main between our
+      # checkout and our push. Without the loop, the push is rejected as
+      # non-fast-forward and the job fails cosmetically even though the next
+      # successful run regenerates CHANGELOG.md from scratch anyway.
+      # See https://github.com/MWBMPartners/MeedyaDL/issues/544 for the trigger run.
       - name: Commit changelog
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md
-          git diff --staged --quiet || git commit -m "docs: update CHANGELOG.md [skip ci]"
-          git push
+          if git diff --staged --quiet; then
+            echo "No changelog changes to commit."
+            exit 0
+          fi
+          git commit -m "docs: update CHANGELOG.md [skip ci]"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin main && git push; then
+              echo "Changelog pushed on attempt $attempt."
+              exit 0
+            fi
+            sleep_seconds=$((attempt * 2))
+            echo "Push attempt $attempt failed; retrying in ${sleep_seconds}s..."
+            sleep "$sleep_seconds"
+          done
+          echo "Push failed after 3 attempts." >&2
+          exit 1
