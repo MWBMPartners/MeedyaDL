@@ -70,7 +70,6 @@ use tauri::AppHandle;
 // AppSettings is the Rust struct that mirrors all GUI settings.
 // It derives Serialize/Deserialize for JSON round-tripping and Default for first-run defaults.
 // Defined in models/settings.rs.
-use crate::models::gamdl_options::SongCodec;
 use crate::models::settings::AppSettings;
 // Platform utilities for resolving the app data directory and config file paths
 // across macOS, Windows, and Linux.
@@ -1328,26 +1327,11 @@ mod tests {
         assert!(ini.contains("fetch_extra_tags = true"));
     }
 
-    // ----------------------------------------------------------
-    // settings_to_ini: song_codec_priority
-    // ----------------------------------------------------------
-
-    #[test]
-    fn ini_contains_song_codec_priority_when_fallback_enabled() {
-        let settings = default_settings(); // fallback_enabled is true by default
-        let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec_priority ="));
-        // Should contain the full default fallback chain
-        assert!(ini.contains("alac"));
-    }
-
-    #[test]
-    fn ini_omits_song_codec_priority_when_fallback_disabled() {
-        let mut settings = default_settings();
-        settings.fallback_enabled = false;
-        let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("song_codec_priority ="));
-    }
+    // settings_to_ini: song_codec_priority — the pre-#617 tests for this
+    // section have been removed. The new invariant (key never emitted on
+    // any GAMDL release in our support window, regardless of
+    // `fallback_enabled`) is locked in by `ini_does_not_emit_song_codec`
+    // and `ini_does_not_emit_song_codec_priority` further up.
 
     // ----------------------------------------------------------
     // settings_to_ini: artist_auto_select
