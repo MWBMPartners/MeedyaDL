@@ -6,6 +6,29 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Harden changelog push race + document GHAS posture (#544, #564)
+
+Wrap the changelog workflow's final git push in a pull-rebase +
+  bounded-retry loop so concurrent pushes to main (release-please merges,
+  fast-follow changelog runs) no longer surface cosmetic non-fast-forward
+  failures.
+
+  Expand SECURITY.md's "Reporting a Vulnerability" section to advertise
+  the GitHub Private Vulnerability Reporting form as the preferred
+  channel, and list the newly-enabled GHAS features (PVR, secret scanning
+  + push protection, Dependabot security updates) alongside the already-
+  live CodeQL security-and-quality query suite.
+
+- Harden changelog push race + document GHAS posture (#544, #564) (#622)
+
+## [0.45.0] - 2026-04-24
+
 ### ✨ Features
 
 - **(gamdl)** Add wrapper_m3u8_ip CLI/INI/UI support for GAMDL v3.1 (#605)
