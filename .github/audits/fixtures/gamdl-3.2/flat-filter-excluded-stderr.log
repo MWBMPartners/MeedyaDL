@@ -1,0 +1,2 @@
+[INFO     12:00:01] [URL   1/1  ] Processing "https://music.apple.com/us/album/sample-album/1000000001"
+[WARNING  12:00:03] [Track   5/14 ] GamdlInterfaceFlatFilterExcludedError: 1000000005 already in DB
