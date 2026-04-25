@@ -283,6 +283,7 @@ Committed prescriptive manual-verification checklist for whoever cuts
   be forked as a template for future GAMDL version bumps.
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
