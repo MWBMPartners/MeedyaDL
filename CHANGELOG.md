@@ -6,6 +6,31 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ci)** Remove duplicate fi in update-security-policy workflow
+
+The Compute supported-versions table step had a stray duplicate `fi`
+  after the if/else/fi block, causing the shell to exit with code 2
+  ("syntax error near unexpected token").
+
+- **(ci)** Remove duplicate `fi` in update-security-policy workflow (#638)
+
+## Summary
+
+  The `Compute supported-versions table` step in
+  `.github/workflows/update-security-policy.yml` has a stray duplicate
+  `fi` immediately after the `if/else/fi` block. With `set -euo pipefail`
+  the shell exits with code 2 (`syntax error near unexpected token
+  \`fi\``), failing every Update Security Policy run.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.49.0] - 2026-04-26
+
 ### ✨ Features
 
 - **(release)** Seven-tier release-channel ladder + push-driven alpha/beta/rc
