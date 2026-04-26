@@ -1,0 +1,109 @@
+# Copyright (c) 2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Realign Alpha Branch with Main (one-shot)
+# =========================================
+#
+# Manually-triggered workflow that hard-resets `alpha` to match `main`.
+# Used after the v0.48.0 distribution-mechanism overhaul to put `alpha`
+# back in sync with `main` before push-driven alpha builds start.
+#
+# Why a workflow and not a manual `git push --force`:
+#   The `protected-stable-branches` ruleset blocks non-fast-forward pushes
+#   to `alpha` with no bypass actor. To realign, this workflow must run
+#   while a *temporary* admin bypass is in place on the ruleset, then the
+#   bypass must be removed.
+#
+# Execution order (one time):
+#   1. Apply the new `protected-stable-branches.json` and
+#      `protected-cron-channels.json` via `apply-branch-rulesets.yml`.
+#   2. Manually edit `protected-stable-branches.json` on the GitHub UI to
+#      add a temporary `RepositoryRole` admin bypass actor (id 5).
+#   3. Trigger this workflow with `workflow_dispatch`.
+#   4. Re-edit the ruleset to remove the bypass actor.
+#
+# After realignment, this workflow file should remain checked in but is
+# expected to never run again. Any future cleanup of `alpha` should use
+# the same procedure.
+#
+# Requires: RELEASE_PAT belonging to a repository admin.
+
+name: Realign Alpha with Main
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "REALIGN" to confirm — this hard-resets alpha to main'
+        required: true
+        default: ''
+      dry_run:
+        description: 'Print what would happen without pushing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: realign-alpha
+  cancel-in-progress: false
+
+jobs:
+  realign:
+    name: Force-push main to alpha
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm input
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "REALIGN" ]; then
+            echo "::error::Confirmation phrase did not match — aborting."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Show current state
+        run: |
+          set -euo pipefail
+          MAIN=$(git rev-parse origin/main)
+          ALPHA=$(git ls-remote origin refs/heads/alpha | awk '{print $1}' || echo "<missing>")
+          echo "main:  $MAIN"
+          echo "alpha: $ALPHA"
+
+      - name: Force-push main to alpha
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # `+main:alpha` is the explicit force-push of main's tip to alpha,
+          # creating the branch if it doesn't exist or overwriting whatever
+          # was there. The `protected-stable-branches` ruleset normally
+          # blocks this; this workflow only succeeds while a temporary admin
+          # bypass actor is in place on that ruleset.
+          git push --force origin main:alpha
+
+      - name: Summary
+        run: |
+          {
+            echo "### Realign alpha → main"
+            echo ""
+            echo "- **Dry run:** \`${{ inputs.dry_run }}\`"
+            echo "- **Source:** \`origin/main\`"
+            echo "- **Target:** \`refs/heads/alpha\`"
+            echo "- **Result:** \`alpha\` now points at the same commit as \`main\`"
+            echo ""
+            echo "**Reminder:** remove the temporary admin bypass from the"
+            echo "\`protected-stable-branches\` ruleset before any further work."
+          } >> "$GITHUB_STEP_SUMMARY"

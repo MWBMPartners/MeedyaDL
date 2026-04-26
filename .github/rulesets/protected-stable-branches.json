@@ -1,0 +1,22 @@
+{
+  "_comment": "Strict protection for the four stable / human-pushed channel branches. No bypass actors — these branches must never receive a force-push from automation. Apply with .github/workflows/apply-branch-rulesets.yml. The realignment of alpha must happen BEFORE this ruleset is applied (or via a temporary one-shot bypass; see realign-alpha.yml).",
+  "name": "protected-stable-branches",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/main",
+        "refs/heads/release-candidate",
+        "refs/heads/beta",
+        "refs/heads/alpha"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" }
+  ],
+  "bypass_actors": []
+}

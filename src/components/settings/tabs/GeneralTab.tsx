@@ -65,6 +65,8 @@ import { exportSettings, importSettings } from '@/lib/tauri-commands';
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
 import { Toggle, FilePickerButton, Select, Button, SettingsSection } from '@/components/common';
+import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
+import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Download, RefreshCw, Upload } from 'lucide-react';
@@ -134,14 +136,26 @@ const UPDATE_INTERVAL_OPTIONS = [
  * stable than the user's selection, so switching down the list is the
  * explicit opt-in for early builds.
  */
-const UPDATE_CHANNEL_OPTIONS = [
+const UPDATE_CHANNEL_OPTIONS_FULL = [
   { value: 'nightly', label: 'Nightly — built daily, may be broken' },
   { value: 'weekly', label: 'Weekly — integrated weekly, often unstable' },
   { value: 'monthly', label: 'Monthly — integrated monthly' },
   { value: 'alpha', label: 'Alpha — feature-complete, expect bugs' },
-  { value: 'beta', label: 'Beta — release candidate' },
+  { value: 'beta', label: 'Beta — pre-RC integration' },
+  { value: 'rc', label: 'Release Candidate — near-stable, last validation pass' },
   { value: 'stable', label: 'Stable — production release (recommended)' },
 ];
+
+/**
+ * Channel options shown to users without Dev Access. Hides the four
+ * experimental channels (nightly/weekly/monthly/alpha) so casual users
+ * cannot accidentally subscribe to internal-only builds. Matches
+ * `DEV_ACCESS_CHANNELS` in `src/types/index.ts` and the Rust
+ * `UpdateChannel::requires_dev_access()` predicate.
+ */
+const UPDATE_CHANNEL_OPTIONS_PUBLIC = UPDATE_CHANNEL_OPTIONS_FULL.filter(
+  (opt) => !['nightly', 'weekly', 'monthly', 'alpha'].includes(opt.value)
+);
 
 /**
  * Notification auto-dismiss duration options (seconds).
@@ -246,6 +260,38 @@ export function GeneralTab() {
   const [isExporting, setIsExporting] = useState(false);
   /** Whether a settings import is in progress */
   const [isImporting, setIsImporting] = useState(false);
+
+  /**
+   * Pending channel switch awaiting user confirmation. When the user picks a
+   * pre-release channel from the dropdown, the actual settings update is
+   * deferred until they accept the stability warning. `null` = no pending
+   * switch; the dropdown reflects the persisted `settings.update_channel`.
+   */
+  const [pendingChannel, setPendingChannel] = useState<UpdateChannel | null>(null);
+
+  /**
+   * Filter the channel dropdown by Dev Access. The four most-experimental
+   * channels (Nightly/Weekly/Monthly/Alpha) are hidden from non-dev users
+   * to prevent casual subscription. Existing subscribers keep their channel
+   * even if they later disable Dev Access — they just can't re-pick it.
+   */
+  const channelOptions = settings.dev_access_enabled
+    ? UPDATE_CHANNEL_OPTIONS_FULL
+    : UPDATE_CHANNEL_OPTIONS_PUBLIC;
+
+  /**
+   * Channel-switch handler with pre-release confirmation. Switching to any
+   * less-stable channel triggers `ChannelSwitchWarning`. Switching toward
+   * Stable (or to the channel already selected) bypasses the modal.
+   */
+  const handleChannelChange = (next: UpdateChannel) => {
+    if (next === settings.update_channel) return;
+    if (PRE_RELEASE_CHANNELS.includes(next)) {
+      setPendingChannel(next);
+    } else {
+      updateSettings({ update_channel: next });
+    }
+  };
 
   /**
    * Handle the "Check for Updates" button click.
@@ -578,12 +624,10 @@ export function GeneralTab() {
             enables pre-release checks on the backend. */}
         <Select
           label="Update Channel"
-          description="Controls which release channel you receive updates from. Nightly/weekly/monthly/alpha builds may be broken — Stable is recommended for most users. The installer refuses to apply updates from a less-stable channel than your selection."
-          options={UPDATE_CHANNEL_OPTIONS}
+          description="Controls which release channel you receive updates from. Subscribing to a channel surfaces releases at-or-above that stability tier (e.g. Beta sees Beta, RC, Stable). Nightly/Weekly/Monthly/Alpha are hidden unless Dev Access is enabled. Switching to any pre-release channel requires explicit confirmation."
+          options={channelOptions}
           value={settings.update_channel}
-          onChange={(e) =>
-            updateSettings({ update_channel: e.target.value as typeof settings.update_channel })
-          }
+          onChange={(e) => handleChannelChange(e.target.value as UpdateChannel)}
         />
 
         {/* Manual update check button */}
@@ -633,6 +677,23 @@ export function GeneralTab() {
           </Button>
         </div>
       </SettingsSection>
+
+      {/* Pre-release stability warning. Open whenever the user has picked a
+          pre-release channel from the dropdown but not yet confirmed the
+          switch. Confirming applies the change to the settings store;
+          cancelling discards it (the dropdown still reflects the persisted
+          value, since `value={settings.update_channel}` was never updated). */}
+      {pendingChannel && (
+        <ChannelSwitchWarning
+          open={true}
+          targetChannel={pendingChannel}
+          onConfirm={() => {
+            updateSettings({ update_channel: pendingChannel });
+            setPendingChannel(null);
+          }}
+          onCancel={() => setPendingChannel(null)}
+        />
+      )}
     </div>
   );
 }

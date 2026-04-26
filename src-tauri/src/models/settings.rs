@@ -66,6 +66,7 @@ fn default_replaygain_reference() -> f64 {
 ///   - `v0.32.0-monthly.202604`   → Monthly
 ///   - `v0.32.0-alpha.1`          → Alpha
 ///   - `v0.32.0-beta.1`           → Beta
+///   - `v0.32.0-rc.1`             → Rc
 ///   - `v0.32.0`                  → Stable
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,6 +76,7 @@ pub enum UpdateChannel {
     Monthly,
     Alpha,
     Beta,
+    Rc,
     Stable,
 }
 
@@ -95,9 +97,23 @@ impl UpdateChannel {
             "weekly" => Self::Weekly,
             "monthly" => Self::Monthly,
             "alpha" => Self::Alpha,
-            "beta" | "rc" => Self::Beta,
+            "beta" => Self::Beta,
+            "rc" => Self::Rc,
             _ => Self::Stable,
         }
+    }
+
+    /// True for any channel less stable than `Stable`. Used by the UI to
+    /// surface the pre-release stability warning before a user switches.
+    pub fn is_pre_release(self) -> bool {
+        self != Self::Stable
+    }
+
+    /// True for the channels that are gated behind Dev Access in the UI:
+    /// Nightly, Weekly, Monthly, Alpha. Beta and Rc are freely selectable
+    /// (with a confirmation warning); Stable is the default.
+    pub fn requires_dev_access(self) -> bool {
+        matches!(self, Self::Nightly | Self::Weekly | Self::Monthly | Self::Alpha)
     }
 }
 
