@@ -48,10 +48,11 @@ jobs:
             exit 0
           fi
 
-          # Protected branches that must never be auto-deleted.
-          # Keep in sync with .github/rulesets/protected-release-branches.json.
+          # Protected branches that must never be auto-deleted. Keep in sync
+          # with .github/rulesets/protected-stable-branches.json (no bypass)
+          # and .github/rulesets/protected-cron-channels.json (admin bypass).
           case "$HEAD_REF" in
-            main|beta|alpha|monthly|weekly|nightly)
+            main|release-candidate|beta|alpha|monthly|weekly|nightly)
               echo "Skipping: '$HEAD_REF' is a protected release channel"
               exit 0
               ;;

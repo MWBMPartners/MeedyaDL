@@ -743,13 +743,16 @@ async fn check_app_update(
         let releases = json
             .as_array()
             .ok_or("GitHub API returned unexpected format (expected array)")?;
-        // Pick the newest release whose tag suffix matches the user's channel.
-        // Releases from a less-stable channel (e.g., a fresh nightly when the
-        // user is on beta) are skipped so the UI never surfaces an update
-        // that crosses down the stability ladder.
+        // Pick the newest release whose channel is at least as stable as
+        // the user's subscribed channel. A Beta user sees Beta, Rc, and
+        // Stable; a Stable user sees only Stable. Releases from a less-stable
+        // channel (e.g. a fresh nightly when the user is on Beta) are skipped
+        // so the UI never surfaces an update that crosses down the stability
+        // ladder. The release list is newest-first by GitHub's API contract,
+        // so `find` returns the newest qualifying entry.
         let matched = releases.iter().find(|r| {
             let tag = r["tag_name"].as_str().unwrap_or("");
-            UpdateChannel::from_tag(tag) == user_channel
+            UpdateChannel::from_tag(tag) >= user_channel
         });
         let Some(release) = matched else {
             return Ok(ComponentUpdate {
@@ -1275,13 +1278,60 @@ mod tests {
         );
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-rc.1"),
-            UpdateChannel::Beta
+            UpdateChannel::Rc
         );
         // Unknown suffix: fall back to Stable (safe default)
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-unreleased.x"),
             UpdateChannel::Stable
         );
+    }
+
+    /// Verifies the channel ordering: Nightly < Weekly < Monthly < Alpha
+    /// < Beta < Rc < Stable. This ordering is what allows the discovery
+    /// filter (`tag_channel >= user_channel`) to surface Stable releases
+    /// to a Beta-subscribed user without surfacing Beta releases to a
+    /// Stable-subscribed user.
+    #[test]
+    fn test_update_channel_ordering() {
+        assert!(UpdateChannel::Nightly < UpdateChannel::Weekly);
+        assert!(UpdateChannel::Weekly < UpdateChannel::Monthly);
+        assert!(UpdateChannel::Monthly < UpdateChannel::Alpha);
+        assert!(UpdateChannel::Alpha < UpdateChannel::Beta);
+        assert!(UpdateChannel::Beta < UpdateChannel::Rc);
+        assert!(UpdateChannel::Rc < UpdateChannel::Stable);
+    }
+
+    /// A user subscribed to Beta should receive Beta, Rc, and Stable
+    /// releases via the discovery filter (`tag_channel >= user_channel`)
+    /// but NOT Alpha or below. A user subscribed to Stable receives
+    /// only Stable.
+    #[test]
+    fn test_channel_filter_promotion() {
+        let user = UpdateChannel::Beta;
+        assert!(UpdateChannel::from_tag("v1.0.0") >= user);
+        assert!(UpdateChannel::from_tag("v1.0.0-rc.1") >= user);
+        assert!(UpdateChannel::from_tag("v1.0.0-beta.1") >= user);
+        assert!(!(UpdateChannel::from_tag("v1.0.0-alpha.1") >= user));
+        assert!(!(UpdateChannel::from_tag("v1.0.0-nightly.20260101") >= user));
+
+        let user = UpdateChannel::Stable;
+        assert!(UpdateChannel::from_tag("v1.0.0") >= user);
+        assert!(!(UpdateChannel::from_tag("v1.0.0-rc.1") >= user));
+        assert!(!(UpdateChannel::from_tag("v1.0.0-beta.1") >= user));
+    }
+
+    /// requires_dev_access() should return true only for the four channels
+    /// hidden behind the Konami-code Dev Access gate.
+    #[test]
+    fn test_requires_dev_access() {
+        assert!(UpdateChannel::Nightly.requires_dev_access());
+        assert!(UpdateChannel::Weekly.requires_dev_access());
+        assert!(UpdateChannel::Monthly.requires_dev_access());
+        assert!(UpdateChannel::Alpha.requires_dev_access());
+        assert!(!UpdateChannel::Beta.requires_dev_access());
+        assert!(!UpdateChannel::Rc.requires_dev_access());
+        assert!(!UpdateChannel::Stable.requires_dev_access());
     }
 
     /// Tests that is_newer() correctly handles all semver comparison cases:
