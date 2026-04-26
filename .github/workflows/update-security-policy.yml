@@ -87,7 +87,6 @@ jobs:
               "| ${BASE}       | :white_check_mark: |" \
               "| != ${BASE}    | :x:                |")
           fi
-          fi
 
           # Write the generated block to a temp file so the next step can
           # splice it into SECURITY.md without escaping headaches.
