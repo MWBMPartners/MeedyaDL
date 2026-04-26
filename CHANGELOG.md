@@ -6,6 +6,108 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(release)** Seven-tier release-channel ladder + push-driven alpha/beta/rc
+
+Adds a Release Candidate tier between Beta and Stable, splits the channel
+  branch protection into stable (no bypass) vs. cron (admin bypass), wires
+  push-driven version-bump-and-tag workflows for alpha/beta/release-candidate,
+  gates Nightly/Weekly/Monthly/Alpha behind Dev Access in the settings UI, and
+  auto-regenerates the SECURITY.md supported-versions table on version bumps.
+
+  - UpdateChannel: add Rc tier between Beta and Stable; ordering Nightly <
+    Weekly < Monthly < Alpha < Beta < Rc < Stable. Add is_pre_release() and
+    requires_dev_access() predicates. Update tests to cover the new tier.
+  - update_checker: filter releases by tag_channel >= user_channel (was ==),
+    so Beta subscribers auto-promote to Rc/Stable releases without seeing
+    Alpha-or-below.
+  - GeneralTab: hide Nightly/Weekly/Monthly/Alpha from non-dev users; add
+    ChannelSwitchWarning modal for any pre-release switch.
+  - Branch rulesets: split protected-release-branches.json into
+    protected-stable-branches.json (main/release-candidate/beta/alpha, no
+    bypass) and protected-cron-channels.json (nightly/weekly/monthly, admin
+    bypass for cron-driven force-pushes). apply-branch-rulesets.yml now
+    reconciles by deleting unmanaged branch rulesets.
+  - New workflows: alpha-release.yml / beta-release.yml /
+    release-candidate-release.yml — push-triggered, monotonic counter across
+    base versions, fast-forward push of branch + tag.
+  - realign-alpha.yml: one-shot manual workflow to hard-reset alpha to main.
+  - update-security-policy.yml: regenerates SECURITY.md supported-versions
+    table between sentinel comments on every version bump.
+  - release.yml: derive prerelease flag from tag suffix (was hard-coded true).
+  - auto-delete-merged-branches.yml: add release-candidate to exempt list.
+  - Bump version to 0.48.0 across package.json, tauri.conf.json, Cargo.toml,
+    Cargo.lock, .release-please-manifest.json.
+
+- **(release)** Seven-tier release-channel ladder + push-driven alpha/beta/rc (#636)
+
+## Summary
+
+  - Adds a **Release Candidate** tier between Beta and Stable
+  (`UpdateChannel::Rc`), making the ladder seven tiers: `Nightly < Weekly
+  < Monthly < Alpha < Beta < Rc < Stable`.
+  - Switches update discovery from `tag_channel == user_channel` to
+  `tag_channel >= user_channel`, so a Beta subscriber auto-promotes to
+  Rc/Stable releases without seeing Alpha-or-below.
+  - Splits branch protection: `protected-stable-branches` (main /
+  release-candidate / beta / alpha — no bypass actors) vs.
+  `protected-cron-channels` (nightly / weekly / monthly — admin bypass for
+  cron force-pushes). `apply-branch-rulesets.yml` now reconciles by
+  deleting unmanaged branch rulesets.
+  - Adds push-driven `alpha-release.yml` / `beta-release.yml` /
+  `release-candidate-release.yml` workflows with a monotonic counter that
+  never resets across base-version bumps (`0.48.0-alpha.1`,
+  `0.48.0-alpha.2`, `0.49.0-alpha.3`, …).
+  - Gates **Nightly / Weekly / Monthly / Alpha** behind Dev Access in the
+  settings dropdown; Beta and RC remain freely selectable but trigger a
+  `ChannelSwitchWarning` confirmation modal.
+  - `release.yml` now derives the GitHub Release `prerelease` flag from
+  the tag suffix (was hard-coded `true`), so stable `vX.Y.Z` tags publish
+  as full releases.
+  - New `update-security-policy.yml` regenerates the SECURITY.md
+  supported-versions table between sentinel comments on every version bump
+  (pre-1.0 → "current latest 0.x.y or newer"; 1.0+ → "current full release
+  only").
+  - New `realign-alpha.yml` one-shot manual workflow to hard-reset `alpha`
+  to `main` (used during this overhaul; remains checked in for any future
+  cleanup).
+  - Bumps version to **0.48.0** across `package.json`,
+  `package-lock.json`, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`,
+  `.release-please-manifest.json`.
+
+  ## Test plan
+
+  - [ ] CI green on this branch (Rust + frontend)
+  - [x] `npm run type-check` clean (verified locally)
+  - [x] `npm run test` — 19 files / 303 tests passing (verified locally)
+  - [ ] `cargo check` — needs CI / Linux dev box with GTK system libs
+  (sandbox lacks `libgtk-3-dev`, `libatk1.0-dev`, etc.)
+  - [ ] After merge: trigger `Apply Branch Rulesets` workflow to install
+  the split rulesets and clean up the legacy `protected-release-branches`
+  ruleset
+  - [ ] After merge: trigger `Realign Alpha with Main` (with the temporary
+  admin bypass on `protected-stable-branches`) to put `alpha` in sync,
+  then remove the bypass
+
+  ## Notes for review
+
+  - The `alpha` realignment must happen **after** the new rulesets land.
+  Procedure documented in `realign-alpha.yml`'s header.
+  - Existing channel subscribers (anyone currently on
+  Nightly/Weekly/Monthly/Alpha) will keep their channel even if Dev Access
+  is later disabled — the gate only affects the dropdown options, not the
+  persisted setting.
+  - `update_checker.rs` test suite extended to cover the new ordering, the
+  `>=` filter, and `requires_dev_access()`.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.47.1] - 2026-04-26
+
 ### 🐛 Bug Fixes
 
 - **(updates)** GAMDL upgrade follow-ups — surface real pip error + don't conflate refresh failure with upgrade failure (#626)
