@@ -74,22 +74,19 @@ jobs:
           # Build the table rows per the support rules.
           if [ "$MAJOR" = "0" ]; then
             # Pre-1.0: support latest 0.x.y or newer.
-            BLOCK=$(cat <<EOF
-| Version       | Supported          |
-| ------------- | ------------------ |
-| >= ${BASE}    | :white_check_mark: |
-| < ${BASE}     | :x:                |
-EOF
-)
+            BLOCK=$(printf '%s\n' \
+              '| Version       | Supported          |' \
+              '| ------------- | ------------------ |' \
+              "| >= ${BASE}    | :white_check_mark: |" \
+              "| < ${BASE}     | :x:                |")
           else
             # 1.0+: support only the current full release.
-            BLOCK=$(cat <<EOF
-| Version       | Supported          |
-| ------------- | ------------------ |
-| ${BASE}       | :white_check_mark: |
-| != ${BASE}    | :x:                |
-EOF
-)
+            BLOCK=$(printf '%s\n' \
+              '| Version       | Supported          |' \
+              '| ------------- | ------------------ |' \
+              "| ${BASE}       | :white_check_mark: |" \
+              "| != ${BASE}    | :x:                |")
+          fi
           fi
 
           # Write the generated block to a temp file so the next step can
