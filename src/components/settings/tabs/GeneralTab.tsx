@@ -685,7 +685,7 @@ export function GeneralTab() {
           value, since `value={settings.update_channel}` was never updated). */}
       {pendingChannel && (
         <ChannelSwitchWarning
-          open={pendingChannel !== null}
+          open={true}
           targetChannel={pendingChannel}
           onConfirm={() => {
             updateSettings({ update_channel: pendingChannel });
