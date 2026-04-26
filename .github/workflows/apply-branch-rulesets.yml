@@ -10,11 +10,17 @@
 # existing ruleset on the repo: present → PUT update, absent → POST create.
 #
 # Rulesets committed in this repo:
-#   - protected-release-branches.json
-#       Blocks deletion and non-fast-forward pushes on main, beta, alpha,
-#       monthly, weekly, and nightly. This is the safety net that lets the
-#       repo-wide "Automatically delete head branches" setting stay on
-#       without risking the long-lived channel branches.
+#   - protected-stable-branches.json
+#       Strict protection for main, release-candidate, beta, alpha. No bypass
+#       actors — these branches must never receive a force-push from automation.
+#   - protected-cron-channels.json
+#       Protection for nightly, weekly, monthly with a RepositoryRole admin
+#       bypass so the cron-driven release workflows can do their integration
+#       force-push using RELEASE_PAT.
+#
+# After applying source-tree rulesets, any ruleset on the repo whose name is
+# NOT present in the source tree is deleted. This is what cleans up the legacy
+# `protected-release-branches` ruleset after the split landed.
 #
 # Requires: RELEASE_PAT with `administration:write` scope on the repo.
 
@@ -47,8 +53,13 @@ jobs:
           # List existing rulesets (name → id map)
           EXISTING=$(gh api "repos/$REPO/rulesets" --jq 'map({ (.name): .id }) | add // {}')
 
+          # Collect the set of names defined in the source tree so we can
+          # reconcile (delete unmanaged rulesets) after applying.
+          SOURCE_NAMES=()
+
           for FILE in .github/rulesets/*.json; do
             NAME=$(jq -r '.name' "$FILE")
+            SOURCE_NAMES+=("$NAME")
             echo "::group::$NAME ($FILE)"
 
             # Strip comment-only fields (keys starting with _) before sending
@@ -64,3 +75,21 @@ jobs:
             fi
             echo "::endgroup::"
           done
+
+          # Reconcile: delete any branch-targeted ruleset on the repo whose
+          # name is not present in the source tree. This cleans up renamed /
+          # split / removed rulesets without manual intervention.
+          # (Rulesets we don't manage — e.g. tag rulesets created via the UI —
+          # would also be deleted here, so all branch rulesets must be
+          # source-controlled.)
+          UNMANAGED=$(echo "$EXISTING" | jq -r --argjson keep "$(printf '%s\n' "${SOURCE_NAMES[@]}" | jq -R . | jq -s .)" \
+            'to_entries | map(select(.key as $k | $keep | index($k) | not)) | .[] | "\(.key)\t\(.value)"')
+          if [ -n "$UNMANAGED" ]; then
+            while IFS=$'\t' read -r NAME ID; do
+              echo "::group::Deleting unmanaged ruleset: $NAME (id=$ID)"
+              gh api -X DELETE "repos/$REPO/rulesets/$ID" || echo "::warning::Failed to delete ruleset $NAME"
+              echo "::endgroup::"
+            done <<< "$UNMANAGED"
+          else
+            echo "No unmanaged rulesets to clean up."
+          fi

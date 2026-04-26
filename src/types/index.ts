@@ -199,7 +199,50 @@ export type UpdateChannel =
   | 'monthly'
   | 'alpha'
   | 'beta'
+  | 'rc'
   | 'stable';
+
+/**
+ * Channels that are gated behind Dev Access (Konami-code activation).
+ * The settings UI hides these from the channel dropdown unless
+ * `dev_access_enabled` is true. Beta and Rc are freely selectable
+ * (with a one-time stability-warning modal); Stable is the default.
+ */
+export const DEV_ACCESS_CHANNELS: ReadonlyArray<UpdateChannel> = [
+  'nightly',
+  'weekly',
+  'monthly',
+  'alpha',
+];
+
+/**
+ * Channels less stable than `stable`. Switching to any of these triggers
+ * a stability-warning confirmation modal in the UI.
+ */
+export const PRE_RELEASE_CHANNELS: ReadonlyArray<UpdateChannel> = [
+  'nightly',
+  'weekly',
+  'monthly',
+  'alpha',
+  'beta',
+  'rc',
+];
+
+/**
+ * Numeric stability rank used for "is channel A more stable than channel B"
+ * comparisons in the UI. Mirrors the `PartialOrd` ordering of the Rust
+ * `UpdateChannel` enum: Nightly(0) < Weekly(1) < Monthly(2) < Alpha(3) <
+ * Beta(4) < Rc(5) < Stable(6). Higher = more stable.
+ */
+export const CHANNEL_STABILITY_RANK: Record<UpdateChannel, number> = {
+  nightly: 0,
+  weekly: 1,
+  monthly: 2,
+  alpha: 3,
+  beta: 4,
+  rc: 5,
+  stable: 6,
+};
 
 // ============================================================
 // Human-readable labels for codec/quality selectors

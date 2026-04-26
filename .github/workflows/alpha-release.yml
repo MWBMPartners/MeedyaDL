@@ -1,0 +1,148 @@
+# Copyright (c) 2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Alpha Release Workflow for MeedyaDL
+# ===================================
+#
+# Triggered on every push to the `alpha` branch. Computes the next
+# monotonic alpha counter, patches version manifests with
+# `X.Y.Z-alpha.N`, commits the bump on `alpha`, then pushes a
+# `vX.Y.Z-alpha.N` tag. The tag push triggers `release.yml`, which
+# builds and publishes a pre-release.
+#
+# Counter semantics:
+#   The `N` value never resets across base-version bumps. The workflow
+#   queries every existing `v*-alpha.*` tag in the repository, extracts
+#   the highest `N`, and uses `N+1`. Example progression:
+#     v0.48.0-alpha.1  (first alpha for 0.48.0)
+#     v0.48.0-alpha.2
+#     v0.49.0-alpha.3  (base version bumps; counter does NOT reset)
+#
+# Concurrency: per-branch lock prevents two pushes from racing into
+# the same counter value.
+#
+# Triggering: `push` events from human commits land here. The `alpha`
+# branch is force-push-protected with no bypass actor — pushes are
+# fast-forward only, just like `main`. Use a normal `git push origin alpha`
+# from a maintainer's local checkout.
+
+name: Alpha Release
+
+on:
+  push:
+    branches: [alpha]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run version bump locally but skip the tag push'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: alpha-release
+  cancel-in-progress: false
+
+jobs:
+  alpha:
+    name: Build alpha tag
+    runs-on: ubuntu-latest
+    # Skip the workflow when the push was made by this very job (the
+    # `chore(alpha): X.Y.Z-alpha.N` commit pushed in the final step would
+    # otherwise re-trigger the workflow and cause an infinite loop).
+    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout alpha
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: alpha
+          fetch-depth: 0
+          # RELEASE_PAT is required so the tag push triggers release.yml.
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute next alpha version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Strip any pre-release suffix so the base version is canonical.
+          BASE=$(node -p "require('./package.json').version")
+          BASE="${BASE%%-*}"
+          # Query every alpha tag across all base versions and pick max+1.
+          # Falls back to 0 if no alpha tags exist yet.
+          MAX=$(gh api "repos/$REPO/tags" --paginate --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$' \
+            | sed -E 's/.*-alpha\.([0-9]+)$/\1/' \
+            | sort -n | tail -1 || echo 0)
+          MAX="${MAX:-0}"
+          NEXT=$((MAX + 1))
+          VERSION="${BASE}-alpha.${NEXT}"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "counter=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Patch version in manifests
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e "
+            import { readFileSync, writeFileSync } from 'node:fs';
+            const v = process.env.NEW_VERSION;
+            for (const p of ['package.json', 'src-tauri/tauri.conf.json']) {
+              const j = JSON.parse(readFileSync(p, 'utf8'));
+              j.version = v;
+              writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+            }
+          "
+          python3 - <<PY
+          import re, pathlib, os
+          p = pathlib.Path('src-tauri/Cargo.toml')
+          t = p.read_text()
+          t = re.sub(r'(?m)^version\s*=\s*"[^"]*"', f'version = "{os.environ["NEW_VERSION"]}"', t, count=1)
+          p.write_text(t)
+          PY
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Regenerate Cargo.lock
+        working-directory: src-tauri
+        run: cargo generate-lockfile
+
+      - name: Commit version bump
+        run: |
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git commit -m "chore(alpha): ${{ steps.version.outputs.version }}"
+
+      - name: Push alpha branch and tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # Fast-forward push of the version-bump commit. The branch
+          # ruleset blocks non-fast-forward pushes; we never overwrite
+          # history here.
+          git push origin alpha
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Alpha ${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Alpha Build"
+            echo ""
+            echo "- **Tag:** \`${{ steps.version.outputs.tag }}\`"
+            echo "- **Channel:** alpha"
+            echo "- **Counter:** ${{ steps.version.outputs.counter }}"
+            echo "- **Base version:** ${{ steps.version.outputs.base }}"
+          } >> "$GITHUB_STEP_SUMMARY"
