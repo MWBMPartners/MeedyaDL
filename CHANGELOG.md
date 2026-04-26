@@ -105,6 +105,7 @@ Adds a Release Candidate tier between Beta and Stable, splits the channel
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.47.1] - 2026-04-26
 
