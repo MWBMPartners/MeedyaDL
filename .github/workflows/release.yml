@@ -218,6 +218,28 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           echo "number=${TAG#v}" >> "$GITHUB_OUTPUT"
 
+      # Step 0c: Derive the GitHub Release `prerelease` flag from the tag.
+      # Any tag with a pre-release suffix (e.g. `-alpha.1`, `-beta.2`,
+      # `-rc.3`, `-nightly.20260420`) marks the release as pre-release.
+      # A bare semver tag (`v1.0.0`) marks it as a stable / non-prerelease
+      # release. This replaces the previous hard-coded `prerelease: true`
+      # flag and lets the same workflow handle both stable and pre-release
+      # tag pushes correctly.
+      - name: Derive prerelease flag from tag
+        id: prerelease
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          # Strip leading 'v' then check for a `-` indicating a pre-release suffix.
+          STRIPPED="${TAG#v}"
+          if [[ "$STRIPPED" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
       # Step 1: Check out the repository code at the tagged commit.
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -686,12 +708,12 @@ jobs:
 
             On first launch, MeedyaDL will guide you through a setup wizard that downloads Python, GAMDL, and required tools automatically. You will also need to provide your Apple Music cookies exported from your browser — see the in-app help for instructions.
           releaseDraft: true
-          # All releases are pre-release until v1.0. Users with the
-          # "Include Pre-Release Versions" toggle enabled (Settings >
-          # General) will receive these updates. To publish a full
-          # (stable) release, change this to false or manually edit
-          # the release on GitHub after publishing.
-          prerelease: true
+          # `prerelease` is derived from the tag suffix in step 0c:
+          # any `-alpha.N` / `-beta.N` / `-rc.N` / `-nightly.*` / `-weekly.*`
+          # / `-monthly.*` tag → pre-release; bare `vX.Y.Z` → stable. This
+          # lets the same release workflow handle every channel without
+          # hard-coding the flag for each tag push.
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
           args: ${{ matrix.settings.args }}
 
       # Step 10a: Build macOS with notarization retry.
@@ -775,7 +797,7 @@ jobs:
 
           # Ensure the draft release exists (another build may not have created it yet)
           if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft --prerelease --title "$TAG" --notes "Release in progress..."
+            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
           fi
 
           # Upload .dmg
@@ -843,7 +865,7 @@ jobs:
 
           # Ensure the draft release exists (another build may not have created it yet)
           if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft --prerelease --title "$TAG" --notes "Release in progress..."
+            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
           fi
 
           # Upload .deb: rename armhf → armv7 for clarity
