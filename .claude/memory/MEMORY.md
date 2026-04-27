@@ -1,0 +1,6 @@
+- [macOS updater bug](project_macos_updater_bug.md) — recurring filename mismatch in release workflow, fixed #368
+- [GitHub orgs](project_github_orgs.md) — MWBMPartners + MeedyaDL orgs, both allowed in cargo-deny
+- [meedyadl-v2 archive](project_meedyadl_v2_archive.md) — historic only; live prep is `prep/expanded-services-groundwork`
+- [v1 RC prep](project_v1_rc_prep.md) — at v0.49.1, 2 RC blockers open (#232, #182); milestones renumbered (BBC iPlayer M8, Spotify M9, YouTube M10)
+- [Multi-service groundwork](project_multi_service_groundwork.md) — `prep/expanded-services-groundwork` ready for M8 (BBC iPlayer); merge before starting service work
+- [GAMDL release cadence](project_gamdl_release_cadence.md) — upstream ships fast (4 releases in 3 days); audit checklist + zero-code-change pattern
