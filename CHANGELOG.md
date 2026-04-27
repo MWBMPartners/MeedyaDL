@@ -4,6 +4,91 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.49.2 [skip ci]
+
+### 🧹 Maintenance
+
+- **(claude)** Share project Claude memory across dev machines (#643)
+
+Until now, Claude Code's per-project memory store has lived only at
+  `~/.claude/projects/<sanitised-repo-path>/memory/` — a per-user,
+  per-machine location that can't be loaded directly from inside the
+  repo. Every contributor's Claude session has therefore been starting
+  blind to project context like the v1 RC milestone state, the
+  multi-service groundwork status, the macOS updater bug history, the
+  GAMDL audit cadence, etc.
+
+  This commit adds:
+
+  - `.claude/memory/` — canonical project-scoped memory files
+    (`type: project`) plus a shared `MEMORY.md` index and a
+    README documenting the convention. Six files seeded from the
+    current memory store: macOS updater bug, GitHub orgs,
+    meedyadl-v2 archive, v1 RC prep, multi-service groundwork,
+    GAMDL release cadence.
+  - `scripts/sync-claude-memory.sh` — POSIX shell script that
+    computes the sanitised path for the dev's clone and copies
+    every shared memory file into the dev's local memory dir.
+    Merges the shared `MEMORY.md` hooks under sentinel markers
+    (`<!-- claude-memory:shared:start/end -->`) so re-runs are
+    idempotent and personal hooks above/below the block are
+    preserved. Strips outside-block references to shared
+    filenames so contributors who hand-edited their index before
+    this convention existed don't end up with duplicates.
+  - `.claude/CLAUDE.md` — new "Shared Claude memory" convention
+    entry pointing at the script and the README.
+
+  Scope is intentionally project-only. `type: user` and
+  `type: feedback` memory stays personal in each contributor's
+  home dir — committing one contributor's git-workflow
+  preferences or user profile would force every other
+  contributor's Claude session to inherit them, which is the
+  wrong scope.
+
+  Sync direction is intentionally repo→home only. Local edits to
+  the home memory don't propagate back; to share a change, edit
+  the file under `.claude/memory/` in the repo and commit. This
+  keeps the repo as the deliberate source of truth and avoids
+  silent drift on individual machines.
+
+  Verified locally:
+
+  - Fresh-install path: when no personal `MEMORY.md` exists,
+    the script writes the marker block as the entire file.
+  - Update path: on re-runs, the personal file is filtered
+    (block stripped, duplicate references to shared filenames
+    removed) and the fresh block appended.
+  - Idempotency: third consecutive run produces a byte-identical
+    file (md5 verified).
+  - Cross-shell portability: avoids `case` inside `$()`
+    (POSIX-mode bash 3.x on macOS misparses) and avoids
+    multi-line `awk -v` (BSD awk rejects).
+
+- **(claude)** Share project Claude memory across dev machines (#644)
+
+## Summary
+
+  - Commits the `type: project` subset of Claude Code memory into
+  `.claude/memory/` so every contributor's Claude session loads the same
+  project context (RC milestone state, multi-service groundwork, GAMDL
+  audit cadence, macOS updater bug, GitHub org structure, meedyadl-v2
+  archive).
+  - Adds `scripts/sync-claude-memory.sh` — a POSIX shell script that
+  copies the shared memory files into the dev's local Claude memory dir
+  (`~/.claude/projects/<sanitised-path>/memory/`) and merges shared
+  `MEMORY.md` hooks under sentinel markers, idempotent, repo→home only.
+  - Adds `.claude/memory/README.md` documenting the convention and
+  `.claude/CLAUDE.md` gets a short \"Shared Claude memory\" entry pointing
+  at the script.
+
+  ## Scope choice: project-only
+
+
 ## [0.49.2] - 2026-04-27
 
 ### 📚 Documentation
