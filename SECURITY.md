@@ -7,10 +7,10 @@
      Manual edits between the BEGIN/END markers will be overwritten. The rules:
        - While the project is on 0.x.y: support the current latest 0.x.y or newer.
        - At 1.0.0+: support only the current full (stable) release. -->
-| Version    | Supported          |
-| ---------- | ------------------ |
-| >= 0.48.0  | :white_check_mark: |
-| < 0.48.0   | :x:                |
+| Version       | Supported          |
+| ------------- | ------------------ |
+| >= 0.49.1    | :white_check_mark: |
+| < 0.49.1     | :x:                |
 <!-- END supported-versions -->
 
 ## Supported Components
