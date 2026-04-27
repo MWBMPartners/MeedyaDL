@@ -4,6 +4,104 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.49.1 [skip ci]
+
+### 🧹 Maintenance
+
+- **(gamdl)** Admit v3.4 and v3.5 to the support window (#641)
+
+Audit of upstream GAMDL v3.4 (3.3..3.4: 11 commits, 9 files) and v3.5
+  (3.4..3.5: 4 commits, 3 files) confirms zero MeedyaDL-facing surface
+  change. No CLI flags added/removed, no INI keys changed, no
+  output-format regressions, no `GamdlFeature` gate adjustments.
+
+  v3.4 swapped GAMDL's logging output stream from stderr to stdout
+  (`logging.StreamHandler` → `structlog.PrintLoggerFactory(file=
+  CustomOutputWriter([sys.stdout]))`). Benign — both reader tasks in
+  `download_queue.rs` parse identically via `parse_gamdl_output()`. As
+  a free side effect, the latent `──── [Track N/M] Downloading
+  "Title" ────` cosmetic separator (only emitted from the stdout
+  reader) starts firing reliably from 3.4+ because TrackInfo lines
+  now arrive on stdout instead of stderr. v3.4 also enriched the
+  subprocess-failure message format to embed the failing subtool's
+  own stderr, which strictly improves `process::classify_error()`
+  accuracy.
+
+  v3.5 is a 4-commit fix to GAMDL's iTunes lookup HTTP layer
+  (`follow_redirects=True`, `X-Apple-Store-Front` header tweak,
+  `storefront_id=None` for non-US storefronts). Pure upstream win for
+  music-video metadata coverage, especially for non-US users.
+
+- **(gamdl)** Admit v3.4 and v3.5 to the support window (#642)
+
+## Summary
+
+  - Audited GAMDL v3.4 (3.3..3.4: 11 commits, 9 files) and v3.5 (3.4..3.5:
+  4 commits, 3 files) against MeedyaDL's integration surface — zero
+  CLI/INI/output-format surface change, no `GamdlFeature` gate
+  adjustments, no parser regression.
+  - Bumped `tool-versions.toml` `maximum_tested_version` and
+  `recommended_version` from 3.3 → 3.5; added inline 3.4 + 3.5 narratives
+  mirroring the existing 3.2 / 3.3 paragraphs.
+  - New audit document at `.github/audits/gamdl-v3.4-v3.5-audit.md`
+  following the `gamdl-v3.2-audit.md` structure (capability gate matrix,
+  finding-by-finding analysis, floor analysis, conclusion).
+  - README.md Component Support Matrix bumped to `2.9.1 – 3.5`
+  (recommended 3.5).
+  - CLAUDE.md version-aware GAMDL dispatch paragraph appends 3.4 + 3.5
+  audit notes inline.
+
+  ## Notable findings
+
+  **v3.4 logging stream swap stderr → stdout** (`logging.StreamHandler()`
+  →
+  `structlog.PrintLoggerFactory(file=CustomOutputWriter([sys.stdout]))`):
+  benign because both `stdout_task` and `stderr_task` in
+  `download_queue.rs` call `parse_gamdl_output()` identically. **Free UX
+  win**: the cosmetic `──── [Track N/M] Downloading \"Title\" ────`
+  separator (only emitted from the stdout reader) was a latent no-op
+  pre-3.4 because TrackInfo log lines came from stderr; from 3.4+ it fires
+  reliably.
+
+  **v3.4 subprocess error format change** (`'\"<cmd>\" exited with code
+  N'` → `'Exited with code N: <args>\\nstdout:\\n…\\nstderr:\\n…'`):
+  strictly improves `process::classify_error()` accuracy because it now
+  embeds the failing subtool's own stderr (network keywords, codec
+  keywords, etc.).
+
+  **v3.5 iTunes HTTP fixes** (`follow_redirects=True`,
+  `X-Apple-Store-Front` header tweak, `storefront_id=None` for non-US
+  storefronts): pure upstream win for music-video metadata coverage.
+
+  Database overwrite (3.4) is scoped to `--database-path` users only —
+  MeedyaDL never sets that flag.
+
+  Full per-finding analysis lives in the audit document.
+
+  ## Test plan
+
+  - [x] `cargo test --lib gamdl_capabilities` — 20/20 tests pass with the
+  bumped 3.5 ceiling (support window parses, recommended-inside-range
+  invariant holds, classify-above-ceiling/below-floor/inside-window all
+  green).
+  - [ ] Manual smoke: fresh install → setup wizard installs GAMDL →
+  confirm `pip install --upgrade 'gamdl>=2.9.1,<=3.5'` resolves to 3.5.
+  - [ ] Manual smoke: existing 3.3 install → "Update GAMDL" → confirm
+  install path lands on 3.5.
+  - [ ] Manual smoke: download an album on 3.4+ → confirm the new `────
+  [Track N/M] Downloading ────` separator appears in the activity log (was
+  latent pre-3.4).
+  - [ ] Manual smoke: download a non-US (e.g. GB / AU) artist with music
+  videos → confirm 3.5 iTunes redirect fix unblocks previously-broken
+  music-video metadata.
+
+
 ## [0.49.1] - 2026-04-27
 
 ### 🐛 Bug Fixes
