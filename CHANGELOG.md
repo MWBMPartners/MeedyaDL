@@ -4,13 +4,14 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.49.2] - 2026-04-27
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 0.49.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
