@@ -28,6 +28,7 @@ The Compute supported-versions table step had a stray duplicate `fi`
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.49.0] - 2026-04-26
 
