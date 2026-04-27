@@ -132,7 +132,60 @@ minimum_version = "2.9.1"
 #     or regex changes. `TRACK_INFO_V2_REGEX`, `ERROR_PREFIX_REGEX`,
 #     and every `GamdlFeature` gate behave identically on 3.3 and 3.2.
 #   * Safe to admit to the support window without further code changes.
-maximum_tested_version = "3.3"
+#
+# 3.4 validation (audit: `.github/audits/gamdl-v3.4-v3.5-audit.md`,
+# 2026-04-27, 11 upstream commits, 9 files touched):
+#   * **Logging stream swap**: `cli/cli.py` migrated from
+#     `structlog.stdlib.LoggerFactory` (which routed through stdlib
+#     `logging.StreamHandler()` defaulting to **stderr**) to
+#     `structlog.PrintLoggerFactory(file=CustomOutputWriter([sys.stdout]))`.
+#     Every GAMDL log line now lands on **stdout** instead of stderr.
+#     Benign for MeedyaDL because both reader tasks in `download_queue.rs`
+#     call `parse_gamdl_output()` identically — error collection,
+#     progress updates, and Python-traceback extraction are all
+#     stream-agnostic. The cosmetic `──── [Track N/M] Downloading
+#     "Title" ────` separator (only emitted from the stdout reader)
+#     was a latent no-op pre-3.4 because TrackInfo lines came from
+#     stderr; it now starts firing reliably as a free UX improvement.
+#   * **Subprocess error format change**: `utils.async_subprocess()`
+#     replaced `'"<arg0>" exited with code N'` with
+#     `'Exited with code N: <full args>\nstdout:\n…\nstderr:\n…'`.
+#     `process::classify_error()` matches on substrings (ffmpeg,
+#     mp4decrypt, timeout, dns, …) so the new richer text classifies
+#     **better**, not worse. No regex update needed.
+#   * **`Database(overwrite)` constructor + new `flat_filter` sentinel
+#     return** (`"Registered in database"` instead of a path string):
+#     scoped to `--database-path` users only. MeedyaDL never sets that
+#     flag (`grep -rn "database_path" src-tauri/src/` confirms only the
+#     `gamdl_capabilities.rs` module-doc reference). Invisible to us.
+#   * **`DownloadItem.uuid_` factory fix** (class-level expression →
+#     `field(default_factory=…)`), **`skip_cleanup` cleanup refactor**
+#     (caller-side check, net behaviour identical), **raw cover URL
+#     suffix strip** (`/{w}x{h}bb.jpg` removed by `_get_raw_cover_url`),
+#     **filter exclusion error message reworded**: all internal to GAMDL
+#     and never crossed our IPC boundary.
+#   * **`--log-file` codepath** also swapped from `logging.FileHandler`
+#     to `CustomOutputWriter.add_file()`. MeedyaDL doesn't pass
+#     `--log-file` (only `--log-level`), so the file-logging change is
+#     irrelevant.
+#   * No CLI flag added, removed, or renamed. No INI key changed. No
+#     `GamdlFeature` gate touched.
+#
+# 3.5 validation (same audit, 4 upstream commits, 3 files touched —
+# all internal HTTP/storefront fixes for the iTunes lookup path used
+# by music-video metadata):
+#   * `api/itunes.py`: `httpx.AsyncClient(..., follow_redirects=True)`.
+#   * `api/itunes.py`: `X-Apple-Store-Front` header changed from
+#     `"{storefront_id}-1,32 t:music31"` to
+#     `"{storefront_id},32 t:music31"` (commit message references
+#     `-28`; the diff strips `-1`. Either way it's a header detail
+#     internal to GAMDL's HTTP layer).
+#   * `interface/base.py`: passes `storefront_id=None` to
+#     `ItunesApi.create()` for non-US storefronts.
+#   * Bug-fixes-only release for music-video iTunes-page lookups; no
+#     CLI / INI / output-format surface change.
+#   * Safe to admit to the support window without further code changes.
+maximum_tested_version = "3.5"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.3"
+recommended_version = "3.5"
