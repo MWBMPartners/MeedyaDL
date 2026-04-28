@@ -102,11 +102,133 @@ This changelog is automatically generated from [conventional commits](https://ww
   - [ ] End-to-end smoke: next scheduled nightly (00:00 UTC tonight)
   produces a *published* prerelease visible on its tag page.
 
+- **(ci)** Version-bump.yml pre-creates GitHub Release to prevent draft fragmentation (#645)
+
+When releases are cut via `version-bump.yml` (the manual override / hotfix
+  path), `release.yml`'s six platform-build jobs all run in parallel and each
+  calls `tauri-action`. tauri-action's "create-or-update" logic checks for an
+  existing release; if none exists, it falls back to `gh release create
+  --draft "Release in progress..."`. When two jobs hit that fallback within
+  the same few hundred milliseconds, GitHub's API races them and creates two
+  separate draft releases for the same tag, fragmenting installer assets
+  across them.
+
+  Evidence from the v0.49.1 / v0.49.2 audit (#645):
+
+  - v0.49.1 ended up with a published release (6 of 20 assets) plus an
+    orphan draft (14 of 20 assets) that sat unmerged for ~11 hours, leaving
+    Windows / Linux x64 / Linux ARM64 users with no installer.
+  - v0.49.2 ended up split across THREE separate drafts (10 + 7 + 5 assets),
+    none of which were published, so the public tag page showed only source
+    archives until the manual consolidation on 2026-04-28.
+
+  The fix swaps the local `git tag -a` + `git push origin <tag>` sequence
+  for `gh release create <tag> --target <commit_sha> --draft`. That single
+  API call atomically:
+
+    1. Creates the tag on the remote (no `git push origin <tag>` needed).
+    2. Creates the draft GitHub Release object.
+
+  When `release.yml` triggers from the resulting tag-create event, every
+  platform job's `gh release view` finds the same existing draft and
+  attaches its assets to it. No race, no fragmentation.
+
+  Notes are intentionally a short placeholder. `release.yml`'s
+  `Finalize Release Notes` step appends a download guide at the end of
+  the build, and `changelog.yml` regenerates CHANGELOG.md on the next
+  commit. Maintainers running version-bump.yml manually can
+  `gh release edit "$TAG" --notes "…"` post-build for richer notes —
+  this is the manual / hotfix path, not the standard release-please flow.
+
+  Stable releases continue to land as drafts so the maintainer can review
+  platform artifacts before publishing. (Prerelease auto-publishing is
+  handled separately by #646 in `release.yml`'s finalize-release job.)
+
+- **(ci)** Version-bump.yml pre-creates GitHub Release to prevent draft fragmentation (#648)
+
+## Summary
+
+  Fixes the race-condition documented in #645 where manual releases cut
+  via \`version-bump.yml\` end up split across two or three competing
+  draft GitHub Releases — fragmenting installer assets so users see only
+  some platforms (or none) on the public tag page.
+
+  ## Root cause
+
+  \`release.yml\` runs six platform-build jobs in parallel via
+  \`tauri-action\`. Each one's \"create-or-update\" logic checks whether a
+  release exists for the tag; if not, it falls back to \`gh release create
+  --draft \"Release in progress...\"\`. When two jobs hit that fallback in
+  the same few hundred milliseconds, GitHub's API races them and produces
+  two separate draft releases, partitioning assets across them by
+  platform-job timing.
+
+  The standard release-please flow is unaffected because
+  \`release-please-action\` creates the release object before
+  \`release.yml\` ever runs. The manual \`version-bump.yml\` path skipped
+  that pre-creation entirely.
+
+  ## Evidence (from #645 audit)
+
+  - **v0.49.1** — ended up with one published release (6/20 assets) and
+  one orphan draft (14/20 assets) that sat unmerged for ~11 hours. Windows
+  / Linux x64 / Linux ARM64 users had no installer.
+  - **v0.49.2** — split across **three** separate drafts (10 + 7 + 5
+  assets), none published, so the public tag page showed only source
+  archives until manually consolidated on 2026-04-28.
+
+  ## Fix
+
+  Swap the local \`git tag -a\` + \`git push origin <tag>\` sequence for
+  \`gh release create <tag> --target <commit_sha> --draft\`. That single
+  API call atomically:
+
+  1. Creates the tag on the remote (no separate tag push needed).
+  2. Creates the draft GitHub Release object.
+
+  When \`release.yml\` triggers from the tag-create event, every platform
+  job's \`gh release view\` finds the same existing draft and attaches its
+  assets to it. No race, no fragmentation.
+
+  ## Why notes are a short placeholder
+
+  \`release.yml\`'s \`Finalize Release Notes\` step appends a download
+  guide. \`changelog.yml\` regenerates \`CHANGELOG.md\` with full
+  git-cliff content. Maintainers running version-bump.yml manually can
+  \`gh release edit \"$TAG\" --notes \"…\"\` post-build for richer notes —
+  version-bump.yml is the *manual override / hotfix path*, not the
+  standard automated release path. The standard \`release-please-action\`
+  path produces auto-generated changelog notes already.
+
+  ## Why drafts stay as drafts
+
+  Stable releases continue to land as drafts so the maintainer can review
+  platform artifacts before publishing. **Prerelease auto-publishing is
+  handled separately by #646** in \`release.yml\`'s \`finalize-release\`
+  job (auto-publishes nightlies / weeklies / monthlies / alphas / betas /
+  rcs).
+
+  ## Test plan
+
+  - [x] Diff verified — \`git tag -a\` + \`git push origin <tag>\`
+  removed; \`gh release create --target <sha> --draft\` step added.
+  - [x] \`steps.commit.outputs.sha\` correctly threaded into the
+  \`--target\` flag (the version-bump commit's exact SHA, before any
+  subsequent \`[skip ci]\` activity).
+  - [x] RELEASE_PAT used for \`gh\` (so the tag-create event triggers
+  \`release.yml\`).
+  - [ ] End-to-end smoke: next manual \`version-bump.yml\` run produces
+  exactly **one** GitHub Release object with all 20 platform assets
+  (matches v0.49.0's complete-release baseline).
+
+  ## Related
+
 
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 0.49.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
