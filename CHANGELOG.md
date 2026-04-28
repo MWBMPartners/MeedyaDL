@@ -6,6 +6,103 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.50.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Describe the seven-channel release ladder in README + Project_Plan (#635)
+
+The previous README.md "Release channels" table was stale:
+  - Claimed six channels; we have seven (RC tier missing).
+  - Said Weekly tags were `-weekly.YYYYWW` and Monthly were `-monthly.YYYYMM`,
+    but the actual workflows produce `YYYYMMDD` for both.
+  - Said "Stable | Release-please merge" — the prose buried the actual
+    trigger mechanism and ignored the version-bump.yml hotfix path.
+  - Didn't mention the dev-access gating that hides the four most
+    experimental tiers from the channel selector by default.
+  - Didn't explain that channel discovery uses `>=` for promotion, so
+    e.g. a Beta user also sees RC + Stable.
+
+  Project_Plan.md's "Release channel ladder + nightly auto-release"
+  entry was similarly stale — it said "six-tier" with weekly/monthly
+  "to follow the same template" as a future item, even though the
+  workflows are now shipped (PR #652 / #628). It also didn't mention
+  the RC tier, the push-driven alpha/beta/rc workflows (#631), the
+  split branch rulesets (#629), the channel-bump UI restrictions
+  (#632), the `release.yml` auto-publish behaviour (#646), the
+  `version-bump.yml` race-condition fix (#645), the security-policy
+  auto-update (#633), or the realign-alpha helper (#634).
+
+  Both docs now describe the actual current state:
+  - README.md table updated to seven rows, correct suffixes, correct
+    triggers, and a paragraph explaining the dev-access gating + the
+    channel-promotion semantics.
+  - Project_Plan.md entry rewritten as a single comprehensive
+    paragraph that cross-references every shipped child issue.
+  - Project_Plan.md "Last updated" bumped to 2026-04-28.
+
+- Describe the seven-channel release ladder in README + Project_Plan (#654)
+
+## Summary
+
+  Closes the docs half of #635 — the CLAUDE.md half landed in PR #650, and
+  PR #652 added the actual weekly/monthly workflows. With both shipped,
+  README.md and Project_Plan.md can finally describe the ladder
+  accurately.
+
+  ## What changed
+
+  ### README.md \"Release channels\" section
+
+  | Before | After |
+  | --- | --- |
+  | \"six channels\" | \"seven channels\" |
+  | (no RC row) | New row: \"**RC** \\| Ad-hoc \\| push to
+  \`release-candidate\` branch \\| \`-rc.N\` (monotonic)\" |
+  | Weekly suffix \`-weekly.YYYYWW\` (wrong) | \`-weekly.YYYYMMDD\`
+  (matches what the workflow actually emits) |
+  | Monthly suffix \`-monthly.YYYYMM\` (wrong) | \`-monthly.YYYYMMDD\` |
+  | \"Stable \\| Release-please merge\" | \"Stable \\| Per-version \\|
+  release-please-action merge or \`version-bump.yml\` \\| *no suffix*\" |
+  | (no mention of dev-access gating) | New paragraph: the four
+  most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are gated
+  behind \`dev_access_enabled\` |
+  | (no mention of channel promotion semantics) | New sentence: discovery
+  filter uses \`>=\`, so e.g. a Beta user also sees RC + Stable |
+
+  ### Project_Plan.md \"Release channel ladder\" entry
+
+  Rewritten from the original \"six-tier with weekly/monthly to follow\"
+  pre-#628 wording into a single comprehensive paragraph describing the
+  actual current state — seven channels, three cron-driven, three
+  push-driven, plus stable. Cross-references every shipped child issue:
+  #628, #629, #630, #631, #632, #633, #634, #645, #646, plus PRs #647 /
+  #648 / #650 / #652.
+
+  \"Last updated\" timestamp bumped from 2026-04-11 to 2026-04-28.
+
+  ## Verification
+
+  - Verified Weekly Release and Monthly Release dry-runs succeed
+  end-to-end (workflow runs
+  [25045099333](https://github.com/MWBMPartners/MeedyaDL/actions/runs/25045099333)
+  and
+  [25046735408](https://github.com/MWBMPartners/MeedyaDL/actions/runs/25046735408)
+  — both completed in <40 seconds, no errors).
+  - Both \`weekly\` and \`monthly\` long-lived branches now exist on
+  origin at \`6b98aa4\`.
+
+  ## Test plan
+
+  - [x] Manual diff check — every claim cross-referenced against the
+  actual workflow files / settings.rs / update_checker.rs /
+  GeneralTab.tsx.
+  - [x] No code changes — pure docs.
+  - [ ] Maintainer eyeball review.
+
+
+## [0.50.0] - 2026-04-28
+
 ### ✨ Features
 
 - **(release)** Weekly + monthly cron workflows + branches (#628)
