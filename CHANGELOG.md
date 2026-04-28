@@ -6,6 +6,31 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ux)** Missing 'to' in untested-GAMDL warning message
+
+The Updates page warning shown to users when a GAMDL release
+  post-dates the last MeedyaDL validation read:
+
+    "or wait for the next MeedyaDL version validate it."
+
+  It should be:
+
+    "or wait for the next MeedyaDL version to validate it."
+
+  One-character fix (well, three-character — " to"). Spotted while
+  auditing the orphan chore/claude-shared-memory branch's local-only
+  commits, which had attempted earlier wording iterations on this
+  same paragraph but never got pushed because upstream already
+  rewrote the surrounding prose.
+
+- **(ux)** Missing 'to' in untested-GAMDL warning message (#655)
+
+One-word typo fix in
+  [UpdatesPage.tsx#L399](src/components/updates/UpdatesPage.tsx#L399).
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 0.50.0 [skip ci]
@@ -100,6 +125,7 @@ The previous README.md "Release channels" table was stale:
   - [x] No code changes — pure docs.
   - [ ] Maintainer eyeball review.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.50.0] - 2026-04-28
 
