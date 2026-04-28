@@ -1101,3 +1101,45 @@ jobs:
           # Update the release
           gh release edit "$TAG" --repo "$REPO" --notes "$NEW_BODY"
           echo "Download guide appended to release notes for $TAG"
+
+      # Auto-publish prerelease drafts (#646).
+      #
+      # tauri-action creates the GitHub Release as a draft and never publishes
+      # it. For STABLE releases (tag matches `vX.Y.Z` exactly), `release-please-
+      # action` publishes the release object itself before this workflow runs,
+      # so the draft state is irrelevant. For PRERELEASES (`vX.Y.Z-{nightly|
+      # weekly|monthly|alpha|beta|rc}.N` etc.) there is no release-please-action
+      # involvement — the draft sits unpublished forever, and end-users see
+      # only the source-archive auto-attachments on the public tag page.
+      #
+      # This step flips draft→published for any prerelease tag. Stable tags are
+      # deliberately left alone — `version-bump.yml`'s gap is fixed separately
+      # in #645 (pre-create the release object before the tag push).
+      #
+      # Idempotent: skips releases that are already published, so re-running
+      # the workflow on the same tag is safe.
+      - name: Auto-publish prerelease draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+
+          # Prerelease tags carry a hyphen suffix (`-nightly.YYYYMMDD`,
+          # `-alpha.N`, `-rc.N`, etc.) immediately after the `vX.Y.Z` core.
+          # Stable tags are bare semver (`v1.2.3`).
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            echo "Stable tag $TAG — leaving draft state alone (handled by release-please / #645)"
+            exit 0
+          fi
+
+          IS_DRAFT=$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)
+          if [ "$IS_DRAFT" != "true" ]; then
+            echo "Prerelease $TAG is already published — no action"
+            exit 0
+          fi
+
+          echo "Publishing prerelease draft: $TAG"
+          gh release edit "$TAG" --repo "$REPO" --draft=false
+          echo "Published $TAG as a public prerelease"
