@@ -380,7 +380,7 @@ export function UpdatesPage() {
                 {update.is_prerelease && (
                   <p className="text-[11px] text-status-warning mb-3">
                     This is a pre-release version and may contain bugs or incomplete features. Not
-                    recommended for production use.
+                    recommended for regular use.
                   </p>
                 )}
 
@@ -394,10 +394,9 @@ export function UpdatesPage() {
                  */}
                 {update.is_untested && !update.is_prerelease && (
                   <p className="text-[11px] text-status-warning mb-3">
-                    This GAMDL release was published after MeedyaDL&apos;s last validation pass and
-                    hasn&apos;t been audited yet. The upgrade is installable, but compatibility with
-                    MeedyaDL&apos;s download pipeline isn&apos;t guaranteed — install at your own
-                    risk, or wait for the next MeedyaDL build to validate it.
+                    This GAMDL release was published after MeedyaDL&apos;s last compatibility verification.
+                    The upgrade is installable, but compatibility with MeedyaDL&apos;s functionality isn&apos;t
+                    guaranteed — install at your own risk, or wait for the next MeedyaDL version validate it.
                   </p>
                 )}
 
