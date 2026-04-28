@@ -175,15 +175,21 @@ Push fix:/feat: commits directly to main
 
 Manual override: `version-bump.yml` + `scripts/bump-version.mjs` for non-standard releases.
 
-### Release Channels (six-tier ladder)
+### Release Channels (current state)
 
-Branches: `feat/* → nightly → weekly → monthly → alpha → beta → main (stable)`. All six channel branches are long-lived and protected against deletion + non-fast-forward pushes via `.github/rulesets/protected-release-branches.json` (applied by `apply-branch-rulesets.yml`). Merged PR head branches are auto-deleted by `auto-delete-merged-branches.yml` with the six channel names in a hard-coded exempt list.
+`UpdateChannel` enum in `models/settings.rs` declares **seven** ordered variants — `Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable` (`PartialOrd`) — but **only five of them have producer-side automation right now**: nightly (cron-driven), alpha / beta / release-candidate (push-driven on each respective long-lived branch), and stable (release-please-action / version-bump.yml). The `Weekly` and `Monthly` enum variants are aspirational — there are no `weekly-release.yml` / `monthly-release.yml` workflow files and no `weekly` / `monthly` long-lived branches on origin, so users who select those channels in Settings will never see a build land. Tracking issue: #628.
 
-- `nightly-release.yml` — cron `0 0 * * *`. Resets `nightly` to `main`, merges every `origin/feat/*` (skips conflicts, opens issue), bumps version to `X.Y.Z-nightly.YYYYMMDD` across package.json / tauri.conf.json / Cargo.toml, force-pushes `nightly`, creates tag → triggers `release.yml`. Weekly (`0 0 * * 0`) and monthly (`0 0 1 * *`) follow the same template.
-- `UpdateChannel` enum (`models/settings.rs`) — `Nightly < Weekly < Monthly < Alpha < Beta < Stable` (`PartialOrd`). `UpdateChannel::from_tag(&str)` parses the pre-release suffix of any tag. `update_channel: UpdateChannel` persisted in `AppSettings`.
-- `check_all_updates` filters GitHub releases by `user_channel`. A Stable user hits `releases/latest`; any non-Stable channel hits `releases?per_page=20` and picks the newest entry matching the exact channel (cross-channel entries are skipped, not surfaced as updates).
-- `download_and_install_app_update` in `commands/updates.rs` refuses tags whose channel is `< user_channel`. This is the client-side "option 2" enforcement — even a tampered manifest or stale deep link can't downgrade stability. Users move between channels via Settings > General > Updates; that's an explicit action.
-- Legacy `check_pre_releases: bool` is implicitly enabled whenever `update_channel != Stable` (forces the list endpoint); the channel drives which release is actually shown/installable.
+Long-lived channel branches (force-push-protected): `nightly`, `alpha`, `beta`, `release-candidate`. Stable is `main`. Branch protection lives in two split rulesets — `.github/rulesets/protected-stable-branches.json` (main / release-candidate / beta / alpha — no bypass actor, fast-forward only) and `.github/rulesets/protected-cron-channels.json` (nightly + the absent weekly/monthly with admin-bypass for cron pushes). Both are applied by `apply-branch-rulesets.yml`. `auto-delete-merged-branches.yml` exempts the channel names from PR-merge cleanup.
+
+- `nightly-release.yml` — cron `0 0 * * *`. Resets `nightly` to `main`, merges every `origin/feat/*` (skips conflicts, opens issue), bumps version to `X.Y.Z-nightly.YYYYMMDD` across package.json / tauri.conf.json / Cargo.toml, force-pushes `nightly`, creates tag → triggers `release.yml`.
+- `alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml` — push-driven (no cron). Triggered on every push to the matching long-lived branch. Each computes a monotonic counter across all existing tags of its channel (`vX.Y.Z-alpha.N` / `-beta.N` / `-rc.N`), bumps version manifests, commits, and pushes the tag — which triggers `release.yml`. Counters never reset across base-version bumps. Concurrency: per-branch lock prevents two pushes from racing into the same `N`.
+- `release.yml` — derives the `prerelease` flag from the tag suffix at runtime (`prerelease: contains(tag, '-')`). Builds for any tag matching `v*`. **Auto-publishes prerelease drafts** at the end of `finalize-release` (#646); stable drafts stay as drafts pending maintainer review (`release-please-action` publishes them on the standard path; `version-bump.yml` pre-creates the release object via #645 to avoid the platform-job fragmentation that affected v0.49.1 / v0.49.2).
+- `realign-alpha.yml` — one-shot helper to fast-forward `alpha` back onto `main` after a stable cut.
+- `update-security-policy.yml` — runs on push to main and on tag push. Rewrites the "Supported Versions" table in SECURITY.md between sentinel comments, so the policy file always reflects the latest released version (currently v0.49.2).
+- `check_all_updates` filters GitHub releases by `user_channel`. A Stable user hits `releases/latest`; non-Stable channels hit `releases?per_page=20` and pick the newest entry whose channel is `>=` the user's selected channel (so a user on Beta sees Beta, RC, and Stable — channel promotion, not exact-match).
+- `download_and_install_app_update` in `commands/updates.rs` refuses tags whose channel is `< user_channel`. Even a tampered manifest or stale deep link can't downgrade stability.
+- Channel-bump UI in `GeneralTab.tsx` gates Nightly/Weekly/Monthly/Alpha behind `dev_access_enabled` (Konami sentinel). `ChannelSwitchWarning.tsx` prompts on switch to a pre-release channel.
+- Legacy `check_pre_releases: bool` is implicitly enabled whenever `update_channel != Stable`.
 
 ### Conserving GitHub Actions Minutes
 
