@@ -6,10 +6,108 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ci)** Auto-publish prerelease drafts at the end of release.yml (#646)
+
+`tauri-action` creates a draft GitHub Release and never publishes it.
+  For STABLE tags (`vX.Y.Z`), `release-please-action` publishes the
+  release object itself before `release.yml` runs, so the draft state is
+  irrelevant. For PRERELEASE tags (`vX.Y.Z-nightly.YYYYMMDD`,
+  `-alpha.N`, `-beta.N`, `-rc.N`, etc.) there is no `release-please-
+  action` involvement — the draft sits unpublished forever, and
+  end-users see only the source-archive auto-attachments on the public
+  tag page.
+
+  This commit adds an idempotent step at the end of the
+  `finalize-release` job that detects prerelease tags by hyphen suffix
+  and flips `draft=false`. Stable tags are deliberately left alone —
+  `version-bump.yml`'s gap is addressed separately in #645 (pre-create
+  the GitHub Release object before the tag push so platform jobs can't
+  race to create separate drafts).
+
+  Verified pattern matches against the existing tag corpus:
+
+    v0.49.2-nightly.20260428      → prerelease (auto-publishes)
+    v0.49.0-nightly.20260427      → prerelease (auto-publishes)
+    v0.49.0-nightly-build-46      → prerelease (auto-publishes)
+    v0.35.0-nightly.20260421      → prerelease (auto-publishes)
+    v0.49.2                       → stable (left alone)
+    v0.49.1                       → stable (left alone)
+    v0.49.0                       → stable (left alone)
+
+  Existing draft nightlies are not retroactively published by this
+  workflow change — that requires manual `gh release edit --draft=false`
+  calls, which will follow in this PR's commentary.
+
+- **(ci)** Auto-publish prerelease drafts at the end of release.yml (#647)
+
+## Summary
+
+  Fixes the bug where nightly (and weekly / monthly / alpha / beta / rc)
+  GitHub Releases were stuck as unpublished drafts forever — end-users saw
+  only \`Source code (zip/tar.gz)\` on the public tag page despite all 20
+  platform installer assets being built and uploaded.
+
+  ## Root cause
+
+  \`release.yml\`'s \`finalize-release\` job ends by appending a download
+  guide via \`gh release edit --notes\`, but it never flips the \`draft\`
+  flag. For stable releases driven by \`release-please-action\`, that
+  action publishes the release object itself before \`release.yml\` runs,
+  so the draft state is irrelevant. For **prereleases**, there's no
+  equivalent — \`nightly-release.yml\` (and friends) just push the tag and
+  rely on \`release.yml\` to do the rest, and \`release.yml\` never
+  publishes.
+
+  ## Fix
+
+  Adds an idempotent step at the end of \`finalize-release\` that:
+
+  1. Detects prerelease tags by the hyphen suffix after \`vX.Y.Z\`
+  (matches \`-nightly.YYYYMMDD\`, \`-alpha.N\`, \`-beta.N\`, \`-rc.N\`,
+  \`-weekly.N\`, \`-monthly.N\`).
+  2. Skips stable tags (\`vX.Y.Z\` exact) — \`release-please-action\`
+  handles them on the standard path; \`version-bump.yml\`'s gap is
+  addressed separately in #645.
+  3. Skips already-published releases (idempotent re-runs).
+  4. Calls \`gh release edit --draft=false\` to publish the prerelease.
+
+  ## Pattern verification against the tag corpus
+
+  | Tag | Classification | Action |
+  | --- | --- | --- |
+  | \`v0.49.2-nightly.20260428\` | prerelease | auto-publishes |
+  | \`v0.49.0-nightly.20260427\` | prerelease | auto-publishes |
+  | \`v0.35.0-nightly.20260421\` | prerelease | auto-publishes |
+  | \`v0.49.2\` | stable | left alone |
+  | \`v0.49.1\` | stable | left alone |
+  | \`v0.49.0\` | stable | left alone |
+
+  ## Existing draft nightlies
+
+  This workflow change only affects the **next** nightly release. Existing
+  stranded draft nightlies (\`v0.49.2-nightly.20260428\` etc.) need a
+  one-time backfill via \`gh release edit \"$TAG\" --draft=false\` per
+  tag, or via the GitHub UI. I'll do this manually after the PR merges.
+
+  ## Test plan
+
+  - [x] Pattern regex \`^v[0-9]+\\.[0-9]+\\.[0-9]+-\` verified against 6
+  historical tags (4 prerelease, 3 stable).
+  - [x] Idempotent — re-running on an already-published release exits
+  cleanly with \"already published\" log.
+  - [x] Stable tags hit the early-exit branch with a clear log message
+  about why.
+  - [ ] End-to-end smoke: next scheduled nightly (00:00 UTC tonight)
+  produces a *published* prerelease visible on its tag page.
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 0.49.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
