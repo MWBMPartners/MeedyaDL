@@ -222,18 +222,21 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Release channels
 
-MeedyaDL publishes across six channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists.
+MeedyaDL publishes across seven channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
 
-| Channel | Cadence | Suffix | Audience |
-| ------- | ------- | ------ | -------- |
-| **Nightly** | Daily 00:00 UTC | `-nightly.YYYYMMDD` | Testing today's in-flight features; expect bugs |
-| **Weekly** | Sunday 00:00 UTC | `-weekly.YYYYWW` | Week-old integrations |
-| **Monthly** | 1st of month 00:00 UTC | `-monthly.YYYYMM` | Monthly preview |
-| **Alpha** | Ad-hoc | `-alpha.N` | Feature-complete previews |
-| **Beta** | Ad-hoc | `-beta.N` | Release candidates |
-| **Stable** | Release-please merge | _no suffix_ | Production (recommended) |
+| Channel | Cadence | Trigger | Suffix | Audience |
+| ------- | ------- | ------- | ------ | -------- |
+| **Nightly** | Daily 00:00 UTC | cron | `-nightly.YYYYMMDD` | Testing today's in-flight features; expect bugs |
+| **Weekly** | Sunday 00:00 UTC | cron | `-weekly.YYYYMMDD` | Week-old integrations |
+| **Monthly** | 1st of month 00:00 UTC | cron | `-monthly.YYYYMMDD` | Monthly preview |
+| **Alpha** | Ad-hoc | push to `alpha` branch | `-alpha.N` (monotonic) | Feature-complete previews |
+| **Beta** | Ad-hoc | push to `beta` branch | `-beta.N` (monotonic) | Polishing-stage features |
+| **RC** | Ad-hoc | push to `release-candidate` branch | `-rc.N` (monotonic) | Release candidates |
+| **Stable** | Per-version | release-please-action merge or `version-bump.yml` | *no suffix* | Production (recommended) |
 
 Moving to a less-stable channel is an explicit action (Settings > General > Updates). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
+
+The four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are hidden from the channel selector by default and only appear when developer access is unlocked. Beta, RC, and Stable are always visible to all users.
 
 ### First-Run Setup
 
