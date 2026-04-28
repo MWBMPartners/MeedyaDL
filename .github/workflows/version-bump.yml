@@ -102,28 +102,73 @@ jobs:
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "Bumped version to v$NEW_VERSION"
 
-      # Step 4: Commit the version bump and create an annotated tag.
+      # Step 4: Commit the version bump.
       # The commit message "chore(release): vX.Y.Z" is filtered by cliff.toml
       # so it never appears in the auto-generated CHANGELOG.md.
-      # The annotated tag (not lightweight) is recognized by git-cliff as a
-      # version boundary for grouping changelog entries.
-      - name: Commit and tag
+      # We deliberately do NOT create a local annotated tag here; the tag is
+      # created on the remote in step 6 by `gh release create`, which makes
+      # the tag and the GitHub Release object atomically.
+      - name: Commit version bump
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
           git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
-          git tag -a "v${{ steps.bump.outputs.version }}" -m "Release v${{ steps.bump.outputs.version }}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Step 5: Push the commit and tag to origin.
-      # The commit push goes first to ensure the tagged commit exists on the remote.
-      # The tag push then triggers release.yml (because we used RELEASE_PAT, not GITHUB_TOKEN).
-      # This ordering also prevents the [skip ci] pitfall: the tag points at our
-      # version bump commit, not at the changelog bot's subsequent [skip ci] commit.
-      - name: Push commit and tag
+      # Step 5: Push the commit (without any tag yet) to origin.
+      # The tag is deliberately created later by `gh release create` so that
+      # the GitHub Release object exists *before* `release.yml` is triggered
+      # — see step 6's comment for why.
+      - name: Push commit
+        run: git push origin main
+
+      # Step 6: Pre-create the GitHub Release object as a draft (#645).
+      #
+      # WHY this exists:
+      #   `release.yml` runs six platform-build jobs in parallel via
+      #   tauri-action. Each job's `tauri-action@v0` calls `gh release
+      #   view` first; if no release exists for the tag, it falls back to
+      #   `gh release create --draft …`. When two jobs hit that fallback
+      #   simultaneously (which happens on every manual `version-bump.yml`
+      #   run because there is no release-please-action to pre-create the
+      #   release), GitHub's API races each other and creates two-or-three
+      #   separate draft releases for the same tag, fragmenting installer
+      #   assets across them. v0.49.1 and v0.49.2 both shipped this way —
+      #   v0.49.1's published release was missing 14 of 20 installers
+      #   until 2026-04-28; v0.49.2 sat as three competing drafts until
+      #   the same date. See #645 for the full audit.
+      #
+      # `gh release create` creates the tag *and* the draft release
+      # atomically through one API call. When `release.yml` triggers from
+      # the resulting tag-create event, every platform job's
+      # `gh release view` finds the same existing draft and attaches its
+      # assets to it, so no race, no fragmentation.
+      #
+      # The placeholder `--notes` are intentionally short. `release.yml`'s
+      # `Finalize Release Notes` step appends a download guide at the end
+      # of the build, and `changelog.yml` regenerates CHANGELOG.md with
+      # full git-cliff content on the next commit. If a maintainer wants
+      # richer release notes for a manual version-bump release, they can
+      # `gh release edit "$TAG" --notes "…"` after the build completes.
+      #
+      # Stable releases stay as drafts post-creation so the maintainer can
+      # review platform artifacts and notes before publishing — `version-
+      # bump.yml` is the manual override / hotfix path, not the standard
+      # automated release path. The standard `release-please-action` path
+      # publishes the release itself.
+      - name: Pre-create GitHub Release (draft)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
-          git push origin main
-          git push origin "v${{ steps.bump.outputs.version }}"
+          TAG="v${{ steps.bump.outputs.version }}"
+          gh release create "$TAG" \
+            --target "${{ steps.commit.outputs.sha }}" \
+            --draft \
+            --title "$TAG" \
+            --notes "Release $TAG — build in progress."
+          echo "Pre-created draft release for $TAG at ${{ steps.commit.outputs.sha }}"
 
       # Step 6: Print a summary for the workflow run log.
       - name: Summary
