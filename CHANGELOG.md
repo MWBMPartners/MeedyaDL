@@ -6,6 +6,103 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(release)** Weekly + monthly cron workflows + branches (#628)
+
+The seven-tier UpdateChannel enum has had Weekly and Monthly variants
+  since the channel-ladder PR landed, but the producer-side automation
+  was never created — users selecting those channels in the in-app
+  selector would never receive a build because no `weekly-release.yml`
+  / `monthly-release.yml` existed and no `weekly` / `monthly` long-lived
+  branches existed on origin.
+
+  This commit closes that gap. The two new workflows are line-by-line
+  copies of `nightly-release.yml` with channel-specific substitutions
+  (name, cron schedule, branch, tag suffix, concurrency group, conflict
+  label, log strings). Keeping them as parallel siblings instead of
+  parametrising a single workflow keeps the diff vs nightly small and
+  each cron's behaviour explicit.
+
+- **(release)** Weekly + monthly cron workflows (#652)
+
+## Summary
+
+  Closes the producer-side gap for the \`Weekly\` and \`Monthly\` channel
+  variants. Until now, the \`UpdateChannel\` enum had seven ordered
+  variants but only five had build automation — anyone picking Weekly or
+  Monthly in the in-app channel selector would never receive a build
+  because no cron workflow / long-lived branch existed for them.
+
+  ## What changed
+
+  | File | Change |
+  | --- | --- |
+  | \`.github/workflows/weekly-release.yml\` | New. Line-by-line clone of
+  \`nightly-release.yml\` with channel-specific substitutions. Cron \`0 0
+  * * 0\` (Sundays). |
+  | \`.github/workflows/monthly-release.yml\` | New. Same template. Cron
+  \`0 0 1 * *\` (1st of month). |
+  | \`.claude/CLAUDE.md\` | Drops the \"aspirational / tracked in #628\"
+  caveat from the release-channels paragraph. |
+
+  ## What was already in place (no change needed)
+
+  - \`.github/rulesets/protected-cron-channels.json\` already includes
+  \`refs/heads/weekly\` and \`refs/heads/monthly\` with admin-bypass for
+  cron pushes.
+  - \`.github/workflows/auto-delete-merged-branches.yml\` regex (line 55)
+  already includes \`weekly|monthly\` in the channel exempt list.
+  - \`UpdateChannel\` enum already has both variants and \`from_tag()\`
+  recognises them.
+  - \`release.yml\`'s #646 auto-publish step recognises any \`vX.Y.Z-*\`
+  tag suffix, so the first weekly / monthly draft will auto-publish.
+
+  ## Out-of-band
+
+  The \`weekly\` and \`monthly\` long-lived branches don't exist on origin
+  yet — they need to be created from \`main\` once this PR merges. I'll do
+  that immediately post-merge with:
+
+  \`\`\`bash
+  git push origin main:refs/heads/weekly
+  git push origin main:refs/heads/monthly
+  \`\`\`
+
+  The first scheduled cron run after that will force-push the integrated
+  state.
+
+  ## Why two parallel files instead of a single parametrised workflow
+
+  Keeping nightly / weekly / monthly as parallel siblings means each
+  cron's behaviour is explicit, the diff vs nightly is tiny, and a
+  maintainer reading any one of them sees the full pipeline without
+  chasing variables. If the three workflows ever drift in non-trivial
+  ways, parametrising can come later.
+
+  ## Test plan
+
+  - [x] Diff verified against nightly-release.yml — only channel-specific
+  substitutions changed (name, cron, branch, tag suffix, concurrency
+  group, conflict label, log strings). No changes to logic, regex, or jq
+  queries.
+  - [ ] Smoke: next Sunday 00:00 UTC, Weekly Release fires and produces a
+  published \`v0.49.X-weekly.YYYYMMDD\` release with all 20 platform
+  installers.
+  - [ ] Smoke: next 1st of month 00:00 UTC, Monthly Release fires and
+  produces a published \`v0.49.X-monthly.YYYYMMDD\` release.
+  - [ ] Manual smoke (faster): \`gh workflow run \"Weekly Release\" --ref
+  main -f dry_run=true\` to validate the merge + bump dry-run path before
+  the first scheduled run.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.49.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.49.3] - 2026-04-28
+
 ### 🐛 Bug Fixes
 
 - **(ci)** Auto-publish prerelease drafts at the end of release.yml (#646)
