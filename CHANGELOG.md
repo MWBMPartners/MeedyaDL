@@ -231,6 +231,84 @@ When releases are cut via `version-bump.yml` (the manual override / hotfix
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- **(claude)** Update release-channels paragraph to reflect current state (#635)
+
+The previous "six-tier ladder" description was stale — it claimed all
+  six channels (nightly / weekly / monthly / alpha / beta / stable) had
+  matching cron-driven workflows and long-lived branches. Audit (2026-04-28)
+  confirmed:
+
+  - Long-lived branches that exist: nightly, alpha, beta, release-candidate
+    (RC is a real channel that wasn't even mentioned in the old text).
+  - Long-lived branches that don't exist: weekly, monthly. The
+    UpdateChannel enum still has Weekly and Monthly variants but
+    there's no producer-side automation for them, so users selecting
+    those channels in Settings will never receive a build. Tracking
+    in #628.
+  - Push-driven channel workflows (alpha-release.yml, beta-release.yml,
+    release-candidate-release.yml) were never described.
+  - Branch ruleset is now SPLIT into protected-stable-branches.json
+    (no bypass) and protected-cron-channels.json (admin bypass for
+    cron) — the old text referenced the singular pre-split file.
+  - realign-alpha.yml and update-security-policy.yml weren't mentioned.
+  - release.yml's dynamic prerelease detection and (post-#646)
+    auto-publishing weren't mentioned.
+  - Channel discovery uses `>=` for promotion, not exact-match — the
+    old text said the opposite.
+
+  Updated paragraph captures the actual current state without inventing
+  behaviour. Project_Plan.md and README.md don't currently describe
+  channels at this depth, so no updates needed there.
+
+  Partially addresses #635 — the rest of #635 (Project_Plan.md /
+  README.md updates, in-app help docs) stays open until #628's weekly/
+  monthly question is decided, since the docs need to either describe
+  seven channels (if weekly/monthly cron workflows ship) or five (if
+  they're dropped).
+
+- **(claude)** Update release-channels paragraph to reflect current state (#650)
+
+## Summary
+
+  The CLAUDE.md "Release Channels (six-tier ladder)" section was stale.
+  Audit (2026-04-28) found:
+
+  - It claimed all six channels (nightly / weekly / monthly / alpha / beta
+  / stable) had matching cron workflows. **Weekly and monthly cron
+  workflows don't exist**; tracking in #628.
+  - It described a single combined branch ruleset, but the rules have
+  since been split into \`protected-stable-branches.json\` (no bypass) and
+  \`protected-cron-channels.json\` (admin bypass for cron pushes).
+  - It didn't mention the \`Rc\` channel variant or the push-driven
+  \`alpha-release.yml\` / \`beta-release.yml\` /
+  \`release-candidate-release.yml\` workflows.
+  - It didn't mention \`realign-alpha.yml\` or
+  \`update-security-policy.yml\`.
+  - It said channel discovery is exact-match, but \`update_checker.rs\`
+  actually uses \`>=\` for channel promotion.
+
+  This patch rewrites the section to describe the current actual state,
+  marks \`Weekly\` / \`Monthly\` as aspirational variants pending #628's
+  resolution, and links to the relevant follow-up issues.
+
+  ## Why partial-close, not full-close, of #635
+
+  #635 covers Project_Plan.md and README.md updates too. Those should
+  reflect either a seven-channel or five-channel ladder depending on how
+  #628 (weekly/monthly cron workflows) is resolved. Updating them now
+  would just need to be redone post-#628. CLAUDE.md is the most
+  actively-consulted doc and was actively misleading; the rest can wait.
+
+  ## Test plan
+
+  - [x] Manual diff check — every claim in the new paragraph
+  cross-referenced against the actual files (\`alpha-release.yml\`,
+  \`beta-release.yml\`, \`release-candidate-release.yml\`,
+  \`update_checker.rs\`, \`GeneralTab.tsx\`, the two ruleset JSONs).
+  - [x] No code changes — pure docs edit.
+  - [ ] Maintainer eyeball review.
+
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
