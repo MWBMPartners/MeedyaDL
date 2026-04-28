@@ -126,6 +126,7 @@ The previous README.md "Release channels" table was stale:
   - [ ] Maintainer eyeball review.
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.50.0] - 2026-04-28
 
