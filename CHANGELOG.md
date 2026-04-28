@@ -100,6 +100,7 @@ The seven-tier UpdateChannel enum has had Weekly and Monthly variants
 
 - **(security)** Update supported versions to 0.49.3 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.49.3] - 2026-04-28
 
