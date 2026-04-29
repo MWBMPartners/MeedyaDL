@@ -6,6 +6,170 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(settings)** Allow removing/re-adding codecs in fallback chains (#659)
+
+The Audio Fallback and Video Fallback chains in Settings > Fallback
+  only supported reordering, so users could not exclude codecs they did
+  not want MeedyaDL to try (e.g. Binaural for users without binaural
+  headphones, Atmos/AC3 for cookie-only users without the wrapper).
+
+  Extends FallbackChainList with an optional `allItems` prop. When
+  supplied, each row gets an X (remove) button and an "Available
+  (not in chain)" panel renders below the active chain with + buttons
+  to re-add previously removed entries. The remove button on the only
+  remaining row is disabled — an empty chain would block every download.
+
+  No settings schema migration needed: the chain remains a Vec<SongCodec>
+  / Vec<VideoResolution> serialised as today; removed items are simply
+  absent from the array. The Rust priority builder
+  (merge_options/try_fallback) already handles arbitrary chain lengths.
+
+  QualityTab callers (artist auto-select, video codec priority) do not
+  pass `allItems` and continue to render as pure-reorder lists.
+
+
+### 🐛 Bug Fixes
+
+- **(toast)** Auto-dismiss duplicate-URL warning (#657)
+
+The duplicate-URL toast emitted by DownloadForm was typed as 'warning',
+  which the uiStore treats as persistent (duration = 0). Since the download
+  is still queued and no user action is required, switch the type to 'info'
+  so the toast picks up notification_auto_dismiss_seconds (default 5s).
+
+- **(notifications)** Make native OS notifications actually fire (#658)
+
+Native macOS notifications never appeared even with "Native + In-app"
+  selected. Three root causes addressed:
+
+  1. Permission silently never asked. requestPermission() only triggers
+     the macOS system prompt the first time it's called per bundle ID;
+     if the user dismissed the original prompt, all subsequent calls
+     resolved with 'default' and sendNotification became a no-op.
+     Added a startup preflight that runs once after settings load so
+     the prompt appears at a predictable, visible moment.
+
+  2. Errors swallowed. uiStore's notification path used .catch(() => {}),
+     giving zero diagnostic signal. Replaced with console.warn lines that
+     surface the resolved status / underlying error.
+
+  3. Backend ignored notification_style. send_desktop_notification only
+     gated on desktop_notifications:bool, so the user's in_app_only
+     choice was disregarded by the Rust completion path. Added a
+     notification_style != "in_app_only" gate.
+
+  Also adds a "Send Test Notification" button to Settings > General >
+  Notifications so users can verify the OS pipeline on demand.
+
+- **(activity-log)** Suppress Python traceback noise in non-verbose mode (#660)
+
+GAMDL (and its dependencies — httpx, async_lru, gamdl.interface) raise
+  Python exceptions on certain code paths (notably music-video cover-art
+  fetch), printing multi-line tracebacks to stdout. The Activity Log was
+  showing two red error entries per traceback:
+
+    1. The "Traceback (most recent call last):" header — caught by the
+       legacy `traceback` keyword in Priority 7 of parse_gamdl_output.
+    2. The exception summary line ("TypeError: ...") — caught by
+       PYTHON_EXCEPTION_REGEX (Priority 4b).
+
+  (1) was duplicate noise, since (2) is the meaningful one. Multiplied
+  across 20+ retries on a music-video heavy album, this produced 40+
+  red lines for what was actually a single, recurring upstream bug.
+
+  The fix is layered:
+
+  - New GamdlOutputEvent::TracebackFrame variant captures the header,
+    `File "..."` stack frames, and caret highlight lines explicitly so
+    the consumer can route them to a separate sink. The `traceback`
+    keyword is removed from Priority 7 — the explicit variant supersedes
+    it without leaving a duplicate-classification path.
+
+  - New process::is_python_traceback_noise() is a cheap (no-regex)
+    twin of the Priority 3c branch that the stdout/stderr readers use
+    to gate the per-line `activity-log` Tauri event in non-verbose mode.
+    The on-disk activity-log writer still records every line, so support
+    requests stay debuggable.
+
+  - The exception summary line (TypeError, ConnectError, etc.) is
+    unchanged — it remains a real Error event and stays visible.
+
+  These tracebacks originate inside upstream Python; MeedyaDL cannot
+  prevent them being printed. What MeedyaDL *can* do is stop classifying
+  benign noise as errors.
+
+- **(queue)** Block terminal-state revival + clarify timeout messaging (#661)
+
+The per-item completion task at the bottom of the download pipeline
+  always called set_complete() after the post-companion advisory pass,
+  even if the download itself had failed minutes earlier. Captured logs
+  showed items moving Error -> Complete silently, contradicting the
+  prior error toast and red activity-log entry.
+
+  Three changes:
+
+  1. set_complete() now refuses to overwrite Error or Cancelled. The
+     completion task can call it safely; failed/cancelled items stay
+     in their terminal state. Five new unit tests pin the behaviour:
+     - set_complete_does_not_revive_errored_item
+     - set_complete_does_not_revive_cancelled_item
+     - set_error_does_not_overwrite_cancelled_item
+     - set_error_does_not_overwrite_complete_item
+     (plus the original happy-path tests which still pass)
+
+  2. set_error() now refuses to overwrite Cancelled or Complete. The
+     cancellation path explicitly transitions to Cancelled first; a
+     late-arriving subprocess error during teardown must not flip
+     that to Error and must not poison the error field.
+
+  3. The companion-timeout activity-log message no longer claims
+     "marking complete" — that wording was misleading because
+     set_complete() does not actually run until after the post-
+     companion advisory pass, which can take many additional minutes
+     on large box sets. Replaced with "skipping remaining companions;
+     final tag pass still to run". A new "Final tag pass:
+     applying [Explicit]/[Clean] suffixes…" log entry fires at the
+     start of the advisory pass so the long silent gap becomes visible.
+
+  Also adds Bell + Plus to the lucide-react test mock to support the
+  icons added by #658 and #659.
+
+- **(lint)** Indent sub-bullets in parse_gamdl_output priority list
+
+Clippy's `doc_lazy_continuation` rejected the unindented `3c.` and `4b.`
+  lines I added in #660 — they were treated as continuation text of the
+  preceding `3.` and `4.` items rather than separate bullets. Indented
+  them as proper sub-bullets so clippy + rendered docs both stay clean.
+
+- **(queue)** Cooperative-cancel companion task on completion-task abort (#663)
+
+After the 10-minute companion-download deadline fired and handle.abort()
+  was called, the activity log went silent — and then sprang back to life
+  5–15 minutes later with a burst of "Companion: converted N TTML file(s)"
+  events for the same download_id. Captured timeline:
+
+    22:08:26  ⚠ Companion downloads timed out — handle.abort() called
+    22:19:50  Companion: converted 1 TTML file(s) to Enhanced LRC
+    22:19:50  Companion: converted 5 TTML file(s) to Enhanced LRC
+    …       (one line per album dir, for the next several seconds)
+
+  Root cause: run_companion_lyrics_conversion is a *synchronous* function
+  called from inside the async companion task. tokio::task::JoinHandle::
+  abort() only takes effect at .await points; it cannot preempt sync code.
+  The conversion runs to completion (multi-minute recursive walk over the
+  output library + per-album-dir conversions), emitting log lines all the
+  way through.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.50.1 [skip ci]
+
+## [0.50.1] - 2026-04-28
+
 ### 🐛 Bug Fixes
 
 - **(ux)** Missing 'to' in untested-GAMDL warning message
