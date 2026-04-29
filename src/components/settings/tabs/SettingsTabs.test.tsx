@@ -65,6 +65,10 @@ vi.mock('lucide-react', () => {
     ArrowDown: stub('ArrowDown'),
     /* Settings tabs */
     Trash2: stub('Trash2'),
+    /* GeneralTab: Send Test Notification button (#658) */
+    Bell: stub('Bell'),
+    /* FallbackChainList: remove / re-add buttons (#659) */
+    Plus: stub('Plus'),
     /* Download components (pulled via barrel transitive) */
     Pause: stub('Pause'),
     Play: stub('Play'),

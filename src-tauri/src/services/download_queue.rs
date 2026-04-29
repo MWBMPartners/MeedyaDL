@@ -1600,8 +1600,26 @@ impl DownloadQueue {
     }
 
     /// Marks a download as errored and sets the error message.
+    ///
+    /// Refuses to overwrite a `Cancelled` or `Complete` terminal state
+    /// (#661). The cancellation path explicitly transitions an active
+    /// item to `Cancelled` first, and a late-arriving error from a
+    /// subprocess that was being torn down must not flip that to
+    /// `Error`. Likewise, a `Complete` item should not regress to
+    /// `Error` if a tail-end async task fails after enrichment ended.
     pub fn set_error(&mut self, download_id: &str, error: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if matches!(
+                item.status.state,
+                DownloadState::Cancelled | DownloadState::Complete
+            ) {
+                log::debug!(
+                    "set_error skipped for {} — already in terminal state {:?}",
+                    download_id,
+                    item.status.state,
+                );
+                return;
+            }
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
         }
@@ -1650,8 +1668,27 @@ impl DownloadQueue {
     /// Marks a download as complete (#416).
     /// Clears processing label and speed/ETA to prevent stale data
     /// appearing in the UI after completion.
+    ///
+    /// Refuses to overwrite an `Error` or `Cancelled` terminal state
+    /// (#661). The completion task at the bottom of the per-item
+    /// pipeline always calls `set_complete` after the post-companion
+    /// advisory pass, even if the download itself failed minutes
+    /// earlier — without this guard, failed items would silently
+    /// "revive" to Complete in the UI, contradicting both the in-app
+    /// error toast and the prior activity-log error entry.
     pub fn set_complete(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if matches!(
+                item.status.state,
+                DownloadState::Error | DownloadState::Cancelled
+            ) {
+                log::debug!(
+                    "set_complete skipped for {} — already in terminal state {:?}",
+                    download_id,
+                    item.status.state,
+                );
+                return;
+            }
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
             item.status.processing_label = None;
@@ -7072,11 +7109,17 @@ pub fn process_queue(
                                         timeout_mins,
                                         completion_dl_id,
                                     );
+                                    // Wording corrected for #661 — set_complete()
+                                    // does not run until *after* the post-companion
+                                    // advisory pass below, which can take many more
+                                    // minutes on large box sets. Saying "marking
+                                    // complete" here misled users into thinking the
+                                    // item was already done.
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Companion downloads timed out after {timeout_mins} minutes — marking complete"
+                                            "⚠ Companion downloads timed out after {timeout_mins} minutes — skipping remaining companions; final tag pass still to run"
                                         ),
                                     );
                                     handle.abort();
@@ -7102,6 +7145,17 @@ pub fn process_queue(
                                             .and_then(|i| i.status.output_path.clone())
                                     };
                                     if let Some(output_dir) = advisory_path {
+                                        // Make the long, otherwise-silent advisory
+                                        // pass visible in the activity log (#661).
+                                        // On large box sets this can run for many
+                                        // minutes; without a marker, users could
+                                        // not tell whether MeedyaDL was hung or
+                                        // working.
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            "Final tag pass: applying [Explicit]/[Clean] suffixes…",
+                                        );
                                         let dir_for_advisory = {
                                             let p = std::path::Path::new(&output_dir);
                                             if p.is_dir() {
@@ -9707,6 +9761,97 @@ mod tests {
         let mut queue = DownloadQueue::new();
         // Should not panic
         queue.set_complete("nonexistent");
+    }
+
+    /// Verifies that set_complete() refuses to overwrite a terminal Error
+    /// state — the "revival" bug from #661.
+    ///
+    /// The completion task at the bottom of the per-item pipeline always
+    /// calls set_complete after the post-companion advisory pass, even if
+    /// the download itself failed minutes earlier. Without this guard,
+    /// failed items would silently appear as Complete in the UI,
+    /// contradicting the prior error toast and activity-log entry.
+    #[test]
+    fn set_complete_does_not_revive_errored_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_error(&id, "primary download failed");
+        queue.set_complete(&id); // Late completion-task pass — must be a no-op.
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Error,
+            "set_complete must not transition Error -> Complete (#661)"
+        );
+        assert_eq!(
+            statuses[0].error.as_deref(),
+            Some("primary download failed"),
+            "the original error message must be preserved"
+        );
+    }
+
+    /// Verifies that set_complete() refuses to overwrite a Cancelled state.
+    /// Mirrors the Error guard — both are terminal and must not regress.
+    #[test]
+    fn set_complete_does_not_revive_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.cancel(&id);
+        queue.set_complete(&id);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "set_complete must not transition Cancelled -> Complete (#661)"
+        );
+    }
+
+    /// Verifies that set_error() refuses to overwrite a Cancelled state.
+    /// A user-initiated cancellation must not be downgraded to "Error" by a
+    /// late-arriving subprocess error during teardown.
+    #[test]
+    fn set_error_does_not_overwrite_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.cancel(&id);
+        queue.set_error(&id, "stderr noise after cancellation");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "set_error must not transition Cancelled -> Error (#661)"
+        );
+        // The cancellation path leaves error=None; the late set_error must
+        // not poison that field with subprocess teardown noise.
+        assert!(
+            statuses[0].error.is_none(),
+            "Cancelled items must not gain an error message after the fact"
+        );
+    }
+
+    /// Verifies that set_error() refuses to overwrite a Complete state.
+    /// A successful download must not regress to Error if some tail-end
+    /// async task fails after enrichment ended.
+    #[test]
+    fn set_error_does_not_overwrite_complete_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_complete(&id);
+        queue.set_error(&id, "late-arriving enrichment failure");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Complete,
+            "set_error must not transition Complete -> Error (#661)"
+        );
     }
 
     // ==========================================================
