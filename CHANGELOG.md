@@ -4,7 +4,7 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [0.51.0] - 2026-04-29
 
 ### ✨ Features
 
@@ -167,6 +167,7 @@ After the 10-minute companion-download deadline fired and handle.abort()
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 0.50.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.50.1] - 2026-04-28
 
