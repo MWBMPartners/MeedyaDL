@@ -524,6 +524,36 @@ function App() {
       } catch {
         /* Non-fatal: version check failure shouldn't block app startup */
       }
+
+      /*
+       * Notification permission preflight (#658).
+       *
+       * On macOS, `requestPermission()` only triggers the system prompt the
+       * first time it is called for a bundle ID. If the user dismissed (not
+       * granted, not denied) the prompt during a prior session, every later
+       * call resolves silently with `'default'` and `sendNotification()` is
+       * a no-op — which is why users on Native + In-app saw no notifications.
+       *
+       * Requesting permission once at startup forces a predictable, visible
+       * prompt and also lets us log the resolved status to the WebView
+       * console for debugging. Skipped when the user picked `in_app_only`.
+       */
+      const notifStyle =
+        useSettingsStore.getState().settings.notification_style ?? 'native_and_in_app';
+      if (notifStyle !== 'in_app_only') {
+        try {
+          const { isPermissionGranted, requestPermission } = await import(
+            '@tauri-apps/plugin-notification'
+          );
+          const granted = await isPermissionGranted();
+          if (!granted) {
+            const result = await requestPermission();
+            console.info(`[notification] startup permission request resolved: ${result}`);
+          }
+        } catch (err) {
+          console.warn('[notification] startup permission preflight failed:', err);
+        }
+      }
     };
 
     initialize().catch((err) => {
