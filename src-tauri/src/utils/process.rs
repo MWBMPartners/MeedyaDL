@@ -372,9 +372,9 @@ pub enum GamdlOutputEvent {
 /// 1. Download progress (yt-dlp format)
 /// 2. Download completion (yt-dlp format)
 /// 3. Track information (GAMDL "Getting song/track" lines)
-/// 3c. Python traceback frames (header / `File "..."` / caret lines) — #660
+///    - 3c. Python traceback frames (header / `File "..."` / caret lines) — #660
 /// 4. Explicit errors (ERROR/Error prefix)
-/// 4b. Python exception summary line (`TypeError: ...`)
+///    - 4b. Python exception summary line (`TypeError: ...`)
 /// 5. Post-processing steps (Remuxing/Tagging/Embedding)
 /// 6. File save completion (Saved to ...)
 /// 7. Common error patterns (case-insensitive "failed", "not found", etc.)
