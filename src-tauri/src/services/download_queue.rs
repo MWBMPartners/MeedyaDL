@@ -3897,6 +3897,37 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+/// Handle returned by [`spawn_companion_downloads`].
+///
+/// Wraps the spawned task's `JoinHandle` together with an
+/// [`Arc<AtomicBool>`] cooperative-cancel flag (#663). The completion
+/// task that supervises the companion deadline must set `aborted` to
+/// `true` *before* calling `handle.abort()` so the *synchronous* parts
+/// of the companion pipeline (notably [`run_companion_lyrics_conversion`]
+/// and its multi-minute `find_dirs_with_ttml` recursion) can bail at
+/// their next loop boundary.
+///
+/// `tokio::task::JoinHandle::abort()` only takes effect at an `.await`
+/// point; it cannot preempt a sync function. Without this flag, an
+/// already-aborted companion task can keep emitting `Companion: …`
+/// activity-log events for 10+ minutes after the timeout fires —
+/// the user-visible "spring back to life" symptom.
+pub(crate) struct CompanionTaskHandle {
+    handle: tokio::task::JoinHandle<()>,
+    aborted: Arc<AtomicBool>,
+}
+
+impl CompanionTaskHandle {
+    /// Signals the companion task to stop processing at the next
+    /// cooperative checkpoint *and* aborts the async runtime task.
+    /// Both signals are required: the flag handles sync code, the
+    /// abort handles async code awaiting on subprocess I/O.
+    pub(crate) fn abort(&mut self) {
+        self.aborted.store(true, Ordering::Relaxed);
+        self.handle.abort();
+    }
+}
+
 // The argument list is long because this function is the seam between
 // the queue's per-download state (app, queue, dl_id, urls, shutdown),
 // the GAMDL invocation context (primary codec, base options,
@@ -3915,7 +3946,7 @@ fn spawn_companion_downloads(
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
     available_audio_traits: &[String],
-) -> Option<tokio::task::JoinHandle<()>> {
+) -> Option<CompanionTaskHandle> {
     let companion_settings = load_settings_for_queue(app);
     let raw_tiers = plan_companions(
         &companion_settings.companion_mode,
@@ -3960,6 +3991,13 @@ fn spawn_companion_downloads(
         let comp_base_opts = companion_base_options.clone();
         let comp_dl_id = dl_id.to_string();
         let comp_shutdown = shutdown.clone();
+        // Per-task cooperative-cancel flag (#663). The completion task
+        // sets this to `true` before calling `handle.abort()` so the
+        // synchronous `run_companion_lyrics_conversion` and the tier
+        // loop can bail out at their next loop boundary instead of
+        // emitting activity-log events for many minutes after abort.
+        let comp_aborted = Arc::new(AtomicBool::new(false));
+        let aborted_for_task = comp_aborted.clone();
 
         emit_download_log(
             app,
@@ -3993,6 +4031,21 @@ fn spawn_companion_downloads(
                 // Check for app shutdown between tiers
                 if comp_shutdown.is_triggered() {
                     log::info!("Companion downloads stopping early (app shutting down)");
+                    return;
+                }
+                // Cooperative-cancel check (#663). If the completion
+                // task fired the deadline timeout while we were in
+                // sync code, leave before launching another GAMDL.
+                if aborted_for_task.load(Ordering::Relaxed) {
+                    log::info!(
+                        "Companion downloads aborted via cooperative flag for {comp_dl_id} — \
+                         skipping remaining tiers"
+                    );
+                    emit_download_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        "Companion task aborted — skipping remaining post-processing",
+                    );
                     return;
                 }
 
@@ -4169,6 +4222,7 @@ fn spawn_companion_downloads(
                                     output_dir,
                                     artist_hint.as_deref(),
                                     album_hint.as_deref(),
+                                    &aborted_for_task,
                                 );
                             }
 
@@ -4232,7 +4286,10 @@ fn spawn_companion_downloads(
                 }
             }
         });
-        Some(handle)
+        Some(CompanionTaskHandle {
+            handle,
+            aborted: comp_aborted,
+        })
     };
 
     /// Runs lyrics format conversion on a companion download's output directory.
@@ -4253,11 +4310,18 @@ fn spawn_companion_downloads(
         output_dir: &str,
         artist_hint: Option<&str>,
         album_hint: Option<&str>,
+        aborted: &Arc<AtomicBool>,
     ) {
         let settings = load_settings_for_queue(app);
         let base = std::path::Path::new(output_dir);
 
         if !base.is_dir() {
+            return;
+        }
+        // Cooperative-cancel checkpoint #1 (#663). Bail before the
+        // potentially-multi-minute recursive directory walk if the
+        // completion task already fired the deadline.
+        if aborted.load(Ordering::Relaxed) {
             return;
         }
 
@@ -4299,6 +4363,19 @@ fn spawn_companion_downloads(
         }
 
         for album_dir in &album_dirs {
+            // Cooperative-cancel checkpoint #2 (#663). Without this,
+            // the loop would emit `Companion: converted N TTML…`
+            // entries for every album dir even after the completion
+            // task aborted us — the symptom from the captured logs.
+            if aborted.load(Ordering::Relaxed) {
+                log::info!(
+                    "Companion lyrics conversion aborted for {dl_id} — \
+                     processed {}/{} album dirs",
+                    album_dirs.iter().position(|p| p == album_dir).unwrap_or(0),
+                    album_dirs.len(),
+                );
+                return;
+            }
             let dir_str = album_dir.to_string_lossy();
 
             // Enhanced LRC: TTML → word-by-word LRC
@@ -7100,9 +7177,12 @@ pub fn process_queue(
                             }
                             // Wait for companion downloads with the same scaled timeout
                             if let Some(mut handle) = companion_handle {
-                                if tokio::time::timeout(enrichment_timeout, &mut handle)
-                                    .await
-                                    .is_err()
+                                if tokio::time::timeout(
+                                    enrichment_timeout,
+                                    &mut handle.handle,
+                                )
+                                .await
+                                .is_err()
                                 {
                                     log::warn!(
                                         "Companion downloads timed out after {} minutes for {}",
@@ -7122,8 +7202,13 @@ pub fn process_queue(
                                             "⚠ Companion downloads timed out after {timeout_mins} minutes — skipping remaining companions; final tag pass still to run"
                                         ),
                                     );
+                                    // CompanionTaskHandle::abort() sets the
+                                    // cooperative-cancel flag *and* aborts the
+                                    // async task (#663) — both are needed because
+                                    // the lyrics-conversion path is sync and
+                                    // ignores tokio's abort by itself.
                                     handle.abort();
-                                    let _ = handle.await;
+                                    let _ = handle.handle.await;
                                 }
                             }
 
