@@ -204,6 +204,15 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         return;
     }
 
+    // Respect the user's notification style preference (#658).
+    // The backend used to fire native notifications regardless of style, which
+    // contradicted the `in_app_only` choice and gave the impression that the
+    // setting did nothing. Skip the OS notification when the user picked
+    // `in_app_only` — the in-app toast path is unaffected.
+    if settings.notification_style == "in_app_only" {
+        return;
+    }
+
     // Only send notifications when the window is NOT focused.
     if let Some(window) = app.get_webview_window("main") {
         if window.is_focused().unwrap_or(false) {
