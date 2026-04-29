@@ -232,6 +232,39 @@ pub fn strip_ansi_codes(input: &str) -> String {
     ANSI_ESCAPE_REGEX.replace_all(input, "").to_string()
 }
 
+/// Returns `true` when `line` is part of a Python traceback that the
+/// activity-log feed should hide in non-verbose mode (#660).
+///
+/// This is the cheap (string-ops-only) twin of the [`parse_gamdl_output`]
+/// Priority 3c branch: it lets the stdout/stderr readers gate the
+/// per-line `activity-log` Tauri event without paying the full parser
+/// cost twice. The on-disk activity-log writer still records the line
+/// regardless of verbose mode, so the forensic record stays complete.
+///
+/// Detected forms:
+///   - the bare `Traceback (most recent call last):` header,
+///   - a `File "<path>", line N, in <fn>` stack-frame line,
+///   - a caret highlight line (`^^^^^^^^^^`).
+///
+/// The actual exception summary line (`TypeError: ...`) is *not* matched
+/// here — that one is meaningful and must remain visible.
+pub fn is_python_traceback_noise(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed == "Traceback (most recent call last):" {
+        return true;
+    }
+    if trimmed.starts_with("File \"")
+        && trimmed.contains("\", line ")
+        && trimmed.contains(", in ")
+    {
+        return true;
+    }
+    trimmed.chars().all(|c| c == '^')
+}
+
 // ============================================================
 // Event types emitted to the frontend
 // ============================================================
@@ -307,6 +340,27 @@ pub enum GamdlOutputEvent {
         /// The raw output line that couldn't be categorized
         raw: String,
     },
+
+    /// A line that is part of a Python traceback emitted by GAMDL or one of
+    /// its dependencies — the `Traceback (most recent call last):` header,
+    /// a `File "..."` stack frame, or a caret highlight line (`^^^^^^^^`).
+    ///
+    /// Tracebacks originate inside upstream Python code (gamdl, httpx,
+    /// async_lru, etc.) and MeedyaDL cannot prevent them being printed.
+    /// What MeedyaDL **can** do is stop misclassifying the header as an
+    /// `Error` event (Priority 7's `traceback` keyword used to do that)
+    /// and instead route this noise to a dedicated variant that the
+    /// activity-log consumer only forwards to the user-visible feed when
+    /// `verbose_activity_log` is enabled (#660).
+    ///
+    /// The actual exception summary (e.g. `TypeError: ...`) is still
+    /// captured by [`PYTHON_EXCEPTION_REGEX`] and emitted as `Error`, so
+    /// the user always sees the meaningful one-line error even when the
+    /// surrounding frames are suppressed.
+    TracebackFrame {
+        /// The raw frame / header line as printed by Python.
+        raw: String,
+    },
 }
 
 /// Parses a single line of GAMDL output into a structured event.
@@ -318,7 +372,9 @@ pub enum GamdlOutputEvent {
 /// 1. Download progress (yt-dlp format)
 /// 2. Download completion (yt-dlp format)
 /// 3. Track information (GAMDL "Getting song/track" lines)
+/// 3c. Python traceback frames (header / `File "..."` / caret lines) — #660
 /// 4. Explicit errors (ERROR/Error prefix)
+/// 4b. Python exception summary line (`TypeError: ...`)
 /// 5. Post-processing steps (Remuxing/Tagging/Embedding)
 /// 6. File save completion (Saved to ...)
 /// 7. Common error patterns (case-insensitive "failed", "not found", etc.)
@@ -432,6 +488,24 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         };
     }
 
+    // Priority 3c: Python traceback noise (#660).
+    // Detect three benign forms that should never be rendered as an Error:
+    //   - the `Traceback (most recent call last):` header,
+    //   - a `File "<path>", line N, in <fn>` stack-frame line,
+    //   - a caret highlight line (`^^^^^^^^^^^^`).
+    // The actual exception summary (`TypeError: ...`) is handled below by
+    // PYTHON_EXCEPTION_REGEX and still surfaces as a real Error event.
+    if trimmed == "Traceback (most recent call last):"
+        || (trimmed.starts_with("File \"")
+            && trimmed.contains("\", line ")
+            && trimmed.contains(", in "))
+        || (!trimmed.is_empty() && trimmed.chars().all(|c| c == '^'))
+    {
+        return GamdlOutputEvent::TracebackFrame {
+            raw: trimmed.to_string(),
+        };
+    }
+
     // Priority 4: Explicit error messages with ERROR/Error prefix
     if let Some(captures) = ERROR_PREFIX_REGEX.captures(trimmed) {
         let message = captures
@@ -495,26 +569,24 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     //   - "format is not available" -- GAMDL 2.8.x: "Requested format is not available"
     //   - "skipping"         -- GAMDL: track skipped due to format/codec issues
     //   - "no entry"         -- missing archive entries or config keys
-    //   - "traceback"        -- Python stack traces from GAMDL/yt-dlp
     //   - "exception"        -- Python exception messages
+    //
+    // The `traceback` keyword used to live here too, but the bare
+    // `Traceback (most recent call last):` header is just the start of a
+    // multi-line Python trace, not an error itself — the actual exception
+    // is caught by Priority 4b (PYTHON_EXCEPTION_REGEX) and the header is
+    // now classified as `TracebackFrame` by Priority 3c (#660). Keeping
+    // `traceback` here would re-emit the header as a duplicate Error event
+    // alongside the legitimate exception line.
     let lower = trimmed.to_lowercase();
-    // Skip traceback frame lines: lines starting with `File "` are Python stack
-    // frames (e.g., `File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions`).
-    // These are NOT error messages and should not be captured, even if they contain
-    // keywords like "exception" in function names (e.g., `map_httpcore_exceptions`).
-    // The actual exception line (e.g., `httpx.ConnectError: ...`) is handled by
-    // Priority 4b (PYTHON_EXCEPTION_REGEX) above.
-    let is_traceback_frame = lower.starts_with("file \"");
-    if !is_traceback_frame
-        && (lower.contains("failed")
-            || lower.contains("not found")
-            || lower.contains("permission denied")
-            || lower.contains("codec not available")
-            || lower.contains("format is not available")
-            || lower.contains("skipping")
-            || lower.contains("no entry")
-            || lower.contains("traceback")
-            || lower.contains("exception"))
+    if lower.contains("failed")
+        || lower.contains("not found")
+        || lower.contains("permission denied")
+        || lower.contains("codec not available")
+        || lower.contains("format is not available")
+        || lower.contains("skipping")
+        || lower.contains("no entry")
+        || lower.contains("exception")
     {
         return GamdlOutputEvent::Error {
             message: trimmed.to_string(),
@@ -934,14 +1006,69 @@ mod tests {
     }
 
     #[test]
-    fn parses_keyword_error_traceback() {
+    fn parses_traceback_header_as_traceback_frame() {
+        // The bare `Traceback (most recent call last):` header used to be
+        // promoted to an Error event by Priority 7's `traceback` keyword,
+        // which produced a duplicate red entry in the Activity Log next
+        // to the genuine exception line (PYTHON_EXCEPTION_REGEX). It now
+        // reaches the dedicated TracebackFrame variant so the consumer
+        // can suppress it from the user-facing feed in non-verbose mode
+        // while still mirroring the line to the on-disk log (#660).
         let line = "Traceback (most recent call last):";
         match parse_gamdl_output(line) {
-            GamdlOutputEvent::Error { message } => {
-                assert!(message.contains("Traceback"));
+            GamdlOutputEvent::TracebackFrame { raw } => {
+                assert_eq!(raw, line);
             }
-            other => panic!("Expected Error, got {:?}", other),
+            other => panic!("Expected TracebackFrame, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn parses_traceback_file_frame_as_traceback_frame() {
+        // Stack-frame lines from upstream Python (gamdl, httpx, async_lru,
+        // etc.) used to fall through to `Unknown` and were silently
+        // dropped — a quiet win — but the explicit classification makes
+        // the contract testable and documents the suppression intent.
+        let line = r#"File "/path/to/gamdl/cli/cli.py", line 272, in main"#;
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TracebackFrame { raw } => {
+                assert_eq!(raw, line);
+            }
+            other => panic!("Expected TracebackFrame, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_traceback_caret_line_as_traceback_frame() {
+        let line = "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TracebackFrame { raw } => {
+                assert_eq!(raw, line);
+            }
+            other => panic!("Expected TracebackFrame, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn is_python_traceback_noise_recognises_three_forms() {
+        assert!(is_python_traceback_noise("Traceback (most recent call last):"));
+        assert!(is_python_traceback_noise(
+            r#"  File "/foo/bar.py", line 10, in baz"#
+        ));
+        assert!(is_python_traceback_noise("^^^^"));
+        assert!(is_python_traceback_noise("    ^^^^^^^^^^^^^^^^"));
+    }
+
+    #[test]
+    fn is_python_traceback_noise_rejects_meaningful_lines() {
+        // These three are precisely the lines we *do* want to keep visible.
+        assert!(!is_python_traceback_noise(
+            "TypeError: 'NoneType' object has no attribute 'foo'"
+        ));
+        assert!(!is_python_traceback_noise("Downloading album..."));
+        assert!(!is_python_traceback_noise(
+            "[INFO     12:34:56] [Track 1/12] Downloading \"Hello\""
+        ));
     }
 
     #[test]

@@ -1590,6 +1590,11 @@ impl DownloadQueue {
                 // any recognized pattern; they're logged for debugging but
                 // don't affect queue item state.
                 process::GamdlOutputEvent::Unknown { .. } => {}
+                // Traceback frames from upstream Python noise (#660). They
+                // do not represent a state transition — the actual exception
+                // summary line is captured separately via the Error variant
+                // (PYTHON_EXCEPTION_REGEX).
+                process::GamdlOutputEvent::TracebackFrame { .. } => {}
             }
         }
     }
@@ -7801,7 +7806,15 @@ async fn run_download_with_events(
                                 line: clean_line.clone(),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             };
-                            let _ = app.emit("activity-log", &log_event);
+                            // Suppress Python traceback noise from the user-
+                            // facing activity-log feed when verbose is off
+                            // (#660). The disk writer below still records
+                            // the line so support requests stay debuggable.
+                            let is_traceback_noise =
+                                process::is_python_traceback_noise(&clean_line);
+                            if verbose || !is_traceback_noise {
+                                let _ = app.emit("activity-log", &log_event);
+                            }
                             // Mirror to on-disk log (#541) for post-hoc diagnosis.
                             crate::utils::activity_log::write_to_disk(&log_event);
                         }
@@ -7964,7 +7977,14 @@ async fn run_download_with_events(
                                 line: clean_line.clone(),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             };
-                            let _ = app.emit("activity-log", &log_event);
+                            // Suppress Python traceback noise from the
+                            // user-facing activity-log feed in non-verbose
+                            // mode (#660). Disk mirror is unaffected.
+                            let is_traceback_noise =
+                                process::is_python_traceback_noise(&clean_line);
+                            if verbose || !is_traceback_noise {
+                                let _ = app.emit("activity-log", &log_event);
+                            }
                             // Mirror to on-disk log (#541).
                             crate::utils::activity_log::write_to_disk(&log_event);
                         }
