@@ -59,6 +59,18 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
 import type { SongCodec, VideoResolution } from '@/types';
 
+/**
+ * Full universe of audio codecs that may appear in the fallback chain (#659).
+ * Used to populate the "Available" panel below the active chain so users can
+ * remove and re-add codecs on demand. Order here is the order shown in the
+ * "Available" pool — it does NOT influence chain priority, which is driven
+ * by the user-managed `music_fallback_chain` array.
+ */
+const ALL_SONG_CODECS = Object.keys(SONG_CODEC_LABELS) as SongCodec[];
+
+/** Full universe of video resolutions for the fallback "Available" panel (#659). */
+const ALL_VIDEO_RESOLUTIONS = Object.keys(VIDEO_RESOLUTION_LABELS) as VideoResolution[];
+
 // Shared components: Button for toggle tabs, FallbackChainList for reorderable lists.
 import { Button, FallbackChainList, SettingsSection } from '@/components/common';
 
@@ -94,7 +106,7 @@ export function FallbackTab() {
     <div className="space-y-3">
       <SettingsSection
         title="Fallback Chain"
-        description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Drag items to reorder priority (top = highest priority). Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."
+        description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Use the up/down arrows to reorder priority (top = highest), the × button to remove a codec from the chain, and the + button under Available to put a removed codec back. Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."
       >
         {/* Chain selector tabs */}
         <div className="flex gap-2 border-b border-border-light pb-2">
@@ -130,6 +142,7 @@ export function FallbackTab() {
             <FallbackChainList<SongCodec>
               items={settings.music_fallback_chain}
               labels={SONG_CODEC_LABELS}
+              allItems={ALL_SONG_CODECS}
               onChange={(chain) => updateSettings({ music_fallback_chain: chain })}
             />
           </div>
@@ -144,6 +157,7 @@ export function FallbackTab() {
             <FallbackChainList<VideoResolution>
               items={settings.video_fallback_chain}
               labels={VIDEO_RESOLUTION_LABELS}
+              allItems={ALL_VIDEO_RESOLUTIONS}
               onChange={(chain) => updateSettings({ video_fallback_chain: chain })}
             />
           </div>
