@@ -69,7 +69,7 @@ import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
-import { Download, RefreshCw, Upload } from 'lucide-react';
+import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
 import type { AfterQueueAction } from '@/types';
 
 /**
@@ -560,6 +560,54 @@ export function GeneralTab() {
             }
           />
         )}
+
+        {/* Test Notification button (#658).
+            Fires a real native notification so the user can verify that the
+            OS-level permission has been granted and the plugin pipeline works.
+            On macOS this also forces the system permission prompt the first
+            time it is invoked if the user dismissed the startup prompt. */}
+        {settings.desktop_notifications &&
+          (settings.notification_style ?? 'native_and_in_app') !== 'in_app_only' && (
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="secondary"
+                icon={<Bell size={14} />}
+                onClick={async () => {
+                  try {
+                    const { isPermissionGranted, requestPermission, sendNotification } =
+                      await import('@tauri-apps/plugin-notification');
+                    let granted = await isPermissionGranted();
+                    if (!granted) {
+                      const result = await requestPermission();
+                      granted = result === 'granted';
+                    }
+                    if (!granted) {
+                      addToast(
+                        'Notification permission was not granted. Open System Settings > Notifications > MeedyaDL to enable.',
+                        'warning',
+                      );
+                      return;
+                    }
+                    sendNotification({
+                      title: 'MeedyaDL — Test',
+                      body: 'If you can read this, native notifications are working.',
+                    });
+                    addToast('Test notification sent. If you do not see it, check OS notification settings.', 'info');
+                  } catch (err) {
+                    addToast(
+                      `Test notification failed: ${err instanceof Error ? err.message : String(err)}`,
+                      'error',
+                    );
+                  }
+                }}
+              >
+                Send Test Notification
+              </Button>
+              <p className="text-xs text-content-tertiary">
+                Sends a one-off native notification so you can verify the OS pipeline.
+              </p>
+            </div>
+          )}
 
         {/* Notification auto-dismiss duration — only visible when notifications are enabled */}
         {settings.desktop_notifications && (

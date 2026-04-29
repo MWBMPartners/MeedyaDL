@@ -448,13 +448,15 @@ export function DownloadForm() {
       try {
         const result = await submitBatchDownload(multiUrlInfo.validUrls, isOffline);
 
-        // Show duplicate warnings (batched into a single toast if multiple)
+        // Show duplicate warnings (batched into a single toast if multiple).
+        // Uses `'info'` (auto-dismisses) rather than `'warning'` (persistent) — the
+        // download is still queued and no user action is required (#657).
         if (result.duplicateWarnings.length > 0) {
           addToast(
             result.duplicateWarnings.length === 1
               ? result.duplicateWarnings[0]
               : `${result.duplicateWarnings.length} duplicate URLs detected in queue`,
-            'warning'
+            'info'
           );
         }
 
@@ -493,9 +495,10 @@ export function DownloadForm() {
         const result = await submitDownload(isOffline);
 
         // Show duplicate URL warning if the backend detected a match.
-        // This is non-blocking — the download is still queued.
+        // This is non-blocking — the download is still queued, so the toast
+        // uses `'info'` (auto-dismisses) rather than `'warning'` (persistent) (#657).
         if (result.duplicate_warning) {
-          addToast(result.duplicate_warning, 'warning');
+          addToast(result.duplicate_warning, 'info');
         }
 
         if (isOffline) {

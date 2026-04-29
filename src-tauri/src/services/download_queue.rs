@@ -204,6 +204,15 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         return;
     }
 
+    // Respect the user's notification style preference (#658).
+    // The backend used to fire native notifications regardless of style, which
+    // contradicted the `in_app_only` choice and gave the impression that the
+    // setting did nothing. Skip the OS notification when the user picked
+    // `in_app_only` — the in-app toast path is unaffected.
+    if settings.notification_style == "in_app_only" {
+        return;
+    }
+
     // Only send notifications when the window is NOT focused.
     if let Some(window) = app.get_webview_window("main") {
         if window.is_focused().unwrap_or(false) {
@@ -1581,13 +1590,36 @@ impl DownloadQueue {
                 // any recognized pattern; they're logged for debugging but
                 // don't affect queue item state.
                 process::GamdlOutputEvent::Unknown { .. } => {}
+                // Traceback frames from upstream Python noise (#660). They
+                // do not represent a state transition — the actual exception
+                // summary line is captured separately via the Error variant
+                // (PYTHON_EXCEPTION_REGEX).
+                process::GamdlOutputEvent::TracebackFrame { .. } => {}
             }
         }
     }
 
     /// Marks a download as errored and sets the error message.
+    ///
+    /// Refuses to overwrite a `Cancelled` or `Complete` terminal state
+    /// (#661). The cancellation path explicitly transitions an active
+    /// item to `Cancelled` first, and a late-arriving error from a
+    /// subprocess that was being torn down must not flip that to
+    /// `Error`. Likewise, a `Complete` item should not regress to
+    /// `Error` if a tail-end async task fails after enrichment ended.
     pub fn set_error(&mut self, download_id: &str, error: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if matches!(
+                item.status.state,
+                DownloadState::Cancelled | DownloadState::Complete
+            ) {
+                log::debug!(
+                    "set_error skipped for {} — already in terminal state {:?}",
+                    download_id,
+                    item.status.state,
+                );
+                return;
+            }
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
         }
@@ -1636,8 +1668,27 @@ impl DownloadQueue {
     /// Marks a download as complete (#416).
     /// Clears processing label and speed/ETA to prevent stale data
     /// appearing in the UI after completion.
+    ///
+    /// Refuses to overwrite an `Error` or `Cancelled` terminal state
+    /// (#661). The completion task at the bottom of the per-item
+    /// pipeline always calls `set_complete` after the post-companion
+    /// advisory pass, even if the download itself failed minutes
+    /// earlier — without this guard, failed items would silently
+    /// "revive" to Complete in the UI, contradicting both the in-app
+    /// error toast and the prior activity-log error entry.
     pub fn set_complete(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if matches!(
+                item.status.state,
+                DownloadState::Error | DownloadState::Cancelled
+            ) {
+                log::debug!(
+                    "set_complete skipped for {} — already in terminal state {:?}",
+                    download_id,
+                    item.status.state,
+                );
+                return;
+            }
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
             item.status.processing_label = None;
@@ -3846,6 +3897,37 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+/// Handle returned by [`spawn_companion_downloads`].
+///
+/// Wraps the spawned task's `JoinHandle` together with an
+/// [`Arc<AtomicBool>`] cooperative-cancel flag (#663). The completion
+/// task that supervises the companion deadline must set `aborted` to
+/// `true` *before* calling `handle.abort()` so the *synchronous* parts
+/// of the companion pipeline (notably [`run_companion_lyrics_conversion`]
+/// and its multi-minute `find_dirs_with_ttml` recursion) can bail at
+/// their next loop boundary.
+///
+/// `tokio::task::JoinHandle::abort()` only takes effect at an `.await`
+/// point; it cannot preempt a sync function. Without this flag, an
+/// already-aborted companion task can keep emitting `Companion: …`
+/// activity-log events for 10+ minutes after the timeout fires —
+/// the user-visible "spring back to life" symptom.
+pub(crate) struct CompanionTaskHandle {
+    handle: tokio::task::JoinHandle<()>,
+    aborted: Arc<AtomicBool>,
+}
+
+impl CompanionTaskHandle {
+    /// Signals the companion task to stop processing at the next
+    /// cooperative checkpoint *and* aborts the async runtime task.
+    /// Both signals are required: the flag handles sync code, the
+    /// abort handles async code awaiting on subprocess I/O.
+    pub(crate) fn abort(&mut self) {
+        self.aborted.store(true, Ordering::Relaxed);
+        self.handle.abort();
+    }
+}
+
 // The argument list is long because this function is the seam between
 // the queue's per-download state (app, queue, dl_id, urls, shutdown),
 // the GAMDL invocation context (primary codec, base options,
@@ -3864,7 +3946,7 @@ fn spawn_companion_downloads(
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
     available_audio_traits: &[String],
-) -> Option<tokio::task::JoinHandle<()>> {
+) -> Option<CompanionTaskHandle> {
     let companion_settings = load_settings_for_queue(app);
     let raw_tiers = plan_companions(
         &companion_settings.companion_mode,
@@ -3909,6 +3991,13 @@ fn spawn_companion_downloads(
         let comp_base_opts = companion_base_options.clone();
         let comp_dl_id = dl_id.to_string();
         let comp_shutdown = shutdown.clone();
+        // Per-task cooperative-cancel flag (#663). The completion task
+        // sets this to `true` before calling `handle.abort()` so the
+        // synchronous `run_companion_lyrics_conversion` and the tier
+        // loop can bail out at their next loop boundary instead of
+        // emitting activity-log events for many minutes after abort.
+        let comp_aborted = Arc::new(AtomicBool::new(false));
+        let aborted_for_task = comp_aborted.clone();
 
         emit_download_log(
             app,
@@ -3942,6 +4031,21 @@ fn spawn_companion_downloads(
                 // Check for app shutdown between tiers
                 if comp_shutdown.is_triggered() {
                     log::info!("Companion downloads stopping early (app shutting down)");
+                    return;
+                }
+                // Cooperative-cancel check (#663). If the completion
+                // task fired the deadline timeout while we were in
+                // sync code, leave before launching another GAMDL.
+                if aborted_for_task.load(Ordering::Relaxed) {
+                    log::info!(
+                        "Companion downloads aborted via cooperative flag for {comp_dl_id} — \
+                         skipping remaining tiers"
+                    );
+                    emit_download_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        "Companion task aborted — skipping remaining post-processing",
+                    );
                     return;
                 }
 
@@ -4118,6 +4222,7 @@ fn spawn_companion_downloads(
                                     output_dir,
                                     artist_hint.as_deref(),
                                     album_hint.as_deref(),
+                                    &aborted_for_task,
                                 );
                             }
 
@@ -4181,7 +4286,10 @@ fn spawn_companion_downloads(
                 }
             }
         });
-        Some(handle)
+        Some(CompanionTaskHandle {
+            handle,
+            aborted: comp_aborted,
+        })
     };
 
     /// Runs lyrics format conversion on a companion download's output directory.
@@ -4202,11 +4310,18 @@ fn spawn_companion_downloads(
         output_dir: &str,
         artist_hint: Option<&str>,
         album_hint: Option<&str>,
+        aborted: &Arc<AtomicBool>,
     ) {
         let settings = load_settings_for_queue(app);
         let base = std::path::Path::new(output_dir);
 
         if !base.is_dir() {
+            return;
+        }
+        // Cooperative-cancel checkpoint #1 (#663). Bail before the
+        // potentially-multi-minute recursive directory walk if the
+        // completion task already fired the deadline.
+        if aborted.load(Ordering::Relaxed) {
             return;
         }
 
@@ -4248,6 +4363,19 @@ fn spawn_companion_downloads(
         }
 
         for album_dir in &album_dirs {
+            // Cooperative-cancel checkpoint #2 (#663). Without this,
+            // the loop would emit `Companion: converted N TTML…`
+            // entries for every album dir even after the completion
+            // task aborted us — the symptom from the captured logs.
+            if aborted.load(Ordering::Relaxed) {
+                log::info!(
+                    "Companion lyrics conversion aborted for {dl_id} — \
+                     processed {}/{} album dirs",
+                    album_dirs.iter().position(|p| p == album_dir).unwrap_or(0),
+                    album_dirs.len(),
+                );
+                return;
+            }
             let dir_str = album_dir.to_string_lossy();
 
             // Enhanced LRC: TTML → word-by-word LRC
@@ -7049,24 +7177,38 @@ pub fn process_queue(
                             }
                             // Wait for companion downloads with the same scaled timeout
                             if let Some(mut handle) = companion_handle {
-                                if tokio::time::timeout(enrichment_timeout, &mut handle)
-                                    .await
-                                    .is_err()
+                                if tokio::time::timeout(
+                                    enrichment_timeout,
+                                    &mut handle.handle,
+                                )
+                                .await
+                                .is_err()
                                 {
                                     log::warn!(
                                         "Companion downloads timed out after {} minutes for {}",
                                         timeout_mins,
                                         completion_dl_id,
                                     );
+                                    // Wording corrected for #661 — set_complete()
+                                    // does not run until *after* the post-companion
+                                    // advisory pass below, which can take many more
+                                    // minutes on large box sets. Saying "marking
+                                    // complete" here misled users into thinking the
+                                    // item was already done.
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Companion downloads timed out after {timeout_mins} minutes — marking complete"
+                                            "⚠ Companion downloads timed out after {timeout_mins} minutes — skipping remaining companions; final tag pass still to run"
                                         ),
                                     );
+                                    // CompanionTaskHandle::abort() sets the
+                                    // cooperative-cancel flag *and* aborts the
+                                    // async task (#663) — both are needed because
+                                    // the lyrics-conversion path is sync and
+                                    // ignores tokio's abort by itself.
                                     handle.abort();
-                                    let _ = handle.await;
+                                    let _ = handle.handle.await;
                                 }
                             }
 
@@ -7088,6 +7230,17 @@ pub fn process_queue(
                                             .and_then(|i| i.status.output_path.clone())
                                     };
                                     if let Some(output_dir) = advisory_path {
+                                        // Make the long, otherwise-silent advisory
+                                        // pass visible in the activity log (#661).
+                                        // On large box sets this can run for many
+                                        // minutes; without a marker, users could
+                                        // not tell whether MeedyaDL was hung or
+                                        // working.
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            "Final tag pass: applying [Explicit]/[Clean] suffixes…",
+                                        );
                                         let dir_for_advisory = {
                                             let p = std::path::Path::new(&output_dir);
                                             if p.is_dir() {
@@ -7792,7 +7945,15 @@ async fn run_download_with_events(
                                 line: clean_line.clone(),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             };
-                            let _ = app.emit("activity-log", &log_event);
+                            // Suppress Python traceback noise from the user-
+                            // facing activity-log feed when verbose is off
+                            // (#660). The disk writer below still records
+                            // the line so support requests stay debuggable.
+                            let is_traceback_noise =
+                                process::is_python_traceback_noise(&clean_line);
+                            if verbose || !is_traceback_noise {
+                                let _ = app.emit("activity-log", &log_event);
+                            }
                             // Mirror to on-disk log (#541) for post-hoc diagnosis.
                             crate::utils::activity_log::write_to_disk(&log_event);
                         }
@@ -7955,7 +8116,14 @@ async fn run_download_with_events(
                                 line: clean_line.clone(),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             };
-                            let _ = app.emit("activity-log", &log_event);
+                            // Suppress Python traceback noise from the
+                            // user-facing activity-log feed in non-verbose
+                            // mode (#660). Disk mirror is unaffected.
+                            let is_traceback_noise =
+                                process::is_python_traceback_noise(&clean_line);
+                            if verbose || !is_traceback_noise {
+                                let _ = app.emit("activity-log", &log_event);
+                            }
                             // Mirror to on-disk log (#541).
                             crate::utils::activity_log::write_to_disk(&log_event);
                         }
@@ -9678,6 +9846,97 @@ mod tests {
         let mut queue = DownloadQueue::new();
         // Should not panic
         queue.set_complete("nonexistent");
+    }
+
+    /// Verifies that set_complete() refuses to overwrite a terminal Error
+    /// state — the "revival" bug from #661.
+    ///
+    /// The completion task at the bottom of the per-item pipeline always
+    /// calls set_complete after the post-companion advisory pass, even if
+    /// the download itself failed minutes earlier. Without this guard,
+    /// failed items would silently appear as Complete in the UI,
+    /// contradicting the prior error toast and activity-log entry.
+    #[test]
+    fn set_complete_does_not_revive_errored_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_error(&id, "primary download failed");
+        queue.set_complete(&id); // Late completion-task pass — must be a no-op.
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Error,
+            "set_complete must not transition Error -> Complete (#661)"
+        );
+        assert_eq!(
+            statuses[0].error.as_deref(),
+            Some("primary download failed"),
+            "the original error message must be preserved"
+        );
+    }
+
+    /// Verifies that set_complete() refuses to overwrite a Cancelled state.
+    /// Mirrors the Error guard — both are terminal and must not regress.
+    #[test]
+    fn set_complete_does_not_revive_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.cancel(&id);
+        queue.set_complete(&id);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "set_complete must not transition Cancelled -> Complete (#661)"
+        );
+    }
+
+    /// Verifies that set_error() refuses to overwrite a Cancelled state.
+    /// A user-initiated cancellation must not be downgraded to "Error" by a
+    /// late-arriving subprocess error during teardown.
+    #[test]
+    fn set_error_does_not_overwrite_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.cancel(&id);
+        queue.set_error(&id, "stderr noise after cancellation");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "set_error must not transition Cancelled -> Error (#661)"
+        );
+        // The cancellation path leaves error=None; the late set_error must
+        // not poison that field with subprocess teardown noise.
+        assert!(
+            statuses[0].error.is_none(),
+            "Cancelled items must not gain an error message after the fact"
+        );
+    }
+
+    /// Verifies that set_error() refuses to overwrite a Complete state.
+    /// A successful download must not regress to Error if some tail-end
+    /// async task fails after enrichment ended.
+    #[test]
+    fn set_error_does_not_overwrite_complete_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_complete(&id);
+        queue.set_error(&id, "late-arriving enrichment failure");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Complete,
+            "set_error must not transition Complete -> Error (#661)"
+        );
     }
 
     // ==========================================================
