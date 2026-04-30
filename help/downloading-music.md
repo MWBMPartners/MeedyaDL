@@ -92,10 +92,15 @@ Each item in the queue displays:
 The following queue actions are available:
 
 - **Cancel** -- stops the active download immediately and marks it as cancelled
-- **Retry** -- re-queues a failed download so it can be attempted again
+- **Retry** -- re-queues a failed download so it can be attempted again. When a partial download exists on disk, MeedyaDL reads the album's `manifest.meedyadl` and re-runs only the tracks that actually failed (smart retry). If every expected track is already on disk, the retry is refused with a friendly message instead of pointlessly re-fetching
+- **Retry without Wrapper** -- (only on items that used wrapper auth) re-runs with wrapper disabled, falling back to cookie-based auth
+- **Retry All Failed** -- header button; re-queues every failed item in one click. Confirmation modal shows the count first
+- **Right-click any row** -- opens a context menu with Copy Source Link, Open Folder (when output exists), Retry (when failed), and Retry without Wrapper (when applicable)
 - **Clear Finished** -- removes all completed and failed items from the queue list, keeping only pending and active items
 - **Export** -- saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
 - **Import** -- loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
+
+The History page exposes the same Retry / Retry All Failed actions for entries already moved out of the queue. Re-enqueuing from History creates a fresh queue item; the original History entry is preserved.
 
 ### Queue Persistence and Crash Recovery
 
@@ -168,6 +173,15 @@ Output Directory/
 ```
 
 The file extension depends on the codec used (`.m4a` for AAC and ALAC, `.ec3` for Atmos, `.ac3` for AC3).
+
+#### Track and Disc Number Padding
+
+The `{track}` and `{disc}` placeholders in your file template are zero-padded according to two settings at the bottom of the **Settings > Templates** page:
+
+- **Track Number Padding (default: Auto)** — Auto sizes the padding to the album's track count: 2-digit for albums with up to 99 tracks (`01`, `02`, ..., `99`), 3-digit for box sets with 100–999 tracks (`001`, `002`, ..., `100`, ...), 4-digit for >999. Fixed widths (None / 2 / 3 / 4) are also offered if you want library-wide consistency regardless of album size. The default fixes a long-standing sort-order bug where a 100-track album under 2-digit padding produced `1 Track.m4a`, `10 Track.m4a`, ..., `2 Track.m4a` (alphabetical sort by leading character).
+- **Disc Number Padding (default: Auto)** — Auto stays single-digit for the typical 1–9 disc case and switches to 2-digit for box sets with 10+ discs.
+
+Existing libraries are not retroactively renamed when you change padding — the new setting only affects future downloads.
 
 ### Metadata and Lyrics
 

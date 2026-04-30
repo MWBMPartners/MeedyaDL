@@ -87,3 +87,72 @@ We also want to create detailed usage documentation, including troubleshooting s
 Please also keep a record of all CLAUDE prompts, context etc as well as this project brief in .claude so that this is retaained and can allow us to pick up where we left off, keeping project requirements and plan.
 
 Claude files, as well as any .md markdown files (including, but not limited to Project_Plan.md, README.md & CHANGELOG.md) being updated at/after every command/code change automatically to keep project status/to-do lists etc ALWAYS up-to-date
+
+================================================================================
+SESSION PROMPTS ARCHIVE
+================================================================================
+Per the brief above ("keep a record of all CLAUDE prompts, context etc … so that
+this is retained and can allow us to pick up where we left off"), each session's
+user prompts are appended below in chronological order. The original brief above
+this divider is the frozen project genesis and is not edited.
+
+--------------------------------------------------------------------------------
+Session: 2026-04-29 — User-reported v0.50.1 fixes (six issues bundled in PR #662)
+Branch:  fix/toasts-notifications-fallback-tracebacks-revival
+Issues:  #657, #658, #659, #660, #661, #663
+PR:      https://github.com/MWBMPartners/MeedyaDL/pull/662
+--------------------------------------------------------------------------------
+
+User prompts in this session (paraphrased / verbatim where they materially drove
+the work):
+
+1. Initial bug report (three observations from the running v0.50.1 build):
+   - "This URL is already in the queue" in-app toast doesn't auto-dismiss; it
+     should.
+   - MeedyaDL set to "Native + In-app (default)" notification style, but native
+     notifications never trigger (at least on macOS).
+   - Fallback function works well, but currently you cannot remove some formats
+     from the fallback hierarchy. Should be able to remove (or re-add) any
+     audio/video format. Some users may not want Binaural for example.
+   Asked to: create GitHub Issues for each, fix individually with separate
+   commits, and update the issues as each is fixed.
+
+2. Mid-task addendum (two more observations from recent activity logs):
+   - Recent downloads showed Python type errors in the Activity Log. Are these
+     normal? Errors? Resolvable in MeedyaDL or GAMDL-only?
+   - Several instances of timeouts after 10 minutes, with the log marking items
+     as failed/complete and then "things to revive again".
+   Asked to: create issues + fixes + commits for these too, then open one PR to
+   merge to main when all complete.
+
+3. Live evidence escalation:
+   - "Another 'Companion download timed out after 10 minutes - marking complete'
+     error.... if this happens like before, MeedyaDL will eventually start
+     logging errors again." (Predictive — the user knew the symptom would recur
+     because no fix had shipped yet.)
+   - Follow-up screenshot 11 minutes later: "As predicted, MeedyaDL sprang back
+     to life again (at least according to the Activity Log), after 11 minutes or
+     so. Check errors on PR 662." (Confirmation that the predicted post-abort
+     activity-log chatter happened. Drove the discovery that the lyrics
+     conversion is sync code that tokio's JoinHandle::abort cannot preempt — the
+     root cause behind issue #663.)
+   - Final pattern report: "another timeout (this isn't with the new version
+     yet)" with screenshot showing 13-minute timeout. Confirmed the same defect
+     recurring; user understood they were on the un-fixed v0.50.1.
+
+4. Housekeeping (this turn):
+   - "Update Claude History, Claude Context, Claude Memory and Claude Prompts in
+     .claude/. Stage and commit." This appended block is the response.
+
+Key architectural learning preserved in shared memory
+(`.claude/memory/project_pr662_user_session_fixes.md`):
+
+- macOS `requestPermission()` only triggers the system prompt the first time
+  per bundle ID; if dismissed, every subsequent call resolves silently with
+  `'default'` and `sendNotification()` is a no-op. Workaround: run a one-shot
+  preflight at app startup and surface the resolved status to the console.
+- `tokio::task::JoinHandle::abort()` cannot preempt synchronous code — only
+  yields at `.await` points. Any sync function called from inside an async
+  tokio task that can outlive the parent must accept and check an
+  `Arc<AtomicBool>` cooperative-cancel flag. New `CompanionTaskHandle` wrapper
+  bundles the JoinHandle with such a flag for the companion task.

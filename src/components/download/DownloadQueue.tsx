@@ -51,7 +51,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
  * - `RefreshCw` -- manual refresh button (@see https://lucide.dev/icons/refresh-cw)
  * - `Trash2`    -- "Clear Finished" button (@see https://lucide.dev/icons/trash-2)
  */
-import { Download, Play, RefreshCw, Square, Trash2, Upload } from 'lucide-react';
+import { Download, Play, RefreshCw, RotateCcw, Square, Trash2, Upload } from 'lucide-react';
 
 /**
  * Zustand store hooks.
@@ -162,6 +162,16 @@ export function DownloadQueue() {
 
   /** Confirmation modal state for "Clear All". */
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+
+  /**
+   * Confirmation modal state for "Retry All Failed" (#665). Bulk retry
+   * iterates every queue item with `state === 'error'` and calls the
+   * existing `retryDownload` IPC for each, preserving per-item options.
+   * The smart manifest-driven retry path (#667) inside the backend means
+   * already-downloaded tracks are skipped — bulk retry of 12 items only
+   * re-fetches the actually-failed tracks across them.
+   */
+  const [showRetryAllConfirm, setShowRetryAllConfirm] = useState(false);
 
   /**
    * Confirmation modal state for "Abort Queue" (#620). The destructive
@@ -352,6 +362,41 @@ export function DownloadQueue() {
     }
   };
 
+  /**
+   * Bulk retry: iterate every errored item and call the existing
+   * retry IPC for each (#665). Each call goes through `retry_download`
+   * which now consults the smart manifest planner (#667), so already-
+   * downloaded tracks are skipped at the planner layer — bulk retry
+   * of 12 items only re-fetches the actually-failed tracks across them.
+   *
+   * `Promise.allSettled` lets us count successes and failures
+   * independently; one bad item shouldn't abort the whole batch.
+   */
+  const handleRetryAllFailedConfirmed = async () => {
+    setShowRetryAllConfirm(false);
+    const failedItems = queueItems.filter((i) => i.state === 'error');
+    if (failedItems.length === 0) {
+      addToast('No failed downloads to retry', 'info');
+      return;
+    }
+    const results = await Promise.allSettled(
+      failedItems.map((i) => retryDownload(i.id)),
+    );
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - succeeded;
+    if (failed === 0) {
+      addToast(
+        `Re-queued ${succeeded} failed download${succeeded !== 1 ? 's' : ''}`,
+        'success',
+      );
+    } else {
+      addToast(
+        `Re-queued ${succeeded} of ${results.length} (${failed} could not be retried — check items individually)`,
+        'warning',
+      );
+    }
+  };
+
   // ---------------------------------------------------------------
   // Derived values
   // ---------------------------------------------------------------
@@ -364,6 +409,13 @@ export function DownloadQueue() {
   const finishedCount = queueItems.filter(
     (i) => i.state === 'complete' || i.state === 'cancelled'
   ).length;
+
+  /**
+   * Count of failed items eligible for the "Retry All Failed" action
+   * (#665). Only `error`-state items qualify; cancelled items were
+   * stopped intentionally and shouldn't be auto-resumed by a bulk action.
+   */
+  const failedCount = queueItems.filter((i) => i.state === 'error').length;
 
   /**
    * Count of items eligible for export: non-terminal items that are
@@ -504,6 +556,24 @@ export function DownloadQueue() {
               </Button>
             )}
 
+            {/*
+             * "Retry All Failed" button (#665) — appears when at least one
+             * failed item exists. Each retry goes through the smart manifest
+             * planner (#667), so already-downloaded tracks are skipped at
+             * the planner layer. Confirmation-gated to prevent a misclick
+             * from re-queueing twelve items at once.
+             */}
+            {failedCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RotateCcw size={14} />}
+                onClick={() => setShowRetryAllConfirm(true)}
+              >
+                Retry All Failed ({failedCount})
+              </Button>
+            )}
+
             {queueItems.length > 0 && (
               <Button
                 variant="ghost"
@@ -620,6 +690,32 @@ export function DownloadQueue() {
           </div>
         )}
       </div>
+
+      {/* Confirmation modal for "Retry All Failed" (#665) */}
+      <Modal
+        open={showRetryAllConfirm}
+        onClose={() => setShowRetryAllConfirm(false)}
+        title="Retry All Failed Downloads"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          This will re-queue {failedCount} failed download
+          {failedCount !== 1 ? 's' : ''}. The smart retry path skips
+          already-downloaded tracks via the manifest, so only the actually-
+          failed tracks will be re-fetched.
+        </p>
+        <p className="text-sm text-content-secondary mb-6">
+          For wrapper-related failures, use the per-item &quot;Retry without
+          Wrapper&quot; option instead.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setShowRetryAllConfirm(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleRetryAllFailedConfirmed}>
+            Retry All
+          </Button>
+        </div>
+      </Modal>
 
       {/* Confirmation modal for "Clear All" */}
       <Modal

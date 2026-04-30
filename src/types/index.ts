@@ -132,6 +132,36 @@ export type CoverFormat = 'jpg' | 'png' | 'raw';
 export type CoverArtName = 'cover' | 'front_cover' | 'folder';
 
 /**
+ * Zero-padding strategy for the `{track}` placeholder in filename templates (#587).
+ *
+ * Mirrors: Rust enum `TrackNumberPadding` in `src-tauri/src/models/settings.rs`
+ *
+ * - `auto`: Derive width from album's track_total — `01` for <100, `001` for <1000.
+ * - `none`: No padding (`1`, `2`, ..., `10`, `100`).
+ * - `two_digits`: 2 digits (`01`, `02`, ..., `99`, `100`) — pre-#587 behaviour.
+ * - `three_digits`: 3 digits (`001`, ..., `999`).
+ * - `four_digits`: 4 digits (`0001`, ..., `9999`).
+ */
+export type TrackNumberPadding =
+  | 'auto'
+  | 'none'
+  | 'two_digits'
+  | 'three_digits'
+  | 'four_digits';
+
+/**
+ * Zero-padding strategy for the `{disc}` placeholder in filename templates (#587).
+ *
+ * Mirrors: Rust enum `DiscNumberPadding` in `src-tauri/src/models/settings.rs`
+ *
+ * - `auto`: Derive from disc_total (1-digit for <10 discs, 2-digit for <100).
+ * - `none`: No padding (`1`, `2`, `10`).
+ * - `one_digit`: 1 digit (same as `none` for typical albums).
+ * - `two_digits`: 2 digits (`01`, `02`, `10`, `99`).
+ */
+export type DiscNumberPadding = 'auto' | 'none' | 'one_digit' | 'two_digits';
+
+/**
  * Download mode: selects which tool GAMDL uses for fetching HLS streams.
  *
  * Mirrors: Rust enum `DownloadMode` in `src-tauri/src/models/settings.rs`
@@ -661,6 +691,16 @@ export interface AppSettings {
   no_album_file_template: string;
   /** Template for file naming in playlist downloads */
   playlist_file_template: string;
+  /**
+   * Zero-padding strategy for the `{track}` placeholder in templates (#587).
+   * Default: `'auto'` — derive width from the album's `track_total`.
+   */
+  track_number_padding: TrackNumberPadding;
+  /**
+   * Zero-padding strategy for the `{disc}` placeholder in templates (#587).
+   * Default: `'auto'` — single-digit for <10 discs, 2-digit for <100.
+   */
+  disc_number_padding: DiscNumberPadding;
   /** Path to Netscape-format cookies file, or null if not set */
   cookies_path: string | null;
   /** Custom FFmpeg binary path, or null to use bundled/PATH version */
@@ -681,6 +721,12 @@ export interface AppSettings {
   use_wrapper: boolean;
   /** Auto-retry without wrapper when a wrapper download fails terminally */
   auto_retry_without_wrapper: boolean;
+  /**
+   * When `true`, a download that fails with the AMP "Resource Not Found"
+   * shape against the URL's storefront is automatically retried once
+   * with the user's account-region storefront (#666). Default: `true`.
+   */
+  storefront_fallback_on_failure: boolean;
   /** URL for the API wrapper account endpoint */
   wrapper_account_url: string;
   /**

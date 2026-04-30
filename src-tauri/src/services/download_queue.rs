@@ -1030,6 +1030,12 @@ struct QueueItem {
     /// 0 = primary engine, 1 = first fallback engine, etc.
     /// Incremented by `try_engine_fallback()` on tool errors (#320).
     pub engine_fallback_index: usize,
+    /// Whether [`try_storefront_fallback`] has already rewritten this
+    /// item's URL once (#666). Budget is one attempt — without this flag
+    /// the same item could ping-pong between two storefronts forever
+    /// when neither catalog has the content. Reset by [`retry`] so a
+    /// user-driven manual retry from the UI is allowed to try again.
+    pub storefront_fallback_attempted: bool,
 }
 
 // ============================================================
@@ -1288,6 +1294,7 @@ impl DownloadQueue {
             fallback_index: 0,
             network_retries_left: self.max_network_retries,
             engine_fallback_index: 0,
+            storefront_fallback_attempted: false,
         };
 
         log::info!(
@@ -1888,6 +1895,99 @@ impl DownloadQueue {
         }
     }
 
+    /// Attempts a one-shot storefront-fallback rewrite for a failed item (#666).
+    ///
+    /// Rewrites every URL on the item from its current storefront to the
+    /// user's account-region storefront (settings.storefront, falling back
+    /// to OS locale, then `"us"`), resets the item to `Queued`, and returns
+    /// `Some((from, to))` describing the swap so the activity-log writer
+    /// can surface it. Returns `None` and leaves the item untouched when:
+    ///
+    /// * the user disabled `storefront_fallback_on_failure`, or
+    /// * the budget of one attempt has already been spent for this item
+    ///   (`storefront_fallback_attempted == true`), or
+    /// * none of the URLs match the standard `/<storefront>/<type>/…`
+    ///   shape (e.g. `/library/…` URLs use a Music-User-Token endpoint
+    ///   that doesn't accept a free storefront), or
+    /// * the resolved fallback storefront is the same as the existing one
+    ///   on every URL (nothing to rewrite — typically when the user is
+    ///   already on the storefront the URL specifies).
+    ///
+    /// Budget is reset to fresh by [`Self::retry`], so a manual user retry
+    /// from the UI gets to try the rewrite again.
+    pub fn try_storefront_fallback(
+        &mut self,
+        download_id: &str,
+        settings: &AppSettings,
+    ) -> Option<(String, String)> {
+        if !settings.storefront_fallback_on_failure {
+            return None;
+        }
+        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
+        if item.storefront_fallback_attempted {
+            return None;
+        }
+
+        // Resolve the user's account region. settings.storefront is the
+        // canonical user-configurable value (auto-derived from locale, can
+        // be overridden in Settings > General). Fallbacks: OS locale via
+        // login_window_service::detect_storefront, then "us" as a last-
+        // resort default that's always a valid Apple storefront.
+        let target = if !settings.storefront.is_empty() {
+            settings.storefront.to_ascii_lowercase()
+        } else {
+            super::login_window_service::detect_storefront()
+                .unwrap_or_else(|| "us".to_string())
+        };
+
+        // Capture the current URL storefront from the *first* URL that
+        // parses cleanly; we rewrite every URL but only need one source
+        // value for the activity-log line.
+        let from_storefront = item
+            .status
+            .urls
+            .iter()
+            .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+            .map(|p| p.storefront)?;
+
+        // Skip if the URL storefront already matches the user region.
+        // This is the "user pasted their own region's URL" case — there's
+        // nothing useful to rewrite to, and the failure is genuine.
+        if from_storefront == target {
+            return None;
+        }
+
+        // Rewrite every URL on the item. The helper is a no-op for any URL
+        // shape it can't safely rewrite, so /library/ URLs and other novel
+        // forms in a multi-URL request pass through unchanged — the queue
+        // item just doesn't benefit from the swap for those entries.
+        let new_urls: Vec<String> = item
+            .status
+            .urls
+            .iter()
+            .map(|u| super::apple_music_api::rewrite_url_storefront(u, &target))
+            .collect();
+
+        // Sanity check: at least one URL must have actually changed,
+        // otherwise we'd be retrying the exact same set with the same
+        // failure expected.
+        if new_urls == item.status.urls {
+            return None;
+        }
+
+        item.status.urls = new_urls.clone();
+        item.request.urls = new_urls;
+        item.storefront_fallback_attempted = true;
+        item.status.state = DownloadState::Queued;
+        item.status.error = None;
+        item.status.progress = 0.0;
+
+        log::info!(
+            "Storefront fallback for {download_id}: rewriting URLs '{from_storefront}' -> '{target}'"
+        );
+        Some((from_storefront, target))
+    }
+
     /// Gets the next queued item's download ID and options for execution.
     ///
     /// This is the "scheduler" — it decides whether a new download can start.
@@ -1964,17 +2064,106 @@ impl DownloadQueue {
     ///
     /// # Returns
     /// `true` if the item was found and reset, `false` otherwise.
+    /// Peek at what a smart-retry plan *would* produce for `download_id`
+    /// without mutating queue state (#667). Returns `None` when the item
+    /// doesn't exist or has no output path — those cases just fall
+    /// through to dumb retry without diagnostic value.
+    ///
+    /// Used by the `retry_download` IPC to give the frontend a precise
+    /// "nothing to retry" message when the planner reports
+    /// [`super::smart_retry_planner::PlanOutcome::AllPresent`], rather
+    /// than the generic `Download cannot be retried` error.
+    #[must_use]
+    pub fn peek_smart_retry_outcome(
+        &self,
+        download_id: &str,
+    ) -> Option<super::smart_retry_planner::PlanOutcome> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        let output = item.status.output_path.as_deref()?;
+        if !item.status.output_is_directory {
+            return None;
+        }
+        let first_url = item.request.urls.first()?;
+        Some(super::smart_retry_planner::plan_retry(
+            std::path::Path::new(output),
+            first_url,
+        ))
+    }
+
     pub fn retry(&mut self, download_id: &str, settings: &AppSettings) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if item.status.state == DownloadState::Error
                 || item.status.state == DownloadState::Cancelled
             {
+                // Smart manifest-driven retry (#667). When the failed item
+                // has a known output directory containing a
+                // `manifest.meedyadl`, diff the expected track set against
+                // disk and replace the queue item's URLs with a precise
+                // per-track list so GAMDL only revisits the tracks that
+                // actually failed. Falls through to the existing dumb
+                // retry on any unsupported case (no manifest, no source
+                // match, no per-track URLs recorded).
+                let smart_outcome = item
+                    .status
+                    .output_path
+                    .as_deref()
+                    .filter(|_| item.status.output_is_directory)
+                    .and_then(|out| {
+                        let path = std::path::Path::new(out);
+                        item.request.urls.first().map(|first_url| {
+                            super::smart_retry_planner::plan_retry(path, first_url)
+                        })
+                    });
+
+                if let Some(super::smart_retry_planner::PlanOutcome::AllPresent {
+                    total_tracks,
+                }) = smart_outcome
+                {
+                    // Every expected track is on disk — there's nothing
+                    // for the retry to fetch. Refuse the retry and let
+                    // the caller surface "nothing to do". Returning
+                    // `false` here means the IPC reports a clean refusal;
+                    // the activity-log helper above has already logged
+                    // the diagnostic. We do NOT clear the Error state —
+                    // the user's previous attempt's error is still the
+                    // most accurate description of what happened.
+                    log::info!(
+                        "Smart retry for {download_id}: all {total_tracks} track(s) already \
+                         present on disk — refusing retry"
+                    );
+                    return false;
+                }
+
                 // Re-merge options from the original request with current settings.
                 // This picks up any settings changes the user made since the original attempt.
                 item.merged_options = merge_options(item.request.options.as_ref(), settings);
                 // Reset fallback and retry counters to their initial values
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
+                // Reset the storefront-fallback budget too (#666) — a manual
+                // retry from the UI is a fresh user intent and should be
+                // allowed to try the rewrite once again, even if the previous
+                // automatic fallback already exhausted its single attempt.
+                item.storefront_fallback_attempted = false;
+
+                // Apply the smart-retry plan if one was produced. The plan
+                // narrows the URL set to per-track entries that GAMDL can
+                // fetch in a single invocation, sharply cutting wall time
+                // (no metadata re-fetch for already-present tracks, no
+                // companion re-traversal, smaller enrichment surface).
+                if let Some(super::smart_retry_planner::PlanOutcome::Plan(plan)) =
+                    smart_outcome
+                {
+                    log::info!(
+                        "Smart retry for {download_id}: targeting {} of {} track(s) — \
+                         {} URL(s) queued",
+                        plan.missing_tracks,
+                        plan.total_tracks,
+                        plan.urls_to_fetch.len(),
+                    );
+                    item.request.urls = plan.urls_to_fetch.clone();
+                    item.status.urls = plan.urls_to_fetch;
+                }
                 // Reset status fields for a fresh start
                 item.status.state = DownloadState::Queued;
                 item.status.error = None;
@@ -2180,6 +2369,7 @@ impl DownloadQueue {
                 fallback_index: 0,
                 engine_fallback_index: 0,
                 network_retries_left: self.max_network_retries,
+                storefront_fallback_attempted: false,
             };
             self.items.push_back(item);
         }
@@ -7477,6 +7667,44 @@ pub fn process_queue(
                     // If no retry will occur, check auto-retry-without-wrapper
                     // before falling through to the terminal error path.
                     if !should_retry {
+                        // Storefront fallback (#666). Try BEFORE wrapper auto-
+                        // retry because (a) wrong-storefront and wrapper
+                        // failure are different root causes, (b) if the album
+                        // simply isn't in the URL's catalog, swapping wrappers
+                        // won't help, and (c) we want one user-visible
+                        // recovery action per failed item — not two
+                        // overlapping retry chains. The detector
+                        // `is_storefront_mismatch_error` is narrow (requires
+                        // both `404` AND `Resource Not Found`) so we never
+                        // burn the budget on a generic 404 from elsewhere.
+                        if process::is_storefront_mismatch_error(&error_msg) {
+                            let sf_settings = load_settings_for_queue(&app_clone);
+                            let swap = {
+                                let mut q = queue_clone.lock().await;
+                                q.try_storefront_fallback(&dl_id, &sf_settings)
+                            };
+                            if let Some((from, to)) = swap {
+                                log::info!(
+                                    "Auto-retrying download {dl_id} via storefront \
+                                     fallback ({from} -> {to})"
+                                );
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!(
+                                        "Storefront '{from}' returned no catalog entry — \
+                                         retrying with your account region '{to}'…"
+                                    ),
+                                );
+                                save_queue_to_disk(&app_clone, &queue_clone).await;
+                                let _ = app_clone.emit("download-queued", &dl_id);
+                                // Skip the terminal error path — the rewritten
+                                // URL gets a fresh shot via process_queue.
+                                process_queue(app_clone, queue_clone).await;
+                                return;
+                            }
+                        }
+
                         // Auto-retry without wrapper: if the download used wrapper
                         // auth and the user has opted in, automatically re-queue
                         // with wrapper disabled (cookie-based auth) instead of
@@ -8251,11 +8479,21 @@ async fn run_download_with_events(
     if status.success() && soft_errors > 0 {
         let raw_lines = raw_stderr_lines.lock().await;
         let combined = raw_lines.join("\n");
+        // Storefront-mismatch detection (#666). The friendly soft-error
+        // message would otherwise hide the AMP "Resource Not Found" signal
+        // that the storefront-fallback retry path keys on. When the raw
+        // stderr looks like a wrong-storefront failure, prepend the
+        // marker so `is_storefront_mismatch_error` matches downstream.
+        let storefront_signal = if process::is_storefront_mismatch_error(&combined) {
+            " — AMP API returned 404 Resource Not Found (likely wrong storefront)"
+        } else {
+            ""
+        };
         let friendly = process::classify_gamdl_traceback(&combined)
             .map(std::string::ToString::to_string)
             .unwrap_or_else(|| {
                 format!(
-                    "GAMDL reported {soft_errors} per-track error(s) even though the process exited 0"
+                    "GAMDL reported {soft_errors} per-track error(s) even though the process exited 0{storefront_signal}"
                 )
             });
         return Err(friendly);
@@ -10000,6 +10238,96 @@ mod tests {
     fn try_network_retry_nonexistent_id() {
         let mut queue = DownloadQueue::new();
         assert!(queue.try_network_retry("nonexistent").is_none());
+    }
+
+    // ==========================================================
+    // 12b. try_storefront_fallback() tests (#666)
+    // ==========================================================
+
+    /// Verifies that a US-storefront URL is rewritten to the user's account
+    /// region, the item is reset to Queued, and the budget flag is set so
+    /// a second call is a no-op.
+    #[test]
+    fn try_storefront_fallback_rewrites_us_to_gb_and_consumes_budget() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+        settings.storefront_fallback_on_failure = true;
+
+        let id = queue.enqueue(test_request(), &settings);
+        queue.set_error(&id, "404 Resource Not Found");
+
+        let swap = queue.try_storefront_fallback(&id, &settings);
+        assert_eq!(swap, Some(("us".to_string(), "gb".to_string())));
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Queued);
+        assert_eq!(statuses[0].urls[0], "https://music.apple.com/gb/album/test-song/123456789");
+        assert!(statuses[0].error.is_none());
+
+        // Budget consumed — second call must return None even after
+        // another error, so we never ping-pong forever.
+        queue.set_error(&id, "404 Resource Not Found");
+        assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    }
+
+    /// Verifies that the fallback is a no-op when the URL storefront
+    /// already matches the user's account region (nothing to rewrite to).
+    #[test]
+    fn try_storefront_fallback_skips_when_url_already_matches_region() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "us".to_string(); // matches the test URL
+        settings.storefront_fallback_on_failure = true;
+
+        let id = queue.enqueue(test_request(), &settings);
+        queue.set_error(&id, "404 Resource Not Found");
+
+        assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Error, "must stay errored");
+    }
+
+    /// Verifies that the fallback is a no-op when the user has disabled it.
+    #[test]
+    fn try_storefront_fallback_respects_settings_toggle() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+        settings.storefront_fallback_on_failure = false; // user opted out
+
+        let id = queue.enqueue(test_request(), &settings);
+        queue.set_error(&id, "404 Resource Not Found");
+
+        assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    }
+
+    /// Verifies that a manual user retry (which calls `retry()`) refreshes
+    /// the budget so the user can ask for the rewrite again.
+    #[test]
+    fn retry_resets_storefront_fallback_budget() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+        settings.storefront_fallback_on_failure = true;
+
+        let id = queue.enqueue(test_request(), &settings);
+        // First failure + automatic fallback consumes the budget.
+        queue.set_error(&id, "404 Resource Not Found");
+        assert!(queue.try_storefront_fallback(&id, &settings).is_some());
+        // Pretend the GB attempt also failed.
+        queue.set_error(&id, "404 Resource Not Found");
+        assert!(queue.try_storefront_fallback(&id, &settings).is_none());
+
+        // User clicks Retry — budget refreshes.
+        assert!(queue.retry(&id, &settings));
+        // Re-fail and verify the budget is fresh.
+        queue.set_error(&id, "404 Resource Not Found");
+        // URL is now `/gb/`; the helper rejects same-region rewrites, so we
+        // expect None here. Update settings to a different region to confirm
+        // the budget *would* allow it.
+        settings.storefront = "fr".to_string();
+        assert!(queue.try_storefront_fallback(&id, &settings).is_some());
     }
 
     // ==========================================================

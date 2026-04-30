@@ -373,6 +373,14 @@ pub mod service_status;
 /// quality source for a given album/track.
 pub mod smart_download;
 
+/// Smart manifest-driven retry planner (#667).
+///
+/// Reads the `manifest.meedyadl` written at end-of-pipeline, diffs the
+/// expected track set against on-disk audio files, and returns a
+/// per-track URL list so a retry only re-fetches the tracks that
+/// actually failed (versus today's "re-run the whole album URL" path).
+pub mod smart_retry_planner;
+
 /// Pre-queue duplicate detector (#510).
 ///
 /// When an Apple Music artist URL is queued with multiple

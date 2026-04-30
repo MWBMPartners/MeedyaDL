@@ -166,6 +166,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
   playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
+  // Padding strategies for {track} and {disc} placeholders (#587).
+  // Auto-derive widths from track_total / disc_total — sorts box sets correctly.
+  track_number_padding: 'auto' as const,
+  disc_number_padding: 'auto' as const,
   // Tool paths -- null means "auto-detect from bundled/PATH"
   cookies_path: null, // Netscape-format cookies file for authentication
   ffmpeg_path: null, // FFmpeg binary for audio/video processing
@@ -177,6 +181,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
+  storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
   wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
   wrapper_m3u8_ip: '127.0.0.1:20020', // Wrapper m3u8 address (GAMDL v3.1+)
   truncate: null, // Max filename length in characters; null = no truncation

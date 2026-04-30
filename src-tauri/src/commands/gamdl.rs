@@ -895,6 +895,34 @@ pub async fn retry_download(
     // (e.g., switching from AAC to ALAC after a failed attempt).
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
+    // Smart retry preview (#667). Peek at what the planner would produce
+    // BEFORE mutating queue state, so a "nothing to retry — every track
+    // is already on disk" outcome surfaces as a friendly Err message
+    // instead of the generic `cannot be retried`. The peek is read-only
+    // and doesn't change item state.
+    let smart_preview = {
+        let q = queue.lock().await;
+        q.peek_smart_retry_outcome(&download_id)
+    };
+    if let Some(crate::services::smart_retry_planner::PlanOutcome::AllPresent {
+        total_tracks,
+    }) = smart_preview
+    {
+        emit_app_log(
+            &app,
+            &format!(
+                "Retry refused for [{}]: every track ({total_tracks}) is already \
+                 on disk — manifest diff found nothing to re-fetch",
+                &download_id[..8.min(download_id.len())],
+            ),
+        );
+        return Err(format!(
+            "Nothing to retry — all {total_tracks} track(s) are already on disk. \
+             If something changed (e.g. Apple released a new mix), use Settings > \
+             General > Smart Re-Download Detection."
+        ));
+    }
+
     // Attempt to reset the download item to Queued state.
     // q.retry() returns true only if the item exists and is in a retryable state
     // (Failed or Cancelled).
