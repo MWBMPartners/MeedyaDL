@@ -105,6 +105,7 @@ The Release workflow for v0.52.0 failed on every platform with:
 
 - **(security)** Update supported versions to 0.52.0 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.52.0] - 2026-04-30
 
