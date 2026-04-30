@@ -166,6 +166,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
   playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
+  // Padding strategies for {track} and {disc} placeholders (#587).
+  // Auto-derive widths from track_total / disc_total — sorts box sets correctly.
+  track_number_padding: 'auto' as const,
+  disc_number_padding: 'auto' as const,
   // Tool paths -- null means "auto-detect from bundled/PATH"
   cookies_path: null, // Netscape-format cookies file for authentication
   ffmpeg_path: null, // FFmpeg binary for audio/video processing

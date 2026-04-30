@@ -54,7 +54,33 @@
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Visual chip/pill builder for GAMDL template strings.
-import { TemplateBuilder, SettingsSection } from '@/components/common';
+import { TemplateBuilder, Select, SettingsSection } from '@/components/common';
+import type { DiscNumberPadding, TrackNumberPadding } from '@/types';
+
+/**
+ * Options for the {track} placeholder padding selector (#587).
+ * `'auto'` is the recommended default — sorts box sets correctly without
+ * the user having to know in advance whether the album has 12 or 200 tracks.
+ */
+const TRACK_PADDING_OPTIONS = [
+  { value: 'auto', label: 'Auto (recommended) — derive width from album track count' },
+  { value: 'none', label: 'None — 1, 2, 10, 100' },
+  { value: 'two_digits', label: '2 digits — 01, 02, 99, 100' },
+  { value: 'three_digits', label: '3 digits — 001, 002, 999' },
+  { value: 'four_digits', label: '4 digits — 0001, 0002, 9999' },
+] as const;
+
+/**
+ * Options for the {disc} placeholder padding selector (#587).
+ * `'auto'` defaults to 1-digit for albums with <10 discs (the common case)
+ * and 2-digit for box sets.
+ */
+const DISC_PADDING_OPTIONS = [
+  { value: 'auto', label: 'Auto (recommended) — single-digit until 10+ discs' },
+  { value: 'none', label: 'None — same as 1 digit' },
+  { value: 'one_digit', label: '1 digit — 1, 2, 9' },
+  { value: 'two_digits', label: '2 digits — 01, 02, 99' },
+] as const;
 
 /**
  * TemplatesTab -- Renders the Templates settings tab.
@@ -170,6 +196,30 @@ export function TemplatesTab() {
           value={settings.playlist_file_template}
           onChange={(v) => updateSettings({ playlist_file_template: v })}
           variableCategories={['track', 'album', 'playlist']}
+        />
+
+        {/* Padding controls (#587). Govern how `{track}` and `{disc}` get
+            zero-padded when emitted into the template strings above.
+            Previously hard-coded to 2-digit padding, which sorted box
+            sets >99 tracks incorrectly. */}
+        <Select
+          label="Track Number Padding"
+          description="Width for the {track} placeholder in the templates above. Auto sizes to the album's track count, so `100 Track 100.m4a` sorts correctly after `099 Track 99.m4a`."
+          options={[...TRACK_PADDING_OPTIONS]}
+          value={settings.track_number_padding}
+          onChange={(e) =>
+            updateSettings({ track_number_padding: e.target.value as TrackNumberPadding })
+          }
+        />
+
+        <Select
+          label="Disc Number Padding"
+          description="Width for the {disc} placeholder. Multi-disc albums use this in the template above. Auto stays single-digit for typical albums, jumps to 2-digit for >9 discs."
+          options={[...DISC_PADDING_OPTIONS]}
+          value={settings.disc_number_padding}
+          onChange={(e) =>
+            updateSettings({ disc_number_padding: e.target.value as DiscNumberPadding })
+          }
         />
       </SettingsSection>
     </div>
