@@ -2064,11 +2064,76 @@ impl DownloadQueue {
     ///
     /// # Returns
     /// `true` if the item was found and reset, `false` otherwise.
+    /// Peek at what a smart-retry plan *would* produce for `download_id`
+    /// without mutating queue state (#667). Returns `None` when the item
+    /// doesn't exist or has no output path — those cases just fall
+    /// through to dumb retry without diagnostic value.
+    ///
+    /// Used by the `retry_download` IPC to give the frontend a precise
+    /// "nothing to retry" message when the planner reports
+    /// [`super::smart_retry_planner::PlanOutcome::AllPresent`], rather
+    /// than the generic `Download cannot be retried` error.
+    #[must_use]
+    pub fn peek_smart_retry_outcome(
+        &self,
+        download_id: &str,
+    ) -> Option<super::smart_retry_planner::PlanOutcome> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        let output = item.status.output_path.as_deref()?;
+        if !item.status.output_is_directory {
+            return None;
+        }
+        let first_url = item.request.urls.first()?;
+        Some(super::smart_retry_planner::plan_retry(
+            std::path::Path::new(output),
+            first_url,
+        ))
+    }
+
     pub fn retry(&mut self, download_id: &str, settings: &AppSettings) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if item.status.state == DownloadState::Error
                 || item.status.state == DownloadState::Cancelled
             {
+                // Smart manifest-driven retry (#667). When the failed item
+                // has a known output directory containing a
+                // `manifest.meedyadl`, diff the expected track set against
+                // disk and replace the queue item's URLs with a precise
+                // per-track list so GAMDL only revisits the tracks that
+                // actually failed. Falls through to the existing dumb
+                // retry on any unsupported case (no manifest, no source
+                // match, no per-track URLs recorded).
+                let smart_outcome = item
+                    .status
+                    .output_path
+                    .as_deref()
+                    .filter(|_| item.status.output_is_directory)
+                    .and_then(|out| {
+                        let path = std::path::Path::new(out);
+                        item.request.urls.first().map(|first_url| {
+                            super::smart_retry_planner::plan_retry(path, first_url)
+                        })
+                    });
+
+                if let Some(super::smart_retry_planner::PlanOutcome::AllPresent {
+                    total_tracks,
+                }) = smart_outcome
+                {
+                    // Every expected track is on disk — there's nothing
+                    // for the retry to fetch. Refuse the retry and let
+                    // the caller surface "nothing to do". Returning
+                    // `false` here means the IPC reports a clean refusal;
+                    // the activity-log helper above has already logged
+                    // the diagnostic. We do NOT clear the Error state —
+                    // the user's previous attempt's error is still the
+                    // most accurate description of what happened.
+                    log::info!(
+                        "Smart retry for {download_id}: all {total_tracks} track(s) already \
+                         present on disk — refusing retry"
+                    );
+                    return false;
+                }
+
                 // Re-merge options from the original request with current settings.
                 // This picks up any settings changes the user made since the original attempt.
                 item.merged_options = merge_options(item.request.options.as_ref(), settings);
@@ -2080,6 +2145,25 @@ impl DownloadQueue {
                 // allowed to try the rewrite once again, even if the previous
                 // automatic fallback already exhausted its single attempt.
                 item.storefront_fallback_attempted = false;
+
+                // Apply the smart-retry plan if one was produced. The plan
+                // narrows the URL set to per-track entries that GAMDL can
+                // fetch in a single invocation, sharply cutting wall time
+                // (no metadata re-fetch for already-present tracks, no
+                // companion re-traversal, smaller enrichment surface).
+                if let Some(super::smart_retry_planner::PlanOutcome::Plan(plan)) =
+                    smart_outcome
+                {
+                    log::info!(
+                        "Smart retry for {download_id}: targeting {} of {} track(s) — \
+                         {} URL(s) queued",
+                        plan.missing_tracks,
+                        plan.total_tracks,
+                        plan.urls_to_fetch.len(),
+                    );
+                    item.request.urls = plan.urls_to_fetch.clone();
+                    item.status.urls = plan.urls_to_fetch;
+                }
                 // Reset status fields for a fresh start
                 item.status.state = DownloadState::Queued;
                 item.status.error = None;
