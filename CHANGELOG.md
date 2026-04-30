@@ -175,6 +175,7 @@ Bundles the help-doc updates for the features landing in this PR (#665
     * Added a "If a download fails" tip after the basic-usage steps so
       new users discover the retry affordances early.
 
+- Update CHANGELOG.md [skip ci]
 
 ## [0.51.0] - 2026-04-29
 
