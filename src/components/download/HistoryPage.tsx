@@ -6,13 +6,26 @@
 // Each entry shows the date, URL/title, codec badge, and status icon.
 // A search input filters entries by title, artist, album, or URL.
 // The "Clear History" button deletes all entries from disk.
+// Failed entries can be retried individually (button or right-click) or
+// in bulk via the "Retry All Failed" header action (#665).
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Button } from '@/components/common';
-import { Trash2, Search, CheckCircle, XCircle, X, FolderOpen, Clock } from 'lucide-react';
-import { listHistory, clearHistory, searchHistory } from '@/lib/tauri-commands';
+import { Button, ContextMenu, Modal } from '@/components/common';
+import type { ContextMenuItem } from '@/components/common';
+import {
+  Trash2,
+  Search,
+  CheckCircle,
+  XCircle,
+  X,
+  FolderOpen,
+  Clock,
+  RotateCcw,
+  Copy,
+} from 'lucide-react';
+import { listHistory, clearHistory, searchHistory, startDownload } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 
 import type { HistoryEntry } from '@/types';
@@ -49,12 +62,32 @@ function getDisplayLabel(entry: HistoryEntry): string {
 }
 
 /**
- * Renders the download history page with search, entry list, and clear action.
+ * History entries are recorded as `success` or anything else; this helper
+ * centralises the "is this a candidate for retry?" predicate so the
+ * per-item buttons, the right-click menu, and the bulk action all agree.
+ *
+ * Includes both hard failures and partial-success entries (the dominant
+ * `GAMDL reported N per-track error(s) even though the process exited 0`
+ * shape lands here as `status: "failed"`).
+ */
+function isFailed(entry: HistoryEntry): boolean {
+  return entry.status !== 'success';
+}
+
+/**
+ * Renders the download history page with search, entry list, retry
+ * affordances per row, and bulk retry / clear actions.
  */
 export function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [contextMenu, setContextMenu] = useState<{
+    entry: HistoryEntry;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [showRetryAllConfirm, setShowRetryAllConfirm] = useState(false);
   const addToast = useUiStore((s) => s.addToast);
 
   /** Loads history entries from the backend. */
@@ -105,6 +138,119 @@ export function HistoryPage() {
     }
   }, []);
 
+  /**
+   * Re-enqueue a failed history entry via `start_download`. The history
+   * entry is left untouched — the new download writes its own history
+   * entry on completion. Per-item retry path; the bulk variant batches
+   * many calls.
+   */
+  const handleRetryOne = useCallback(
+    async (entry: HistoryEntry) => {
+      try {
+        await startDownload({ urls: [entry.url] });
+        addToast(`Re-queued: ${getDisplayLabel(entry)}`, 'success');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        addToast(`Retry failed: ${message}`, 'error');
+      }
+    },
+    [addToast],
+  );
+
+  /**
+   * Copy the entry's URL to the clipboard. Surface as a toast so the user
+   * gets confirmation — the failure mode (clipboard API blocked) is
+   * silent otherwise on some browsers.
+   */
+  const handleCopyUrl = useCallback(
+    async (entry: HistoryEntry) => {
+      try {
+        await navigator.clipboard.writeText(entry.url);
+        addToast('URL copied to clipboard', 'info');
+      } catch {
+        addToast('Could not copy to clipboard', 'error');
+      }
+    },
+    [addToast],
+  );
+
+  /**
+   * Bulk retry: dedupe URLs from every failed entry and submit them in
+   * a single `start_download` call. Showing one summary toast with the
+   * count beats N individual ones for a 12-item retry.
+   */
+  const failedEntries = useMemo(() => entries.filter(isFailed), [entries]);
+  const failedCount = failedEntries.length;
+
+  const handleRetryAllConfirmed = useCallback(async () => {
+    setShowRetryAllConfirm(false);
+    // Dedupe URLs — multiple failed history rows can point at the same URL
+    // (a user retried, it failed again, both attempts are recorded).
+    const uniqueUrls = Array.from(new Set(failedEntries.map((e) => e.url)));
+    if (uniqueUrls.length === 0) {
+      addToast('No failed downloads to retry', 'info');
+      return;
+    }
+    try {
+      await startDownload({ urls: uniqueUrls });
+      addToast(
+        `Re-queued ${uniqueUrls.length} download${uniqueUrls.length !== 1 ? 's' : ''}` +
+          (uniqueUrls.length < failedCount
+            ? ` (${failedCount - uniqueUrls.length} duplicate URL${
+                failedCount - uniqueUrls.length !== 1 ? 's' : ''
+              } skipped)`
+            : ''),
+        'success',
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`Bulk retry failed: ${message}`, 'error');
+    }
+  }, [failedEntries, failedCount, addToast]);
+
+  /** Right-click handler — opens the per-row context menu at the cursor. */
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent, entry: HistoryEntry) => {
+      event.preventDefault();
+      setContextMenu({ entry, x: event.clientX, y: event.clientY });
+    },
+    [],
+  );
+
+  /**
+   * Build the menu items for the right-click context menu. The Retry
+   * entry only appears for failed rows; Open Folder appears only when
+   * the entry has a recorded path. Copy URL is always available so the
+   * menu is never empty.
+   */
+  const buildContextMenuItems = useCallback(
+    (entry: HistoryEntry): ContextMenuItem[] => {
+      const items: ContextMenuItem[] = [
+        {
+          label: 'Copy URL',
+          icon: <Copy size={14} />,
+          onClick: () => handleCopyUrl(entry),
+        },
+      ];
+      if (isFailed(entry)) {
+        items.push({
+          label: 'Retry Download',
+          icon: <RotateCcw size={14} />,
+          onClick: () => handleRetryOne(entry),
+        });
+      }
+      if (entry.file_path) {
+        items.push({
+          label: 'Open Folder',
+          icon: <FolderOpen size={14} />,
+          onClick: () => handleOpenFolder(entry.file_path!),
+        });
+      }
+      return items;
+    },
+    [handleCopyUrl, handleRetryOne, handleOpenFolder],
+  );
+
   const subtitle = searchQuery
     ? `${entries.length} result${entries.length !== 1 ? 's' : ''}`
     : `${entries.length} download${entries.length !== 1 ? 's' : ''}`;
@@ -115,12 +261,26 @@ export function HistoryPage() {
         title="History"
         subtitle={subtitle}
         actions={
-          entries.length > 0 && !searchQuery ? (
-            <Button variant="ghost" size="sm" onClick={handleClear}>
-              <Trash2 size={14} className="mr-1.5" />
-              Clear History
-            </Button>
-          ) : undefined
+          <div className="flex gap-2">
+            {/* Retry All Failed (#665) — shown only when failed entries exist
+                and we're not in a search context (avoids confusion about
+                "all failed" meaning "all matching the search"). */}
+            {failedCount > 0 && !searchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RotateCcw size={14} />}
+                onClick={() => setShowRetryAllConfirm(true)}
+              >
+                Retry All Failed ({failedCount})
+              </Button>
+            )}
+            {entries.length > 0 && !searchQuery && (
+              <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={handleClear}>
+                Clear History
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -171,6 +331,7 @@ export function HistoryPage() {
             {entries.map((entry) => (
               <div
                 key={entry.id}
+                onContextMenu={(e) => handleContextMenu(e, entry)}
                 className="px-6 py-3 hover:bg-surface-secondary transition-colors"
               >
                 <div className="flex items-start gap-3">
@@ -232,24 +393,75 @@ export function HistoryPage() {
                     </p>
                   </div>
 
-                  {/* Open folder action */}
-                  {entry.file_path && entry.status === 'success' && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenFolder(entry.file_path!)}
-                      className="flex-shrink-0 p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                      aria-label="Open folder"
-                      title="Open folder"
-                    >
-                      <FolderOpen size={14} />
-                    </button>
-                  )}
+                  {/* Per-row actions: Retry (failed) and Open Folder (has path).
+                      Both render inline so the user doesn't have to right-click,
+                      but the right-click menu has the same actions for keyboard /
+                      power-user workflows (#665). */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {isFailed(entry) && (
+                      <button
+                        type="button"
+                        onClick={() => handleRetryOne(entry)}
+                        className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
+                        aria-label="Retry download"
+                        title="Retry download"
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                    )}
+                    {entry.file_path && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenFolder(entry.file_path!)}
+                        className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
+                        aria-label="Open folder"
+                        title="Open folder"
+                      >
+                        <FolderOpen size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Right-click context menu (#665) */}
+      {contextMenu && (
+        <ContextMenu
+          items={buildContextMenuItems(contextMenu.entry)}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Bulk retry confirmation modal (#665) */}
+      <Modal
+        open={showRetryAllConfirm}
+        onClose={() => setShowRetryAllConfirm(false)}
+        title="Retry All Failed Downloads"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          This will re-enqueue {failedCount} failed download
+          {failedCount !== 1 ? 's' : ''} from your history. Duplicate URLs are
+          deduplicated automatically — each unique URL is queued once.
+        </p>
+        <p className="text-sm text-content-secondary mb-6">
+          The history entries themselves are kept. Successful retries will write
+          new history entries on completion.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setShowRetryAllConfirm(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleRetryAllConfirmed}>
+            Retry All
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
