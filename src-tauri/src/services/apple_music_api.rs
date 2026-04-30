@@ -1376,6 +1376,71 @@ pub fn normalize_apple_music_url(url: &str) -> String {
     url.to_string()
 }
 
+/// Rewrite an Apple Music URL to use a different storefront code (#666).
+///
+/// Used by the storefront-fallback retry path: when a primary download fails
+/// because the URL's storefront returned `Resource Not Found` from the AMP
+/// API (or an authenticated licence acquisition refused), MeedyaDL retries
+/// the same content via the user's account-region storefront.
+///
+/// Preserves: host (`music`/`classical(.music)?`/`itunes` variants), path
+/// segments after the storefront (slug + numeric/`pl.` ID), and the `?i=…`
+/// query that distinguishes a track inside an album.
+///
+/// Returns the input unchanged when the URL doesn't match the standard
+/// `/<storefront>/<content-type>/…` shape (non-Apple-Music URLs,
+/// `/library/…` URLs, novel paths) so this helper is always safe to call.
+///
+/// # Example
+/// ```
+/// # use meedyadl::services::apple_music_api::rewrite_url_storefront;
+/// assert_eq!(
+///     rewrite_url_storefront("https://music.apple.com/us/album/foo/123?i=456", "gb"),
+///     "https://music.apple.com/gb/album/foo/123?i=456"
+/// );
+/// ```
+#[must_use]
+pub fn rewrite_url_storefront(url: &str, new_storefront: &str) -> String {
+    use std::sync::LazyLock;
+
+    // Match `(host)/(2-letter-storefront)/(content-type-keyword)` with the
+    // storefront as a single capture so `replace` can substitute exactly the
+    // 2-letter segment, leaving everything before and after intact (slug,
+    // numeric ID, ?i=… query, anchor fragment, etc.).
+    //
+    // Hostnames mirror parse_apple_music_url's domain alternation:
+    // `music.apple.com`, `classical.apple.com`, `classical.music.apple.com`,
+    // `itunes.apple.com`. Content-type alternation keeps us scoped to known
+    // shapes — we deliberately don't rewrite `/library/…` URLs because they
+    // use a Music-User-Token-bound endpoint where storefront isn't a free
+    // variable.
+    static STOREFRONT_REWRITE_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"^(https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com)/[a-z]{2}/(album|song|music-video|artist|playlist)",
+        )
+        .expect("Invalid storefront-rewrite regex")
+    });
+
+    // Defensive: refuse to rewrite when the proposed storefront isn't a
+    // valid 2-letter code. Returning the input unchanged keeps the caller's
+    // happy path stable; the activity log + error category will surface the
+    // original failure rather than an internally-mangled URL.
+    let new_sf = new_storefront.to_ascii_lowercase();
+    if new_sf.len() != 2 || !new_sf.chars().all(|c| c.is_ascii_alphabetic()) {
+        return url.to_string();
+    }
+
+    if STOREFRONT_REWRITE_RE.is_match(url) {
+        STOREFRONT_REWRITE_RE
+            .replace(url, |caps: &regex::Captures| {
+                format!("{}/{}/{}", &caps[1], new_sf, &caps[2])
+            })
+            .into_owned()
+    } else {
+        url.to_string()
+    }
+}
+
 /// Detect whether an Apple Music URL is missing a storefront code.
 ///
 /// Returns `Some((base, rest))` where `base` is the domain prefix
@@ -2141,6 +2206,103 @@ pub async fn fetch_artist_promo_video(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ----------------------------------------------------------
+    // Storefront-rewrite tests (#666)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn rewrite_storefront_swaps_us_to_gb_album() {
+        assert_eq!(
+            rewrite_url_storefront("https://music.apple.com/us/album/foo/123", "gb"),
+            "https://music.apple.com/gb/album/foo/123",
+        );
+    }
+
+    #[test]
+    fn rewrite_storefront_preserves_track_query() {
+        // ?i= query identifies a single track inside an album. Must survive
+        // the rewrite or per-track retries lose their target.
+        assert_eq!(
+            rewrite_url_storefront(
+                "https://music.apple.com/us/album/midnights/1649434004?i=1649434280",
+                "gb",
+            ),
+            "https://music.apple.com/gb/album/midnights/1649434004?i=1649434280",
+        );
+    }
+
+    #[test]
+    fn rewrite_storefront_handles_classical_host() {
+        assert_eq!(
+            rewrite_url_storefront(
+                "https://classical.music.apple.com/it/album/foo/789",
+                "gb",
+            ),
+            "https://classical.music.apple.com/gb/album/foo/789",
+        );
+        assert_eq!(
+            rewrite_url_storefront("https://classical.apple.com/it/album/789", "gb"),
+            "https://classical.apple.com/gb/album/789",
+        );
+    }
+
+    #[test]
+    fn rewrite_storefront_handles_itunes_host() {
+        assert_eq!(
+            rewrite_url_storefront("https://itunes.apple.com/jp/album/foo/123", "gb"),
+            "https://itunes.apple.com/gb/album/foo/123",
+        );
+    }
+
+    #[test]
+    fn rewrite_storefront_covers_all_content_types() {
+        for content_type in ["album", "song", "music-video", "artist", "playlist"] {
+            let input = format!("https://music.apple.com/us/{content_type}/foo/123");
+            let expected = format!("https://music.apple.com/gb/{content_type}/foo/123");
+            assert_eq!(
+                rewrite_url_storefront(&input, "gb"),
+                expected,
+                "rewrite failed for content type {content_type}",
+            );
+        }
+    }
+
+    #[test]
+    fn rewrite_storefront_uppercase_input_normalised() {
+        // Settings.storefront is canonically lowercase but the helper must
+        // not produce an invalid uppercase URL if it ever receives "GB".
+        assert_eq!(
+            rewrite_url_storefront("https://music.apple.com/us/album/foo/123", "GB"),
+            "https://music.apple.com/gb/album/foo/123",
+        );
+    }
+
+    #[test]
+    fn rewrite_storefront_rejects_invalid_target() {
+        // Non-2-letter / non-alphabetic targets must produce no change so
+        // we never mangle a working URL.
+        let url = "https://music.apple.com/us/album/foo/123";
+        assert_eq!(rewrite_url_storefront(url, ""), url);
+        assert_eq!(rewrite_url_storefront(url, "g"), url);
+        assert_eq!(rewrite_url_storefront(url, "gbr"), url);
+        assert_eq!(rewrite_url_storefront(url, "g1"), url);
+    }
+
+    #[test]
+    fn rewrite_storefront_passes_through_library_url() {
+        // /library/… URLs use a Music-User-Token endpoint where storefront
+        // isn't a free variable. Helper must leave them untouched so the
+        // retry path doesn't ship a malformed URL to GAMDL.
+        let url = "https://music.apple.com/us/library/albums/l.foo123";
+        assert_eq!(rewrite_url_storefront(url, "gb"), url);
+    }
+
+    #[test]
+    fn rewrite_storefront_passes_through_non_apple_url() {
+        let url = "https://example.com/some/path";
+        assert_eq!(rewrite_url_storefront(url, "gb"), url);
+    }
 
     // ----------------------------------------------------------
     // URL parsing tests

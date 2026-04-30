@@ -513,6 +513,14 @@ export function GeneralTab() {
           </p>
         </div>
 
+        {/* Storefront fallback on failure (#666) */}
+        <Toggle
+          label="Auto-retry with your region when a URL's storefront fails"
+          description="When a download fails because the album isn't published in the URL's storefront (e.g., a /us/ link your account can't access), retry once using your account region above. Only fires after the original URL has already failed, so it never overrides a working download."
+          checked={settings.storefront_fallback_on_failure}
+          onChange={(checked) => updateSettings({ storefront_fallback_on_failure: checked })}
+        />
+
         {/* Overwrite existing files */}
         <Toggle
           label="Overwrite Existing Files"

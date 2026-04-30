@@ -681,6 +681,12 @@ export interface AppSettings {
   use_wrapper: boolean;
   /** Auto-retry without wrapper when a wrapper download fails terminally */
   auto_retry_without_wrapper: boolean;
+  /**
+   * When `true`, a download that fails with the AMP "Resource Not Found"
+   * shape against the URL's storefront is automatically retried once
+   * with the user's account-region storefront (#666). Default: `true`.
+   */
+  storefront_fallback_on_failure: boolean;
   /** URL for the API wrapper account endpoint */
   wrapper_account_url: string;
   /**

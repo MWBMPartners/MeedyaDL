@@ -177,6 +177,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
+  storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
   wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
   wrapper_m3u8_ip: '127.0.0.1:20020', // Wrapper m3u8 address (GAMDL v3.1+)
   truncate: null, // Max filename length in characters; null = no truncation
