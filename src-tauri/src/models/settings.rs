@@ -1195,6 +1195,18 @@ pub struct AppSettings {
     #[serde(default)]
     pub auto_retry_without_wrapper: bool,
 
+    /// When `true`, a download that fails with the AMP API "Resource Not
+    /// Found" shape against the URL's storefront is automatically retried
+    /// once with the user's account-region storefront (`storefront`
+    /// setting, falling back to OS locale, then `"us"`). Useful when the
+    /// user pastes a `/us/album/X` link while their account region is
+    /// `gb` and the album either isn't in the US catalog or their account
+    /// can't license it from there. Default: `true` — it only fires when
+    /// the primary attempt has *already* failed, so it can't downgrade an
+    /// otherwise-working download. (#666)
+    #[serde(default = "default_true")]
+    pub storefront_fallback_on_failure: bool,
+
     /// Wrapper server URL used when `use_wrapper` is `true`. The wrapper
     /// server handles account authentication and key exchange. Default:
     /// `"http://127.0.0.1:30020"` (local server).
@@ -1779,6 +1791,9 @@ impl Default for AppSettings {
             use_wrapper: false,
             // Off by default — user must opt in to automatic wrapper fallback.
             auto_retry_without_wrapper: false,
+            // On by default (#666) — only fires after the primary URL fails,
+            // so it can never downgrade a working download.
+            storefront_fallback_on_failure: true,
             // Default wrapper URL assumes a locally-running server.
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
             // Default wrapper m3u8 service address (GAMDL v3.1+). Matches

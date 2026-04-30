@@ -783,6 +783,35 @@ pub fn error_guidance(category: &str) -> &'static str {
     }
 }
 
+/// Detect a "wrong storefront" failure shape from GAMDL (#666).
+///
+/// Returns `true` when the error message looks like the AMP API responded
+/// with `Resource Not Found` to a catalog query keyed by storefront — i.e.
+/// the album / song / video isn't published in the URL's storefront
+/// (typically because the user pasted a `/us/` link while their account
+/// is in another region).
+///
+/// Captured shapes this matches (real user history, 2026-04-30):
+/// * `gamdl.api.exceptions.GamdlApiResponseError: Error fetching from AMP API (Status code: 404): {"errors":[{"id":"…","title":"Resource Not Found","detail":"Resource with requested key …"}]}`
+/// * Plain stderr `404 Resource Not Found` lines from the catalog probe.
+///
+/// Deliberately narrower than [`classify_error`]'s `not_found` bucket —
+/// that bucket also covers user-typed bad URLs, deleted content, and
+/// stale shared links where a storefront retry won't help. The retry
+/// path uses *this* helper to gate the rewrite, so we only retry when
+/// the evidence specifically suggests "the URL is fine, the storefront
+/// is wrong."
+///
+/// We require BOTH `404` AND `Resource Not Found` (case-insensitive) so
+/// that a generic "404 page not found" from an unrelated subprocess
+/// (e.g. an updater asset fetch) doesn't trigger the rewrite.
+#[must_use]
+pub fn is_storefront_mismatch_error(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    (lower.contains("404") || lower.contains("status code: 404"))
+        && lower.contains("resource not found")
+}
+
 /// Detect GAMDL's playlist-template `KeyError: 'title'` traceback (#588).
 ///
 /// Pattern captured 2026-04-23 during #547 scenario 4 repro on an Apple
@@ -1068,6 +1097,43 @@ mod tests {
         assert!(!is_python_traceback_noise("Downloading album..."));
         assert!(!is_python_traceback_noise(
             "[INFO     12:34:56] [Track 1/12] Downloading \"Hello\""
+        ));
+    }
+
+    // ----------------------------------------------------------
+    // Storefront-mismatch detector tests (#666)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_storefront_mismatch_recognises_amp_404_shape() {
+        // Captured user evidence (2026-04-30, history.json line 23 Apr 23:17):
+        let msg = r#"Download completed but no output files were produced: gamdl.api.exceptions.GamdlApiResponseError: Error fetching from AMP API (Status code: 404): {"errors":[{"id":"NJWPW6PVGQY53KULKAYYOVHBMI","title":"Resource Not Found","detail":"Resource with requeste..."#;
+        assert!(is_storefront_mismatch_error(msg));
+    }
+
+    #[test]
+    fn is_storefront_mismatch_recognises_plain_404_resource_not_found() {
+        assert!(is_storefront_mismatch_error("404 Resource Not Found"));
+        assert!(is_storefront_mismatch_error("status code: 404 — Resource Not Found"));
+    }
+
+    #[test]
+    fn is_storefront_mismatch_requires_both_signals() {
+        // Plain 404 without "Resource Not Found" must NOT trigger the rewrite —
+        // could be an updater asset 404, a help-server 404, or any unrelated
+        // HTTP failure. We don't want to burn the budget on those.
+        assert!(!is_storefront_mismatch_error("HTTP 404 Page Not Found"));
+        // "Resource Not Found" alone (without 404) shouldn't trigger either —
+        // it's a strong AMP signal but the status code is the canonical proof.
+        assert!(!is_storefront_mismatch_error("Resource Not Found"));
+    }
+
+    #[test]
+    fn is_storefront_mismatch_rejects_unrelated_errors() {
+        assert!(!is_storefront_mismatch_error("network timeout"));
+        assert!(!is_storefront_mismatch_error("codec atmos not available"));
+        assert!(!is_storefront_mismatch_error(
+            "GAMDL reported 1 per-track error(s) even though the process exited 0"
         ));
     }
 
