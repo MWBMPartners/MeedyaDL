@@ -4,6 +4,178 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### ✨ Features
+
+- **(queue)** Auto-retry failed downloads with account region storefront (#666)
+
+When a user pastes a URL with a storefront other than their account
+  region (e.g. /us/album/X on a GB account) and the download fails
+  because the album either isn't in the URL's catalog or the user's
+  account can't license it from there, MeedyaDL now retries once with
+  the user's account-region storefront. The original-URL behaviour is
+  preserved when it works — the user may legitimately want the US
+  version for bonus tracks / mix variants / regional licensing.
+
+  Captured user evidence drove this: a queue with 12 failed items, 5 of
+  them /us/ URLs against a GB account, all marked failed with
+  "GAMDL reported N per-track error(s) even though the process exited 0".
+  The underlying tracebacks contained the AMP API "Resource Not Found"
+  shape — i.e. the catalog probe found no match in the URL's storefront.
+
+- **(queue)** Smart manifest-driven retry — only re-fetch missing tracks (#667)
+
+Today's retry path resets the queue item to Queued and re-runs the
+  full GAMDL command. GAMDL's `overwrite=false` keeps already-downloaded
+  files (correct), but it wastes wall time on a fresh metadata fetch for
+  every track, re-evaluates the whole companion-tier loop, and re-runs
+  every enrichment stage (ReplayGain, AcoustID, MusicBrainz) against
+  files we already tagged.
+
+  This change reads the `manifest.meedyadl` written at end-of-pipeline,
+  diffs the expected track set against on-disk audio files, and replaces
+  the queue item's URL list with a precise per-track URL set
+  (`album_url?i={song_id}`) covering only the tracks that actually
+  failed. The retry call then runs a single targeted GAMDL invocation.
+
+- **(retry)** Per-item + right-click + bulk retry UX on History and Queue (#665)
+
+History page had no retry path at all — failed and partially-failed
+  downloads were dead-ends until the user manually copied the URL back
+  into the Download form. Queue page had per-item retry but no bulk
+  option, so re-running 12 failed items took 12 clicks. This adds:
+
+  History page:
+    * Per-row Retry button (RotateCcw icon) on every entry whose
+      `status !== 'success'`. Calls `startDownload({ urls: [entry.url] })`
+      to re-enqueue (the original queue item is gone after the history
+      write). Toast confirms success/failure.
+    * Right-click context menu on every row with Copy URL (always),
+      Retry Download (failed only), Open Folder (when path exists).
+      Same set as the inline buttons — keyboard / power-user parity.
+    * "Retry All Failed (N)" header button shown only when failed
+      entries exist AND the user is not in a search context. Confirms
+      via modal with the count, dedupes URLs (12 failed entries for the
+      same URL → 1 re-enqueue), submits a single batched
+      `startDownload` call. Toast summary reports duplicates skipped.
+
+  Queue page:
+    * "Retry All Failed (N)" header button. Confirms via modal,
+      iterates errored items, calls `retryDownload` per item via
+      `Promise.allSettled` so one bad item doesn't abort the batch.
+      Each retry passes through the smart manifest planner (#667), so
+      already-downloaded tracks are skipped at the planner layer —
+      bulk retry of 12 album items only re-fetches the actually-failed
+      tracks across them.
+
+  Failed scope deliberately covers both:
+    * Hard failures (network, auth, terminal codec exhaustion, etc.)
+    * Partial-success failures (`GAMDL reported N per-track error(s)
+      even though the process exited 0`) — the dominant failure mode
+      in captured user evidence.
+
+  Updated `settingsStore.test.ts` mocks to include the new
+  `storefront_fallback_on_failure: true` field that landed in #666.
+
+- **(settings)** Expose Track/Disc Number Padding controls (#587)
+
+Settings audit found these two `AppSettings` fields had no UI surface
+  at all — they were only configurable by hand-editing settings.json.
+  Both govern the `{track}` / `{disc}` placeholder padding in filename
+  templates and were added in #587 to fix box-set sort order
+  (`100 Track.m4a` after `099 Track.m4a` instead of after `09 Track.m4a`).
+
+  Mirrored as TypeScript types `TrackNumberPadding` and
+  `DiscNumberPadding`, defaulted in settingsStore to `'auto'`, and
+  surfaced as Select controls at the bottom of Settings > Templates >
+  File Templates with descriptions explaining when each option matters.
+  Updated settingsStore.test.ts mock to include the new fields.
+
+  Other audit findings reviewed and confirmed already covered in UI:
+  cover_art_name + cover_format (CoverArtTab), default_video_resolution
+  (QualityTab), ffmpeg_path / mediainfo_path (ToolsTab),
+  companion_lyrics_formats / synced_lyrics_format (LyricsTab),
+  colour_blind_mode + theme_override (GeneralTab), wrapper_m3u8_ip
+  (AdvancedTab), artist_auto_select_multi (QualityTab).
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.51.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(claude)** Record PR #662 fixes in Context, Memory, and Prompts
+
+Updates the four Claude collateral files in .claude/ to capture the
+  six user-reported v0.50.1 fixes shipped on PR #662:
+
+  - CLAUDE.md (Claude Context): six new convention bullets covering the
+    notification permission preflight + style gating + Test button (#658),
+    the FallbackChainList.allItems remove/re-add API (#659), the
+    TracebackFrame variant + is_python_traceback_noise helper (#660),
+    the set_complete/set_error terminal-state guards (#661), and the
+    CompanionTaskHandle cooperative-cancel pattern (#663). Also amends
+    the duplicate-URL toast note (#657) and updates the existing
+    Companion downloads bullet to reference the new handle wrapper.
+
+  - memory/project_pr662_user_session_fixes.md (Claude Memory + History):
+    new project memory file recording the in-flight PR, the live state
+    at session end, the architectural learnings (macOS notification
+    permission once-per-bundle quirk; tokio JoinHandle::abort cannot
+    preempt sync code; cooperative-cancel flag pattern; doc-list lint
+    trap; lucide-react test-mock alignment) and the user's predictive QA
+    cycle.
+
+  - memory/MEMORY.md: indexes the new file with a one-line hook.
+
+  - ProjectBrief_Chat.claude (Claude Prompts): appends a new "Session
+    Prompts Archive" section below a sentinel divider, leaving the
+    original frozen genesis brief intact above. Captures this session's
+    user prompts in chronological order so future sessions can reload
+    context without re-reading every commit.
+
+- **(help)** Cover retry UX, storefront fallback, smart retry, padding
+
+Bundles the help-doc updates for the features landing in this PR (#665
+  retry UX, #666 storefront fallback, #667 smart manifest retry) plus
+  the previously-undocumented Track/Disc Number Padding controls (#587).
+
+  Files updated:
+
+  - help/troubleshooting.md
+    * New "Storefront Mismatch" subsection under Not Found errors,
+      explaining the auto-retry-with-account-region behaviour and the
+      settings escape hatch.
+    * New "Retrying Failed or Partial Downloads" section covering per-
+      item retry, right-click context menu, bulk Retry All Failed, and
+      the smart manifest-driven retry path (with the "all tracks already
+      on disk → refused" outcome explained).
+
+  - help/faq.md
+    * Expanded "Can I download content from regions other than my own?"
+      to cover the auto-retry-with-account-region path and how to opt out.
+    * New Q&A "How do I retry a failed download?" covering all three
+      paths (per-item, History, bulk) and the smart-retry behaviour.
+
+  - help/fallback-quality.md
+    * "Reordering the Fallback Chain" rewritten to match the actual UI
+      (up/down arrows, × remove, Available panel, + re-add). Old text
+      described drag-and-drop which was never implemented.
+    * Documents the safety guard that prevents removal of the last item.
+
+  - help/downloading-music.md
+    * New "Track and Disc Number Padding" subsection in File Naming
+      explaining the Auto/None/2/3/4-digit options and the sort-order
+      bug they fix on >99-track albums.
+    * Queue actions list expanded: smart-retry behaviour on Retry,
+      Retry without Wrapper, Retry All Failed header button, right-
+      click context menu, and the History-page parity.
+
+  - help/getting-started.md
+    * Added a "If a download fails" tip after the basic-usage steps so
+      new users discover the retry affordances early.
+
+
 ## [0.51.0] - 2026-04-29
 
 ### ✨ Features
