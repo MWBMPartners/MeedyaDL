@@ -79,6 +79,15 @@ Not all content on Apple Music is available in every codec and resolution. Some 
 
 ### Not Found Errors (not_found)
 
+#### Storefront Mismatch (different country in URL vs your account)
+
+If you paste a URL from a country other than your Apple Music account region (e.g. a `/us/` link while your account is `gb`), and the album either isn't published in the URL's catalog or your account can't license it from that storefront, MeedyaDL will see an `AMP API Status code: 404 Resource Not Found` error.
+
+- **Default behaviour (v0.52+):** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
+- **If both storefronts fail:** the activity log shows `Album not available in 'us' or 'gb'` and the item moves to the failed bucket. The album may genuinely be region-locked or removed from the catalog.
+- **To disable the auto-retry:** uncheck **Settings > General > Auto-retry with your region when a URL's storefront fails**. Strict URL-storefront behaviour is restored.
+- **Why the auto-retry is one-shot only:** to prevent two URLs whose albums are mutually unavailable from ping-ponging forever. A manual click on the **Retry** button refreshes the budget, so you can ask for the rewrite again.
+
 #### Content Not Found
 
 - **Cause:** The content has been removed from Apple Music, the URL is invalid or malformed, or the content is not available in your configured region.
@@ -121,6 +130,28 @@ If you use wrapper authentication and MeedyaDL reports the wrapper is unreachabl
 If wrapper downloads fail frequently, you can enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled, failed wrapper downloads are automatically re-queued with wrapper disabled (falls back to cookie-based authentication). This saves you from manually clicking "Retry without Wrapper" on each failed item.
 
 Without this setting enabled, failed wrapper downloads show a **"Retry without Wrapper"** button on the queue item, allowing you to manually retry with cookie-based auth.
+
+---
+
+### Retrying Failed or Partial Downloads
+
+#### Per-item retry
+
+- **Queue page:** every failed item has a circular-arrow **Retry** button on the right of its row. Wrapper-using items also expose **Retry without Wrapper**. Right-click a row for the same actions plus **Copy Source Link** and **Open Folder**.
+- **History page:** every failed entry now has a **Retry** button (rotate-ccw icon) and the same actions are available via right-click. The original history entry is preserved when you retry; the new download writes its own entry on completion.
+
+#### Bulk retry: "Retry All Failed"
+
+The header on both **Queue** and **History** pages shows a **Retry All Failed (N)** button when at least one failed item exists. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
+
+#### Smart retry: only the failed tracks re-run
+
+When you retry an item that previously produced a partial download (e.g. `GAMDL reported N per-track error(s)`), MeedyaDL reads the `manifest.meedyadl` file in the album folder, diffs the expected track list against the audio files actually on disk, and re-runs GAMDL with `album_url?i={song_id}` URLs covering only the missing tracks. Behaviour:
+
+- If **every track** is already on disk, the retry is refused with `Nothing to retry — all N track(s) are already on disk` instead of pointlessly re-queueing.
+- If **some tracks** are missing, only those are re-fetched. A 50-track box set with 3 failed tracks runs in seconds, not minutes.
+- If **no manifest** is found (the previous run failed before enrichment finished), the retry falls back to the original behaviour: re-running the full album URL with `overwrite=false` so existing files are kept.
+- The Activity Log shows the smart-retry decision: `Smart retry for {id}: targeting 3 of 50 track(s) — 3 URL(s) queued`.
 
 ---
 
