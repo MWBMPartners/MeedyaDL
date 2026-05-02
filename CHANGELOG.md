@@ -8,6 +8,113 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(queue)** Unblock #666 storefront fallback on GAMDL v3.4+ + detect MV cover bug
+
+Two related fixes for failure shapes seen in real user runs (2026-05-02
+  session: 78-error visualizer album, 77 distinct AMP `Resource Not Found`
+  hits, zero storefront-fallback firings).
+
+- Unblock #666 storefront fallback on GAMDL v3.4+ + detect MV cover bug (#674)
+
+## Summary
+
+  Two fixes that came out of investigating today's user-reported failures
+  (queue with 8 failed items, all `GAMDL reported N per-track error(s)
+  even though the process exited 0`).
+
+  | Issue | What | One-line fix |
+  | --- | --- | --- |
+  | **#672** | #666 storefront fallback was a no-op on GAMDL v3.4+ | The
+  detector buffer (`raw_stderr_lines`) was only fed by stderr. GAMDL v3.4
+  moved logging to stdout, so the buffer stayed empty. Renamed to
+  `raw_output_lines` and have both readers append to it. |
+  | **#673** | Music-video albums fail every track with a confusing
+  generic error | Added `is_gamdl_mv_cover_template_bug` detector and a
+  focused user-facing message replacing the generic per-track-error count.
+  |
+
+  ## Captured user evidence
+
+  Today's session log (1-day window) shows:
+  - **77 distinct AMP "Resource Not Found" 404s** — these should have
+  triggered the auto-retry-with-account-region path from #666 but didn't.
+  - **78 `httpx.HTTPStatusError: 400 Bad Request`** for
+  `mzstatic.com/Video.../{w}x{h}mv.jpg` URLs — every track of a 78-track
+  music-video album failed because GAMDL didn't substitute the cover-URL
+  placeholders.
+  - **Zero** activity-log lines mentioning `Storefront fallback` or
+  `account region` for the same window.
+
+  Both root causes confirmed at the source:
+  - #672: `raw_stderr_lines` declared at `download_queue.rs:8088` was only
+  written from the stderr task. GAMDL v3.4+'s `structlog` migration to
+  stdout (documented in `CLAUDE.md` and
+  `.github/audits/gamdl-v3.4-v3.5-audit.md`) means the buffer is empty
+  when `is_storefront_mismatch_error` runs at line 8508.
+  - #673: Real captured error: ``httpx.HTTPStatusError: Client error '400
+  Bad Request' for url
+  'https://a1.mzstatic.com/Video221/v4/.../%7Bw%7Dx%7Bh%7Dmv.jpg'`` —
+  `%7Bw%7Dx%7Bh%7D` is URL-encoded `{w}x{h}`, the literal placeholder
+  GAMDL was supposed to substitute.
+
+  ## What changed
+
+  - `src-tauri/src/services/download_queue.rs`
+  - Renamed `raw_stderr_lines` → `raw_output_lines` and added a clone +
+  push from the stdout reader so both streams feed the consumer buffer.
+  - Soft-error path now checks `is_gamdl_mv_cover_template_bug` BEFORE the
+  storefront detector, returning a focused upstream-bug message that names
+  the cause + links to the GAMDL issue tracker + warns that no audio
+  downloaded.
+  - `src-tauri/src/utils/process.rs`
+  - New `is_gamdl_mv_cover_template_bug(error_message)` requiring all
+  three signals (`400 Bad Request` + `mzstatic.com/Video` + raw or
+  URL-encoded `{w}x{h}` template). Won't match generic 400s, won't match
+  the storefront 404 shape.
+  - 4 new unit tests for the cover-template detector.
+
+  ## Tests
+
+  - 8 targeted tests pass (4 storefront-mismatch, 4 cover-template).
+  - `cargo clippy -- -D warnings` clean.
+  - Frontend: 303 tests pass, type-check clean.
+
+  **Note on the parallel-test flake.** Adding any new tests to the suite
+  reshuffles the scheduler and exposes a pre-existing race against
+  `gamdl_capabilities`'s global version cache
+  (`ini_includes_wrapper_m3u8_ip_on_v31` flakes when run in parallel with
+  sibling `ini_omits_wrapper_m3u8_ip_on_v30`). Both pass in isolation;
+  tracked separately for a `serial_test`-style fix.
+
+  ## Test plan
+
+  - [ ] **#672 verify:** Queue a `/us/album/X` URL that you know is
+  region-locked away from the US, on a `gb` account. Activity log should
+  now show `Storefront 'us' returned no catalog entry — retrying with your
+  account region 'gb'…` and the retry should land.
+  - [ ] **#673 verify:** Queue a music-video-heavy album (e.g. an
+  Anniversary Edition with visualizers). When it fails, the queue item's
+  error text should now read the focused `GAMDL bug — music-video cover
+  URL not templated…` message instead of `GAMDL reported N per-track
+  error(s) even though the process exited 0`.
+
+  ## Closes
+
+  - Closes #672
+  - Closes #673
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.1] - 2026-04-30
+
+### 🐛 Bug Fixes
+
 - **(deps)** Bump @tauri-apps/api + cli to 2.11.0 to match Rust crate
 
 The Release workflow for v0.52.0 failed on every platform with:
