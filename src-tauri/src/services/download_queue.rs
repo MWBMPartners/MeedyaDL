@@ -8080,12 +8080,20 @@ async fn run_download_with_events(
     // which is more informative than just the exit code.
     let collected_errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-    // Collect ALL stderr lines (raw) for Python traceback extraction.
-    // When GAMDL crashes with a Python traceback, the parsed error list may
-    // only contain "Traceback (most recent call last):" because intermediate
-    // lines and the final exception line may not match any error keyword.
-    // The raw stderr buffer lets us extract the actual exception post-mortem.
-    let raw_stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    // Collect ALL output lines (raw) from BOTH stdout and stderr for
+    // post-mortem analysis: Python traceback extraction, soft-error
+    // friendly-message generation, and storefront-mismatch detection
+    // for the #666 fallback path.
+    //
+    // Originally stderr-only; expanded to cover stdout in a fix to the
+    // #666 blind spot exposed by GAMDL v3.4 (2026-04-27), which moved
+    // its logging output stream from stderr → stdout via
+    // `structlog.PrintLoggerFactory(file=CustomOutputWriter([sys.stdout]))`.
+    // Tracebacks and the AMP `Resource Not Found` shape that
+    // `is_storefront_mismatch_error` keys on now arrive on stdout, so a
+    // stderr-only buffer leaves the detector seeing empty input and the
+    // storefront fallback never fires.
+    let raw_output_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     // Deduplication set for Activity Log emissions.
     // GAMDL and its Python dependencies (yt-dlp, tqdm) may write the same
@@ -8106,6 +8114,10 @@ async fn run_download_with_events(
         let last_activity = last_activity_ms.clone();
         let post_proc = post_processing_flag.clone();
         let soft_errors = soft_error_count.clone();
+        // GAMDL v3.4+ logs to stdout, so stdout must also feed the
+        // raw output buffer used by the soft-error friendly-message
+        // generator and the storefront-mismatch detector (#666).
+        let raw_output = raw_output_lines.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
@@ -8185,6 +8197,15 @@ async fn run_download_with_events(
                             // Mirror to on-disk log (#541) for post-hoc diagnosis.
                             crate::utils::activity_log::write_to_disk(&log_event);
                         }
+                    }
+
+                    // Mirror clean_line into the shared raw-output buffer so
+                    // GAMDL v3.4+'s stdout-emitted tracebacks and AMP 404s
+                    // are visible to `is_storefront_mismatch_error` (#666)
+                    // and `classify_gamdl_traceback` (#660 friendly path).
+                    {
+                        let mut raw = raw_output.lock().await;
+                        raw.push(clean_line.clone());
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -8299,7 +8320,7 @@ async fn run_download_with_events(
         let app = app.clone();
         let queue = queue.clone();
         let errors = collected_errors.clone();
-        let raw_stderr = raw_stderr_lines.clone();
+        let raw_output = raw_output_lines.clone();
         let seen = seen_lines.clone();
         let last_activity = last_activity_ms.clone();
         tokio::spawn(async move {
@@ -8359,10 +8380,13 @@ async fn run_download_with_events(
 
                     let event = process::parse_gamdl_output(&clean_line);
 
-                    // Collect raw stderr lines for Python traceback extraction
-                    // (always, regardless of dedup — needed for exception analysis)
+                    // Mirror to the shared raw output buffer (#666 detector
+                    // and #660 friendly-traceback path read this on the
+                    // soft-error gate). The stdout reader writes to the
+                    // same Arc<Mutex>, so the buffer ends up containing
+                    // both streams, which is what the consumers need.
                     {
-                        let mut raw = raw_stderr.lock().await;
+                        let mut raw = raw_output.lock().await;
                         raw.push(clean_line.clone());
                     }
 
@@ -8477,13 +8501,34 @@ async fn run_download_with_events(
     // an error instead of swallowing them.
     let soft_errors = soft_error_count.load(std::sync::atomic::Ordering::Relaxed);
     if status.success() && soft_errors > 0 {
-        let raw_lines = raw_stderr_lines.lock().await;
+        let raw_lines = raw_output_lines.lock().await;
         let combined = raw_lines.join("\n");
+
+        // GAMDL music-video cover-template bug detection. Checked
+        // BEFORE the storefront detector because the bug's symptom
+        // (400 Bad Request on a literal `{w}x{h}` URL) is highly
+        // specific and gives the user a clear, actionable message
+        // instead of the generic per-track-error count. Storefront
+        // fallback wouldn't help here — the URL works fine, GAMDL's
+        // template engine is at fault.
+        if process::is_gamdl_mv_cover_template_bug(&combined) {
+            return Err(format!(
+                "GAMDL bug — music-video cover URL not templated. \
+                 Apple returned 400 Bad Request for {soft_errors} track(s) \
+                 because GAMDL sent the literal `{{w}}x{{h}}` placeholders \
+                 instead of real dimensions. This is upstream — please \
+                 report at https://github.com/glomatico/gamdl/issues. \
+                 Audio for affected tracks did not download."
+            ));
+        }
+
         // Storefront-mismatch detection (#666). The friendly soft-error
         // message would otherwise hide the AMP "Resource Not Found" signal
         // that the storefront-fallback retry path keys on. When the raw
-        // stderr looks like a wrong-storefront failure, prepend the
+        // output looks like a wrong-storefront failure, prepend the
         // marker so `is_storefront_mismatch_error` matches downstream.
+        // Reads from `raw_output_lines` (both stdout and stderr) since
+        // GAMDL v3.4+ emits its log lines to stdout, not stderr.
         let storefront_signal = if process::is_storefront_mismatch_error(&combined) {
             " — AMP API returned 404 Resource Not Found (likely wrong storefront)"
         } else {
@@ -8511,7 +8556,7 @@ async fn run_download_with_events(
         // The error message is also used by classify_error() to determine the
         // retry/fallback strategy (codec error vs network error vs unknown).
         let errors = collected_errors.lock().await;
-        let raw_lines = raw_stderr_lines.lock().await;
+        let raw_lines = raw_output_lines.lock().await;
 
         errors.last().map_or_else(
             || {
