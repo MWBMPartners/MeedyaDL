@@ -6,9 +6,14 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(release)** Avoid parallel updater manifest uploads
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 0.52.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [0.52.2] - 2026-05-02
