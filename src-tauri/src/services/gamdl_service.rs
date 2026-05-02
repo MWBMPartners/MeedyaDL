@@ -404,7 +404,7 @@ fn build_gamdl_command(
     }
 
     let config_path = platform::get_gamdl_config_path(app);
-    if config_path.exists() {
+    if options.no_config_file != Some(true) && config_path.exists() {
         cmd.arg("--config-path");
         cmd.arg(config_path);
     }
