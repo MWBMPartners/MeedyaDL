@@ -832,6 +832,43 @@ pub fn is_playlist_title_keyerror(error_message: &str) -> bool {
             || lower.contains("playlist_file_path"))
 }
 
+/// Detect GAMDL's music-video cover-art URL templating bug.
+///
+/// GAMDL fetches per-track cover art for music videos from
+/// `https://a1.mzstatic.com/Video.../<id>.jpg/{w}x{h}mv.jpg`, where
+/// `{w}` and `{h}` are placeholder tokens GAMDL is supposed to
+/// substitute with concrete pixel dimensions before issuing the HTTP
+/// request. On music-video albums (or any album whose tracks include
+/// a (Visualizer) entry) GAMDL skips that substitution and sends the
+/// literal `{w}x{h}` to Apple's CDN, which responds with
+/// `400 Bad Request`. Every track that hits this code path fails
+/// without ever attempting the audio download, so the user's run
+/// produces 0 output files and a `GAMDL reported N per-track error(s)`
+/// soft-error count where N == the music-video track count.
+///
+/// Captured shape (from a real user run, 2026-05-02):
+/// ```text
+/// httpx.HTTPStatusError: Client error '400 Bad Request' for url
+/// 'https://a1.mzstatic.com/Video221/v4/.../1968719474350101.jpg/%7Bw%7Dx%7Bh%7Dmv.jpg'
+/// ```
+/// Note `%7B` / `%7D` are the URL-encoded `{` / `}`. We match BOTH
+/// the encoded and the raw forms since either could appear depending
+/// on whether httpx percent-encoded before raising.
+///
+/// Returns `true` when the buffer contains the bug's signature so the
+/// caller can surface a focused message ("known GAMDL bug — music-
+/// video cover URL not templated; report to glomatico/gamdl") instead
+/// of the generic per-track-error count.
+#[must_use]
+pub fn is_gamdl_mv_cover_template_bug(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    let has_400 = lower.contains("400 bad request") || lower.contains("status code: 400");
+    let has_mv_url = lower.contains("mzstatic.com/video");
+    let has_unsubstituted_template = lower.contains("%7bw%7dx%7bh%7d")
+        || lower.contains("{w}x{h}");
+    has_400 && has_mv_url && has_unsubstituted_template
+}
+
 // ============================================================
 // GAMDL output classification helpers (companion download safety)
 // ============================================================
@@ -1135,6 +1172,46 @@ mod tests {
         assert!(!is_storefront_mismatch_error(
             "GAMDL reported 1 per-track error(s) even though the process exited 0"
         ));
+    }
+
+    // ----------------------------------------------------------
+    // GAMDL music-video cover-template bug detector tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_gamdl_mv_cover_template_bug_recognises_url_encoded_placeholders() {
+        // Captured user evidence (2026-05-02) — httpx percent-encoded the URL:
+        let msg = "httpx.HTTPStatusError: Client error '400 Bad Request' for url 'https://a1.mzstatic.com/Video221/v4/78/43/07/78430707-4e2a-0d51-0fb0-c49607dfe652/1968719474350101.jpg/%7Bw%7Dx%7Bh%7Dmv.jpg'";
+        assert!(is_gamdl_mv_cover_template_bug(msg));
+    }
+
+    #[test]
+    fn is_gamdl_mv_cover_template_bug_recognises_raw_placeholders() {
+        // Defensive: same shape with raw `{w}x{h}` (e.g. if a future
+        // GAMDL version skips the percent-encoding pass).
+        let msg = "Client error '400 Bad Request' for url 'https://a1.mzstatic.com/Video112/v4/abc/{w}x{h}mv.jpg'";
+        assert!(is_gamdl_mv_cover_template_bug(msg));
+    }
+
+    #[test]
+    fn is_gamdl_mv_cover_template_bug_requires_all_three_signals() {
+        // 400 alone is not enough — many things can 400.
+        assert!(!is_gamdl_mv_cover_template_bug("400 Bad Request"));
+        // Video URL alone with no 400 isn't the bug shape.
+        assert!(!is_gamdl_mv_cover_template_bug(
+            "200 OK from mzstatic.com/Video221"
+        ));
+        // 400 + Video URL but with substituted dimensions = a different bug.
+        assert!(!is_gamdl_mv_cover_template_bug(
+            "400 Bad Request for url https://a1.mzstatic.com/Video221/v4/abc/1920x1080mv.jpg"
+        ));
+    }
+
+    #[test]
+    fn is_gamdl_mv_cover_template_bug_rejects_storefront_404_shape() {
+        // Storefront mismatch is a different bug — must not double-classify.
+        let msg = r#"gamdl.api.exceptions.GamdlApiResponseError: Error fetching from AMP API (Status code: 404): {"errors":[{"id":"X","title":"Resource Not Found"}]}"#;
+        assert!(!is_gamdl_mv_cover_template_bug(msg));
     }
 
     #[test]
