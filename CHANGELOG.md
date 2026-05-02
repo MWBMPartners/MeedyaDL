@@ -110,6 +110,7 @@ Two related fixes for failure shapes seen in real user runs (2026-05-02
 
 - **(security)** Update supported versions to 0.52.1 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.52.1] - 2026-04-30
 
