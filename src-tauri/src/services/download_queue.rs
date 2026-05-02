@@ -93,7 +93,7 @@ use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
 use crate::models::codec_registry::codec_suffix_from_registry;
-use crate::models::gamdl_options::{GamdlOptions, LyricsFormat, SongCodec};
+use crate::models::gamdl_options::{ArtistAutoSelect, GamdlOptions, LyricsFormat, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
 use crate::models::settings::{AppSettings, CompanionMode};
@@ -2698,6 +2698,21 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         }
     }
 
+    // GAMDL 3.5 can fail music-video artist selections before the media
+    // download starts when `--save-cover` is enabled: some Apple video
+    // artwork URLs arrive as `{w}x{h}` templates and GAMDL fetches them
+    // literally. Static cover sidecars are non-essential for MV-only runs,
+    // so keep the user's cover settings for audio and suppress them here.
+    if matches!(
+        options.artist_auto_select,
+        Some(ArtistAutoSelect::MusicVideos)
+    ) {
+        options.save_cover = None;
+        options.cover_format = None;
+        options.cover_size = None;
+        options.no_config_file = Some(true);
+    }
+
     // === Layer 3: Lyrics embed + sidecar enforcement ===
     // When the user has enabled "Embed Lyrics and Keep Sidecar", ensure that:
     // 1. Lyrics are NOT excluded from metadata embedding (remove "lyrics" from
@@ -3613,6 +3628,7 @@ async fn download_music_video_by_url(
         truncate: settings.truncate,
         download_mode: Some(settings.download_mode.clone()),
         remux_mode: Some(settings.remux_mode.clone()),
+        no_config_file: Some(true),
         ..Default::default()
     };
 
@@ -9236,6 +9252,29 @@ mod tests {
             Some("aac"),
             "Per-download override should replace default ALAC with AAC"
         );
+    }
+
+    /// Verifies that artist music-video selections do not pass static cover
+    /// sidecar options through to GAMDL. GAMDL 3.5 can treat Apple video
+    /// artwork template URLs (`{w}x{h}`) as literal URLs and fail every
+    /// selected music video before download.
+    #[test]
+    fn enqueue_suppresses_cover_args_for_artist_music_videos() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.save_cover = true;
+        settings.cover_format = crate::models::gamdl_options::CoverFormat::Raw;
+        settings.cover_size = 10000;
+        settings.artist_auto_select = Some(ArtistAutoSelect::MusicVideos);
+
+        let _id = queue.enqueue(test_request(), &settings);
+        let options = &queue.items[0].merged_options;
+
+        assert_eq!(options.artist_auto_select, Some(ArtistAutoSelect::MusicVideos));
+        assert_eq!(options.save_cover, None);
+        assert_eq!(options.cover_format, None);
+        assert_eq!(options.cover_size, None);
+        assert_eq!(options.no_config_file, Some(true));
     }
 
     /// Verifies that multiple items can be enqueued and they all appear in
