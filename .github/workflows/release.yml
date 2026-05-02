@@ -657,7 +657,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Tauri updater signing key — generates .sig signature files alongside
-          # each build artifact and includes them in the latest.json manifest.
+          # each build artifact. The final latest.json manifest is rebuilt once
+          # after the matrix completes to avoid parallel release-asset races.
           # Required for the in-app auto-update system to verify downloads.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -715,6 +716,10 @@ jobs:
           # hard-coding the flag for each tag push.
           prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
           args: ${{ matrix.settings.args }}
+          # Do not let every matrix job create/update latest.json. Parallel
+          # tauri-action uploads can race and fail while updating the same
+          # release asset; finalize-release rebuilds the complete manifest once.
+          includeUpdaterJson: false
 
       # Step 10a: Build macOS with notarization retry.
       # Apple's notarization service occasionally returns HTTP 503 "Slow Down"
