@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.2] - 2026-05-02
+
 ### 🐛 Bug Fixes
 
 - **(queue)** Unblock #666 storefront fallback on GAMDL v3.4+ + detect MV cover bug
