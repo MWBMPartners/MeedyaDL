@@ -15,6 +15,11 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 0.52.2 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(config)** Isolate GAMDL wrapper capability checks
 
 ## [0.52.2] - 2026-05-02
 
