@@ -1137,26 +1137,22 @@ mod tests {
 
     #[test]
     fn ini_includes_wrapper_m3u8_ip_on_v31() {
-        use crate::services::gamdl_capabilities::set_detected_version;
+        let _guard = VersionGuard::new(Some("3.1"));
         let mut settings = default_settings();
         settings.use_wrapper = true;
         settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
-        set_detected_version(Some("3.1".to_string()));
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("wrapper_m3u8_ip = 10.0.0.1:20020"));
-        set_detected_version(None);
     }
 
     #[test]
     fn ini_omits_wrapper_m3u8_ip_on_v30() {
-        use crate::services::gamdl_capabilities::set_detected_version;
+        let _guard = VersionGuard::new(Some("3.0"));
         let mut settings = default_settings();
         settings.use_wrapper = true;
         settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
-        set_detected_version(Some("3.0".to_string()));
         let ini = settings_to_ini(&settings);
         assert!(!ini.contains("wrapper_m3u8_ip"));
-        set_detected_version(None);
     }
 
     // ----------------------------------------------------------
