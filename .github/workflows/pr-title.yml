@@ -1,0 +1,48 @@
+# Copyright (c) 2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# PR Title Lint
+# =============
+#
+# Release Please reads the squash-merge commit title from merged pull
+# requests. If that title is not a Conventional Commit, Release Please
+# treats the change as non-user-facing and will not create a release PR.
+# This workflow catches bad PR titles before merge.
+
+name: PR Title
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  commitlint:
+    name: Conventional PR title
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" | npx commitlint
