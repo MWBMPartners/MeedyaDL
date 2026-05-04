@@ -24,6 +24,10 @@ use tauri::AppHandle;
 /// When this limit is exceeded, the oldest entries are trimmed.
 const MAX_HISTORY_ENTRIES: usize = 1000;
 
+fn normalize_url_for_history_dedup(url: &str) -> String {
+    crate::services::download_queue::normalize_url_for_dedup(url)
+}
+
 // ============================================================
 // Data model
 // ============================================================
@@ -83,7 +87,23 @@ fn load_history_from_disk(app: &AppHandle) -> Vec<HistoryEntry> {
     std::fs::read_to_string(&path).map_or_else(
         |_| vec![],
         |json| match serde_json::from_str::<Vec<HistoryEntry>>(&json) {
-            Ok(entries) => entries,
+            Ok(entries) => {
+                let original_len = entries.len();
+                let entries = dedupe_history_entries(entries);
+                if entries.len() != original_len {
+                    log::info!(
+                        "Cleaned up {} duplicate history {}",
+                        original_len - entries.len(),
+                        if original_len - entries.len() == 1 {
+                            "entry"
+                        } else {
+                            "entries"
+                        }
+                    );
+                    save_history_to_disk(app, &entries);
+                }
+                entries
+            }
             Err(e) => {
                 log::debug!("Failed to parse history.json: {e}");
                 vec![]
@@ -107,6 +127,14 @@ fn save_history_to_disk(app: &AppHandle, entries: &[HistoryEntry]) {
     }
 }
 
+fn dedupe_history_entries(mut entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
+    entries.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|entry| seen.insert(normalize_url_for_history_dedup(&entry.url)));
+    entries
+}
+
 // ============================================================
 // Public API
 // ============================================================
@@ -125,6 +153,8 @@ pub fn list_history(app: &AppHandle) -> Vec<HistoryEntry> {
 /// oldest entries are trimmed to stay within the limit.
 pub fn save_history_entry(app: &AppHandle, entry: HistoryEntry) {
     let mut entries = load_history_from_disk(app);
+    let incoming_url = normalize_url_for_history_dedup(&entry.url);
+    entries.retain(|existing| normalize_url_for_history_dedup(&existing.url) != incoming_url);
     entries.push(entry);
 
     // Sort newest first, then trim to the limit
@@ -132,6 +162,33 @@ pub fn save_history_entry(app: &AppHandle, entry: HistoryEntry) {
     entries.truncate(MAX_HISTORY_ENTRIES);
 
     save_history_to_disk(app, &entries);
+}
+
+/// Removes any history rows whose URL matches one of the supplied URLs.
+///
+/// Used when a history row is retried/requeued: the fresh queue attempt
+/// becomes the live source of truth, and the new terminal result will write
+/// back a single replacement history row when it finishes.
+pub fn remove_entries_for_urls(app: &AppHandle, urls: &[String]) {
+    if urls.is_empty() {
+        return;
+    }
+
+    let incoming: std::collections::HashSet<String> =
+        urls.iter().map(|url| normalize_url_for_history_dedup(url)).collect();
+    let mut entries = load_history_from_disk(app);
+    let original_len = entries.len();
+    entries.retain(|entry| !incoming.contains(&normalize_url_for_history_dedup(&entry.url)));
+
+    if entries.len() != original_len {
+        save_history_to_disk(app, &entries);
+    }
+}
+
+/// Compacts history on startup after upgrades that may have produced
+/// duplicate rows in earlier versions.
+pub fn cleanup_duplicate_entries(app: &AppHandle) {
+    let _ = load_history_from_disk(app);
 }
 
 /// Deletes all history entries.
@@ -229,5 +286,21 @@ mod tests {
         assert!(entry.codec.is_none());
         assert!(entry.file_path.is_none());
         assert!(entry.error_message.is_none());
+    }
+
+    #[test]
+    fn dedupe_history_entries_keeps_newest_matching_url() {
+        let mut older = make_entry("Older", "failed");
+        older.url = "https://music.apple.com/us/album/test/123?ls=1".to_string();
+        older.completed_at = "2026-05-04T10:00:00Z".to_string();
+
+        let mut newer = make_entry("Newer", "success");
+        newer.url = "https://Music.Apple.Com/us/album/test/123/".to_string();
+        newer.completed_at = "2026-05-04T11:00:00Z".to_string();
+
+        let entries = dedupe_history_entries(vec![older, newer.clone()]);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, newer.id);
     }
 }
