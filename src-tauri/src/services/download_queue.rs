@@ -74,7 +74,7 @@ use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 // Tokio's Mutex is used instead of std::sync::Mutex because the lock is held
 // across .await points. std::sync::Mutex would block the entire thread;
 // tokio::sync::Mutex yields the task instead.
@@ -4237,32 +4237,71 @@ async fn detect_actual_primary_codec(
 /// all companion tiers have completed. Returns None if no companions are needed.
 /// Handle returned by [`spawn_companion_downloads`].
 ///
-/// Wraps the spawned task's `JoinHandle` together with an
-/// [`Arc<AtomicBool>`] cooperative-cancel flag (#663). The completion
-/// task that supervises the companion deadline must set `aborted` to
-/// `true` *before* calling `handle.abort()` so the *synchronous* parts
-/// of the companion pipeline (notably [`run_companion_lyrics_conversion`]
-/// and its multi-minute `find_dirs_with_ttml` recursion) can bail at
-/// their next loop boundary.
-///
-/// `tokio::task::JoinHandle::abort()` only takes effect at an `.await`
-/// point; it cannot preempt a sync function. Without this flag, an
-/// already-aborted companion task can keep emitting `Companion: …`
-/// activity-log events for 10+ minutes after the timeout fires —
-/// the user-visible "spring back to life" symptom.
+/// Wraps the spawned task's `JoinHandle` together with progress metadata
+/// for timeout/advisory logging. The cooperative-cancel flag is retained
+/// for the synchronous companion lyrics conversion checkpoints. The
+/// completion watcher first emits a soft advisory, then uses this flag
+/// only if the second hard deadline is also exceeded.
 pub(crate) struct CompanionTaskHandle {
     handle: tokio::task::JoinHandle<()>,
     aborted: Arc<AtomicBool>,
+    progress: Arc<StdMutex<CompanionTaskProgress>>,
 }
 
 impl CompanionTaskHandle {
     /// Signals the companion task to stop processing at the next
     /// cooperative checkpoint *and* aborts the async runtime task.
-    /// Both signals are required: the flag handles sync code, the
-    /// abort handles async code awaiting on subprocess I/O.
     pub(crate) fn abort(&mut self) {
         self.aborted.store(true, Ordering::Relaxed);
         self.handle.abort();
+    }
+
+    fn describe_pending(&self) -> String {
+        self.progress
+            .lock()
+            .map(|progress| progress.describe_pending())
+            .unwrap_or_else(|_| "pending companion state unavailable".to_string())
+    }
+}
+
+#[derive(Default)]
+struct CompanionTaskProgress {
+    planned_tiers: Vec<String>,
+    current_tier: Option<usize>,
+    completed_tiers: HashSet<usize>,
+    exhausted_tiers: HashSet<usize>,
+}
+
+impl CompanionTaskProgress {
+    fn describe_pending(&self) -> String {
+        let mut parts = Vec::new();
+
+        if let Some(idx) = self.current_tier {
+            if let Some(label) = self.planned_tiers.get(idx) {
+                parts.push(format!("currently running tier {idx}: {label}"));
+            }
+        }
+
+        let not_started: Vec<String> = self
+            .planned_tiers
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| {
+                Some(*idx) != self.current_tier
+                    && !self.completed_tiers.contains(idx)
+                    && !self.exhausted_tiers.contains(idx)
+            })
+            .map(|(idx, label)| format!("tier {idx}: {label}"))
+            .collect();
+        if !not_started.is_empty() {
+            parts.push(format!("not yet started: {}", not_started.join("; ")));
+        }
+
+        if parts.is_empty() {
+            "no remaining companion tiers recorded".to_string()
+        } else {
+            parts.join("; ")
+        }
     }
 }
 
@@ -4336,6 +4375,21 @@ fn spawn_companion_downloads(
         // emitting activity-log events for many minutes after abort.
         let comp_aborted = Arc::new(AtomicBool::new(false));
         let aborted_for_task = comp_aborted.clone();
+        let companion_progress = Arc::new(StdMutex::new(CompanionTaskProgress {
+            planned_tiers: companion_tiers
+                .iter()
+                .map(|tier| {
+                    let codec_names: Vec<&str> = tier
+                        .codecs_to_try
+                        .iter()
+                        .map(SongCodec::to_cli_string)
+                        .collect();
+                    codec_names.join(", ")
+                })
+                .collect(),
+            ..Default::default()
+        }));
+        let progress_for_task = companion_progress.clone();
 
         emit_download_log(
             app,
@@ -4375,19 +4429,26 @@ fn spawn_companion_downloads(
                 // task fired the deadline timeout while we were in
                 // sync code, leave before launching another GAMDL.
                 if aborted_for_task.load(Ordering::Relaxed) {
+                    let pending = progress_for_task
+                        .lock()
+                        .map(|progress| progress.describe_pending())
+                        .unwrap_or_else(|_| "pending companion state unavailable".to_string());
                     log::info!(
                         "Companion downloads aborted via cooperative flag for {comp_dl_id} — \
-                         skipping remaining tiers"
+                         skipping remaining tiers: {pending}"
                     );
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
-                        "Companion task aborted — skipping remaining post-processing",
+                        &format!("Companion task aborted — skipping remaining companions: {pending}"),
                     );
                     return;
                 }
 
                 let mut tier_succeeded = false;
+                if let Ok(mut progress) = progress_for_task.lock() {
+                    progress.current_tier = Some(tier_idx);
+                }
 
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
@@ -4571,6 +4632,10 @@ fn spawn_companion_downloads(
                             }
 
                             tier_succeeded = true;
+                            if let Ok(mut progress) = progress_for_task.lock() {
+                                progress.completed_tiers.insert(tier_idx);
+                                progress.current_tier = None;
+                            }
                             break;
                         }
                         Ok(r) => {
@@ -4615,6 +4680,10 @@ fn spawn_companion_downloads(
                 }
 
                 if !tier_succeeded {
+                    if let Ok(mut progress) = progress_for_task.lock() {
+                        progress.exhausted_tiers.insert(tier_idx);
+                        progress.current_tier = None;
+                    }
                     log::debug!("Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}");
                     emit_download_log(
                         &comp_app,
@@ -4627,6 +4696,7 @@ fn spawn_companion_downloads(
         Some(CompanionTaskHandle {
             handle,
             aborted: comp_aborted,
+            progress: companion_progress,
         })
     };
 
@@ -7522,30 +7592,44 @@ pub fn process_queue(
                                 .await
                                 .is_err()
                                 {
+                                    let pending = handle.describe_pending();
                                     log::warn!(
-                                        "Companion downloads timed out after {} minutes for {}",
+                                        "Companion downloads still running after {} minutes for {} ({})",
                                         timeout_mins,
                                         completion_dl_id,
+                                        pending,
                                     );
-                                    // Wording corrected for #661 — set_complete()
-                                    // does not run until *after* the post-companion
-                                    // advisory pass below, which can take many more
-                                    // minutes on large box sets. Saying "marking
-                                    // complete" here misled users into thinking the
-                                    // item was already done.
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Companion downloads timed out after {timeout_mins} minutes — skipping remaining companions; final tag pass still to run"
+                                            "⚠ Companion downloads still running after {timeout_mins} minutes — waiting instead of skipping ({pending}); final tag pass will run afterwards"
                                         ),
                                     );
-                                    // CompanionTaskHandle::abort() sets the
-                                    // cooperative-cancel flag *and* aborts the
-                                    // async task (#663) — both are needed because
-                                    // the lyrics-conversion path is sync and
-                                    // ignores tokio's abort by itself.
-                                    handle.abort();
+                                    if tokio::time::timeout(
+                                        enrichment_timeout,
+                                        &mut handle.handle,
+                                    )
+                                    .await
+                                    .is_err()
+                                    {
+                                        let hard_timeout_mins = timeout_mins.saturating_mul(2);
+                                        let skipped = handle.describe_pending();
+                                        log::warn!(
+                                            "Companion downloads hard-timed-out after {} minutes for {} — skipping {}",
+                                            hard_timeout_mins,
+                                            completion_dl_id,
+                                            skipped,
+                                        );
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            &format!(
+                                                "⚠ Companion downloads hard-timed-out after {hard_timeout_mins} minutes — skipping remaining companions: {skipped}; final tag pass still to run"
+                                            ),
+                                        );
+                                        handle.abort();
+                                    }
                                     let _ = handle.handle.await;
                                 }
                             }
@@ -11283,6 +11367,40 @@ mod tests {
         let chain = "atmos,alac";
         let result = build_gapfill_priority_chain(chain);
         assert_eq!(result, Some("alac".to_string()));
+    }
+
+    #[test]
+    fn companion_progress_describes_current_and_pending_tiers() {
+        let mut progress = CompanionTaskProgress {
+            planned_tiers: vec![
+                "alac".to_string(),
+                "atmos".to_string(),
+                "aac, aac-legacy".to_string(),
+            ],
+            current_tier: Some(1),
+            ..Default::default()
+        };
+        progress.completed_tiers.insert(0);
+
+        let description = progress.describe_pending();
+
+        assert!(description.contains("currently running tier 1: atmos"));
+        assert!(description.contains("not yet started: tier 2: aac, aac-legacy"));
+        assert!(!description.contains("tier 0"));
+    }
+
+    #[test]
+    fn companion_progress_reports_no_remaining_when_all_done() {
+        let mut progress = CompanionTaskProgress {
+            planned_tiers: vec!["alac".to_string()],
+            ..Default::default()
+        };
+        progress.completed_tiers.insert(0);
+
+        assert_eq!(
+            progress.describe_pending(),
+            "no remaining companion tiers recorded"
+        );
     }
 
     #[test]
