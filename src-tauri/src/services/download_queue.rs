@@ -677,6 +677,77 @@ fn count_codec_skip_warnings(warnings: &[String]) -> usize {
         .count()
 }
 
+fn requested_format_cli_values(options: &GamdlOptions) -> Vec<String> {
+    if let Some(priority) = options.song_codec_priority.as_deref() {
+        return priority
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+
+    options
+        .song_codec
+        .as_ref()
+        .map(|codec| vec![codec.to_cli_string().to_string()])
+        .unwrap_or_default()
+}
+
+fn extract_song_codec_values_from_line(line: &str) -> Vec<String> {
+    line.split("SongCodec.")
+        .skip(1)
+        .filter_map(|part| {
+            let value_start = part.find(": '")? + 3;
+            let value_rest = &part[value_start..];
+            let value_end = value_rest.find('\'')?;
+            Some(value_rest[..value_end].to_string())
+        })
+        .collect()
+}
+
+fn describe_song_codec_cli_value(value: &str) -> String {
+    SongCodec::from_cli_string(value).map_or_else(
+        || value.to_string(),
+        |codec| format!("{} [{}]", codec.display_name(), codec.to_cli_string()),
+    )
+}
+
+fn annotate_unavailable_format_line(line: &str, requested_formats: &[String]) -> String {
+    let lower = line.to_lowercase();
+    let is_unavailable_format = lower.contains("format is not available")
+        || lower.contains("format not available")
+        || lower.contains("requested format");
+    if !is_unavailable_format || line.contains("Unavailable requested format") {
+        return line.to_string();
+    }
+
+    let parsed_formats = extract_song_codec_values_from_line(line);
+    let formats = if parsed_formats.is_empty() {
+        requested_formats.to_vec()
+    } else {
+        parsed_formats
+    };
+    if formats.is_empty() {
+        return line.to_string();
+    }
+
+    let labels: Vec<String> = formats
+        .iter()
+        .map(|value| describe_song_codec_cli_value(value))
+        .collect();
+    let detail = if labels.len() == 1 {
+        format!("Unavailable requested format: {}", labels[0])
+    } else {
+        format!(
+            "Unavailable requested format candidates: {}",
+            labels.join(" -> ")
+        )
+    };
+
+    format!("{line} ({detail})")
+}
+
 /// Build a gap-fill priority chain by removing wrapper-dependent codecs
 /// (Atmos, AC3) from the original chain. These codecs don't reliably
 /// work without wrapper authentication for per-track availability.
@@ -8095,6 +8166,7 @@ async fn run_download_with_events(
 
     // Build the command with all arguments
     let mut cmd = gamdl_service::build_gamdl_command_public(app, urls, options)?;
+    let requested_format_context = requested_format_cli_values(options);
     // Verbose: log CLI args for debugging
     emit_verbose_download_log(
         app,
@@ -8194,6 +8266,7 @@ async fn run_download_with_events(
         // raw output buffer used by the soft-error friendly-message
         // generator and the storefront-mismatch detector (#666).
         let raw_output = raw_output_lines.clone();
+        let requested_formats = requested_format_context.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
@@ -8240,6 +8313,8 @@ async fn run_download_with_events(
                     // outputs for terminal colouring but render as garbage
                     // in the Activity Log's HTML view.
                     let clean_line = process::strip_ansi_codes(segment);
+                    let display_line =
+                        annotate_unavailable_format_line(&clean_line, &requested_formats);
                     log::debug!("[gamdl stdout] {clean_line}");
 
                     // Emit to activity-log: last \r segment only (normal),
@@ -8258,7 +8333,7 @@ async fn run_download_with_events(
                             let log_event = ActivityLogEvent {
                                 download_id: download_id.clone(),
                                 stream: "stdout",
-                                line: clean_line.clone(),
+                                line: display_line.clone(),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             };
                             // Suppress Python traceback noise from the user-
@@ -8399,6 +8474,7 @@ async fn run_download_with_events(
         let raw_output = raw_output_lines.clone();
         let seen = seen_lines.clone();
         let last_activity = last_activity_ms.clone();
+        let requested_formats = requested_format_context.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
@@ -8423,6 +8499,8 @@ async fn run_download_with_events(
 
                     // Strip ANSI escape codes before display and parsing
                     let clean_line = process::strip_ansi_codes(segment);
+                    let display_line =
+                        annotate_unavailable_format_line(&clean_line, &requested_formats);
                     log::debug!("[gamdl stderr] {clean_line}");
 
                     // Emit to activity-log: last \r segment only (normal),
@@ -8438,7 +8516,7 @@ async fn run_download_with_events(
                             let log_event = ActivityLogEvent {
                                 download_id: download_id.clone(),
                                 stream: "stderr",
-                                line: clean_line.clone(),
+                                line: display_line.clone(),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             };
                             // Suppress Python traceback noise from the
@@ -11216,6 +11294,29 @@ mod tests {
             "Requested format is not available for song 03".to_string(),
         ];
         assert_eq!(count_codec_skip_warnings(&warnings), 3);
+    }
+
+    #[test]
+    fn annotate_unavailable_format_line_adds_single_requested_codec() {
+        let line = r#"[WARNING] Skipping "Track": Requested format is not available"#;
+        let annotated = annotate_unavailable_format_line(line, &["atmos".to_string()]);
+
+        assert!(annotated.contains("Unavailable requested format"));
+        assert!(annotated.contains("Dolby Atmos"));
+        assert!(annotated.contains("[atmos]"));
+    }
+
+    #[test]
+    fn annotate_unavailable_format_line_decodes_gamdl_song_codec_list() {
+        let line = "Requested format is not available: [<SongCodec.ATMOS: 'atmos'>, <SongCodec.ALAC: 'alac'>]";
+        let annotated = annotate_unavailable_format_line(line, &["aac".to_string()]);
+
+        assert!(annotated.contains("Unavailable requested format candidates"));
+        assert!(annotated.contains("Dolby Atmos"));
+        assert!(annotated.contains("[atmos]"));
+        assert!(annotated.contains("Lossless"));
+        assert!(annotated.contains("[alac]"));
+        assert!(!annotated.contains("[aac]"));
     }
 
     #[test]
