@@ -6,9 +6,47 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(release)** Require conventional PR titles
+- **(release)** Require conventional PR titles (#683)
+
+## Summary
+  - add a PR Title workflow that validates pull request titles with the
+  existing commitlint Conventional Commit config
+  - prevent squash-merge titles like 'Fix retry dedupe...' or 'Make
+  companion timeout...' from being merged and then ignored by Release
+  Please
+  - make this fix itself a conventional commit so Release Please has a
+  releasable commit after this PR lands
+
+  ## Root Cause
+  Release Please is not failing. The latest Release Please logs show it
+  skipped release creation because it could not parse recent merged commit
+  titles and then reported: 'No user facing commits found since v0.52.3'.
+  The recent PRs were merged with non-conventional squash titles, so
+  Release Please ignored them.
+
+  ## Expected Flow After Merge
+  1. This PR merges with a conventional squash title.
+  2. Release Please sees fix(release): require conventional PR titles.
+  3. Release Please creates or updates the release PR for the next patch
+  version.
+  4. Merging that release PR creates the tag/GitHub Release and triggers
+  the Release workflow.
+
+  ## Verification
+  - printf '%s\n' 'fix(release): require conventional PR titles' | npx
+  commitlint
+  - printf '%s\n' 'Make companion timeout advisory before hard abort' |
+  npx commitlint (fails as expected)
+  - git diff --check
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 0.52.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
