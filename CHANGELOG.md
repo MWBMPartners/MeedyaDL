@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.3] - 2026-05-03
+
 ### 🐛 Bug Fixes
 
 - **(release)** Avoid parallel updater manifest uploads
