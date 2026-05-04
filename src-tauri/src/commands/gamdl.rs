@@ -506,7 +506,24 @@ pub async fn start_download(
                     }
                 }
 
+                if q.has_duplicate_urls(&split_request.urls) {
+                    crate::services::history_service::remove_entries_for_urls(
+                        &app,
+                        &split_request.urls,
+                    );
+                    emit_app_log(
+                        &app,
+                        &format!(
+                            "Skipped duplicate queued URL(s): {}",
+                            split_request.urls.join(", ")
+                        ),
+                    );
+                    continue;
+                }
+
+                let queued_urls = split_request.urls.clone();
                 let download_id = q.enqueue(split_request, &settings);
+                crate::services::history_service::remove_entries_for_urls(&app, &queued_urls);
                 log::info!(
                     "Download {download_id} queued (artist mode: {})",
                     mode.to_cli_string()
@@ -765,10 +782,36 @@ pub async fn start_download(
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,
     // avoiding potential deadlocks.
+    let submitted_urls = request.urls.clone();
+    let filtered_urls = {
+        let q = queue.lock().await;
+        q.filter_out_active_duplicate_urls(&request.urls)
+    };
+    if filtered_urls.is_empty() {
+        crate::services::history_service::remove_entries_for_urls(&app, &submitted_urls);
+        emit_app_log(
+            &app,
+            &format!("Nothing queued for {urls_display} — already in Queue"),
+        );
+        return Ok(StartDownloadResult {
+            download_id: String::new(),
+            duplicate_warning: Some("This URL is already in the queue".to_string()),
+        });
+    }
+    if filtered_urls.len() != request.urls.len() {
+        let skipped = request.urls.len() - filtered_urls.len();
+        emit_app_log(
+            &app,
+            &format!("Skipped {skipped} duplicate queued URL(s) from request"),
+        );
+        request.urls = filtered_urls;
+    }
+
     let download_id = {
         let mut q = queue.lock().await;
         q.enqueue(request, &settings)
     };
+    crate::services::history_service::remove_entries_for_urls(&app, &submitted_urls);
 
     log::info!("Download {download_id} queued");
     emit_app_log(&app, &format!("Queued: {urls_display}"));
@@ -926,12 +969,23 @@ pub async fn retry_download(
     // Attempt to reset the download item to Queued state.
     // q.retry() returns true only if the item exists and is in a retryable state
     // (Failed or Cancelled).
+    let retry_urls = {
+        let q = queue.lock().await;
+        q.get_status()
+            .into_iter()
+            .find(|item| item.id == download_id)
+            .map(|item| item.urls)
+            .unwrap_or_default()
+    };
+
     let retried = {
         let mut q = queue.lock().await;
         q.retry(&download_id, &settings)
     };
 
     if retried {
+        crate::services::history_service::remove_entries_for_urls(&app, &retry_urls);
+
         // Persist the updated queue (retried item now Queued again)
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
@@ -987,12 +1041,23 @@ pub async fn retry_download_without_wrapper(
 
     // Attempt to reset the download with wrapper disabled.
     // Returns true only if the item exists, is retryable, and was using wrapper.
+    let retry_urls = {
+        let q = queue.lock().await;
+        q.get_status()
+            .into_iter()
+            .find(|item| item.id == download_id)
+            .map(|item| item.urls)
+            .unwrap_or_default()
+    };
+
     let retried = {
         let mut q = queue.lock().await;
         q.retry_without_wrapper(&download_id, &settings)
     };
 
     if retried {
+        crate::services::history_service::remove_entries_for_urls(&app, &retry_urls);
+
         // Persist the updated queue (retried item now Queued again)
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;

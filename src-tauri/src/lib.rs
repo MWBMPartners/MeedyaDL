@@ -1375,6 +1375,9 @@ pub fn run() {
                 services::activity_log_writer::ACTIVITY_LOG_RETENTION_DAYS
             );
 
+            // Compact any duplicate history rows left by older retry behaviour.
+            services::history_service::cleanup_duplicate_entries(app.handle());
+
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
 
