@@ -454,7 +454,7 @@ fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
-fn normalize_url_for_dedup(url: &str) -> String {
+pub(crate) fn normalize_url_for_dedup(url: &str) -> String {
     // Split scheme + authority from path+query.
     // URL structure: scheme://authority/path?query#fragment
     let url = url.trim();
@@ -1227,7 +1227,14 @@ impl DownloadQueue {
     ///
     /// # Returns
     /// The unique download ID for tracking this job.
-    pub fn enqueue(&mut self, request: DownloadRequest, settings: &AppSettings) -> String {
+    pub fn enqueue(&mut self, mut request: DownloadRequest, settings: &AppSettings) -> String {
+        self.remove_terminal_duplicates_for_urls(&request.urls);
+
+        let mut seen_urls = HashSet::new();
+        request
+            .urls
+            .retain(|url| seen_urls.insert(normalize_url_for_dedup(url)));
+
         // Generate a unique download ID using UUID v4.
         // This ID is used to track the download across the queue, events, and frontend.
         let download_id = uuid::Uuid::new_v4().to_string();
@@ -1307,6 +1314,34 @@ impl DownloadQueue {
         download_id
     }
 
+    /// Removes terminal queue rows that match the incoming URL set.
+    ///
+    /// Retried history entries are requeued as fresh items, so any older
+    /// failed/cancelled/completed row for the same link should disappear
+    /// from Queue instead of accumulating as a duplicate.
+    fn remove_terminal_duplicates_for_urls(&mut self, urls: &[String]) -> usize {
+        if urls.is_empty() {
+            return 0;
+        }
+
+        let incoming: HashSet<String> = urls.iter().map(|u| normalize_url_for_dedup(u)).collect();
+        let original_len = self.items.len();
+        self.items.retain(|item| {
+            let is_terminal = matches!(
+                item.status.state,
+                DownloadState::Complete | DownloadState::Error | DownloadState::Cancelled
+            );
+            let matches_incoming = item
+                .status
+                .urls
+                .iter()
+                .any(|u| incoming.contains(&normalize_url_for_dedup(u)));
+            !(is_terminal && matches_incoming)
+        });
+
+        original_len - self.items.len()
+    }
+
     /// Checks whether any of the given URLs already exist in the queue in an
     /// active or pending state (Queued, Downloading, or Processing).
     ///
@@ -1332,6 +1367,32 @@ impl DownloadQueue {
                 .iter()
                 .any(|u| incoming.contains(&normalize_url_for_dedup(u)))
         })
+    }
+
+    /// Returns only URLs that are not already in a queued/active item.
+    #[must_use]
+    pub fn filter_out_active_duplicate_urls(&self, urls: &[String]) -> Vec<String> {
+        let active_urls: HashSet<String> = self
+            .items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.status.state,
+                    DownloadState::Queued | DownloadState::Downloading | DownloadState::Processing
+                )
+            })
+            .flat_map(|item| item.status.urls.iter())
+            .map(|url| normalize_url_for_dedup(url))
+            .collect();
+
+        let mut seen_in_request = HashSet::new();
+        urls.iter()
+            .filter(|url| {
+                let normalized = normalize_url_for_dedup(url);
+                seen_in_request.insert(normalized.clone()) && !active_urls.contains(&normalized)
+            })
+            .cloned()
+            .collect()
     }
 
     /// Returns the public status of all queue items for display in the frontend.
@@ -8034,7 +8095,6 @@ async fn run_download_with_events(
 
     // Build the command with all arguments
     let mut cmd = gamdl_service::build_gamdl_command_public(app, urls, options)?;
-
     // Verbose: log CLI args for debugging
     emit_verbose_download_log(
         app,
@@ -8814,6 +8874,22 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
         |_| vec![], // File doesn't exist (first run) — not an error
         |json| match serde_json::from_str::<Vec<PersistedQueueItem>>(&json) {
             Ok(items) => {
+                let original_len = items.len();
+                let items = dedupe_persisted_queue_items(items);
+                if items.len() != original_len {
+                    log::info!(
+                        "Cleaned up {} duplicate persisted queue item(s)",
+                        original_len - items.len()
+                    );
+                    match serde_json::to_string_pretty(&items) {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(&queue_path, json) {
+                                log::warn!("Failed to write cleaned queue.json: {e}");
+                            }
+                        }
+                        Err(e) => log::warn!("Failed to serialize cleaned queue: {e}"),
+                    }
+                }
                 if !items.is_empty() {
                     log::info!("Loaded {} persisted queue item(s) from disk", items.len());
                 }
@@ -8825,6 +8901,28 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
             }
         },
     )
+}
+
+fn dedupe_persisted_queue_items(items: Vec<PersistedQueueItem>) -> Vec<PersistedQueueItem> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::with_capacity(items.len());
+
+    for item in items.into_iter().rev() {
+        let urls: Vec<String> = item
+            .request
+            .urls
+            .iter()
+            .map(|url| normalize_url_for_dedup(url))
+            .collect();
+        if urls.iter().any(|url| seen.contains(url)) {
+            continue;
+        }
+        seen.extend(urls);
+        deduped.push(item);
+    }
+
+    deduped.reverse();
+    deduped
 }
 
 /// Deletes the `queue.json` persistence file.
@@ -9216,6 +9314,29 @@ mod tests {
         assert!(status.error.is_none());
         assert!(status.output_path.is_none());
         assert!(!status.fallback_occurred);
+    }
+
+    #[test]
+    fn enqueue_removes_terminal_duplicate_attempt() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let old_request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123?ls=1".to_string()],
+            options: None,
+        };
+        let old_id = queue.enqueue(old_request, &settings);
+        queue.set_error(&old_id, "failed once");
+
+        let new_request = DownloadRequest {
+            urls: vec!["https://Music.Apple.Com/us/album/test/123/".to_string()],
+            options: None,
+        };
+        let new_id = queue.enqueue(new_request, &settings);
+        let statuses = queue.get_status();
+
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].id, new_id);
+        assert_eq!(statuses[0].state, DownloadState::Queued);
     }
 
     /// Verifies that enqueue() merges global settings into the item's options.
@@ -11341,6 +11462,53 @@ mod tests {
 
         let urls = vec!["https://music.apple.com/us/album/other/456".to_string()];
         assert!(!queue.has_duplicate_urls(&urls));
+    }
+
+    #[test]
+    fn filter_out_active_duplicate_urls_keeps_only_new_urls() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        queue.enqueue(
+            DownloadRequest {
+                urls: vec!["https://music.apple.com/us/album/test/123?ls=1".to_string()],
+                options: None,
+            },
+            &settings,
+        );
+
+        let urls = vec![
+            "https://Music.Apple.Com/us/album/test/123/".to_string(),
+            "https://music.apple.com/us/album/other/456".to_string(),
+        ];
+
+        assert_eq!(
+            queue.filter_out_active_duplicate_urls(&urls),
+            vec!["https://music.apple.com/us/album/other/456".to_string()]
+        );
+    }
+
+    #[test]
+    fn dedupe_persisted_queue_items_keeps_newest_matching_url() {
+        fn persisted(id: &str, url: &str) -> PersistedQueueItem {
+            PersistedQueueItem {
+                id: id.to_string(),
+                request: DownloadRequest {
+                    urls: vec![url.to_string()],
+                    options: None,
+                },
+                created_at: "2026-05-04T10:00:00Z".to_string(),
+                error: Some("failed".to_string()),
+                service: None,
+            }
+        }
+
+        let items = dedupe_persisted_queue_items(vec![
+            persisted("old", "https://music.apple.com/us/album/test/123?ls=1"),
+            persisted("new", "https://Music.Apple.Com/us/album/test/123/"),
+        ]);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "new");
     }
 
     // ============================================================

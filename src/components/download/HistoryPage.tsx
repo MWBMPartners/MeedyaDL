@@ -139,15 +139,15 @@ export function HistoryPage() {
   }, []);
 
   /**
-   * Re-enqueue a failed history entry via `start_download`. The history
-   * entry is left untouched — the new download writes its own history
-   * entry on completion. Per-item retry path; the bulk variant batches
-   * many calls.
+   * Re-enqueue a failed history entry via `start_download`. The backend
+   * removes the old history row for the same URL, and the new attempt writes
+   * one replacement row on completion.
    */
   const handleRetryOne = useCallback(
     async (entry: HistoryEntry) => {
       try {
         await startDownload({ urls: [entry.url] });
+        setEntries((current) => current.filter((item) => item.id !== entry.id));
         addToast(`Re-queued: ${getDisplayLabel(entry)}`, 'success');
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -193,6 +193,7 @@ export function HistoryPage() {
     }
     try {
       await startDownload({ urls: uniqueUrls });
+      setEntries((current) => current.filter((entry) => !uniqueUrls.includes(entry.url)));
       addToast(
         `Re-queued ${uniqueUrls.length} download${uniqueUrls.length !== 1 ? 's' : ''}` +
           (uniqueUrls.length < failedCount
