@@ -361,6 +361,35 @@ pub enum GamdlOutputEvent {
         /// The raw frame / header line as printed by Python.
         raw: String,
     },
+
+    /// A per-track codec-availability skip emitted by GAMDL when Apple
+    /// Music's catalog does not offer the requested format(s) for a
+    /// specific track (#698). Canonical shape:
+    ///
+    /// ```text
+    /// [WARNING 22:32:23] [Track 23/24] Skipping "Die Young (Deconstructed Mix)":
+    /// Requested format is not available (media ID: 592365442):
+    /// [<SongCodec.ATMOS: 'atmos'>, <SongCodec.ALAC: 'alac'>, ...]
+    /// ```
+    ///
+    /// This is **not** a download failure — it's normal catalog behaviour
+    /// (live mixes, deconstructed mixes, anniversary editions etc. often
+    /// don't have ATMOS / Lossless variants). Routing this to a dedicated
+    /// variant lets the queue distinguish "Apple does not offer this in
+    /// the requested format" from "the download infrastructure failed",
+    /// which materially changes the user-facing terminal-state message.
+    ///
+    /// Previously these lines were caught by Priority 7's `"skipping"`
+    /// keyword and emitted as `Error`, polluting the queue item's error
+    /// field with the misleading text "Download completed but no output
+    /// files were produced: [WARNING] ...". With this variant, the
+    /// downstream classifier can produce a meaningful "No audio available
+    /// in your requested formats" message instead.
+    CodecSkip {
+        /// The raw warning line, with the `[WARNING ...]` banner
+        /// stripped so the message reads cleanly in the activity log.
+        message: String,
+    },
 }
 
 /// Parses a single line of GAMDL output into a structured event.
@@ -556,6 +585,27 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         return GamdlOutputEvent::Complete { path };
     }
 
+    // Priority 6b: Per-track codec-availability skip (#698).
+    //
+    // GAMDL emits lines like:
+    //   `[WARNING 22:32:23] [Track 23/24] Skipping "Die Young (...)":
+    //   Requested format is not available (media ID: ...): [...codecs...]`
+    //
+    // when Apple Music's catalog does not offer the requested format(s)
+    // for a specific track. This is normal catalog behaviour, not a
+    // download failure — many tracks (live mixes, deconstructed mixes,
+    // anniversary editions) don't have ATMOS / Lossless variants.
+    //
+    // Catching this before Priority 7's keyword match prevents the line
+    // from being emitted as `Error`, which would otherwise pollute the
+    // queue's error field with the misleading text "Download completed
+    // but no output files were produced: [WARNING] ...".
+    if is_codec_skip_line(trimmed) {
+        return GamdlOutputEvent::CodecSkip {
+            message: trimmed.to_string(),
+        };
+    }
+
     // Priority 7: Common error patterns detected by keyword matching.
     // These catch errors that don't have an explicit "ERROR:" prefix but
     // contain well-known error indicators. The lowercase conversion ensures
@@ -567,9 +617,18 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     //   - "permission denied"-- filesystem permission errors
     //   - "codec not available" -- requested audio/video codec not offered
     //   - "format is not available" -- GAMDL 2.8.x: "Requested format is not available"
-    //   - "skipping"         -- GAMDL: track skipped due to format/codec issues
     //   - "no entry"         -- missing archive entries or config keys
     //   - "exception"        -- Python exception messages
+    //
+    // The `"skipping"` keyword used to live here too, but it was too
+    // broad — every per-track codec-availability warning matched and
+    // bubbled up as `Error`. Those warnings are now classified by
+    // Priority 6b above as `CodecSkip` and routed through a dedicated
+    // path that does not pollute the queue's error field (#698). Other
+    // GAMDL "Skipping" emissions (rate-limit retries, pre-existing
+    // file detection, etc.) do not contain the canonical "format is
+    // not available" / "requested format" phrase and so still fall
+    // through to the keyword match below if they're truly errors.
     //
     // The `traceback` keyword used to live here too, but the bare
     // `Traceback (most recent call last):` header is just the start of a
@@ -584,7 +643,6 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         || lower.contains("permission denied")
         || lower.contains("codec not available")
         || lower.contains("format is not available")
-        || lower.contains("skipping")
         || lower.contains("no entry")
         || lower.contains("exception")
     {
@@ -626,6 +684,48 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
 /// # Connection
 /// Called by `services::download_queue` after a download fails, before
 /// deciding whether to enqueue a retry with a lower-quality codec.
+/// Detects per-track codec-availability skip lines emitted by GAMDL (#698).
+///
+/// Canonical shape:
+/// ```text
+/// [WARNING 22:32:23] [Track 23/24] Skipping "Die Young (Deconstructed Mix)":
+///     Requested format is not available (media ID: 592365442):
+///     [<SongCodec.ATMOS: 'atmos'>, <SongCodec.ALAC: 'alac'>, ...]
+/// ```
+///
+/// This is **not** a download failure — it's normal Apple Music catalog
+/// behaviour. Detecting these lines upstream of Priority 7's generic error
+/// keyword match lets us route them to a dedicated `CodecSkip` event so
+/// the queue's terminal-state classifier can produce a meaningful "no
+/// audio available in your requested formats" message instead of the
+/// misleading "Download completed but no output files were produced".
+///
+/// The match conditions are deliberately narrow: the line must contain
+/// **both** a `Skipping`-style verb AND a phrase indicating format
+/// unavailability. Any other "Skipping" line (rate-limit retries,
+/// pre-existing file detection, etc.) falls through to other parser
+/// branches and is classified normally.
+#[must_use]
+pub fn is_codec_skip_line(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    let has_skip_verb = lower.contains("skipping") || lower.contains("skipped");
+    let has_format_unavailable = lower.contains("requested format is not available")
+        || lower.contains("format is not available")
+        || lower.contains("format not available")
+        || lower.contains("requested format");
+    has_skip_verb && has_format_unavailable
+}
+
+/// Detects whether an already-collected error/warning message is a codec
+/// skip — used by the queue's terminal-state classifier to decide whether
+/// every recorded "error" is actually just a normal Apple Music catalog
+/// limitation. Same predicate as [`is_codec_skip_line`]; aliased here so
+/// the queue's intent reads clearly at the call site.
+#[must_use]
+pub fn is_codec_skip_message(message: &str) -> bool {
+    is_codec_skip_line(message)
+}
+
 #[must_use]
 pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
@@ -1833,23 +1933,30 @@ mod tests {
     }
 
     #[test]
-    fn v3_codec_skips_are_detected_as_errors() {
+    fn v3_codec_skips_are_detected_as_codec_skip_events() {
         // The two "Skipping ... Requested format is not available" lines
-        // are WARNING level from GAMDL's perspective. For MeedyaDL's
-        // parser they should register as Error events so
-        // `count_codec_skip_warnings` / `is_codec_error` can pick them
-        // up — we need that to kick off gap-fill retry.
+        // are WARNING level from GAMDL's perspective. After #698 they
+        // classify as `CodecSkip`, not `Error` — the queue's terminal
+        // classifier inspects these via `is_codec_skip_message` to
+        // distinguish "Apple doesn't offer this format" from a genuine
+        // download failure. The downstream gap-fill / `is_codec_error`
+        // signal still fires because those helpers are called against
+        // the message string content, not against the variant tag (see
+        // `v3_codec_skips_trigger_codec_error_classification` below).
         let events = classify_lines(FIXTURE_V3_CODEC_SKIPS);
-        let errors: Vec<String> = events
+        let codec_skips: Vec<String> = events
             .iter()
             .filter_map(|e| match e {
-                GamdlOutputEvent::Error { message } => Some(message.clone()),
+                GamdlOutputEvent::CodecSkip { message } => Some(message.clone()),
                 _ => None,
             })
             .collect();
         assert!(
-            errors.iter().any(|m| m.to_lowercase().contains("format is not available")),
-            "Expected at least one 'format is not available' Error, got: {errors:?}"
+            codec_skips
+                .iter()
+                .any(|m| m.to_lowercase().contains("format is not available")),
+            "Expected at least one 'format is not available' CodecSkip event \
+             after #698, got: {codec_skips:?}"
         );
     }
 
@@ -2469,6 +2576,105 @@ mod tests {
         assert!(
             events.is_empty(),
             "flat-filter fixture contains no `Downloading \"...\"` lines; no TrackInfo should fire — got {events:?}"
+        );
+    }
+
+    // ==========================================================
+    // Codec-skip classification (#698)
+    // ==========================================================
+
+    /// The canonical GAMDL "Skipping ... format is not available" line
+    /// must classify as `CodecSkip`, not `Error`. Before #698 this hit
+    /// Priority 7's `"skipping"` keyword and surfaced as a red error in
+    /// the queue item's error field plus an "Error" entry in the activity
+    /// log — the user-visible "format-not-available misclassification"
+    /// symptom from the bug report.
+    #[test]
+    fn codec_skip_classifies_as_codec_skip_not_error() {
+        let line = "[WARNING 22:32:23] [Track 23/24] Skipping \"Die Young (Deconstructed Mix)\": \
+                    Requested format is not available (media ID: 592365442): \
+                    [<SongCodec.ATMOS: 'atmos'>, <SongCodec.ALAC: 'alac'>, \
+                    <SongCodec.AC3: 'ac3'>, <SongCodec.AAC: 'aac'>, \
+                    <SongCodec.AAC_LEGACY: 'aac-legacy'>]";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::CodecSkip { message } => {
+                assert!(message.contains("Skipping"));
+                assert!(message.contains("format is not available"));
+            }
+            other => panic!("expected CodecSkip, got {other:?}"),
+        }
+    }
+
+    /// Older GAMDL phrasing variants must also classify as `CodecSkip`.
+    #[test]
+    fn codec_skip_recognises_lowercase_format_not_available() {
+        let line = "Skipping track: format not available";
+        assert!(matches!(
+            parse_gamdl_output(line),
+            GamdlOutputEvent::CodecSkip { .. }
+        ));
+    }
+
+    /// `is_codec_skip_line` must require BOTH a skip verb AND a
+    /// format-unavailable phrase. Lines that mention "skipping" alone
+    /// (e.g. rate-limit retry skips, pre-existing-file skips) must NOT
+    /// be misclassified.
+    #[test]
+    fn codec_skip_does_not_match_unrelated_skipping_lines() {
+        // "Skipping" alone — no format keyword
+        assert!(!is_codec_skip_line("[INFO] Skipping cover art (already downloaded)"));
+        assert!(!is_codec_skip_line("Skipping rate-limited request, retrying in 30s"));
+        // "Format" alone — no skip verb
+        assert!(!is_codec_skip_line("Requested format: ATMOS"));
+        assert!(!is_codec_skip_line("Format is not available — falling back"));
+    }
+
+    /// Non-codec-skip warnings that contain the `"skipping"` substring
+    /// (e.g. genuine errors that mention skipping in their text) must
+    /// still fall through to Priority 7's keyword match if they contain
+    /// other error signal words. A line with only `"skipping"` and no
+    /// other error keywords now classifies as `Unknown` — by design,
+    /// since post-#698 we don't treat a bare `"skipping"` mention as
+    /// inherently failure-shaped.
+    #[test]
+    fn bare_skipping_without_format_keyword_is_no_longer_error() {
+        // This used to classify as Error via Priority 7's `"skipping"`.
+        // Post-#698 it falls through to Unknown — the parser is no
+        // longer the layer that decides whether a "Skipping" mention is
+        // an error; the queue's terminal classifier does, by inspecting
+        // the recorded warnings.
+        let line = "Skipping cover art (already downloaded)";
+        assert!(matches!(
+            parse_gamdl_output(line),
+            GamdlOutputEvent::Unknown { .. }
+        ));
+    }
+
+    /// `is_codec_skip_message` is an alias for `is_codec_skip_line` used
+    /// at the queue's terminal classifier. Both predicates must agree.
+    #[test]
+    fn is_codec_skip_message_agrees_with_is_codec_skip_line() {
+        let canonical = "[WARNING] Skipping \"Track\": Requested format is not available";
+        assert!(is_codec_skip_line(canonical));
+        assert!(is_codec_skip_message(canonical));
+
+        let unrelated = "[ERROR] Connection refused";
+        assert!(!is_codec_skip_line(unrelated));
+        assert!(!is_codec_skip_message(unrelated));
+    }
+
+    /// `is_codec_error` must continue to recognise the same vocabulary —
+    /// the gap-fill / fallback-retry decisions in `download_queue` rely
+    /// on it, and #698 only changes how the parser routes the line, not
+    /// what classification means downstream. Existing keyword set must
+    /// stay intact.
+    #[test]
+    fn is_codec_error_still_matches_codec_skip_messages() {
+        let line = "Skipping \"Track\": Requested format is not available: [<SongCodec.ATMOS>]";
+        assert!(
+            is_codec_error(line),
+            "is_codec_error must still match the codec-skip vocabulary so the \
+             queue's existing has_codec_error gate keeps firing for these lines"
         );
     }
 
