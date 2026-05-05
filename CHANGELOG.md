@@ -6,6 +6,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(queue,history)** Add per-item delete to Queue and History
+- **(queue,history)** Add per-item delete (#685) (#686)
+
+## Summary
+
+  Adds per-item delete to the Download Queue and Download History pages,
+  filling the gap where the only removal options were bulk Clear Finished
+  / Clear All / Clear History. Common use case: purge a stubbornly-failing
+  entry without nuking the rest.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.4] - 2026-05-04
+
 ### 🐛 Bug Fixes
 
 - **(release)** Require conventional PR titles
