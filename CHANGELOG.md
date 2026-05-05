@@ -6,9 +6,15 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(queue)** Stop classifying per-track codec skips as download failures
+- **(queue)** Stop classifying per-track codec skips as download failures (#698) (#699)
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 0.53.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
@@ -46,6 +52,92 @@ Bumps [ip-address](https://github.com/beaugunderson/ip-address) from
   Dependabot will resolve any conflicts with this PR as long as you don't
   alter it yourself. You can also trigger a rebase manually by commenting
   `@dependabot rebase`.
+
+- **(security)** Suppress glib-0429 advisory and prune stale entries
+
+Identified during the post-#688 security audit (#693).
+
+  `cargo audit` flags 20 RustSec advisories; all 20 are non-exploitable
+  in MeedyaDL's threat model and either already suppressed in deny.toml
+  or now added in this commit.
+
+- **(security)** Suppress glib-0429 advisory and prune stale entries (#693) (#697)
+
+## Summary
+
+  Post-#688 security audit. Closes #693.
+
+  \`cargo audit\` flags 20 RustSec advisories; **all 20 are
+  non-exploitable in MeedyaDL's threat model** and either
+  already-suppressed in [\`deny.toml\`](src-tauri/deny.toml) or now added
+  in this PR. \`npm audit\` is clean (0 vulnerabilities).
+
+  ## What changed
+
+  - **Added \`RUSTSEC-2024-0429\` suppression** — glib::VariantStrIter
+  Iterator/DoubleEndedIterator unsoundness. Linux-only (transitive via
+  \`webkit2gtk → wry → tauri\`); trigger condition (constructing a
+  VariantStrIter and iterating it) is not user-reachable from MeedyaDL's
+  code paths. Patch requires glib 0.20+, blocked by upstream Tauri's
+  pending GTK4 migration. Tracked in #696.
+  - **Removed two stale suppressions** — \`RUSTSEC-2025-0057\` (fxhash)
+  and \`RUSTSEC-2026-0097\` (rand 0.7.3 build-only). Upstream
+  \`tauri-utils\` dropped both chains; \`cargo deny\` now reports them as
+  \`advisory-not-detected\`. Pruned to keep the suppression list honest.
+  The detailed reachability block for the rand entry is removed since it's
+  no longer relevant; the carve-out (b) policy comment remains as guidance
+  for any future entries.
+
+  ## Manual security review (no findings)
+
+  A targeted Explore-agent audit verified the security baseline against
+  drift:
+
+  | Threat class | Result |
+  | --- | --- |
+  | Path traversal (\`validate_path_safe()\` guards on every IPC accepting
+  paths) | ✅ intact |
+  | Subprocess argument handling (zero \`sh -c\` patterns; all \`.arg()\`
+  parameterised; URL scheme validation before GAMDL) | ✅ intact |
+  | IPC rate limiting (\`start_download\` 10/min, \`check_all_updates\`
+  1/min, \`download_and_install_app_update\` 1/min,
+  \`import_cookies_from_browser\` 3/min) | ✅ intact |
+  | Credential storage (keychain-only via \`keyring\` crate; nothing in
+  \`settings.json\`) | ✅ intact |
+  | Wrapper-URL redaction in logs (\`redact_url_query()\` + verbose-only
+  \`[REDACTED]\` strip) | ✅ intact |
+  | Settings/queue file integrity (SHA-256 checksum on \`settings.json\`;
+  atomic temp+rename writes; settings migration v0→v4) | ✅ intact |
+  | Tauri capability scope (\`shell:allow-open\` only — not the broader
+  \`shell:default\`; \`fs:default\` is app-scoped in Tauri 2.x) | ✅ intact
+  |
+  | Newly-added IPC commands from #685 (\`delete_queue_item\`,
+  \`delete_history_entry\`) | ✅ both accept only typed UUIDs, no
+  paths/URLs/shell args |
+
+  ## Verification
+
+  - \`cargo deny check\` — \`advisories ok, bans ok, licenses ok, sources
+  ok\`.
+  - \`cargo audit\` — 0 vulnerabilities, all 20 advisories explicitly
+  handled.
+  - \`npm audit --audit-level=low\` — 0 vulnerabilities.
+  - \`cargo clippy --all-targets -- -D warnings\` — clean.
+  - \`cargo test --lib\` — 951 / 0.
+
+  ## Out of scope (filed as follow-ups)
+
+  - **#696** — track upstream Tauri's GTK4 migration. This is the root
+  cause for 12+ of the suppressed advisories; resolving it removes them
+  all in one go.
+
+  ## Test plan
+
+  - [ ] CI \`cargo deny\` job passes on Linux, macOS, Windows.
+  - [ ] No regressions in existing security paths (path validation,
+  subprocess argument handling, settings migration).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 
 ## [0.53.1] - 2026-05-05
