@@ -1765,6 +1765,16 @@ impl DownloadQueue {
                 // summary line is captured separately via the Error variant
                 // (PYTHON_EXCEPTION_REGEX).
                 process::GamdlOutputEvent::TracebackFrame { .. } => {}
+                // Per-track codec-availability skips (#698) are normal
+                // catalog behaviour, not download failures. Don't set
+                // `item.status.error` from these — the queue's terminal
+                // classifier inspects the collected `errors` Vec at exit
+                // time and produces a meaningful "no audio available"
+                // message when every recorded warning is a codec skip.
+                // Setting `error` here would surface the misleading
+                // `[WARNING] Skipping ...` text mid-download even if the
+                // remaining tracks succeed and the item ends Complete.
+                process::GamdlOutputEvent::CodecSkip { .. } => {}
             }
         }
     }
@@ -5871,6 +5881,20 @@ pub fn process_queue(
                             if !has_output_now {
                                 // Terminal: no output, no IO recovery, no files on
                                 // disk despite codec fallback exhausted.
+                                //
+                                // Distinguish the codec-skips-only case (#698) from
+                                // genuine download failures: when every collected
+                                // warning is a per-track codec-availability skip,
+                                // Apple Music simply doesn't offer this content in
+                                // any of the user's requested formats. That's a
+                                // catalog limitation, not a download infrastructure
+                                // failure, and the user-facing message should say
+                                // so honestly instead of "Download completed but no
+                                // output files were produced: [WARNING] Skipping ...".
+                                let only_codec_skips = !warnings.is_empty()
+                                    && warnings
+                                        .iter()
+                                        .all(|w| process::is_codec_skip_message(w));
                                 let error_msg = if has_io_error {
                                     format!(
                                         "Output path may be unreachable or too slow. \
@@ -5878,6 +5902,13 @@ pub fn process_queue(
                                      output path. Details: {}",
                                         warnings.last().cloned().unwrap_or_default()
                                     )
+                                } else if only_codec_skips {
+                                    "No audio available: Apple Music does not offer \
+                                 this content in any of your requested formats. Try \
+                                 alternative codecs in Settings > Quality > Music \
+                                 Codec, or check that this content exists in your \
+                                 storefront."
+                                        .to_string()
                                 } else if let Some(last_warning) = warnings.last() {
                                     format!(
                                         "Download completed but no output files were \
@@ -8541,10 +8572,19 @@ async fn run_download_with_events(
                         q.update_item_progress(&download_id, &event);
                     }
 
-                    // Collect errors for fallback decisions
-                    if let process::GamdlOutputEvent::Error { ref message } = event {
-                        let mut errs = errors.lock().await;
-                        errs.push(message.clone());
+                    // Collect errors for fallback decisions. CodecSkip events
+                    // (#698) are also pushed so the existing `is_codec_error`
+                    // / `count_codec_skip_warnings` checks in the terminal
+                    // block keep working unchanged — the queue's classifier
+                    // distinguishes "all errors are codec skips" via
+                    // `is_codec_skip_message` at decision time.
+                    match event {
+                        process::GamdlOutputEvent::Error { ref message }
+                        | process::GamdlOutputEvent::CodecSkip { ref message } => {
+                            let mut errs = errors.lock().await;
+                            errs.push(message.clone());
+                        }
+                        _ => {}
                     }
 
                     // #508: detect the transition into the silent
@@ -8664,9 +8704,16 @@ async fn run_download_with_events(
                         q.update_item_progress(&download_id, &event);
                     }
 
-                    if let process::GamdlOutputEvent::Error { ref message } = event {
-                        let mut errs = errors.lock().await;
-                        errs.push(message.clone());
+                    // Collect errors + codec-skips for fallback decisions
+                    // (#698 — same compatibility-shim rationale as the stdout
+                    // reader above).
+                    match event {
+                        process::GamdlOutputEvent::Error { ref message }
+                        | process::GamdlOutputEvent::CodecSkip { ref message } => {
+                            let mut errs = errors.lock().await;
+                            errs.push(message.clone());
+                        }
+                        _ => {}
                     }
 
                     let progress = gamdl_service::GamdlProgress {
