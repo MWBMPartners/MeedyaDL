@@ -27,6 +27,7 @@ vi.mock('@/lib/tauri-commands', () => ({
   cancelDownload: vi.fn(),
   retryDownload: vi.fn(),
   clearQueue: vi.fn(),
+  deleteQueueItem: vi.fn(),
   getQueueStatus: vi.fn(),
 }));
 
@@ -492,6 +493,40 @@ describe('downloadStore', () => {
       const removed = await useDownloadStore.getState().clearFinished();
 
       expect(removed).toBe(0);
+    });
+  });
+
+  // ============================================================
+  // Per-item delete (#685)
+  // ============================================================
+
+  describe('deleteItem', () => {
+    it('calls deleteQueueItem and refreshes the queue', async () => {
+      vi.mocked(commands.deleteQueueItem).mockResolvedValueOnce(undefined);
+      const remaining = [createMockQueueItem({ id: 'dl-2', state: 'queued' })];
+      vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
+        total: 1,
+        active: 0,
+        queued: 1,
+        completed: 0,
+        failed: 0,
+        items: remaining,
+      });
+
+      await useDownloadStore.getState().deleteItem('dl-1');
+
+      expect(commands.deleteQueueItem).toHaveBeenCalledWith('dl-1');
+      expect(useDownloadStore.getState().queueItems).toEqual(remaining);
+    });
+
+    it('re-throws backend errors so callers can show a toast', async () => {
+      vi.mocked(commands.deleteQueueItem).mockRejectedValueOnce(
+        new Error('Cannot delete download xyz — currently active. Cancel it first.'),
+      );
+
+      await expect(useDownloadStore.getState().deleteItem('xyz')).rejects.toThrow(
+        /currently active/,
+      );
     });
   });
 

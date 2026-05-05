@@ -633,6 +633,22 @@ export function clearAllQueue(): Promise<number> {
 }
 
 /**
+ * Removes a single queue item by ID (#685).
+ *
+ * Rust handler: `delete_queue_item()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * Backend refuses active items (`Downloading` / `Processing`) — the caller
+ * must `cancelDownload()` first. The frontend already hides the menu
+ * entry for active rows, so the rejection is defense-in-depth.
+ *
+ * @param downloadId - UUID of the queue item to remove.
+ * @returns Promise resolving when the item has been removed and persisted.
+ */
+export function deleteQueueItem(downloadId: string): Promise<void> {
+  return invoke<void>('delete_queue_item', { downloadId });
+}
+
+/**
  * Returns the current status of the entire download queue.
  *
  * Rust handler: `get_queue_status()` in `src-tauri/src/commands/download.rs`
@@ -1430,6 +1446,20 @@ export function clearHistory(): Promise<void> {
  */
 export function searchHistory(query: string): Promise<import('@/types').HistoryEntry[]> {
   return invoke<import('@/types').HistoryEntry[]>('search_history', { query });
+}
+
+/**
+ * Removes a single history entry by ID (#685).
+ *
+ * Rust handler: `delete_history_entry()` in `src-tauri/src/commands/history.rs`
+ *
+ * The Rust side rejects unknown IDs with an error so the caller can
+ * distinguish "already gone" from a successful delete.
+ *
+ * @param id - UUID of the history entry to remove.
+ */
+export function deleteHistoryEntry(id: string): Promise<void> {
+  return invoke<void>('delete_history_entry', { id });
 }
 
 // ============================================================

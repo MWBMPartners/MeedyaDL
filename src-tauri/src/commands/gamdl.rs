@@ -1078,6 +1078,58 @@ pub async fn retry_download_without_wrapper(
     }
 }
 
+/// Removes a single item from the queue by ID (#685).
+///
+/// **Frontend caller:** `deleteQueueItem(downloadId)` in `src/lib/tauri-commands.ts`
+///
+/// Sibling of `cancel_download` (which transitions an active item to
+/// `Cancelled` but keeps the row visible) and `clear_all_queue` (bulk).
+/// This is the per-item destructive removal — typically used to purge a
+/// stubbornly-failing entry from the queue without nuking the rest.
+///
+/// Active items (`Downloading` / `Processing`) are refused — the caller
+/// must `cancel_download` first. The frontend already hides the menu entry
+/// for active rows, so this is defense-in-depth against a context-menu
+/// race (state changed between menu open and click).
+///
+/// # Events Emitted
+/// * `"queue-item-deleted"` — payload: the deleted download ID. The
+///   frontend can listen for this to update lists without a full refetch
+///   (the existing 3 s polling fallback also catches it).
+#[tauri::command]
+pub async fn delete_queue_item(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<(), String> {
+    log::info!("Delete requested for download: {download_id}");
+
+    let result = {
+        let mut q = queue.lock().await;
+        q.delete(&download_id)
+    };
+
+    match result {
+        Ok(true) => {
+            // Persist the updated queue (item removed). Mirrors the
+            // cancel/retry/clear paths so a crash or quit can't resurrect
+            // a deleted row from disk on next startup.
+            let queue_handle = queue.inner().clone();
+            download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+            let short = &download_id[..8.min(download_id.len())];
+            emit_app_log(&app, &format!("Removed queue item [{short}]"));
+
+            // Best-effort frontend notification; the deletion has already
+            // landed regardless of whether the event reaches the UI.
+            let _ = app.emit("queue-item-deleted", &download_id);
+            Ok(())
+        }
+        Ok(false) => Err(format!("Download {download_id} not found")),
+        Err(e) => Err(e),
+    }
+}
+
 /// Clears all completed, failed, and cancelled items from the queue.
 ///
 /// **Frontend caller:** `clearQueue()` in `src/lib/tauri-commands.ts`

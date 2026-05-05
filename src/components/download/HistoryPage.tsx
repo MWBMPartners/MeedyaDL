@@ -25,7 +25,15 @@ import {
   RotateCcw,
   Copy,
 } from 'lucide-react';
-import { listHistory, clearHistory, searchHistory, startDownload } from '@/lib/tauri-commands';
+// Trash2 used for both "Clear History" header button and the per-row Delete
+// context menu entry (#685) — single icon import covers both call sites.
+import {
+  listHistory,
+  clearHistory,
+  searchHistory,
+  startDownload,
+  deleteHistoryEntry,
+} from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 
 import type { HistoryEntry } from '@/types';
@@ -88,6 +96,12 @@ export function HistoryPage() {
     y: number;
   } | null>(null);
   const [showRetryAllConfirm, setShowRetryAllConfirm] = useState(false);
+  /**
+   * Per-item Delete confirmation modal target (#685). Holds the entry
+   * being deleted so the modal can show a meaningful label. `null` =
+   * modal closed.
+   */
+  const [deleteTarget, setDeleteTarget] = useState<HistoryEntry | null>(null);
   const addToast = useUiStore((s) => s.addToast);
 
   /** Loads history entries from the backend. */
@@ -209,6 +223,25 @@ export function HistoryPage() {
     }
   }, [failedEntries, failedCount, addToast]);
 
+  /**
+   * Per-item Delete (#685). Confirms via modal, then removes the entry
+   * from disk via the IPC. Updates local state on success so the UI
+   * doesn't flicker during the round-trip.
+   */
+  const handleDeleteConfirmed = useCallback(async () => {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
+    try {
+      await deleteHistoryEntry(target.id);
+      setEntries((current) => current.filter((entry) => entry.id !== target.id));
+      addToast('History entry removed', 'info');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`Failed to remove: ${message}`, 'error');
+    }
+  }, [deleteTarget, addToast]);
+
   /** Right-click handler — opens the per-row context menu at the cursor. */
   const handleContextMenu = useCallback(
     (event: React.MouseEvent, entry: HistoryEntry) => {
@@ -247,6 +280,14 @@ export function HistoryPage() {
           onClick: () => handleOpenFolder(entry.file_path!),
         });
       }
+      // Delete entry (#685). Always available — history rows are
+      // metadata-only, so deletion never affects on-disk audio.
+      items.push({
+        label: 'Delete',
+        icon: <Trash2 size={14} />,
+        onClick: () => setDeleteTarget(entry),
+        separator: true,
+      });
       return items;
     },
     [handleCopyUrl, handleRetryOne, handleOpenFolder],
@@ -438,6 +479,31 @@ export function HistoryPage() {
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {/* Per-item Delete confirmation modal (#685) */}
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Remove history entry"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          Remove this entry from your download history? Already-downloaded
+          files on disk are not deleted — only the history record.
+        </p>
+        {deleteTarget && (
+          <p className="text-xs text-content-tertiary mb-6 break-all">
+            {getDisplayLabel(deleteTarget)}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleDeleteConfirmed}>
+            Remove
+          </Button>
+        </div>
+      </Modal>
 
       {/* Bulk retry confirmation modal (#665) */}
       <Modal
