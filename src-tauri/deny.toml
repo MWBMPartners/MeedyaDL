@@ -75,7 +75,6 @@ ignore = [
     "RUSTSEC-2024-0370", # proc-macro-error — unmaintained (used by tao, field-offset)
     "RUSTSEC-2024-0384", # instant — unmaintained (used by parking_lot via Tauri)
     "RUSTSEC-2024-0388", # derivative — unmaintained (used by zbus via Tauri D-Bus)
-    "RUSTSEC-2025-0057", # fxhash — unmaintained (used by selectors via Tauri)
 
     # unic-* crates — unmaintained (used by html5ever/markup5ever via Tauri)
     "RUSTSEC-2025-0075", # unic-char-range — unmaintained
@@ -87,25 +86,26 @@ ignore = [
     # paste — unmaintained (transitive dependency from lofty, used for ReplayGain tagging)
     "RUSTSEC-2024-0436", # paste — unmaintained (archived by dtolnay, no security issue)
 
+    # glib 0.18.x — VariantStrIter unsoundness in Iterator / DoubleEndedIterator
+    # impls. Transitive chain: webkit2gtk 2.0.2 → wry 0.55.1 → tauri-runtime-wry
+    # → tauri 2.11.0 (Linux-only target — glib is not pulled in on macOS or
+    # Windows builds). The advisory's trigger requires constructing a
+    # VariantStrIter and iterating it; MeedyaDL does not use glib's GVariant
+    # APIs directly. wry uses webkit2gtk for the WebView surface but does
+    # not iterate VariantStrIter from any user-reachable code path. Patched
+    # in glib 0.20+, which requires the GTK4 ecosystem; will be resolved
+    # naturally when Tauri migrates to GTK4 (same upstream pin as the other
+    # gtk-rs unmaintained advisories above).
+    "RUSTSEC-2024-0429", # glib — VariantStrIter unsoundness (Linux-only, not user-reachable)
+
     # Security advisories with demonstrably unreachable code paths (carve-out
     # (b) in the policy comment above). Each entry MUST cite the specific
     # advisory trigger conditions that do NOT apply to our usage, an internal
     # tracker issue, and an upstream tracker URL.
-
-    # RUSTSEC-2026-0097 / GHSA-cq8v-f236-94qc — `rand 0.7.3` soundness.
-    # Chain: tauri-utils 2.8.3 → kuchikiki 0.8.8-speedreader → selectors 0.24.0
-    # → phf_codegen 0.8.0 → phf_generator 0.8.0 → rand 0.7.3 (build-only).
-    # Advisory trigger requires ALL of: `log` + `thread_rng` features; a
-    # custom `log::Log` implementation; that logger calls `rand::rng()` →
-    # `TryRng` on `ThreadRng`; ThreadRng reseeding during logger callback
-    # (every 64 kB of rand output); trace-level logging active. None of
-    # these conditions are met by `phf_codegen`'s build-time PHF-seeding
-    # use of `rand`. Shipping MeedyaDL binary does not link against
-    # `rand 0.7.3` (runtime uses rand 0.8.6 / 0.9.4 only). `rand 0.7.x`
-    # has no backported fix — patch requires 0.8 API. Internal tracker:
-    # #562. Upstream tracker: (to be filed against tauri-apps/tauri — see
-    # ready-to-paste template in #562 body).
-    "RUSTSEC-2026-0097", # rand — soundness; build-only, conditions not met (see #562)
+    #
+    # (Currently empty — RUSTSEC-2026-0097 / `rand 0.7.3` build-only chain
+    #  was dropped upstream and no longer matches any crate in the tree.
+    #  Re-add here if a similar carve-out becomes necessary in the future.)
 ]
 
 # ============================================================
