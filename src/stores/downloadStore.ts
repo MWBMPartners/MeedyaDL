@@ -201,6 +201,19 @@ interface DownloadState {
   retryWithoutWrapper: (downloadId: string) => Promise<void>;
 
   /**
+   * Remove a single queue item by ID (#685). Refuses active items
+   * (`downloading` / `processing`) — the caller must cancel first; the
+   * Rust backend enforces the same guard for defense-in-depth.
+   *
+   * IPC call: `commands.deleteQueueItem(downloadId)` -> Rust `delete_queue_item`
+   * Refreshes the queue afterwards.
+   *
+   * @param downloadId - UUID of the queue item to remove.
+   * @throws Re-throws the IPC error so callers can show a toast.
+   */
+  deleteItem: (downloadId: string) => Promise<void>;
+
+  /**
    * Remove all completed, failed, and cancelled items from the queue.
    * IPC call: `commands.clearQueue()` -> Rust `clear_queue`
    * Returns the number of items removed. Refreshes the queue afterward.
@@ -484,6 +497,18 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+
+  /**
+   * Remove a single queue item by ID (#685). The backend persists the
+   * change before returning, so the subsequent refresh sees the canonical
+   * post-delete state. Errors are re-thrown so the caller can surface
+   * them as a toast (e.g. "active downloads can't be deleted").
+   */
+  deleteItem: async (downloadId) => {
+    await commands.deleteQueueItem(downloadId);
+    const status = await commands.getQueueStatus();
+    set({ queueItems: status.items });
   },
 
   /**
