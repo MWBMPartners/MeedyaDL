@@ -1539,6 +1539,37 @@ impl DownloadQueue {
         }
     }
 
+    /// Removes a single item from the queue by ID.
+    ///
+    /// Refuses to remove `Downloading` / `Processing` items — the user must
+    /// `cancel()` them first. Without this guard, deleting a live row would
+    /// orphan the GAMDL subprocess (which writes to disk and would emit
+    /// progress events with no queue entry to update), and the cancellation
+    /// poll loop would have nothing to find on its next tick.
+    ///
+    /// # Returns
+    /// - `Ok(true)` if the item was found and removed.
+    /// - `Ok(false)` if the item was not found (already removed by a prior
+    ///   call, or the ID was wrong).
+    /// - `Err(message)` if the item exists but is in an active state.
+    pub fn delete(&mut self, download_id: &str) -> Result<bool, String> {
+        let Some(idx) = self.items.iter().position(|i| i.status.id == download_id) else {
+            return Ok(false);
+        };
+
+        match self.items[idx].status.state {
+            DownloadState::Downloading | DownloadState::Processing => Err(format!(
+                "Cannot delete download {download_id} — currently active. \
+                 Cancel it first."
+            )),
+            _ => {
+                self.items.remove(idx);
+                log::info!("Deleted download {download_id} from queue");
+                Ok(true)
+            }
+        }
+    }
+
     /// Removes completed and cancelled items from the queue.
     /// Errored items are kept so the user can review and retry them.
     ///
@@ -10542,6 +10573,120 @@ mod tests {
             DownloadState::Complete,
             "set_error must not transition Complete -> Error (#661)"
         );
+    }
+
+    // ==========================================================
+    // 11b. delete() tests (#685)
+    // ==========================================================
+
+    /// Verifies that delete() removes a queued item and reports success.
+    #[test]
+    fn delete_removes_queued_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        assert_eq!(queue.get_status().len(), 1);
+
+        let result = queue.delete(&id);
+        assert_eq!(result, Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() removes a Complete item.
+    #[test]
+    fn delete_removes_complete_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.set_complete(&id);
+
+        assert_eq!(queue.delete(&id), Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() removes an Error item (the primary use case
+    /// — purging a stubbornly-failing entry without nuking the whole list).
+    #[test]
+    fn delete_removes_errored_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.set_error(&id, "permanent failure");
+
+        assert_eq!(queue.delete(&id), Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() removes a Cancelled item.
+    #[test]
+    fn delete_removes_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.cancel(&id);
+
+        assert_eq!(queue.delete(&id), Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() refuses to remove an actively Downloading
+    /// item — orphaning the subprocess would leak file handles and emit
+    /// progress events with no queue row to update.
+    #[test]
+    fn delete_refuses_active_downloading_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        // Force-set state to Downloading. (In production this happens via
+        // process_queue; the test only needs the state for the guard check.)
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.state = DownloadState::Downloading;
+        }
+
+        let result = queue.delete(&id);
+        assert!(result.is_err(), "active items must not be deletable");
+        assert_eq!(queue.get_status().len(), 1, "item must still be present");
+    }
+
+    /// Verifies that delete() refuses to remove a Processing item — the
+    /// enrichment pipeline is still writing tags / running companions
+    /// after GAMDL exits, and pulling the queue row out from under it
+    /// would invalidate the QueueItemHandle the pipeline holds.
+    #[test]
+    fn delete_refuses_active_processing_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.state = DownloadState::Processing;
+        }
+
+        let result = queue.delete(&id);
+        assert!(result.is_err(), "processing items must not be deletable");
+        assert_eq!(queue.get_status().len(), 1);
+    }
+
+    /// Verifies that delete() returns Ok(false) for an unknown ID rather
+    /// than treating it as an error — the IPC layer can distinguish "no-op"
+    /// (already removed by a parallel click) from "guard violation".
+    #[test]
+    fn delete_unknown_id_is_noop() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_one(&mut queue);
+
+        assert_eq!(queue.delete("nonexistent-id"), Ok(false));
+        assert_eq!(queue.get_status().len(), 1, "real items untouched");
+    }
+
+    /// Verifies that delete() removes only the targeted item when several
+    /// items are present.
+    #[test]
+    fn delete_targets_only_the_named_item() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+        assert_eq!(queue.get_status().len(), 3);
+
+        assert_eq!(queue.delete(&ids[1]), Ok(true));
+
+        let remaining: Vec<String> = queue.get_status().into_iter().map(|s| s.id).collect();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.contains(&ids[0]));
+        assert!(remaining.contains(&ids[2]));
+        assert!(!remaining.contains(&ids[1]));
     }
 
     // ==========================================================

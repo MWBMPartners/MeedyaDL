@@ -1140,6 +1140,7 @@ pub fn run() {
             commands::gamdl::retry_download_without_wrapper,
             commands::gamdl::clear_queue,
             commands::gamdl::clear_all_queue,
+            commands::gamdl::delete_queue_item,
             commands::gamdl::abort_all_downloads,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
@@ -1199,6 +1200,7 @@ pub fn run() {
             commands::history::list_history,
             commands::history::clear_history,
             commands::history::search_history,
+            commands::history::delete_history_entry,
             // API field audit command (diagnostic tool)
             commands::api_audit::audit_api_fields,
             // Clipboard monitoring command

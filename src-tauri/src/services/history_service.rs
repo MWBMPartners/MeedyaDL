@@ -191,6 +191,24 @@ pub fn cleanup_duplicate_entries(app: &AppHandle) {
     let _ = load_history_from_disk(app);
 }
 
+/// Removes a single history entry by its ID.
+///
+/// Returns `true` if an entry matched and was removed, `false` if no entry
+/// with the given ID was found (the file is left untouched in the latter
+/// case to avoid an unnecessary disk write).
+pub fn delete_entry(app: &AppHandle, id: &str) -> bool {
+    let mut entries = load_history_from_disk(app);
+    let original_len = entries.len();
+    entries.retain(|entry| entry.id != id);
+
+    if entries.len() != original_len {
+        save_history_to_disk(app, &entries);
+        true
+    } else {
+        false
+    }
+}
+
 /// Deletes all history entries.
 pub fn clear_history(app: &AppHandle) {
     let path = history_path(app);
