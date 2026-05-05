@@ -2156,13 +2156,10 @@ mod tests {
         // `track_total`); it should surface as `Unknown` so the
         // activity log still displays the raw line.
         let line = "[INFO     12:00:02] [Track   1/-  ] Downloading \"Flowers\"";
-        match parse_gamdl_output(line) {
-            GamdlOutputEvent::TrackInfo { .. } => {
-                panic!("Track N/- must not parse as TrackInfo with numeric total");
-            }
-            // Any other event variant is acceptable — the contract is
-            // "don't silently record a wrong track_total".
-            _ => {}
+        // Any non-TrackInfo variant is acceptable — the contract is
+        // "don't silently record a wrong track_total".
+        if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
+            panic!("Track N/- must not parse as TrackInfo with numeric total");
         }
     }
 
@@ -2339,11 +2336,8 @@ mod tests {
         // something similar ever does land in stdout it doesn't silently
         // populate a bogus track counter.
         let line = "[INFO     12:00:01] Processing album \"Midnights (3am Edition)\"";
-        match parse_gamdl_output(line) {
-            GamdlOutputEvent::TrackInfo { .. } => {
-                panic!("Album-wrapper line must not parse as TrackInfo");
-            }
-            _ => {}
+        if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
+            panic!("Album-wrapper line must not parse as TrackInfo");
         }
     }
 
@@ -2352,11 +2346,8 @@ mod tests {
         // Same guard as the album case, for playlists. The `[URL N/M]`
         // prefix is for URL-level progress, not per-track.
         let line = "[INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/.../pl.abc\"";
-        match parse_gamdl_output(line) {
-            GamdlOutputEvent::TrackInfo { .. } => {
-                panic!("URL-wrapper line must not parse as TrackInfo");
-            }
-            _ => {}
+        if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
+            panic!("URL-wrapper line must not parse as TrackInfo");
         }
     }
 
@@ -2496,11 +2487,8 @@ mod tests {
             let content = load_v32_fixture(name);
             for line in content.lines() {
                 if line.contains("[URL") && line.contains("Processing") {
-                    match parse_gamdl_output(line) {
-                        GamdlOutputEvent::TrackInfo { .. } => {
-                            panic!("URL-context line from {name} must not parse as TrackInfo: {line}");
-                        }
-                        _ => {}
+                    if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
+                        panic!("URL-context line from {name} must not parse as TrackInfo: {line}");
                     }
                 }
             }
