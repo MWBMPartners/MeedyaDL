@@ -52,7 +52,19 @@
 // - Chrono for timestamps: https://docs.rs/chrono/latest/chrono/
 
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use tauri::AppHandle;
+
+// Cached semver-extraction regex.
+//
+// `check_component_update` runs on every app startup, every periodic update
+// poll, and every manual "Check for updates" click. Compiling this trivial
+// pattern per call wastes microseconds on a hot path; caching once via
+// `LazyLock` matches the pattern used in `apple_music_api.rs` and
+// `process.rs`. Pattern is a static literal so `.expect()` only fires on
+// developer typos at boot — never at runtime.
+static SEMVER_EXTRACT_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").expect("static regex"));
 
 // gamdl_service: provides get_gamdl_version() and check_latest_gamdl_version() for GAMDL update checks.
 // python_manager: provides get_installed_python_version() and get_target_python_version() for Python update checks.
@@ -1062,10 +1074,8 @@ async fn check_github_tool_update(
     // or "autobuild-2024-12-19", which can't be compared numerically.
     // Others (e.g., nilaoda/N_m3u8DL-RE) use "v0.5.1-beta" — we strip
     // the pre-release suffix to match how extract_version_from_output() works.
-    let semver_re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok();
-    let latest_semver = semver_re
-        .as_ref()
-        .and_then(|re| re.find(&latest_tag))
+    let latest_semver = SEMVER_EXTRACT_RE
+        .find(&latest_tag)
         .map(|m| m.as_str().to_string());
 
     let latest_version = if latest_tag.is_empty() {
@@ -1312,13 +1322,13 @@ mod tests {
         assert!(UpdateChannel::from_tag("v1.0.0") >= user);
         assert!(UpdateChannel::from_tag("v1.0.0-rc.1") >= user);
         assert!(UpdateChannel::from_tag("v1.0.0-beta.1") >= user);
-        assert!(!(UpdateChannel::from_tag("v1.0.0-alpha.1") >= user));
-        assert!(!(UpdateChannel::from_tag("v1.0.0-nightly.20260101") >= user));
+        assert!(UpdateChannel::from_tag("v1.0.0-alpha.1") < user);
+        assert!(UpdateChannel::from_tag("v1.0.0-nightly.20260101") < user);
 
         let user = UpdateChannel::Stable;
         assert!(UpdateChannel::from_tag("v1.0.0") >= user);
-        assert!(!(UpdateChannel::from_tag("v1.0.0-rc.1") >= user));
-        assert!(!(UpdateChannel::from_tag("v1.0.0-beta.1") >= user));
+        assert!(UpdateChannel::from_tag("v1.0.0-rc.1") < user);
+        assert!(UpdateChannel::from_tag("v1.0.0-beta.1") < user);
     }
 
     /// requires_dev_access() should return true only for the four channels
