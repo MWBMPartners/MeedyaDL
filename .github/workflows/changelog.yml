@@ -146,31 +146,77 @@ jobs:
       # any workflows for this push, providing a second layer of infinite loop prevention.
       #
       # @see https://docs.github.com/en/actions/managing-workflow-runs/skipping-workflow-runs
-      # Push is wrapped in a pull-rebase + bounded retry loop to survive the
-      # race where another workflow (e.g. release-please, or a concurrent
-      # changelog run from a fast-follow merge) lands on main between our
-      # checkout and our push. Without the loop, the push is rejected as
-      # non-fast-forward and the job fails cosmetically even though the next
-      # successful run regenerates CHANGELOG.md from scratch anyway.
-      # See https://github.com/MWBMPartners/MeedyaDL/issues/544 for the trigger run.
+      # Push is wrapped in a regenerate-from-scratch + bounded retry loop to
+      # survive the race where another workflow (e.g. release-please, or a
+      # concurrent changelog run from a fast-follow merge) lands on main
+      # between our checkout and our push.
+      #
+      # The earlier retry strategy (#544) used `git pull --rebase` to resolve
+      # the non-fast-forward case, but did not handle a CHANGELOG.md conflict
+      # produced *during* that rebase. When two changelog runs both
+      # regenerated the file from slightly different histories, the rebase
+      # left an unmerged tree, and the next iteration of the loop tripped
+      # on `Pulling is not possible because you have unmerged files` until
+      # the budget was exhausted (#700).
+      #
+      # The fix: every retry iteration starts from a hermetically-clean
+      # state — abort any pending rebase, hard-reset to the latest
+      # origin/main, regenerate CHANGELOG.md from the new history, then
+      # commit and push. Because `git-cliff` is a deterministic function
+      # of `git log`, regenerating against the merged base produces the
+      # correct file content; there is no semantic conflict to resolve.
+      #
+      # `git-cliff` is on $PATH because orhun/git-cliff-action@v4 (the
+      # previous step) installs it and exports the directory via
+      # $GITHUB_PATH. Cargo install fallback isn't needed for this
+      # workflow's invocation pattern.
       - name: Commit changelog
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Probe once: if the action's first regeneration produced no
+          # diff against the checkout, we can short-circuit before the
+          # loop spends an iteration.
           git add CHANGELOG.md
           if git diff --staged --quiet; then
             echo "No changelog changes to commit."
             exit 0
           fi
-          git commit -m "docs: update CHANGELOG.md [skip ci]"
-          for attempt in 1 2 3; do
-            if git pull --rebase --autostash origin main && git push; then
-              echo "Changelog pushed on attempt $attempt."
+          git reset HEAD -- CHANGELOG.md > /dev/null
+
+          for attempt in 1 2 3 4; do
+            # Clean slate: abort any rebase the previous iteration left
+            # behind, then fast-forward the working tree to the current
+            # tip of origin/main. Discards our local CHANGELOG.md edits;
+            # we'll regenerate them in a moment.
+            git rebase --abort 2>/dev/null || true
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Regenerate against the new history. `git-cliff` is
+            # deterministic, so the output is the canonical CHANGELOG.md
+            # for whatever HEAD now points at — no conflict to resolve.
+            git-cliff --config cliff.toml --output CHANGELOG.md
+
+            git add CHANGELOG.md
+            if git diff --staged --quiet; then
+              echo "No changelog changes to commit (attempt ${attempt}) — \
+            another run already pushed an equivalent regeneration."
               exit 0
             fi
+
+            git commit -m "docs: update CHANGELOG.md [skip ci]"
+
+            if git push; then
+              echo "Changelog pushed on attempt ${attempt}."
+              exit 0
+            fi
+
             sleep_seconds=$((attempt * 2))
-            echo "Push attempt $attempt failed; retrying in ${sleep_seconds}s..."
-            sleep "$sleep_seconds"
+            echo "Push attempt ${attempt} failed (likely non-fast-forward — \
+          another push landed); retrying in ${sleep_seconds}s..."
+            sleep "${sleep_seconds}"
           done
-          echo "Push failed after 3 attempts." >&2
+          echo "Push failed after 4 attempts." >&2
           exit 1
