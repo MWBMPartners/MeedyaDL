@@ -4,6 +4,50 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.53.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(deps-dev)** Bump ip-address from 10.1.0 to 10.2.0
+
+Bumps [ip-address](https://github.com/beaugunderson/ip-address) from 10.1.0 to 10.2.0.
+  - [Commits](https://github.com/beaugunderson/ip-address/commits)
+
+  ---
+  updated-dependencies:
+  - dependency-name: ip-address
+    dependency-version: 10.2.0
+    dependency-type: indirect
+  ...
+
+- **(deps-dev)** Bump ip-address from 10.1.0 to 10.2.0 (#695)
+
+Bumps [ip-address](https://github.com/beaugunderson/ip-address) from
+  10.1.0 to 10.2.0.
+  <details>
+  <summary>Commits</summary>
+  <ul>
+  <li>See full diff in <a
+  href="https://github.com/beaugunderson/ip-address/commits">compare
+  view</a></li>
+  </ul>
+  </details>
+  <br />
+
+
+  [![Dependabot compatibility
+  score](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=ip-address&package-manager=npm_and_yarn&previous-version=10.1.0&new-version=10.2.0)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)
+
+  Dependabot will resolve any conflicts with this PR as long as you don't
+  alter it yourself. You can also trigger a rebase manually by commenting
+  `@dependabot rebase`.
+
+
 ## [0.53.1] - 2026-05-05
 
 ### 📚 Documentation
