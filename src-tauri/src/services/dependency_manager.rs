@@ -50,6 +50,7 @@
 // - Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use tauri::AppHandle;
 
 // `archive` provides download_and_extract() for streaming HTTP download + archive extraction,
@@ -106,6 +107,32 @@ fn load_mirror_config() -> Option<MirrorConfig> {
     toml::from_str(&toml::to_string(mirror_table).ok()?).ok()
 }
 
+// Regex caches.
+//
+// Compiling a regex involves parsing the pattern + building an NFA, costing
+// hundreds of microseconds. Tool-version probing runs at every startup and
+// on every "Check for updates" click, so per-call compilation is wasted
+// work that adds up across a session. Each pattern is compiled once via
+// `LazyLock` and reused for the rest of the process lifetime — same shape
+// as `apple_music_api::parse_apple_music_url` and `process::ERROR_PREFIX_REGEX`.
+//
+// All patterns are static literals with no user input, so `.expect()` on
+// `Regex::new` only fires on developer typos at boot — never at runtime.
+static VERSION_TUPLE_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").expect("static regex"));
+static SEMVER_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").expect("static regex"));
+static MP4BOX_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?:GPAC|version)\s+(\d+\.\d+(?:\.\d+)?)").expect("static regex")
+});
+static MP4DECRYPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").expect("static regex")
+});
+static NM3U8DL_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"v?(\d+\.\d+\.\d+)").expect("static regex"));
+static MEDIAINFO_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"v(\d+\.\d+)").expect("static regex"));
+
 /// Parses a version string into (major, minor, patch) components.
 ///
 /// Handles various formats:
@@ -114,9 +141,7 @@ fn load_mirror_config() -> Option<MirrorConfig> {
 ///   - "2.4-DEV" → (2, 4, 0)
 ///   - "N-112479-..." → None (`FFmpeg` nightly builds without numeric version)
 fn parse_version_tuple(version_str: &str) -> Option<(u32, u32, u32)> {
-    // Use regex to extract the first version-like pattern (digits.digits[.digits])
-    let re = regex::Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").ok()?;
-    let caps = re.captures(version_str)?;
+    let caps = VERSION_TUPLE_RE.captures(version_str)?;
 
     let major: u32 = caps.get(1)?.as_str().parse().ok()?;
     let minor: u32 = caps.get(2)?.as_str().parse().ok()?;
@@ -151,13 +176,11 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
                 // Nightly build — can't reliably compare, accept as compatible
                 return Some("nightly".to_string());
             }
-            let re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
-            Some(re.find(after_version)?.as_str().to_string())
+            Some(SEMVER_RE.find(after_version)?.as_str().to_string())
         }
         "mp4box" => {
             // MP4Box: "MP4Box - GPAC version 2.4-DEV..." or "GPAC version 2.4..."
-            let re = regex::Regex::new(r"(?:GPAC|version)\s+(\d+\.\d+(?:\.\d+)?)").ok()?;
-            let caps = re.captures(first_line)?;
+            let caps = MP4BOX_RE.captures(first_line)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         "mp4decrypt" => {
@@ -165,29 +188,24 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
             //   MP4 Decrypter - Version 1.4
             //   (Bento4 Version 1.6.0.0)
             // Extract the Bento4 version from the full output.
-            let re = regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").ok()?;
-            let caps = re.captures(output)?;
+            let caps = MP4DECRYPT_RE.captures(output)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         "nm3u8dlre" => {
             // N_m3u8DL-RE: "N_m3u8DL-RE version 0.5.1-beta" or just "v0.5.1-beta"
-            let re = regex::Regex::new(r"v?(\d+\.\d+\.\d+)").ok()?;
-            let caps = re.captures(first_line)?;
+            let caps = NM3U8DL_RE.captures(first_line)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         "mediainfo" => {
             // MediaInfo: "MediaInfo Command line,\nMediaInfoLib - v26.01"
             // The version is on the second line, but first_line may be the first.
             // Try to find "v{major}.{minor}" anywhere in the output.
-            let full_output = output;
-            let re = regex::Regex::new(r"v(\d+\.\d+)").ok()?;
-            let caps = re.captures(full_output)?;
+            let caps = MEDIAINFO_RE.captures(output)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         _ => {
             // Generic: try to find any version-like pattern
-            let re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
-            Some(re.find(first_line)?.as_str().to_string())
+            Some(SEMVER_RE.find(first_line)?.as_str().to_string())
         }
     }
 }
