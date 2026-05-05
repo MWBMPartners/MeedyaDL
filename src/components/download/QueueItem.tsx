@@ -69,6 +69,7 @@ import {
   FolderOpen,
   FileOutput,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 
 /**
@@ -131,6 +132,16 @@ interface QueueItemProps {
    * notification confirming the copy.
    */
   onCopyUrl: (url: string) => void;
+
+  /**
+   * Callback invoked when the user picks "Delete" from the right-click
+   * menu (#685). The parent is responsible for showing a confirmation
+   * modal before invoking the IPC. Receives the unique download ID.
+   *
+   * The Delete entry is hidden for active rows (`downloading` /
+   * `processing`) — the user must Cancel first.
+   */
+  onDelete: (id: string) => void;
 }
 
 /**
@@ -211,6 +222,7 @@ export function QueueItem({
   onRetry,
   onRetryWithoutWrapper,
   onCopyUrl,
+  onDelete,
 }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
@@ -357,6 +369,18 @@ export function QueueItem({
                 },
               ]
             : []),
+        ]
+      : []),
+    // "Delete" — non-active rows only (#685). Active items must be
+    // cancelled first; the Rust guard rejects deletion of active rows
+    // for defense-in-depth, but hiding the entry keeps the UI honest.
+    ...(item.state !== 'downloading' && item.state !== 'processing'
+      ? [
+          {
+            label: 'Delete',
+            icon: <Trash2 size={14} />,
+            onClick: () => onDelete(item.id),
+          },
         ]
       : []),
   ];

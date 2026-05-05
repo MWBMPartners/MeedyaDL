@@ -74,6 +74,9 @@ import { PageHeader } from '@/components/layout';
  */
 import { QueueItem } from './QueueItem';
 
+/** Per-item snapshot type used by the Delete confirmation modal (#685). */
+import type { QueueItemStatus } from '@/types';
+
 /**
  * Renders the download queue page showing all download items with their
  * current status, real-time progress, and available actions.
@@ -139,6 +142,9 @@ export function DownloadQueue() {
   /** Clear ALL non-active items from the queue. */
   const clearAll = useDownloadStore((s) => s.clearAll);
 
+  /** Delete a single non-active item from the queue (#685). */
+  const deleteItem = useDownloadStore((s) => s.deleteItem);
+
   /**
    * Exports the current queue to a `.meedyadl` file via a native save dialog.
    * Only non-terminal items (queued/active) are included in the export.
@@ -162,6 +168,14 @@ export function DownloadQueue() {
 
   /** Confirmation modal state for "Clear All". */
   const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+
+  /**
+   * Confirmation modal target for per-item Delete (#685). Holds the
+   * full queue item snapshot so the modal can render a meaningful label
+   * (URL, current track) without re-querying the store. `null` means the
+   * modal is closed.
+   */
+  const [deleteTarget, setDeleteTarget] = useState<QueueItemStatus | null>(null);
 
   /**
    * Confirmation modal state for "Retry All Failed" (#665). Bulk retry
@@ -359,6 +373,37 @@ export function DownloadQueue() {
       addToast(`Cleared all ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
     } catch {
       addToast('Failed to clear queue', 'error');
+    }
+  };
+
+  /**
+   * Per-item Delete (#685). Opens the confirmation modal with the
+   * targeted item — actual deletion happens in
+   * `handleDeleteItemConfirmed` only after the user confirms.
+   */
+  const handleDeleteItem = (id: string) => {
+    const target = queueItems.find((i) => i.id === id);
+    if (!target) return;
+    setDeleteTarget(target);
+  };
+
+  /**
+   * Confirms the Delete action for the currently-targeted item. Errors
+   * surface as a toast (e.g. backend race where the item became active
+   * after the menu opened — Rust guard would reject).
+   */
+  const handleDeleteItemConfirmed = async () => {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
+    try {
+      await deleteItem(target.id);
+      addToast('Item removed from queue', 'info');
+    } catch (e) {
+      addToast(
+        e instanceof Error ? e.message : 'Failed to delete item',
+        'error',
+      );
     }
   };
 
@@ -685,6 +730,7 @@ export function DownloadQueue() {
                 onRetry={handleRetry}
                 onRetryWithoutWrapper={handleRetryWithoutWrapper}
                 onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
+                onDelete={handleDeleteItem}
               />
             ))}
           </div>
@@ -742,6 +788,31 @@ export function DownloadQueue() {
             onClick={handleClearAllConfirmed}
           >
             Clear All
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Confirmation modal for per-item Delete (#685) */}
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Remove queue item"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          Remove this item from the download queue? Already-downloaded
+          files on disk are not deleted — only the queue entry.
+        </p>
+        {deleteTarget && (
+          <p className="text-xs text-content-tertiary mb-6 break-all">
+            {deleteTarget.current_track || deleteTarget.urls?.[0] || deleteTarget.id}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleDeleteItemConfirmed}>
+            Remove
           </Button>
         </div>
       </Modal>

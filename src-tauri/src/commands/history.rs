@@ -42,3 +42,17 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
 pub fn search_history(app: AppHandle, query: String) -> Vec<HistoryEntry> {
     history_service::search_history(&app, &query)
 }
+
+/// Removes a single history entry by ID (#685).
+///
+/// Sibling of `clear_history` (bulk). Returns `Err` only when the ID
+/// doesn't match any row, so the frontend can surface "already gone"
+/// distinctly from a no-op.
+#[tauri::command]
+pub fn delete_history_entry(app: AppHandle, id: String) -> Result<(), String> {
+    if history_service::delete_entry(&app, &id) {
+        Ok(())
+    } else {
+        Err(format!("History entry {id} not found"))
+    }
+}
