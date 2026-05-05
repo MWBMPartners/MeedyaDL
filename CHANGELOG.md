@@ -23,6 +23,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 0.52.4 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.52.4] - 2026-05-04
 
