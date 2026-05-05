@@ -6,6 +6,51 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.53.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### ⚡ Performance
+
+- Cache regexes on hot paths and clean clippy test warnings
+
+Identified during the post-#685 audit (#688). Two perf bugs fixed +
+  clippy clean across the test tree.
+
+  Perf — Rust regex caching (hot paths):
+
+  - dependency_manager.rs: 6 distinct regex::Regex::new() calls inside
+    parse_version_tuple() and extract_version_from_output() compiled
+    fresh on every invocation. Both run on every app startup and every
+    "Check for updates" click. Hoisted to LazyLock statics
+    (VERSION_TUPLE_RE, SEMVER_RE, MP4BOX_RE, MP4DECRYPT_RE, NM3U8DL_RE,
+    MEDIAINFO_RE) — same pattern as apple_music_api.rs and process.rs.
+  - update_checker.rs: check_component_update() compiled the same
+    semver-extraction regex on every poll. Hoisted to a SEMVER_EXTRACT_RE
+    LazyLock.
+
+  Clippy — test-tree warnings (8 total, all in test code):
+
+  - update_checker.rs::test_channel_filter_promotion: 4 nested-not asserts
+    (assert!(!(x >= y))) rewritten as assert!(x < y) — what they actually
+    mean.
+  - process.rs: 4 single-arm `match parse_gamdl_output(...) { TrackInfo
+    { .. } => panic!(...), _ => {} }` rewritten as `if let TrackInfo { .. }
+    = parse_gamdl_output(...) { panic!(...) }`.
+
+- Cache version-detection regexes on hot paths (#688) (#692)
+
+## Summary
+
+  Post-#685 code-quality + performance sweep. Two perf fixes on hot Rust
+  paths plus a clippy cleanup so the test tree builds clean under \`-D
+  warnings\`. Three larger findings deferred to dedicated follow-up issues
+  with full root-cause analysis.
+
+
+## [0.53.0] - 2026-05-05
+
 ### ✨ Features
 
 - **(queue,history)** Add per-item delete to Queue and History
