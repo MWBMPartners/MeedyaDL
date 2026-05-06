@@ -6,6 +6,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.53.2 [skip ci]
+
+### 🔄 CI/CD
+
+- Serialise changelog/release-please workflows + install git-cliff binary
+- Serialise changelog/release-please workflows + install git-cliff binary (#703) (#704)
+
+## Summary
+
+
+## [0.53.2] - 2026-05-06
+
 ### 🐛 Bug Fixes
 
 - **(queue)** Stop classifying per-track codec skips as download failures
@@ -16,6 +30,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 0.53.1 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(changelog)** Regenerate from clean state on each retry attempt
+- **(changelog)** Regenerate from clean state on each retry attempt (#700) (#701)
 
 ### 🧹 Maintenance
 
