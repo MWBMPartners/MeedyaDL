@@ -879,6 +879,54 @@ fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
     std::time::Duration::from_secs(clamped)
 }
 
+/// Companion-phase timeout: enrichment budget plus an allowance for each
+/// planned companion tier.
+///
+/// The original [`compute_completion_timeout`] sized the deadline for
+/// **enrichment alone** (per-track ReplayGain / AcoustID / subtitles).
+/// When the same value was reused for the companion wait at a single call
+/// site in the completion task, multi-tier configurations (Atmos → ALAC →
+/// AAC → AAC-Legacy = 4 full GAMDL re-downloads) routinely blew past it,
+/// because each tier is *another* end-to-end download + decrypt + remux
+/// pass. Real-world data from the queue manager: ~5–8 min per tier on a
+/// typical album, so the hard timeout (`× 2`) of 22 min was firing while
+/// tier 2 of 4 was still legitimately running.
+///
+/// **Scaling formula**: enrichment budget + 8 min × tier count, same
+/// 4-hour cap. The per-tier component is additive (not multiplicative)
+/// because enrichment runs once for the whole item regardless of how
+/// many companion variants are produced.
+///
+/// | Tracks × tiers | Soft timeout | Hard (× 2) |
+/// |---|---|---|
+/// | 12 × 0 (no companions) | 12 min | 24 min |
+/// | 12 × 1 (Atmos→Lossless) | 20 min | 40 min |
+/// | 12 × 4 (Atmos→all formats) | 44 min | 88 min |
+/// | 200 × 4 (box-set, 4 tiers) | ~75 min | ~2.5 h |
+/// | unbounded | capped at 4 h | capped at 4 h |
+///
+/// The companion supervisor's per-process idle watchdog
+/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
+/// that genuinely stalls, so this completion-level deadline only needs
+/// to cover the *legitimate* multi-tier wall-clock cost.
+fn compute_companion_timeout(
+    track_count: usize,
+    companion_tier_count: usize,
+) -> std::time::Duration {
+    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
+    /// mp4decrypt + remux on a typical album over a normal connection.
+    /// Generous on purpose: this is a "give up, something is wrong"
+    /// threshold, not a target.
+    const PER_TIER_SECS: u64 = 8 * 60;
+    /// Same absolute cap as the enrichment-only path.
+    const MAX_SECS: u64 = 4 * 3600;
+
+    let enrichment = compute_completion_timeout(track_count).as_secs();
+    let tier_extra = PER_TIER_SECS.saturating_mul(companion_tier_count as u64);
+    let total = enrichment.saturating_add(tier_extra).min(MAX_SECS);
+    std::time::Duration::from_secs(total)
+}
+
 // ============================================================
 // Enrichment stage progress weights (#576)
 // ============================================================
@@ -4329,6 +4377,18 @@ impl CompanionTaskHandle {
             .map(|progress| progress.describe_pending())
             .unwrap_or_else(|_| "pending companion state unavailable".to_string())
     }
+
+    /// Number of companion tiers planned for this item. Used by the
+    /// completion task to size its companion-phase timeout proportionally
+    /// to the actual workload — a 4-tier "Atmos → all formats" item
+    /// legitimately needs much more wall-clock time than a 1-tier
+    /// "Atmos → Lossless" item.
+    fn tier_count(&self) -> usize {
+        self.progress
+            .lock()
+            .map(|progress| progress.planned_tiers.len())
+            .unwrap_or(0)
+    }
 }
 
 #[derive(Default)]
@@ -7636,12 +7696,17 @@ pub fn process_queue(
                             // other per-track enrichment stages, and the fixed
                             // 10 min from #461 was force-completing mid-
                             // ReplayGain with tracks missing their tags.
-                            let output_path_for_timeout = {
+                            let (output_path_for_timeout, content_label) = {
                                 let q = completion_queue.lock().await;
-                                q.items
+                                let item = q
+                                    .items
                                     .iter()
-                                    .find(|i| i.status.id == completion_dl_id)
-                                    .and_then(|i| i.status.output_path.clone())
+                                    .find(|i| i.status.id == completion_dl_id);
+                                let path = item.and_then(|i| i.status.output_path.clone());
+                                let label = item
+                                    .map(|i| format_content_label(&i.status))
+                                    .unwrap_or_else(|| "unknown content".to_string());
+                                (path, label)
                             };
                             let track_count = output_path_for_timeout
                                 .as_deref()
@@ -7681,17 +7746,33 @@ pub fn process_queue(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Enrichment timed out after {timeout_mins} minutes ({track_count} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags"
+                                            "⚠ Enrichment timed out after {timeout_mins} minutes for {content_label} ({track_count} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags"
                                         ),
                                     );
                                     handle.abort();
                                     let _ = handle.await;
                                 }
                             }
-                            // Wait for companion downloads with the same scaled timeout
+                            // Wait for companion downloads with a timeout that
+                            // scales with the planned tier count (each tier is
+                            // a full GAMDL re-download). Reusing the
+                            // enrichment-only deadline here was triggering
+                            // hard-timeouts on multi-tier "Atmos → all formats"
+                            // configurations that were still legitimately
+                            // running.
                             if let Some(mut handle) = companion_handle {
+                                let tier_count = handle.tier_count();
+                                let companion_timeout =
+                                    compute_companion_timeout(track_count, tier_count);
+                                let companion_timeout_mins = companion_timeout.as_secs() / 60;
+                                log::info!(
+                                    "Companion timeout for {}: {} min ({} tier(s) planned)",
+                                    completion_dl_id,
+                                    companion_timeout_mins,
+                                    tier_count,
+                                );
                                 if tokio::time::timeout(
-                                    enrichment_timeout,
+                                    companion_timeout,
                                     &mut handle.handle,
                                 )
                                 .await
@@ -7700,7 +7781,7 @@ pub fn process_queue(
                                     let pending = handle.describe_pending();
                                     log::warn!(
                                         "Companion downloads still running after {} minutes for {} ({})",
-                                        timeout_mins,
+                                        companion_timeout_mins,
                                         completion_dl_id,
                                         pending,
                                     );
@@ -7708,17 +7789,18 @@ pub fn process_queue(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Companion downloads still running after {timeout_mins} minutes — waiting instead of skipping ({pending}); final tag pass will run afterwards"
+                                            "⚠ Companion downloads still running after {companion_timeout_mins} minutes for {content_label} — waiting instead of skipping ({pending}); final tag pass will run afterwards"
                                         ),
                                     );
                                     if tokio::time::timeout(
-                                        enrichment_timeout,
+                                        companion_timeout,
                                         &mut handle.handle,
                                     )
                                     .await
                                     .is_err()
                                     {
-                                        let hard_timeout_mins = timeout_mins.saturating_mul(2);
+                                        let hard_timeout_mins =
+                                            companion_timeout_mins.saturating_mul(2);
                                         let skipped = handle.describe_pending();
                                         log::warn!(
                                             "Companion downloads hard-timed-out after {} minutes for {} — skipping {}",
@@ -7730,7 +7812,7 @@ pub fn process_queue(
                                             &completion_app,
                                             &completion_dl_id,
                                             &format!(
-                                                "⚠ Companion downloads hard-timed-out after {hard_timeout_mins} minutes — skipping remaining companions: {skipped}; final tag pass still to run"
+                                                "⚠ Companion downloads hard-timed-out after {hard_timeout_mins} minutes for {content_label} — skipping remaining companions: {skipped}; final tag pass still to run"
                                             ),
                                         );
                                         handle.abort();
@@ -9480,6 +9562,53 @@ mod tests {
         for n in (1..1000).step_by(37) {
             let t = compute_completion_timeout(n);
             assert!(t >= prev, "non-monotonic at n={n}: {t:?} vs prev {prev:?}");
+            prev = t;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // Companion-phase timeout scaling
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_companion_timeout_zero_tiers_matches_enrichment() {
+        // No companions planned → identical to the enrichment-only path,
+        // so non-companion downloads see no behavioural change.
+        let t = compute_companion_timeout(12, 0);
+        assert_eq!(t, compute_completion_timeout(12));
+    }
+
+    #[test]
+    fn compute_companion_timeout_single_tier_adds_eight_minutes() {
+        // 12-track Atmos→Lossless: enrichment 12 min + 1 tier × 8 min = 20 min.
+        let t = compute_companion_timeout(12, 1);
+        assert_eq!(t.as_secs(), 600 + 120 + 8 * 60);
+    }
+
+    #[test]
+    fn compute_companion_timeout_four_tier_typical_album() {
+        // 12-track Atmos→all formats (Atmos, ALAC, AAC, AAC-Legacy):
+        // enrichment 12 min + 4 × 8 min = 44 min. Hard timeout would be
+        // 88 min — well clear of the 22 min that was firing in production.
+        let t = compute_companion_timeout(12, 4);
+        assert_eq!(t.as_secs(), 600 + 120 + 4 * 8 * 60);
+        assert!(t.as_secs() / 60 >= 40);
+    }
+
+    #[test]
+    fn compute_companion_timeout_caps_at_four_hours() {
+        // Multi-tier × box-set arithmetic shouldn't overrun the absolute cap.
+        let t = compute_companion_timeout(usize::MAX, usize::MAX);
+        assert_eq!(t.as_secs(), 4 * 3600);
+    }
+
+    #[test]
+    fn compute_companion_timeout_monotonic_in_tiers() {
+        // More tiers should never propose a smaller deadline than fewer.
+        let mut prev = compute_companion_timeout(50, 0);
+        for tiers in 1..=8 {
+            let t = compute_companion_timeout(50, tiers);
+            assert!(t >= prev, "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}");
             prev = t;
         }
     }
