@@ -1339,6 +1339,69 @@ pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
 
+/// RAII guard that ensures one queue slot is released when the
+/// completion task finishes (#706).
+///
+/// **Why this exists.** The success path of the per-item download task
+/// used to call `q.on_task_finished()` immediately after primary GAMDL
+/// exited (line 6183 pre-#706), then spawn a separate completion task
+/// that awaited enrichment + companions. That early decrement freed
+/// the slot while the previous item was still in post-processing, so
+/// any subsequent `process_queue` invocation (user IPC, fallback
+/// retry, startup recovery) could start the next item in parallel —
+/// violating the strictly-serial contract of #455 and re-introducing
+/// the metadata cross-contamination risk that #452 / #455 were
+/// designed to prevent.
+///
+/// **The fix.** The success-path call is moved into the completion
+/// task so the slot is held throughout post-processing. To make sure
+/// a panic, abort, or runtime shutdown inside the completion task
+/// cannot leak the slot (and stall the entire queue forever), the
+/// task takes ownership of one of these guards on entry. In the
+/// happy path the task calls [`ActiveSlotGuard::disarm`] alongside
+/// the explicit `q.on_task_finished()` so the `Drop` impl is a no-op;
+/// otherwise `Drop` fires a fire-and-forget `tokio::spawn` to release
+/// the slot asynchronously.
+///
+/// Construct exactly one of these per spawn of the completion task —
+/// double-construction would over-release.
+struct ActiveSlotGuard {
+    /// `Some` while armed, `None` once `disarm` has run. `Drop`
+    /// inspects this to decide whether to fire its release task.
+    queue: Option<QueueHandle>,
+}
+
+impl ActiveSlotGuard {
+    fn new(queue: QueueHandle) -> Self {
+        Self { queue: Some(queue) }
+    }
+
+    /// Disarms the guard. Call this from the completion task's happy
+    /// path immediately after the explicit `q.on_task_finished()`,
+    /// inside the same scope as the queue lock that performed the
+    /// release, so `Drop` becomes a no-op.
+    fn disarm(mut self) {
+        self.queue = None;
+    }
+}
+
+impl Drop for ActiveSlotGuard {
+    fn drop(&mut self) {
+        let Some(queue) = self.queue.take() else {
+            return; // disarmed by happy-path
+        };
+        // `Drop` is synchronous; we cannot `.await` here. A
+        // fire-and-forget release task acquires the lock and
+        // decrements `active_count`. If the runtime is shutting
+        // down the spawn may never run, but at that point the
+        // queue accounting no longer matters.
+        tokio::spawn(async move {
+            let mut q = queue.lock().await;
+            q.on_task_finished();
+        });
+    }
+}
+
 impl Default for DownloadQueue {
     fn default() -> Self {
         Self::new()
@@ -6180,7 +6243,18 @@ pub fn process_queue(
                         if !all_warnings.is_empty() {
                             q.add_warnings(&dl_id, &all_warnings);
                         }
-                        q.on_task_finished();
+                        // NOTE (#706): `on_task_finished()` deliberately
+                        // does NOT fire here, even though the primary
+                        // GAMDL subprocess has exited. The slot stays
+                        // held by an `ActiveSlotGuard` taken at the top
+                        // of the completion task spawned below, so the
+                        // queue contract from #455 ("ENTIRE pipeline
+                        // completes before the next item starts") is
+                        // actually enforced. Releasing here would let
+                        // any concurrent `process_queue` invocation
+                        // (user IPC, fallback retry, startup recovery)
+                        // grab the next item while this item's
+                        // companions + enrichment are still running.
 
                         // Extract output_path, codec_used, and history metadata while we have the lock
                         let status = q.get_status();
@@ -7678,6 +7752,14 @@ pub fn process_queue(
                         let completion_app = app_clone.clone();
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
+                        // Take ownership of the queue slot for the lifetime of
+                        // the completion task (#706). The success path's early
+                        // `q.on_task_finished()` was removed, so the slot
+                        // remains held until either the explicit release at the
+                        // bottom of this task (happy path) or the guard's Drop
+                        // (panic / abort / runtime shutdown). This makes the
+                        // queue *actually* serial as documented in #455.
+                        let active_guard = ActiveSlotGuard::new(completion_queue.clone());
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
@@ -7867,12 +7949,21 @@ pub fn process_queue(
                                 }
                             }
 
-                            // Mark as complete now that all background work is done
+                            // Mark as complete and release the queue slot in
+                            // the same lock acquisition (#706). Releasing the
+                            // slot here — *not* at the early line 6246 — is
+                            // what makes the queue actually serial; the next
+                            // item cannot start until set_complete + the
+                            // accompanying decrement land atomically. The
+                            // ActiveSlotGuard is then disarmed so its Drop is
+                            // a no-op and we don't double-release.
                             {
                                 let mut q = completion_queue.lock().await;
                                 q.set_complete(&completion_dl_id);
+                                q.on_task_finished();
                                 drop(q);
                             }
+                            active_guard.disarm();
                             save_queue_to_disk(&completion_app, &completion_queue).await;
                             emit_download_log(
                                 &completion_app,
@@ -7889,9 +7980,8 @@ pub fn process_queue(
                             );
 
                             // Cascade: process the next item in the queue (#455).
-                            // Moved inside completion task so the entire pipeline
-                            // (download + enrichment + companions) completes before
-                            // the next item starts. Prevents metadata cross-contamination.
+                            // The slot was already released a few lines above,
+                            // so `next_pending()` will accept the next item.
                             process_queue(completion_app, completion_queue).await;
                         });
                     }
@@ -10027,6 +10117,72 @@ mod tests {
 
         let statuses = queue.get_status();
         assert_eq!(statuses[0].state, DownloadState::Cancelled);
+    }
+
+    // ----------------------------------------------------------
+    // ActiveSlotGuard — RAII slot-release on Drop (#706)
+    // ----------------------------------------------------------
+
+    /// Disarming the guard before Drop must NOT release the slot.
+    /// This is the happy path: the completion task explicitly calls
+    /// `q.on_task_finished()` and then `disarm()`, so the slot release
+    /// is performed exactly once (by the explicit call).
+    #[tokio::test]
+    async fn active_slot_guard_disarm_does_not_release() {
+        let handle = new_queue_handle();
+        {
+            let mut q = handle.lock().await;
+            q.active_count = 1; // pretend next_pending() handed out a slot
+        }
+        let guard = ActiveSlotGuard::new(handle.clone());
+        guard.disarm();
+        // Drop has now run on the disarmed guard. Slot must still be held.
+        let q = handle.lock().await;
+        assert_eq!(
+            q.active_count, 1,
+            "disarmed guard must not release the slot"
+        );
+    }
+
+    /// Dropping an armed guard must release the slot — even though Drop
+    /// is synchronous and the queue lock is async. The guard fires a
+    /// fire-and-forget `tokio::spawn`; we then yield long enough for
+    /// the spawned release task to acquire the lock and run.
+    #[tokio::test]
+    async fn active_slot_guard_drop_releases_slot() {
+        let handle = new_queue_handle();
+        {
+            let mut q = handle.lock().await;
+            q.active_count = 1;
+        }
+        {
+            let _guard = ActiveSlotGuard::new(handle.clone());
+            // _guard goes out of scope here → Drop fires.
+        }
+        // Yield the runtime so the fire-and-forget release task can run.
+        // Two yields cover: (1) Drop's tokio::spawn registering the task,
+        // (2) the task acquiring the lock and running on_task_finished().
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        let q = handle.lock().await;
+        assert_eq!(
+            q.active_count, 0,
+            "Drop on armed guard must release the slot"
+        );
+    }
+
+    /// Confirms `on_task_finished()` saturates at 0 — so even if a
+    /// double-release ever slips through (explicit call + an armed
+    /// guard's Drop), `active_count` cannot underflow into a giant
+    /// usize that would permanently jam `next_pending()`.
+    #[test]
+    fn on_task_finished_saturates_at_zero() {
+        let mut q = DownloadQueue::new();
+        assert_eq!(q.active_count, 0);
+        q.on_task_finished();
+        q.on_task_finished();
+        assert_eq!(q.active_count, 0, "must not underflow past zero");
     }
 
     /// Verifies that cancel() returns false for items already in a terminal
