@@ -454,6 +454,32 @@ fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+/// Format a human-readable label identifying the content of a queue item,
+/// for use in user-visible activity-log messages where "this content" would
+/// otherwise be ambiguous. Prefers the cached Apple Music API names
+/// (`artist_name` — `album_name` — `current_track`) populated at enqueue
+/// time, and falls back to the first URL when names are unavailable.
+fn format_content_label(status: &QueueItemStatus) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(3);
+    if let Some(artist) = status.artist_name.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(artist);
+    }
+    if let Some(album) = status.album_name.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(album);
+    }
+    if let Some(track) = status.current_track.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(track);
+    }
+    if !parts.is_empty() {
+        return parts.join(" — ");
+    }
+    status
+        .urls
+        .first()
+        .map(|u| redact_url_query(u).to_string())
+        .unwrap_or_else(|| "unknown content".to_string())
+}
+
 pub(crate) fn normalize_url_for_dedup(url: &str) -> String {
     // Split scheme + authority from path+query.
     // URL structure: scheme://authority/path?query#fragment
@@ -5722,11 +5748,19 @@ pub fn process_queue(
                                              (existing={existing_audio}, skipped={skip_count}, \
                                              wrapper={wrapper_active}): {error_msg}"
                                         );
+                                        let content_label = q
+                                            .items
+                                            .iter()
+                                            .find(|i| i.status.id == dl_id)
+                                            .map(|i| format_content_label(&i.status))
+                                            .unwrap_or_else(|| "unknown content".to_string());
                                         emit_download_log(
                                             &app_clone,
                                             &dl_id,
-                                            "GAMDL tried all formats in priority chain \
-                                             — none available for this content",
+                                            &format!(
+                                                "GAMDL tried all formats in priority chain \
+                                                 for {content_label} — none available"
+                                            ),
                                         );
                                     }
                                     // Fall through to partial-success recovery below
@@ -5763,10 +5797,19 @@ pub fn process_queue(
                                         return;
                                     }
                                     // Fallback chain exhausted — fall through to error below
+                                    let content_label = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .map(|i| format_content_label(&i.status))
+                                        .unwrap_or_else(|| "unknown content".to_string());
                                     emit_download_log(
                                         &app_clone,
                                         &dl_id,
-                                        "All audio formats exhausted — no compatible format found",
+                                        &format!(
+                                            "All audio formats exhausted for {content_label} \
+                                             — no compatible format found"
+                                        ),
                                     );
                                 }
                             }
@@ -7878,11 +7921,20 @@ pub fn process_queue(
                             );
                                 true
                             } else {
+                                let content_label = q
+                                    .items
+                                    .iter()
+                                    .find(|i| i.status.id == dl_id)
+                                    .map(|i| format_content_label(&i.status))
+                                    .unwrap_or_else(|| "unknown content".to_string());
                                 drop(q);
                                 emit_download_log(
                                     &app_clone,
                                     &dl_id,
-                                    "All audio formats exhausted — download failed",
+                                    &format!(
+                                        "All audio formats exhausted for {content_label} \
+                                         — download failed"
+                                    ),
                                 );
                                 false
                             }
