@@ -104,7 +104,17 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-          git commit -m "chore(rc): ${{ steps.version.outputs.version }}"
+          # `[skip ci]` is critical: this push lands on the same `release-candidate`
+          # branch that triggers this workflow, and our `RELEASE_PAT` causes
+          # GitHub to attribute the bot's push to the PAT owner (a human
+          # account), which defeats the `if: github.actor != 'github-actions[bot]'`
+          # guard at the job level. Without `[skip ci]` the workflow loops:
+          # a single human push produces N consecutive RC tags before someone
+          # notices (rc.1 → rc.2 → … → rc.21 occurred on 2026-05-08).
+          # The marker is parsed at GitHub's trigger layer so the workflow
+          # is never even queued for the bot's own push. Belt-and-braces with
+          # the existing actor check.
+          git commit -m "chore(rc): ${{ steps.version.outputs.version }} [skip ci]"
 
       - name: Push release-candidate branch and tag
         if: ${{ !inputs.dry_run }}
