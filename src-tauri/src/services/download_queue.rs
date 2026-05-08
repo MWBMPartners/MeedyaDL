@@ -107,10 +107,12 @@ use crate::models::crash_report::CrashReport;
 // classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
 // Activity log helpers: emit_download_log for per-download messages,
-// emit_app_log for system-level messages, ActivityLogEvent for raw stdout/stderr.
-use crate::utils::activity_log::{
-    emit_app_log, emit_download_log, emit_verbose_download_log, ActivityLogEvent,
-};
+// emit_app_log for system-level messages. `ActivityLogEvent` is no
+// longer imported here — Phase 3.5e moved every direct
+// `app.emit("activity-log", &event)` site through the new
+// `emit_subprocess_line` helper, so download_queue.rs no longer needs
+// to construct events directly.
+use crate::utils::activity_log::{emit_app_log, emit_download_log, emit_verbose_download_log};
 
 // ============================================================
 // Graceful shutdown signal
@@ -3655,18 +3657,19 @@ async fn emit_companion_stream_line(
         let _ = app.emit("gamdl-output", &progress);
 
         // Emit to activity-log: last segment only (normal) or all (verbose).
-        // Always mirror the event to the on-disk activity log (#541)
-        // regardless of verbose gating — the file is the forensic record.
-        if verbose || Some(idx) == last_segment_idx {
-            let event = crate::utils::activity_log::ActivityLogEvent {
-                download_id: dl_id.to_string(),
-                stream,
-                line: clean_line,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-            };
-            let _ = app.emit("activity-log", &event);
-            crate::utils::activity_log::write_to_disk(&event);
-        }
+        // Disk mirror happens unconditionally inside the helper (#541) —
+        // the file is the forensic record. Phase 3.5e: routes through
+        // `emit_subprocess_line` instead of constructing the event +
+        // calling `app.emit` directly so future emission rules only
+        // need to touch one place.
+        let show_in_ui = verbose || Some(idx) == last_segment_idx;
+        crate::utils::activity_log::emit_subprocess_line(
+            app,
+            dl_id,
+            stream,
+            clean_line,
+            show_in_ui,
+        );
     }
 
     last_clean
@@ -8779,23 +8782,19 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let log_event = ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "stdout",
-                                line: display_line.clone(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            };
                             // Suppress Python traceback noise from the user-
                             // facing activity-log feed when verbose is off
-                            // (#660). The disk writer below still records
-                            // the line so support requests stay debuggable.
+                            // (#660). The helper unconditionally writes to
+                            // disk so support requests stay debuggable.
                             let is_traceback_noise =
                                 process::is_python_traceback_noise(&clean_line);
-                            if verbose || !is_traceback_noise {
-                                let _ = app.emit("activity-log", &log_event);
-                            }
-                            // Mirror to on-disk log (#541) for post-hoc diagnosis.
-                            crate::utils::activity_log::write_to_disk(&log_event);
+                            crate::utils::activity_log::emit_subprocess_line(
+                                &app,
+                                &download_id,
+                                "stdout",
+                                display_line.clone(),
+                                verbose || !is_traceback_noise,
+                            );
                         }
                     }
 
@@ -8856,17 +8855,20 @@ async fn run_download_with_events(
                                 format!("{} — ", parts.join(" — "))
                             }
                         };
-                        let track_event = ActivityLogEvent {
-                            download_id: download_id.clone(),
-                            stream: "internal",
-                            line: format!(
+                        // Phase 3.5e: track-separator banner now goes through
+                        // `emit_subprocess_line` with `stream: "internal"` so
+                        // it's consistent with every other internal event.
+                        // Disk mirror happens unconditionally inside the
+                        // helper.
+                        crate::utils::activity_log::emit_subprocess_line(
+                            &app,
+                            &download_id,
+                            "internal",
+                            format!(
                                 "──── {track_label} Downloading {context}\"{title}\" ────"
                             ),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        };
-                        let _ = app.emit("activity-log", &track_event);
-                        // Mirror to on-disk log (#541).
-                        crate::utils::activity_log::write_to_disk(&track_event);
+                            true,
+                        );
                     }
 
                     // Update the queue item's progress
@@ -8971,22 +8973,19 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let log_event = ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "stderr",
-                                line: display_line.clone(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            };
                             // Suppress Python traceback noise from the
                             // user-facing activity-log feed in non-verbose
-                            // mode (#660). Disk mirror is unaffected.
+                            // mode (#660). The helper unconditionally writes
+                            // to disk so support requests stay debuggable.
                             let is_traceback_noise =
                                 process::is_python_traceback_noise(&clean_line);
-                            if verbose || !is_traceback_noise {
-                                let _ = app.emit("activity-log", &log_event);
-                            }
-                            // Mirror to on-disk log (#541).
-                            crate::utils::activity_log::write_to_disk(&log_event);
+                            crate::utils::activity_log::emit_subprocess_line(
+                                &app,
+                                &download_id,
+                                "stderr",
+                                display_line.clone(),
+                                verbose || !is_traceback_noise,
+                            );
                         }
                     }
 

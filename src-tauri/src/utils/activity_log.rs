@@ -265,3 +265,45 @@ pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, mess
 pub fn emit_verbose_app_log(app: &tauri::AppHandle, message: &str) {
     emit_inner(app, None, message, true);
 }
+
+/// Emits a raw subprocess-stream activity log event (Phase 3.5e).
+///
+/// Used by the stdout/stderr readers in `services/download_queue.rs`
+/// and `services/companion_supervisor.rs` to forward GAMDL's own
+/// output to the activity log with the correct stream tag (`"stdout"`
+/// or `"stderr"`) — distinct from the `"internal"` stream used by
+/// MeedyaDL-generated messages.
+///
+/// Pre-Phase 3.5e, three sites in `download_queue.rs` (the line
+/// emitter and the two stdout/stderr readers with Python-traceback
+/// suppression from #660) constructed `ActivityLogEvent` and called
+/// `app.emit("activity-log", …)` + `write_to_disk` directly,
+/// duplicating the same 6-line block three times. Centralising via
+/// this helper means future emission rules (rate-limiting, redaction
+/// of sensitive subprocess output, sampling) only need to touch one
+/// place.
+///
+/// `show_in_ui` lets callers suppress noisy lines (Python traceback
+/// frames in non-verbose mode, repetitive progress lines coalesced
+/// by `\r` handling) from the in-memory UI feed while still recording
+/// them on disk for forensic diagnosis.
+pub fn emit_subprocess_line(
+    app: &tauri::AppHandle,
+    download_id: &str,
+    stream: &'static str,
+    line: String,
+    show_in_ui: bool,
+) {
+    let event = ActivityLogEvent {
+        download_id: download_id.to_string(),
+        stream,
+        line,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    if show_in_ui {
+        let _ = app.emit("activity-log", &event);
+    }
+    // Disk fan-out is unconditional — the on-disk activity log file
+    // is the forensic record, kept regardless of UI filtering.
+    write_to_disk(&event);
+}
