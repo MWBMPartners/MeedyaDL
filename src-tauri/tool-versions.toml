@@ -185,7 +185,19 @@ minimum_version = "2.9.1"
 #   * Bug-fixes-only release for music-video iTunes-page lookups; no
 #     CLI / INI / output-format surface change.
 #   * Safe to admit to the support window without further code changes.
-maximum_tested_version = "3.5"
+#
+# 3.5.1 validation (#711, audit doc at
+# `.github/audits/gamdl-v3.5.1-audit.md`):
+#   * Single upstream commit (`34a397e`): "Fixed an issue with music
+#     video m3u8 URL returning error 403." Pure HTTP/header fix inside
+#     GAMDL's music-video URL handling layer.
+#   * No CLI / INI / output-format / regex / log surface change.
+#   * Same shape as v3.3 (playlist fix) and v3.5 (iTunes lookup fix);
+#     zero-code-change admission to the support window.
+#   * User-facing benefit: 403 errors on music-video downloads (both
+#     standalone MV URLs and music-video companions) silently resolve
+#     once installed users upgrade to 3.5.1.
+maximum_tested_version = "3.5.1"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.5"
+recommended_version = "3.5.1"

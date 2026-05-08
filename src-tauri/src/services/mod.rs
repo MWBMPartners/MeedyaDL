@@ -412,6 +412,17 @@ pub mod activity_log_writer;
 /// bundled as the first conformance example.
 pub mod filename_safety;
 
+/// Per-item progress stage registry (#712-followup / Phase 3.5b).
+///
+/// Single source of truth for the stages an item passes through after
+/// primary GAMDL exit and before the completion task marks it `Complete`.
+/// Replaces the 8 scattered `PROGRESS_*_STAGE: f32` constants and the
+/// closure-local `set_label(...)` calls inside the enrichment task.
+/// Used by both the enrichment task and the companion task so the
+/// per-item progress bar caption stays in sync regardless of which
+/// task is active.
+pub mod progress_stages;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

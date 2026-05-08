@@ -726,6 +726,89 @@ pub fn is_codec_skip_message(message: &str) -> bool {
     is_codec_skip_line(message)
 }
 
+/// Humanises a GAMDL "codec skip" line for the activity log UI.
+///
+/// GAMDL emits these as:
+///
+/// ```text
+/// [WARNING 13:21:56] [Track 1/1] Skipping "Pickle (3ballMTY Remix)":
+///     Requested format is not available (media ID: 1578734917):
+///     [<SongCodec.AC3: 'ac3'>]
+/// ```
+///
+/// The track title is already in quotes earlier on the line, so the
+/// `(media ID: <numeric_id>)` portion is informational noise — it
+/// gives a downstream debugger a way to look up the song in Apple's
+/// catalog but provides no signal to a regular user reading the log.
+/// The `[<SongCodec.AC3: 'ac3'>]` list is also Python's repr format
+/// rather than a friendly codec name.
+///
+/// Transformation (Phase 3.5h, 2026-05-08 user request):
+/// ```text
+/// [WARNING 13:21:56] [Track 1/1] Skipping "Pickle (3ballMTY Remix)":
+///     ac3 not available
+/// ```
+///
+/// Idempotent: running this on an already-humanised line is a no-op.
+/// Returns the unchanged input when the line doesn't match the codec-
+/// skip shape, so callers can apply it unconditionally.
+#[must_use]
+pub fn humanise_codec_skip_line(line: &str) -> String {
+    if !is_codec_skip_line(line) {
+        return line.to_string();
+    }
+
+    // Strip "(media ID: <digits>)" — the parens and any internal
+    // whitespace. Tolerate variations in spacing.
+    let media_id_re = match regex::Regex::new(r"\s*\(media ID:\s*\d+\)") {
+        Ok(re) => re,
+        Err(_) => return line.to_string(), // shouldn't happen; defensive
+    };
+    let mut out = media_id_re.replace_all(line, "").to_string();
+
+    // Replace the Python-repr codec list with a friendly comma-
+    // separated lowercase list. `[<SongCodec.AC3: 'ac3'>, <SongCodec.ATMOS: 'atmos'>]`
+    // → `ac3, atmos`. The single-quoted name inside each entry is
+    // exactly what we want.
+    let codec_re = match regex::Regex::new(r"\[\s*(?:<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>\s*,?\s*)+\]") {
+        Ok(re) => re,
+        Err(_) => return out,
+    };
+    if let Some(captures_iter) = codec_re.captures_iter(&out.clone()).next() {
+        // Walk all captures inside the matched bracket region by
+        // re-running a simpler per-codec regex.
+        let inner_re = regex::Regex::new(r"<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>")
+            .ok();
+        if let Some(inner) = inner_re {
+            let codecs: Vec<String> = inner
+                .captures_iter(captures_iter.get(0).map_or("", |m| m.as_str()))
+                .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+                .collect();
+            if !codecs.is_empty() {
+                let friendly = if codecs.len() == 1 {
+                    format!("{} not available", codecs[0])
+                } else {
+                    format!("{} not available", codecs.join(", "))
+                };
+                out = codec_re.replace(&out, friendly.as_str()).to_string();
+            }
+        }
+    }
+
+    // Tidy up the leftover ": :" pattern that results from stripping
+    // "(media ID: …)" between two colons. (Don't try to collapse runs
+    // of whitespace here — `str::replace("  ", " ")` is non-idempotent
+    // for runs of 3+ spaces, which would break the
+    // `humanise_is_idempotent` invariant. GAMDL's original spacing is
+    // good enough for the activity log.)
+    out = out.replace(": :", ":");
+
+    // Strip trailing colon when nothing follows the explanation
+    // (cosmetic; e.g. when the bracket part wasn't matched and got
+    // stripped some other way).
+    out.trim_end_matches([':', ' ']).to_string()
+}
+
 #[must_use]
 pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
@@ -2661,6 +2744,56 @@ mod tests {
         let unrelated = "[ERROR] Connection refused";
         assert!(!is_codec_skip_line(unrelated));
         assert!(!is_codec_skip_message(unrelated));
+    }
+
+    // ----------------------------------------------------------
+    // humanise_codec_skip_line (Phase 3.5h)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn humanise_strips_media_id_and_codec_repr_single() {
+        // Real captured line from the user's 2026-05-08 reproduction.
+        let raw = "[WARNING  13:21:56] [Track   1/1  ] Skipping \"Pickle (3ballMTY Remix)\": Requested format is not available (media ID: 1578734917): [<SongCodec.AC3: 'ac3'>]";
+        let humanised = humanise_codec_skip_line(raw);
+        // Media ID stripped.
+        assert!(!humanised.contains("media ID"), "should strip media ID: {humanised}");
+        assert!(!humanised.contains("1578734917"), "should strip the numeric ID");
+        // Codec repr replaced by friendly text.
+        assert!(!humanised.contains("SongCodec"), "should strip Python repr: {humanised}");
+        assert!(humanised.contains("ac3 not available"), "should mention ac3: {humanised}");
+        // Track title preserved.
+        assert!(humanised.contains("\"Pickle (3ballMTY Remix)\""), "title preserved: {humanised}");
+    }
+
+    #[test]
+    fn humanise_strips_media_id_and_codec_repr_multiple_codecs() {
+        let raw = "[WARNING  22:32:23] [Track  23/24  ] Skipping \"Die Young (Deconstructed Mix)\": Requested format is not available (media ID: 592365442): [<SongCodec.ATMOS: 'atmos'>, <SongCodec.ALAC: 'alac'>]";
+        let humanised = humanise_codec_skip_line(raw);
+        assert!(!humanised.contains("media ID"));
+        assert!(!humanised.contains("SongCodec"));
+        assert!(
+            humanised.contains("atmos, alac not available"),
+            "should list both codecs: {humanised}"
+        );
+    }
+
+    /// Lines that aren't codec-skip shape must pass through unchanged.
+    #[test]
+    fn humanise_passes_through_unrelated_lines() {
+        let raw = "[INFO 12:00:00] [Track 1/1] Downloading \"Some Song\"";
+        assert_eq!(humanise_codec_skip_line(raw), raw);
+
+        let raw2 = "[ERROR] Connection refused";
+        assert_eq!(humanise_codec_skip_line(raw2), raw2);
+    }
+
+    /// Idempotent: running on already-humanised output is a no-op.
+    #[test]
+    fn humanise_is_idempotent() {
+        let raw = "[WARNING  13:21:56] [Track   1/1  ] Skipping \"X\": Requested format is not available (media ID: 1): [<SongCodec.AC3: 'ac3'>]";
+        let once = humanise_codec_skip_line(raw);
+        let twice = humanise_codec_skip_line(&once);
+        assert_eq!(once, twice, "second pass changed: {once} → {twice}");
     }
 
     /// `is_codec_error` must continue to recognise the same vocabulary —

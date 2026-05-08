@@ -1502,7 +1502,15 @@ export interface HistoryEntry {
  *
  * @see App.tsx renderPage() for the page-to-component mapping
  */
-export type AppPage = 'download' | 'queue' | 'history' | 'activity' | 'updates' | 'settings' | 'help';
+export type AppPage =
+  | 'download'
+  | 'queue'
+  | 'library' // Phase 5 (#717): scan an existing on-disk library for re-download gaps
+  | 'history'
+  | 'activity'
+  | 'updates'
+  | 'settings'
+  | 'help';
 
 /**
  * Toast notification severity levels.
