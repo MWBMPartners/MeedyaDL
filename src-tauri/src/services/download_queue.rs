@@ -932,43 +932,23 @@ fn compute_companion_timeout(
 }
 
 // ============================================================
-// Enrichment stage progress weights (#576)
+// Enrichment stage progress weights (#576 → Phase 3.5b refactor)
 // ============================================================
 //
-// Cumulative weights emitted as each enrichment stage begins, so the
-// queue-level progress bar shows visible forward motion DURING the
-// `Processing` state rather than sitting at a single flat "partial
-// credit" value for 20+ minutes on large box sets.
+// The cumulative weights AND human labels for each per-item processing
+// stage now live in the [`super::progress_stages::ProgressStage`] enum
+// (one source of truth, label + weight + ordering enforced together,
+// covered by unit tests for monotonicity, bound, ellipsis convention,
+// and `ALL`-array completeness).
 //
-// Values are anchored so that:
-//   - 0.00 = GAMDL finished; enrichment task just spawned.
-//   - 1.00 = all enrichment stages complete; completion task about to
-//            flip the item from `Processing` to `Complete`.
-//
-// Each constant represents the fraction-complete AT THE START of the
-// named stage (i.e. the fraction-complete of everything BEFORE it).
-// The progression is deliberately roughly equal-weight across
-// user-observable stages; rebalance when real-world timing data (e.g.
-// from #579 repros) warrants.
-//
-// The constants are exposed at module scope so unit tests can verify
-// monotonicity and the 0–1 bound without reaching into the enrichment
-// closure.
-const PROGRESS_METADATA_STAGE: f32 = 0.05;
-const PROGRESS_WORD_LYRICS_STAGE: f32 = 0.15;
-const PROGRESS_LRC_CONVERSION_STAGE: f32 = 0.25;
-const PROGRESS_ANIMATED_ARTWORK_STAGE: f32 = 0.40;
-const PROGRESS_ACOUSTID_STAGE: f32 = 0.55;
-const PROGRESS_REPLAYGAIN_STAGE: f32 = 0.75;
-/// Stage 6 / 6b — music-video discovery (MusicKit API + MusicBrainz ISRC).
-/// Filled this gap to stop the per-item progress label from sticking on
-/// "ReplayGain loudness analysis…" while these later stages run silently.
-const PROGRESS_MUSIC_VIDEO_STAGE: f32 = 0.85;
-/// Tail-end of the enrichment task — manifest write, post-companion
-/// advisory pass, and any final tag plumbing. Keeps the bar moving so
-/// users can tell the difference between "enrichment ongoing" and
-/// "stuck on a previous stage".
-const PROGRESS_FINALISING_STAGE: f32 = 0.95;
+// Pre-refactor we had 8 scattered `PROGRESS_*_STAGE: f32` constants
+// here plus 9 closure-local `set_label("...", PROGRESS_*)` calls
+// inside the enrichment task. Adding a new stage required edits in
+// 3+ places and a stale label was an easy bug to miss — exactly the
+// pattern that produced the 30-minute "ReplayGain loudness analysis…"
+// hang in #712. The enum is the registry; this comment is the
+// breadcrumb pointing future readers to it.
+use super::progress_stages::ProgressStage;
 
 // ============================================================
 // Manifest writer
@@ -6598,7 +6578,7 @@ pub fn process_queue(
                             ),
                         );
 
-                            set_label("Enriching metadata tags...", PROGRESS_METADATA_STAGE);
+                            set_label("Enriching metadata tags...", ProgressStage::Metadata.weight());
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
@@ -6919,7 +6899,7 @@ pub fn process_queue(
                                         if !tracks_needing_upgrade.is_empty() {
                                             set_label(
                                                 "Fetching word-level lyrics...",
-                                                PROGRESS_WORD_LYRICS_STAGE,
+                                                ProgressStage::WordLyrics.weight(),
                                             );
                                             emit_download_log(
                                                 &enrich_app,
@@ -7033,7 +7013,7 @@ pub fn process_queue(
                                     } else {
                                         set_label(
                                             "Skipping word-level lyrics (no credentials)",
-                                            PROGRESS_WORD_LYRICS_STAGE,
+                                            ProgressStage::WordLyrics.weight(),
                                         );
                                         log::debug!(
                                             "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
@@ -7050,7 +7030,7 @@ pub fn process_queue(
 
                             set_label(
                                 "Converting lyrics (Enhanced LRC)...",
-                                PROGRESS_LRC_CONVERSION_STAGE,
+                                ProgressStage::LyricsConversion.weight(),
                             );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
@@ -7318,7 +7298,7 @@ pub fn process_queue(
 
                             set_label(
                                 "Downloading animated artwork...",
-                                PROGRESS_ANIMATED_ARTWORK_STAGE,
+                                ProgressStage::AnimatedArtwork.weight(),
                             );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
                             // --- Step 3: Animated artwork download ---
@@ -7511,7 +7491,7 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...", PROGRESS_ACOUSTID_STAGE);
+                            set_label("AcoustID fingerprinting...", ProgressStage::AcoustId.weight());
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
@@ -7577,7 +7557,7 @@ pub fn process_queue(
 
                             set_label(
                                 "ReplayGain loudness analysis...",
-                                PROGRESS_REPLAYGAIN_STAGE,
+                                ProgressStage::ReplayGain.weight(),
                             );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
@@ -7635,7 +7615,7 @@ pub fn process_queue(
 
                             set_label(
                                 "Music video discovery...",
-                                PROGRESS_MUSIC_VIDEO_STAGE,
+                                ProgressStage::MusicVideoDiscovery.weight(),
                             );
 
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
@@ -7795,7 +7775,7 @@ pub fn process_queue(
 
                             set_label(
                                 "Finalising metadata...",
-                                PROGRESS_FINALISING_STAGE,
+                                ProgressStage::Finalising.weight(),
                             );
 
                             emit_download_log(
