@@ -78,3 +78,33 @@ pub mod rate_limiter;
 /// `safe_rename`, `rename_if_dest_free`, `write_non_clobbering`,
 /// `resolve_non_clobbering_path`, and `same_file`.
 pub mod fs_safe;
+
+/// Depth-bounded recursive directory traversal helper (#716 finding #1).
+///
+/// Replaces 5+ ad-hoc walkers across `services/` that each open-coded
+/// `read_dir → recurse on subdirs → filter by extension/predicate →
+/// accumulate`. Single primitive `walk_dir_depth(base, max_depth, visitor)`
+/// covers every collect-paths / count-files / find-first use case via
+/// a closure visitor. New callers should use this; existing callers
+/// migrate opportunistically (#716 follow-up sub-tasks).
+pub mod fs_walk;
+
+/// Centralised reqwest::Client construction (#716 finding #2).
+///
+/// Replaces 13+ ad-hoc `reqwest::Client::builder()...build()` instances
+/// across services/ + utils/ + commands/, each rebuilding the same
+/// timeout + error-message pattern. `build_client(ClientConfig)` is
+/// the single primitive; `build_simple(timeout_secs)` is the
+/// convenience wrapper for the common case. New callers should use
+/// these; existing callers migrate opportunistically.
+pub mod http_client;
+
+/// Atomic JSON file write helper (#716 finding #8).
+///
+/// Replaces 5+ services that independently implement the same
+/// `serialize → write to .tmp → rename` durability pattern (settings,
+/// queue, history, crash reports, manifest, engine config). Single
+/// primitive `atomic_write_json(path, data, context)` makes future
+/// durability changes (fsync, retry-on-EBUSY, lock-file support)
+/// touch one place.
+pub mod atomic_write;
