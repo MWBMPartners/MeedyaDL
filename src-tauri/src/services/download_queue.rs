@@ -9667,22 +9667,17 @@ async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandle) {
     // Update the system tray tooltip with current queue status
     crate::update_tray_tooltip(app, active, queued, completed);
 
-    // Write to disk after releasing the lock
+    // Write to disk after releasing the lock. Atomic via the shared
+    // `utils::atomic_write::atomic_write_json` helper (#716 finding #8).
+    // Atomicity guarantee inherited from `std::fs::rename` per #230.
+    // Errors are warn-logged (not propagated) — same fail-quiet
+    // behaviour as the pre-migration site since queue.json corruption
+    // is recoverable from the in-memory state on next save.
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
-    match serde_json::to_string_pretty(&items) {
-        Ok(json) => {
-            // Atomic write: write to temp file then rename to prevent
-            // corruption on crash/power loss. See: #230
-            let temp_path = queue_path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&temp_path, json) {
-                log::warn!("Failed to write temp queue file: {e}");
-            } else if let Err(e) = std::fs::rename(&temp_path, &queue_path) {
-                log::warn!("Failed to rename temp queue file: {e}");
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to serialize queue: {e}");
-        }
+    if let Err(e) =
+        crate::utils::atomic_write::atomic_write_json(&queue_path, &items, "queue")
+    {
+        log::warn!("{e}");
     }
 }
 
