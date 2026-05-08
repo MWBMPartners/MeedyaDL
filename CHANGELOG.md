@@ -31,6 +31,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 5 commits delivering:
 
+- **(release)** V1.0.4 prep — per-item MV override + more helper migrations
+
+4 commits delivering:
+
 
 ### 🐛 Bug Fixes
 
@@ -161,6 +165,8 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - **(security)** Update supported versions to 1.0.2 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.4 [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
