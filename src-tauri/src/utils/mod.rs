@@ -88,3 +88,13 @@ pub mod fs_safe;
 /// a closure visitor. New callers should use this; existing callers
 /// migrate opportunistically (#716 follow-up sub-tasks).
 pub mod fs_walk;
+
+/// Centralised reqwest::Client construction (#716 finding #2).
+///
+/// Replaces 13+ ad-hoc `reqwest::Client::builder()...build()` instances
+/// across services/ + utils/ + commands/, each rebuilding the same
+/// timeout + error-message pattern. `build_client(ClientConfig)` is
+/// the single primitive; `build_simple(timeout_secs)` is the
+/// convenience wrapper for the common case. New callers should use
+/// these; existing callers migrate opportunistically.
+pub mod http_client;
