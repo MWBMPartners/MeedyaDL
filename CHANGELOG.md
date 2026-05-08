@@ -6,9 +6,125 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(queue)** Identify content in codec-exhaustion activity log messages
+
+When GAMDL exhausts the priority chain, the activity log used to say
+  "none available for this content" / "All audio formats exhausted" with
+  no indication of *which* queued item failed — confusing once the queue
+  is more than one item deep. Each of the three exhaustion sites in
+  process_queue() now appends "for {Artist — Album — Track}" (or the
+  redacted URL when the API metadata fetch hadn't populated names yet),
+  sourced from the queue item under its existing lock.
+
+- **(queue)** Scale companion-phase timeout by tier count (#705)
+
+The completion task was reusing compute_completion_timeout (sized for
+  enrichment alone) as the deadline for the companion-wait branch. With
+  multi-tier companion modes (e.g. Atmos→ALAC→AAC→AAC-Legacy = 4 full
+  GAMDL re-downloads), the 22-minute hard timeout was firing while tier
+  2 or 3 of 4 was still legitimately running.
+
+  - New compute_companion_timeout(track_count, tier_count): adds 8 min
+    per planned tier on top of the enrichment budget, same 4-hour cap.
+  - CompanionTaskHandle::tier_count() exposes the already-tracked
+    planned_tiers length (no new state).
+  - Soft/hard companion + enrichment timeout messages now identify the
+    affected item by Artist — Album (URL fallback), matching the
+    pattern from c7ed212. Same fix applied via format_content_label.
+  - 5 new unit tests cover zero/single/four-tier scaling, the cap, and
+    monotonicity in tier count. Existing 7 enrichment timeout tests
+    unchanged and still passing.
+
+- **(queue)** Enforce strictly-serial post-processing via ActiveSlotGuard (#706)
+
+The success path used to call q.on_task_finished() at line 6246 (pre-fix)
+  — right after primary GAMDL exited but BEFORE the completion task took
+  over. That early decrement freed the queue slot while companions and
+  enrichment were still running, so any subsequent process_queue invocation
+  (user IPC, fallback retry, lib.rs startup recovery) could pick up the
+  next item and run its primary GAMDL in parallel with the previous item's
+  post-processing. The status bar showed "2 downloading" with max_concurrent: 1,
+  and two completion tasks could fire their hard timeouts in the same
+  wall-clock second — exactly the cross-contamination scenario #455 / #452
+  were designed to prevent.
+
+  The fix moves the slot release into the completion task, atomic with
+  set_complete inside the same lock acquisition. To make sure a panic,
+  abort, or runtime shutdown inside the completion task cannot leak the
+  slot (and stall the queue forever), the task takes ownership of an
+  ActiveSlotGuard RAII guard on spawn:
+
+    - Happy path: explicit q.on_task_finished() then guard.disarm() →
+      Drop is a no-op, slot released exactly once.
+    - Panic / abort path: Drop fires a fire-and-forget tokio::spawn to
+      acquire the lock and decrement active_count.
+
+  The other 7 on_task_finished() call sites (5898, 6092, 7998, 8073, 8119,
+  8154, 8171) all live on terminal error paths that never spawn a
+  completion task, so they keep their existing behaviour.
+
+  3 new unit tests:
+    - active_slot_guard_disarm_does_not_release
+    - active_slot_guard_drop_releases_slot
+    - on_task_finished_saturates_at_zero (defence in depth — even if a
+      double-release ever slips through, active_count cannot underflow)
+
+  Full suite: 965 passed (962 + 3), 1 ignored, 0 failed. Clippy clean.
+
+- **(queue)** Serial post-processing + per-tier timeouts + content labels (#707)
+
+## Summary
+
+  Three independent download-queue reliability fixes, bundled because they
+  were discovered in one debugging session and share the same area of
+  `download_queue.rs`:
+
+  - **#706 — Strictly-serial post-processing.** The success path used to
+  call `q.on_task_finished()` immediately after primary GAMDL exit,
+  decrementing the slot while companions and enrichment were still
+  running. That let any concurrent `process_queue` invocation (user IPC,
+  fallback retry, startup recovery) start the next item in parallel,
+  violating the #455 contract and re-introducing the metadata
+  cross-contamination risk #452 was designed to prevent. Fixed by moving
+  the slot release into the completion task and adding an
+  `ActiveSlotGuard` RAII guard so a panic / abort / shutdown cannot leak
+  the slot.
+
+  - **#705 — Companion-phase timeout scales with tier count.**
+  `compute_completion_timeout()` was sized for enrichment alone (10 min
+  base + 10 s/track) and reused for the companion-wait branch. With
+  multi-tier modes (Atmos → ALAC → AAC → AAC-Legacy = 4 full GAMDL
+  re-downloads), the 22 min hard timeout was firing while tier 2 of 4 was
+  still legitimately running. New `compute_companion_timeout(track_count,
+  tier_count)` adds 8 min × tier_count on top of the enrichment budget.
+  `CompanionTaskHandle::tier_count()` reads the already-tracked
+  `planned_tiers.len()` — no new state.
+
+  - **Content labels in activity-log timeout / exhaustion messages.** Six
+  previously ambiguous messages (3 codec-exhaustion at lines
+  5728/5769/7885 pre-fix, 3 timeouts at the soft companion / hard
+  companion / enrichment sites) now identify the affected item by Artist —
+  Album (URL fallback) via `format_content_label(&QueueItemStatus)`.
+  Useful when a 51-item queue has multiple items in flight.
+
+  ## Commits
+
+  | Hash | Title |
+  |---|---|
+  | `af7d48b` | fix(queue): identify content in codec-exhaustion activity
+  log messages |
+  | `58c97df` | fix(queue): scale companion-phase timeout by tier count
+  (#705) |
+  | `ab0214c` | fix(queue): enforce strictly-serial post-processing via
+  ActiveSlotGuard (#706) |
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 0.53.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
