@@ -521,10 +521,7 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
         return Err("URL must use http:// or https:// scheme".to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(5)?;
 
     let start = std::time::Instant::now();
     match client.get(&url).send().await {

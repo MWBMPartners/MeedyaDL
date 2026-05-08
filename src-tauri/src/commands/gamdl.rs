@@ -1970,6 +1970,65 @@ pub async fn check_redownload_status(
     }))
 }
 
+/// Result of a Library Scan smart-retry diff (Phase 5b, #717).
+///
+/// Mirrors the three [`crate::services::smart_retry_planner::PlanOutcome`]
+/// variants but uses a TypeScript-friendly tagged-union shape so the
+/// Library Scan UI can render "X of Y missing" / "All present" /
+/// "Cannot diff" badges per row without re-implementing the variant
+/// inspection on every frontend re-render.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryScanDiff {
+    /// Manifest produced a precise per-track URL list — at least one
+    /// track is missing.
+    Plan {
+        missing_tracks: usize,
+        total_tracks: usize,
+    },
+    /// Manifest was found and every track is on disk. No retry needed.
+    AllPresent { total_tracks: usize },
+    /// Manifest missing, malformed, or no source matched. UI should
+    /// render a neutral "Cannot diff" badge.
+    NotApplicable,
+}
+
+/// Diffs a single scanned manifest against its on-disk state to
+/// determine whether tracks are missing (Phase 5b of #717 Library
+/// Scan UX).
+///
+/// Wraps `services::smart_retry_planner::plan_retry`. The Library
+/// Scan page calls this once per `ScannedManifest` to populate per-row
+/// "missing tracks" badges. Cheap (filesystem ops only — no network),
+/// safe to run synchronously per row from the frontend.
+///
+/// # Arguments
+/// * `album_dir` - The album directory path (the parent of the
+///   `manifest.meedyadl` file). Comes directly from
+///   [`ScannedManifest::album_dir`].
+/// * `source_url` - The manifest source URL to diff against. Comes
+///   from `ScannedManifest::urls[0]`. Manifests can carry multiple
+///   sources (Apple Music + Spotify of the same album); the URL
+///   selects which one to plan against.
+#[tauri::command]
+pub async fn diff_library_scan_manifest(
+    album_dir: String,
+    source_url: String,
+) -> Result<LibraryScanDiff, String> {
+    use crate::services::smart_retry_planner::{plan_retry, PlanOutcome};
+    let outcome = plan_retry(std::path::Path::new(&album_dir), &source_url);
+    Ok(match outcome {
+        PlanOutcome::Plan(plan) => LibraryScanDiff::Plan {
+            missing_tracks: plan.missing_tracks,
+            total_tracks: plan.total_tracks,
+        },
+        PlanOutcome::AllPresent { total_tracks } => {
+            LibraryScanDiff::AllPresent { total_tracks }
+        }
+        PlanOutcome::NotApplicable => LibraryScanDiff::NotApplicable,
+    })
+}
+
 /// Fetches syllable-level (word-by-word) TTML lyrics for a single song from
 /// the Apple Music API.
 ///

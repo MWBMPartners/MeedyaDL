@@ -1157,6 +1157,8 @@ pub fn run() {
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
+            // Library Scan smart-retry diff per row (Phase 5b, #717)
+            commands::gamdl::diff_library_scan_manifest,
             // Smart re-download detection (#263)
             commands::gamdl::check_redownload_status,
             // Syllable-level lyrics fetch (#306)

@@ -381,10 +381,7 @@ async fn resolve_github_release_asset(
     // endpoint. We detect this by trying /tags/ first and falling back.
     // A User-Agent header is required by the GitHub API (returns 403 without it).
     // 15-second timeout prevents indefinite stalls on unresponsive GitHub API.
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(15)?;
 
     // Try /releases/tags/{tag} first (deterministic, exact tag match).
     // Fall back to /releases/latest if the tag doesn't exist as an explicit tag
