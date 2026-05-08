@@ -100,7 +100,11 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-          git commit -m "chore(beta): ${{ steps.version.outputs.version }}"
+          # `[skip ci]` prevents the bot's push from re-triggering this same
+          # workflow (RELEASE_PAT attributes the push to the PAT owner, not
+          # github-actions[bot], which defeats the actor check). See the
+          # release-candidate-release.yml comment for the full incident write-up.
+          git commit -m "chore(beta): ${{ steps.version.outputs.version }} [skip ci]"
 
       - name: Push beta branch and tag
         if: ${{ !inputs.dry_run }}
