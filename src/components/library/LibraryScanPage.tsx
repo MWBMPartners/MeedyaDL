@@ -38,15 +38,25 @@
  */
 
 import { useState } from 'react';
-import { FolderOpen, RefreshCw, AlertCircle, CheckCircle2, HelpCircle } from 'lucide-react';
+import {
+  FolderOpen,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  HelpCircle,
+  Download,
+} from 'lucide-react';
 
 import {
   scanFolderForManifests,
   diffLibraryScanManifest,
+  startDownload,
   type ScannedManifest,
   type LibraryScanDiff,
 } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { MvGapFillModal } from './MvGapFillModal';
 
 /**
  * Renders the per-row diff badge for a scanned manifest.
@@ -91,6 +101,9 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
 
 export function LibraryScanPage() {
   const addToast = useUiStore((s) => s.addToast);
+  const mvCompanionEnabled = useSettingsStore(
+    (s) => s.settings.music_video_companion
+  );
   const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState<ScannedManifest[] | null>(null);
   /**
@@ -100,6 +113,55 @@ export function LibraryScanPage() {
    * table renders immediately and badges fill in as IPCs return.
    */
   const [diffs, setDiffs] = useState<Record<string, LibraryScanDiff>>({});
+  /**
+   * Per-row "Re-download gaps" modal state (#717/5d). When set, the
+   * MvGapFillModal renders for that manifest. Cleared on confirm /
+   * cancel. Single-modal-at-a-time keeps the UX flow predictable.
+   */
+  const [pendingGapFill, setPendingGapFill] = useState<ScannedManifest | null>(
+    null
+  );
+
+  /**
+   * Confirm-handler for the MV gap-fill modal (#717 sub-feature 5f).
+   *
+   * Called with the user's chosen `mv_companion_override` value:
+   * - `null` → inherit settings (default for normal queue paths)
+   * - `true` → force-enable MV companion for this re-download only
+   * - `false` → force-disable MV companion for this re-download only
+   *
+   * Calls `startDownload` with the manifest's source URL plus the
+   * override. The backend's enrichment task captures the override at
+   * spawn time (#717/5e plumbing) and gates Step 6 / 6b on it.
+   *
+   * Toast on success/failure; clears the modal state regardless.
+   */
+  const handleGapFillConfirm = async (override: boolean | null) => {
+    const manifest = pendingGapFill;
+    setPendingGapFill(null);
+    if (!manifest || manifest.urls.length === 0) {
+      return;
+    }
+    try {
+      await startDownload({
+        urls: [manifest.urls[0]],
+        mv_companion_override: override,
+      });
+      const mvNote =
+        override === true
+          ? ' (with music videos)'
+          : override === false
+            ? ' (audio only)'
+            : '';
+      addToast(
+        `Re-download queued for ${manifest.album ?? 'this album'}${mvNote}`,
+        'success'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast(`Re-download failed: ${msg}`, 'error');
+    }
+  };
 
   const handleScan = async () => {
     setScanning(true);
@@ -215,6 +277,7 @@ export function LibraryScanPage() {
                 <th className="text-left px-4 py-2 font-medium">Codec</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-left px-4 py-2 font-medium">Last download</th>
+                <th className="text-right px-4 py-2 font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -246,12 +309,47 @@ export function LibraryScanPage() {
                       ? new Date(m.downloaded_at).toLocaleDateString()
                       : '—'}
                   </td>
+                  <td className="px-4 py-2 text-right">
+                    {/*
+                      Re-download action (#717 sub-feature 5f). Only
+                      enabled when the diff IPC came back as a `plan`
+                      (at least one track missing) — `all_present` and
+                      `not_applicable` rows have nothing actionable.
+                      Click opens the MV gap-fill modal (5d) which then
+                      enqueues with the chosen mv_companion_override (5e).
+                    */}
+                    {diffs[m.manifest_path]?.kind === 'plan' && (
+                      <button
+                        type="button"
+                        onClick={() => setPendingGapFill(m)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-accent text-white hover:bg-accent-hover"
+                        aria-label={`Re-download missing tracks for ${m.album ?? 'this album'}`}
+                      >
+                        <Download size={12} />
+                        Re-download
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+
+      {/*
+        MV gap-fill confirmation modal (#717/5d). Single instance for
+        the page; `pendingGapFill` controls visibility + which manifest
+        is being acted on. Branches on the user's global
+        `music_video_companion` setting to ask the right question.
+      */}
+      <MvGapFillModal
+        open={pendingGapFill !== null}
+        onClose={() => setPendingGapFill(null)}
+        onConfirm={handleGapFillConfirm}
+        mvCompanionEnabledInSettings={mvCompanionEnabled}
+        manifest={pendingGapFill}
+      />
 
       {/*
         Phase 5 follow-ups tracked in #717:
