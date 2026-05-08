@@ -168,10 +168,7 @@ pub async fn uninstall_pip_engine(app: &AppHandle, package: &str) -> Result<(), 
 pub async fn check_latest_pypi_version(package: &str) -> Result<Option<String>, String> {
     let url = format!("https://pypi.org/pypi/{package}/json");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(10)?;
 
     let response = client
         .get(&url)

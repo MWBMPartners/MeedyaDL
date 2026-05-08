@@ -334,10 +334,7 @@ pub async fn fetch_itunes_lookup(
 
     log::debug!("Querying iTunes Lookup API: {url}");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(15)?;
 
     let response = client
         .get(&url)
@@ -856,10 +853,7 @@ pub async fn fetch_album_metadata(
 
     log::debug!("Querying Apple Music API for album metadata: {url}");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(30)?;
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
@@ -1249,10 +1243,7 @@ pub async fn fetch_music_video_relations(
         return Ok(Vec::new());
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(30)?;
     let mut relations = Vec::new();
 
     // Batch song IDs into groups of 100 (Apple Music API limit per request)
@@ -1602,10 +1593,7 @@ pub async fn fetch_artist_albums(
     storefront: &str,
     artist_id: &str,
 ) -> Result<Vec<ArtistAlbumRef>, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(30)?;
 
     // Page cursor: Apple Music returns a relative `next` URL (e.g.,
     // "/v1/catalog/us/artists/123/albums?offset=100") that we append to the
@@ -1796,10 +1784,7 @@ pub async fn fetch_playlist_tracks(
     storefront: &str,
     playlist_id: &str,
 ) -> Result<Vec<PlaylistTrackRef>, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(30)?;
 
     let mut next_path: Option<String> = Some(format!(
         "/v1/catalog/{storefront}/playlists/{playlist_id}/tracks?limit=100"
@@ -1996,10 +1981,7 @@ pub async fn fetch_syllable_lyrics(
 
     log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(30)?;
 
     let response = client
         .get(&url)
@@ -2098,10 +2080,7 @@ pub async fn fetch_artist_promo_video(
 
     log::debug!("Querying Apple Music API for artist promo video: {url}");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(15)?;
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))

@@ -86,10 +86,7 @@ pub async fn fetch_service_status(app: &AppHandle) -> Result<ServiceStatusConfig
 
 /// Fetches the service status config from the remote GitHub endpoint.
 async fn fetch_remote() -> Result<ServiceStatusConfig, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = crate::utils::http_client::build_simple(REQUEST_TIMEOUT_SECS)?;
 
     let response = client
         .get(SERVICE_STATUS_URL)
