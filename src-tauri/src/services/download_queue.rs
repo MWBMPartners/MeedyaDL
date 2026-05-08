@@ -950,7 +950,12 @@ fn compute_companion_timeout(
 // pattern that produced the 30-minute "ReplayGain loudness analysis…"
 // hang in #712. The enum is the registry; this comment is the
 // breadcrumb pointing future readers to it.
-use super::progress_stages::ProgressStage;
+// Phase 3.5d: `set_stage_with_label` is used by the enrichment task's
+// `set_label` shim. The simpler `set_stage` (which uses the enum's
+// canonical label, no override) will be picked up by the companion
+// task in Phase 3.5g — re-exported here for that consumer.
+#[allow(unused_imports)]
+use super::progress_stages::{set_stage, set_stage_with_label, ProgressStage};
 
 // ============================================================
 // Manifest writer
@@ -6452,32 +6457,30 @@ pub fn process_queue(
                             // Emit errors are swallowed: worst case is the UI
                             // stays stale until the next stage transition, no
                             // worse than pre-#574 behaviour.
+                            // Phase 3.5d: replaced the closure-local set_label
+                            // with a single-line wrapper around the new shared
+                            // `progress_stages::set_stage` / `set_stage_with_label`
+                            // helpers. The helpers take an `AppHandle` + `QueueHandle`
+                            // so the **companion task** can also drive the per-item
+                            // caption (Phase 3.5g) — pre-refactor, only the enrichment
+                            // closure could update the label, which is why companion
+                            // lyrics conversion used to leave a stale "ReplayGain…"
+                            // caption visible for 30+ minutes (#712).
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
                             let label_app = enrich_app.clone();
                             let set_label = move |label: &str, progress: f32| {
-                                if let Ok(mut q) = label_queue.try_lock() {
-                                    let context = q
-                                        .items
-                                        .iter()
-                                        .find(|i| i.status.id == label_dl_id)
-                                        .map(|item| {
-                                            let artist = item.status.artist_name.as_deref().unwrap_or("");
-                                            let album = item.status.album_name.as_deref().unwrap_or("");
-                                            if !artist.is_empty() && !album.is_empty() {
-                                                format!(" — {artist}: {album}")
-                                            } else if !album.is_empty() {
-                                                format!(" — {album}")
-                                            } else {
-                                                String::new()
-                                            }
-                                        })
-                                        .unwrap_or_default();
-                                    let full_label = format!("{label}{context}");
-                                    q.set_processing_label(&label_dl_id, &full_label);
-                                    q.set_processing_progress(&label_dl_id, progress);
-                                }
-                                let _ = label_app.emit("queue-updated", &label_dl_id);
+                                // Reverse-lookup the stage from its weight so we can
+                                // call set_stage_with_label without disturbing the
+                                // existing call sites' (label, weight) ergonomics.
+                                // Stages are identified uniquely by weight thanks to
+                                // the `weights_strictly_increasing` invariant.
+                                let stage = ProgressStage::ALL
+                                    .iter()
+                                    .copied()
+                                    .find(|s| (s.weight() - progress).abs() < f32::EPSILON)
+                                    .unwrap_or(ProgressStage::Finalising);
+                                set_stage_with_label(&label_app, &label_queue, &label_dl_id, stage, label);
                             };
 
                             // Helper: get album context for activity log messages.

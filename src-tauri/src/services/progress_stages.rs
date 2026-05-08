@@ -34,6 +34,10 @@
 
 use std::fmt;
 
+use tauri::{AppHandle, Emitter};
+
+use super::download_queue::QueueHandle;
+
 /// All per-item processing stages, in chronological order.
 ///
 /// `repr(u8)` and `PartialOrd / Ord` make it cheap to compare two
@@ -133,6 +137,81 @@ impl fmt::Display for ProgressStage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.label())
     }
+}
+
+/// Sets the per-item progress bar caption + cumulative-weight to a
+/// stage. Available to **any** caller that holds a `QueueHandle` and
+/// `AppHandle` — Phase 3.5d, replacing the closure-local `set_label`
+/// inside the enrichment task that the companion task could not call.
+///
+/// Format of the caption written to `processing_label`:
+///
+/// ```text
+/// {stage.label()} — {Artist}: {Album}
+/// ```
+///
+/// The Artist/Album suffix is appended when the queue item has those
+/// fields populated (typical after the early Apple Music API metadata
+/// fetch); otherwise just the stage label is shown. Track-level
+/// granularity is intentionally NOT included here — the per-track
+/// changes too quickly to be useful as a label.
+///
+/// **Best-effort by design (sync, `try_lock`).** If the queue lock is
+/// already held by the caller (common pattern in `download_queue.rs`
+/// — emit happens inside `lock().await { … }`), the update is
+/// skipped silently. The next stage transition will refresh the
+/// label. This matches the pre-refactor closure's behaviour.
+///
+/// Emits a `queue-updated` Tauri event after the lock-held write so
+/// the frontend re-reads the queue state. Errors swallowed: worst
+/// case is a stale UI until the next transition.
+pub fn set_stage(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    download_id: &str,
+    stage: ProgressStage,
+) {
+    set_stage_with_label(app, queue, download_id, stage, stage.label());
+}
+
+/// Same as [`set_stage`] but lets the caller override the caption
+/// text while keeping the stage's cumulative weight. Used for sub-
+/// stage progress (Phase 3.5g) — e.g. "Generating Rich SRT…" still
+/// inside the `LyricsConversion` stage so the queue-level progress
+/// bar weight doesn't bounce.
+pub fn set_stage_with_label(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    download_id: &str,
+    stage: ProgressStage,
+    label: &str,
+) {
+    if let Ok(mut q) = queue.try_lock() {
+        // Build "Artist: Album" suffix from cached API metadata.
+        // Distinct from `media_label_for` (which includes the current
+        // track and uses ` — ` separators); the per-item bar wants a
+        // shorter, stable suffix that doesn't mutate per-track.
+        let context = q
+            .get_status()
+            .into_iter()
+            .find(|s| s.id == download_id)
+            .map(|s| {
+                let artist = s.artist_name.unwrap_or_default();
+                let album = s.album_name.unwrap_or_default();
+                if !artist.is_empty() && !album.is_empty() {
+                    format!(" — {artist}: {album}")
+                } else if !album.is_empty() {
+                    format!(" — {album}")
+                } else {
+                    String::new()
+                }
+            })
+            .unwrap_or_default();
+        let full_label = format!("{label}{context}");
+        q.set_processing_label(download_id, &full_label);
+        q.set_processing_progress(download_id, stage.weight());
+    }
+    let _ = app.emit("queue-updated", download_id);
 }
 
 #[cfg(test)]
