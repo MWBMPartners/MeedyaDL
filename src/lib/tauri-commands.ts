@@ -865,6 +865,50 @@ export function diffLibraryScanManifest(
 }
 
 /**
+ * Library Scan freshness result for a single row (#717 sub-feature 5c).
+ *
+ * Mirrors the Rust `LibraryScanFreshness` enum (tagged union).
+ *
+ * - `fresh` — manifest's `lastModifiedDate` matches Apple Music API.
+ * - `updated` — Apple now reports a newer date; album may have gained
+ *   tracks, swapped a mix, or earned Apple Digital Master.
+ * - `unknown` — credentials missing, network error, or no manifest
+ *   date to compare. UI renders no badge for this case.
+ *
+ * Rust handler: `check_library_scan_freshness()` in
+ * `src-tauri/src/commands/gamdl.rs`
+ */
+export type LibraryScanFreshness =
+  | { kind: 'fresh'; current_date: string }
+  | { kind: 'updated'; manifest_date: string; current_date: string }
+  | { kind: 'unknown'; reason: string };
+
+/**
+ * Calls Apple Music API for the URL's album and compares its
+ * `lastModifiedDate` against the manifest-recorded value.
+ *
+ * Costs one HTTP request; the frontend rate-limits the dispatch to
+ * keep large libraries from saturating the API. Returns `unknown`
+ * cleanly for the typical "user has no MusicKit credentials" case
+ * (this is the resting state for most users).
+ *
+ * @param sourceUrl - Album URL from `ScannedManifest.urls[0]`.
+ * @param manifestDate - Recorded `last_modified_date` from the
+ *   manifest, if any (`ScannedManifest.last_modified_date`). Pass
+ *   `null` when the manifest has no recorded value — the IPC will
+ *   return `unknown` instead of comparing.
+ */
+export function checkLibraryScanFreshness(
+  sourceUrl: string,
+  manifestDate: string | null
+): Promise<LibraryScanFreshness> {
+  return invoke<LibraryScanFreshness>('check_library_scan_freshness', {
+    sourceUrl,
+    manifestDate,
+  });
+}
+
+/**
  * Checks whether a URL was previously downloaded for smart re-download
  * detection (#263). Returns metadata about the previous download if found.
  *

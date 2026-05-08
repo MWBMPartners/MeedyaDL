@@ -1159,6 +1159,8 @@ pub fn run() {
             commands::gamdl::scan_folder_for_manifests,
             // Library Scan smart-retry diff per row (Phase 5b, #717)
             commands::gamdl::diff_library_scan_manifest,
+            // Library Scan Apple Music lastModifiedDate freshness check (Phase 5c, #717)
+            commands::gamdl::check_library_scan_freshness,
             // Smart re-download detection (#263)
             commands::gamdl::check_redownload_status,
             // Syllable-level lyrics fetch (#306)

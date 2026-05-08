@@ -1766,8 +1766,7 @@ pub async fn scan_folder_for_manifests(
         folder_path.display()
     );
 
-    let mut results = Vec::new();
-    scan_dir_for_manifests_recursive(&folder_path, &mut results, 0, 10);
+    let results = scan_for_manifests(&folder_path);
 
     log::info!(
         "Found {} manifest(s) in {}",
@@ -1787,98 +1786,81 @@ pub async fn scan_folder_for_manifests(
     Ok(results)
 }
 
-/// Recursively scan directories for manifest files.
-fn scan_dir_for_manifests_recursive(
-    dir: &std::path::Path,
-    results: &mut Vec<ScannedManifest>,
-    depth: u32,
-    max_depth: u32,
-) {
-    if depth > max_depth {
-        return;
+/// Recursively scan a folder for `manifest.meedyadl` (or legacy `.meedyadl`)
+/// files, parse each into a [`ScannedManifest`], and return the collection
+/// for the Library Scan UI.
+///
+/// Migrated to [`walk_dir_depth`] in #716 finding #1 — previously this was a
+/// hand-rolled recursive walker (`scan_dir_for_manifests_recursive`) that
+/// duplicated the depth-limited `read_dir` boilerplate present in 5+ other
+/// callsites. The 10-level depth cap is preserved (matches the documented
+/// max for library scans — see `walk_dir_depth` doc on `max_depth = 10`).
+///
+/// Visitor returns `None` for any entry that isn't a parseable manifest with
+/// at least one source URL — this preserves the original "skip empty-source
+/// manifests entirely" behaviour without introducing a sentinel variant.
+fn scan_for_manifests(base: &std::path::Path) -> Vec<ScannedManifest> {
+    crate::utils::fs_walk::walk_dir_depth(base, 10, parse_manifest_at_path)
+}
+
+/// Visitor for [`scan_for_manifests`]: turns a single filesystem entry into
+/// `Some(ScannedManifest)` if it's a parseable manifest with at least one
+/// source URL, `None` otherwise. Pulled out as a free function so the
+/// closure handed to `walk_dir_depth` stays a one-liner.
+fn parse_manifest_at_path(path: &std::path::Path) -> Option<ScannedManifest> {
+    if !path.is_file() {
+        return None;
+    }
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if file_name != "manifest.meedyadl" && file_name != ".meedyadl" {
+        return None;
     }
 
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let contents = std::fs::read_to_string(path)
+        .inspect_err(|_| log::debug!("Failed to read manifest: {}", path.display()))
+        .ok()?;
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    let manifest =
+        serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents)
+            .inspect_err(|_| log::debug!("Failed to parse manifest: {}", path.display()))
+            .ok()?;
 
-        if path.is_dir() {
-            scan_dir_for_manifests_recursive(&path, results, depth + 1, max_depth);
-            continue;
-        }
+    let source = manifest.sources.first();
 
-        // Check for manifest.meedyadl or legacy .meedyadl
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+    // Infer artist/album from directory structure:
+    // base/Artist/Album/manifest.meedyadl → parent = Album, grandparent = Artist
+    let album_dir = path.parent()?;
+    let album_name = album_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from);
+    let artist_name = album_dir
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(String::from);
 
-        if file_name != "manifest.meedyadl" && file_name != ".meedyadl" {
-            continue;
-        }
-
-        // Parse the manifest
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            log::debug!("Failed to read manifest: {}", path.display());
-            continue;
-        };
-
-        let Ok(manifest) = serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents) else {
-            log::debug!("Failed to parse manifest: {}", path.display());
-            continue;
-        };
-
-        // Extract the first (most recent) source
-        let source = manifest.sources.first();
-
-        // Infer artist/album from directory structure:
-        // base/Artist/Album/manifest.meedyadl → parent = Album, grandparent = Artist
-        let album_dir = path.parent().unwrap_or(dir);
-        let album_name = album_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(String::from);
-        let artist_name = album_dir
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .map(String::from);
-
-        let urls: Vec<String> = manifest
-            .sources
-            .iter()
-            .map(|s| s.url.clone())
-            .collect();
-
-        if urls.is_empty() {
-            continue;
-        }
-
-        let track_count = source
-            .map(|s| s.tracks.len())
-            .unwrap_or(0);
-
-        // Detect current codec from the first M4A file in the album dir (#380).
-        // Reads the MeedyaMeta:SourceCodec or com.apple.iTunes:isLossless tag.
-        let (current_codec, audio_file_count) = detect_album_codec(album_dir);
-
-        results.push(ScannedManifest {
-            manifest_path: path.to_string_lossy().to_string(),
-            album_dir: album_dir.to_string_lossy().to_string(),
-            urls,
-            platform: source.map(|s| s.platform.clone()),
-            artist: artist_name,
-            album: album_name,
-            downloaded_at: source.map(|s| s.downloaded_at.clone()),
-            track_count,
-            current_codec,
-            audio_file_count,
-            last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
-        });
+    let urls: Vec<String> = manifest.sources.iter().map(|s| s.url.clone()).collect();
+    if urls.is_empty() {
+        return None;
     }
+
+    let track_count = source.map(|s| s.tracks.len()).unwrap_or(0);
+    let (current_codec, audio_file_count) = detect_album_codec(album_dir);
+
+    Some(ScannedManifest {
+        manifest_path: path.to_string_lossy().to_string(),
+        album_dir: album_dir.to_string_lossy().to_string(),
+        urls,
+        platform: source.map(|s| s.platform.clone()),
+        artist: artist_name,
+        album: album_name,
+        downloaded_at: source.map(|s| s.downloaded_at.clone()),
+        track_count,
+        current_codec,
+        audio_file_count,
+        last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
+    })
 }
 
 /// Checks whether a URL was previously downloaded and returns change
@@ -2027,6 +2009,142 @@ pub async fn diff_library_scan_manifest(
         }
         PlanOutcome::NotApplicable => LibraryScanDiff::NotApplicable,
     })
+}
+
+/// Apple Music `lastModifiedDate` freshness result for a single
+/// Library Scan row (Phase 5c, #717).
+///
+/// `manifest_date` was recorded at the time of the original download
+/// (stored in `manifest.meedyadl`'s `last_modified_date` field). The
+/// IPC fetches the current value via the Apple Music Catalog API and
+/// returns one of three states:
+///
+/// - **Fresh** — manifest's date matches Apple's current value;
+///   nothing has changed upstream since the user downloaded.
+/// - **Updated** — Apple now reports a newer `lastModifiedDate`. The
+///   album may have gained tracks, swapped a mix (Atmos added, mix
+///   correction), or earned the Apple Digital Master certification.
+///   UI surfaces a "Content updated" badge so the user can choose to
+///   re-download.
+/// - **Unknown** — MusicKit credentials missing, network failure, the
+///   URL parser couldn't extract an album ID, or the manifest had no
+///   recorded date to compare against. UI shows nothing (this is the
+///   expected resting state for users without credentials).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryScanFreshness {
+    /// Apple's current `lastModifiedDate` matches the manifest.
+    Fresh { current_date: String },
+    /// Apple now reports a newer `lastModifiedDate` than the manifest.
+    Updated {
+        manifest_date: String,
+        current_date: String,
+    },
+    /// Compare wasn't possible — credentials missing, API error, etc.
+    /// Carries a short reason for the activity log / diagnostics.
+    Unknown { reason: String },
+}
+
+/// Phase 5c (#717): per-row Apple Music `lastModifiedDate` freshness
+/// check for the Library Scan page.
+///
+/// Hits the Apple Music Catalog API for the URL's album ID and
+/// compares the API's `lastModifiedDate` against the manifest-recorded
+/// value (`ScannedManifest::last_modified_date` from the v1.0.1 scan).
+///
+/// **Cost**: one HTTP request per call. The frontend rate-limits the
+/// dispatch to keep large libraries from saturating the API; see
+/// `LibraryScanPage.tsx`.
+///
+/// Returns `Unknown` rather than `Err` for the typical "user has no
+/// MusicKit credentials" case — this is the expected resting state
+/// for most users and shouldn't surface as an error toast.
+#[tauri::command]
+pub async fn check_library_scan_freshness(
+    app: AppHandle,
+    source_url: String,
+    manifest_date: Option<String>,
+) -> Result<LibraryScanFreshness, String> {
+    use crate::services::apple_music_api::{
+        fetch_album_metadata_with_fallback, get_private_key_from_keychain,
+        parse_apple_music_url, resolve_musickit_developer_token,
+    };
+
+    let Some(manifest_date) = manifest_date.filter(|s| !s.is_empty()) else {
+        return Ok(LibraryScanFreshness::Unknown {
+            reason: "manifest has no recorded lastModifiedDate".to_string(),
+        });
+    };
+
+    let Some(parsed) = parse_apple_music_url(&source_url) else {
+        return Ok(LibraryScanFreshness::Unknown {
+            reason: "URL is not a recognised Apple Music album link".to_string(),
+        });
+    };
+
+    // We need an album ID to query the Catalog API; song / playlist
+    // / library URLs don't carry one and aren't supported here.
+    let album_id = parsed.album_id.clone();
+    let storefront = parsed.storefront.clone();
+
+    // Resolve MusicKit credentials. The team/key IDs live in
+    // settings.json; the private key PEM is stored in the OS
+    // keychain. Most users won't have these configured — that's
+    // fine, return `Unknown` cleanly so the UI can render no badge
+    // and not toast an error.
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
+    let private_key = match get_private_key_from_keychain() {
+        Ok(pk) => pk,
+        Err(_) => {
+            return Ok(LibraryScanFreshness::Unknown {
+                reason: "MusicKit private key keychain inaccessible".to_string(),
+            });
+        }
+    };
+    let jwt = match resolve_musickit_developer_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    ) {
+        Ok(Some(jwt)) => jwt,
+        Ok(None) => {
+            return Ok(LibraryScanFreshness::Unknown {
+                reason: "MusicKit credentials not configured".to_string(),
+            });
+        }
+        Err(_) => {
+            return Ok(LibraryScanFreshness::Unknown {
+                reason: "MusicKit credentials present but invalid".to_string(),
+            });
+        }
+    };
+
+    // Fetch current metadata from Apple's Catalog API.
+    match fetch_album_metadata_with_fallback(&jwt, &storefront, &album_id).await {
+        Ok(Some(metadata)) => match metadata.last_modified_date {
+            Some(current_date) => {
+                if current_date == manifest_date {
+                    Ok(LibraryScanFreshness::Fresh { current_date })
+                } else {
+                    Ok(LibraryScanFreshness::Updated {
+                        manifest_date,
+                        current_date,
+                    })
+                }
+            }
+            None => Ok(LibraryScanFreshness::Unknown {
+                reason: "Apple Music API returned no lastModifiedDate".to_string(),
+            }),
+        },
+        Ok(None) => Ok(LibraryScanFreshness::Unknown {
+            reason: "album not found in any storefront".to_string(),
+        }),
+        Err(e) => Ok(LibraryScanFreshness::Unknown {
+            reason: format!("API error: {e}"),
+        }),
+    }
 }
 
 /// Fetches syllable-level (word-by-word) TTML lyrics for a single song from
