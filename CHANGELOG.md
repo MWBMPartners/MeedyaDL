@@ -23,6 +23,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   Full PR description: https://github.com/MWBMPartners/MeedyaDL/pull/718
 
+- **(release)** V1.0.2 prep — MV cover workaround + 3 unification helpers + fast-uri patch
+
+6 commits delivering:
+
 
 ### 🐛 Bug Fixes
 
@@ -149,6 +153,8 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 0.53.3 [skip ci]
 - **(security)** Update supported versions to 1.0.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.2 [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
