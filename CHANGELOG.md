@@ -341,6 +341,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - **(security)** Update supported versions to 1.0.10 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -414,6 +415,57 @@ The push-driven release workflows for the alpha / beta / release-candidate
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 - **(activitylog)** Focused unit tests — #232 part 3 (#730)
+- **(setupwizard)** Focused unit tests — #232 part 4 (closes controller scope) (#731)
+
+## Summary
+
+  Fourth and final installment of #232 (frontend tests for DownloadForm,
+  DownloadQueue, ActivityLog, SetupWizard) — SetupWizard controller
+  covered.
+
+  15 tests landed in
+  [\`src/components/setup/SetupWizard.test.tsx\`](../blob/test/232-setupwizard/src/components/setup/SetupWizard.test.tsx):
+
+  - Progress bar renders all 6 step labels
+  - Future-step circles show 1-based index
+  - Past steps render as ✓ checkmarks
+  - StepComponent dispatches to the correct mock per \`currentStep\`
+  - Exhaustive sanity check: every SETUP_STEPS entry maps to its expected
+  mock
+  - Back button hidden on first step, present from step 2
+  - Back click invokes \`prevStep\`
+  - Continue disabled when current step ∉ \`completedSteps\`, enabled
+  otherwise
+  - Continue click invokes \`nextStep\`
+  - Last step: Continue → "Get Started"
+  - Get Started fires the full finish flow (\`finishSetup\` +
+  \`updateSettings\` + \`setShowSetupWizard(false)\`)
+  - SETUP_STEPS contract test pins the documented order
+
+  **Each step component mocked** as a tiny placeholder so tests assert on
+  the controller's dispatch + navigation gating without exercising 1700+
+  lines of step behaviour. Per-step tests (CookiesStep, DependenciesStep,
+  etc.) remain as follow-ups in their own dedicated test files.
+
+  \`goToStep(idx, completedSteps)\` helper mutates the setupStore directly
+  so tests can jump to any wizard position without going through the
+  per-step UX.
+
+  **This is the final installment of #232's controller-level scope** — all
+  four target components now have focused unit test files. Per-row /
+  per-step deep-dive coverage is its own follow-up.
+
+  Frontend test count: **400 total** (15 new in this PR).
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 400 pass (15 new)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ## [0.53.3] - 2026-05-08
 
