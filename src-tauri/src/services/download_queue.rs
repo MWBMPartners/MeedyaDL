@@ -4663,6 +4663,24 @@ fn spawn_companion_downloads(
 
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
+                    // Phase 3.5g: surface the active companion stage to the
+                    // per-item progress bar. Pre-3.5d this was impossible
+                    // (set_label was a closure local to the enrichment task);
+                    // now we use the shared `set_stage_with_label` helper.
+                    // Companion downloads happen AFTER enrichment finishes,
+                    // so the bar would otherwise still display "Finalising
+                    // metadata…" while companion GAMDL is the actual work.
+                    set_stage_with_label(
+                        &comp_app,
+                        &comp_queue,
+                        &comp_dl_id,
+                        ProgressStage::Finalising,
+                        &format!(
+                            "Companion: downloading {} (tier {})…",
+                            codec.to_cli_string(),
+                            tier_idx
+                        ),
+                    );
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
@@ -4826,6 +4844,20 @@ fn spawn_companion_downloads(
                                         })
                                         .unwrap_or((None, None))
                                 };
+                                // Phase 3.5g: surface the companion-lyrics
+                                // phase to the per-item bar. With #712's
+                                // depth-bounded scoping the walk is now
+                                // fast for hint-bearing items, but a label
+                                // here is still useful so users can tell
+                                // the difference between "tier downloading"
+                                // and "post-tier lyrics conversion".
+                                set_stage_with_label(
+                                    &comp_app,
+                                    &comp_queue,
+                                    &comp_dl_id,
+                                    ProgressStage::Finalising,
+                                    "Companion: converting lyrics formats…",
+                                );
                                 run_companion_lyrics_conversion(
                                     &comp_app,
                                     &comp_dl_id,
@@ -7462,6 +7494,10 @@ pub fn process_queue(
                                         .unwrap_or_else(|| enrich_settings.storefront.clone());
 
                                     if let Some(aid) = artist_id {
+                                        set_label(
+                                            "Downloading artist promo video…",
+                                            ProgressStage::AnimatedArtwork.weight(),
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
