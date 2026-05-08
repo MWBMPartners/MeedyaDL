@@ -98,3 +98,13 @@ pub mod fs_walk;
 /// convenience wrapper for the common case. New callers should use
 /// these; existing callers migrate opportunistically.
 pub mod http_client;
+
+/// Atomic JSON file write helper (#716 finding #8).
+///
+/// Replaces 5+ services that independently implement the same
+/// `serialize → write to .tmp → rename` durability pattern (settings,
+/// queue, history, crash reports, manifest, engine config). Single
+/// primitive `atomic_write_json(path, data, context)` makes future
+/// durability changes (fsync, retry-on-EBUSY, lock-file support)
+/// touch one place.
+pub mod atomic_write;
