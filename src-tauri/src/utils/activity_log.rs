@@ -146,23 +146,91 @@ pub struct ActivityLogEvent {
     pub timestamp: String,
 }
 
+/// Single-source-of-truth implementation for all four public emit
+/// helpers (Phase 3.5c refactor).
+///
+/// Pre-refactor each of `emit_download_log`, `emit_app_log`,
+/// `emit_verbose_download_log`, `emit_verbose_app_log` had its own
+/// near-duplicate body — same `ActivityLogEvent` construction, same
+/// `app.emit("activity-log", …)` call, same `write_to_disk` fan-out,
+/// same media-label enrichment for the per-download variants. Five
+/// places to update when the event shape changed (e.g. the #712
+/// label-enrichment change had to be applied to two of the four).
+///
+/// This function does the work in one place; the four public helpers
+/// remain as thin facades so the 264 existing call sites need not
+/// change. Future emission rules (rate-limiting, redaction, sampling)
+/// only need to touch this function.
+///
+/// `download_id == None` is rendered as the [`SYSTEM_LOG_ID`] sentinel
+/// (UI displays `[System]`); `Some(id)` is rendered as the 8-char ID.
+/// `verbose == true` adds the `[VERBOSE]` prefix and routes through
+/// the `VERBOSE_LOGGING` flag — disk fan-out always happens (we want
+/// the full record on disk for bug hunting), but the Tauri event is
+/// dropped when the user has verbose logging disabled.
+fn emit_inner(
+    app: &tauri::AppHandle,
+    download_id: Option<&str>,
+    message: &str,
+    verbose: bool,
+) {
+    let id = download_id.unwrap_or(SYSTEM_LOG_ID);
+
+    // Per-download messages get media-label enrichment via the queue
+    // (Phase 3a / #712); system-level messages don't have a queue
+    // item to look up.
+    let enriched = if download_id.is_some() {
+        let label = lookup_media_label(app, id);
+        append_label(message, label)
+    } else {
+        message.to_string()
+    };
+
+    // Tracing-log line — `[id] msg` or `[System] msg`, with `[VERBOSE]`
+    // prefix in the verbose case. Always emitted regardless of the
+    // VERBOSE_LOGGING flag (the flag gates the activity-log UI, not
+    // the on-disk tracing log).
+    if verbose {
+        log::debug!("[{id}] [VERBOSE] {enriched}");
+    } else if download_id.is_some() {
+        log::info!("[{id}] {enriched}");
+    } else {
+        log::info!("[System] {enriched}");
+    }
+
+    // Build the activity-log event payload. Verbose messages get the
+    // `[VERBOSE]` prefix in the line so the UI can render them with a
+    // distinct style.
+    let line = if verbose {
+        format!("[VERBOSE] {enriched}")
+    } else {
+        enriched
+    };
+    let event = ActivityLogEvent {
+        download_id: id.to_string(),
+        stream: "internal",
+        line,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+
+    // Always fan out to disk — bug-hunting sessions need the full
+    // record even when the UI filter is hiding things.
+    write_to_disk(&event);
+
+    // Only emit the Tauri event for the UI when (a) the message is
+    // non-verbose, OR (b) the user has verbose logging enabled.
+    if !verbose || VERBOSE_LOGGING.load(Ordering::Relaxed) {
+        let _ = app.emit("activity-log", &event);
+    }
+}
+
 /// Emits an internal activity log event tied to a specific download.
 ///
 /// Used for enrichment progress, companion downloads, fallback decisions,
 /// and other per-download diagnostic messages. Also writes to the tracing
 /// file log so enrichment progress is captured on disk.
 pub fn emit_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    let label = lookup_media_label(app, download_id);
-    let line = append_label(message, label);
-    log::info!("[{download_id}] {line}");
-    let event = ActivityLogEvent {
-        download_id: download_id.to_string(),
-        stream: "internal",
-        line,
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    let _ = app.emit("activity-log", &event);
-    write_to_disk(&event);
+    emit_inner(app, Some(download_id), message, false);
 }
 
 /// Emits a system-level activity log event (not tied to any download).
@@ -170,62 +238,30 @@ pub fn emit_download_log(app: &tauri::AppHandle, download_id: &str, message: &st
 /// Used for queue operations, update checks, dependency installs, cookie
 /// imports, settings changes, and app lifecycle events.
 pub fn emit_app_log(app: &tauri::AppHandle, message: &str) {
-    log::info!("[System] {message}");
-    let event = ActivityLogEvent {
-        download_id: SYSTEM_LOG_ID.to_string(),
-        stream: "internal",
-        line: message.to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    let _ = app.emit("activity-log", &event);
-    write_to_disk(&event);
+    emit_inner(app, None, message, false);
 }
 
 /// Emits a verbose download-specific activity log event.
 ///
-/// Only emits when `verbose_activity_log` is enabled in settings.
+/// Only emits to the activity-log UI when `verbose_activity_log` is
+/// enabled in settings. Always written to the tracing file log as
+/// `debug` AND to the on-disk activity log file (the latter is
+/// intentional: verbose events stay on disk regardless of UI filter
+/// so bug-hunting sessions have the full record).
+///
 /// Used for detailed debugging information that may contain sensitive
 /// data (URLs with query params, cookie paths, API responses, etc.).
-///
 /// The message is prefixed with `[VERBOSE]` in the activity log to
-/// distinguish it from normal messages. Always written to the tracing
-/// file log as `debug` regardless of the verbose setting.
+/// distinguish it from normal messages.
 pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    let label = lookup_media_label(app, download_id);
-    let enriched = append_label(message, label);
-    log::debug!("[{download_id}] [VERBOSE] {enriched}");
-    // Always persist verbose events to disk so bug-hunting sessions
-    // have the full record, even when the UI is not showing them.
-    let event = ActivityLogEvent {
-        download_id: download_id.to_string(),
-        stream: "internal",
-        line: format!("[VERBOSE] {enriched}"),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    write_to_disk(&event);
-    if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
-        return;
-    }
-    let _ = app.emit("activity-log", &event);
+    emit_inner(app, Some(download_id), message, true);
 }
 
 /// Emits a verbose system-level activity log event.
 ///
-/// Only emits when `verbose_activity_log` is enabled in settings.
-/// Always written to the tracing file log as `debug`.
+/// Only emits to the activity-log UI when `verbose_activity_log` is
+/// enabled in settings. Always written to the tracing file log as
+/// `debug` AND to the on-disk activity log file.
 pub fn emit_verbose_app_log(app: &tauri::AppHandle, message: &str) {
-    log::debug!("[System] [VERBOSE] {message}");
-    // Always persist verbose events to disk so bug-hunting sessions
-    // have the full record, even when the UI is not showing them.
-    let event = ActivityLogEvent {
-        download_id: SYSTEM_LOG_ID.to_string(),
-        stream: "internal",
-        line: format!("[VERBOSE] {message}"),
-        timestamp: chrono::Utc::now().to_rfc3339(),
-    };
-    write_to_disk(&event);
-    if !VERBOSE_LOGGING.load(Ordering::Relaxed) {
-        return;
-    }
-    let _ = app.emit("activity-log", &event);
+    emit_inner(app, None, message, true);
 }
