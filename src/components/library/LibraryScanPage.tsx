@@ -45,14 +45,17 @@ import {
   CheckCircle2,
   HelpCircle,
   Download,
+  Sparkles,
 } from 'lucide-react';
 
 import {
   scanFolderForManifests,
   diffLibraryScanManifest,
+  checkLibraryScanFreshness,
   startDownload,
   type ScannedManifest,
   type LibraryScanDiff,
+  type LibraryScanFreshness,
 } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -99,6 +102,36 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
   );
 }
 
+/**
+ * Renders the per-row Apple Music `lastModifiedDate` freshness badge
+ * (#717 sub-feature 5c). Only renders for the `updated` case — the
+ * `fresh` and `unknown` cases produce no visual element so the
+ * Status column doesn't fill with noise for users without MusicKit
+ * credentials (the dominant case in practice).
+ *
+ * Tooltip surfaces the manifest's old date alongside Apple's new
+ * one so users can correlate "content updated" with their manual
+ * re-download decision.
+ */
+function FreshnessBadge({
+  freshness,
+}: {
+  freshness: LibraryScanFreshness | undefined;
+}) {
+  if (!freshness || freshness.kind !== 'updated') {
+    return null;
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent/15 text-accent ml-1"
+      title={`Apple Music reports a newer lastModifiedDate (${freshness.current_date}) than your manifest (${freshness.manifest_date}). The album may have new tracks, an Atmos mix, or Apple Digital Master certification.`}
+    >
+      <Sparkles size={12} />
+      Content updated
+    </span>
+  );
+}
+
 export function LibraryScanPage() {
   const addToast = useUiStore((s) => s.addToast);
   const mvCompanionEnabled = useSettingsStore(
@@ -114,6 +147,16 @@ export function LibraryScanPage() {
    */
   const [diffs, setDiffs] = useState<Record<string, LibraryScanDiff>>({});
   /**
+   * Per-manifest Apple Music API freshness results (#717/5c).
+   * Filled in lazily after the diff IPCs return — each row dispatches
+   * its own `checkLibraryScanFreshness` call, but throttled to a
+   * concurrency cap so a 1000-album library doesn't fire 1000
+   * concurrent HTTP requests at Apple. Map keyed by `manifest_path`.
+   */
+  const [freshness, setFreshness] = useState<
+    Record<string, LibraryScanFreshness>
+  >({});
+  /**
    * Per-row "Re-download gaps" modal state (#717/5d). When set, the
    * MvGapFillModal renders for that manifest. Cleared on confirm /
    * cancel. Single-modal-at-a-time keeps the UX flow predictable.
@@ -121,6 +164,46 @@ export function LibraryScanPage() {
   const [pendingGapFill, setPendingGapFill] = useState<ScannedManifest | null>(
     null
   );
+
+  /**
+   * Concurrency cap for the per-row Apple Music freshness check
+   * (#717/5c). Each call is a single HTTP request to Apple's Catalog
+   * API; running more than a handful in parallel risks rate-limit
+   * pushback. 5 is a defensible compromise — large libraries (~1000
+   * manifests) finish in well under a minute on a typical broadband
+   * connection while staying well clear of any documented limit.
+   */
+  const FRESHNESS_CONCURRENCY = 5;
+
+  /**
+   * Throttled per-row freshness dispatcher (#717/5c). Walks the
+   * manifests list with at most `FRESHNESS_CONCURRENCY` outstanding
+   * IPCs; results merge into the `freshness` state map as each
+   * resolves. Per-row failures degrade to a noisy console.warn but
+   * don't toast — the IPC already returns `unknown` cleanly for the
+   * expected "no MusicKit credentials" case.
+   */
+  const runFreshnessChecks = async (manifests: ScannedManifest[]) => {
+    let cursor = 0;
+    const workers = Array.from({ length: FRESHNESS_CONCURRENCY }, async () => {
+      while (cursor < manifests.length) {
+        const i = cursor++;
+        const m = manifests[i];
+        if (!m || m.urls.length === 0) continue;
+        try {
+          const result = await checkLibraryScanFreshness(
+            m.urls[0],
+            m.last_modified_date
+          );
+          setFreshness((prev) => ({ ...prev, [m.manifest_path]: result }));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`Freshness check failed for ${m.album_dir}: ${msg}`);
+        }
+      }
+    });
+    await Promise.allSettled(workers);
+  };
 
   /**
    * Confirm-handler for the MV gap-fill modal (#717 sub-feature 5f).
@@ -166,6 +249,7 @@ export function LibraryScanPage() {
   const handleScan = async () => {
     setScanning(true);
     setDiffs({});
+    setFreshness({});
     try {
       const manifests = await scanFolderForManifests();
       setResults(manifests);
@@ -197,6 +281,15 @@ export function LibraryScanPage() {
           }
         })
       );
+
+      // Phase 5c: dispatch the Apple Music `lastModifiedDate`
+      // freshness check too. UNLIKE the diff IPC, this hits the
+      // Apple Music API per row — so we throttle to FRESHNESS_CONCURRENCY
+      // simultaneous requests at a time to avoid hammering Apple.
+      // The IPC degrades to `unknown` cleanly when the user has no
+      // MusicKit credentials (the dominant case in practice), so this
+      // is also a no-op for most users.
+      void runFreshnessChecks(manifests);
     } catch (err) {
       // User cancelled the folder picker, or I/O failure.
       const msg = err instanceof Error ? err.message : String(err);
@@ -303,6 +396,7 @@ export function LibraryScanPage() {
                   </td>
                   <td className="px-4 py-2">
                     <DiffBadge diff={diffs[m.manifest_path]} />
+                    <FreshnessBadge freshness={freshness[m.manifest_path]} />
                   </td>
                   <td className="px-4 py-2 text-xs text-content-tertiary">
                     {m.downloaded_at
@@ -311,19 +405,25 @@ export function LibraryScanPage() {
                   </td>
                   <td className="px-4 py-2 text-right">
                     {/*
-                      Re-download action (#717 sub-feature 5f). Only
-                      enabled when the diff IPC came back as a `plan`
-                      (at least one track missing) — `all_present` and
-                      `not_applicable` rows have nothing actionable.
+                      Re-download action (#717 sub-feature 5f). Two
+                      cases enable it:
+                      - The disk-vs-manifest diff came back `plan` (at
+                        least one track missing locally).
+                      - The Apple Music API freshness check came back
+                        `updated` (content has changed upstream — added
+                        tracks, Atmos mix, ADM certification, etc.).
+                      `all_present` + `unknown`/`fresh` rows have
+                      nothing actionable and stay quiet.
                       Click opens the MV gap-fill modal (5d) which then
                       enqueues with the chosen mv_companion_override (5e).
                     */}
-                    {diffs[m.manifest_path]?.kind === 'plan' && (
+                    {(diffs[m.manifest_path]?.kind === 'plan' ||
+                      freshness[m.manifest_path]?.kind === 'updated') && (
                       <button
                         type="button"
                         onClick={() => setPendingGapFill(m)}
                         className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-accent text-white hover:bg-accent-hover"
-                        aria-label={`Re-download missing tracks for ${m.album ?? 'this album'}`}
+                        aria-label={`Re-download ${m.album ?? 'this album'}`}
                       >
                         <Download size={12} />
                         Re-download
