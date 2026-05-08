@@ -123,6 +123,51 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- **(release)** V1.0.8 prep — four more recursive walker migrations (#726)
+
+## Summary
+
+  Eighth in the v1.0.x prep series. Four more recursive walker callsites
+  migrated to \`walk_dir_depth\` (#716 finding #1).
+
+  | File | Function | Before | After | Notes |
+  |---|---|---|---|---|
+  | services/duplicate_detector.rs | walk_manifests | depth=10, manual |
+  depth=10, walk_dir_depth | side-effects into HashSet (0..N keys per
+  manifest) |
+  | services/acoustid_service.rs | collect_m4a_recursive | **UNBOUNDED** |
+  depth=3 | AcoustID fingerprinting is per-album |
+  | services/replaygain_service.rs | collect_audio_recursive |
+  **UNBOUNDED** | depth=3 | FFmpeg loudness analysis is per-album |
+  | services/metadata_tag_service.rs | tag_directory_recursive |
+  **UNBOUNDED** | depth=3 | covers Album/Disc N/file split |
+
+  The three previously-unbounded walkers were latent #712 risks — if ever
+  called against the user's full music root rather than an album dir,
+  they'd produce the same 30-minute hang reproduction. Capping at depth 3
+  makes that impossible without affecting happy-path behaviour (every
+  actual album dir is well under 3 deep).
+
+  Filesystem-sidecar skipping (\`._*\`, \`.DS_Store\`, \`Thumbs.db\`)
+  preserved in all four — same #577 rationale (avoid \`mp4ameta\` /
+  \`ffmpeg\` / \`chromaprint\` errors on non-audio binaries).
+
+  Net -36 lines.
+
+  Versions bumped 1.0.7 → 1.0.8.
+
+  ## Test plan
+
+  - [x] \`cargo clippy --tests -- -D warnings\` clean
+  - [x] \`cargo test --lib\` — 993 pass, 1 ignored
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run test\` — 330 pass
+  - [ ] CI green
+  - [ ] (Manual smoke: depth=3 covers Artist/Album/Disc/file — check no
+  regression on multi-disc albums)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 🐛 Bug Fixes
 
@@ -260,6 +305,9 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.6 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.7 [skip ci]
+- **(security)** Update supported versions to 1.0.8 [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
