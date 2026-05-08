@@ -8,23 +8,34 @@ This document captures the read-only audit findings, in **value-to-effort order*
 
 ---
 
-## 1. Recursive directory walkers (depth-limited) — issue: TBD
+## 1. Recursive directory walkers (depth-limited) — **complete v1.0.9**
 
-**Locations:**
+**Helper:** [`utils/fs_walk.rs`](../../src-tauri/src/utils/fs_walk.rs) — two primitives:
 
-- [`download_queue.rs:556-665`](../../src-tauri/src/services/download_queue.rs#L556-L665) — `find_album_directory`, `find_deepest_audio_dir`, `has_direct_audio_files`
-- [`download_queue.rs:3699-3721`](../../src-tauri/src/services/download_queue.rs#L3699-L3721) — `collect_video_files_depth_limited`
-- [`metadata_tag_service.rs:1868-1884`](../../src-tauri/src/services/metadata_tag_service.rs#L1868-L1884) — `collect_m4a_depth_limited`
-- [`download_queue.rs:5101+`](../../src-tauri/src/services/download_queue.rs#L5101) — `find_dirs_with_ttml` (depth-bounded in #712)
-- [`gamdl.rs:1791+`](../../src-tauri/src/commands/gamdl.rs#L1791) — `scan_dir_for_manifests_recursive`
+- `walk_dir_depth<T, F>(base, max_depth, visitor) -> Vec<T>` — collect-all (v1.0.3)
+- `walk_dir_find_first<T, F>(base, max_depth, visitor) -> Option<T>` — find-first early-termination (v1.0.9)
 
-**Pattern:** Five+ functions implement the same shape: walk a filesystem tree up to `max_depth`, filter by file extension or presence-test, accumulate results. Each reimplements depth-tracking, recursion, extension matching.
+**Migrated callsites (v1.0.3 → v1.0.9):**
 
-**Consolidation:** Extract a generic `walk_dir_depth<T, F>(base, max_depth, visitor: F) -> Vec<T>` helper in `utils/`. Each callsite passes its specific predicate.
+| Function                            | File                       | Helper              | Notes                  |
+| ----------------------------------- | -------------------------- | ------------------- | ---------------------- |
+| find_album_directory et al.         | download_queue.rs          | walk_dir_depth      | v1.0.3                 |
+| collect_video_files_depth_limited   | download_queue.rs          | walk_dir_depth      | v1.0.3                 |
+| collect_m4a_depth_limited           | metadata_tag_service.rs    | walk_dir_depth      | v1.0.3                 |
+| find_dirs_with_ttml                 | download_queue.rs          | walk_dir_depth      | v1.0.3 (#712 fix)      |
+| count_audio_files_in_directory      | download_queue.rs          | walk_dir_depth      | v1.0.3                 |
+| snapshot_video_files                | download_queue.rs          | walk_dir_depth      | v1.0.3                 |
+| scan_dir_for_manifests_recursive    | commands/gamdl.rs          | walk_dir_depth      | v1.0.6                 |
+| walk_manifests                      | duplicate_detector.rs      | walk_dir_depth      | v1.0.8                 |
+| collect_m4a_recursive               | acoustid_service.rs        | walk_dir_depth      | v1.0.8 (added depth=3) |
+| collect_audio_recursive             | replaygain_service.rs      | walk_dir_depth      | v1.0.8 (added depth=3) |
+| tag_directory_recursive             | metadata_tag_service.rs    | walk_dir_depth      | v1.0.8 (added depth=3) |
+| find_binary_recursive               | dependency_manager.rs      | walk_dir_find_first | v1.0.9 (added depth=5) |
+| find_file_recursive                 | dependency_manager.rs      | walk_dir_find_first | v1.0.9 (added depth=5) |
 
-**Size:** 40-50 lines refactored. **Risk:** low (purely internal, test coverage exists for the highest-impact callers).
+**Outcome:** zero remaining hand-rolled recursive walkers in the backend. Five previously-unbounded walkers (acoustid, replaygain, metadata_tag, find_binary, find_file) now have explicit depth caps — eliminates the latent #712-class bug shape entirely.
 
-**Multi-service relevance:** **High** — BBC iPlayer (video) and Spotify (audio) will need similar scans.
+**Multi-service relevance:** **High** — BBC iPlayer / Spotify / YouTube engines now have a shared, tested filesystem-traversal foundation.
 
 ---
 
