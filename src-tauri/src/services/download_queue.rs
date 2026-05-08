@@ -4768,6 +4768,23 @@ fn spawn_companion_downloads(
                             })
                         });
 
+                    // Phase 3.5h: snapshot the audio-file count BEFORE running
+                    // companion GAMDL. After a "successful" exit (GAMDL exits 0
+                    // even when it skipped every track because the requested
+                    // format wasn't available — `Skipping … format is not
+                    // available` is a warning, not an error in GAMDL's view),
+                    // we compare against this snapshot to detect the false-
+                    // positive "complete" case the user flagged on 2026-05-08:
+                    // companion AC3 ran on a track Apple Music doesn't ship in
+                    // AC3, GAMDL produced 0 files, but the activity log said
+                    // "Companion download complete (tier 0, codec: ac3)".
+                    let pre_run_audio_count = opts
+                        .output_path
+                        .as_deref()
+                        .map(std::path::Path::new)
+                        .map(count_audio_files_in_directory)
+                        .unwrap_or(0);
+
                     let run_result = super::companion_supervisor::run_supervised(
                         &supervisor_app,
                         &supervisor_dl,
@@ -4797,12 +4814,53 @@ fn spawn_companion_downloads(
 
                     match run_result {
                         Ok(r) if r.exit_success && !r.had_soft_error => {
+                            // Phase 3.5h: verify files actually landed before
+                            // claiming "complete". GAMDL exits 0 with 0 errors
+                            // when it skips every track due to format
+                            // unavailability ("Skipping … format is not
+                            // available" is a warning, not an error). Without
+                            // this check, the companion task records a false
+                            // success — confusing for the user when checking
+                            // history / diagnosing missing companions.
+                            let post_run_audio_count = opts
+                                .output_path
+                                .as_deref()
+                                .map(std::path::Path::new)
+                                .map(count_audio_files_in_directory)
+                                .unwrap_or(0);
+                            if post_run_audio_count <= pre_run_audio_count {
+                                // No new files landed — the codec wasn't
+                                // available for any track in this URL set.
+                                emit_download_log(
+                                    &comp_app,
+                                    &comp_dl_id,
+                                    &format!(
+                                        "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
+                                        tier_idx, stream_codec,
+                                    ),
+                                );
+                                // Do NOT mark this tier as succeeded; let the
+                                // next codec in the tier (if any) be tried.
+                                // We still treat this as a non-failure
+                                // (companion exited cleanly), so we don't
+                                // emit `companion-downloaded` either.
+                                // Reset post-processing label since there's
+                                // nothing to post-process.
+                                {
+                                    let mut q = comp_queue.lock().await;
+                                    q.clear_processing_label(&supervisor_dl);
+                                }
+                                continue;
+                            }
+
                             emit_download_log(
                                 &comp_app,
                                 &comp_dl_id,
                                 &format!(
-                                    "Companion download complete (tier {}, codec: {})",
-                                    tier_idx, stream_codec,
+                                    "Companion download complete (tier {}, codec: {}, {} new file(s))",
+                                    tier_idx,
+                                    stream_codec,
+                                    post_run_audio_count - pre_run_audio_count,
                                 ),
                             );
                             let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
@@ -8868,11 +8926,16 @@ async fn run_download_with_events(
                             // disk so support requests stay debuggable.
                             let is_traceback_noise =
                                 process::is_python_traceback_noise(&clean_line);
+                            // Phase 3.5h: humanise GAMDL "codec skip" lines
+                            // — strip "(media ID: NNN)" and the Python-repr
+                            // codec list. Idempotent + safe on non-matching
+                            // lines.
+                            let humanised = process::humanise_codec_skip_line(&display_line);
                             crate::utils::activity_log::emit_subprocess_line(
                                 &app,
                                 &download_id,
                                 "stdout",
-                                display_line.clone(),
+                                humanised,
                                 verbose || !is_traceback_noise,
                             );
                         }
@@ -9059,11 +9122,15 @@ async fn run_download_with_events(
                             // to disk so support requests stay debuggable.
                             let is_traceback_noise =
                                 process::is_python_traceback_noise(&clean_line);
+                            // Phase 3.5h: humanise GAMDL "codec skip" lines
+                            // (strips "(media ID: NNN)" + Python-repr codec
+                            // list).
+                            let humanised = process::humanise_codec_skip_line(&display_line);
                             crate::utils::activity_log::emit_subprocess_line(
                                 &app,
                                 &download_id,
                                 "stderr",
-                                display_line.clone(),
+                                humanised,
                                 verbose || !is_traceback_noise,
                             );
                         }
