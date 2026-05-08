@@ -337,6 +337,36 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - **(security)** Update supported versions to 1.0.8 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.9 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.10 [skip ci]
+
+### 🧪 Testing
+
+- **(downloadform)** Focused unit tests — first installment of #232 (#728)
+
+## Summary
+
+  First installment of #232 (frontend tests for DownloadForm,
+  DownloadQueue, ActivityLog, SetupWizard) — DownloadForm covered.
+
+  15 tests landed in
+  [\`src/components/download/DownloadForm.test.tsx\`](../blob/feat/v1.0.10-prep/src/components/download/DownloadForm.test.tsx):
+
+  - Smoke render + label/input wiring + helper hint
+  - Single URL: typing → store update + validation, content-type badge,
+  error message
+  - Multi-URL: count badge with pluralisation, "(N invalid)" suffix,
+  all-invalid error
+  - Submit button gating across 4 states (empty / invalid single / valid
+  single / mixed batch)
+  - Quality Overrides toggle render + click
+
+  **Deferred to a follow-up PR**: the full \`handleSubmit\` preflight
+  chain (4 IPCs — internet / output path / wrapper / cookies). Each
+  preflight has its own toast/error/redirect surface and warrants
+  dedicated fixture setup. Submit-disabled gating is tested without
+  clicking the button.
+
 
 ## [0.53.3] - 2026-05-08
 
