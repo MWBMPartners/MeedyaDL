@@ -809,26 +809,30 @@ fn build_gapfill_priority_chain(original_chain: &str) -> Option<String> {
 /// Count audio files (.m4a, .m4v, .mp4) in the output directory to
 /// detect partial download success. Searches recursively through
 /// Artist/Album subdirectory structure.
+///
+/// Migrated to the shared [`crate::utils::fs_walk::walk_dir_depth`]
+/// helper (#716 finding #1, v1.0.2 prep). Pre-migration this was an
+/// open-coded recursive walker without an explicit depth limit;
+/// `walk_dir_depth` makes the bound mandatory and enforces the same
+/// `read_dir → recurse → filter` shape as the other 4+ walkers in
+/// the codebase. Depth 10 matches the convention used by
+/// `scan_folder_for_manifests` and `find_dirs_with_ttml` (post-#712).
 fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
-    let mut count = 0;
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && !crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("m4a")
-                        || ext.eq_ignore_ascii_case("m4v")
-                        || ext.eq_ignore_ascii_case("mp4")
-                    {
-                        count += 1;
-                    }
-                }
-            } else if path.is_dir() {
-                count += count_audio_files_in_directory(&path);
-            }
+    crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
+        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
         }
-    }
-    count
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        if ext.eq_ignore_ascii_case("m4a")
+            || ext.eq_ignore_ascii_case("m4v")
+            || ext.eq_ignore_ascii_case("mp4")
+        {
+            Some(())
+        } else {
+            None
+        }
+    })
+    .len()
 }
 
 /// Completion-task timeout scaled by the number of output files

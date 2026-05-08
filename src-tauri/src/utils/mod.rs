@@ -78,3 +78,13 @@ pub mod rate_limiter;
 /// `safe_rename`, `rename_if_dest_free`, `write_non_clobbering`,
 /// `resolve_non_clobbering_path`, and `same_file`.
 pub mod fs_safe;
+
+/// Depth-bounded recursive directory traversal helper (#716 finding #1).
+///
+/// Replaces 5+ ad-hoc walkers across `services/` that each open-coded
+/// `read_dir → recurse on subdirs → filter by extension/predicate →
+/// accumulate`. Single primitive `walk_dir_depth(base, max_depth, visitor)`
+/// covers every collect-paths / count-files / find-first use case via
+/// a closure visitor. New callers should use this; existing callers
+/// migrate opportunistically (#716 follow-up sub-tasks).
+pub mod fs_walk;
