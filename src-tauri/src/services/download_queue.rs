@@ -1082,26 +1082,21 @@ fn write_manifest(
         manifest.merge_source(source);
     }
 
-    // Write atomically (temp file + rename)
-    match serde_json::to_string_pretty(&manifest) {
-        Ok(json) => {
-            // Use a sibling temp file with a simple suffix to avoid
-            // Rust's `with_extension()` quirks on dotfiles (#447).
-            let tmp_path = dir.join("manifest.meedyadl.tmp");
-            if let Err(e) = std::fs::write(&tmp_path, &json) {
-                log::warn!("Failed to write manifest temp file: {e}");
-                return;
-            }
-            if let Err(e) = std::fs::rename(&tmp_path, &manifest_path) {
-                log::warn!("Failed to rename manifest temp file: {e}");
-                // Clean up temp file
-                let _ = std::fs::remove_file(&tmp_path);
-                return;
-            }
+    // Atomic write via the shared `utils::atomic_write::atomic_write_json`
+    // helper (#716/8, v1.0.5 prep). The helper computes the temp path
+    // as `{path}.{existing_ext}.tmp` — for `manifest.meedyadl` that's
+    // `manifest.meedyadl.tmp`, exactly matching the pre-migration
+    // sibling-temp pattern that #447 used to dodge the dotfile quirks
+    // of `Path::with_extension`. No leftover-temp cleanup-on-rename-
+    // fail (the helper trusts std::fs::rename), but the rename failure
+    // path is rare in practice (same-fs operation) and any orphan
+    // .tmp will be overwritten on the next manifest update.
+    match crate::utils::atomic_write::atomic_write_json(&manifest_path, &manifest, "manifest") {
+        Ok(()) => {
             log::info!("Wrote download manifest to {}", manifest_path.display());
         }
         Err(e) => {
-            log::warn!("Failed to serialise manifest: {e}");
+            log::warn!("{e}");
         }
     }
 }
