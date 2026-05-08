@@ -24,7 +24,9 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+
+use crate::services::download_queue::QueueHandle;
 
 /// Global flag controlling verbose activity log output. When `true`,
 /// `emit_verbose_download_log()` and `emit_verbose_app_log()` emit to
@@ -90,6 +92,46 @@ pub fn is_verbose_logging() -> bool {
 /// ID prefix.
 pub const SYSTEM_LOG_ID: &str = "system";
 
+/// Best-effort lookup of the human-readable media label
+/// (`Artist — Album — Track`) for a given download ID, sourced from the
+/// queue's Tauri managed state.
+///
+/// Used by [`emit_download_log`] and [`emit_verbose_download_log`] to
+/// auto-enrich every `[MeedyaDL]` log line with the affected media item,
+/// so downstream readers (Activity Log UI, on-disk forensic file) don't
+/// have to cross-reference the 8-char download ID against the queue page
+/// to know which album / track a message refers to.
+///
+/// **Best-effort by design.** Uses `try_lock` on the queue mutex, so:
+///   - If the caller already holds the queue lock (common pattern in
+///     `download_queue.rs` — emit happens inside `lock().await { … }`),
+///     the lookup returns `None` and the message is emitted unchanged.
+///   - If the queue is unavailable (e.g. before Tauri `setup` runs, or
+///     in unit tests), the lookup returns `None`.
+///
+/// Trading off "guaranteed every line gets a label" for "never blocks
+/// the emitter, never deadlocks". The 95% of emissions that happen
+/// outside held-lock blocks get the label; the rest fall back to the
+/// pre-#706-style bare `[MeedyaDL]` line.
+fn lookup_media_label(app: &tauri::AppHandle, download_id: &str) -> Option<String> {
+    if download_id == SYSTEM_LOG_ID {
+        return None;
+    }
+    let queue = app.try_state::<QueueHandle>()?;
+    let q = queue.try_lock().ok()?;
+    q.media_label_for(download_id)
+}
+
+/// Appends the media label to a message, separated by ` — `, when a
+/// label is provided. No-op when label is `None` so callers can wrap
+/// every emit unconditionally.
+fn append_label(message: &str, label: Option<String>) -> String {
+    match label {
+        Some(label) => format!("{message} — {label}"),
+        None => message.to_string(),
+    }
+}
+
 /// Payload for the `"activity-log"` Tauri event.
 ///
 /// Stream values:
@@ -110,11 +152,13 @@ pub struct ActivityLogEvent {
 /// and other per-download diagnostic messages. Also writes to the tracing
 /// file log so enrichment progress is captured on disk.
 pub fn emit_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    log::info!("[{download_id}] {message}");
+    let label = lookup_media_label(app, download_id);
+    let line = append_label(message, label);
+    log::info!("[{download_id}] {line}");
     let event = ActivityLogEvent {
         download_id: download_id.to_string(),
         stream: "internal",
-        line: message.to_string(),
+        line,
         timestamp: chrono::Utc::now().to_rfc3339(),
     };
     let _ = app.emit("activity-log", &event);
@@ -147,13 +191,15 @@ pub fn emit_app_log(app: &tauri::AppHandle, message: &str) {
 /// distinguish it from normal messages. Always written to the tracing
 /// file log as `debug` regardless of the verbose setting.
 pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    log::debug!("[{download_id}] [VERBOSE] {message}");
+    let label = lookup_media_label(app, download_id);
+    let enriched = append_label(message, label);
+    log::debug!("[{download_id}] [VERBOSE] {enriched}");
     // Always persist verbose events to disk so bug-hunting sessions
     // have the full record, even when the UI is not showing them.
     let event = ActivityLogEvent {
         download_id: download_id.to_string(),
         stream: "internal",
-        line: format!("[VERBOSE] {message}"),
+        line: format!("[VERBOSE] {enriched}"),
         timestamp: chrono::Utc::now().to_rfc3339(),
     };
     write_to_disk(&event);

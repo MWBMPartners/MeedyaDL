@@ -459,7 +459,11 @@ fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
 /// otherwise be ambiguous. Prefers the cached Apple Music API names
 /// (`artist_name` — `album_name` — `current_track`) populated at enqueue
 /// time, and falls back to the first URL when names are unavailable.
-fn format_content_label(status: &QueueItemStatus) -> String {
+///
+/// `pub(crate)` because the activity log emitter ([`crate::utils::activity_log::emit_download_log`])
+/// auto-enriches every `[MeedyaDL]` line with this label so the on-disk
+/// log and UI both identify which queued item a message refers to.
+pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
     let mut parts: Vec<&str> = Vec::with_capacity(3);
     if let Some(artist) = status.artist_name.as_deref().filter(|s| !s.is_empty()) {
         parts.push(artist);
@@ -956,6 +960,15 @@ const PROGRESS_LRC_CONVERSION_STAGE: f32 = 0.25;
 const PROGRESS_ANIMATED_ARTWORK_STAGE: f32 = 0.40;
 const PROGRESS_ACOUSTID_STAGE: f32 = 0.55;
 const PROGRESS_REPLAYGAIN_STAGE: f32 = 0.75;
+/// Stage 6 / 6b — music-video discovery (MusicKit API + MusicBrainz ISRC).
+/// Filled this gap to stop the per-item progress label from sticking on
+/// "ReplayGain loudness analysis…" while these later stages run silently.
+const PROGRESS_MUSIC_VIDEO_STAGE: f32 = 0.85;
+/// Tail-end of the enrichment task — manifest write, post-companion
+/// advisory pass, and any final tag plumbing. Keeps the bar moving so
+/// users can tell the difference between "enrichment ongoing" and
+/// "stuck on a previous stage".
+const PROGRESS_FINALISING_STAGE: f32 = 0.95;
 
 // ============================================================
 // Manifest writer
@@ -1609,6 +1622,26 @@ impl DownloadQueue {
     #[must_use]
     pub fn get_status(&self) -> Vec<QueueItemStatus> {
         self.items.iter().map(|item| item.status.clone()).collect()
+    }
+
+    /// Returns the formatted media label
+    /// (`Artist — Album — Track`, with URL fallback) for a given
+    /// download ID, or `None` if no item with that ID exists or the
+    /// label is empty.
+    ///
+    /// Used by [`crate::utils::activity_log::emit_download_log`] to
+    /// auto-enrich every `[MeedyaDL]` activity-log line so users don't
+    /// have to cross-reference the 8-char download ID against the queue
+    /// page to know which item a message refers to.
+    #[must_use]
+    pub fn media_label_for(&self, download_id: &str) -> Option<String> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        let label = format_content_label(&item.status);
+        if label.is_empty() {
+            None
+        } else {
+            Some(label)
+        }
     }
 
     /// Returns summary counts for the queue: (total, active, queued, completed, failed).
@@ -4924,31 +4957,55 @@ fn spawn_companion_downloads(
         }
 
         // Prefer the targeted `{output_dir}/{artist}/{album}/` resolution
-        // when we have both hints, falling back to a recursive walk only
-        // when hints aren't available or the targeted path doesn't exist
-        // yet (#502). The recursive walk over a large library can take
-        // several minutes — scoping eliminates the perceived "hang" the
-        // user saw between a finished companion and the next queue item.
+        // when we have both hints; only do a (depth-bounded) recursive
+        // walk when hints aren't available (#502 / #707-followup).
+        //
+        // **Why we no longer fall back to the recursive walk when the
+        // scoped path exists but has no TTML.** Previously, an item that
+        // was skipped during primary GAMDL (e.g. `Atmos` not available)
+        // produced an empty scoped directory; the code then recursively
+        // walked the ENTIRE output tree (typically the user's whole
+        // music library, tens of thousands of files) looking for TTML
+        // and ran lyrics conversion on every other album. For a library
+        // with many existing albums that has produced 30+ minutes of
+        // silent CPU/disk work plus log entries like
+        // `Companion: converted N TTML file(s)` for albums that had
+        // nothing to do with the queued item. Now: if we have hints
+        // and the scoped path exists, we operate ONLY inside it (even
+        // if it has no TTML — nothing to do is the correct outcome).
+        // The recursive fallback only runs when no hints are available
+        // (older queue items with no API metadata yet), and even then
+        // it's depth-bounded to 10 levels via [`find_dirs_with_ttml`].
         let album_dirs: Vec<std::path::PathBuf> = match (artist_hint, album_hint) {
             (Some(artist), Some(album)) => {
                 let scoped = base.join(artist).join(album);
-                if scoped.is_dir() && find_dirs_with_ttml(&scoped).iter().any(|p| p == &scoped) {
+                if scoped.is_dir() {
                     log::debug!(
                         "Companion lyrics: scoped to album dir {} for {dl_id}",
                         scoped.display()
                     );
-                    vec![scoped]
+                    find_dirs_with_ttml(&scoped)
                 } else {
                     log::debug!(
-                        "Companion lyrics: scoped path {} missing TTML — falling back to recursive walk",
+                        "Companion lyrics: scoped path {} does not exist — \
+                         skipping conversion (item likely had no successful audio)",
                         scoped.display()
                     );
-                    find_dirs_with_ttml(base)
+                    Vec::new()
                 }
             }
             _ => {
                 log::debug!(
-                    "Companion lyrics: no artist/album hints for {dl_id} — recursive walk over {output_dir}"
+                    "Companion lyrics: no artist/album hints for {dl_id} — \
+                     recursive walk (depth-limited) over {output_dir}"
+                );
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Companion: scanning {output_dir} for TTML lyrics \
+                         (no album hints available, depth-limited to 10)..."
+                    ),
                 );
                 find_dirs_with_ttml(base)
             }
@@ -4959,6 +5016,14 @@ fn spawn_companion_downloads(
             );
             return;
         }
+        emit_download_log(
+            app,
+            dl_id,
+            &format!(
+                "Companion lyrics conversion: processing {} album dir(s)...",
+                album_dirs.len()
+            ),
+        );
 
         for album_dir in &album_dirs {
             // Cooperative-cancel checkpoint #2 (#663). Without this,
@@ -5042,16 +5107,40 @@ fn spawn_companion_downloads(
     /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
     /// and collects every directory that directly contains at least one
     /// `.ttml` file.
+    ///
+    /// **Depth-limited** to 10 levels (matching the convention used by
+    /// `scan_folder_for_manifests`). Without a cap, pointing this at a
+    /// large user music library walks tens of thousands of directories
+    /// and stalls the companion task for tens of minutes — the symptom
+    /// the user reported as a 30-minute silent gap between
+    /// `Companion download complete` and `Companion: converted N TTML…`.
     fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        const MAX_DEPTH: u32 = 10;
+        find_dirs_with_ttml_inner(base, 0, MAX_DEPTH)
+    }
+
+    fn find_dirs_with_ttml_inner(
+        base: &std::path::Path,
+        depth: u32,
+        max_depth: u32,
+    ) -> Vec<std::path::PathBuf> {
         let mut result = Vec::new();
         let mut has_ttml_here = false;
+
+        if depth > max_depth {
+            log::debug!(
+                "find_dirs_with_ttml: depth limit {max_depth} reached at {} — stopping descent",
+                base.display()
+            );
+            return result;
+        }
 
         if let Ok(entries) = std::fs::read_dir(base) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    // Recurse into subdirectories
-                    result.extend(find_dirs_with_ttml(&path));
+                    // Recurse into subdirectories (depth-bounded).
+                    result.extend(find_dirs_with_ttml_inner(&path, depth + 1, max_depth));
                 } else if path
                     .extension()
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
@@ -7544,6 +7633,11 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ ReplayGain analysis completed{}", album_context()));
 
+                            set_label(
+                                "Music video discovery...",
+                                PROGRESS_MUSIC_VIDEO_STAGE,
+                            );
+
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
                             // API for music videos related to the downloaded tracks (requires
@@ -7697,6 +7791,11 @@ pub fn process_queue(
                                 &enrich_app,
                                 &enrich_dl_id,
                                 "Download manifest saved to album folder",
+                            );
+
+                            set_label(
+                                "Finalising metadata...",
+                                PROGRESS_FINALISING_STAGE,
                             );
 
                             emit_download_log(
