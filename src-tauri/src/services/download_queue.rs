@@ -9276,13 +9276,30 @@ async fn run_download_with_events(
         // instead of the generic per-track-error count. Storefront
         // fallback wouldn't help here — the URL works fine, GAMDL's
         // template engine is at fault.
+        //
+        // **v3.5.1 status (Phase 3.5i, 2026-05-08)**: NOT fixed.
+        // GAMDL 3.5.1's only change was the music-video m3u8 HLS
+        // fix (`error 403` → success). The cover-URL templating bug
+        // is a separate code path inside GAMDL's per-track cover
+        // fetcher and remains broken on the latest release. The
+        // user-facing message therefore continues to recommend
+        // reporting upstream (the existing GitHub issue is the right
+        // place to track resolution).
+        //
+        // **Workaround tracking**: a viable client-side workaround
+        // is to retry with `--exclude-tags cover` when this bug
+        // fires; GAMDL skips the buggy fetch path entirely and
+        // MeedyaDL's own `animated_artwork_service` can supply the
+        // album cover separately. Tracked as a follow-up issue.
         if process::is_gamdl_mv_cover_template_bug(&combined) {
             return Err(format!(
                 "GAMDL bug — music-video cover URL not templated. \
                  Apple returned 400 Bad Request for {soft_errors} track(s) \
                  because GAMDL sent the literal `{{w}}x{{h}}` placeholders \
-                 instead of real dimensions. This is upstream — please \
-                 report at https://github.com/glomatico/gamdl/issues. \
+                 instead of real dimensions. Upstream — not fixed in \
+                 GAMDL 3.5.1 (which only addressed the music-video m3u8 \
+                 HLS 403). Please report at \
+                 https://github.com/glomatico/gamdl/issues. \
                  Audio for affected tracks did not download."
             ));
         }
