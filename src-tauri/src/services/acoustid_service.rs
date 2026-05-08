@@ -472,34 +472,25 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
             files.push(path.to_path_buf());
         }
     } else if path.is_dir() {
-        collect_m4a_recursive(path, &mut files);
+        // Migrated to walk_dir_depth in v1.0.8 (#716/1). max_depth=3
+        // matches GAMDL's natural Output/Artist/Album/file shape; the
+        // helper docs call this out as the conventional value for
+        // album-scoped walkers. Filesystem sidecars (._*, .DS_Store,
+        // Thumbs.db) skipped to avoid Chromaprint extraction noise
+        // on non-audio binaries (#577).
+        files.extend(crate::utils::fs_walk::walk_dir_depth(path, 3, |p| {
+            if crate::utils::fs_safe::is_filesystem_sidecar(p) {
+                return None;
+            }
+            if p.is_file() && is_m4a(p) {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        }));
     }
 
     files
-}
-
-/// Recursively collect M4A file paths from a directory tree.
-///
-/// Skips filesystem sidecars (macOS `._*` AppleDouble, `.DS_Store`,
-/// Windows `Thumbs.db`, etc.) — running Chromaprint / fingerprint
-/// extraction on a non-audio binary produces errors and contributes
-/// noise to the activity log (#577).
-fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-        if path.is_dir() {
-            collect_m4a_recursive(&path, files);
-        } else if is_m4a(&path) {
-            files.push(path);
-        }
-    }
 }
 
 /// Checks whether a file path has an `.m4a` extension (case-insensitive).

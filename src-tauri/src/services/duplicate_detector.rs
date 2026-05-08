@@ -1213,7 +1213,7 @@ pub fn collect_history_keys(
         return HashSet::new();
     }
     let mut keys = HashSet::new();
-    walk_manifests(root, &mut keys, 0, 10, strategy);
+    walk_manifests(root, &mut keys, 10, strategy);
     log::debug!(
         "Dedup: collected {} history key(s) from {}",
         keys.len(),
@@ -1222,38 +1222,32 @@ pub fn collect_history_keys(
     keys
 }
 
+/// Walk a library root for `manifest.meedyadl` files and harvest
+/// dedup keys from each one's track list.
+///
+/// Migrated to [`crate::utils::fs_walk::walk_dir_depth`] in #716
+/// finding #1 (v1.0.8). The visitor side-effects into the
+/// caller-supplied `HashSet` because each manifest yields 0..N keys
+/// (one per track), which doesn't fit the helper's 1:1 visitor →
+/// result mapping. Returning `None` from the visitor keeps the
+/// helper's accumulator empty while we drain into `keys` directly.
 fn walk_manifests(
     dir: &std::path::Path,
     keys: &mut HashSet<String>,
-    depth: u32,
     max_depth: u32,
     strategy: DedupKeyStrategy,
 ) {
-    if depth > max_depth {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_manifests(&path, keys, depth + 1, max_depth, strategy);
-            continue;
+    crate::utils::fs_walk::walk_dir_depth(dir, max_depth, |path| {
+        if !path.is_file() {
+            return None;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
+        let name = path.file_name().and_then(|n| n.to_str())?;
         if name != "manifest.meedyadl" && name != ".meedyadl" {
-            continue;
+            return None;
         }
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(manifest) = serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents)
-        else {
-            continue;
-        };
+        let contents = std::fs::read_to_string(path).ok()?;
+        let manifest =
+            serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents).ok()?;
         for source in &manifest.sources {
             for track in &source.tracks {
                 if let Some(key) = build_track_key_from_parts(
@@ -1265,7 +1259,8 @@ fn walk_manifests(
                 }
             }
         }
-    }
+        None::<()>
+    });
 }
 
 /// Extract the `song_id` from a `?i={id}` query parameter, case-insensitively.
