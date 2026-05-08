@@ -349,7 +349,6 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       // (typically rate limiter, occasionally network) — without this,
       // a successful upgrade keeps showing the "v3.0 → v3.3" badge
       // until the next periodic refresh ~6h later.
-      // eslint-disable-next-line no-console
       console.warn('Post-upgrade refresh failed (upgrade itself succeeded):', e);
       const previous = get().lastResult;
       if (previous) {

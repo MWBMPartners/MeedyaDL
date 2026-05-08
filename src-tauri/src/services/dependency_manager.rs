@@ -1837,7 +1837,7 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
 /// # Arguments
 /// * `dir` - The directory to search in
 /// * `tool_id` - The tool identifier (used to determine the binary name)
-fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
+fn find_binary_recursive(dir: &std::path::Path, tool_id: &str) -> Option<PathBuf> {
     let exe_ext = if cfg!(target_os = "windows") {
         ".exe"
     } else {
@@ -1866,27 +1866,23 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
     };
 
     // Walk the directory tree depth-first looking for any matching binary.
-    // This handles archives with arbitrary nesting (e.g., Bento4 SDK has bin/ subdir).
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                // Check if this file matches any of our search names
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if search_names.iter().any(|s| s == name) {
-                        return Some(path);
-                    }
-                }
-            } else if path.is_dir() {
-                // Recurse into subdirectories (depth-first search)
-                if let Some(found) = find_binary_recursive(&path, tool_id) {
-                    return Some(found);
-                }
-            }
+    // This handles archives with arbitrary nesting (e.g., Bento4 SDK has
+    // bin/ subdir). Migrated to walk_dir_find_first in v1.0.9 (#716/1)
+    // which adds a max_depth bound — previously unbounded. depth=5 covers
+    // every archive shape we've encountered (deepest known is BtbN's
+    // ffmpeg-master-latest-linux64-gpl/bin/ffmpeg at depth 2) with
+    // generous headroom; if a future archive nests deeper, raise this.
+    crate::utils::fs_walk::walk_dir_find_first(dir, 5, |path| {
+        if !path.is_file() {
+            return None;
         }
-    }
-
-    None
+        let name = path.file_name().and_then(|n| n.to_str())?;
+        if search_names.iter().any(|s| s == name) {
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    })
 }
 
 /// Installs all companion FFmpeg binaries (ffprobe, ffplay) alongside ffmpeg.
@@ -1918,7 +1914,7 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
         }
 
         // Search the extracted archive tree (BtbN archives nest in bin/)
-        if let Some(found) = find_file_recursive(&tool_dir.to_path_buf(), &binary_name) {
+        if let Some(found) = find_file_recursive(tool_dir, &binary_name) {
             match std::fs::copy(&found, &dest) {
                 Ok(_) => {
                     archive::set_executable(&dest).ok();
@@ -1991,24 +1987,21 @@ fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std:
 ///
 /// Unlike `find_binary_recursive`, this searches for any filename rather than
 /// tool-specific names. Used to find companion binaries like ffprobe.
-fn find_file_recursive(dir: &PathBuf, filename: &str) -> Option<PathBuf> {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name == filename {
-                        return Some(path);
-                    }
-                }
-            } else if path.is_dir() {
-                if let Some(found) = find_file_recursive(&path, filename) {
-                    return Some(found);
-                }
-            }
+///
+/// Migrated to `walk_dir_find_first` in v1.0.9 (#716/1) — previously
+/// unbounded recursion. depth=5 matches `find_binary_recursive`; same
+/// archive-shape rationale applies.
+fn find_file_recursive(dir: &std::path::Path, filename: &str) -> Option<PathBuf> {
+    crate::utils::fs_walk::walk_dir_find_first(dir, 5, |path| {
+        if !path.is_file() {
+            return None;
         }
-    }
-    None
+        if path.file_name().and_then(|n| n.to_str()) == Some(filename) {
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    })
 }
 
 /// Attempts to get the version of an installed tool binary.
