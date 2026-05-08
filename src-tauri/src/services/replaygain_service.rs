@@ -563,34 +563,24 @@ fn collect_audio_files(output_path: &str) -> Vec<PathBuf> {
             files.push(path.to_path_buf());
         }
     } else if path.is_dir() {
-        collect_audio_recursive(path, &mut files);
+        // Migrated to walk_dir_depth in v1.0.8 (#716/1). max_depth=3
+        // matches GAMDL's natural Output/Artist/Album/file shape;
+        // filesystem sidecars (._*, .DS_Store, Thumbs.db) skipped to
+        // avoid FFmpeg loudness-analysis noise on non-audio binaries
+        // (#577).
+        files.extend(crate::utils::fs_walk::walk_dir_depth(path, 3, |p| {
+            if crate::utils::fs_safe::is_filesystem_sidecar(p) {
+                return None;
+            }
+            if p.is_file() && detect_format(p).is_some() {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        }));
     }
 
     files
-}
-
-/// Recursively collect supported audio/video file paths from a directory tree.
-///
-/// Skips filesystem sidecars (macOS `._*` AppleDouble, `.DS_Store`,
-/// Windows `Thumbs.db`, etc.) — running FFmpeg loudness analysis on
-/// a non-audio binary fails and contributes noise to the activity
-/// log (#577).
-fn collect_audio_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-        if path.is_dir() {
-            collect_audio_recursive(&path, files);
-        } else if detect_format(&path).is_some() {
-            files.push(path);
-        }
-    }
 }
 
 // ============================================================
