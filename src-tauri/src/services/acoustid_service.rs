@@ -383,10 +383,10 @@ async fn lookup_acoustid(
     duration: u32,
     api_key: &str,
 ) -> Result<Option<String>, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    // Phase 1.0.2 (#716 finding #2): migrated to the shared
+    // `utils::http_client::build_simple` helper. Same 30-second timeout,
+    // same canonical error string, no behavioural change.
+    let client = crate::utils::http_client::build_simple(30)?;
 
     let response = client
         .post(ACOUSTID_API_URL)
