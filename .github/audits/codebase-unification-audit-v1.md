@@ -79,17 +79,19 @@ This document captures the read-only audit findings, in **value-to-effort order*
 
 ---
 
-## 5. Frontend Zustand store load/save/persist pattern — issue: TBD
+## 5. Frontend Zustand store load/save/persist pattern — **primitive landed v1.0.7**
 
 **Locations:** [`src/stores/*.ts`](../../src/stores/) — settingsStore, downloadStore, activityStore, dependencyStore, updateStore, serviceStatusStore (6+ stores).
 
 **Pattern:** Each store does load → save → optional debounce → persist via `tauri-commands.ts` IPC. Boilerplate is nearly identical.
 
-**Consolidation:** Higher-order `createPersistentStore<T>(key, defaults, loaders)` factory.
+**Consolidation:** [`createAsyncResourceStore<T>`](../../src/lib/createAsyncResourceStore.ts) factory — config takes `defaults`, `load`, optional `save`, optional `debounceMs`. Returns a Zustand hook with `data` / `isLoading` / `isDirty` / `error` reactive state and `load` / `save` / `debouncedSave` / `update` / `reset` actions. Read-only stores (no `save` config) get silent no-ops on save paths so consumers don't need to narrow.
 
-**Size:** 40-60 lines shared + 30-40 per store (currently 80-120). **Risk:** low-to-medium.
+**Size:** 165 lines factory + 15 tests (15 pass). **Risk:** low — additive primitive, no existing store touched.
 
-**Multi-service relevance:** **Medium** — saves ~50 lines per per-service settings page.
+**Multi-service relevance:** **Medium** — saves ~50 lines per per-service settings page; primary consumer is the M8/M9/M10 per-service settings stores when those land.
+
+**Migration status:** factory landed in v1.0.7; **migration of existing stores deferred** to a follow-up cycle. Each existing store has 30+ component consumers using the per-store API names (`settings`, `loadSettings`, `saveSettings`, etc.) — a full rename to the generic API (`data`, `load`, `save`) would be a high-touch refactor whose value is questionable for already-working stores. New stores should use the factory from day one.
 
 ---
 
