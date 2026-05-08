@@ -1854,33 +1854,26 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
         // Depth 0 = album dir itself, depth 1 = disc subdirectories.
         // Do NOT recurse deeper to prevent cross-contamination when
         // the directory is an artist dir instead of album dir (#452).
-        collect_m4a_depth_limited(path, &mut files, 0, 1);
+        // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
+        // (#716 finding #1, v1.0.3 prep). Depth limit and sidecar-skip
+        // semantics preserved exactly.
+        files.extend(crate::utils::fs_walk::walk_dir_depth(
+            path,
+            1,
+            |p| {
+                if crate::utils::fs_safe::is_filesystem_sidecar(p) {
+                    return None;
+                }
+                if is_m4a(p) {
+                    Some(p.to_path_buf())
+                } else {
+                    None
+                }
+            },
+        ));
     }
 
     files
-}
-
-/// Collect M4A files with depth-limited recursion.
-///
-/// `max_depth` limits how many subdirectory levels to descend. For album
-/// directories, depth 1 covers disc subdirectories (e.g., `Disc 1/`, `Disc 2/`)
-/// without descending into sibling album directories (#452).
-fn collect_m4a_depth_limited(dir: &Path, files: &mut Vec<PathBuf>, depth: u32, max_depth: u32) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-        if path.is_dir() && depth < max_depth {
-            collect_m4a_depth_limited(&path, files, depth + 1, max_depth);
-        } else if is_m4a(&path) {
-            files.push(path);
-        }
-    }
 }
 
 // ============================================================
