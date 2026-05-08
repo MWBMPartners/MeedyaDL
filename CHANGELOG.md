@@ -168,6 +168,33 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- **(release)** V1.0.9 prep — walk_dir_find_first + last two walker migrations (#727)
+
+## Summary
+
+  Ninth in the v1.0.x prep series. Closes out the recursive-walker
+  consolidation (#716 finding #1).
+
+  **New helper:** \`walk_dir_find_first<T, F>(base, max_depth, visitor) ->
+  Option<T>\` in
+  [\`utils/fs_walk.rs\`](../blob/feat/v1.0.9-prep/src-tauri/src/utils/fs_walk.rs).
+  Find-first companion to \`walk_dir_depth\` — short-circuits as soon as
+  the visitor matches. 6 unit tests covering depth-zero match,
+  descend-into-subdirs, no-match, max_depth, short-circuit (call counter),
+  missing dir.
+
+  **Migrations** (the last two hand-rolled recursive walkers):
+
+  | Function | Was | Now |
+  |---|---|---|
+  | find_binary_recursive (dependency_manager.rs) | UNBOUNDED | depth=5,
+  walk_dir_find_first |
+  | find_file_recursive (dependency_manager.rs) | UNBOUNDED | depth=5,
+  walk_dir_find_first |
+
+  Both signatures cleaned: \`&PathBuf\` → \`&Path\` (clippy::ptr_arg); one
+  \`&tool_dir.to_path_buf()\` call simplified.
+
 
 ### 🐛 Bug Fixes
 
@@ -308,6 +335,8 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.7 [skip ci]
 - **(security)** Update supported versions to 1.0.8 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.9 [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
