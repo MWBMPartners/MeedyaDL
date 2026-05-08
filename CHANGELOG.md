@@ -35,6 +35,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 4 commits delivering:
 
+- **(release)** V1.0.5 prep — Library Scan gap-fill modal + Re-download action
+
+3 commits delivering:
+
 
 ### 🐛 Bug Fixes
 
@@ -167,6 +171,8 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - **(security)** Update supported versions to 1.0.3 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.5 [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
