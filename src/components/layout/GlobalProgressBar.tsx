@@ -22,7 +22,7 @@
 import { useMemo, useState, useEffect } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
-import type { QueueItemStatus } from '@/types';
+import { formatActiveItemCaption } from '@/lib/progress-caption';
 
 /**
  * Platform detection config — loaded once from engines.toml via IPC.
@@ -184,61 +184,6 @@ function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
   }
 
   return null; // Loading
-}
-
-/**
- * Builds the per-item progress-bar caption from a queue item's state
- * (Phase 3.5f extraction). Three resolution paths in priority order:
- *
- *   1. **`processing_label`** wins outright. The backend pre-assembles
- *      this as `{stage label} — {Artist}: {Album}` via
- *      `progress_stages::set_stage_with_label` so the format and
- *      Artist/Album suffix are already correct; the frontend just
- *      displays it. This covers every enrichment + companion stage.
- *
- *   2. **`current_track`** present (download underway, GAMDL is
- *      iterating tracks): assemble a `DOWNLOADING…Artist — Album —
- *      "Track"` caption inline. Track in quotes because it changes
- *      per-track and the quotes signal "this is what's transferring
- *      right now"; Artist/Album are stable context.
- *
- *   3. **Fallback**: just the album name (or first URL if even the
- *      album is unknown — typically pre-metadata-fetch state).
- *
- * Pre-Phase 3.5f this lived as an IIFE inside the component body,
- * mixing rendering control flow with caption assembly. Extracting it
- * makes the rules testable in isolation and lets future format tweaks
- * (e.g. CJK truncation, RTL handling) live in one place.
- *
- * Exported as a const so unit tests can import it without rendering
- * the full component tree.
- */
-export function formatActiveItemCaption(
-  item: QueueItemStatus | null | undefined
-): string {
-  if (!item) return 'Waiting…';
-
-  // Path 1: backend-assembled processing label.
-  if (item.processing_label) return item.processing_label;
-
-  const track = item.current_track;
-  const album = item.album_name;
-  const artist = item.artist_name;
-  const isDownloading = item.state === 'downloading';
-
-  // Path 2: assemble from per-track context.
-  if (track) {
-    const parts: string[] = [];
-    if (artist) parts.push(artist);
-    if (album) parts.push(album);
-    parts.push(`"${track}"`);
-    const label = parts.join(' — ');
-    return isDownloading ? `DOWNLOADING...${label}` : label;
-  }
-
-  // Path 3: fallback to album / URL.
-  const fallback = album ?? item.urls?.[0] ?? '';
-  return isDownloading ? `DOWNLOADING...${fallback}` : fallback;
 }
 
 /**
