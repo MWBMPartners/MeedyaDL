@@ -81,6 +81,48 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- **(release)** V1.0.7 prep — Zustand async-resource factory primitive (#725)
+
+## Summary
+
+  Seventh in the v1.0.x prep series. One landing:
+
+  - **#716 finding #5**: \`createAsyncResourceStore<T extends
+  object>(config)\` factory in
+  [\`src/lib/createAsyncResourceStore.ts\`](../blob/feat/v1.0.7-prep/src/lib/createAsyncResourceStore.ts).
+  Returns a Zustand hook with the standard
+  \`data\`/\`isLoading\`/\`isDirty\`/\`error\` reactive state and
+  \`load\`/\`save\`/\`debouncedSave\`/\`update\`/\`reset\` actions.
+  Read-only stores (no \`save\` config) get silent no-ops on save paths.
+  Default debounce window 300ms.
+  - **15 unit tests** covering initial defaults, load
+  happy/error/non-Error rejections, save happy/error/re-throw, debounce
+  batching + default-300ms + read-only-noop + error surfacing, update
+  shallow-merge + reference equality, reset.
+  - Audit doc finding #5 marked **primitive landed; opt-in migration
+  deferred**.
+
+  **No existing store migrated in this PR.** Each existing store has 30+
+  component consumers using per-store API names (\`settings\`,
+  \`loadSettings\`, \`saveSettings\`, etc.); migrating those is a separate
+  cycle whose value is debatable for already-working code. The primary
+  consumer is the M8/M9/M10 per-service settings stores when those land.
+
+  Versions bumped 1.0.6 → 1.0.7.
+
+  ## Test plan
+
+  - [x] \`cargo check\` clean (Cargo.lock refresh only)
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean (sole warning is pre-existing in
+  updateStore.ts)
+  - [x] \`npm run test\` — 330 pass (15 new from
+  createAsyncResourceStore.test.ts)
+  - [ ] CI green
+  - [ ] (Manual not applicable — additive primitive, no UI surface)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 🐛 Bug Fixes
 
@@ -216,6 +258,8 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.5 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.6 [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
