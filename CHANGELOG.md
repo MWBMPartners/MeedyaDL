@@ -39,6 +39,48 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 3 commits delivering:
 
+- **(release)** V1.0.6 prep — Library Scan freshness + helper migration (#724)
+
+## Summary
+
+  Sixth in the v1.0.x prep series. Three landings:
+
+  - **#717/5c**: Apple Music \`lastModifiedDate\` freshness check per
+  Library Scan row. New \`check_library_scan_freshness\` IPC +
+  \`LibraryScanFreshness\` tagged union. Frontend dispatches throttled to
+  5 concurrent calls; \`Sparkles\` "Content updated" badge renders
+  alongside the existing diff badge. Re-download button enables for both
+  \`plan\` (missing tracks) AND \`updated\` (content changed upstream —
+  added tracks, Atmos mix, ADM certification).
+  - **#717/5g**: 10 unit tests for \`MvGapFillModal\` covering all four
+  override outcomes in the 2x2 table (ENABLED+Yes→null, ENABLED+No→false,
+  DISABLED+Yes→true, DISABLED+No→null) plus null-manifest gating, prompt
+  copy, and Cancel vs Confirm.
+  - **#716 finding #1** (one more migration):
+  \`scan_dir_for_manifests_recursive\` → \`walk_dir_depth(base, 10,
+  parse_manifest_at_path)\`. ~90 lines of recursive boilerplate gone;
+  behaviour preserved (empty-source manifests still skipped via \`None\`
+  returns).
+
+  Versions bumped 1.0.5 → 1.0.6 across package.json, Cargo.toml,
+  tauri.conf.json, .release-please-manifest.json.
+
+  ## Test plan
+
+  - [x] \`cargo clippy --tests -- -D warnings\` clean
+  - [x] \`cargo test --lib\` — 993 pass, 1 ignored
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean (sole warning is pre-existing in
+  updateStore.ts)
+  - [x] \`npm run test\` — 315 pass (10 new from MvGapFillModal.test.tsx)
+  - [ ] CI green
+  - [ ] Manual: scan a folder, confirm freshness badge appears for updated
+  albums (or stays absent for users without MusicKit creds)
+  - [ ] Manual: confirm the new helper-migrated scanner still finds
+  manifests at depth 0..10
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 🐛 Bug Fixes
 
@@ -173,6 +215,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - **(security)** Update supported versions to 1.0.4 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.5 [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [0.53.3] - 2026-05-08
 
