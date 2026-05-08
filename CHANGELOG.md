@@ -340,6 +340,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.10 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -412,6 +413,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- **(activitylog)** Focused unit tests — #232 part 3 (#730)
 
 ## [0.53.3] - 2026-05-08
 
