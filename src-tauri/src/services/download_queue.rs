@@ -7046,6 +7046,10 @@ pub fn process_queue(
                             // Falls back to standard line-level LRC for songs without
                             // word-level timing in their TTML.
                             if enrich_settings.enhanced_lrc {
+                                set_label(
+                                    "Generating Enhanced LRC…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7116,6 +7120,10 @@ pub fn process_queue(
                             // Runs after lyrics fallback so all available sources are present.
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_webvtt && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Generating WebVTT subtitles…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7166,6 +7174,10 @@ pub fn process_queue(
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_rich_srt && !enrich_shutdown.is_triggered()
                             {
+                                set_label(
+                                    "Generating Rich SRT…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7215,6 +7227,10 @@ pub fn process_queue(
                             // MP4/M4A/M4V containers as freeform atoms.
                             tokio::task::yield_now().await;
                             if enrich_settings.embed_subtitles && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Embedding subtitle sidecars…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7255,6 +7271,10 @@ pub fn process_queue(
                             // (colours, bold, italic, positioning, background vocals).
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_ass && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Generating ASS subtitles…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7671,6 +7691,10 @@ pub fn process_queue(
                                         .collect();
 
                                     if !isrc_tracks.is_empty() {
+                                        set_label(
+                                            "MusicBrainz ISRC lookup (rate-limited)…",
+                                            ProgressStage::MusicVideoDiscovery.weight(),
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
@@ -7766,6 +7790,10 @@ pub fn process_queue(
                             // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
+                            set_label(
+                                "Writing download manifest…",
+                                ProgressStage::Finalising.weight(),
+                            );
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
@@ -8007,11 +8035,24 @@ pub fn process_queue(
                                     };
                                     if let Some(output_dir) = advisory_path {
                                         // Make the long, otherwise-silent advisory
-                                        // pass visible in the activity log (#661).
+                                        // pass visible in the activity log (#661)
+                                        // AND on the per-item progress bar — Phase
+                                        // 3.5g, courtesy of the shared
+                                        // `set_stage_with_label` helper from 3.5d
+                                        // (this is the completion task, not the
+                                        // enrichment task, so the closure-local
+                                        // `set_label` was unreachable here pre-3.5d).
                                         // On large box sets this can run for many
                                         // minutes; without a marker, users could
                                         // not tell whether MeedyaDL was hung or
                                         // working.
+                                        set_stage_with_label(
+                                            &completion_app,
+                                            &completion_queue,
+                                            &completion_dl_id,
+                                            ProgressStage::Finalising,
+                                            "Applying [Explicit]/[Clean] suffixes…",
+                                        );
                                         emit_download_log(
                                             &completion_app,
                                             &completion_dl_id,
