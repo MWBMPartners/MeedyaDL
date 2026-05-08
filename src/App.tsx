@@ -135,6 +135,13 @@ import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './compone
 /** UpdatesPage: Detailed update view with full release notes */
 import { UpdatesPage } from './components/updates';
 
+/**
+ * LibraryScanPage (Phase 5 / #717): scan an existing on-disk music library
+ * via the existing `scan_folder_for_manifests` IPC, then offer to re-download
+ * gaps (missing tracks, format upgrades, content updates from Apple Music).
+ */
+import { LibraryScanPage } from './components/library/LibraryScanPage';
+
 /** SettingsPage: Full application settings editor with save/reset */
 import { SettingsPage } from './components/settings';
 
@@ -1054,6 +1061,8 @@ function App() {
         return <DownloadForm />; // URL input form and download options
       case 'queue':
         return <DownloadQueue />; // Real-time download queue with progress
+      case 'library':
+        return <LibraryScanPage />; // Phase 5 (#717): scan existing on-disk library for re-download gaps
       case 'history':
         return <HistoryPage />; // Persistent download history
       case 'activity':
