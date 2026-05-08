@@ -45,7 +45,7 @@ use std::path::Path;
 /// `context` is a short label used in the error messages (e.g.
 /// `"settings"`, `"queue"`, `"manifest"`) — appears literally in the
 /// returned errors.
-pub fn atomic_write_json<T: Serialize>(
+pub fn atomic_write_json<T: Serialize + ?Sized>(
     path: &Path,
     data: &T,
     context: &str,

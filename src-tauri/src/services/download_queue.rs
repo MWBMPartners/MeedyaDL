@@ -5270,46 +5270,34 @@ fn spawn_companion_downloads(
     /// the user reported as a 30-minute silent gap between
     /// `Companion download complete` and `Companion: converted N TTML…`.
     fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
+        // (#716/1, v1.0.4 prep). Strategy: walk every entry, return the
+        // PARENT path of each `.ttml` file the visitor sees, then dedup
+        // via HashSet — net behaviour identical to the previous "scan
+        // each dir, set a `has_ttml_here` flag, push if true" pattern,
+        // but the per-directory state is replaced by post-pass dedup
+        // which fits the visitor model cleanly.
+        //
+        // Depth limit of 10 preserved (the convention used by
+        // `scan_folder_for_manifests`); see #712 for why this matters
+        // — without it, pointing at a large library produces the
+        // 30-minute hang the user reproduced on 2026-05-08.
         const MAX_DEPTH: u32 = 10;
-        find_dirs_with_ttml_inner(base, 0, MAX_DEPTH)
-    }
-
-    fn find_dirs_with_ttml_inner(
-        base: &std::path::Path,
-        depth: u32,
-        max_depth: u32,
-    ) -> Vec<std::path::PathBuf> {
-        let mut result = Vec::new();
-        let mut has_ttml_here = false;
-
-        if depth > max_depth {
-            log::debug!(
-                "find_dirs_with_ttml: depth limit {max_depth} reached at {} — stopping descent",
-                base.display()
-            );
-            return result;
-        }
-
-        if let Ok(entries) = std::fs::read_dir(base) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    // Recurse into subdirectories (depth-bounded).
-                    result.extend(find_dirs_with_ttml_inner(&path, depth + 1, max_depth));
-                } else if path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
+        let parent_dirs: std::collections::HashSet<std::path::PathBuf> =
+            crate::utils::fs_walk::walk_dir_depth(base, MAX_DEPTH, |path| {
+                if path.is_file()
+                    && path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
                 {
-                    has_ttml_here = true;
+                    path.parent().map(|p| p.to_path_buf())
+                } else {
+                    None
                 }
-            }
-        }
-
-        if has_ttml_here {
-            result.push(base.to_path_buf());
-        }
-
-        result
+            })
+            .into_iter()
+            .collect();
+        parent_dirs.into_iter().collect()
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
