@@ -454,6 +454,32 @@ fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+/// Format a human-readable label identifying the content of a queue item,
+/// for use in user-visible activity-log messages where "this content" would
+/// otherwise be ambiguous. Prefers the cached Apple Music API names
+/// (`artist_name` — `album_name` — `current_track`) populated at enqueue
+/// time, and falls back to the first URL when names are unavailable.
+fn format_content_label(status: &QueueItemStatus) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(3);
+    if let Some(artist) = status.artist_name.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(artist);
+    }
+    if let Some(album) = status.album_name.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(album);
+    }
+    if let Some(track) = status.current_track.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(track);
+    }
+    if !parts.is_empty() {
+        return parts.join(" — ");
+    }
+    status
+        .urls
+        .first()
+        .map(|u| redact_url_query(u).to_string())
+        .unwrap_or_else(|| "unknown content".to_string())
+}
+
 pub(crate) fn normalize_url_for_dedup(url: &str) -> String {
     // Split scheme + authority from path+query.
     // URL structure: scheme://authority/path?query#fragment
@@ -851,6 +877,54 @@ fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
     let scaled = BASE_SECS.saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64));
     let clamped = scaled.min(MAX_SECS);
     std::time::Duration::from_secs(clamped)
+}
+
+/// Companion-phase timeout: enrichment budget plus an allowance for each
+/// planned companion tier.
+///
+/// The original [`compute_completion_timeout`] sized the deadline for
+/// **enrichment alone** (per-track ReplayGain / AcoustID / subtitles).
+/// When the same value was reused for the companion wait at a single call
+/// site in the completion task, multi-tier configurations (Atmos → ALAC →
+/// AAC → AAC-Legacy = 4 full GAMDL re-downloads) routinely blew past it,
+/// because each tier is *another* end-to-end download + decrypt + remux
+/// pass. Real-world data from the queue manager: ~5–8 min per tier on a
+/// typical album, so the hard timeout (`× 2`) of 22 min was firing while
+/// tier 2 of 4 was still legitimately running.
+///
+/// **Scaling formula**: enrichment budget + 8 min × tier count, same
+/// 4-hour cap. The per-tier component is additive (not multiplicative)
+/// because enrichment runs once for the whole item regardless of how
+/// many companion variants are produced.
+///
+/// | Tracks × tiers | Soft timeout | Hard (× 2) |
+/// |---|---|---|
+/// | 12 × 0 (no companions) | 12 min | 24 min |
+/// | 12 × 1 (Atmos→Lossless) | 20 min | 40 min |
+/// | 12 × 4 (Atmos→all formats) | 44 min | 88 min |
+/// | 200 × 4 (box-set, 4 tiers) | ~75 min | ~2.5 h |
+/// | unbounded | capped at 4 h | capped at 4 h |
+///
+/// The companion supervisor's per-process idle watchdog
+/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
+/// that genuinely stalls, so this completion-level deadline only needs
+/// to cover the *legitimate* multi-tier wall-clock cost.
+fn compute_companion_timeout(
+    track_count: usize,
+    companion_tier_count: usize,
+) -> std::time::Duration {
+    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
+    /// mp4decrypt + remux on a typical album over a normal connection.
+    /// Generous on purpose: this is a "give up, something is wrong"
+    /// threshold, not a target.
+    const PER_TIER_SECS: u64 = 8 * 60;
+    /// Same absolute cap as the enrichment-only path.
+    const MAX_SECS: u64 = 4 * 3600;
+
+    let enrichment = compute_completion_timeout(track_count).as_secs();
+    let tier_extra = PER_TIER_SECS.saturating_mul(companion_tier_count as u64);
+    let total = enrichment.saturating_add(tier_extra).min(MAX_SECS);
+    std::time::Duration::from_secs(total)
 }
 
 // ============================================================
@@ -1263,6 +1337,69 @@ pub type QueueHandle = Arc<Mutex<DownloadQueue>>;
 #[must_use]
 pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
+}
+
+/// RAII guard that ensures one queue slot is released when the
+/// completion task finishes (#706).
+///
+/// **Why this exists.** The success path of the per-item download task
+/// used to call `q.on_task_finished()` immediately after primary GAMDL
+/// exited (line 6183 pre-#706), then spawn a separate completion task
+/// that awaited enrichment + companions. That early decrement freed
+/// the slot while the previous item was still in post-processing, so
+/// any subsequent `process_queue` invocation (user IPC, fallback
+/// retry, startup recovery) could start the next item in parallel —
+/// violating the strictly-serial contract of #455 and re-introducing
+/// the metadata cross-contamination risk that #452 / #455 were
+/// designed to prevent.
+///
+/// **The fix.** The success-path call is moved into the completion
+/// task so the slot is held throughout post-processing. To make sure
+/// a panic, abort, or runtime shutdown inside the completion task
+/// cannot leak the slot (and stall the entire queue forever), the
+/// task takes ownership of one of these guards on entry. In the
+/// happy path the task calls [`ActiveSlotGuard::disarm`] alongside
+/// the explicit `q.on_task_finished()` so the `Drop` impl is a no-op;
+/// otherwise `Drop` fires a fire-and-forget `tokio::spawn` to release
+/// the slot asynchronously.
+///
+/// Construct exactly one of these per spawn of the completion task —
+/// double-construction would over-release.
+struct ActiveSlotGuard {
+    /// `Some` while armed, `None` once `disarm` has run. `Drop`
+    /// inspects this to decide whether to fire its release task.
+    queue: Option<QueueHandle>,
+}
+
+impl ActiveSlotGuard {
+    fn new(queue: QueueHandle) -> Self {
+        Self { queue: Some(queue) }
+    }
+
+    /// Disarms the guard. Call this from the completion task's happy
+    /// path immediately after the explicit `q.on_task_finished()`,
+    /// inside the same scope as the queue lock that performed the
+    /// release, so `Drop` becomes a no-op.
+    fn disarm(mut self) {
+        self.queue = None;
+    }
+}
+
+impl Drop for ActiveSlotGuard {
+    fn drop(&mut self) {
+        let Some(queue) = self.queue.take() else {
+            return; // disarmed by happy-path
+        };
+        // `Drop` is synchronous; we cannot `.await` here. A
+        // fire-and-forget release task acquires the lock and
+        // decrements `active_count`. If the runtime is shutting
+        // down the spawn may never run, but at that point the
+        // queue accounting no longer matters.
+        tokio::spawn(async move {
+            let mut q = queue.lock().await;
+            q.on_task_finished();
+        });
+    }
 }
 
 impl Default for DownloadQueue {
@@ -4303,6 +4440,18 @@ impl CompanionTaskHandle {
             .map(|progress| progress.describe_pending())
             .unwrap_or_else(|_| "pending companion state unavailable".to_string())
     }
+
+    /// Number of companion tiers planned for this item. Used by the
+    /// completion task to size its companion-phase timeout proportionally
+    /// to the actual workload — a 4-tier "Atmos → all formats" item
+    /// legitimately needs much more wall-clock time than a 1-tier
+    /// "Atmos → Lossless" item.
+    fn tier_count(&self) -> usize {
+        self.progress
+            .lock()
+            .map(|progress| progress.planned_tiers.len())
+            .unwrap_or(0)
+    }
 }
 
 #[derive(Default)]
@@ -5722,11 +5871,19 @@ pub fn process_queue(
                                              (existing={existing_audio}, skipped={skip_count}, \
                                              wrapper={wrapper_active}): {error_msg}"
                                         );
+                                        let content_label = q
+                                            .items
+                                            .iter()
+                                            .find(|i| i.status.id == dl_id)
+                                            .map(|i| format_content_label(&i.status))
+                                            .unwrap_or_else(|| "unknown content".to_string());
                                         emit_download_log(
                                             &app_clone,
                                             &dl_id,
-                                            "GAMDL tried all formats in priority chain \
-                                             — none available for this content",
+                                            &format!(
+                                                "GAMDL tried all formats in priority chain \
+                                                 for {content_label} — none available"
+                                            ),
                                         );
                                     }
                                     // Fall through to partial-success recovery below
@@ -5763,10 +5920,19 @@ pub fn process_queue(
                                         return;
                                     }
                                     // Fallback chain exhausted — fall through to error below
+                                    let content_label = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .map(|i| format_content_label(&i.status))
+                                        .unwrap_or_else(|| "unknown content".to_string());
                                     emit_download_log(
                                         &app_clone,
                                         &dl_id,
-                                        "All audio formats exhausted — no compatible format found",
+                                        &format!(
+                                            "All audio formats exhausted for {content_label} \
+                                             — no compatible format found"
+                                        ),
                                     );
                                 }
                             }
@@ -6077,7 +6243,18 @@ pub fn process_queue(
                         if !all_warnings.is_empty() {
                             q.add_warnings(&dl_id, &all_warnings);
                         }
-                        q.on_task_finished();
+                        // NOTE (#706): `on_task_finished()` deliberately
+                        // does NOT fire here, even though the primary
+                        // GAMDL subprocess has exited. The slot stays
+                        // held by an `ActiveSlotGuard` taken at the top
+                        // of the completion task spawned below, so the
+                        // queue contract from #455 ("ENTIRE pipeline
+                        // completes before the next item starts") is
+                        // actually enforced. Releasing here would let
+                        // any concurrent `process_queue` invocation
+                        // (user IPC, fallback retry, startup recovery)
+                        // grab the next item while this item's
+                        // companions + enrichment are still running.
 
                         // Extract output_path, codec_used, and history metadata while we have the lock
                         let status = q.get_status();
@@ -7575,6 +7752,14 @@ pub fn process_queue(
                         let completion_app = app_clone.clone();
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
+                        // Take ownership of the queue slot for the lifetime of
+                        // the completion task (#706). The success path's early
+                        // `q.on_task_finished()` was removed, so the slot
+                        // remains held until either the explicit release at the
+                        // bottom of this task (happy path) or the guard's Drop
+                        // (panic / abort / runtime shutdown). This makes the
+                        // queue *actually* serial as documented in #455.
+                        let active_guard = ActiveSlotGuard::new(completion_queue.clone());
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
@@ -7593,12 +7778,17 @@ pub fn process_queue(
                             // other per-track enrichment stages, and the fixed
                             // 10 min from #461 was force-completing mid-
                             // ReplayGain with tracks missing their tags.
-                            let output_path_for_timeout = {
+                            let (output_path_for_timeout, content_label) = {
                                 let q = completion_queue.lock().await;
-                                q.items
+                                let item = q
+                                    .items
                                     .iter()
-                                    .find(|i| i.status.id == completion_dl_id)
-                                    .and_then(|i| i.status.output_path.clone())
+                                    .find(|i| i.status.id == completion_dl_id);
+                                let path = item.and_then(|i| i.status.output_path.clone());
+                                let label = item
+                                    .map(|i| format_content_label(&i.status))
+                                    .unwrap_or_else(|| "unknown content".to_string());
+                                (path, label)
                             };
                             let track_count = output_path_for_timeout
                                 .as_deref()
@@ -7638,17 +7828,33 @@ pub fn process_queue(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Enrichment timed out after {timeout_mins} minutes ({track_count} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags"
+                                            "⚠ Enrichment timed out after {timeout_mins} minutes for {content_label} ({track_count} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags"
                                         ),
                                     );
                                     handle.abort();
                                     let _ = handle.await;
                                 }
                             }
-                            // Wait for companion downloads with the same scaled timeout
+                            // Wait for companion downloads with a timeout that
+                            // scales with the planned tier count (each tier is
+                            // a full GAMDL re-download). Reusing the
+                            // enrichment-only deadline here was triggering
+                            // hard-timeouts on multi-tier "Atmos → all formats"
+                            // configurations that were still legitimately
+                            // running.
                             if let Some(mut handle) = companion_handle {
+                                let tier_count = handle.tier_count();
+                                let companion_timeout =
+                                    compute_companion_timeout(track_count, tier_count);
+                                let companion_timeout_mins = companion_timeout.as_secs() / 60;
+                                log::info!(
+                                    "Companion timeout for {}: {} min ({} tier(s) planned)",
+                                    completion_dl_id,
+                                    companion_timeout_mins,
+                                    tier_count,
+                                );
                                 if tokio::time::timeout(
-                                    enrichment_timeout,
+                                    companion_timeout,
                                     &mut handle.handle,
                                 )
                                 .await
@@ -7657,7 +7863,7 @@ pub fn process_queue(
                                     let pending = handle.describe_pending();
                                     log::warn!(
                                         "Companion downloads still running after {} minutes for {} ({})",
-                                        timeout_mins,
+                                        companion_timeout_mins,
                                         completion_dl_id,
                                         pending,
                                     );
@@ -7665,17 +7871,18 @@ pub fn process_queue(
                                         &completion_app,
                                         &completion_dl_id,
                                         &format!(
-                                            "⚠ Companion downloads still running after {timeout_mins} minutes — waiting instead of skipping ({pending}); final tag pass will run afterwards"
+                                            "⚠ Companion downloads still running after {companion_timeout_mins} minutes for {content_label} — waiting instead of skipping ({pending}); final tag pass will run afterwards"
                                         ),
                                     );
                                     if tokio::time::timeout(
-                                        enrichment_timeout,
+                                        companion_timeout,
                                         &mut handle.handle,
                                     )
                                     .await
                                     .is_err()
                                     {
-                                        let hard_timeout_mins = timeout_mins.saturating_mul(2);
+                                        let hard_timeout_mins =
+                                            companion_timeout_mins.saturating_mul(2);
                                         let skipped = handle.describe_pending();
                                         log::warn!(
                                             "Companion downloads hard-timed-out after {} minutes for {} — skipping {}",
@@ -7687,7 +7894,7 @@ pub fn process_queue(
                                             &completion_app,
                                             &completion_dl_id,
                                             &format!(
-                                                "⚠ Companion downloads hard-timed-out after {hard_timeout_mins} minutes — skipping remaining companions: {skipped}; final tag pass still to run"
+                                                "⚠ Companion downloads hard-timed-out after {hard_timeout_mins} minutes for {content_label} — skipping remaining companions: {skipped}; final tag pass still to run"
                                             ),
                                         );
                                         handle.abort();
@@ -7742,12 +7949,21 @@ pub fn process_queue(
                                 }
                             }
 
-                            // Mark as complete now that all background work is done
+                            // Mark as complete and release the queue slot in
+                            // the same lock acquisition (#706). Releasing the
+                            // slot here — *not* at the early line 6246 — is
+                            // what makes the queue actually serial; the next
+                            // item cannot start until set_complete + the
+                            // accompanying decrement land atomically. The
+                            // ActiveSlotGuard is then disarmed so its Drop is
+                            // a no-op and we don't double-release.
                             {
                                 let mut q = completion_queue.lock().await;
                                 q.set_complete(&completion_dl_id);
+                                q.on_task_finished();
                                 drop(q);
                             }
+                            active_guard.disarm();
                             save_queue_to_disk(&completion_app, &completion_queue).await;
                             emit_download_log(
                                 &completion_app,
@@ -7764,9 +7980,8 @@ pub fn process_queue(
                             );
 
                             // Cascade: process the next item in the queue (#455).
-                            // Moved inside completion task so the entire pipeline
-                            // (download + enrichment + companions) completes before
-                            // the next item starts. Prevents metadata cross-contamination.
+                            // The slot was already released a few lines above,
+                            // so `next_pending()` will accept the next item.
                             process_queue(completion_app, completion_queue).await;
                         });
                     }
@@ -7878,11 +8093,20 @@ pub fn process_queue(
                             );
                                 true
                             } else {
+                                let content_label = q
+                                    .items
+                                    .iter()
+                                    .find(|i| i.status.id == dl_id)
+                                    .map(|i| format_content_label(&i.status))
+                                    .unwrap_or_else(|| "unknown content".to_string());
                                 drop(q);
                                 emit_download_log(
                                     &app_clone,
                                     &dl_id,
-                                    "All audio formats exhausted — download failed",
+                                    &format!(
+                                        "All audio formats exhausted for {content_label} \
+                                         — download failed"
+                                    ),
                                 );
                                 false
                             }
@@ -9432,6 +9656,53 @@ mod tests {
         }
     }
 
+    // ----------------------------------------------------------
+    // Companion-phase timeout scaling
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_companion_timeout_zero_tiers_matches_enrichment() {
+        // No companions planned → identical to the enrichment-only path,
+        // so non-companion downloads see no behavioural change.
+        let t = compute_companion_timeout(12, 0);
+        assert_eq!(t, compute_completion_timeout(12));
+    }
+
+    #[test]
+    fn compute_companion_timeout_single_tier_adds_eight_minutes() {
+        // 12-track Atmos→Lossless: enrichment 12 min + 1 tier × 8 min = 20 min.
+        let t = compute_companion_timeout(12, 1);
+        assert_eq!(t.as_secs(), 600 + 120 + 8 * 60);
+    }
+
+    #[test]
+    fn compute_companion_timeout_four_tier_typical_album() {
+        // 12-track Atmos→all formats (Atmos, ALAC, AAC, AAC-Legacy):
+        // enrichment 12 min + 4 × 8 min = 44 min. Hard timeout would be
+        // 88 min — well clear of the 22 min that was firing in production.
+        let t = compute_companion_timeout(12, 4);
+        assert_eq!(t.as_secs(), 600 + 120 + 4 * 8 * 60);
+        assert!(t.as_secs() / 60 >= 40);
+    }
+
+    #[test]
+    fn compute_companion_timeout_caps_at_four_hours() {
+        // Multi-tier × box-set arithmetic shouldn't overrun the absolute cap.
+        let t = compute_companion_timeout(usize::MAX, usize::MAX);
+        assert_eq!(t.as_secs(), 4 * 3600);
+    }
+
+    #[test]
+    fn compute_companion_timeout_monotonic_in_tiers() {
+        // More tiers should never propose a smaller deadline than fewer.
+        let mut prev = compute_companion_timeout(50, 0);
+        for tiers in 1..=8 {
+            let t = compute_companion_timeout(50, tiers);
+            assert!(t >= prev, "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}");
+            prev = t;
+        }
+    }
+
     use crate::models::settings::AppSettings;
     use crate::utils::process::GamdlOutputEvent;
 
@@ -9846,6 +10117,72 @@ mod tests {
 
         let statuses = queue.get_status();
         assert_eq!(statuses[0].state, DownloadState::Cancelled);
+    }
+
+    // ----------------------------------------------------------
+    // ActiveSlotGuard — RAII slot-release on Drop (#706)
+    // ----------------------------------------------------------
+
+    /// Disarming the guard before Drop must NOT release the slot.
+    /// This is the happy path: the completion task explicitly calls
+    /// `q.on_task_finished()` and then `disarm()`, so the slot release
+    /// is performed exactly once (by the explicit call).
+    #[tokio::test]
+    async fn active_slot_guard_disarm_does_not_release() {
+        let handle = new_queue_handle();
+        {
+            let mut q = handle.lock().await;
+            q.active_count = 1; // pretend next_pending() handed out a slot
+        }
+        let guard = ActiveSlotGuard::new(handle.clone());
+        guard.disarm();
+        // Drop has now run on the disarmed guard. Slot must still be held.
+        let q = handle.lock().await;
+        assert_eq!(
+            q.active_count, 1,
+            "disarmed guard must not release the slot"
+        );
+    }
+
+    /// Dropping an armed guard must release the slot — even though Drop
+    /// is synchronous and the queue lock is async. The guard fires a
+    /// fire-and-forget `tokio::spawn`; we then yield long enough for
+    /// the spawned release task to acquire the lock and run.
+    #[tokio::test]
+    async fn active_slot_guard_drop_releases_slot() {
+        let handle = new_queue_handle();
+        {
+            let mut q = handle.lock().await;
+            q.active_count = 1;
+        }
+        {
+            let _guard = ActiveSlotGuard::new(handle.clone());
+            // _guard goes out of scope here → Drop fires.
+        }
+        // Yield the runtime so the fire-and-forget release task can run.
+        // Two yields cover: (1) Drop's tokio::spawn registering the task,
+        // (2) the task acquiring the lock and running on_task_finished().
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        let q = handle.lock().await;
+        assert_eq!(
+            q.active_count, 0,
+            "Drop on armed guard must release the slot"
+        );
+    }
+
+    /// Confirms `on_task_finished()` saturates at 0 — so even if a
+    /// double-release ever slips through (explicit call + an armed
+    /// guard's Drop), `active_count` cannot underflow into a giant
+    /// usize that would permanently jam `next_pending()`.
+    #[test]
+    fn on_task_finished_saturates_at_zero() {
+        let mut q = DownloadQueue::new();
+        assert_eq!(q.active_count, 0);
+        q.on_task_finished();
+        q.on_task_finished();
+        assert_eq!(q.active_count, 0, "must not underflow past zero");
     }
 
     /// Verifies that cancel() returns false for items already in a terminal
