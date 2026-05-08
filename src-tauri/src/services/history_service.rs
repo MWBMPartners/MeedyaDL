@@ -113,17 +113,20 @@ fn load_history_from_disk(app: &AppHandle) -> Vec<HistoryEntry> {
 }
 
 /// Writes the history entries to disk as a JSON array.
+///
+/// Migrated to the shared `utils::atomic_write::atomic_write_json`
+/// helper (#716/8, v1.0.4 prep). This is a small **durability
+/// upgrade** over the pre-migration code: the previous implementation
+/// did a non-atomic `fs::write`, which on crash / power-loss could
+/// leave a truncated history.json that the load path would refuse to
+/// parse (and silently start with an empty history). The new helper
+/// uses the canonical write-tmp + rename pattern that's atomic on
+/// APFS / ext4 / NTFS — either the old history is intact or the new
+/// one is fully written.
 fn save_history_to_disk(app: &AppHandle, entries: &[HistoryEntry]) {
     let path = history_path(app);
-    match serde_json::to_string_pretty(entries) {
-        Ok(json) => {
-            if let Err(e) = std::fs::write(&path, json) {
-                log::warn!("Failed to write history.json: {e}");
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to serialize history: {e}");
-        }
+    if let Err(e) = crate::utils::atomic_write::atomic_write_json(&path, entries, "history") {
+        log::warn!("{e}");
     }
 }
 

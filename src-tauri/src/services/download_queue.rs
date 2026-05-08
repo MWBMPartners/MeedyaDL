@@ -2836,6 +2836,7 @@ impl DownloadQueue {
                 let request = DownloadRequest {
                     urls: exported.urls,
                     options: exported.options,
+                    ..Default::default()
                 };
                 self.enqueue(request, settings)
             })
@@ -5269,46 +5270,34 @@ fn spawn_companion_downloads(
     /// the user reported as a 30-minute silent gap between
     /// `Companion download complete` and `Companion: converted N TTML…`.
     fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
+        // (#716/1, v1.0.4 prep). Strategy: walk every entry, return the
+        // PARENT path of each `.ttml` file the visitor sees, then dedup
+        // via HashSet — net behaviour identical to the previous "scan
+        // each dir, set a `has_ttml_here` flag, push if true" pattern,
+        // but the per-directory state is replaced by post-pass dedup
+        // which fits the visitor model cleanly.
+        //
+        // Depth limit of 10 preserved (the convention used by
+        // `scan_folder_for_manifests`); see #712 for why this matters
+        // — without it, pointing at a large library produces the
+        // 30-minute hang the user reproduced on 2026-05-08.
         const MAX_DEPTH: u32 = 10;
-        find_dirs_with_ttml_inner(base, 0, MAX_DEPTH)
-    }
-
-    fn find_dirs_with_ttml_inner(
-        base: &std::path::Path,
-        depth: u32,
-        max_depth: u32,
-    ) -> Vec<std::path::PathBuf> {
-        let mut result = Vec::new();
-        let mut has_ttml_here = false;
-
-        if depth > max_depth {
-            log::debug!(
-                "find_dirs_with_ttml: depth limit {max_depth} reached at {} — stopping descent",
-                base.display()
-            );
-            return result;
-        }
-
-        if let Ok(entries) = std::fs::read_dir(base) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    // Recurse into subdirectories (depth-bounded).
-                    result.extend(find_dirs_with_ttml_inner(&path, depth + 1, max_depth));
-                } else if path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
+        let parent_dirs: std::collections::HashSet<std::path::PathBuf> =
+            crate::utils::fs_walk::walk_dir_depth(base, MAX_DEPTH, |path| {
+                if path.is_file()
+                    && path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
                 {
-                    has_ttml_here = true;
+                    path.parent().map(|p| p.to_path_buf())
+                } else {
+                    None
                 }
-            }
-        }
-
-        if has_ttml_here {
-            result.push(base.to_path_buf());
-        }
-
-        result
+            })
+            .into_iter()
+            .collect();
+        parent_dirs.into_iter().collect()
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
@@ -6592,6 +6581,19 @@ pub fn process_queue(
                         let enrich_is_apple_music = is_apple_music;
                         let enrich_queue = queue_clone.clone();
                         let enrich_started_at = download_started_at.clone();
+                        // Phase 5e (#717): per-item music-video-companion override
+                        // captured at spawn time so the enrichment task doesn't
+                        // need a fresh queue-lock acquisition just to read one
+                        // bool. Set by the Library Scan re-download flow when
+                        // the user opts in/out of MVs on a specific gap-fill.
+                        // `None` means "inherit settings.music_video_companion".
+                        let enrich_mv_override: Option<bool> = {
+                            let q = queue_clone.lock().await;
+                            q.items
+                                .iter()
+                                .find(|i| i.status.id == dl_id)
+                                .and_then(|i| i.request.mv_companion_override)
+                        };
                         Some(tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
@@ -7824,9 +7826,14 @@ pub fn process_queue(
                             // or queue progression. Gracefully skips if MusicKit credentials
                             // are not configured — Step 6b (MusicBrainz) provides a
                             // credential-free fallback path.
-                            if enrich_settings.music_video_companion
-                                && !enrich_shutdown.is_triggered()
-                            {
+                            // Phase 5e (#717): per-item override wins over the
+                            // global setting. Set by the Library Scan gap-fill
+                            // flow when the user opts in/out of MVs for a
+                            // specific re-download. `None` falls through to
+                            // settings (default for normal queue additions).
+                            let mv_companion_enabled = enrich_mv_override
+                                .unwrap_or(enrich_settings.music_video_companion);
+                            if mv_companion_enabled && !enrich_shutdown.is_triggered() {
                                 spawn_music_video_companion_inner(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7847,9 +7854,16 @@ pub fn process_queue(
                             // enabled, Apple Music video URLs discovered here are downloaded
                             // via GAMDL (same as Step 6). Cross-platform URLs (YouTube,
                             // Spotify, etc.) are logged for future reference.
+                            // Phase 5e (#717): MusicBrainz lookup runs when
+                            // EITHER the standalone setting is on OR the
+                            // music-video-companion path is active (so we
+                            // can discover MV URLs via MB ISRC for the
+                            // companion downloader). Honour the per-item MV
+                            // override here too — opt-in/out applies to
+                            // both Apple Music + MusicBrainz MV discovery.
                             tokio::task::yield_now().await;
                             let run_musicbrainz = (enrich_settings.musicbrainz_lookup
-                                || enrich_settings.music_video_companion)
+                                || mv_companion_enabled)
                                 && !enrich_shutdown.is_triggered();
                             if run_musicbrainz {
                                 // Only run MusicBrainz lookup if we have ISRC codes from Step 1
@@ -7906,10 +7920,10 @@ pub fn process_queue(
                                                     );
                                                 }
 
-                                                // Download Apple Music videos when music_video_companion is enabled
-                                                if enrich_settings.music_video_companion
-                                                    && !am_videos.is_empty()
-                                                {
+                                                // Phase 5e (#717): per-item override applies here too — when
+                                                // the user opted out of MVs for THIS gap-fill, MusicBrainz-
+                                                // discovered URLs must not be downloaded either.
+                                                if mv_companion_enabled && !am_videos.is_empty() {
                                                     emit_download_log(
                                                         &enrich_app,
                                                         &enrich_dl_id,
@@ -10070,6 +10084,7 @@ mod tests {
         DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test-song/123456789".to_string()],
             options: None,
+            ..Default::default()
         }
     }
 
@@ -10081,6 +10096,7 @@ mod tests {
                 song_codec: Some(codec),
                 ..Default::default()
             }),
+            ..Default::default()
         }
     }
 
@@ -10181,6 +10197,7 @@ mod tests {
         let old_request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123?ls=1".to_string()],
             options: None,
+            ..Default::default()
         };
         let old_id = queue.enqueue(old_request, &settings);
         queue.set_error(&old_id, "failed once");
@@ -10188,6 +10205,7 @@ mod tests {
         let new_request = DownloadRequest {
             urls: vec!["https://Music.Apple.Com/us/album/test/123/".to_string()],
             options: None,
+            ..Default::default()
         };
         let new_id = queue.enqueue(new_request, &settings);
         let statuses = queue.get_status();
@@ -12593,6 +12611,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         queue.enqueue(request, &settings);
 
@@ -12608,6 +12627,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         queue.enqueue(request, &settings);
 
@@ -12623,6 +12643,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         let id = queue.enqueue(request, &settings);
         // Transition to complete
@@ -12640,6 +12661,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         let id = queue.enqueue(request, &settings);
         queue.set_error(&id, "some error");
@@ -12656,6 +12678,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         queue.enqueue(request, &settings);
 
@@ -12671,6 +12694,7 @@ mod tests {
             DownloadRequest {
                 urls: vec!["https://music.apple.com/us/album/test/123?ls=1".to_string()],
                 options: None,
+                ..Default::default()
             },
             &settings,
         );
@@ -12694,6 +12718,7 @@ mod tests {
                 request: DownloadRequest {
                     urls: vec![url.to_string()],
                     options: None,
+                    ..Default::default()
                 },
                 created_at: "2026-05-04T10:00:00Z".to_string(),
                 error: Some("failed".to_string()),
