@@ -3771,37 +3771,29 @@ async fn emit_companion_stream_line(
 /// produced. Depth-limited at 4 levels to keep the scan bounded on large
 /// music libraries.
 fn snapshot_video_files(root: &str) -> std::collections::HashSet<std::path::PathBuf> {
-    let mut out = std::collections::HashSet::new();
     let root_path = std::path::Path::new(root);
     if !root_path.is_dir() {
-        return out;
+        return std::collections::HashSet::new();
     }
-    collect_video_files_depth_limited(root_path, &mut out, 0, 4);
-    out
-}
-
-fn collect_video_files_depth_limited(
-    dir: &std::path::Path,
-    out: &mut std::collections::HashSet<std::path::PathBuf>,
-    depth: u32,
-    max_depth: u32,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if depth < max_depth {
-                collect_video_files_depth_limited(&path, out, depth + 1, max_depth);
-            }
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let ext_lc = ext.to_ascii_lowercase();
-            if ext_lc == "mp4" || ext_lc == "m4v" {
-                out.insert(path);
-            }
+    // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
+    // (#716 finding #1, v1.0.3 prep). Depth limit of 4 preserved —
+    // matches the GAMDL `Output/Artist/Album/Disc/file` shape with one
+    // level of headroom for compilation-style nesting. Net diff: 17 LOC
+    // → 9 LOC, identical mp4/m4v filtering.
+    crate::utils::fs_walk::walk_dir_depth(root_path, 4, |path| {
+        if !path.is_file() {
+            return None;
         }
-    }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        let ext_lc = ext.to_ascii_lowercase();
+        if ext_lc == "mp4" || ext_lc == "m4v" {
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    })
+    .into_iter()
+    .collect()
 }
 
 /// Identify freshly-created music video files (those not present in
@@ -9667,22 +9659,17 @@ async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandle) {
     // Update the system tray tooltip with current queue status
     crate::update_tray_tooltip(app, active, queued, completed);
 
-    // Write to disk after releasing the lock
+    // Write to disk after releasing the lock. Atomic via the shared
+    // `utils::atomic_write::atomic_write_json` helper (#716 finding #8).
+    // Atomicity guarantee inherited from `std::fs::rename` per #230.
+    // Errors are warn-logged (not propagated) — same fail-quiet
+    // behaviour as the pre-migration site since queue.json corruption
+    // is recoverable from the in-memory state on next save.
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
-    match serde_json::to_string_pretty(&items) {
-        Ok(json) => {
-            // Atomic write: write to temp file then rename to prevent
-            // corruption on crash/power loss. See: #230
-            let temp_path = queue_path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&temp_path, json) {
-                log::warn!("Failed to write temp queue file: {e}");
-            } else if let Err(e) = std::fs::rename(&temp_path, &queue_path) {
-                log::warn!("Failed to rename temp queue file: {e}");
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to serialize queue: {e}");
-        }
+    if let Err(e) =
+        crate::utils::atomic_write::atomic_write_json(&queue_path, &items, "queue")
+    {
+        log::warn!("{e}");
     }
 }
 

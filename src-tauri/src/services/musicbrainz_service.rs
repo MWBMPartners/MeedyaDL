@@ -126,11 +126,10 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
     log::debug!("MusicBrainz: looking up ISRC {isrc}");
 
     // Create HTTP client with timeout and required User-Agent header
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
 
     // Make the API request
     let response = client
@@ -429,11 +428,10 @@ pub async fn lookup_recording_by_url(
 
     log::debug!("MusicBrainz: searching for recording by URL");
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
 
     let response = client
         .get(&url)
@@ -532,11 +530,10 @@ pub async fn lookup_recording_by_id(
 
     log::debug!("MusicBrainz: looking up recording by ID {recording_id}");
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
 
     // Fetch recording with URL and recording relationships
     let url = format!(

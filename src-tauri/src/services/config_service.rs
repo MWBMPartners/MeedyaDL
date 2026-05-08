@@ -408,6 +408,12 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     // This prevents corruption if the process crashes or loses power mid-write,
     // because rename() is atomic on all major filesystems (APFS, ext4, NTFS).
     // See: https://github.com/MWBMPartners/MeedyaDL/issues/230
+    //
+    // Note: this site is NOT migrated to `utils::atomic_write::atomic_write_json`
+    // (#716 finding #8) because the in-memory `json` string is reused below
+    // for `write_settings_checksum`. Migrating would force a redundant
+    // re-serialisation. Future enhancement: split the helper into a two-phase
+    // API that returns the serialised string for callers that need it.
     let temp_path = settings_path.with_extension("json.tmp");
     std::fs::write(&temp_path, &json)
         .map_err(|e| format!("Failed to write temp settings file: {e}"))?;

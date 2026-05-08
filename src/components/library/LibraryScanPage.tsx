@@ -38,27 +38,102 @@
  */
 
 import { useState } from 'react';
-import { FolderOpen, RefreshCw } from 'lucide-react';
+import { FolderOpen, RefreshCw, AlertCircle, CheckCircle2, HelpCircle } from 'lucide-react';
 
 import {
   scanFolderForManifests,
+  diffLibraryScanManifest,
   type ScannedManifest,
+  type LibraryScanDiff,
 } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+
+/**
+ * Renders the per-row diff badge for a scanned manifest.
+ *
+ * Three visual states matching the `LibraryScanDiff` tagged union:
+ * - `plan`: amber badge "X of Y missing" — at least one track absent
+ * - `all_present`: green badge "All present" — nothing to re-fetch
+ * - `not_applicable`: neutral badge "Cannot diff" — manifest old/missing
+ * - `undefined` (still loading): subtle "…" placeholder
+ *
+ * Phase 5c (Apple Music API lastModifiedDate compare) and Phase 5d
+ * (MV gap-fill prompt branches) extend this with additional badge
+ * states; tracked in #717.
+ */
+function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
+  if (!diff) {
+    return <span className="text-content-tertiary text-xs">…</span>;
+  }
+  if (diff.kind === 'plan') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning">
+        <AlertCircle size={12} />
+        {diff.missing_tracks} of {diff.total_tracks} missing
+      </span>
+    );
+  }
+  if (diff.kind === 'all_present') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success">
+        <CheckCircle2 size={12} />
+        All present
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-content-tertiary">
+      <HelpCircle size={12} />
+      Cannot diff
+    </span>
+  );
+}
 
 export function LibraryScanPage() {
   const addToast = useUiStore((s) => s.addToast);
   const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState<ScannedManifest[] | null>(null);
+  /**
+   * Per-manifest diff results, keyed by `manifest_path` (which is
+   * unique per row). Populated lazily after the scan finishes — each
+   * row dispatches its own `diffLibraryScanManifest` call so the
+   * table renders immediately and badges fill in as IPCs return.
+   */
+  const [diffs, setDiffs] = useState<Record<string, LibraryScanDiff>>({});
 
   const handleScan = async () => {
     setScanning(true);
+    setDiffs({});
     try {
       const manifests = await scanFolderForManifests();
       setResults(manifests);
       addToast(
         `Scan complete — found ${manifests.length} manifest(s)`,
         'success'
+      );
+
+      // Phase 5b: dispatch diff IPC for every manifest. Concurrent —
+      // the IPC is filesystem-only (no network), so all rows can run
+      // in parallel without backpressure concerns. Results merge into
+      // `diffs` map as each promise resolves.
+      void Promise.allSettled(
+        manifests.map(async (m) => {
+          if (m.urls.length === 0) return;
+          try {
+            const diff = await diffLibraryScanManifest(m.album_dir, m.urls[0]);
+            setDiffs((prev) => ({ ...prev, [m.manifest_path]: diff }));
+          } catch (err) {
+            // Treat per-row diff failures as `not_applicable`. The
+            // user still sees the row + manifest data; missing badge
+            // doesn't block them from acting on it.
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`Diff failed for ${m.album_dir}: ${msg}`);
+            setDiffs((prev) => ({
+              ...prev,
+              [m.manifest_path]: { kind: 'not_applicable' },
+            }));
+          }
+        })
       );
     } catch (err) {
       // User cancelled the folder picker, or I/O failure.
@@ -138,6 +213,7 @@ export function LibraryScanPage() {
                 <th className="text-right px-4 py-2 font-medium">Tracks</th>
                 <th className="text-right px-4 py-2 font-medium">Files</th>
                 <th className="text-left px-4 py-2 font-medium">Codec</th>
+                <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-left px-4 py-2 font-medium">Last download</th>
               </tr>
             </thead>
@@ -161,6 +237,9 @@ export function LibraryScanPage() {
                   </td>
                   <td className="px-4 py-2 uppercase text-xs text-content-secondary">
                     {m.current_codec ?? '—'}
+                  </td>
+                  <td className="px-4 py-2">
+                    <DiffBadge diff={diffs[m.manifest_path]} />
                   </td>
                   <td className="px-4 py-2 text-xs text-content-tertiary">
                     {m.downloaded_at

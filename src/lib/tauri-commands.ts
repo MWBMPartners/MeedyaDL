@@ -826,6 +826,45 @@ export interface ScannedManifest {
 }
 
 /**
+ * Smart-retry diff result for a single Library Scan row (Phase 5b, #717).
+ *
+ * Mirrors the Rust `LibraryScanDiff` enum (tagged-union by `kind`):
+ * - `plan`: at least one track is missing; UI renders "X of Y missing".
+ * - `all_present`: every track on disk; UI renders "All present".
+ * - `not_applicable`: manifest missing/malformed/no-source-match; UI
+ *   renders a neutral "Cannot diff" badge.
+ *
+ * Rust handler: `diff_library_scan_manifest()` in `src-tauri/src/commands/gamdl.rs`
+ */
+export type LibraryScanDiff =
+  | { kind: 'plan'; missing_tracks: number; total_tracks: number }
+  | { kind: 'all_present'; total_tracks: number }
+  | { kind: 'not_applicable' };
+
+/**
+ * Diffs a scanned manifest against its on-disk state to determine
+ * whether tracks are missing.
+ *
+ * Cheap (filesystem ops only — no network), safe to run synchronously
+ * per row from the Library Scan page. Wraps the existing
+ * `smart_retry_planner::plan_retry`.
+ *
+ * @param albumDir - The album directory path (parent of manifest.meedyadl).
+ *                   Use `ScannedManifest.album_dir`.
+ * @param sourceUrl - The manifest source URL to diff against. Use
+ *                    `ScannedManifest.urls[0]`.
+ */
+export function diffLibraryScanManifest(
+  albumDir: string,
+  sourceUrl: string
+): Promise<LibraryScanDiff> {
+  return invoke<LibraryScanDiff>('diff_library_scan_manifest', {
+    albumDir,
+    sourceUrl,
+  });
+}
+
+/**
  * Checks whether a URL was previously downloaded for smart re-download
  * detection (#263). Returns metadata about the previous download if found.
  *
