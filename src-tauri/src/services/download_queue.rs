@@ -107,10 +107,12 @@ use crate::models::crash_report::CrashReport;
 // classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
 // Activity log helpers: emit_download_log for per-download messages,
-// emit_app_log for system-level messages, ActivityLogEvent for raw stdout/stderr.
-use crate::utils::activity_log::{
-    emit_app_log, emit_download_log, emit_verbose_download_log, ActivityLogEvent,
-};
+// emit_app_log for system-level messages. `ActivityLogEvent` is no
+// longer imported here — Phase 3.5e moved every direct
+// `app.emit("activity-log", &event)` site through the new
+// `emit_subprocess_line` helper, so download_queue.rs no longer needs
+// to construct events directly.
+use crate::utils::activity_log::{emit_app_log, emit_download_log, emit_verbose_download_log};
 
 // ============================================================
 // Graceful shutdown signal
@@ -459,7 +461,11 @@ fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
 /// otherwise be ambiguous. Prefers the cached Apple Music API names
 /// (`artist_name` — `album_name` — `current_track`) populated at enqueue
 /// time, and falls back to the first URL when names are unavailable.
-fn format_content_label(status: &QueueItemStatus) -> String {
+///
+/// `pub(crate)` because the activity log emitter ([`crate::utils::activity_log::emit_download_log`])
+/// auto-enriches every `[MeedyaDL]` line with this label so the on-disk
+/// log and UI both identify which queued item a message refers to.
+pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
     let mut parts: Vec<&str> = Vec::with_capacity(3);
     if let Some(artist) = status.artist_name.as_deref().filter(|s| !s.is_empty()) {
         parts.push(artist);
@@ -928,34 +934,28 @@ fn compute_companion_timeout(
 }
 
 // ============================================================
-// Enrichment stage progress weights (#576)
+// Enrichment stage progress weights (#576 → Phase 3.5b refactor)
 // ============================================================
 //
-// Cumulative weights emitted as each enrichment stage begins, so the
-// queue-level progress bar shows visible forward motion DURING the
-// `Processing` state rather than sitting at a single flat "partial
-// credit" value for 20+ minutes on large box sets.
+// The cumulative weights AND human labels for each per-item processing
+// stage now live in the [`super::progress_stages::ProgressStage`] enum
+// (one source of truth, label + weight + ordering enforced together,
+// covered by unit tests for monotonicity, bound, ellipsis convention,
+// and `ALL`-array completeness).
 //
-// Values are anchored so that:
-//   - 0.00 = GAMDL finished; enrichment task just spawned.
-//   - 1.00 = all enrichment stages complete; completion task about to
-//            flip the item from `Processing` to `Complete`.
-//
-// Each constant represents the fraction-complete AT THE START of the
-// named stage (i.e. the fraction-complete of everything BEFORE it).
-// The progression is deliberately roughly equal-weight across
-// user-observable stages; rebalance when real-world timing data (e.g.
-// from #579 repros) warrants.
-//
-// The constants are exposed at module scope so unit tests can verify
-// monotonicity and the 0–1 bound without reaching into the enrichment
-// closure.
-const PROGRESS_METADATA_STAGE: f32 = 0.05;
-const PROGRESS_WORD_LYRICS_STAGE: f32 = 0.15;
-const PROGRESS_LRC_CONVERSION_STAGE: f32 = 0.25;
-const PROGRESS_ANIMATED_ARTWORK_STAGE: f32 = 0.40;
-const PROGRESS_ACOUSTID_STAGE: f32 = 0.55;
-const PROGRESS_REPLAYGAIN_STAGE: f32 = 0.75;
+// Pre-refactor we had 8 scattered `PROGRESS_*_STAGE: f32` constants
+// here plus 9 closure-local `set_label("...", PROGRESS_*)` calls
+// inside the enrichment task. Adding a new stage required edits in
+// 3+ places and a stale label was an easy bug to miss — exactly the
+// pattern that produced the 30-minute "ReplayGain loudness analysis…"
+// hang in #712. The enum is the registry; this comment is the
+// breadcrumb pointing future readers to it.
+// Phase 3.5d: `set_stage_with_label` is used by the enrichment task's
+// `set_label` shim. The simpler `set_stage` (which uses the enum's
+// canonical label, no override) will be picked up by the companion
+// task in Phase 3.5g — re-exported here for that consumer.
+#[allow(unused_imports)]
+use super::progress_stages::{set_stage, set_stage_with_label, ProgressStage};
 
 // ============================================================
 // Manifest writer
@@ -1609,6 +1609,26 @@ impl DownloadQueue {
     #[must_use]
     pub fn get_status(&self) -> Vec<QueueItemStatus> {
         self.items.iter().map(|item| item.status.clone()).collect()
+    }
+
+    /// Returns the formatted media label
+    /// (`Artist — Album — Track`, with URL fallback) for a given
+    /// download ID, or `None` if no item with that ID exists or the
+    /// label is empty.
+    ///
+    /// Used by [`crate::utils::activity_log::emit_download_log`] to
+    /// auto-enrich every `[MeedyaDL]` activity-log line so users don't
+    /// have to cross-reference the 8-char download ID against the queue
+    /// page to know which item a message refers to.
+    #[must_use]
+    pub fn media_label_for(&self, download_id: &str) -> Option<String> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        let label = format_content_label(&item.status);
+        if label.is_empty() {
+            None
+        } else {
+            Some(label)
+        }
     }
 
     /// Returns summary counts for the queue: (total, active, queued, completed, failed).
@@ -3642,18 +3662,19 @@ async fn emit_companion_stream_line(
         let _ = app.emit("gamdl-output", &progress);
 
         // Emit to activity-log: last segment only (normal) or all (verbose).
-        // Always mirror the event to the on-disk activity log (#541)
-        // regardless of verbose gating — the file is the forensic record.
-        if verbose || Some(idx) == last_segment_idx {
-            let event = crate::utils::activity_log::ActivityLogEvent {
-                download_id: dl_id.to_string(),
-                stream,
-                line: clean_line,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-            };
-            let _ = app.emit("activity-log", &event);
-            crate::utils::activity_log::write_to_disk(&event);
-        }
+        // Disk mirror happens unconditionally inside the helper (#541) —
+        // the file is the forensic record. Phase 3.5e: routes through
+        // `emit_subprocess_line` instead of constructing the event +
+        // calling `app.emit` directly so future emission rules only
+        // need to touch one place.
+        let show_in_ui = verbose || Some(idx) == last_segment_idx;
+        crate::utils::activity_log::emit_subprocess_line(
+            app,
+            dl_id,
+            stream,
+            clean_line,
+            show_in_ui,
+        );
     }
 
     last_clean
@@ -4642,6 +4663,24 @@ fn spawn_companion_downloads(
 
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
+                    // Phase 3.5g: surface the active companion stage to the
+                    // per-item progress bar. Pre-3.5d this was impossible
+                    // (set_label was a closure local to the enrichment task);
+                    // now we use the shared `set_stage_with_label` helper.
+                    // Companion downloads happen AFTER enrichment finishes,
+                    // so the bar would otherwise still display "Finalising
+                    // metadata…" while companion GAMDL is the actual work.
+                    set_stage_with_label(
+                        &comp_app,
+                        &comp_queue,
+                        &comp_dl_id,
+                        ProgressStage::Finalising,
+                        &format!(
+                            "Companion: downloading {} (tier {})…",
+                            codec.to_cli_string(),
+                            tier_idx
+                        ),
+                    );
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
@@ -4729,6 +4768,23 @@ fn spawn_companion_downloads(
                             })
                         });
 
+                    // Phase 3.5h: snapshot the audio-file count BEFORE running
+                    // companion GAMDL. After a "successful" exit (GAMDL exits 0
+                    // even when it skipped every track because the requested
+                    // format wasn't available — `Skipping … format is not
+                    // available` is a warning, not an error in GAMDL's view),
+                    // we compare against this snapshot to detect the false-
+                    // positive "complete" case the user flagged on 2026-05-08:
+                    // companion AC3 ran on a track Apple Music doesn't ship in
+                    // AC3, GAMDL produced 0 files, but the activity log said
+                    // "Companion download complete (tier 0, codec: ac3)".
+                    let pre_run_audio_count = opts
+                        .output_path
+                        .as_deref()
+                        .map(std::path::Path::new)
+                        .map(count_audio_files_in_directory)
+                        .unwrap_or(0);
+
                     let run_result = super::companion_supervisor::run_supervised(
                         &supervisor_app,
                         &supervisor_dl,
@@ -4758,12 +4814,53 @@ fn spawn_companion_downloads(
 
                     match run_result {
                         Ok(r) if r.exit_success && !r.had_soft_error => {
+                            // Phase 3.5h: verify files actually landed before
+                            // claiming "complete". GAMDL exits 0 with 0 errors
+                            // when it skips every track due to format
+                            // unavailability ("Skipping … format is not
+                            // available" is a warning, not an error). Without
+                            // this check, the companion task records a false
+                            // success — confusing for the user when checking
+                            // history / diagnosing missing companions.
+                            let post_run_audio_count = opts
+                                .output_path
+                                .as_deref()
+                                .map(std::path::Path::new)
+                                .map(count_audio_files_in_directory)
+                                .unwrap_or(0);
+                            if post_run_audio_count <= pre_run_audio_count {
+                                // No new files landed — the codec wasn't
+                                // available for any track in this URL set.
+                                emit_download_log(
+                                    &comp_app,
+                                    &comp_dl_id,
+                                    &format!(
+                                        "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
+                                        tier_idx, stream_codec,
+                                    ),
+                                );
+                                // Do NOT mark this tier as succeeded; let the
+                                // next codec in the tier (if any) be tried.
+                                // We still treat this as a non-failure
+                                // (companion exited cleanly), so we don't
+                                // emit `companion-downloaded` either.
+                                // Reset post-processing label since there's
+                                // nothing to post-process.
+                                {
+                                    let mut q = comp_queue.lock().await;
+                                    q.clear_processing_label(&supervisor_dl);
+                                }
+                                continue;
+                            }
+
                             emit_download_log(
                                 &comp_app,
                                 &comp_dl_id,
                                 &format!(
-                                    "Companion download complete (tier {}, codec: {})",
-                                    tier_idx, stream_codec,
+                                    "Companion download complete (tier {}, codec: {}, {} new file(s))",
+                                    tier_idx,
+                                    stream_codec,
+                                    post_run_audio_count - pre_run_audio_count,
                                 ),
                             );
                             let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
@@ -4805,6 +4902,20 @@ fn spawn_companion_downloads(
                                         })
                                         .unwrap_or((None, None))
                                 };
+                                // Phase 3.5g: surface the companion-lyrics
+                                // phase to the per-item bar. With #712's
+                                // depth-bounded scoping the walk is now
+                                // fast for hint-bearing items, but a label
+                                // here is still useful so users can tell
+                                // the difference between "tier downloading"
+                                // and "post-tier lyrics conversion".
+                                set_stage_with_label(
+                                    &comp_app,
+                                    &comp_queue,
+                                    &comp_dl_id,
+                                    ProgressStage::Finalising,
+                                    "Companion: converting lyrics formats…",
+                                );
                                 run_companion_lyrics_conversion(
                                     &comp_app,
                                     &comp_dl_id,
@@ -4924,31 +5035,55 @@ fn spawn_companion_downloads(
         }
 
         // Prefer the targeted `{output_dir}/{artist}/{album}/` resolution
-        // when we have both hints, falling back to a recursive walk only
-        // when hints aren't available or the targeted path doesn't exist
-        // yet (#502). The recursive walk over a large library can take
-        // several minutes — scoping eliminates the perceived "hang" the
-        // user saw between a finished companion and the next queue item.
+        // when we have both hints; only do a (depth-bounded) recursive
+        // walk when hints aren't available (#502 / #707-followup).
+        //
+        // **Why we no longer fall back to the recursive walk when the
+        // scoped path exists but has no TTML.** Previously, an item that
+        // was skipped during primary GAMDL (e.g. `Atmos` not available)
+        // produced an empty scoped directory; the code then recursively
+        // walked the ENTIRE output tree (typically the user's whole
+        // music library, tens of thousands of files) looking for TTML
+        // and ran lyrics conversion on every other album. For a library
+        // with many existing albums that has produced 30+ minutes of
+        // silent CPU/disk work plus log entries like
+        // `Companion: converted N TTML file(s)` for albums that had
+        // nothing to do with the queued item. Now: if we have hints
+        // and the scoped path exists, we operate ONLY inside it (even
+        // if it has no TTML — nothing to do is the correct outcome).
+        // The recursive fallback only runs when no hints are available
+        // (older queue items with no API metadata yet), and even then
+        // it's depth-bounded to 10 levels via [`find_dirs_with_ttml`].
         let album_dirs: Vec<std::path::PathBuf> = match (artist_hint, album_hint) {
             (Some(artist), Some(album)) => {
                 let scoped = base.join(artist).join(album);
-                if scoped.is_dir() && find_dirs_with_ttml(&scoped).iter().any(|p| p == &scoped) {
+                if scoped.is_dir() {
                     log::debug!(
                         "Companion lyrics: scoped to album dir {} for {dl_id}",
                         scoped.display()
                     );
-                    vec![scoped]
+                    find_dirs_with_ttml(&scoped)
                 } else {
                     log::debug!(
-                        "Companion lyrics: scoped path {} missing TTML — falling back to recursive walk",
+                        "Companion lyrics: scoped path {} does not exist — \
+                         skipping conversion (item likely had no successful audio)",
                         scoped.display()
                     );
-                    find_dirs_with_ttml(base)
+                    Vec::new()
                 }
             }
             _ => {
                 log::debug!(
-                    "Companion lyrics: no artist/album hints for {dl_id} — recursive walk over {output_dir}"
+                    "Companion lyrics: no artist/album hints for {dl_id} — \
+                     recursive walk (depth-limited) over {output_dir}"
+                );
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Companion: scanning {output_dir} for TTML lyrics \
+                         (no album hints available, depth-limited to 10)..."
+                    ),
                 );
                 find_dirs_with_ttml(base)
             }
@@ -4959,6 +5094,14 @@ fn spawn_companion_downloads(
             );
             return;
         }
+        emit_download_log(
+            app,
+            dl_id,
+            &format!(
+                "Companion lyrics conversion: processing {} album dir(s)...",
+                album_dirs.len()
+            ),
+        );
 
         for album_dir in &album_dirs {
             // Cooperative-cancel checkpoint #2 (#663). Without this,
@@ -5042,16 +5185,40 @@ fn spawn_companion_downloads(
     /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
     /// and collects every directory that directly contains at least one
     /// `.ttml` file.
+    ///
+    /// **Depth-limited** to 10 levels (matching the convention used by
+    /// `scan_folder_for_manifests`). Without a cap, pointing this at a
+    /// large user music library walks tens of thousands of directories
+    /// and stalls the companion task for tens of minutes — the symptom
+    /// the user reported as a 30-minute silent gap between
+    /// `Companion download complete` and `Companion: converted N TTML…`.
     fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+        const MAX_DEPTH: u32 = 10;
+        find_dirs_with_ttml_inner(base, 0, MAX_DEPTH)
+    }
+
+    fn find_dirs_with_ttml_inner(
+        base: &std::path::Path,
+        depth: u32,
+        max_depth: u32,
+    ) -> Vec<std::path::PathBuf> {
         let mut result = Vec::new();
         let mut has_ttml_here = false;
+
+        if depth > max_depth {
+            log::debug!(
+                "find_dirs_with_ttml: depth limit {max_depth} reached at {} — stopping descent",
+                base.display()
+            );
+            return result;
+        }
 
         if let Ok(entries) = std::fs::read_dir(base) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    // Recurse into subdirectories
-                    result.extend(find_dirs_with_ttml(&path));
+                    // Recurse into subdirectories (depth-bounded).
+                    result.extend(find_dirs_with_ttml_inner(&path, depth + 1, max_depth));
                 } else if path
                     .extension()
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
@@ -6380,32 +6547,30 @@ pub fn process_queue(
                             // Emit errors are swallowed: worst case is the UI
                             // stays stale until the next stage transition, no
                             // worse than pre-#574 behaviour.
+                            // Phase 3.5d: replaced the closure-local set_label
+                            // with a single-line wrapper around the new shared
+                            // `progress_stages::set_stage` / `set_stage_with_label`
+                            // helpers. The helpers take an `AppHandle` + `QueueHandle`
+                            // so the **companion task** can also drive the per-item
+                            // caption (Phase 3.5g) — pre-refactor, only the enrichment
+                            // closure could update the label, which is why companion
+                            // lyrics conversion used to leave a stale "ReplayGain…"
+                            // caption visible for 30+ minutes (#712).
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
                             let label_app = enrich_app.clone();
                             let set_label = move |label: &str, progress: f32| {
-                                if let Ok(mut q) = label_queue.try_lock() {
-                                    let context = q
-                                        .items
-                                        .iter()
-                                        .find(|i| i.status.id == label_dl_id)
-                                        .map(|item| {
-                                            let artist = item.status.artist_name.as_deref().unwrap_or("");
-                                            let album = item.status.album_name.as_deref().unwrap_or("");
-                                            if !artist.is_empty() && !album.is_empty() {
-                                                format!(" — {artist}: {album}")
-                                            } else if !album.is_empty() {
-                                                format!(" — {album}")
-                                            } else {
-                                                String::new()
-                                            }
-                                        })
-                                        .unwrap_or_default();
-                                    let full_label = format!("{label}{context}");
-                                    q.set_processing_label(&label_dl_id, &full_label);
-                                    q.set_processing_progress(&label_dl_id, progress);
-                                }
-                                let _ = label_app.emit("queue-updated", &label_dl_id);
+                                // Reverse-lookup the stage from its weight so we can
+                                // call set_stage_with_label without disturbing the
+                                // existing call sites' (label, weight) ergonomics.
+                                // Stages are identified uniquely by weight thanks to
+                                // the `weights_strictly_increasing` invariant.
+                                let stage = ProgressStage::ALL
+                                    .iter()
+                                    .copied()
+                                    .find(|s| (s.weight() - progress).abs() < f32::EPSILON)
+                                    .unwrap_or(ProgressStage::Finalising);
+                                set_stage_with_label(&label_app, &label_queue, &label_dl_id, stage, label);
                             };
 
                             // Helper: get album context for activity log messages.
@@ -6509,7 +6674,7 @@ pub fn process_queue(
                             ),
                         );
 
-                            set_label("Enriching metadata tags...", PROGRESS_METADATA_STAGE);
+                            set_label("Enriching metadata tags...", ProgressStage::Metadata.weight());
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
@@ -6830,7 +6995,7 @@ pub fn process_queue(
                                         if !tracks_needing_upgrade.is_empty() {
                                             set_label(
                                                 "Fetching word-level lyrics...",
-                                                PROGRESS_WORD_LYRICS_STAGE,
+                                                ProgressStage::WordLyrics.weight(),
                                             );
                                             emit_download_log(
                                                 &enrich_app,
@@ -6944,7 +7109,7 @@ pub fn process_queue(
                                     } else {
                                         set_label(
                                             "Skipping word-level lyrics (no credentials)",
-                                            PROGRESS_WORD_LYRICS_STAGE,
+                                            ProgressStage::WordLyrics.weight(),
                                         );
                                         log::debug!(
                                             "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
@@ -6961,7 +7126,7 @@ pub fn process_queue(
 
                             set_label(
                                 "Converting lyrics (Enhanced LRC)...",
-                                PROGRESS_LRC_CONVERSION_STAGE,
+                                ProgressStage::LyricsConversion.weight(),
                             );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
@@ -6971,6 +7136,10 @@ pub fn process_queue(
                             // Falls back to standard line-level LRC for songs without
                             // word-level timing in their TTML.
                             if enrich_settings.enhanced_lrc {
+                                set_label(
+                                    "Generating Enhanced LRC…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7041,6 +7210,10 @@ pub fn process_queue(
                             // Runs after lyrics fallback so all available sources are present.
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_webvtt && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Generating WebVTT subtitles…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7091,6 +7264,10 @@ pub fn process_queue(
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_rich_srt && !enrich_shutdown.is_triggered()
                             {
+                                set_label(
+                                    "Generating Rich SRT…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7140,6 +7317,10 @@ pub fn process_queue(
                             // MP4/M4A/M4V containers as freeform atoms.
                             tokio::task::yield_now().await;
                             if enrich_settings.embed_subtitles && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Embedding subtitle sidecars…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7180,6 +7361,10 @@ pub fn process_queue(
                             // (colours, bold, italic, positioning, background vocals).
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_ass && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Generating ASS subtitles…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -7229,7 +7414,7 @@ pub fn process_queue(
 
                             set_label(
                                 "Downloading animated artwork...",
-                                PROGRESS_ANIMATED_ARTWORK_STAGE,
+                                ProgressStage::AnimatedArtwork.weight(),
                             );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
                             // --- Step 3: Animated artwork download ---
@@ -7367,6 +7552,10 @@ pub fn process_queue(
                                         .unwrap_or_else(|| enrich_settings.storefront.clone());
 
                                     if let Some(aid) = artist_id {
+                                        set_label(
+                                            "Downloading artist promo video…",
+                                            ProgressStage::AnimatedArtwork.weight(),
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
@@ -7422,7 +7611,7 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...", PROGRESS_ACOUSTID_STAGE);
+                            set_label("AcoustID fingerprinting...", ProgressStage::AcoustId.weight());
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
                             // --- Step 4: AcoustID fingerprinting (opt-in) ---
                             // When enabled, generates Chromaprint fingerprints using the
@@ -7488,7 +7677,7 @@ pub fn process_queue(
 
                             set_label(
                                 "ReplayGain loudness analysis...",
-                                PROGRESS_REPLAYGAIN_STAGE,
+                                ProgressStage::ReplayGain.weight(),
                             );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
                             // --- Step 5: ReplayGain loudness analysis (opt-in) ---
@@ -7544,6 +7733,11 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ ReplayGain analysis completed{}", album_context()));
 
+                            set_label(
+                                "Music video discovery...",
+                                ProgressStage::MusicVideoDiscovery.weight(),
+                            );
+
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
                             // API for music videos related to the downloaded tracks (requires
@@ -7591,6 +7785,10 @@ pub fn process_queue(
                                         .collect();
 
                                     if !isrc_tracks.is_empty() {
+                                        set_label(
+                                            "MusicBrainz ISRC lookup (rate-limited)…",
+                                            ProgressStage::MusicVideoDiscovery.weight(),
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
@@ -7686,6 +7884,10 @@ pub fn process_queue(
                             // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
+                            set_label(
+                                "Writing download manifest…",
+                                ProgressStage::Finalising.weight(),
+                            );
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
@@ -7697,6 +7899,11 @@ pub fn process_queue(
                                 &enrich_app,
                                 &enrich_dl_id,
                                 "Download manifest saved to album folder",
+                            );
+
+                            set_label(
+                                "Finalising metadata...",
+                                ProgressStage::Finalising.weight(),
                             );
 
                             emit_download_log(
@@ -7922,11 +8129,24 @@ pub fn process_queue(
                                     };
                                     if let Some(output_dir) = advisory_path {
                                         // Make the long, otherwise-silent advisory
-                                        // pass visible in the activity log (#661).
+                                        // pass visible in the activity log (#661)
+                                        // AND on the per-item progress bar — Phase
+                                        // 3.5g, courtesy of the shared
+                                        // `set_stage_with_label` helper from 3.5d
+                                        // (this is the completion task, not the
+                                        // enrichment task, so the closure-local
+                                        // `set_label` was unreachable here pre-3.5d).
                                         // On large box sets this can run for many
                                         // minutes; without a marker, users could
                                         // not tell whether MeedyaDL was hung or
                                         // working.
+                                        set_stage_with_label(
+                                            &completion_app,
+                                            &completion_queue,
+                                            &completion_dl_id,
+                                            ProgressStage::Finalising,
+                                            "Applying [Explicit]/[Clean] suffixes…",
+                                        );
                                         emit_download_log(
                                             &completion_app,
                                             &completion_dl_id,
@@ -8700,23 +8920,24 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let log_event = ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "stdout",
-                                line: display_line.clone(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            };
                             // Suppress Python traceback noise from the user-
                             // facing activity-log feed when verbose is off
-                            // (#660). The disk writer below still records
-                            // the line so support requests stay debuggable.
+                            // (#660). The helper unconditionally writes to
+                            // disk so support requests stay debuggable.
                             let is_traceback_noise =
                                 process::is_python_traceback_noise(&clean_line);
-                            if verbose || !is_traceback_noise {
-                                let _ = app.emit("activity-log", &log_event);
-                            }
-                            // Mirror to on-disk log (#541) for post-hoc diagnosis.
-                            crate::utils::activity_log::write_to_disk(&log_event);
+                            // Phase 3.5h: humanise GAMDL "codec skip" lines
+                            // — strip "(media ID: NNN)" and the Python-repr
+                            // codec list. Idempotent + safe on non-matching
+                            // lines.
+                            let humanised = process::humanise_codec_skip_line(&display_line);
+                            crate::utils::activity_log::emit_subprocess_line(
+                                &app,
+                                &download_id,
+                                "stdout",
+                                humanised,
+                                verbose || !is_traceback_noise,
+                            );
                         }
                     }
 
@@ -8777,17 +8998,20 @@ async fn run_download_with_events(
                                 format!("{} — ", parts.join(" — "))
                             }
                         };
-                        let track_event = ActivityLogEvent {
-                            download_id: download_id.clone(),
-                            stream: "internal",
-                            line: format!(
+                        // Phase 3.5e: track-separator banner now goes through
+                        // `emit_subprocess_line` with `stream: "internal"` so
+                        // it's consistent with every other internal event.
+                        // Disk mirror happens unconditionally inside the
+                        // helper.
+                        crate::utils::activity_log::emit_subprocess_line(
+                            &app,
+                            &download_id,
+                            "internal",
+                            format!(
                                 "──── {track_label} Downloading {context}\"{title}\" ────"
                             ),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        };
-                        let _ = app.emit("activity-log", &track_event);
-                        // Mirror to on-disk log (#541).
-                        crate::utils::activity_log::write_to_disk(&track_event);
+                            true,
+                        );
                     }
 
                     // Update the queue item's progress
@@ -8892,22 +9116,23 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let log_event = ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "stderr",
-                                line: display_line.clone(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            };
                             // Suppress Python traceback noise from the
                             // user-facing activity-log feed in non-verbose
-                            // mode (#660). Disk mirror is unaffected.
+                            // mode (#660). The helper unconditionally writes
+                            // to disk so support requests stay debuggable.
                             let is_traceback_noise =
                                 process::is_python_traceback_noise(&clean_line);
-                            if verbose || !is_traceback_noise {
-                                let _ = app.emit("activity-log", &log_event);
-                            }
-                            // Mirror to on-disk log (#541).
-                            crate::utils::activity_log::write_to_disk(&log_event);
+                            // Phase 3.5h: humanise GAMDL "codec skip" lines
+                            // (strips "(media ID: NNN)" + Python-repr codec
+                            // list).
+                            let humanised = process::humanise_codec_skip_line(&display_line);
+                            crate::utils::activity_log::emit_subprocess_line(
+                                &app,
+                                &download_id,
+                                "stderr",
+                                humanised,
+                                verbose || !is_traceback_noise,
+                            );
                         }
                     }
 
@@ -9051,13 +9276,30 @@ async fn run_download_with_events(
         // instead of the generic per-track-error count. Storefront
         // fallback wouldn't help here — the URL works fine, GAMDL's
         // template engine is at fault.
+        //
+        // **v3.5.1 status (Phase 3.5i, 2026-05-08)**: NOT fixed.
+        // GAMDL 3.5.1's only change was the music-video m3u8 HLS
+        // fix (`error 403` → success). The cover-URL templating bug
+        // is a separate code path inside GAMDL's per-track cover
+        // fetcher and remains broken on the latest release. The
+        // user-facing message therefore continues to recommend
+        // reporting upstream (the existing GitHub issue is the right
+        // place to track resolution).
+        //
+        // **Workaround tracking**: a viable client-side workaround
+        // is to retry with `--exclude-tags cover` when this bug
+        // fires; GAMDL skips the buggy fetch path entirely and
+        // MeedyaDL's own `animated_artwork_service` can supply the
+        // album cover separately. Tracked as a follow-up issue.
         if process::is_gamdl_mv_cover_template_bug(&combined) {
             return Err(format!(
                 "GAMDL bug — music-video cover URL not templated. \
                  Apple returned 400 Bad Request for {soft_errors} track(s) \
                  because GAMDL sent the literal `{{w}}x{{h}}` placeholders \
-                 instead of real dimensions. This is upstream — please \
-                 report at https://github.com/glomatico/gamdl/issues. \
+                 instead of real dimensions. Upstream — not fixed in \
+                 GAMDL 3.5.1 (which only addressed the music-video m3u8 \
+                 HLS 403). Please report at \
+                 https://github.com/glomatico/gamdl/issues. \
                  Audio for affected tracks did not download."
             ));
         }

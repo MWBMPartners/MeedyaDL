@@ -109,7 +109,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | Component | Role | Supported range | Recommended | Source of truth |
 | --- | --- | --- | --- | --- |
 | **Python** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
-| **GAMDL** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.5** | 3.5 | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **GAMDL** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.5.1** | 3.5.1 | `src-tauri/tool-versions.toml` → `[gamdl]` |
 | **FFmpeg** | Audio codec conversion and video remuxing. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
 | **mp4decrypt** (Bento4) | Decrypts Widevine-protected streams. Required by GAMDL v3.0+ for music videos. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
 | **N_m3u8DL-RE** | Alternative HLS/DASH downloader used by some codec paths. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
@@ -421,6 +421,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ In-app help viewer with 12 topics and search
 - ✅ i18n infrastructure (i18next, OS language detection, English)
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
+- ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)
 - ✅ Per-track activity log separators with codec and auth info
 - ✅ MediaInfo CLI integration for accurate Atmos/AC3 codec detection
 - ✅ Engine registry (`engines.toml`) for per-platform tool priority and fallback

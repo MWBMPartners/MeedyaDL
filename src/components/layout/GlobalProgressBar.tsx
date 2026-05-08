@@ -22,6 +22,7 @@
 import { useMemo, useState, useEffect } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
+import { formatActiveItemCaption } from '@/lib/progress-caption';
 
 /**
  * Platform detection config — loaded once from engines.toml via IPC.
@@ -312,28 +313,8 @@ export function GlobalProgressBar() {
       ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
       : (activeItem?.progress ?? 0);
 
-  /** Build contextual label: "DOWNLOADING...Artist — Album — "Track"" for multi-queue clarity */
-  const itemLabel = (() => {
-    // Processing labels (enrichment/companions) take priority
-    if (activeItem?.processing_label) return activeItem.processing_label;
-
-    const track = activeItem?.current_track;
-    const album = activeItem?.album_name;
-    const artist = activeItem?.artist_name;
-    const isDownloading = activeItem?.state === 'downloading';
-
-    if (track) {
-      const parts: string[] = [];
-      if (artist) parts.push(artist);
-      if (album) parts.push(album);
-      parts.push(`"${track}"`);
-      const label = parts.join(' — ');
-      return isDownloading ? `DOWNLOADING...${label}` : label;
-    }
-
-    const fallback = album ?? activeItem?.urls?.[0] ?? '';
-    return isDownloading ? `DOWNLOADING...${fallback}` : fallback;
-  })();
+  /** Per-item caption — see `formatActiveItemCaption` for rules. */
+  const itemLabel = formatActiveItemCaption(activeItem);
 
   /** Speed and ETA suffix */
   const speedEta = [activeItem?.speed, activeItem?.eta]
