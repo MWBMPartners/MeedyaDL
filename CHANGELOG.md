@@ -339,6 +339,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - **(security)** Update supported versions to 1.0.9 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.0.10 [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧪 Testing
 
@@ -366,6 +367,50 @@ The push-driven release workflows for the alpha / beta / release-candidate
   preflight has its own toast/error/redirect surface and warrants
   dedicated fixture setup. Submit-disabled gating is tested without
   clicking the button.
+
+- **(downloadqueue)** Focused unit tests — #232 part 2 (#729)
+
+## Summary
+
+  Second installment of #232 (frontend tests for DownloadForm,
+  DownloadQueue, ActivityLog, SetupWizard) — DownloadQueue covered.
+
+  22 tests landed in
+  [\`src/components/download/DownloadQueue.test.tsx\`](../blob/test/232-downloadqueue/src/components/download/DownloadQueue.test.tsx):
+
+  - Empty state (icon + helper text + 0-items subtitle)
+  - Header subtitle pluralisation (0 / 1 / 2 items)
+  - Per-row rendering via QueueItem (mocked to a placeholder)
+  - \`role=list\` accessibility landmark
+  - Stats bar segments — non-zero only
+  - Conditional action buttons:
+    - Refresh / Import always
+    - Start Queue: queued > 0 AND active === 0
+    - Clear Completed: only when finished items exist
+    - Retry All Failed: only when failed > 0
+    - Abort Queue: hides when only terminal items remain
+  - Export: present when queue has items, count of active+queued in label
+  - Confirmation modals open on click (Retry All, Clear All, Abort)
+  - \`refreshQueue\` called on mount (polling start)
+  - DownloadState exhaustiveness sanity check
+
+  QueueItem mocked as a stable placeholder so this file exercises the
+  queue *controller* (header, stats, actions, modals, empty state) — not
+  the row component, which warrants its own test file.
+
+  **No version bump in this PR** — per-cycle internal version bumps were
+  confusing the picture. Release-please PR #719 accumulates everything
+  into the next bumper release.
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 367 pass (22 new)
+  - [ ] CI green
+  - [ ] (Manual not applicable — pure test addition, no behaviour change)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 
 ## [0.53.3] - 2026-05-08
