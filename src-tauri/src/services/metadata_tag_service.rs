@@ -178,42 +178,30 @@ fn tag_single_file(path: &Path, tag_writer: &dyn Fn(&mut Tag)) -> Result<(), Str
 
 /// Recursively walks a directory tree and tags all M4A files found.
 /// Returns the count of successfully tagged files.
+///
+/// Migrated to [`crate::utils::fs_walk::walk_dir_depth`] in v1.0.8
+/// (#716/1) with `max_depth=3` — matches GAMDL's natural
+/// Output/Artist/Album/file shape and covers disc-subfolder splits
+/// (Album/Disc 1/track.m4a). Visitor returns `Some(())` per
+/// successfully-tagged file; `result.len()` is the count. Filesystem
+/// sidecars (._*, .DS_Store, Thumbs.db) skipped (#577).
 fn tag_directory_recursive(dir: &Path, tag_writer: &dyn Fn(&mut Tag)) -> usize {
-    let mut count = 0;
-
-    // Read the directory entries; log and skip on permission errors
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) => {
-            log::debug!("Cannot read directory {}: {}", dir.display(), e);
-            return 0;
+    crate::utils::fs_walk::walk_dir_depth(dir, 3, |path| {
+        if crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
         }
-    };
-
-    for entry in entries.flatten() {
-        let entry_path = entry.path();
-
-        // Skip filesystem sidecars (macOS `._*` AppleDouble,
-        // `.DS_Store`, Windows `Thumbs.db`, etc.) — writing
-        // `mp4ameta` atoms into a non-M4A binary fails noisily (#577).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&entry_path) {
-            continue;
+        if !path.is_file() || !is_m4a(path) {
+            return None;
         }
-
-        if entry_path.is_dir() {
-            // Recurse into subdirectories (album folders may contain disc subfolders)
-            count += tag_directory_recursive(&entry_path, tag_writer);
-        } else if is_m4a(&entry_path) {
-            match tag_single_file(&entry_path, tag_writer) {
-                Ok(()) => count += 1,
-                Err(e) => {
-                    log::debug!("Skipping {}: {}", entry_path.display(), e);
-                }
+        match tag_single_file(path, tag_writer) {
+            Ok(()) => Some(()),
+            Err(e) => {
+                log::debug!("Skipping {}: {}", path.display(), e);
+                None
             }
         }
-    }
-
-    count
+    })
+    .len()
 }
 
 /// Writes lossless (ALAC) identification tags to an M4A file's metadata.
