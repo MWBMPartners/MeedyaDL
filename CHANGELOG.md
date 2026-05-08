@@ -342,6 +342,18 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(audit)** Codebase unification audit v2 — 8 new consolidation findings (#732)
+
+## Summary
+
+  Second consolidation pass after [audit
+  v1](.github/audits/codebase-unification-audit-v1.md) closed out (#716,
+  completed in v1.0.9).
+
+  Eight new findings, each scored on LOC impact, risk, and multi-service
+  relevance:
+
 
 ### 🧪 Testing
 
