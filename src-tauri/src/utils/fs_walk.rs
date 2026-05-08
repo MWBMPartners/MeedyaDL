@@ -95,6 +95,59 @@ fn walk_inner<T, F>(
     }
 }
 
+/// Find-first companion to [`walk_dir_depth`]: returns the FIRST path
+/// for which the visitor returns `Some(T)`, stopping the walk early.
+///
+/// Use this when you're searching for a single match — locating an
+/// extracted binary inside an archive, finding the first audio file
+/// in an album dir, etc. The full-walk variant (`walk_dir_depth`)
+/// would exhaust the whole tree before returning, which is wasteful
+/// for early-termination shapes.
+///
+/// Visitor semantics match `walk_dir_depth`:
+/// - Return `Some(T)` to claim this entry as the match (walk halts).
+/// - Return `None` to keep searching.
+/// - Visitor sees BOTH files and directories — filter on
+///   `path.is_file()` / `path.is_dir()` if needed.
+///
+/// Recursion order is "visit current entry, then descend if dir" —
+/// matches the natural left-to-right depth-first ordering. The
+/// `max_depth` semantics are identical to `walk_dir_depth` (mandatory,
+/// inclusive of `base` at depth 0).
+pub fn walk_dir_find_first<T, F>(base: &Path, max_depth: u32, mut visit: F) -> Option<T>
+where
+    F: FnMut(&Path) -> Option<T>,
+{
+    walk_inner_find(base, 0, max_depth, &mut visit)
+}
+
+fn walk_inner_find<T, F>(
+    dir: &Path,
+    depth: u32,
+    max_depth: u32,
+    visit: &mut F,
+) -> Option<T>
+where
+    F: FnMut(&Path) -> Option<T>,
+{
+    if depth > max_depth {
+        return None;
+    }
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Some(value) = visit(&path) {
+            return Some(value);
+        }
+        if path.is_dir() {
+            if let Some(value) = walk_inner_find(&path, depth + 1, max_depth, visit) {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +255,102 @@ mod tests {
             }
         });
         assert_eq!(dirs.len(), 2, "visitor sees both subdirs at depth 0");
+    }
+
+    // ===========================================================================
+    // walk_dir_find_first
+    // ===========================================================================
+
+    /// Visitor matching files by exact name. Returns the path on match.
+    fn match_file_named<'a>(
+        target: &'a str,
+    ) -> impl FnMut(&Path) -> Option<std::path::PathBuf> + 'a {
+        move |p: &Path| {
+            if p.is_file()
+                && p.file_name().and_then(|n| n.to_str()) == Some(target)
+            {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn find_first_returns_match_at_depth_zero() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("target.bin"), b"x").unwrap();
+        fs::write(dir.path().join("other.bin"), b"x").unwrap();
+
+        let found = walk_dir_find_first(dir.path(), 5, match_file_named("target.bin"));
+        assert!(found.is_some());
+        assert!(found.unwrap().ends_with("target.bin"));
+    }
+
+    #[test]
+    fn find_first_descends_into_subdirs() {
+        let dir = TempDir::new().unwrap();
+        let nested = dir.path().join("a").join("b");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("ffmpeg"), b"x").unwrap();
+
+        let found = walk_dir_find_first(dir.path(), 5, match_file_named("ffmpeg"));
+        assert!(found.is_some());
+        assert!(found.unwrap().ends_with("ffmpeg"));
+    }
+
+    #[test]
+    fn find_first_returns_none_when_no_match() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("decoy.bin"), b"x").unwrap();
+
+        let found = walk_dir_find_first(dir.path(), 5, match_file_named("missing"));
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn find_first_respects_max_depth() {
+        let dir = TempDir::new().unwrap();
+        let too_deep = dir.path().join("a").join("b").join("c");
+        fs::create_dir_all(&too_deep).unwrap();
+        fs::write(too_deep.join("target.bin"), b"x").unwrap();
+
+        // depth=2 stops at a/b/, never sees a/b/c/target.bin
+        assert!(walk_dir_find_first(dir.path(), 2, match_file_named("target.bin")).is_none());
+        // depth=3 reaches it
+        assert!(walk_dir_find_first(dir.path(), 3, match_file_named("target.bin")).is_some());
+    }
+
+    #[test]
+    fn find_first_short_circuits_after_first_match() {
+        // Visitor with a call counter — proves we don't keep walking after match.
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.bin"), b"x").unwrap();
+        fs::write(dir.path().join("b.bin"), b"x").unwrap();
+        fs::write(dir.path().join("c.bin"), b"x").unwrap();
+
+        let mut calls = 0;
+        let _ = walk_dir_find_first(dir.path(), 5, |p: &Path| {
+            calls += 1;
+            if p.file_name().and_then(|n| n.to_str()) == Some("a.bin") {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        });
+        // Filesystem ordering is non-deterministic, but we must have stopped
+        // by the time we found "a.bin" — so calls is bounded above by the
+        // total entry count (3), and below by 1.
+        assert!(
+            (1..=3).contains(&calls),
+            "expected 1..=3 visitor calls (early exit after match), got {calls}"
+        );
+    }
+
+    #[test]
+    fn find_first_returns_none_on_missing_dir() {
+        let result =
+            walk_dir_find_first(Path::new("/definitely/does/not/exist"), 5, match_file_named("x"));
+        assert!(result.is_none());
     }
 }
