@@ -6,6 +6,152 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(release)** V1.0.1 prep — GAMDL 3.5.1, activity-log refactor, Library Scan scaffold
+
+16 commits delivering:
+
+  - GAMDL v3.5.1 admission to support window (#711)
+  - Activity-log media-context labels + 30-min walk hang fix + stale progress-bar caption fix (#712)
+  - Phase 3.5 holistic refactor of activity-log + progress-bar emission layer (#714, 9 sub-commits): ProgressStage enum, unified emit_inner facade, shared set_stage helpers callable from both enrichment AND companion tasks, emit_subprocess_line consolidation, sub-stage labels for lyrics + finalising + companion phases, frontend caption extraction, codec-skip-line humaniser, companion file-count verification before claiming complete
+  - GAMDL MV cover-URL bug status documented (not fixed in 3.5.1, workaround tracked in #715)
+  - Codebase unification audit doc with 8 prioritised findings (#716, implementation PRs follow)
+  - Library Scan page scaffold (#717, gap-fill UX sub-features deferred)
+  - Version bump 0.53.3 → 1.0.1
+  - All gates green: cargo check / clippy / fmt / test (975 pass), npm lint / type-check / test (305 pass), npm audit (0 vulns)
+
+  Full PR description: https://github.com/MWBMPartners/MeedyaDL/pull/718
+
+
+### 🐛 Bug Fixes
+
+- **(ci)** Stop release-channel workflow self-trigger loop ([skip ci])
+
+The push-driven release workflows for the alpha / beta / release-candidate
+  channels each commit a version bump and push it back to the same branch
+  that triggered them. The job-level
+  `if: github.actor != 'github-actions[bot]'` guard was meant to prevent the
+  bot push from re-triggering the workflow, but it does not work in this
+  repo because the bot uses `RELEASE_PAT` rather than the default
+  `GITHUB_TOKEN`, and GitHub attributes PAT-authenticated pushes to the PAT
+  owner (a real user account) not to `github-actions[bot]`.
+
+  Net effect on 2026-05-08: a single human push to `release-candidate`
+  spawned 21 sequential RC tags (v1.0.0-rc.1 through v1.0.0-rc.21) and
+  6 published + 5 draft GitHub Releases before the loop was caught and
+  killed by hand. Spurious tags and releases have been deleted; only the
+  intended v1.0.0-rc.1 remains.
+
+  The fix appends `[skip ci]` to the bot's commit message in all three
+  push-driven release-channel workflows. GitHub parses this marker at the
+  trigger layer, so the workflow is not even queued for the bot's own
+  push. The pre-existing actor guard is kept as belt-and-braces.
+
+  Files touched (commit-message string only, no behavioural change):
+    - .github/workflows/alpha-release.yml
+    - .github/workflows/beta-release.yml
+    - .github/workflows/release-candidate-release.yml
+
+  The cron-driven workflows (nightly, weekly, monthly) do NOT have `push:`
+  triggers, so they were never affected — verified.
+
+- **(ci)** Stop release-channel workflow self-trigger loop ([skip ci]) (#713)
+
+## Incident
+
+  Single human push to \`release-candidate\` on 2026-05-08 09:38 UTC
+  spawned **21 sequential RC tags** (\`v1.0.0-rc.1\` through
+  \`v1.0.0-rc.21\`) and 6 published + 5 draft GitHub Releases before the
+  loop was caught and killed by hand. Spurious tags + releases have been
+  deleted; only the intended \`v1.0.0-rc.1\` remains.
+
+  ## Root cause
+
+  The push-driven release workflows for \`alpha\` / \`beta\` /
+  \`release-candidate\` each commit a version bump and push it back to the
+  same branch that triggered them. The job-level guard
+
+  \`\`\`yaml
+  if: github.actor != 'github-actions[bot]' || github.event_name ==
+  'workflow_dispatch'
+  \`\`\`
+
+  was meant to skip the bot's own push, **but does not work in this repo**
+  because:
+
+  - The bot uses \`secrets.RELEASE_PAT\` (not the default
+  \`GITHUB_TOKEN\`) for the push.
+  - GitHub attributes PAT-authenticated pushes to the **PAT owner's user
+  account**, not to \`github-actions[bot]\`.
+  - So \`github.actor\` is the human user; the check is always true; the
+  workflow re-runs every push.
+
+  Each iteration: \`BASE = \"1.0.0\"\`, \`MAX\` increments because the
+  previous run created \`v1.0.0-rc.N\`, \`NEXT = MAX + 1\`, version
+  manifests patched + committed + tagged, push to \`release-candidate\`
+  triggers the workflow again. Loop only stops when the PAT runs out of
+  API quota or someone cancels in-progress runs.
+
+  ## Fix
+
+  Append \`[skip ci]\` to the bot's commit message in all three
+  push-driven release-channel workflows:
+
+  - \`.github/workflows/alpha-release.yml\`
+  - \`.github/workflows/beta-release.yml\`
+  - \`.github/workflows/release-candidate-release.yml\`
+
+  GitHub parses \`[skip ci]\` at the **trigger layer** — the workflow is
+  not even queued for the bot's own push. The pre-existing actor guard is
+  kept as belt-and-braces.
+
+  ## Why this fix is safe
+
+  - Only the bot's own commit message changes; no behavioural difference
+  for any human contributor.
+  - \`[skip ci]\` is parsed by GitHub natively, no custom logic required.
+  - Cron-driven workflows (\`nightly\` / \`weekly\` / \`monthly\`) have
+  \`on: schedule\` but no \`on: push\` — they were never affected.
+  Verified via \`grep -A 5 \"^on:\"
+  .github/workflows/{nightly,weekly,monthly}-release.yml\`.
+
+  ## Verification
+
+  - [x] Three workflow files updated — diff is one-line per file, commit
+  message string only
+  - [x] \`grep \"\\[skip ci\\]\"
+  .github/workflows/{alpha,beta,release-candidate}-release.yml\` confirms
+  presence in all three
+  - [ ] After merge: smoke-test by triggering one push to \`alpha\`
+  (separate, low-risk channel) and confirming exactly **one** \`alpha\`
+  tag is produced
+  - [ ] After successful smoke-test, can resume \`v1.0.1-prep\` work
+  without fear of re-runaway
+
+  ## Cleanup already done out-of-band
+
+  - \`v1.0.0-rc.2\` through \`v1.0.0-rc.21\` tags deleted (\`gh release
+  delete --cleanup-tag\` for rc.2-rc.11, \`git push origin --delete\` for
+  rc.12-rc.21 which only had tags).
+  - All in-progress / queued \`release.yml\` runs for the spurious tags
+  cancelled (saves GHA minutes).
+  - \`release-candidate\` branch HEAD is currently at the bot's
+  \`chore(rc): 1.0.0-rc.21\` commit. Not reset (force-push protected) —
+  the next legitimate RC bump will compute \`MAX=1\` from remaining tags
+  and produce \`v1.0.0-rc.2\` correctly.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.53.3 [skip ci]
+- **(security)** Update supported versions to 1.0.1 [skip ci]
+
+## [0.53.3] - 2026-05-08
+
 ### 🐛 Bug Fixes
 
 - **(queue)** Identify content in codec-exhaustion activity log messages
