@@ -66,7 +66,12 @@ use super::gamdl_options::GamdlOptions;
 /// 1. Reads the current `AppSettings` and converts them to `GamdlOptions`.
 /// 2. Merges `self.options` (if present) on top of the global options.
 /// 3. Creates one `QueueItemStatus` per URL and enqueues them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Default` is implemented so callers can use struct-update syntax
+/// (`DownloadRequest { urls: ..., ..Default::default() }`) — important
+/// because adding new optional fields (e.g. `mv_companion_override` in
+/// #717 5e) shouldn't require updating every existing struct literal.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DownloadRequest {
     /// One or more Apple Music URLs to download. Each URL can be a song,
     /// album, playlist, or music video link. The download manager creates
@@ -82,6 +87,27 @@ pub struct DownloadRequest {
     /// See `GamdlOptions` in `gamdl_options.rs` for why all fields are
     /// `Option<T>` and how the merge works.
     pub options: Option<GamdlOptions>,
+
+    /// Per-item override for the music-video-companion enrichment stage
+    /// (#717 sub-feature 5e, Phase 5d-prep).
+    ///
+    /// - `None` -- inherit `AppSettings.music_video_companion`. Default
+    ///   for normal queue additions from the Download form / clipboard /
+    ///   deep links.
+    /// - `Some(true)` -- force-enable MV companion downloads for THIS item
+    ///   only, regardless of the global setting. Used by the Library Scan
+    ///   gap-fill flow when the user opts in to "Yes, include music
+    ///   videos" on a re-download where the global setting is off.
+    /// - `Some(false)` -- force-disable MV companion downloads for THIS
+    ///   item only. Used when the user opts out on a re-download where
+    ///   the global setting is on.
+    ///
+    /// Stored on the resulting `QueueItem` so the enrichment task can
+    /// consult it before falling back to settings. Persists across app
+    /// restarts via `PersistedQueueItem` so an in-flight queue carrying
+    /// per-item MV decisions survives a crash recovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mv_companion_override: Option<bool>,
 }
 
 /// Response returned by the `start_download` Tauri command.
@@ -421,6 +447,7 @@ mod tests {
                 "https://music.apple.com/us/album/another/987654321".to_string(),
             ],
             options: None,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -442,6 +469,7 @@ mod tests {
                 overwrite: Some(true),
                 ..Default::default()
             }),
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&request).unwrap();

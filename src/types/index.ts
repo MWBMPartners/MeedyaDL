@@ -863,6 +863,21 @@ export interface DownloadRequest {
   urls: string[];
   /** Optional per-download overrides (merged with global settings) */
   options?: GamdlOptions;
+  /**
+   * Per-item music-video-companion override (#717 sub-feature 5e).
+   *
+   * - `undefined`/`null` — inherit `AppSettings.music_video_companion`.
+   *   Default for normal queue additions.
+   * - `true` — force-enable MV companion downloads for THIS item only,
+   *   regardless of the global setting. Used by Library Scan gap-fill
+   *   when the user opts in.
+   * - `false` — force-disable MV companion downloads for THIS item only.
+   *   Used when the user opts out of MVs on a re-download where the
+   *   global setting is on.
+   *
+   * Mirrors: Rust field `mv_companion_override` on `DownloadRequest`.
+   */
+  mv_companion_override?: boolean | null;
 }
 
 /**
