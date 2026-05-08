@@ -2353,7 +2353,7 @@ impl DownloadQueue {
     /// Returns:
     /// - `Some(())` — retry was set up, caller should re-queue
     /// - `None` — retry not viable (already attempted, item missing,
-    ///            or no merged_options to mutate)
+    ///   or no merged_options to mutate)
     ///
     /// Budget is one attempt per item (`mv_cover_workaround_attempted`)
     /// to guard against infinite loops if the workaround itself fails
