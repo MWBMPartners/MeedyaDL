@@ -97,12 +97,22 @@ sync function directly inside an `async fn`.
 ## Error handling
 
 Always use `Result<T, String>`. Map errors with a context-bearing
-prefix:
+prefix via the `context_err!` macro (audit v2 #7):
 
 ```rust
-let entry = keyring::Entry::new(SERVICE_NAME, &key)
-    .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+use crate::context_err;
+
+let entry = context_err!(
+    keyring::Entry::new(SERVICE_NAME, &key),
+    "Failed to create keyring entry"
+)?;
 ```
+
+This expands to `result.map_err(|e| format!("...: {e}"))?`. Format
+args (`{key}`, `{count}`, etc.) are resolved against the surrounding
+scope — same semantics as `format!()`. New code should always reach
+for the macro; legacy `.map_err(|e| format!(...))?` sites migrate
+opportunistically.
 
 The message reaches the frontend verbatim, so it should be:
 
@@ -148,7 +158,7 @@ so callers don't have to remember the snake_case command string.
 
 When a new service lands, prefer one command module per service:
 
-```
+```text
 commands/
 ├── apple_music.rs   ← future home for AM-specific commands
 ├── bbc_iplayer.rs   ← M8 (BBC iPlayer session, auth)
