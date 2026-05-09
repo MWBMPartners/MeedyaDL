@@ -359,6 +359,58 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(commands)** Authoring guide — audit v2 #8 (#738)
+
+## Summary
+
+  Sixth implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #8
+  (state injection docs).
+
+  Tauri's \`#[tauri::command]\` DI macro requires explicit parameter
+  signatures, so \`State<'_, T>\` boilerplate is unavoidable per-command.
+  The audit's recommendation was **documentation, not refactor** — codify
+  the pattern so M8/M9/M10 command modules stay aligned with what already
+  exists.
+
+  **New**
+  [\`src-tauri/src/commands/README.md\`](../blob/docs/audit-v2-commands-pattern/src-tauri/src/commands/README.md)
+  covers:
+
+  - Anatomy of a command (signature, doc comment, return type)
+  - Parameter conventions (AppHandle first when present, \`State<'_, T>\`
+  next, request payload last)
+  - Adding new managed state types (tie-back to \`lib.rs::run()\`
+  \`.manage()\`)
+  - Async vs sync (\`spawn_blocking\` for CPU-bound work)
+  - Error handling (\`Result<T, String>\` + context-bearing \`map_err\`
+  prefix, no internal type names)
+  - Registration in \`lib.rs::generate_handler!\` + frontend wrapper in
+  \`src/lib/tauri-commands.ts\`
+  - Naming conventions
+  - Per-service module layout for M8/M9/M10
+  - References to clean small + full-featured examples
+
+  Pure docs — no code changes.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (#736)
+  5. ✅ #5 subprocess reader (#737)
+  6. ✅ #8 commands README (this PR)
+  7. #2 useAsyncTask hook (next)
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] No code changes — no test gates apply
+  - [ ] CI green (only the markdown linter / PR title check should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 🔧 Refactoring
 
