@@ -356,6 +356,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -463,6 +464,77 @@ The push-driven release workflows for the alpha / beta / release-candidate
   - [x] \`npm run lint\` clean
   - [x] \`npm run test\` — 422 pass (13 new, 0 regressions in 3 migrated
   files)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(lib)** UseConfirmation hook — audit v2 #3 (#735)
+
+## Summary
+
+  Third implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #3
+  (confirmation modal factory).
+
+  **New hook**
+  [\`src/lib/useConfirmation.tsx\`](../blob/refactor/audit-v2-use-confirmation/src/lib/useConfirmation.tsx):
+
+  \`\`\`ts
+  const confirmDelete = useConfirmation({
+    title: 'Delete crash report',
+    description: 'This cannot be undone.',
+    confirmLabel: 'Delete',
+    onConfirm: () => deleteCrashReport(id),
+  });
+
+  return (
+    <>
+      <Button onClick={confirmDelete.open}>Delete</Button>
+      {confirmDelete.modal}
+    </>
+  );
+  \`\`\`
+
+  The hook owns open/close state. \`description\` accepts \`ReactNode\` so
+  callers can include item details, secondary checkboxes (bound to parent
+  state), or multi-paragraph copy. Auto-closes on successful
+  \`onConfirm\`; **stays open if \`onConfirm\` throws** so the user can
+  retry — \`onConfirm\` is expected to surface its own error toast
+  (natural pairing with \`withErrorToast\`).
+
+  **11 unit tests** pin: default visibility, open(), confirm + auto-close,
+  stay-open-on-reject, cancel/escape fire onCancel, programmatic close(),
+  custom labels, rich ReactNode description with parent-state checkbox.
+
+  **Two DownloadQueue modals migrated** as proof:
+  - "Retry All Failed" (#665) — ~25 LOC of inline modal JSX gone
+  - "Clear All" — ~28 LOC gone
+
+  Two modals deliberately deferred:
+  - Per-item Delete (#685) — needs \`deleteTarget\` snapshot in
+  description
+  - Abort Queue (#620) — has "don't ask again" checkbox bound to separate
+  state
+
+  Both could migrate (hook supports both via rich descriptions) but are
+  slightly off the happy path.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (this PR)
+  4. #6 settings field hook (next, before M8)
+  5. #5 subprocess reader abstraction
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 433 pass (11 new, 0 regressions in 2 migrated
+  modals)
   - [ ] CI green
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
