@@ -357,6 +357,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -536,6 +537,63 @@ The push-driven release workflows for the alpha / beta / release-candidate
   - [x] \`npm run test\` — 433 pass (11 new, 0 regressions in 2 migrated
   modals)
   - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(hooks)** UseSettingsField — audit v2 #6 (#736)
+
+## Summary
+
+  Fourth implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #6
+  (settings tab boilerplate).
+
+  **New hook**
+  [\`src/hooks/useSettingsField.ts\`](../blob/refactor/audit-v2-settings-field-hook/src/hooks/useSettingsField.ts):
+
+  \`\`\`ts
+  const acoustid = useSettingsField('acoustid_enabled');
+  <Toggle checked={acoustid.value} onChange={acoustid.set} />
+  \`\`\`
+
+  The key is supplied once. TypeScript narrows \`value\` and \`set\` to
+  the field's actual type (\`boolean\` / \`string\` / \`number\` / union)
+  automatically. Each call subscribes to \`state.settings.X\` only —
+  re-renders only on that field's change, preserving audit-v1's
+  per-selector pattern. \`set\` is \`useCallback\`-stable.
+
+  **11 unit tests** pin: read for each field type, reactive updates from
+  external store mutations, set writes via updateSettings without touching
+  other fields, set works for union-typed fields, set is referentially
+  stable per key.
+
+  **MetadataTab migrated** as proof — 7 controls converted from the inline
+  \`(checked) => updateSettings({ X: checked })\` lambda pattern. Net ~25
+  LOC saved on this single tab.
+
+  **Multi-service relevance: very high.** M8/M9/M10 per-service settings
+  tabs (BBC iPlayer session, Spotify credentials, YouTube API key) will
+  land ~20 controls each. Without this hook: ~60 LOC of identical lambdas
+  per service. With it: ~10 LOC. Direct enabler for M8.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (this PR)
+  5. #5 subprocess reader abstraction (next, before M9/M10)
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 444 pass (11 new, 0 regressions)
+  - [ ] CI green
+  - [ ] (Manual: open Settings > Metadata, toggle every control, save,
+  reload — confirm values round-trip)
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
