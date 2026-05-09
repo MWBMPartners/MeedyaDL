@@ -13,44 +13,36 @@
  *     fetched. Maps to `settings.fetch_extra_tags`.
  *
  *   - **AcoustID Fingerprinting** (opt-in) -- When enabled, generates
- *     Chromaprint audio fingerprints using the embedded fingerprinting engine and looks up AcoustID
- *     identifiers from acoustid.org. Writes `Acoustid Id` and
- *     `Acoustid Fingerprint` freeform atoms. Maps to
+ *     Chromaprint audio fingerprints using the embedded fingerprinting
+ *     engine and looks up AcoustID identifiers from acoustid.org. Writes
+ *     `Acoustid Id` and `Acoustid Fingerprint` freeform atoms. Maps to
  *     `settings.acoustid_enabled`. Release builds ship with a built-in
  *     API key; users can optionally override it with their own.
  *
  *   - **ReplayGain Analysis** (opt-in) -- When enabled, analyses audio
  *     loudness using FFmpeg's EBU R128 filter and writes non-destructive
- *     ReplayGain metadata tags (`replaygain_track_gain`,
- *     `replaygain_track_peak`). Maps to `settings.replaygain_enabled`.
+ *     ReplayGain metadata tags. Maps to `settings.replaygain_enabled`.
  *
- * ## Store Connection
+ * ## Field wiring
  *
- * Reads and writes the Zustand `settingsStore`.
- *
- * @see {@link ../SettingsPage.tsx}        -- Parent container
- * @see {@link @/stores/settingsStore.ts}  -- Zustand store
+ * Each form control uses the `useSettingsField` hook (audit v2 #6) so
+ * the field key appears once instead of three times (settings read +
+ * onChange lambda + updateSettings({ key: v }) write).
  */
 
-// Zustand store for reading/writing metadata enrichment settings.
-import { useSettingsStore } from '@/stores/settingsStore';
-
-// Shared form components: Toggle for boolean switches.
 import { Toggle, SettingsSection } from '@/components/common';
+import { useSettingsField } from '@/hooks/useSettingsField';
 
-/**
- * MetadataTab -- Renders the Metadata settings tab.
- *
- * Contains three sections: an informational block about automatic tags,
- * an AcoustID toggle, and a ReplayGain toggle. The automatic tags
- * section is read-only (no controls) since those tags are always written
- * when applicable.
- */
 export function MetadataTab() {
-  /** Current settings snapshot */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function for persisting metadata setting changes */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // One hook call per field; `value` + `set` replace the
+  // `settings.X` / `updateSettings({ X: v })` boilerplate.
+  const fetchExtraTags = useSettingsField('fetch_extra_tags');
+  const contentAdvisoryInFilenames = useSettingsField('content_advisory_in_filenames');
+  const acoustidEnabled = useSettingsField('acoustid_enabled');
+  const replaygainEnabled = useSettingsField('replaygain_enabled');
+  const replaygainReferenceLevel = useSettingsField('replaygain_reference_level');
+  const replaygainPreventClipping = useSettingsField('replaygain_prevent_clipping');
+  const replaygainAlbumGain = useSettingsField('replaygain_album_gain');
 
   return (
     <div className="space-y-3">
@@ -69,15 +61,15 @@ export function MetadataTab() {
         <Toggle
           label="Fetch Extra Tags"
           description="Fetch additional metadata from Apple Music (normalization, spatial/lossless properties, smooth playback info). Adds a small delay per track. Disable if you only want basic codec/source tags. Only applies to GAMDL 2.x — GAMDL 3.0 removed this option, and MeedyaDL automatically skips emitting it when v3.0+ is installed."
-          checked={settings.fetch_extra_tags}
-          onChange={(checked) => updateSettings({ fetch_extra_tags: checked })}
+          checked={fetchExtraTags.value}
+          onChange={fetchExtraTags.set}
         />
 
         <Toggle
           label="Content Advisory in Filenames"
           description="Append [Explicit] or [Clean] to album folder names and track filenames based on Apple Music content ratings. Useful for distinguishing explicit and clean versions of the same album."
-          checked={settings.content_advisory_in_filenames}
-          onChange={(checked) => updateSettings({ content_advisory_in_filenames: checked })}
+          checked={contentAdvisoryInFilenames.value}
+          onChange={contentAdvisoryInFilenames.set}
         />
       </SettingsSection>
 
@@ -88,11 +80,11 @@ export function MetadataTab() {
           <Toggle
             label="Enable AcoustID Fingerprinting"
             description="Generate audio fingerprints and look up AcoustID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
-            checked={settings.acoustid_enabled}
-            onChange={(checked) => updateSettings({ acoustid_enabled: checked })}
+            checked={acoustidEnabled.value}
+            onChange={acoustidEnabled.set}
           />
 
-          {settings.acoustid_enabled && (
+          {acoustidEnabled.value && (
             <p className="text-xs text-content-tertiary">
               Release builds include a built-in API key. To use your own key, configure it in
               Settings &gt; Advanced &gt; API Credentials.
@@ -107,11 +99,11 @@ export function MetadataTab() {
           <Toggle
             label="Enable ReplayGain Analysis"
             description="Analyse audio loudness using FFmpeg and embed non-destructive ReplayGain metadata. Compatible players (foobar2000, VLC, Kodi, AIMP, Poweramp) use these tags to normalise volume without altering the audio."
-            checked={settings.replaygain_enabled}
-            onChange={(checked) => updateSettings({ replaygain_enabled: checked })}
+            checked={replaygainEnabled.value}
+            onChange={replaygainEnabled.set}
           />
 
-          {settings.replaygain_enabled && (
+          {replaygainEnabled.value && (
             <>
               <p className="text-xs text-content-secondary mt-2 mb-3 p-3 rounded-platform bg-surface-elevated border border-border-light">
                 <strong>What&apos;s written to each file:</strong><br />
@@ -128,10 +120,8 @@ export function MetadataTab() {
                 </label>
                 <select
                   className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
-                  value={settings.replaygain_reference_level}
-                  onChange={(e) =>
-                    updateSettings({ replaygain_reference_level: parseFloat(e.target.value) })
-                  }
+                  value={replaygainReferenceLevel.value}
+                  onChange={(e) => replaygainReferenceLevel.set(parseFloat(e.target.value))}
                 >
                   <option value={-18}>-18.0 LUFS (EBU R128 — recommended for music)</option>
                   <option value={-14}>-14.0 LUFS (Spotify / YouTube style — louder)</option>
@@ -146,15 +136,15 @@ export function MetadataTab() {
               <Toggle
                 label="Prevent Clipping"
                 description="Limit gain so that the loudest peak in each track never exceeds 0 dBFS after the gain adjustment. Recommended for tracks mastered at high loudness (modern pop, EDM). Disabling allows more precise loudness matching but risks distortion on some tracks."
-                checked={settings.replaygain_prevent_clipping}
-                onChange={(checked) => updateSettings({ replaygain_prevent_clipping: checked })}
+                checked={replaygainPreventClipping.value}
+                onChange={replaygainPreventClipping.set}
               />
 
               <Toggle
                 label="Include Album Gain"
                 description="Compute and write album-level ReplayGain tags alongside track tags. Album gain preserves the intended dynamic range between quiet and loud tracks when listening to an album in order. When disabled, only per-track gain tags are written (better for shuffle-only listeners)."
-                checked={settings.replaygain_album_gain}
-                onChange={(checked) => updateSettings({ replaygain_album_gain: checked })}
+                checked={replaygainAlbumGain.value}
+                onChange={replaygainAlbumGain.set}
               />
             </>
           )}
