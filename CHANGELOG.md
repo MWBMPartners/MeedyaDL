@@ -412,6 +412,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -770,6 +771,43 @@ The push-driven release workflows for the alpha / beta / release-candidate
   button shows loading state during preflight + clears on completion)
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(utils)** Context_err! macro — audit v2 #7 (closes audit v2) (#740)
+
+## Summary
+
+  **Final audit v2 cycle.** Closes finding #7 (Tauri command
+  error-wrapping macro). With this PR merged, **all 8 audit v2 findings
+  ship**.
+
+  **New macro**
+  [\`src-tauri/src/utils/error_context.rs\`](../blob/refactor/audit-v2-context-err-macro/src-tauri/src/utils/error_context.rs):
+
+  \`\`\`rust
+  use crate::context_err;
+
+  let entry = context_err!(
+      keyring::Entry::new(SERVICE_NAME, &key),
+      "Failed to create keyring entry"
+  )?;
+  \`\`\`
+
+  Expands to \`result.map_err(|e| format!("...: {e}"))?\`. Format args
+  resolve against the surrounding scope. Exported via \`#[macro_export]\`
+  so the call site is \`crate::context_err!\`.
+
+  **Honest scope assessment.** Per-site savings are modest (~30 chars).
+  The real value: one place to evolve error formatting (separator change,
+  structured logging, migration to a \`CommandError\` enum) — without the
+  macro, that's a 40-site search-and-replace.
+
+  **5 unit tests** pin: Ok pass-through, static prefix, format args from
+  scope, function-body usage with \`?\`, Display preservation.
+
+  **Three credentials.rs sites migrated** as proof. \`commands/README.md\`
+  updated to point new code at the macro.
+
+  ## Audit v2 — final scoreboard
 
 
 ### 🧪 Testing
