@@ -411,6 +411,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -703,6 +704,70 @@ The push-driven release workflows for the alpha / beta / release-candidate
   - [ ] CI green
   - [ ] (Manual smoke: start a download, confirm engine output still
   streams to UI / activity log via both event channels)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(hooks)** UseAsyncTask — audit v2 #2 (#739)
+
+## Summary
+
+  Seventh implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #2
+  (component-local async lifecycle).
+
+  **New hook**
+  [\`src/hooks/useAsyncTask.ts\`](../blob/refactor/audit-v2-use-async-task/src/hooks/useAsyncTask.ts)
+  — the component-local sibling of \`createAsyncResourceStore\` (which
+  covers the store-level shape).
+
+  \`\`\`ts
+  const submit = useAsyncTask(runPreflight);
+  <Button loading={submit.isRunning} onClick={() =>
+  submit.run()}>Submit</Button>
+  {submit.error && <p className="text-status-error">{submit.error}</p>}
+  \`\`\`
+
+  - Args forwarded through \`run(...args)\` — wrapped fn can take
+  arbitrary parameters
+  - Wrapped fn captured fresh on every render via a ref → no stale-closure
+  bugs
+  - \`run\` is referentially stable → safe to pass to onClick without
+  \`useCallback\`
+  - Composes naturally with \`withErrorToast\` when callers want a toast
+  on top
+
+  **9 unit tests** pin the contract: initial state, value/error/undefined
+  returns, isRunning toggle timing, prior-error clearing on new run, args
+  forwarding, run reference stability, **always invokes the latest
+  closure** (the captured-by-ref pattern — captured run from render 1
+  still calls render 2's fn).
+
+  **DownloadForm migrated** as proof — replaced the hand-rolled
+  \`isChecking\` boolean + handleSubmit's try/finally toggle with
+  \`submitTask.isRunning\` + \`submitTask.run()\`. The lambda wrapper \`()
+  => runPreflightAndSubmit()\` is required because the wrapped fn is
+  declared after the hook call (TS2448 TDZ otherwise) — captures the
+  binding lazily so click-time the binding is initialised.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (#736)
+  5. ✅ #5 subprocess reader (#737)
+  6. ✅ #8 commands README (#738)
+  7. ✅ #2 useAsyncTask (this PR)
+  8. #7 context_err! macro (last one)
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 453 pass (9 new, 0 regressions in
+  DownloadForm's 15 tests)
+  - [ ] CI green
+  - [ ] (Manual smoke: paste an Apple Music URL, confirm Add to Queue
+  button shows loading state during preflight + clears on completion)
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
