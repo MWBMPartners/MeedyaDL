@@ -20,7 +20,7 @@
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MvGapFillModal } from '@/components/library/MvGapFillModal';
-import type { ScannedManifest } from '@/lib/tauri-commands';
+import { makeScannedManifest } from '@/testing/fixtures';
 
 vi.mock('lucide-react', () => ({
   X: (props: Record<string, unknown>) => <span data-testid="x-icon" {...props} />,
@@ -35,19 +35,7 @@ vi.mock('lucide-react', () => ({
   ),
 }));
 
-const baseManifest: ScannedManifest = {
-  manifest_path: '/music/Artist/Album/manifest.meedyadl',
-  album_dir: '/music/Artist/Album',
-  urls: ['https://music.apple.com/us/album/foo/123'],
-  platform: 'apple-music',
-  artist: 'Test Artist',
-  album: 'Test Album',
-  downloaded_at: null,
-  track_count: 10,
-  current_codec: 'alac',
-  audio_file_count: 9,
-  last_modified_date: null,
-};
+const baseManifest = makeScannedManifest();
 
 describe('MvGapFillModal', () => {
   // ===========================================================================

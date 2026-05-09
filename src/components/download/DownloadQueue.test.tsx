@@ -33,6 +33,7 @@ import { useDownloadStore } from '@/stores/downloadStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { DownloadQueue } from '@/components/download/DownloadQueue';
+import { makeQueueItem as makeItem } from '@/testing/fixtures';
 import type { QueueItemStatus, DownloadState } from '@/types';
 
 /**
@@ -49,34 +50,6 @@ vi.mock('@/components/download/QueueItem', () => ({
     </div>
   ),
 }));
-
-/**
- * Build a QueueItemStatus fixture with sensible defaults — tests
- * override only the fields they care about (typically `id` + `state`).
- */
-function makeItem(overrides: Partial<QueueItemStatus> = {}): QueueItemStatus {
-  return {
-    id: overrides.id ?? 'item-1',
-    urls: overrides.urls ?? ['https://music.apple.com/us/album/foo/123'],
-    state: overrides.state ?? 'queued',
-    progress: 0,
-    current_track: null,
-    album_name: null,
-    artist_name: null,
-    total_tracks: null,
-    completed_tracks: null,
-    speed: null,
-    eta: null,
-    processing_label: null,
-    processing_progress: null,
-    error: null,
-    output_path: null,
-    codec_used: null,
-    fallback_occurred: false,
-    used_wrapper: false,
-    ...overrides,
-  } as QueueItemStatus;
-}
 
 beforeEach(() => {
   // Reset all three stores between tests so no item state bleeds.
