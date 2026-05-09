@@ -354,6 +354,60 @@ The push-driven release workflows for the alpha / beta / release-candidate
   Eight new findings, each scored on LOC impact, risk, and multi-service
   relevance:
 
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- **(testing)** Centralised fixture builders — audit v2 #4 (#733)
+
+## Summary
+
+  First implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #4
+  (test fixture builders).
+
+  **New module**
+  [\`src/testing/fixtures.ts\`](../blob/refactor/audit-v2-test-fixtures/src/testing/fixtures.ts):
+  - \`makeFixture<T>(defaults)\` generic factory
+  - \`makeQueueItem\` — \`QueueItemStatus\` builder
+  - \`makeActivityEntry\` — \`ActivityLogEntry\` builder
+  - \`makeScannedManifest\` — \`ScannedManifest\` builder
+
+  **9 tests** pin the helper contract + per-builder default shape so a
+  future change to a domain type that breaks the defaults is caught here
+  before cascading.
+
+  **Three call sites migrated:**
+  - \`DownloadQueue.test.tsx\` — inline \`makeItem\` builder removed (~25
+  LOC)
+  - \`ActivityLog.test.tsx\` — inline \`makeEntry\` builder removed (~10
+  LOC)
+  - \`MvGapFillModal.test.tsx\` — 13-line \`baseManifest\` literal →
+  \`makeScannedManifest()\`
+
+  All 22 + 18 + 10 tests in the migrated files still pass without
+  modification.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (this PR)
+  2. #1 useAsyncWithToast helper (next)
+  3. #3 confirmation modal factory hook
+  4. #6 settings field hook
+  5. #5 subprocess reader abstraction
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 409 pass (9 new, 0 regressions in 3 migrated
+  files)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 🧪 Testing
 
