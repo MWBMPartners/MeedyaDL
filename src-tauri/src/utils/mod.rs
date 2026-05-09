@@ -99,6 +99,19 @@ pub mod fs_walk;
 /// these; existing callers migrate opportunistically.
 pub mod http_client;
 
+/// Subprocess line-reader spawn helper (audit v2 finding #5).
+///
+/// `spawn_line_reader(stream, visitor)` captures the truly-common
+/// shell at every subprocess reader site (`BufReader → next_line
+/// loop → visitor call`) without forcing the per-line work into a
+/// generic shape. Direct enabler for new pip-engine implementations
+/// (Votify M9, yt-dlp M10) which follow the engine_runner pattern;
+/// callers with caller-specific per-stream state (companion
+/// supervisor's watchdog/accumulator, download queue's last-clean
+/// threading) keep their inline implementations and document the
+/// choice in-source.
+pub mod subprocess_reader;
+
 /// Atomic JSON file write helper (#716 finding #8).
 ///
 /// Replaces 5+ services that independently implement the same
