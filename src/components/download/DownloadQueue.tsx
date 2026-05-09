@@ -62,6 +62,7 @@ import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
+import { useConfirmation } from '@/lib/useConfirmation';
 
 /** Reusable UI components from the common library. */
 import { Button, Modal } from '@/components/common';
@@ -167,26 +168,14 @@ export function DownloadQueue() {
   /** Shows a toast notification for action feedback. */
   const addToast = useUiStore((s) => s.addToast);
 
-  /** Confirmation modal state for "Clear All". */
-  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
-
   /**
    * Confirmation modal target for per-item Delete (#685). Holds the
    * full queue item snapshot so the modal can render a meaningful label
    * (URL, current track) without re-querying the store. `null` means the
-   * modal is closed.
+   * modal is closed. Per-item delete needs the full target snapshot in
+   * its description so it stays as plain Modal state, not useConfirmation.
    */
   const [deleteTarget, setDeleteTarget] = useState<QueueItemStatus | null>(null);
-
-  /**
-   * Confirmation modal state for "Retry All Failed" (#665). Bulk retry
-   * iterates every queue item with `state === 'error'` and calls the
-   * existing `retryDownload` IPC for each, preserving per-item options.
-   * The smart manifest-driven retry path (#667) inside the backend means
-   * already-downloaded tracks are skipped — bulk retry of 12 items only
-   * re-fetches the actually-failed tracks across them.
-   */
-  const [showRetryAllConfirm, setShowRetryAllConfirm] = useState(false);
 
   /**
    * Confirmation modal state for "Abort Queue" (#620). The destructive
@@ -361,9 +350,9 @@ export function DownloadQueue() {
     }
   };
 
-  /** Clear ALL non-active items after user confirms. */
+  /** Clear ALL non-active items. The useConfirmation hook auto-closes
+   *  on resolve, so this just runs the action and surfaces the toast. */
   const handleClearAllConfirmed = async () => {
-    setShowClearAllConfirm(false);
     const removed = await withErrorToast(() => clearAll(), {
       errorMsg: 'Failed to clear queue',
     });
@@ -414,7 +403,6 @@ export function DownloadQueue() {
    * independently; one bad item shouldn't abort the whole batch.
    */
   const handleRetryAllFailedConfirmed = async () => {
-    setShowRetryAllConfirm(false);
     const failedItems = queueItems.filter((i) => i.state === 'error');
     if (failedItems.length === 0) {
       addToast('No failed downloads to retry', 'info');
@@ -522,6 +510,57 @@ export function DownloadQueue() {
   }, [queueItems]);
 
   // ---------------------------------------------------------------
+  // Confirmation modal hooks (audit v2 #3)
+  // ---------------------------------------------------------------
+  // Each `useConfirmation` returns { open, modal }: `open` wires to a
+  // trigger button's onClick; `modal` renders once in the JSX. The
+  // hook owns its own open/close state and auto-closes on a
+  // successful onConfirm. Stays open if onConfirm throws so the user
+  // can retry — onConfirm surfaces its own error toast.
+  //
+  // The Abort + per-item Delete modals stay as inline <Modal>s for now:
+  // Abort has a "don't ask again" checkbox that mutates separate
+  // settings state; Delete needs the full target snapshot in its
+  // description. Both could migrate but are slightly off the happy path
+  // of the hook.
+
+  const retryAllConfirm = useConfirmation({
+    title: 'Retry All Failed Downloads',
+    description: (
+      <>
+        <p className="mb-4">
+          This will re-queue {failedCount} failed download
+          {failedCount !== 1 ? 's' : ''}. The smart retry path skips
+          already-downloaded tracks via the manifest, so only the
+          actually-failed tracks will be re-fetched.
+        </p>
+        <p>
+          For wrapper-related failures, use the per-item &quot;Retry
+          without Wrapper&quot; option instead.
+        </p>
+      </>
+    ),
+    confirmLabel: 'Retry All',
+    onConfirm: handleRetryAllFailedConfirmed,
+  });
+
+  const clearAllConfirm = useConfirmation({
+    title: 'Clear All Queue Items',
+    description: (
+      <>
+        <p className="mb-4">
+          This will remove all queued, completed, failed, and cancelled
+          items from the download queue. Active downloads will not be
+          interrupted.
+        </p>
+        <p>This action cannot be undone.</p>
+      </>
+    ),
+    confirmLabel: 'Clear All',
+    onConfirm: handleClearAllConfirmed,
+  });
+
+  // ---------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------
   return (
@@ -609,7 +648,7 @@ export function DownloadQueue() {
                 variant="ghost"
                 size="sm"
                 icon={<RotateCcw size={14} />}
-                onClick={() => setShowRetryAllConfirm(true)}
+                onClick={retryAllConfirm.open}
               >
                 Retry All Failed ({failedCount})
               </Button>
@@ -620,7 +659,7 @@ export function DownloadQueue() {
                 variant="ghost"
                 size="sm"
                 icon={<Trash2 size={14} />}
-                onClick={() => setShowClearAllConfirm(true)}
+                onClick={clearAllConfirm.open}
               >
                 Clear All
               </Button>
@@ -733,60 +772,14 @@ export function DownloadQueue() {
         )}
       </div>
 
-      {/* Confirmation modal for "Retry All Failed" (#665) */}
-      <Modal
-        open={showRetryAllConfirm}
-        onClose={() => setShowRetryAllConfirm(false)}
-        title="Retry All Failed Downloads"
-      >
-        <p className="text-sm text-content-secondary mb-4">
-          This will re-queue {failedCount} failed download
-          {failedCount !== 1 ? 's' : ''}. The smart retry path skips
-          already-downloaded tracks via the manifest, so only the actually-
-          failed tracks will be re-fetched.
-        </p>
-        <p className="text-sm text-content-secondary mb-6">
-          For wrapper-related failures, use the per-item &quot;Retry without
-          Wrapper&quot; option instead.
-        </p>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setShowRetryAllConfirm(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={handleRetryAllFailedConfirmed}>
-            Retry All
-          </Button>
-        </div>
-      </Modal>
-
-      {/* Confirmation modal for "Clear All" */}
-      <Modal
-        open={showClearAllConfirm}
-        onClose={() => setShowClearAllConfirm(false)}
-        title="Clear All Queue Items"
-      >
-        <p className="text-sm text-content-secondary mb-4">
-          This will remove all queued, completed, failed, and cancelled items
-          from the download queue. Active downloads will not be interrupted.
-        </p>
-        <p className="text-sm text-content-secondary mb-6">
-          This action cannot be undone.
-        </p>
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => setShowClearAllConfirm(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleClearAllConfirmed}
-          >
-            Clear All
-          </Button>
-        </div>
-      </Modal>
+      {/*
+        Retry All Failed (#665) + Clear All confirmation modals — both
+        owned by useConfirmation hooks declared above (audit v2 #3).
+        The hooks render their own <Modal> here; the trigger buttons
+        in the actions row call their `.open` methods.
+      */}
+      {retryAllConfirm.modal}
+      {clearAllConfirm.modal}
 
       {/* Confirmation modal for per-item Delete (#685) */}
       <Modal
