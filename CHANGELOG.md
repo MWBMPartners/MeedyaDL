@@ -358,6 +358,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -594,6 +595,62 @@ The push-driven release workflows for the alpha / beta / release-candidate
   - [ ] CI green
   - [ ] (Manual: open Settings > Metadata, toggle every control, save,
   reload — confirm values round-trip)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(utils)** Spawn_line_reader helper — audit v2 #5 (#737)
+
+## Summary
+
+  Fifth implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #5
+  (subprocess reader abstraction).
+
+  **Honest scope assessment:** the audit estimated ~120 LOC saved across 4
+  reader sites. After surveying the actual code, that estimate was
+  optimistic — companion_supervisor and download_queue carry per-stream
+  state (watchdog timestamps, mutex accumulators, last-clean return-value
+  threading) that doesn't generalise into a clean visitor signature
+  without making the abstraction bigger than the inline code it replaces.
+
+  **What this PR ships:**
+  - New helper
+  [\`utils/subprocess_reader.rs\`](../blob/refactor/audit-v2-subprocess-reader/src-tauri/src/utils/subprocess_reader.rs)
+  with one primitive: \`spawn_line_reader(stream, async_visitor) ->
+  JoinHandle<()>\`
+  - 4 unit tests pinning the contract: reads-until-close,
+  partial-final-line, empty-stream, visitor mutable-state sharing (proves
+  the helper *could* host the more complex sites if a future audit decides
+  it's worth it)
+  - engine_runner's two readers migrated — they were byte-identical except
+  for the stream label. Net ~25 LOC saved on this single site
+  - companion_supervisor and download_queue **stay inline**; the
+  file-level docstring documents why honestly
+
+  **Real long-term value:** the primitive is a clean foundation for M9
+  (Votify) and M10 (yt-dlp) pip-engines, which will follow the
+  engine_runner pattern. They can adopt this from day one rather than
+  re-implementing the BufReader+next_line scaffold.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (#736)
+  5. ✅ #5 subprocess reader (this PR)
+  6. #8 state injection docs (next)
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`cargo clippy --tests -- -D warnings\` clean
+  - [x] \`cargo test --lib\` — 1003 pass, 1 ignored (4 new)
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run test\` — 444 pass (unchanged)
+  - [ ] CI green
+  - [ ] (Manual smoke: start a download, confirm engine output still
+  streams to UI / activity log via both event channels)
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
