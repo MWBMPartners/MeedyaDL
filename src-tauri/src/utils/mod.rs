@@ -99,6 +99,16 @@ pub mod fs_walk;
 /// these; existing callers migrate opportunistically.
 pub mod http_client;
 
+/// `context_err!` macro for Tauri command error wrapping (audit v2 #7).
+///
+/// Replaces ~30-40 sites of `.map_err(|e| format!("...: {e}"))?`
+/// with `context_err!(result, "...")?`. The macro is exported via
+/// `#[macro_export]` so it lives at crate root (`crate::context_err!`)
+/// rather than under `utils::error_context::`. Real value isn't LOC
+/// saved — it's having one place to evolve error formatting if we
+/// ever migrate to a structured `CommandError` type.
+pub mod error_context;
+
 /// Subprocess line-reader spawn helper (audit v2 finding #5).
 ///
 /// `spawn_line_reader(stream, visitor)` captures the truly-common
