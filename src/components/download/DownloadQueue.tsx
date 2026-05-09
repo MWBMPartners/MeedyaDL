@@ -61,6 +61,7 @@ import { Download, Play, RefreshCw, RotateCcw, Square, Trash2, Upload } from 'lu
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { withErrorToast } from '@/lib/withErrorToast';
 
 /** Reusable UI components from the common library. */
 import { Button, Modal } from '@/components/common';
@@ -314,13 +315,11 @@ export function DownloadQueue() {
    * Wraps `exportQueue()` with toast feedback showing the count exported.
    */
   const handleExport = async () => {
-    try {
-      const count = await exportQueue();
-      if (count > 0) {
-        addToast(`Exported ${count} item${count !== 1 ? 's' : ''}`, 'success');
-      }
-    } catch {
-      addToast('Failed to export queue', 'error');
+    const count = await withErrorToast(() => exportQueue(), {
+      errorMsg: 'Failed to export queue',
+    });
+    if (count !== undefined && count > 0) {
+      addToast(`Exported ${count} item${count !== 1 ? 's' : ''}`, 'success');
     }
   };
 
@@ -329,13 +328,11 @@ export function DownloadQueue() {
    * Wraps `importQueue()` with toast feedback showing the count imported.
    */
   const handleImport = async () => {
-    try {
-      const count = await importQueue();
-      if (count > 0) {
-        addToast(`Imported ${count} item${count !== 1 ? 's' : ''}`, 'success');
-      }
-    } catch {
-      addToast('Failed to import queue', 'error');
+    const count = await withErrorToast(() => importQueue(), {
+      errorMsg: 'Failed to import queue',
+    });
+    if (count !== undefined && count > 0) {
+      addToast(`Imported ${count} item${count !== 1 ? 's' : ''}`, 'success');
     }
   };
 
@@ -344,12 +341,11 @@ export function DownloadQueue() {
    * Wraps `processQueue()` with toast feedback.
    */
   const handleStartQueue = async () => {
-    try {
-      await processQueue();
-      addToast('Queue processing started', 'info');
-    } catch {
-      addToast('Failed to start queue processing', 'error');
-    }
+    await withErrorToast(() => processQueue(), {
+      successMsg: 'Queue processing started',
+      successVariant: 'info',
+      errorMsg: 'Failed to start queue processing',
+    });
   };
 
   /**
@@ -357,22 +353,22 @@ export function DownloadQueue() {
    * Wraps `clearFinished()` with toast feedback showing the count removed.
    */
   const handleClearFinished = async () => {
-    try {
-      const removed = await clearFinished();
+    const removed = await withErrorToast(() => clearFinished(), {
+      errorMsg: 'Failed to clear queue',
+    });
+    if (removed !== undefined) {
       addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
-    } catch {
-      addToast('Failed to clear queue', 'error');
     }
   };
 
   /** Clear ALL non-active items after user confirms. */
   const handleClearAllConfirmed = async () => {
     setShowClearAllConfirm(false);
-    try {
-      const removed = await clearAll();
+    const removed = await withErrorToast(() => clearAll(), {
+      errorMsg: 'Failed to clear queue',
+    });
+    if (removed !== undefined) {
       addToast(`Cleared all ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
-    } catch {
-      addToast('Failed to clear queue', 'error');
     }
   };
 

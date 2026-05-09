@@ -92,6 +92,7 @@ import {
 // @see https://zustand.docs.pmnd.rs/getting-started/introduction
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { withErrorToast } from '@/lib/withErrorToast';
 
 // Shared UI components used in the header action bar.
 import { Button } from '@/components/common';
@@ -230,12 +231,10 @@ export function SettingsPage() {
    * Displays a success or error toast notification based on the outcome.
    */
   const handleSave = async () => {
-    try {
-      await saveSettings();
-      addToast('Settings saved successfully', 'success');
-    } catch {
-      addToast('Failed to save settings', 'error');
-    }
+    await withErrorToast(() => saveSettings(), {
+      successMsg: 'Settings saved successfully',
+      errorMsg: 'Failed to save settings',
+    });
   };
 
   /**
