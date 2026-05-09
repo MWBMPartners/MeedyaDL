@@ -36,7 +36,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { useActivityStore } from '@/stores/activityStore';
 import { ActivityLog } from '@/components/download/ActivityLog';
-import type { ActivityLogEntry } from '@/types';
+import { makeActivityEntry as makeEntry } from '@/testing/fixtures';
 
 // Mock the virtualizer to render every entry synchronously. The real
 // useVirtualizer measures DOM elements via getBoundingClientRect()
@@ -74,20 +74,6 @@ vi.mock('@/lib/tauri-commands', () => ({
   exportDiskActivityLog: vi.fn().mockResolvedValue(1024),
   getLogsFolderPath: vi.fn().mockResolvedValue('/var/log/meedyadl'),
 }));
-
-/**
- * Build an ActivityLogEntry fixture. Tests override only what they
- * care about; defaults produce a typical download stdout line.
- */
-function makeEntry(overrides: Partial<ActivityLogEntry> = {}): ActivityLogEntry {
-  return {
-    download_id: overrides.download_id ?? 'abc12345-de00-4000-9000-000000000000',
-    stream: overrides.stream ?? 'stdout',
-    line: overrides.line ?? 'Downloading track 1/12',
-    timestamp: overrides.timestamp ?? '2026-05-08T12:00:00.000Z',
-    _id: overrides._id,
-  };
-}
 
 beforeEach(() => {
   // Reset the activityStore between tests so entries don't bleed.
