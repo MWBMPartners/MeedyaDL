@@ -355,6 +355,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
   relevance:
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -403,6 +404,64 @@ The push-driven release workflows for the alpha / beta / release-candidate
   - [x] \`npm run type-check\` clean
   - [x] \`npm run lint\` clean
   - [x] \`npm run test\` — 409 pass (9 new, 0 regressions in 3 migrated
+  files)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(lib)** WithErrorToast helper — audit v2 #1 (#734)
+
+## Summary
+
+  Second implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #1
+  (async error → toast emission shape).
+
+  **New helper**
+  [\`src/lib/withErrorToast.ts\`](../blob/refactor/audit-v2-with-error-toast/src/lib/withErrorToast.ts):
+
+  \`\`\`ts
+  await withErrorToast(() => ipc(), {
+    successMsg: 'Success!',
+    errorMsg: (err) => \`Failed to X: \${err}\`,
+  suppressOn: ['cancel'], // optional — silently swallow expected
+  rejections
+  });
+  \`\`\`
+
+  Reads \`addToast\` via \`useUiStore.getState()\` so it works from any
+  context (component handlers, store actions, async effects) without being
+  a hook itself.
+
+  **13 unit tests** cover: success/error paths, static-string vs
+  function-typed errorMsg, default vs 'info' successVariant, suppressOn
+  case-insensitive matching against the displayed (post-errorMsg) text.
+
+  **Three call sites migrated** as proof:
+  - \`SettingsPage.tsx\` \`handleSave\` (7 LOC → 4)
+  - \`CrashReportSection.tsx\` \`handleDelete\` + \`handleDeleteAll\` (16
+  → 11)
+  - \`DownloadQueue.tsx\` 5 handlers (50 → 35)
+
+  All migrated sites' tests pass without modification.
+
+  Remaining ~25 call sites can opt in incrementally; no big-bang refactor.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 useAsyncWithToast / withErrorToast (this PR)
+  3. #3 confirmation modal factory hook (next)
+  4. #6 settings field hook
+  5. #5 subprocess reader abstraction
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 422 pass (13 new, 0 regressions in 3 migrated
   files)
   - [ ] CI green
 
