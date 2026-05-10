@@ -212,6 +212,7 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
         "cookies_path",
         "wrapper_account_url",
         "wrapper_m3u8_ip",
+        "wrapper_decrypt_ip",
         "musickit_team_id",
         "musickit_key_id",
         "acoustid_api_key",

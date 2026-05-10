@@ -202,6 +202,16 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 4;
     }
 
+    // v4 → v5: introduces `wrapper_decrypt_ip` (#743). The new field
+    // gets `"127.0.0.1:10020"` via `#[serde(default = …)]` for upgrading
+    // users — same value GAMDL would have used at the CLI default, so
+    // local-wrapper setups see no behavioural change. Remote-wrapper
+    // users now have a settings field they can configure to point at
+    // their wrapper host (previously impossible from the UI).
+    if settings.settings_version == 4 {
+        settings.settings_version = 5;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -1479,13 +1489,16 @@ mod tests {
 
     #[test]
     fn migration_v3_to_v4_heals_legacy_playlist_file_template() {
+        // After the v4→v5 migration (#743 wrapper_decrypt_ip), the
+        // version ceiling is now 5; this test asserts the v3→v4 step
+        // happened correctly and that subsequent steps don't undo it.
         let mut s = AppSettings {
             settings_version: 3,
             playlist_file_template: "Playlists/{playlist_artist}/{playlist_title}".to_string(),
             ..default_settings()
         };
         migrate_settings(&mut s);
-        assert_eq!(s.settings_version, 4);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(
             s.playlist_file_template,
             "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"
@@ -1502,8 +1515,28 @@ mod tests {
             ..default_settings()
         };
         migrate_settings(&mut s);
-        assert_eq!(s.settings_version, 4);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(s.playlist_file_template, "MyPlaylists/{playlist_title}");
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v4 → v5 wrapper_decrypt_ip rollout (#743)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v4_to_v5_stamps_version_without_changing_decrypt_ip() {
+        // v4→v5 only bumps the schema version. The new
+        // `wrapper_decrypt_ip` field gets its serde default
+        // ("127.0.0.1:10020") on deserialise; this test exercises
+        // the in-memory case where the field is already populated.
+        let mut s = AppSettings {
+            settings_version: 4,
+            wrapper_decrypt_ip: "192.168.1.50:10020".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.wrapper_decrypt_ip, "192.168.1.50:10020");
     }
 
     #[test]

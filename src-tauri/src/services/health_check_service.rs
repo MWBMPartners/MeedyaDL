@@ -56,6 +56,13 @@ pub enum PreflightCheck {
     /// Wrapper m3u8 socket reachability (TCP connect to `wrapper_m3u8_ip`),
     /// required by GAMDL v3.1+ when `--use-wrapper` is set.
     WrapperM3u8,
+    /// Wrapper decryption socket reachability (TCP connect to
+    /// `wrapper_decrypt_ip`), required by GAMDL whenever
+    /// `--use-wrapper` is set. Catches the common remote-wrapper
+    /// misconfiguration where the user has set the account URL +
+    /// m3u8 IP to a LAN host but left decrypt at the loopback
+    /// default — see #743.
+    WrapperDecrypt,
     /// Output directory writability check (filesystem probe)
     OutputPath,
 }
@@ -397,6 +404,70 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
                 message,
             })
         }
+    }
+}
+
+/// Probes the wrapper's decryption service via a 3-second TCP connect
+/// (#743). Mirrors `check_wrapper_m3u8_health` exactly — same host:port
+/// shape, same 3-second timeout, same warning surface — only the
+/// failure message differs.
+///
+/// **Why this matters:** GAMDL opens an outbound TCP connection to the
+/// configured `wrapper_decrypt_ip` (default `"127.0.0.1:10020"`) for
+/// every encrypted sample it needs to decrypt. Cookie-mode downloads
+/// never hit this socket; wrapper-mode downloads always do. If the
+/// user has set `wrapper_account_url` + `wrapper_m3u8_ip` to a LAN
+/// host but left `wrapper_decrypt_ip` at the loopback default — the
+/// classic "I followed the wrapper docs but ALAC downloads still
+/// fail" symptom — this preflight surfaces the mistake at queue time
+/// instead of mid-download.
+///
+/// Returns:
+/// - `None` if the socket accepts the connection.
+/// - `Some(PreflightWarning)` on parse error, connect refusal, or timeout.
+pub async fn check_wrapper_decrypt_health(
+    wrapper_decrypt_ip: &str,
+) -> Option<PreflightWarning> {
+    let (host, port_str) = match wrapper_decrypt_ip.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() && !p.is_empty() => (h, p),
+        _ => {
+            return Some(PreflightWarning {
+                check: PreflightCheck::WrapperDecrypt,
+                message: format!(
+                    "Wrapper decryption address '{wrapper_decrypt_ip}' is malformed — expected host:port (e.g. 127.0.0.1:10020)"
+                ),
+            });
+        }
+    };
+    let port: u16 = match port_str.parse() {
+        Ok(p) => p,
+        Err(_) => {
+            return Some(PreflightWarning {
+                check: PreflightCheck::WrapperDecrypt,
+                message: format!(
+                    "Wrapper decryption port '{port_str}' in '{wrapper_decrypt_ip}' is not a valid number"
+                ),
+            });
+        }
+    };
+
+    let connect = tokio::net::TcpStream::connect((host, port));
+    match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
+        Ok(Ok(_stream)) => None,
+        Ok(Err(err)) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperDecrypt,
+            message: format!(
+                "Wrapper decryption socket at {wrapper_decrypt_ip} is unreachable — \
+                 GAMDL needs your wrapper to expose its decryption service here ({err})"
+            ),
+        }),
+        Err(_) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperDecrypt,
+            message: format!(
+                "Wrapper decryption socket at {wrapper_decrypt_ip} timed out — \
+                 check that your wrapper's decryption service is running"
+            ),
+        }),
     }
 }
 
