@@ -142,7 +142,7 @@ Most users should stick with **cookie-based authentication** (the default). The 
 
 1. **Obtain and run the wrapper service** — the wrapper is a separate application (not bundled with MeedyaDL) that listens on `http://127.0.0.1:30020` by default
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
-3. **Configure the URL** — update the **Wrapper Account URL** if the wrapper runs on a different host or port
+3. **Configure the URL** — update the **Wrapper Account URL** if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below — there are two more addresses you'll need to update.
 
 ### Auto-Retry without Wrapper
 
@@ -159,6 +159,47 @@ MeedyaDL checks wrapper connectivity in two ways:
 
 - **Manual test** — click **Test Connection** in Settings > Advanced. Shows "Connected (Xms)" on success, or a specific error (timeout, connection refused) on failure.
 - **Automatic pre-flight check** — every time the download queue starts processing, MeedyaDL pings the wrapper and shows a yellow toast notification if it's unreachable (e.g., `Wrapper service at http://192.168.3.179:30020 timed out — check that it is running`). The notification auto-dismisses when the wrapper becomes reachable again. Downloads still proceed — the check is advisory.
+
+### Running the wrapper on a different device on your network
+
+You don't have to run the wrapper on the same computer as MeedyaDL. A common setup is to run MeedyaDL on a Mac or Windows PC and the wrapper on a separate Linux box — for example, a Raspberry Pi sitting on the same home network.
+
+This works, but the wrapper actually uses **three** connections — not just one — and MeedyaDL needs to know about all three. If you only update one or two of them, downloads will appear to start successfully but then fail partway through.
+
+In **Settings > Advanced > Wrapper**, you'll find three address fields. Update *all three* to point at the device running the wrapper:
+
+| Setting                          | What it does                          | Default                  |
+| -------------------------------- | ------------------------------------- | ------------------------ |
+| **Wrapper Account URL**          | The wrapper's account / login service | `http://127.0.0.1:30020` |
+| **Wrapper m3u8 Address**         | The wrapper's playlist service        | `127.0.0.1:20020`        |
+| **Wrapper Decryption Address**   | The wrapper's decryption service      | `127.0.0.1:10020`        |
+
+If your wrapper runs on a Raspberry Pi at `192.168.1.50`, change them to:
+
+- **Wrapper Account URL:** `http://192.168.1.50:30020`
+- **Wrapper m3u8 Address:** `192.168.1.50:20020`
+- **Wrapper Decryption Address:** `192.168.1.50:10020`
+
+Note that the host (`192.168.1.50`) is the same in all three — only the port number differs.
+
+**MeedyaDL will warn you if anything's unreachable.** Before each download starts, MeedyaDL quietly checks all three services and shows a yellow warning toast if any of them can't be reached. The warning tells you which service failed and at what address, so you can fix the right setting.
+
+#### Common gotchas
+
+- **The wrapper service needs to accept network connections, not just local ones.** By default, many wrapper installs only listen on `127.0.0.1` (the device itself). If you've installed it via Docker, that usually means the container needs port-forwarding configured (the `ports:` section in your `compose.yaml`); if you've installed it natively, the wrapper's own configuration needs to listen on `0.0.0.0` instead of `127.0.0.1`.
+- **A firewall on the wrapper's device may be blocking the ports.** On Linux, run something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`).
+- **Forgetting to update all three settings.** If the Account URL points at the Raspberry Pi but the Decryption Address still says `127.0.0.1`, MeedyaDL will fetch metadata fine but downloads silently fail at the decryption stage. The pre-download warnings catch this.
+- **You need three free ports on the same device.** The wrapper can't share its three ports with anything else on its host, but the host *can* run other services on different ports.
+
+#### Quick alternative: SSH tunnel
+
+If you'd rather not change MeedyaDL's settings at all, you can forward all three ports through SSH from your MeedyaDL machine. From a terminal on the Mac/PC running MeedyaDL:
+
+```sh
+ssh -L 10020:localhost:10020 -L 20020:localhost:20020 -L 30020:localhost:30020 user@your-pi-address
+```
+
+While the SSH session stays open, the three ports on the Mac/PC tunnel through to the same ports on the Raspberry Pi. MeedyaDL can keep its default `127.0.0.1` settings and everything just works. Useful for trying it out before committing to the address-change approach.
 
 ### Troubleshooting (Remote / Docker)
 
