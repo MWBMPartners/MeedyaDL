@@ -6,6 +6,83 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(settings)** Expose wrapper_decrypt_ip — closes #743 (#744)
+
+## Summary
+
+  Implements [#743](https://github.com/MWBMPartners/MeedyaDL/issues/743).
+  MeedyaDL exposed two of GAMDL's three wrapper-related connection targets
+  (\`wrapper_account_url\` + \`wrapper_m3u8_ip\`) but not the third —
+  \`wrapper_decrypt_ip\`. Without this field surfaced in settings,
+  remote-wrapper LAN setups silently failed at the decryption stage
+  because GAMDL fell back to its compile-time default of
+  \`127.0.0.1:10020\` (the user's own loopback, where nothing was
+  listening).
+
+  This PR mirrors the existing \`wrapper_m3u8_ip\` shape exactly across
+  every layer:
+
+  | Layer | Change |
+  |---|---|
+  | Rust settings model | New field + default helper + Default impl +
+  version bump 4→5 |
+  | Settings migration | New v4→v5 step (version-stamp only; serde default
+  fills field) + tests |
+  | Merge layer | `merge_options()` propagates setting → `GamdlOptions`
+  when wrapper on |
+  | Preflight | New `check_wrapper_decrypt_health()` +
+  `PreflightCheck::WrapperDecrypt` enum variant + wired into chain |
+  | TS types | Field + `'wrapper_decrypt'` added to `PreflightCheck` union
+  |
+  | TS store defaults | `DEFAULT_SETTINGS.wrapper_decrypt_ip =
+  '127.0.0.1:10020'` |
+  | Settings UI | New `<Input>` next to the m3u8 input |
+  | Misc | Added to log-redaction list; test fixtures updated |
+
+  **Behaviour for upgrading users:** zero change. The serde default is
+  `127.0.0.1:10020` — the same value GAMDL used at the CLI default.
+  Local-wrapper setups are unaffected.
+
+  **Behaviour for remote-wrapper users:** can now configure the field via
+  Settings > Advanced. The new preflight check surfaces a yellow toast at
+  queue time if the configured host:port is unreachable (instead of
+  silently failing at decryption mid-download).
+
+  ## Out of scope
+
+  - Wrapper-side `compose.yaml` `ports:` section (upstream
+  `WorldObservationLog/wrapper`, not ours to fix per the discussion on
+  #743).
+  - General "remote wrapper setup" help doc — separate issue if wanted.
+
+  ## Test plan
+
+  - [x] `cargo clippy --tests -- -D warnings` clean
+  - [x] `cargo test --lib` — 1009 pass, 1 ignored (1 new for v4→v5
+  migration)
+  - [x] `npm run type-check` clean
+  - [x] `npm run lint` clean
+  - [x] `npm run test` — 453 pass (3 fixture snapshots updated, 0
+  regressions)
+  - [ ] CI green
+  - [ ] Manual smoke (you have the actual Mac → RPi setup):
+  - Settings > Advanced should show a new "Wrapper Decryption Address"
+  input
+  - Setting it to the RPi's IP, with the wrapper service exposing port
+  10020, should make ALAC downloads succeed
+  - Setting it to a non-listening address should produce a yellow
+  preflight toast at queue time
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.1.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.1.1] - 2026-05-10
+
 ### 🐛 Bug Fixes
 
 - **(release)** Pipeline cleanup — stop placeholder, halt cadence drift (#741)
@@ -27,7 +104,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.1.0 [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.1.1 [skip ci]
 
 ## [1.1.0] - 2026-05-09
 
