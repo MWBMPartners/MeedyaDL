@@ -22,9 +22,16 @@
 name: Weekly Release
 
 on:
-  schedule:
-    # 00:00 UTC every Sunday
-    - cron: '0 0 * * 0'
+  # Cron schedule disabled 2026-05-10 per project decision — weekly +
+  # monthly cadences were too aggressive given how few external
+  # signals reach those channels. Keep the workflow file so it's
+  # available for `workflow_dispatch` (manual invocation from the
+  # GitHub UI / CLI) when a one-off weekly cut is genuinely wanted.
+  # To re-enable the cron, uncomment the schedule block below.
+  #
+  # schedule:
+  #   # 00:00 UTC every Sunday
+  #   - cron: '0 0 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:

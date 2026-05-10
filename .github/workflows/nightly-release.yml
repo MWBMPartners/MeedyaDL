@@ -41,8 +41,89 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Change-detection gate (added 2026-05-10).
+  #
+  # Before the cron-driven daily build kicks off, check whether
+  # anything has actually changed since the last nightly tag. If
+  # `main` AND every `origin/feat/*` branch are unchanged at HEAD
+  # since the previous nightly's commit, skip the whole pipeline —
+  # there's no point publishing a byte-identical rebuild.
+  #
+  # The manual `workflow_dispatch` trigger always bypasses this gate
+  # so a maintainer can force a build via the GitHub UI / CLI even
+  # on a quiet day (useful for re-running after a transient build
+  # failure or testing the workflow itself).
+  check:
+    name: Check for new commits since last nightly
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.detect.outputs.should_run }}
+      reason: ${{ steps.detect.outputs.reason }}
+    steps:
+      - name: Checkout main with full history + tags
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Detect changes since last nightly
+        id: detect
+        run: |
+          set -euo pipefail
+
+          # Manual triggers always proceed — change-detection is for
+          # the cron path only. Maintainers running `gh workflow run
+          # "Nightly Release"` mean it.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger — bypassing change-detection"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=manual trigger" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Find the most recent nightly tag (lexically sorted by
+          # version — `git tag --sort=-v:refname` handles the
+          # `vX.Y.Z-nightly.YYYYMMDD` suffix correctly).
+          PREV_TAG=$(git tag --list 'v*-nightly.*' --sort=-v:refname | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous nightly tag found — first nightly will build"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=first nightly (no previous tag)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Previous nightly tag: $PREV_TAG"
+
+          # Did `main` advance since the previous nightly?
+          MAIN_NEW=$(git rev-list "$PREV_TAG..origin/main" --count)
+          echo "New commits on main since $PREV_TAG: $MAIN_NEW"
+
+          # Did any `feat/*` branch advance since the previous nightly?
+          # (The nightly build merges every feat/* branch, so a new
+          # commit on any of them is also a reason to rebuild.)
+          FEAT_NEW=0
+          FEAT_DETAILS=""
+          for ref in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/feat/*'); do
+            n=$(git rev-list "$PREV_TAG..$ref" --count)
+            if [ "$n" -gt 0 ]; then
+              FEAT_NEW=$((FEAT_NEW + n))
+              FEAT_DETAILS="$FEAT_DETAILS $ref(+$n)"
+            fi
+          done
+          echo "New commits on feat/* branches since $PREV_TAG: $FEAT_NEW ($FEAT_DETAILS)"
+
+          if [ "$MAIN_NEW" -eq 0 ] && [ "$FEAT_NEW" -eq 0 ]; then
+            echo "::notice::No new commits since $PREV_TAG — skipping nightly build"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no new commits since $PREV_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=main+$MAIN_NEW feat+$FEAT_NEW since $PREV_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
   nightly:
     name: Build nightly tag
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main

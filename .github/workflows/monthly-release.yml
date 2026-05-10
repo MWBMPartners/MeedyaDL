@@ -22,9 +22,14 @@
 name: Monthly Release
 
 on:
-  schedule:
-    # 00:00 UTC on the 1st of each month
-    - cron: '0 0 1 * *'
+  # Cron schedule disabled 2026-05-10 per project decision — see the
+  # weekly-release.yml note for rationale. Workflow remains available
+  # for `workflow_dispatch` if a one-off monthly cut is wanted.
+  # To re-enable the cron, uncomment the schedule block below.
+  #
+  # schedule:
+  #   # 00:00 UTC on the 1st of each month
+  #   - cron: '0 0 1 * *'
   workflow_dispatch:
     inputs:
       dry_run:
