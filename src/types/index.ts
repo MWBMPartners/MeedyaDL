@@ -735,6 +735,16 @@ export interface AppSettings {
    * wrapper downloads on GAMDL 3.1+. Default: `"127.0.0.1:20020"`.
    */
   wrapper_m3u8_ip: string;
+  /**
+   * Decryption service address (host:port) used by GAMDL when the wrapper
+   * is enabled. GAMDL opens an outbound TCP connection here to send
+   * encrypted samples for FairPlay decryption (the third leg of the
+   * wrapper triangle alongside `wrapper_account_url` + `wrapper_m3u8_ip`).
+   * Without this surfaced, remote-wrapper LAN setups silently fail at the
+   * decryption stage because GAMDL falls back to its built-in default
+   * (#743). Default: `"127.0.0.1:10020"`.
+   */
+  wrapper_decrypt_ip: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
   /** Whether to fetch extra metadata tags (normalization, smooth playback) */
@@ -1002,6 +1012,7 @@ export type PreflightCheck =
   | 'cookies'
   | 'wrapper'
   | 'wrapper_m3u8'
+  | 'wrapper_decrypt'
   | 'output_path';
 
 /**

@@ -2962,6 +2962,15 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     {
         options.wrapper_m3u8_ip = Some(settings.wrapper_m3u8_ip.clone());
     }
+    // `wrapper_decrypt_ip` (#743) is the third leg of the wrapper triangle —
+    // GAMDL opens an outbound TCP connection to this address to send
+    // encrypted samples for FairPlay decryption. Unlike `wrapper_m3u8_ip`,
+    // this flag exists in every GAMDL release we support, so no
+    // version-capability gate is needed. Cookie-mode downloads never hit
+    // the decrypt socket, so we only emit when wrapper auth is on.
+    if settings.use_wrapper {
+        options.wrapper_decrypt_ip = Some(settings.wrapper_decrypt_ip.clone());
+    }
     options.truncate = settings.truncate;
 
     if !settings.output_path.is_empty() {
@@ -5520,6 +5529,21 @@ pub fn process_queue(
                 } else {
                     None
                 };
+                // Wrapper decryption socket reachability (#743). Needed for
+                // every GAMDL release in the support window — decrypt has
+                // been a wrapper feature since well before v3.1, so unlike
+                // the m3u8 probe there's no version capability gate. Cookie
+                // downloads still skip the probe (no decrypt socket
+                // consulted).
+                let wrapper_decrypt_future = if settings.use_wrapper {
+                    Some(
+                        crate::services::health_check_service::check_wrapper_decrypt_health(
+                            &settings.wrapper_decrypt_ip,
+                        ),
+                    )
+                } else {
+                    None
+                };
 
                 // Output path writability check — verify the resolved output directory
                 // is accessible before starting downloads. Catches disconnected cloud
@@ -5557,6 +5581,10 @@ pub fn process_queue(
                     Some(fut) => fut.await,
                     None => None,
                 };
+                let wrapper_decrypt_warning = match wrapper_decrypt_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
                 let output_path_warning = match output_path_future {
                     Some(fut) => fut.await,
                     None => None,
@@ -5583,6 +5611,10 @@ pub fn process_queue(
                         // carries `None` and the loop emits a "cleared"
                         // event so any stale toast is dismissed.
                         v.push((PreflightCheck::WrapperM3u8, wrapper_m3u8_warning));
+                        // Decrypt probe runs on every wrapper download
+                        // regardless of GAMDL version — the decrypt flag
+                        // exists in every supported release (#743).
+                        v.push((PreflightCheck::WrapperDecrypt, wrapper_decrypt_warning));
                     }
                     // Always check output path (applies to all auth modes)
                     v.push((PreflightCheck::OutputPath, output_path_warning));
