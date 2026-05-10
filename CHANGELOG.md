@@ -80,6 +80,48 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.1.1 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Explain remote-wrapper setup (the three-address pattern) (#746)
+
+## Summary
+
+  Follow-up to [#743](https://github.com/MWBMPartners/MeedyaDL/issues/743)
+  / [#744](https://github.com/MWBMPartners/MeedyaDL/pull/744). The new
+  \`wrapper_decrypt_ip\` setting needs documentation explaining when and
+  how to use it. Both
+  [README.md](../blob/docs/wrapper-on-lan-device/README.md) and the in-app
+  help ([Help > Troubleshooting > Wrapper
+  Errors](../blob/docs/wrapper-on-lan-device/help/troubleshooting.md)) now
+  include a "Running the wrapper on a different device on your network"
+  section.
+
+  The new content explains:
+
+  - The wrapper uses **three** connections, not one
+  - A table mapping each setting → what it does → default port
+  - A worked example for a Raspberry Pi at `192.168.1.50` showing all
+  three addresses to update
+  - Common gotchas (container port-forwarding, firewall, forgetting the
+  third address, three-port conflict)
+  - A quick SSH-tunnel alternative for users who'd rather not touch
+  MeedyaDL's defaults
+
+  Tone is intentionally less technical than the issue/PR — no
+  TCP/loopback/outbound jargon. Aimed at a hobbyist who set up a Raspberry
+  Pi.
+
+  The README's existing "Troubleshooting (Remote / Docker)" section is
+  preserved unchanged below the new content.
+
+  ## Test plan
+
+  - [x] No code changes
+  - [x] \`npm run lint\` clean
+  - [x] Markdown linter satisfied (table padding + valid link fragment)
+  - [ ] CI green (only PR title check + CodeQL should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ## [1.1.1] - 2026-05-10
 
