@@ -1046,6 +1046,18 @@ jobs:
           # Get the current release body
           CURRENT_BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
 
+          # Strip any leading "Release in progress..." placeholder + the
+          # optional `---` separator that follows it. The placeholder is
+          # inserted by the per-platform `gh release create --notes
+          # "Release in progress..."` race-guard calls earlier in this
+          # workflow (lines ~805 / ~873 / ~898). Without this strip the
+          # placeholder becomes persistent in the final body — see the
+          # 2026-05-10 release-pipeline-cleanup PR which backfilled 13
+          # historical releases that had this issue. One-line python
+          # invocation avoids YAML indentation interactions with a
+          # heredoc-style script.
+          CURRENT_BODY=$(printf '%s' "$CURRENT_BODY" | python3 -c "import re,sys;sys.stdout.write(re.sub(r'^Release in progress[^\n]*\n+(?:---\s*\n+)?', '', sys.stdin.read()))")
+
           # Check if the download guide has already been appended (idempotent)
           if echo "$CURRENT_BODY" | grep -q "Choose your download"; then
             echo "Download guide already present in release notes. Skipping."
