@@ -554,6 +554,13 @@ export function AdvancedTab() {
               onChange={(e) => updateSettings({ wrapper_m3u8_ip: e.target.value })}
               placeholder="127.0.0.1:20020"
             />
+            <Input
+              label="Wrapper Decryption Address"
+              description="GAMDL opens a TCP connection to this address to send encrypted samples for FairPlay decryption (default: 127.0.0.1:10020). Set this to your wrapper's host:port — required when the wrapper runs on a different machine than MeedyaDL (e.g. a Raspberry Pi on the same LAN). Use the same host as the m3u8 address; the port differs (10020 vs 20020)."
+              value={settings.wrapper_decrypt_ip}
+              onChange={(e) => updateSettings({ wrapper_decrypt_ip: e.target.value })}
+              placeholder="127.0.0.1:10020"
+            />
             <div className="flex items-center gap-2">
               <Button
                 variant="secondary"

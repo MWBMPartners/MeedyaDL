@@ -1221,6 +1221,21 @@ pub struct AppSettings {
     #[serde(default = "default_wrapper_m3u8_ip")]
     pub wrapper_m3u8_ip: String,
 
+    /// Decryption server address (`host:port`) used by GAMDL when
+    /// `use_wrapper` is `true`. GAMDL opens an outbound TCP connection
+    /// to this address to send encrypted samples for FairPlay decryption
+    /// (see `gamdl/downloader/amdecrypt.py::decrypt_samples` —
+    /// `asyncio.open_connection(host, port)`). Required for the
+    /// wrapper to be reachable when it's NOT running on the same host
+    /// as MeedyaDL/GAMDL — the third leg of the wrapper triangle
+    /// alongside `wrapper_account_url` and `wrapper_m3u8_ip`. Without
+    /// this exposed, remote-wrapper LAN setups silently fail at the
+    /// decryption stage because GAMDL falls back to its compile-time
+    /// default of `127.0.0.1:10020` (issue #743). Default:
+    /// `"127.0.0.1:10020"` (matches upstream GAMDL's default).
+    #[serde(default = "default_wrapper_decrypt_ip")]
+    pub wrapper_decrypt_ip: String,
+
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
     /// for tracks with very long titles that would exceed filesystem
@@ -1537,9 +1552,17 @@ fn default_wrapper_m3u8_ip() -> String {
     "127.0.0.1:20020".to_string()
 }
 
+/// Default wrapper decryption service address — matches upstream
+/// GAMDL's `AppleMusicSongInterface.create(wrapper_decrypt_ip=
+/// "127.0.0.1:10020")` and the `WorldObservationLog/wrapper`
+/// service's default decrypt port (10020).
+fn default_wrapper_decrypt_ip() -> String {
+    "127.0.0.1:10020".to_string()
+}
+
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 4;
+pub const CURRENT_SETTINGS_VERSION: u32 = 5;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1799,6 +1822,10 @@ impl Default for AppSettings {
             // Default wrapper m3u8 service address (GAMDL v3.1+). Matches
             // upstream's default port 20020.
             wrapper_m3u8_ip: default_wrapper_m3u8_ip(),
+            // Default wrapper decryption service address. Matches upstream
+            // GAMDL's default port 10020. Override in Settings > Advanced
+            // when the wrapper runs on a different host (#743).
+            wrapper_decrypt_ip: default_wrapper_decrypt_ip(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // Fetch extra metadata (normalization, smooth playback info, etc.)
