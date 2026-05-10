@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.2.0 [skip ci]
+
+## [1.2.0] - 2026-05-10
+
 ### ✨ Features
 
 - **(settings)** Expose wrapper_decrypt_ip — closes #743 (#744)
