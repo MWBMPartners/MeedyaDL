@@ -6,6 +6,29 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(release)** Pipeline cleanup — stop placeholder, halt cadence drift (#741)
+
+## Summary
+
+  Three CI/release fixes addressing user-reported issues:
+
+  ### 1. Stop "Release in progress..." persistence (\`release.yml\`)
+
+  Per-platform build steps create the GitHub Release with \`gh release
+  create --notes "Release in progress..."\` as a race-guard. The "Append
+  download guide" step then appended to that body — leaving the
+  placeholder as the leading line forever in every release that wasn't
+  pre-populated by release-please-action.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.1.0 [skip ci]
+
+## [1.1.0] - 2026-05-09
+
 ### ✨ Features
 
 - **(release)** V1.0.1 prep — GAMDL 3.5.1, activity-log refactor, Library Scan scaffold
@@ -411,6 +434,7 @@ The push-driven release workflows for the alpha / beta / release-candidate
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
