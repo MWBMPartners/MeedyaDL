@@ -6,6 +6,34 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ui)** Stop stale 'Finalising metadata' label + sync auto-scroll checkbox (#751)
+
+## Summary
+
+  Two related UX bugs reported on 2026-05-11 — both about the
+  queue/activity-log surfaces showing state that doesn't match reality.
+
+  ### Bug 1: Progress bar caption staleness
+
+  The enrichment task ended with `set_label("Finalising metadata...", …)`
+  immediately followed by the "All enrichment stages completed"
+  activity-log line. That label then **persisted as the per-item caption
+  through every subsequent gap** — between enrichment ending and the
+  companion supervisor spawning its first GAMDL, between companion
+  finishing and the post-companion advisory pass starting, etc. Your
+  screenshot caught one of those gaps showing "Finalising metadata…" while
+  the activity log was reporting fresh GAMDL companion track downloads.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.3.0 [skip ci]
+
+## [1.3.0] - 2026-05-11
+
 ### ✨ Features
 
 - **(history)** Tooltip + right-click actions on long error messages (#748)
