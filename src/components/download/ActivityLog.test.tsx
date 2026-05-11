@@ -110,15 +110,23 @@ describe('ActivityLog', () => {
         entries: [makeEntry({ _id: 1 })],
       });
     });
-    const { rerender } = render(<ActivityLog />);
+    render(<ActivityLog />);
     expect(screen.getByText('1 line')).toBeInTheDocument();
 
+    // Drive the second assertion through a Zustand state update — the
+    // component subscribes to the store, so React re-renders
+    // automatically. The previous implementation called
+    // `rerender(<ActivityLog />)` which forced @tanstack/react-virtual
+    // to re-measure under jsdom, causing intermittent 5s timeouts on
+    // the Windows GitHub Actions runner specifically (jsdom DOM
+    // measurement is slower on win32 due to Node test harness
+    // differences). Single-render + store-driven re-render keeps the
+    // virtualiser instance stable across the two assertions.
     act(() => {
       useActivityStore.setState({
         entries: [makeEntry({ _id: 1 }), makeEntry({ _id: 2 })],
       });
     });
-    rerender(<ActivityLog />);
     expect(screen.getByText('2 lines')).toBeInTheDocument();
   });
 
