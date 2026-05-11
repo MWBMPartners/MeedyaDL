@@ -208,6 +208,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
 
 ## [1.2.0] - 2026-05-10
 
