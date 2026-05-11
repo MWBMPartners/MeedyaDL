@@ -5958,6 +5958,23 @@ pub fn process_queue(
             );
         }
 
+        // Per-download GAMDL version + capability flags (#755). The
+        // process-global cache populated at startup means we read it
+        // here without spawning a `--version` probe. Surfaces in both
+        // the Tauri-event activity log AND the on-disk file so any
+        // crash report can be correlated to the exact GAMDL release
+        // that produced it.
+        let gamdl_version_label = crate::services::gamdl_capabilities::detected_version()
+            .unwrap_or_else(|| "unknown".to_string());
+        let gamdl_capabilities = crate::services::gamdl_capabilities::active_capabilities_summary();
+        emit_download_log(
+            &app,
+            &download_id,
+            &format!(
+                "GAMDL {gamdl_version_label} — capabilities: {gamdl_capabilities}"
+            ),
+        );
+
         // Verbose: log the full download options
         emit_verbose_download_log(
             &app,

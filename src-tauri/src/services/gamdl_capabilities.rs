@@ -441,6 +441,40 @@ pub fn supports(feature: GamdlFeature) -> bool {
     }
 }
 
+/// Compact comma-separated list of capability flags active on the
+/// currently installed GAMDL release (e.g.
+/// `"native_codec_priority, wrapper_m3u8_ip, no_exceptions_flag"`).
+///
+/// Used by the per-download activity-log line so users (and crash
+/// reports) can see at a glance which feature gates were active when an
+/// item ran. Returns `"unknown"` when the version cache hasn't been
+/// populated yet, mirroring [`supports`]'s safe default.
+#[must_use]
+pub fn active_capabilities_summary() -> String {
+    let Some(ver) = detected_version() else {
+        return "unknown".to_string();
+    };
+
+    let all = [
+        (GamdlFeature::NativeCodecPriority, "native_codec_priority"),
+        (GamdlFeature::FetchExtraTags, "fetch_extra_tags"),
+        (GamdlFeature::PlaylistFolderTemplate, "playlist_folder_template"),
+        (GamdlFeature::WrapperM3u8Ip, "wrapper_m3u8_ip"),
+        (GamdlFeature::NoExceptionsFlag, "no_exceptions_flag"),
+    ];
+
+    let active: Vec<&str> = all
+        .iter()
+        .filter_map(|(feat, name)| feat.is_available_on(&ver).then_some(*name))
+        .collect();
+
+    if active.is_empty() {
+        "(none)".to_string()
+    } else {
+        active.join(", ")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +571,45 @@ mod tests {
         assert!(supports(GamdlFeature::PlaylistFolderTemplate));
         set_detected_version(Some("3.2".to_string()));
         assert!(supports(GamdlFeature::PlaylistFolderTemplate));
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn active_capabilities_summary_lists_v3_5_features() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        set_detected_version(Some("3.5.0".to_string()));
+        let summary = active_capabilities_summary();
+        // v3.5 supports: NativeCodecPriority, PlaylistFolderTemplate,
+        // WrapperM3u8Ip. Does NOT support FetchExtraTags (removed in 3.0)
+        // or NoExceptionsFlag (no-op since 3.1).
+        assert!(summary.contains("native_codec_priority"));
+        assert!(summary.contains("playlist_folder_template"));
+        assert!(summary.contains("wrapper_m3u8_ip"));
+        assert!(!summary.contains("fetch_extra_tags"));
+        assert!(!summary.contains("no_exceptions_flag"));
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn active_capabilities_summary_unknown_when_uncached() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        set_detected_version(None);
+        assert_eq!(active_capabilities_summary(), "unknown");
+    }
+
+    #[test]
+    fn active_capabilities_summary_lists_v2x_features() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        set_detected_version(Some("2.9.3".to_string()));
+        let summary = active_capabilities_summary();
+        // v2.9.3 supports: NativeCodecPriority, FetchExtraTags,
+        // NoExceptionsFlag. Does NOT support PlaylistFolderTemplate
+        // (added in 3.0) or WrapperM3u8Ip (added in 3.1).
+        assert!(summary.contains("native_codec_priority"));
+        assert!(summary.contains("fetch_extra_tags"));
+        assert!(summary.contains("no_exceptions_flag"));
+        assert!(!summary.contains("playlist_folder_template"));
+        assert!(!summary.contains("wrapper_m3u8_ip"));
         set_detected_version(None);
     }
 
