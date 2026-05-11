@@ -122,6 +122,15 @@ export { LoadingSpinner } from './LoadingSpinner';
 export { Tooltip } from './Tooltip';
 
 /**
+ * Truncated error-message display with hover-to-see-full tooltip and a
+ * right-click context menu (copy, report-to-GAMDL when applicable).
+ * Used in HistoryPage + QueueItem to surface long download errors
+ * (especially upstream "GAMDL bug — …" classifier messages) without
+ * forcing the user to widen the window.
+ */
+export { ErrorMessageDisplay } from './ErrorMessageDisplay';
+
+/**
  * Small "?" icon button that navigates to the Help page with a specific
  * topic pre-selected. Used inline next to settings labels for contextual help.
  * Used in: Input, Select, Toggle (via helpTopic prop), and standalone in settings tabs.
