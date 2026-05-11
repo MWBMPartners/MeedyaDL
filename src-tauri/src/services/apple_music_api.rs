@@ -167,6 +167,17 @@ pub struct AlbumMetadata {
     pub artwork_square_url: Option<String>,
     /// HLS M3U8 URL for portrait (3:4) animated artwork, if available
     pub artwork_tall_url: Option<String>,
+    /// Static cover-art URL template from `attributes.artwork.url`. Apple
+    /// returns a templated URL with `{w}`, `{h}`, and `{f}` placeholders
+    /// (e.g., `https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}`).
+    /// Used by [`super::cover_art_fallback`] when GAMDL fails to write
+    /// the static `Cover.<ext>` file (#756).
+    pub artwork_url_template: Option<String>,
+    /// Maximum native width of the static cover image (Apple typically
+    /// serves up to 3000×3000 for modern releases).
+    pub artwork_width: Option<u32>,
+    /// Maximum native height of the static cover image.
+    pub artwork_height: Option<u32>,
     /// Raw API JSON object (data[0]) for config-driven tag extraction via tags.toml.
     /// Contains all album attributes and relationships as returned by the API.
     #[serde(default = "default_json_null")]
@@ -989,6 +1000,23 @@ pub async fn fetch_album_metadata(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
+    // Static cover artwork (#756). The `artwork.url` is a template
+    // with `{w}`, `{h}`, `{f}` placeholders we can substitute when
+    // falling back from a failed RAW write to PNG/JPEG.
+    let artwork_obj = attributes.get("artwork");
+    let artwork_url_template = artwork_obj
+        .and_then(|a| a.get("url"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+    let artwork_width = artwork_obj
+        .and_then(|a| a.get("width"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok());
+    let artwork_height = artwork_obj
+        .and_then(|a| a.get("height"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok());
+
     // Extract track metadata from relationships.tracks
     let tracks = parse_tracks_from_response(album_data);
 
@@ -1022,6 +1050,9 @@ pub async fn fetch_album_metadata(
         tracks,
         artwork_square_url,
         artwork_tall_url,
+        artwork_url_template,
+        artwork_width,
+        artwork_height,
         raw_json: album_data.clone(),
     }))
 }
@@ -2678,6 +2709,11 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
             }],
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
+            artwork_url_template: Some(
+                "https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}".to_string(),
+            ),
+            artwork_width: Some(3000),
+            artwork_height: Some(3000),
             raw_json: serde_json::Value::Null,
         };
 
