@@ -134,6 +134,45 @@ The codec-detection (`metadata_tag_service`), ReplayGain
   test coverage in `utils::fs_safe::tests`. Each walker now delegates to
   that single source of truth.
 
+- Drop needless borrow on traceback url + override release to v1.3.3 (#762)
+
+## Summary
+
+  Two-in-one fix:
+
+  1. **Clippy `needless_borrow` regression** breaking PR #761's three
+  Backend CI checks. The `url_for_report` binding in
+  [src/services/download_queue.rs:9523](src-tauri/src/services/download_queue.rs#L9523)
+  is already `&str` (because `redact_url_query` returns a borrowed slice
+  of its input), so passing `&url_for_report` created `&&str` and tripped
+  clippy's lint under Rust 1.95 on CI. Local toolchains on rustc 1.93
+  didn't catch this.
+
+  2. **`Release-As: 1.3.3` trailer** — overrides release-please's
+  automatic v1.4.0 calculation. The v1.3.2 batch contained `feat:` commits
+  (#755, #756, #758) which by Conventional Commits semantics demand a
+  minor bump, but the user-facing surface changes are small enough that a
+  patch bump is preferred. Once this lands on main, release-please will
+  recompute PR #761 to use v1.3.3 instead.
+
+  ## Why no PR for the original v1.3.2 batch caught this
+
+  The earlier batch landed via direct push to `main` (no PR-level CI). The
+  v1.3.2 retrospective PR (#760) only diffs a markdown file, so the
+  per-platform Backend matrix didn't run on the affected Rust code. Going
+  forward, the new branch + PR rule should catch this kind of
+  toolchain-specific regression at PR time.
+
+  ## Test plan
+
+  - [x] `cargo clippy -- -D warnings` clean locally on rustc 1.93.
+  - [ ] CI re-runs the three Backend checks on this PR.
+  - [ ] After merge, release-please refreshes PR #761 to title
+  `chore(main): release 1.3.3` and updates the version files in the bot
+  branch.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 📚 Documentation
 
@@ -141,6 +180,56 @@ The codec-detection (`metadata_tag_service`), ReplayGain
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.3.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(audits)** Retrospective sign-off for the v1.3.2 batch (#760)
+
+## Summary
+
+  The six commits that landed v1.3.2 (#755, #577, #756, #758, #757
+  partial, version bump) were pushed fast-forward directly to `main`
+  rather than through a PR. This PR is the **retrospective sign-off
+  artifact** — a single reviewable surface for the batch.
+
+  See
+  [`.github/audits/v1.3.2-batch-retrospective.md`](.github/audits/v1.3.2-batch-retrospective.md)
+  for the full breakdown: commit-by-commit summary, test verification,
+  follow-up issues, and the process note explaining why no PR at commit
+  time.
+
+  ## Batch contents
+
+  | SHA | Issue | Summary |
+  | --- | --- | --- |
+  | `169e708` | #755 | Per-download GAMDL version + capability flags in
+  activity log |
+  | `a891067` | #577 | Filesystem-sidecar guard extended to 7 walkers |
+  | `f494a74` | #756 | Cover-art RAW → PNG → JPEG fallback |
+  | `3e60285` | #758 | Python traceback diagnostic capture |
+  | `815a0ce` | #757 partial | 5 of 9 settings tabs migrated to
+  useSettingsField |
+  | `5d30f45` | — | Version bump 1.3.1 → 1.3.2 |
+
+  ## Diff scope
+
+  Single new file: `.github/audits/v1.3.2-batch-retrospective.md`. No
+  production code touched in this PR — the production changes are already
+  on `main` (commits above).
+
+  ## Action requested
+
+  - [ ] Sign-off on the batch as documented.
+  - [ ] Confirm the going-forward rule: branch + PR for feature work,
+  direct-push reserved for `[skip ci]` doc/chore edits.
+
+  ## Test plan
+
+  - [x] Production code already validated on `main` (cargo check +
+  targeted test suites pass — see retrospective doc).
+  - [x] This PR adds only a markdown file; CI runs on it as
+  belt-and-braces.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ### 🔧 Refactoring
 
