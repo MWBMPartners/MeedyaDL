@@ -80,8 +80,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-// Zustand store for reading/writing advanced settings.
+// Zustand store hooks. `useSettingsStore` is retained for the
+// `saveSettings` and `loadSettings` actions only (used by the setup
+// wizard reset and DevToolsSection's deactivate flow). Per-field
+// reads/writes go through `useSettingsField` (audit v2 #6).
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
 // Input for text/number fields, Button for actions.
@@ -157,10 +161,27 @@ const GAMDL_IDLE_TIMEOUT_OPTIONS = [
  * Diagnostics, API Credentials (with API Field Audit), and Setup.
  */
 export function AdvancedTab() {
-  /** Current settings snapshot */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function for persisting advanced setting changes */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field bindings (audit v2 #6).
+  const downloadMode = useSettingsField('download_mode');
+  const remuxMode = useSettingsField('remux_mode');
+  const gamdlIdleTimeout = useSettingsField('gamdl_idle_timeout_minutes');
+  const truncate = useSettingsField('truncate');
+  const excludeTags = useSettingsField('exclude_tags');
+  const sentryEnabled = useSettingsField('sentry_enabled');
+  const analyticsEnabled = useSettingsField('analytics_enabled');
+  const verboseActivityLog = useSettingsField('verbose_activity_log');
+  const verboseGamdlExceptions = useSettingsField('verbose_gamdl_exceptions');
+  const activityLogPathOverride = useSettingsField('activity_log_path_override');
+  const useWrapper = useSettingsField('use_wrapper');
+  const autoRetryWithoutWrapper = useSettingsField('auto_retry_without_wrapper');
+  const wrapperAccountUrl = useSettingsField('wrapper_account_url');
+  const wrapperM3u8Ip = useSettingsField('wrapper_m3u8_ip');
+  const wrapperDecryptIp = useSettingsField('wrapper_decrypt_ip');
+  const musickitTeamId = useSettingsField('musickit_team_id');
+  const musickitKeyId = useSettingsField('musickit_key_id');
+  const acoustidApiKey = useSettingsField('acoustid_api_key');
+  const setupCompleted = useSettingsField('setup_completed');
+  const devAccessEnabled = useSettingsField('dev_access_enabled');
   /** Persist settings to disk (needed for setup wizard reset) */
   const saveSettings = useSettingsStore((s) => s.saveSettings);
   /** Platform detection for Wrapper feature gating (Linux x86_64 only) */
@@ -197,13 +218,13 @@ export function AdvancedTab() {
 
   /** Whether MusicKit credentials are configured (required for audit) */
   const hasMusicKitCredentials =
-    !!settings.musickit_team_id?.trim() && !!settings.musickit_key_id?.trim();
+    !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
 
   // Reset test result when the wrapper URL changes
   useEffect(() => {
     setTestState('idle');
     setTestResult(null);
-  }, [settings?.wrapper_account_url]);
+  }, [wrapperAccountUrl.value]);
 
   // Check for stored MusicKit private key on mount
   useEffect(() => {
@@ -228,10 +249,10 @@ export function AdvancedTab() {
 
   /** Handles the "Test Connection" button click */
   const handleTestConnection = async () => {
-    if (!settings?.wrapper_account_url) return;
+    if (!wrapperAccountUrl.value) return;
     setTestState('testing');
     try {
-      const result = await testWrapperConnection(settings.wrapper_account_url);
+      const result = await testWrapperConnection(wrapperAccountUrl.value);
       setTestResult(result);
       setTestState(result.reachable ? 'success' : 'error');
     } catch {
@@ -260,8 +281,8 @@ export function AdvancedTab() {
     setValidationResult(null);
     try {
       const result = await validateMusicKitCredentialsWithInput(
-        settings.musickit_team_id ?? null,
-        settings.musickit_key_id ?? null
+        musickitTeamId.value ?? null,
+        musickitKeyId.value ?? null
       );
       setValidationResult(result);
     } catch (err) {
@@ -269,7 +290,7 @@ export function AdvancedTab() {
     } finally {
       setValidating(false);
     }
-  }, [settings.musickit_key_id, settings.musickit_team_id]);
+  }, [musickitKeyId.value, musickitTeamId.value]);
 
   /**
    * Opens a URL in the system default browser via the Tauri shell plugin.
@@ -304,24 +325,22 @@ export function AdvancedTab() {
           label="Download Mode"
           description="Which tool to use for downloading HLS streams"
           options={DOWNLOAD_MODE_OPTIONS}
-          value={settings.download_mode}
-          onChange={(e) => updateSettings({ download_mode: e.target.value as DownloadMode })}
+          value={downloadMode.value}
+          onChange={(e) => downloadMode.set(e.target.value as DownloadMode)}
         />
         <Select
           label="Remux Mode"
           description="Which tool to use for video remuxing. MP4Box handles subtitle/CC tracks better."
           options={REMUX_MODE_OPTIONS}
-          value={settings.remux_mode}
-          onChange={(e) => updateSettings({ remux_mode: e.target.value as RemuxMode })}
+          value={remuxMode.value}
+          onChange={(e) => remuxMode.set(e.target.value as RemuxMode)}
         />
         <Select
           label="GAMDL Idle Timeout"
           description="Kill the GAMDL process if no output arrives for this many minutes. The watchdog pauses automatically once post-processing (remux / decrypt) begins, so this won't cut short a slow remux on a network volume."
           options={GAMDL_IDLE_TIMEOUT_OPTIONS}
-          value={String(settings.gamdl_idle_timeout_minutes)}
-          onChange={(e) =>
-            updateSettings({ gamdl_idle_timeout_minutes: Number(e.target.value) })
-          }
+          value={String(gamdlIdleTimeout.value)}
+          onChange={(e) => gamdlIdleTimeout.set(Number(e.target.value))}
         />
       </SettingsSection>
 
@@ -333,24 +352,24 @@ export function AdvancedTab() {
           type="number"
           min={10}
           max={255}
-          value={settings.truncate?.toString() ?? ''}
+          value={truncate.value?.toString() ?? ''}
           placeholder="No limit"
           onChange={(e) => {
             const val = e.target.value;
-            updateSettings({ truncate: val ? parseInt(val, 10) : null });
+            truncate.set(val ? parseInt(val, 10) : null);
           }}
         />
         <Input
           label="Excluded Tags"
           description="Comma-separated list of metadata tags to exclude from downloaded files"
-          value={settings.exclude_tags.join(', ')}
+          value={excludeTags.value.join(', ')}
           placeholder="e.g., lyrics, comment"
           onChange={(e) => {
             const tags = e.target.value
               .split(',')
               .map((t) => t.trim())
               .filter(Boolean);
-            updateSettings({ exclude_tags: tags });
+            excludeTags.set(tags);
           }}
         />
       </SettingsSection>
@@ -360,14 +379,14 @@ export function AdvancedTab() {
         <Toggle
           label="Send Anonymous Crash Reports"
           description="When enabled, anonymous crash data (error message, stack trace, app version, OS) is sent to our error tracking service to help identify and fix bugs. No personal data, download history, or account information is ever included. Requires an app restart to take effect."
-          checked={settings.sentry_enabled}
-          onChange={(checked) => updateSettings({ sentry_enabled: checked })}
+          checked={sentryEnabled.value}
+          onChange={sentryEnabled.set}
         />
         <Toggle
           label="Anonymous Usage Analytics"
           description="Send anonymised feature usage data (which features are used, platform, download counts) to help prioritise development. No personal data, URLs, or content information is ever collected."
-          checked={settings.analytics_enabled ?? false}
-          onChange={(checked) => updateSettings({ analytics_enabled: checked })}
+          checked={analyticsEnabled.value ?? false}
+          onChange={analyticsEnabled.set}
         />
         <p className="text-xs text-content-tertiary">
           Error reports (crashes and download failures) are always saved locally to your app data
@@ -381,10 +400,10 @@ export function AdvancedTab() {
         <Toggle
           label="Verbose Activity Log"
           description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. In pre-release versions (v0.x.x), this setting is preserved across restarts. In full releases, it resets to off on each restart as a safety measure."
-          checked={settings.verbose_activity_log}
-          onChange={(checked) => updateSettings({ verbose_activity_log: checked })}
+          checked={verboseActivityLog.value}
+          onChange={verboseActivityLog.set}
         />
-        {settings.verbose_activity_log && (
+        {verboseActivityLog.value && (
           <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning mb-1">
               Sensitive Data Warning
@@ -405,8 +424,8 @@ export function AdvancedTab() {
         <Toggle
           label="Show Full GAMDL Tracebacks"
           description="Stops MeedyaDL from passing --no-exceptions to GAMDL, so uncaught Python exceptions include the full stack trace instead of a single user-facing line. Useful for reporting bugs against upstream GAMDL; noisy for everyday use because v3.0 structlog lines interleave with raw tracebacks."
-          checked={settings.verbose_gamdl_exceptions}
-          onChange={(checked) => updateSettings({ verbose_gamdl_exceptions: checked })}
+          checked={verboseGamdlExceptions.value}
+          onChange={verboseGamdlExceptions.set}
         />
 
         {/* ── On-disk activity log location (#541) ── */}
@@ -428,7 +447,7 @@ export function AdvancedTab() {
                       title: 'Choose a folder for MeedyaDL activity logs',
                     });
                     if (typeof selected === 'string' && selected.length > 0) {
-                      updateSettings({ activity_log_path_override: selected });
+                      activityLogPathOverride.set(selected);
                     }
                   } catch {
                     /* User cancelled */
@@ -465,16 +484,16 @@ export function AdvancedTab() {
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={!settings.activity_log_path_override}
-                onClick={() => updateSettings({ activity_log_path_override: '' })}
+                disabled={!activityLogPathOverride.value}
+                onClick={() => activityLogPathOverride.set('')}
               >
                 Reset
               </Button>
             </div>
           </div>
           <Input
-            value={settings.activity_log_path_override}
-            onChange={(e) => updateSettings({ activity_log_path_override: e.target.value })}
+            value={activityLogPathOverride.value}
+            onChange={(e) => activityLogPathOverride.set(e.target.value)}
             placeholder="Default — uses the app data directory"
             aria-label="On-disk activity log path override"
           />
@@ -502,7 +521,7 @@ export function AdvancedTab() {
                 'appear on next load to verify your dependencies. Continue?'
             );
             if (!confirmed) return;
-            updateSettings({ setup_completed: false });
+            setupCompleted.set(false);
             try {
               await saveSettings();
             } catch {
@@ -528,37 +547,37 @@ export function AdvancedTab() {
         <Toggle
           label="Use Wrapper"
           description="Use a locally-running wrapper service for authentication instead of browser cookies. The wrapper handles Apple ID login and DRM key exchange, providing more reliable access to Dolby Atmos and other protected formats. Most users should leave this disabled and use cookies instead."
-          checked={settings.use_wrapper}
-          onChange={(checked) => updateSettings({ use_wrapper: checked })}
+          checked={useWrapper.value}
+          onChange={useWrapper.set}
           helpTopic="wrapper"
         />
 
-        {settings.use_wrapper && (
+        {useWrapper.value && (
           <>
             <Toggle
               label="Auto-Retry without Wrapper"
               description="When a download fails after exhausting all retries, automatically re-queue it with wrapper disabled (falls back to cookie-based authentication). Without this, you'll be prompted to retry manually."
-              checked={settings.auto_retry_without_wrapper}
-              onChange={(checked) => updateSettings({ auto_retry_without_wrapper: checked })}
+              checked={autoRetryWithoutWrapper.value}
+              onChange={autoRetryWithoutWrapper.set}
             />
             <Input
               label="Wrapper Account URL"
               description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper for setup instructions."
-              value={settings.wrapper_account_url}
-              onChange={(e) => updateSettings({ wrapper_account_url: e.target.value })}
+              value={wrapperAccountUrl.value}
+              onChange={(e) => wrapperAccountUrl.set(e.target.value)}
             />
             <Input
               label="Wrapper m3u8 Address"
               description="GAMDL 3.1+ fetches the HLS master playlist URL from a TCP socket on this address (default: 127.0.0.1:20020). Your wrapper must expose an m3u8 service on this host:port. Ignored on GAMDL 3.0 and earlier."
-              value={settings.wrapper_m3u8_ip}
-              onChange={(e) => updateSettings({ wrapper_m3u8_ip: e.target.value })}
+              value={wrapperM3u8Ip.value}
+              onChange={(e) => wrapperM3u8Ip.set(e.target.value)}
               placeholder="127.0.0.1:20020"
             />
             <Input
               label="Wrapper Decryption Address"
               description="GAMDL opens a TCP connection to this address to send encrypted samples for FairPlay decryption (default: 127.0.0.1:10020). Set this to your wrapper's host:port — required when the wrapper runs on a different machine than MeedyaDL (e.g. a Raspberry Pi on the same LAN). Use the same host as the m3u8 address; the port differs (10020 vs 20020)."
-              value={settings.wrapper_decrypt_ip}
-              onChange={(e) => updateSettings({ wrapper_decrypt_ip: e.target.value })}
+              value={wrapperDecryptIp.value}
+              onChange={(e) => wrapperDecryptIp.set(e.target.value)}
               placeholder="127.0.0.1:10020"
             />
             <div className="flex items-center gap-2">
@@ -566,7 +585,7 @@ export function AdvancedTab() {
                 variant="secondary"
                 size="sm"
                 onClick={handleTestConnection}
-                disabled={testState === 'testing' || !settings.wrapper_account_url}
+                disabled={testState === 'testing' || !wrapperAccountUrl.value}
               >
                 {testState === 'testing' ? 'Testing...' : 'Test Connection'}
               </Button>
@@ -615,20 +634,16 @@ export function AdvancedTab() {
           <Input
             label="MusicKit Team ID"
             description="Your Apple Developer Team ID (10-character alphanumeric)"
-            value={settings.musickit_team_id ?? ''}
+            value={musickitTeamId.value ?? ''}
             placeholder="XXXXXXXXXX"
-            onChange={(e) =>
-              updateSettings({ musickit_team_id: e.target.value.toUpperCase() || null })
-            }
+            onChange={(e) => musickitTeamId.set(e.target.value.toUpperCase() || null)}
           />
           <Input
             label="MusicKit Key ID"
             description="The Key ID for your MusicKit private key (10-character alphanumeric)"
-            value={settings.musickit_key_id ?? ''}
+            value={musickitKeyId.value ?? ''}
             placeholder="XXXXXXXXXX"
-            onChange={(e) =>
-              updateSettings({ musickit_key_id: e.target.value.toUpperCase() || null })
-            }
+            onChange={(e) => musickitKeyId.set(e.target.value.toUpperCase() || null)}
           />
           <div className="space-y-2">
             <label className="block text-sm font-medium text-content-primary">
@@ -677,8 +692,8 @@ export function AdvancedTab() {
               onClick={handleTestCredentials}
               disabled={
                 validating ||
-                !settings.musickit_team_id?.trim() ||
-                !settings.musickit_key_id?.trim() ||
+                !musickitTeamId.value?.trim() ||
+                !musickitKeyId.value?.trim() ||
                 !keyStored
               }
             >
@@ -735,9 +750,9 @@ export function AdvancedTab() {
                 </>
               )
             }
-            value={settings.acoustid_api_key ?? ''}
+            value={acoustidApiKey.value ?? ''}
             placeholder={hasBuiltInKey ? 'Using built-in key' : 'Your AcoustID application API key'}
-            onChange={(e) => updateSettings({ acoustid_api_key: e.target.value })}
+            onChange={(e) => acoustidApiKey.set(e.target.value)}
           />
         </div>
 
@@ -850,7 +865,7 @@ export function AdvancedTab() {
       </SettingsSection>
 
       {/* ── Developer Tools (hidden unless dev access is active) ──── */}
-      {settings.dev_access_enabled && (
+      {devAccessEnabled.value && (
         <DevToolsSection />
       )}
     </div>
@@ -864,7 +879,11 @@ export function AdvancedTab() {
  * Shows token status, web player token management, and a deactivate button.
  */
 function DevToolsSection() {
-  const settings = useSettingsStore((s) => s.settings);
+  // Per-field bindings for the two MusicKit fields read by this
+  // section. `loadSettings` retained because the deactivate flow
+  // needs to refresh the entire settings snapshot from disk.
+  const musickitTeamId = useSettingsField('musickit_team_id');
+  const musickitKeyId = useSettingsField('musickit_key_id');
   const loadSettings = useSettingsStore((s) => s.loadSettings);
 
   const [webplayerStatus, setWebplayerStatus] = useState<boolean | null>(null);
@@ -877,7 +896,7 @@ function DevToolsSection() {
   }, []);
 
   const hasUserCreds =
-    !!settings.musickit_team_id?.trim() && !!settings.musickit_key_id?.trim();
+    !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
 
   const handleClearWebplayerToken = async () => {
     await clearWebplayerToken();
