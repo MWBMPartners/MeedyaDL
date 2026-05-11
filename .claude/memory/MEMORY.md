@@ -1,7 +1,8 @@
 - [macOS updater bug](project_macos_updater_bug.md) — recurring filename mismatch in release workflow, fixed #368
 - [GitHub orgs](project_github_orgs.md) — MWBMPartners + MeedyaDL orgs, both allowed in cargo-deny
 - [meedyadl-v2 archive](project_meedyadl_v2_archive.md) — historic only; live prep is `prep/expanded-services-groundwork`
-- [v1 RC prep](project_v1_rc_prep.md) — at v0.49.1, 2 RC blockers open (#232, #182); milestones renumbered (BBC iPlayer M8, Spotify M9, YouTube M10)
+- [v1 release status](project_v1_rc_prep.md) — v1.0.0 GA, v1.1.0 Pre-release pending user testing; audit v2 fully landed
 - [Multi-service groundwork](project_multi_service_groundwork.md) — `prep/expanded-services-groundwork` ready for M8 (BBC iPlayer); merge before starting service work
 - [GAMDL release cadence](project_gamdl_release_cadence.md) — upstream ships fast (4 releases in 3 days); audit checklist + zero-code-change pattern
-- [PR #662 — six user-reported fixes](project_pr662_user_session_fixes.md) — in-flight bundle (toasts/notifications/fallback/tracebacks/revival/post-abort companion chatter); records the sync-in-async cancel pattern + macOS notification permission quirk
+- [Internal helpers from audits v1+v2](project_audit_v2_helpers.md) — index of 12 project primitives (withErrorToast, useConfirmation, useSettingsField, useAsyncTask, walk_dir_depth, atomic_write, http_client, subprocess_reader, context_err!, fs_walk find-first, fixtures, createAsyncResourceStore) — reach for these instead of hand-rolling
+- [Release pipeline gotchas](project_release_pipeline_gotchas.md) — three recurring failure modes from the v1.1.0 cut (skip-ci propagation, "Release in progress…" placeholder, manual-stable-tag drafts) + recovery patterns + the don't-auto-flip-stable-flags rule
