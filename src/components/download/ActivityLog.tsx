@@ -228,18 +228,30 @@ export function ActivityLog() {
    * Auto-scroll to bottom when new filtered entries arrive, unless paused.
    * Uses the virtualizer's scrollToIndex for accurate positioning with
    * dynamic row heights.
+   *
+   * Pre-fix this also gated on `userScrolledRef.current`, but that
+   * created a UX trap reported on 2026-05-11: scrolling up set the ref
+   * but NOT `paused`, so the checkbox kept showing "Auto-scroll: ON"
+   * while auto-scroll was effectively off. The handleScroll handler
+   * below now keeps `paused` in sync with the scroll position so the
+   * checkbox reflects reality and `paused` is the single source of
+   * truth.
    */
   useEffect(() => {
-    if (paused || userScrolledRef.current) return;
+    if (paused) return;
     if (filteredEntries.length > 0) {
       virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
     }
   }, [filteredEntries.length, paused, virtualizer]);
 
   /**
-   * Detect user scroll-up to auto-pause. If the user scrolls away from
-   * the bottom (more than 50px threshold), we pause auto-scroll. If they
-   * scroll back to the bottom, we resume.
+   * Detect user scroll position and sync the `paused` store flag with
+   * it. Scrolling up past the threshold sets `paused = true` (so the
+   * Auto-scroll checkbox visibly unchecks); scrolling back to the
+   * bottom sets `paused = false` (the existing intended behaviour).
+   * `userScrolledRef` is kept for the moment-of-scroll detection but
+   * is no longer the gate — the auto-scroll effect now reads `paused`
+   * exclusively.
    */
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -251,8 +263,23 @@ export function ActivityLog() {
       if (paused) setPaused(false);
     } else {
       userScrolledRef.current = true;
+      if (!paused) setPaused(true);
     }
   }, [paused, setPaused]);
+
+  /**
+   * Resume auto-scroll: scroll to the latest entry and clear the
+   * pause flag. Used by both the "Jump to latest" pill button (which
+   * appears whenever the user is scrolled away) and the Auto-scroll
+   * checkbox toggle.
+   */
+  const resumeAutoScroll = useCallback(() => {
+    userScrolledRef.current = false;
+    setPaused(false);
+    if (filteredEntries.length > 0) {
+      virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
+    }
+  }, [filteredEntries.length, setPaused, virtualizer]);
 
   /**
    * Export all log entries to a .log file via native save dialog.
@@ -335,18 +362,20 @@ export function ActivityLog() {
         subtitle={subtitle}
         actions={
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs text-content-secondary cursor-pointer select-none">
+            <label
+              className="flex items-center gap-1.5 text-xs text-content-secondary cursor-pointer select-none"
+              title={
+                paused
+                  ? 'Auto-scroll is paused (you scrolled up). Tick to scroll to the latest line and resume.'
+                  : 'Auto-scroll is following the latest line. Untick to pause, or scroll up.'
+              }
+            >
               <input
                 type="checkbox"
                 checked={!paused}
                 onChange={(e) => {
                   if (e.target.checked) {
-                    // Re-enable auto-scroll: scroll to bottom immediately
-                    userScrolledRef.current = false;
-                    setPaused(false);
-                    if (filteredEntries.length > 0) {
-                      virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
-                    }
+                    resumeAutoScroll();
                   } else {
                     setPaused(true);
                   }
@@ -468,11 +497,15 @@ export function ActivityLog() {
         </div>
       </div>
 
-      {/* Scrollable log container -- virtualized for performance */}
+      {/* Scrollable log container -- virtualized for performance.
+          Wrapped in a `relative` flex container so the floating
+          "Jump to latest" pill can be absolute-positioned over the
+          bottom-right corner when auto-scroll is paused. */}
+      <div className="relative flex-1 m-4 mt-0 min-h-0">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto bg-surface-secondary rounded-platform m-4 mt-0 p-3 font-mono text-xs leading-relaxed select-text"
+        className="h-full overflow-y-auto bg-surface-secondary rounded-platform p-3 font-mono text-xs leading-relaxed select-text"
         role="log"
         aria-live="polite"
         aria-label="Activity log"
@@ -546,6 +579,23 @@ export function ActivityLog() {
               );
             })}
           </div>
+        )}
+      </div>
+
+        {/* Floating "Jump to latest" pill — visible only when the user
+            has scrolled away from the bottom (auto-scroll paused).
+            Gives a one-click resume that's more discoverable than
+            unticking and re-ticking the Auto-scroll checkbox. */}
+        {paused && entries.length > 0 && (
+          <button
+            type="button"
+            onClick={resumeAutoScroll}
+            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-content-inverse text-xs font-medium shadow-md hover:bg-accent-hover transition-colors cursor-pointer"
+            title="Scroll to the latest line and resume auto-scroll"
+            aria-label="Jump to latest activity log line and resume auto-scroll"
+          >
+            ↓ Jump to latest
+          </button>
         )}
       </div>
     </div>
