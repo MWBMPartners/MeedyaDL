@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.3.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.3.1] - 2026-05-11
+
 ### 🐛 Bug Fixes
 
 - **(ui)** Stop stale 'Finalising metadata' label + sync auto-scroll checkbox (#751)
@@ -32,7 +39,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.3.0 [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.3.1 [skip ci]
 
 ## [1.3.0] - 2026-05-11
 
