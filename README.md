@@ -153,6 +153,12 @@ When a wrapper download fails (all retries exhausted), MeedyaDL normally shows a
 
 When enabled, failed wrapper downloads are automatically re-queued with cookie-based authentication — no manual intervention needed. This is useful if your wrapper is intermittently unavailable and you want downloads to fall back gracefully.
 
+### Re-authenticating the Wrapper
+
+If the wrapper appears connected (the connection test passes, the pre-flight checks all clear) but every track skips with `Decryption is not available for media ID: …` in the Activity Log, the wrapper's stored Apple Music credentials have most likely gone stale and need re-authenticating.
+
+For Docker installs, stop the container, run the wrapper one-shot in **login mode** (`docker run --privileged --rm -it -v ./rootfs/data:/app/rootfs/data --entrypoint ./wrapper ghcr.io/worldobservationlog/wrapper:local -L "username:password" -H 0.0.0.0`), enter your 2FA code if prompted, Ctrl-C once login completes, then start the container again. For native installs, the equivalent is to run the binary once with `-L "username:password"` to re-sign-in. Full step-by-step + diagnostic guidance lives in the in-app help under [**Help > Troubleshooting > Wrapper Errors > "Decryption is not available" warnings**](help/troubleshooting.md#decryption-is-not-available-warnings-wrapper-enabled-downloads-still-skipping).
+
 ### Verifying Connectivity
 
 MeedyaDL checks wrapper connectivity in two ways:
