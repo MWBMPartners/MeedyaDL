@@ -131,6 +131,65 @@ If wrapper downloads fail frequently, you can enable **Auto-Retry without Wrappe
 
 Without this setting enabled, failed wrapper downloads show a **"Retry without Wrapper"** button on the queue item, allowing you to manually retry with cookie-based auth.
 
+#### "Decryption is not available" warnings (wrapper enabled, downloads still skipping)
+
+This is a GAMDL warning that means: *"the wrapper accepted the connection, but it couldn't decrypt this track."* You'll see lines like this in the Activity Log:
+
+```text
+[Track 14/14] Skipping "Just Getting Started.": Decryption is not available for media ID: 1021848727
+```
+
+The most common cause when the wrapper is enabled is **stale wrapper authentication**. The wrapper service logs into Apple Music once with your credentials and keeps the resulting tokens in its data directory. Those tokens can expire over time — often after a few weeks or after Apple invalidates the session for any reason. When that happens, the wrapper still *appears* to be working: MeedyaDL's pre-download checks for the account / m3u8 / decryption services all pass (the sockets accept connections), the download starts, and the manifest fetch succeeds — but every per-track decryption request fails because the wrapper's stored Apple Music tokens are no longer valid.
+
+##### How to re-authenticate the wrapper
+
+You re-run the wrapper's one-off **login command** with your Apple Music username and password. The wrapper saves fresh tokens to its data directory; subsequent runs use those tokens normally.
+
+**If you're running the wrapper via Docker** (the most common setup):
+
+1. Stop the running wrapper container:
+
+   ```sh
+   docker compose down
+   ```
+
+2. Run the wrapper in **login mode** with your Apple credentials:
+
+   ```sh
+   docker run --privileged --rm -it \
+     -v ./rootfs/data:/app/rootfs/data \
+     --entrypoint ./wrapper \
+     ghcr.io/worldobservationlog/wrapper:local \
+     -L "your.apple.id@example.com:your-apple-password" \
+     -H 0.0.0.0
+   ```
+
+   The wrapper will sign into Apple Music. If your Apple ID has two-factor authentication, it will prompt for the 6-digit code — enter it and let the login finish.
+
+3. Once login completes (you'll see confirmation in the terminal), press **Ctrl-C** to quit.
+
+4. Start the wrapper normally again:
+
+   ```sh
+   docker compose up -d
+   ```
+
+**If you're running the wrapper natively** (not via Docker), the equivalent is to run the wrapper binary with the `-L "username:password"` flag once, let it sign in, quit, then start it again normally.
+
+##### How to tell if it's an auth issue vs a different problem
+
+Stale wrapper auth typically shows *every* track in a download skipping with the same "Decryption is not available" message. If only some tracks skip and others succeed, it's more likely that those specific tracks just aren't available in the requested codec — adjust the [Fallback Quality chain](fallback-quality.md) so MeedyaDL retries with a different format (ALAC / AAC) for the skipped ones. The Activity Log entries themselves look identical for both cases; the rate of skips is your diagnostic.
+
+##### Other possible causes
+
+- **You haven't enabled wrapper auth at all.** Atmos, AC-3 and other experimental codecs are wrapper-only — cookie-based auth alone can't decrypt them. Toggle **Use Wrapper** in Settings > Advanced if you haven't already.
+- **The track genuinely isn't available in the requested codec.** Some Apple Music regions have different mastering catalogues; not every track has an Atmos mix. The fallback chain handles this automatically when configured.
+- **The track was withdrawn or replaced.** Apple periodically replaces individual tracks (e.g., a song migrated from one album release to another). Re-fetching the album page in your browser may reveal it's been re-listed under a different ID.
+
+##### Does changing **Download Mode** help?
+
+No — Download Mode (yt-dlp vs N_m3u8DL-RE in Settings > Advanced) only changes the tool that downloads the encrypted HLS streams from Apple's CDN. It doesn't affect authentication or decryption. If decryption is failing, switching Download Mode won't fix it. (Some users see downloads "start working again" after switching modes because changing the setting forces a fresh attempt with reset state — not because of the mode itself.)
+
 #### Running the wrapper on a different device on your network
 
 You don't have to run the wrapper on the same computer as MeedyaDL. A common setup is to run MeedyaDL on a Mac or Windows PC and the wrapper on a separate Linux box — for example, a Raspberry Pi sitting on the same home network.
