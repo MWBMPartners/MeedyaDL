@@ -230,6 +230,7 @@ The codec-detection (`metadata_tag_service`), ReplayGain
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🔧 Refactoring
 
@@ -260,6 +261,64 @@ Audit v2 finding #6 — replaces the `settings.X` + `updateSettings({
   TypeScript clean.
 
   Partial — #757 stays open
+
+- **(settings)** Finish useSettingsField migration — closes #757 (#763)
+
+## Summary
+
+  Completes the **audit v2 finding #6** migration. With this PR, all 9
+  user-facing settings tabs use the `useSettingsField` hook for per-field
+  Zustand bindings. Replaces the `settings.X` + `updateSettings({ X: v })`
+  lambda pair with `field.value` + `field.set` — each control re-renders
+  only when its bound field changes.
+
+  ## Tabs migrated in this PR (4 of the original 9)
+
+  - **`CookiesTab.tsx`** — single field (`cookies_path`); validation +
+  browser-import handlers all migrate cleanly.
+  - **`QualityTab.tsx`** — 12 fields including the nested
+  `duplicate_detection` object (handled via `dupDetect.set({
+  ...dupDetect.value, key: v })`) and the artist-auto-select pair where
+  the multi-select array AND the legacy scalar both fire `.set()` per
+  change.
+  - **`GeneralTab.tsx`** — 21 fields. `useSettingsStore` retained only for
+  the `loadSettings` action (used by the import flow).
+  - **`AdvancedTab.tsx`** — 20 fields, plus the `DevToolsSection`
+  sub-component which migrates its two MusicKit reads. `useSettingsStore`
+  retained for the two non-field actions: `saveSettings` (setup-wizard
+  reset) and `loadSettings` (dev-access deactivate).
+
+  Combined with the 5 tabs already migrated in 815a0ce (`TemplatesTab`,
+  `FallbackTab`, `CoverArtTab`, `LyricsTab`, `ToolsTab`), all 9 settings
+  tabs are now on the new pattern.
+
+  ## Why useSettingsField wins
+
+  - **Per-field subscriptions** — Zustand re-renders only the controls
+  bound to a field that changed, not the entire tab.
+  - **Type-safe key access** — typos are compile-time errors
+  (`useSettingsField('xyz_typo')` won't compile).
+  - **No key duplication** — the field key is supplied once at the hook
+  call, not twice (read + write).
+  - **Memoised setters** — `.set` is stable across renders so memoised
+  consumers don't re-render on parent re-render.
+
+  ## Verification
+
+  - [x] `npx tsc --noEmit` clean.
+  - [x] `npm test -- --run` — 465 tests pass across 31 files.
+  - [ ] CI runs the full Backend + Frontend matrix on this PR.
+
+  ## Branch base
+
+  This branch was created off `main` BEFORE PR #762 landed the clippy fix.
+  CI will fail on the same Backend clippy lint until #762 merges and this
+  branch rebases. Order of operations:
+
+  1. Merge #762 (clippy fix + Release-As trailer).
+  2. Rebase or merge `main` into this branch.
+  3. CI re-runs and passes.
+  4. Merge this PR.
 
 
 ### 🧹 Maintenance
