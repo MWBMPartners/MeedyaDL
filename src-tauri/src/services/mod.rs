@@ -152,6 +152,17 @@ pub mod animated_artwork_service;
 /// Used by: `animated_artwork_service`, `metadata_tag_service`
 pub mod apple_music_api;
 
+/// Static cover-art fallback chain (#756).
+///
+/// When GAMDL fails to write the requested static cover format
+/// (typically `cover_format = raw`, where the upstream cover-bytes
+/// fetch raises a Python traceback), this service walks a fallback
+/// chain — RAW → PNG → JPEG — by fetching the static artwork URL
+/// from `AlbumMetadata.artwork_url_template` directly, sidestepping
+/// GAMDL entirely. Idempotent: skips when the cover is already
+/// present and non-trivially sized.
+pub mod cover_art_fallback;
+
 /// Post-download metadata enrichment service.
 ///
 /// Injects comprehensive custom metadata into downloaded M4A files.

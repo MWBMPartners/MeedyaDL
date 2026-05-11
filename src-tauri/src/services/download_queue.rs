@@ -6970,6 +6970,57 @@ pub fn process_queue(
                             // with animated artwork FrontCover.mp4/FrontCoverPortrait.mp4).
                             rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
 
+                            // --- Post-step 1b: Cover-art fallback chain (#756) ---
+                            // GAMDL's static cover write is fragile, especially for
+                            // `cover_format = raw` where the upstream `httpx` fetch
+                            // raises a Python traceback and leaves no cover on disk.
+                            // The embedded cover atom inside each M4A is unaffected,
+                            // but the sidecar (Cover.<ext>) is missing — so file-
+                            // browser previews fail. Walk the API artwork URL down a
+                            // RAW → PNG → JPEG chain to recover.
+                            if let Some(ref metadata) = album_metadata {
+                                let cover_stem = enrich_settings
+                                    .cover_art_name
+                                    .to_filename_stem();
+                                let outcome = crate::services::cover_art_fallback::ensure_cover_present(
+                                    std::path::Path::new(&album_dir),
+                                    metadata,
+                                    &enrich_settings.cover_format,
+                                    cover_stem,
+                                )
+                                .await;
+                                match outcome {
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::AlreadyPresent { .. } => {
+                                        // Fast path — GAMDL did its job. Silent.
+                                    }
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::FetchedFallback { format, written_path } => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Cover-art fallback wrote {} ({})",
+                                                written_path.file_name()
+                                                    .and_then(|n| n.to_str())
+                                                    .unwrap_or("cover"),
+                                                format.to_cli_string(),
+                                            ),
+                                        );
+                                    }
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::NoTemplate => {
+                                        // Expected for non-album items; no log noise.
+                                    }
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::AllFallbacksFailed { last_error } => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Cover-art fallback exhausted (PNG + JPEG both failed: {last_error}). Embedded cover in M4A is unaffected."
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
                             // response to a JSON file in the album output directory. This lets
