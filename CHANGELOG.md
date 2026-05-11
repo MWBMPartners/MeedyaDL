@@ -6,10 +6,142 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(history)** Tooltip + right-click actions on long error messages (#748)
+
+## Summary
+
+  The History row's error text was truncated at the right edge of the
+  visible area for long messages — notably upstream "GAMDL bug — …"
+  classifier outputs. Reading the full text required widening the window.
+  New shared `ErrorMessageDisplay` component fixes this with three layered
+  affordances:
+
+  - **Hover/focus tooltip** showing the full text
+  - **Right-click → Copy error message** (always)
+  - **Right-click → Report this bug to GAMDL** (only when the message
+  looks like an upstream defect — recognised via the `"GAMDL bug "` prefix
+  that `download_queue.rs` emits). Opens
+  [`glomatico/gamdl/issues/new`](https://github.com/glomatico/gamdl/issues/new)
+  with title + body pre-filled from the failed URL + the error text.
+
+  The pre-filled GitHub URL is **intentionally MeedyaDL-free** — no
+  branding, no "via MeedyaDL" attribution, no internal classifier
+  metadata. Upstream maintainers get a clean repro shaped like a normal
+  GAMDL-user bug report (title strips the classifier prefix so it reads as
+  a user-authored summary; body template has URL / Error output /
+  Environment sections to fill in).
+
+  ## Wiring
+
+  -
+  [`HistoryPage.tsx`](../blob/feat/error-message-tooltip-actions/src/components/download/HistoryPage.tsx)
+  — replaces the inline `line-clamp-2` `<p>`. The URL paragraph below it
+  also gets a native `title={entry.url}` tooltip (same problem class for
+  long Apple Music URLs).
+  -
+  [`QueueItem.tsx`](../blob/feat/error-message-tooltip-actions/src/components/download/QueueItem.tsx)
+  — replaces the inline error `<p>` (no truncation since queue rows are
+  full-width, but tooltip + right-click affordances apply).
+
+  ## Tests
+
+  12 unit tests pin: render + null-on-empty + line-clamp variants,
+  right-click menu open, copy writes to clipboard, "Report" gated on GAMDL
+  prefix, `URL.searchParams.get('body')` contains the error + sourceUrl,
+  title strips the classifier prefix, no MeedyaDL anywhere in the report
+  URL, omitted sourceUrl drops the URL section.
+
+  ## Implementation note
+
+  Imports siblings via `./ContextMenu` / `./Tooltip` rather than the
+  `@/components/common` barrel — the barrel re-exports this very file, so
+  a barrel import would resolve to `undefined` at module-evaluation time
+  and crash with the React "Element type is invalid" runtime error.
+
+  ## Test plan
+
+  - [x] `npm run type-check` clean
+  - [x] `npm run lint` clean
+  - [x] `npm run test` — 465 pass (12 new, 0 regressions)
+  - [ ] CI green
+  - [ ] Manual: in History, hover a long error → tooltip shows full text;
+  right-click → "Copy error message" works; right-click on a "GAMDL bug —
+  …" entry → "Report this bug to GAMDL" appears + opens upstream issue
+  form pre-filled
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.2.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(claude)** Refresh project context for v1.0.0/v1.1.0 + audit v2 + release-pipeline gotchas (#747)
+
+## Summary
+
+  The `.claude/` files had drifted after a busy 2026-04 → 2026-05 run.
+  This PR brings the shared project memory + the CLAUDE.md context file in
+  line with the actual project state as of 2026-05-10.
+
+  ### Memory refreshes
+  -
+  [\`project_v1_rc_prep.md\`](../blob/docs/refresh-claude-context/.claude/memory/project_v1_rc_prep.md)
+  — was stuck at v0.49.1 with two open RC blockers; now reflects v1.0.0 GA
+  + v1.1.0 published as Pre-release pending user testing. Captures the
+  post-rc.1 promotion path, the audit-v2 rollout, and the recent
+  #743/#744/#741/#746 cycle. Adds an explicit pointer to the
+  don't-auto-flip-stable-flags policy.
+
+  ### Memory removals
+  - `project_pr662_user_session_fixes.md` — described an in-flight PR that
+  merged early May. Project memory should describe live state, not
+  historical PR descriptions, so the file is removed rather than marked
+  "historic".
+
+  ### New memory files
+  -
+  [\`project_audit_v2_helpers.md\`](../blob/docs/refresh-claude-context/.claude/memory/project_audit_v2_helpers.md)
+  — catalogue of the 12 internal primitives that landed across audits v1 +
+  v2 (six backend, six frontend), each with its file path + use case.
+  -
+  [\`project_release_pipeline_gotchas.md\`](../blob/docs/refresh-claude-context/.claude/memory/project_release_pipeline_gotchas.md)
+  — the three failure modes the v1.1.0 cut surfaced (\`[skip ci]\`
+  propagation through CHANGELOG bodies, "Release in progress…" placeholder
+  persistence, manual stable tags sitting as drafts) plus recovery
+  patterns and the release-promotion policy.
+
+  ### MEMORY.md index
+  Updated to remove the PR662 entry, add the two new entries, and refresh
+  the v1 RC prep one-liner.
+
+  ### CLAUDE.md additions
+  Three new convention bullets, no restructure of existing content:
+  - "Internal helpers (audits v1 + v2)" — one-line index of the 12
+  primitives with file paths so the right helper is reachable without
+  grepping
+  - "Release pipeline gotchas" — short summary of the three failure modes
+  + recovery commands, with pointer to the dedicated memory file
+  - "Wrapper triangle" — explains the three independent wrapper
+  connections (account / m3u8 / decrypt), all now in AppSettings, with the
+  schema-version-bump-to-5 reference
+
+  Plus markdown lint fixes for two pre-existing list-spacing issues.
+
+  No code changes.
+
+  ## Test plan
+
+  - [x] No code changes — no test gates apply
+  - [x] Markdown linter satisfied (blank lines around lists, valid
+  frontmatter)
+  - [ ] CI green (only PR title check + CodeQL should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ## [1.2.0] - 2026-05-10
 
