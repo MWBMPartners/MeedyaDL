@@ -77,7 +77,7 @@ import {
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { ProgressBar, ContextMenu } from '@/components/common';
+import { ProgressBar, ContextMenu, ErrorMessageDisplay } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 
 /**
@@ -586,7 +586,16 @@ export function QueueItem({
        * `pl-7` aligns with the URL text above.
        */}
       {item.state === 'error' && item.error && (
-        <p className="mt-1.5 pl-7 text-xs text-status-error">{item.error}</p>
+        <div className="mt-1.5 pl-7">
+          <ErrorMessageDisplay
+            message={item.error}
+            sourceUrl={item.urls?.[0]}
+            // Queue rows are full-width so we don't aggressively
+            // truncate, but tooltip + right-click (copy / report
+            // upstream when applicable) still apply.
+            truncateLines={null}
+          />
+        </div>
       )}
 
       {/*
