@@ -45,10 +45,11 @@
 
 import { useState } from 'react';
 
-// Zustand store providing the shared settings state and mutation function.
-// All settings tabs read from the same store instance, ensuring changes
-// in one tab are immediately reflected if the user switches tabs.
+// Zustand store hooks. `useSettingsStore` is retained for the
+// `loadSettings` action only (used by the import flow). All per-
+// field reads/writes go through `useSettingsField` (audit v2 #6).
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Update store for manual update checking trigger.
 import { useUpdateStore } from '@/stores/updateStore';
@@ -238,10 +239,28 @@ const LANGUAGE_OPTIONS = [
  * "controlled" form that reads from and writes to the Zustand store.
  */
 export function GeneralTab() {
-  /** The full settings object (read-only snapshot from the store) */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Applies a partial update to the settings; sets isDirty = true in the store */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field Zustand bindings (audit v2 #6).
+  const outputPath = useSettingsField('output_path');
+  const themeOverride = useSettingsField('theme_override');
+  const highContrast = useSettingsField('high_contrast');
+  const colourBlindMode = useSettingsField('colour_blind_mode');
+  const uiLanguage = useSettingsField('ui_language');
+  const language = useSettingsField('language');
+  const storefront = useSettingsField('storefront');
+  const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
+  const overwrite = useSettingsField('overwrite');
+  const autoStartQueue = useSettingsField('auto_start_queue');
+  const afterQueueAction = useSettingsField('after_queue_action');
+  const desktopNotifications = useSettingsField('desktop_notifications');
+  const notificationStyle = useSettingsField('notification_style');
+  const notificationDismissSeconds = useSettingsField('notification_auto_dismiss_seconds');
+  const smartRedownload = useSettingsField('smart_redownload_detection');
+  const clipboardMonitoring = useSettingsField('clipboard_monitoring');
+  const autoCheckUpdates = useSettingsField('auto_check_updates');
+  const updateCheckInterval = useSettingsField('update_check_interval_hours');
+  const checkPreReleases = useSettingsField('check_pre_releases');
+  const updateChannel = useSettingsField('update_channel');
+  const devAccessEnabled = useSettingsField('dev_access_enabled');
 
   /** Whether an update check is currently in progress */
   const isChecking = useUpdateStore((s) => s.isChecking);
@@ -275,7 +294,7 @@ export function GeneralTab() {
    * to prevent casual subscription. Existing subscribers keep their channel
    * even if they later disable Dev Access — they just can't re-pick it.
    */
-  const channelOptions = settings.dev_access_enabled
+  const channelOptions = devAccessEnabled.value
     ? UPDATE_CHANNEL_OPTIONS_FULL
     : UPDATE_CHANNEL_OPTIONS_PUBLIC;
 
@@ -285,11 +304,11 @@ export function GeneralTab() {
    * Stable (or to the channel already selected) bypasses the modal.
    */
   const handleChannelChange = (next: UpdateChannel) => {
-    if (next === settings.update_channel) return;
+    if (next === updateChannel.value) return;
     if (PRE_RELEASE_CHANNELS.includes(next)) {
       setPendingChannel(next);
     } else {
-      updateSettings({ update_channel: next });
+      updateChannel.set(next);
     }
   };
 
@@ -362,8 +381,8 @@ export function GeneralTab() {
         <FilePickerButton
           label="Output Directory"
           description="Where downloaded files will be saved"
-          value={settings.output_path || null}
-          onChange={(path) => updateSettings({ output_path: path || '' })}
+          value={outputPath.value || null}
+          onChange={(path) => outputPath.set(path || '')}
           directory
           placeholder="Default: ~/Music/Apple Music"
         />
@@ -382,11 +401,9 @@ export function GeneralTab() {
           label="Theme"
           description="Choose between light and dark mode, or follow your OS setting"
           options={THEME_OPTIONS}
-          value={settings.theme_override || 'auto'}
+          value={themeOverride.value || 'auto'}
           onChange={(e) =>
-            updateSettings({
-              theme_override: e.target.value === 'auto' ? null : e.target.value,
-            })
+            themeOverride.set(e.target.value === 'auto' ? null : e.target.value)
           }
         />
 
@@ -400,8 +417,8 @@ export function GeneralTab() {
         <Toggle
           label="High Contrast"
           description="Increase visual contrast for accessibility. Uses stronger borders, pure black/white text, and thicker focus indicators. Also auto-activates when your OS has high-contrast mode enabled."
-          checked={settings.high_contrast}
-          onChange={(checked) => updateSettings({ high_contrast: checked })}
+          checked={highContrast.value}
+          onChange={highContrast.set}
         />
 
         {/*
@@ -414,11 +431,9 @@ export function GeneralTab() {
           label="Colour Vision"
           description="Adjust status colours for colour vision deficiency. Remaps success, error, warning, and info colours to a palette distinguishable for the selected condition."
           options={COLOUR_VISION_OPTIONS}
-          value={settings.colour_blind_mode || 'none'}
+          value={colourBlindMode.value || 'none'}
           onChange={(e) =>
-            updateSettings({
-              colour_blind_mode: e.target.value === 'none' ? '' : e.target.value,
-            })
+            colourBlindMode.set(e.target.value === 'none' ? '' : e.target.value)
           }
         />
 
@@ -426,10 +441,10 @@ export function GeneralTab() {
           label="Language"
           description="Application display language (requires restart to take full effect)"
           options={UI_LANGUAGE_OPTIONS}
-          value={settings.ui_language || 'auto'}
+          value={uiLanguage.value || 'auto'}
           onChange={(e) => {
             const val = e.target.value;
-            updateSettings({ ui_language: val === 'auto' ? '' : val });
+            uiLanguage.set(val === 'auto' ? '' : val);
           }}
         />
       </SettingsSection>
@@ -442,8 +457,8 @@ export function GeneralTab() {
           label="Metadata Language"
           description="Language preference for track and album metadata"
           options={LANGUAGE_OPTIONS}
-          value={settings.language}
-          onChange={(e) => updateSettings({ language: e.target.value })}
+          value={language.value}
+          onChange={(e) => language.set(e.target.value)}
         />
 
         {/* Apple Music storefront region */}
@@ -453,8 +468,8 @@ export function GeneralTab() {
           </label>
           <select
             className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
-            value={settings.storefront}
-            onChange={(e) => updateSettings({ storefront: e.target.value })}
+            value={storefront.value}
+            onChange={(e) => storefront.set(e.target.value)}
           >
             <option value="">Auto-detect</option>
             <option disabled>──────────</option>
@@ -517,24 +532,24 @@ export function GeneralTab() {
         <Toggle
           label="Auto-retry with your region when a URL's storefront fails"
           description="When a download fails because the album isn't published in the URL's storefront (e.g., a /us/ link your account can't access), retry once using your account region above. Only fires after the original URL has already failed, so it never overrides a working download."
-          checked={settings.storefront_fallback_on_failure}
-          onChange={(checked) => updateSettings({ storefront_fallback_on_failure: checked })}
+          checked={storefrontFallback.value}
+          onChange={storefrontFallback.set}
         />
 
         {/* Overwrite existing files */}
         <Toggle
           label="Overwrite Existing Files"
           description="Re-download and replace files that already exist in the output directory"
-          checked={settings.overwrite}
-          onChange={(checked) => updateSettings({ overwrite: checked })}
+          checked={overwrite.value}
+          onChange={overwrite.set}
         />
 
         {/* Auto-start queue processing */}
         <Toggle
           label="Auto-Start Downloads"
           description="Start processing immediately when items are added to the queue. When disabled, items are queued and you can start processing manually from the Queue page."
-          checked={settings.auto_start_queue}
-          onChange={(checked) => updateSettings({ auto_start_queue: checked })}
+          checked={autoStartQueue.value}
+          onChange={autoStartQueue.set}
         />
 
         {/* After-queue action */}
@@ -542,29 +557,27 @@ export function GeneralTab() {
           label="After Queue Completes"
           description="Action to perform automatically when all downloads finish. This is the persistent setting — use the right-click menu on the Download page for a one-time override."
           options={AFTER_QUEUE_OPTIONS}
-          value={settings.after_queue_action ?? 'do_nothing'}
-          onChange={(e) =>
-            updateSettings({ after_queue_action: e.target.value as AfterQueueAction })
-          }
+          value={afterQueueAction.value ?? 'do_nothing'}
+          onChange={(e) => afterQueueAction.set(e.target.value as AfterQueueAction)}
         />
 
         {/* Desktop notifications */}
         <Toggle
           label="Desktop Notifications"
           description="Show native OS notifications when downloads complete or fail. Notifications are only shown when the app window is not focused."
-          checked={settings.desktop_notifications}
-          onChange={(checked) => updateSettings({ desktop_notifications: checked })}
+          checked={desktopNotifications.value}
+          onChange={desktopNotifications.set}
         />
 
         {/* Notification style — controls how notifications are delivered */}
-        {settings.desktop_notifications && (
+        {desktopNotifications.value && (
           <Select
             label="Notification Style"
             description="How notifications are delivered. 'In-app only' shows toasts inside the app. 'Native + in-app' shows both OS notifications and in-app toasts. 'Native only' uses OS notifications exclusively."
             options={NOTIFICATION_STYLE_OPTIONS}
-            value={settings.notification_style ?? 'native_and_in_app'}
+            value={notificationStyle.value ?? 'native_and_in_app'}
             onChange={(e) =>
-              updateSettings({ notification_style: e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only' })
+              notificationStyle.set(e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only')
             }
           />
         )}
@@ -574,8 +587,8 @@ export function GeneralTab() {
             OS-level permission has been granted and the plugin pipeline works.
             On macOS this also forces the system permission prompt the first
             time it is invoked if the user dismissed the startup prompt. */}
-        {settings.desktop_notifications &&
-          (settings.notification_style ?? 'native_and_in_app') !== 'in_app_only' && (
+        {desktopNotifications.value &&
+          (notificationStyle.value ?? 'native_and_in_app') !== 'in_app_only' && (
             <div className="flex flex-col gap-1">
               <Button
                 variant="secondary"
@@ -618,15 +631,13 @@ export function GeneralTab() {
           )}
 
         {/* Notification auto-dismiss duration — only visible when notifications are enabled */}
-        {settings.desktop_notifications && (
+        {desktopNotifications.value && (
           <Select
             label="Notification Auto-Dismiss"
             description="How long transient notifications (download complete, added to queue) stay visible before auto-dismissing. Error and warning notifications always require manual dismissal."
             options={NOTIFICATION_DISMISS_OPTIONS}
-            value={String(settings.notification_auto_dismiss_seconds ?? 5)}
-            onChange={(e) =>
-              updateSettings({ notification_auto_dismiss_seconds: Number(e.target.value) })
-            }
+            value={String(notificationDismissSeconds.value ?? 5)}
+            onChange={(e) => notificationDismissSeconds.set(Number(e.target.value))}
           />
         )}
 
@@ -634,36 +645,34 @@ export function GeneralTab() {
         <Toggle
           label="Smart Re-Download Detection"
           description="When re-downloading an album, check if it has changed since your last download using the Apple Music API. Shows an info message if the album is unchanged, but still allows you to proceed."
-          checked={settings.smart_redownload_detection}
-          onChange={(checked) => updateSettings({ smart_redownload_detection: checked })}
+          checked={smartRedownload.value}
+          onChange={smartRedownload.set}
         />
 
         {/* Clipboard monitoring */}
         <Toggle
           label="Clipboard Monitoring"
           description="Detect supported URLs (e.g., Apple Music) copied to the clipboard and offer to download them. Only checks for URL patterns — clipboard contents are never stored."
-          checked={settings.clipboard_monitoring}
-          onChange={(checked) => updateSettings({ clipboard_monitoring: checked })}
+          checked={clipboardMonitoring.value}
+          onChange={clipboardMonitoring.set}
         />
 
         {/* Auto-check for updates */}
         <Toggle
           label="Auto-Check for Updates"
           description="Automatically check for GAMDL and tool updates on startup"
-          checked={settings.auto_check_updates}
-          onChange={(checked) => updateSettings({ auto_check_updates: checked })}
+          checked={autoCheckUpdates.value}
+          onChange={autoCheckUpdates.set}
         />
 
         {/* Update check interval — only visible when auto-check is enabled */}
-        {settings.auto_check_updates && (
+        {autoCheckUpdates.value && (
           <Select
             label="Check Interval"
             description="How often to check for updates while the app is running (takes effect on restart)"
             options={UPDATE_INTERVAL_OPTIONS}
-            value={String(settings.update_check_interval_hours)}
-            onChange={(e) =>
-              updateSettings({ update_check_interval_hours: Number(e.target.value) })
-            }
+            value={String(updateCheckInterval.value)}
+            onChange={(e) => updateCheckInterval.set(Number(e.target.value))}
           />
         )}
 
@@ -671,8 +680,8 @@ export function GeneralTab() {
         <Toggle
           label="Include Pre-Release Versions"
           description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
-          checked={settings.check_pre_releases}
-          onChange={(checked) => updateSettings({ check_pre_releases: checked })}
+          checked={checkPreReleases.value}
+          onChange={checkPreReleases.set}
         />
 
         {/* Update channel selector — guards auto-updates from crossing down the
@@ -682,7 +691,7 @@ export function GeneralTab() {
           label="Update Channel"
           description="Controls which release channel you receive updates from. Subscribing to a channel surfaces releases at-or-above that stability tier (e.g. Beta sees Beta, RC, Stable). Nightly/Weekly/Monthly/Alpha are hidden unless Dev Access is enabled. Switching to any pre-release channel requires explicit confirmation."
           options={channelOptions}
-          value={settings.update_channel}
+          value={updateChannel.value}
           onChange={(e) => handleChannelChange(e.target.value as UpdateChannel)}
         />
 
@@ -738,13 +747,13 @@ export function GeneralTab() {
           pre-release channel from the dropdown but not yet confirmed the
           switch. Confirming applies the change to the settings store;
           cancelling discards it (the dropdown still reflects the persisted
-          value, since `value={settings.update_channel}` was never updated). */}
+          value, since `value={updateChannel.value}` was never updated). */}
       {pendingChannel && (
         <ChannelSwitchWarning
           open={true}
           targetChannel={pendingChannel}
           onConfirm={() => {
-            updateSettings({ update_channel: pendingChannel });
+            updateChannel.set(pendingChannel);
             setPendingChannel(null);
           }}
           onCancel={() => setPendingChannel(null)}

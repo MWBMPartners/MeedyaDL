@@ -28,7 +28,7 @@
  * ## Validation Flow
  *
  * 1. User selects a cookies.txt file via the FilePickerButton.
- * 2. The path is persisted to `settings.cookies_path` in the store.
+ * 2. The path is persisted to `cookiesPath.value` in the store.
  * 3. User clicks "Validate Cookies", which calls
  *    `commands.validateCookiesFile(path)` (a Tauri IPC command).
  * 4. The Rust backend reads the file, counts cookies, checks for Apple Music
@@ -44,8 +44,8 @@
  *
  * ## Store Connection
  *
- * - **settingsStore**: Reads `settings.cookies_path`; writes via
- *   `updateSettings({ cookies_path })`.
+ * - **settingsStore**: Reads `cookies_path` via `useSettingsField`
+ *   (audit v2 #6).
  * - **Tauri commands**: Calls `validateCookiesFile`, `detectBrowsers`,
  *   `importCookiesFromBrowser`, `openAppleLogin`, `extractLoginCookies`,
  *   `closeAppleLogin` for backend operations.
@@ -88,8 +88,8 @@ import {
 // Tauri event listener for receiving events from the Rust backend.
 import { listen } from '@tauri-apps/api/event';
 
-// Zustand store for reading the cookies_path and writing path updates.
-import { useSettingsStore } from '@/stores/settingsStore';
+// Audit v2 #6 — per-field Zustand binding for `cookies_path`.
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Tauri IPC command wrappers -- specifically `validateCookiesFile` which
 // invokes the Rust backend's cookie validation logic.
@@ -550,11 +550,9 @@ function ExpiryWarning({ expired, warnings }: { expired: boolean; warnings: stri
  */
 export function CookiesTab() {
   /* ---- Store bindings ---- */
-  /** Read the current application settings from the Zustand store */
-  const settings = useSettingsStore((s) => s.settings);
-
-  /** Obtain the settings mutation function to persist changes */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field binding (audit v2 #6) — `cookies_path` is the only
+  // AppSettings key this tab touches.
+  const cookiesPath = useSettingsField('cookies_path');
 
   /* ---- Local state ---- */
   /**
@@ -615,8 +613,8 @@ export function CookiesTab() {
    * validation result. This drives the status badge display.
    */
   const cookieStatus = useMemo(
-    () => deriveCookieStatus(settings.cookies_path, validation),
-    [settings.cookies_path, validation]
+    () => deriveCookieStatus(cookiesPath.value, validation),
+    [cookiesPath.value, validation]
   );
 
   /* ---- Effects ---- */
@@ -667,7 +665,7 @@ export function CookiesTab() {
 
             // Update settings if cookies were saved successfully
             if (event.payload.success && event.payload.path) {
-              updateSettings({ cookies_path: event.payload.path });
+              cookiesPath.set(event.payload.path);
               setValidation(null); // Clear manual validation for fresh cookies
             }
           } catch (err) {
@@ -683,7 +681,7 @@ export function CookiesTab() {
     return () => {
       unlisten?.();
     };
-  }, [updateSettings]);
+  }, [cookiesPath]);
 
   /**
    * Listen for the "login-window-closed" event from the Rust backend.
@@ -723,15 +721,15 @@ export function CookiesTab() {
    * `!isValidating` to prevent duplicate concurrent requests.
    */
   useEffect(() => {
-    if (settings.cookies_path && validation === null && !isValidating) {
+    if (cookiesPath.value && validation === null && !isValidating) {
       setIsValidating(true);
       commands
-        .validateCookiesFile(settings.cookies_path)
+        .validateCookiesFile(cookiesPath.value)
         .then((result) => setValidation(result))
         .catch(() => setValidation(null))
         .finally(() => setIsValidating(false));
     }
-  }, [settings.cookies_path, validation, isValidating]);
+  }, [cookiesPath.value, validation, isValidating]);
 
   /* ---- Handlers ---- */
 
@@ -768,7 +766,7 @@ export function CookiesTab() {
 
       // Update settings store if import was successful
       if (result.success && result.path) {
-        updateSettings({ cookies_path: result.path });
+        cookiesPath.set(result.path);
         setValidation(null); // Clear manual validation since we have fresh cookies
       }
     } catch (err) {
@@ -777,7 +775,7 @@ export function CookiesTab() {
     }
 
     setIsImporting(false);
-  }, [selectedBrowser, platform, updateSettings]);
+  }, [selectedBrowser, platform, cookiesPath]);
 
   /**
    * Opens the embedded Apple Music login browser window.
@@ -812,7 +810,7 @@ export function CookiesTab() {
       setIsExtractingFromLogin(false);
 
       if (result.success && result.path) {
-        updateSettings({ cookies_path: result.path });
+        cookiesPath.set(result.path);
         setValidation(null);
       }
     } catch (err) {
@@ -820,7 +818,7 @@ export function CookiesTab() {
       setImportError(message);
       setIsExtractingFromLogin(false);
     }
-  }, [updateSettings]);
+  }, [cookiesPath]);
 
   /**
    * Cancels the embedded login flow by closing the login window
@@ -844,18 +842,18 @@ export function CookiesTab() {
    */
   const handleValidate = useCallback(async () => {
     /* Guard: nothing to validate if no file is selected */
-    if (!settings.cookies_path) return;
+    if (!cookiesPath.value) return;
 
     setIsValidating(true);
     try {
-      const result = await commands.validateCookiesFile(settings.cookies_path);
+      const result = await commands.validateCookiesFile(cookiesPath.value);
       setValidation(result);
     } catch {
       /* On error, reset validation so the UI does not show stale results */
       setValidation(null);
     }
     setIsValidating(false);
-  }, [settings.cookies_path]);
+  }, [cookiesPath.value]);
 
   /**
    * Copies the currently selected cookies file path to the system
@@ -863,10 +861,10 @@ export function CookiesTab() {
    * confirmation for 2 seconds before reverting the button text.
    */
   const handleCopyPath = useCallback(async () => {
-    if (!settings.cookies_path) return;
+    if (!cookiesPath.value) return;
 
     try {
-      await navigator.clipboard.writeText(settings.cookies_path);
+      await navigator.clipboard.writeText(cookiesPath.value);
       setCopySuccess(true);
 
       /* Reset the success indicator after 2 seconds.
@@ -877,7 +875,7 @@ export function CookiesTab() {
       /* Clipboard write can fail if the document is not focused or
          the permission was denied -- silently ignore. */
     }
-  }, [settings.cookies_path]);
+  }, [cookiesPath.value]);
 
   /**
    * Handles changes from the file picker. When a new file is
@@ -886,11 +884,11 @@ export function CookiesTab() {
    */
   const handleFileChange = useCallback(
     (path: string | null) => {
-      updateSettings({ cookies_path: path });
+      cookiesPath.set(path);
       setValidation(null);
       setCopySuccess(false);
     },
-    [updateSettings]
+    [cookiesPath]
   );
 
   /* ---- Render ---- */
@@ -1160,7 +1158,7 @@ export function CookiesTab() {
       <FilePickerButton
         label="Cookies File"
         description="Path to the Netscape-format cookies.txt file"
-        value={settings.cookies_path}
+        value={cookiesPath.value}
         onChange={handleFileChange}
         placeholder="No cookies file selected"
         filters={[{ name: 'Text Files', extensions: ['txt'] }]}
@@ -1172,7 +1170,7 @@ export function CookiesTab() {
           selected, a "Copy Cookie Path" button. Buttons are laid out
           horizontally with a gap.
           ============================================================ */}
-      {settings.cookies_path && (
+      {cookiesPath.value && (
         <div className="flex items-center gap-2">
           {/* Validate button -- triggers backend validation */}
           <Button variant="secondary" size="sm" loading={isValidating} onClick={handleValidate}>
