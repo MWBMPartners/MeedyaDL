@@ -8018,10 +8018,31 @@ pub fn process_queue(
                                 "Download manifest saved to album folder",
                             );
 
-                            set_label(
-                                "Finalising metadata...",
-                                ProgressStage::Finalising.weight(),
-                            );
+                            // Enrichment is finished — clear the per-item label
+                            // so the bar caption reverts to the track context
+                            // (Path 2 in `formatActiveItemCaption`) until the
+                            // next stage takes over (companion supervisor's
+                            // `Companion: downloading…`, the post-companion
+                            // advisory pass's `Applying [Explicit]/[Clean]
+                            // suffixes…`, or `set_complete` clearing on the
+                            // happy path with neither configured).
+                            //
+                            // Pre-fix this line called `set_label("Finalising
+                            // metadata...", …)` AFTER the manifest write — but
+                            // at that point enrichment is *done*, not
+                            // finalising, and the label persisted as the
+                            // visible caption through every subsequent gap
+                            // (enrichment→companion handoff, companion→
+                            // advisory handoff, etc.). The screenshot the
+                            // user reported on 2026-05-11 caught one of those
+                            // gaps and showed "Finalising metadata…" while
+                            // the activity log was reporting fresh GAMDL
+                            // companion track downloads. Clearing here keeps
+                            // the caption honest.
+                            {
+                                let mut q = enrich_queue.lock().await;
+                                q.clear_processing_label(&enrich_dl_id);
+                            }
 
                             emit_download_log(
                                 &enrich_app,
