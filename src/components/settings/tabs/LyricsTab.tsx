@@ -34,8 +34,14 @@
  * @see {@link @/types/index.ts}           -- LyricsFormat type definition
  */
 
-// Zustand store for reading/writing lyrics settings.
+// Zustand store hooks. `useSettingsStore` is retained alongside
+// `useSettingsField` because the format-toggle handler updates two
+// keys at once (`synced_lyrics_format` + `companion_lyrics_formats`)
+// — `updateSettings({…, …})` keeps that a single store mutation,
+// whereas calling `field.set()` per-key would fire two updates.
 import { useSettingsStore } from '@/stores/settingsStore';
+// Audit v2 #6 — per-field Zustand binding for single-key controls.
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Shared form component: Toggle for boolean switches.
 import { Toggle, SettingsSection } from '@/components/common';
@@ -61,10 +67,22 @@ const LYRICS_FORMAT_OPTIONS: { value: LyricsFormat; label: string }[] = [
  * the shared Zustand settings store.
  */
 export function LyricsTab() {
-  /** Current settings snapshot */
+  // Settings snapshot retained for the multi-key format toggler
+  // (handleFormatToggle below).
   const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function for persisting lyrics setting changes */
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  // Per-field bindings for the boolean controls (audit v2 #6).
+  const enhancedLrc = useSettingsField('enhanced_lrc');
+  const lyricsFallback = useSettingsField('lyrics_fallback_enabled');
+  const webvtt = useSettingsField('generate_webvtt');
+  const richSrt = useSettingsField('generate_rich_srt');
+  const embedSubtitles = useSettingsField('embed_subtitles');
+  const generateAss = useSettingsField('generate_ass');
+  const embedLyrics = useSettingsField('embed_lyrics_and_sidecar');
+  const keepSidecar = useSettingsField('keep_lyrics_sidecar');
+  const noSynced = useSettingsField('no_synced_lyrics');
+  const syncedOnly = useSettingsField('synced_lyrics_only');
 
   /**
    * Set of all currently selected lyrics formats (primary + companions).
@@ -124,65 +142,65 @@ export function LyricsTab() {
           <Toggle
             label="Enhanced Lyrics (Word-by-Word Sync)"
             description="Automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-by-word synchronized timestamps. Creates a .lrc sidecar file and embeds in audio metadata. Falls back to line-level sync for songs without word-level data."
-            checked={settings.enhanced_lrc}
-            onChange={(checked) => updateSettings({ enhanced_lrc: checked })}
+            checked={enhancedLrc.value}
+            onChange={enhancedLrc.set}
           />
 
           {/* Lyrics format fallback */}
           <Toggle
             label="Lyrics Format Fallback"
             description="When the primary lyrics format isn't available for some tracks, automatically try alternative formats. Audio: TTML → LRC → SRT. Video: TTML → SRT → LRC."
-            checked={settings.lyrics_fallback_enabled}
-            onChange={(checked) => updateSettings({ lyrics_fallback_enabled: checked })}
+            checked={lyricsFallback.value}
+            onChange={lyricsFallback.set}
           />
 
           {/* WebVTT subtitle generation */}
           <Toggle
             label="Generate WebVTT Subtitles"
             description="Create .vtt subtitle files from downloaded lyrics (TTML, SRT, or LRC). WebVTT is the standard format for web-based video players."
-            checked={settings.generate_webvtt}
-            onChange={(checked) => updateSettings({ generate_webvtt: checked })}
+            checked={webvtt.value}
+            onChange={webvtt.set}
           />
 
           {/* Rich SRT generation */}
           <Toggle
             label="Generate Rich SRT from TTML"
             description="Creates SRT subtitle files with formatting (bold, italic, underline, colours) from Apple Music TTML. Replaces plain SRT files with styled versions when TTML is available."
-            checked={settings.generate_rich_srt}
-            onChange={(checked) => updateSettings({ generate_rich_srt: checked })}
+            checked={richSrt.value}
+            onChange={richSrt.set}
           />
 
           {/* Subtitle embedding */}
           <Toggle
             label="Embed Subtitles in Media Files"
             description="Embed SRT and WebVTT subtitle content directly into MP4/M4A/M4V containers as metadata. Useful for players that read embedded subtitles."
-            checked={settings.embed_subtitles}
-            onChange={(checked) => updateSettings({ embed_subtitles: checked })}
+            checked={embedSubtitles.value}
+            onChange={embedSubtitles.set}
           />
 
           {/* ASS subtitle generation */}
           <Toggle
             label="Generate ASS Subtitles"
             description="Create Advanced SubStation Alpha (.ass) subtitle files from TTML or WebVTT with rich styling: colours, bold, italic, positioning, and background vocal styles. Supported by VLC, mpv, and MPC-HC."
-            checked={settings.generate_ass}
-            onChange={(checked) => updateSettings({ generate_ass: checked })}
+            checked={generateAss.value}
+            onChange={generateAss.set}
           />
 
           {/* Embed lyrics/captions */}
           <Toggle
             label="Embed Lyrics / Captions"
             description="Embed lyrics and subtitle content into audio file metadata. Enhanced LRC is embedded in the standard lyrics atom; SRT/WebVTT are embedded as freeform metadata when 'Embed Subtitles' is also enabled."
-            checked={settings.embed_lyrics_and_sidecar}
-            onChange={(checked) => updateSettings({ embed_lyrics_and_sidecar: checked })}
+            checked={embedLyrics.value}
+            onChange={embedLyrics.set}
           />
 
           {/* Keep sidecar files (only shown when embed is enabled) */}
-          {settings.embed_lyrics_and_sidecar && (
+          {embedLyrics.value && (
             <Toggle
               label="Keep Sidecar Lyrics / Caption Files"
               description="Keep separate .lrc, .srt, and .ttml files alongside audio files after embedding. Useful for players that read external lyrics files."
-              checked={settings.keep_lyrics_sidecar}
-              onChange={(checked) => updateSettings({ keep_lyrics_sidecar: checked })}
+              checked={keepSidecar.value}
+              onChange={keepSidecar.set}
             />
           )}
 
@@ -229,21 +247,21 @@ export function LyricsTab() {
           <Toggle
             label="Disable Synced Lyrics"
             description={
-              settings.embed_lyrics_and_sidecar
+              embedLyrics.value
                 ? 'Overridden by "Embed Lyrics and Keep Sidecar" above'
                 : "Don't download synced lyrics files alongside tracks"
             }
-            checked={settings.no_synced_lyrics}
-            onChange={(checked) => updateSettings({ no_synced_lyrics: checked })}
-            disabled={settings.embed_lyrics_and_sidecar}
+            checked={noSynced.value}
+            onChange={noSynced.set}
+            disabled={embedLyrics.value}
           />
 
           {/* Synced lyrics only */}
           <Toggle
             label="Synced Lyrics Only"
             description="Only download synced lyrics without downloading the audio/video"
-            checked={settings.synced_lyrics_only}
-            onChange={(checked) => updateSettings({ synced_lyrics_only: checked })}
+            checked={syncedOnly.value}
+            onChange={syncedOnly.set}
           />
       </SettingsSection>
     </div>

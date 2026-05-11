@@ -58,7 +58,13 @@ import {
 } from 'lucide-react';
 
 import { useDependencyStore } from '@/stores/dependencyStore';
+// `useSettingsStore` retained — the per-tool path map (TOOL_PATH_KEYS)
+// uses RUNTIME-keyed lookups (`settings[key as keyof ...]`), which
+// can't be expressed via `useSettingsField`'s compile-time-keyed
+// signature. `useSettingsField` is used below for the one statically-
+// keyed field (`temp_path`).
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 import { Button, LoadingSpinner, FilePickerButton, SettingsSection } from '@/components/common';
 
@@ -109,8 +115,12 @@ export function ToolsTab() {
   const depError = useDependencyStore((s) => s.error);
 
   // --- Settings store ---
+  // Full settings snapshot retained for the dynamic-keyed tool path
+  // map (getToolPath/setToolPath below).
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Statically-keyed Directories field.
+  const tempPath = useSettingsField('temp_path');
 
   // --- Local state: which tools have their path override expanded ---
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -405,8 +415,8 @@ export function ToolsTab() {
         <FilePickerButton
           label="Temp Directory"
           description="Directory for intermediate files during download and processing. Leave empty to use a MeedyaDL subdirectory within the OS default temp directory."
-          value={settings.temp_path || null}
-          onChange={(path) => updateSettings({ temp_path: path || '' })}
+          value={tempPath.value || null}
+          onChange={(path) => tempPath.set(path || '')}
           directory
           placeholder="Default: {OS temp}/MeedyaDL"
         />

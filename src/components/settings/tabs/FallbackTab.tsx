@@ -52,8 +52,8 @@
 // React useState for tracking which chain section (audio/video) is active.
 import { useState } from 'react';
 
-// Zustand store for reading and writing the fallback chain settings.
-import { useSettingsStore } from '@/stores/settingsStore';
+// Audit v2 #6 — per-field Zustand binding.
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Label maps that convert codec/resolution identifiers to human-readable names.
 import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
@@ -91,10 +91,9 @@ import { Button, FallbackChainList, SettingsSection } from '@/components/common'
  * the user: items at the top of the chain are tried first.
  */
 export function FallbackTab() {
-  /** Current settings snapshot */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function for persisting chain reorders */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field Zustand bindings (audit v2 #6).
+  const musicChain = useSettingsField('music_fallback_chain');
+  const videoChain = useSettingsField('video_fallback_chain');
 
   /**
    * Tracks which chain section is currently visible: 'music' (audio codecs)
@@ -140,10 +139,10 @@ export function FallbackTab() {
               device compatibility
             </p>
             <FallbackChainList<SongCodec>
-              items={settings.music_fallback_chain}
+              items={musicChain.value}
               labels={SONG_CODEC_LABELS}
               allItems={ALL_SONG_CODECS}
-              onChange={(chain) => updateSettings({ music_fallback_chain: chain })}
+              onChange={musicChain.set}
             />
           </div>
         )}
@@ -155,10 +154,10 @@ export function FallbackTab() {
               Video Resolution Fallback Chain
             </h4>
             <FallbackChainList<VideoResolution>
-              items={settings.video_fallback_chain}
+              items={videoChain.value}
               labels={VIDEO_RESOLUTION_LABELS}
               allItems={ALL_VIDEO_RESOLUTIONS}
-              onChange={(chain) => updateSettings({ video_fallback_chain: chain })}
+              onChange={videoChain.set}
             />
           </div>
         )}
