@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Button, ContextMenu, Modal } from '@/components/common';
+import { Button, ContextMenu, ErrorMessageDisplay, Modal } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 import {
   Trash2,
@@ -422,15 +422,31 @@ export function HistoryPage() {
                       )}
                     </div>
 
-                    {/* Error message for failed downloads */}
+                    {/* Error message for failed downloads.
+                        Wrapped in ErrorMessageDisplay so long messages
+                        (especially upstream "GAMDL bug — …" classifier
+                        outputs) get a hover tooltip with the full text
+                        + a right-click menu to copy or report
+                        upstream. The visible text still truncates to
+                        2 lines so the row layout doesn't blow out. */}
                     {entry.error_message && (
-                      <p className="text-xs text-status-error mt-1 line-clamp-2">
-                        {entry.error_message}
-                      </p>
+                      <div className="mt-1">
+                        <ErrorMessageDisplay
+                          message={entry.error_message}
+                          sourceUrl={entry.url}
+                          truncateLines={2}
+                        />
+                      </div>
                     )}
 
-                    {/* URL (shown small below the title) */}
-                    <p className="text-[11px] text-content-tertiary mt-0.5 truncate">
+                    {/* URL (shown small below the title). `title` adds a
+                        native browser tooltip so long Apple Music URLs
+                        — which often run past the visible row width — are
+                        readable on hover without resizing the window. */}
+                    <p
+                      className="text-[11px] text-content-tertiary mt-0.5 truncate"
+                      title={entry.url}
+                    >
                       {entry.url}
                     </p>
                   </div>
