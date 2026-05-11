@@ -183,6 +183,13 @@ pub async fn process_bpm_for_directory(
         .map_err(|e| format!("Failed to read directory: {e}"))?
         .filter_map(|e| e.ok())
         .filter(|e| {
+            // Skip macOS AppleDouble sidecars (`._*`) and other
+            // non-audio metadata files that share an extension with
+            // real tracks (#577). Without this, `silencedetect`
+            // analysis is invoked once per shadow file.
+            if crate::utils::fs_safe::is_filesystem_sidecar(&e.path()) {
+                return false;
+            }
             e.path()
                 .extension()
                 .and_then(|ext| ext.to_str())
