@@ -72,6 +72,13 @@ pub fn generate_ass_for_directory(album_dir: &str) -> Result<usize, String> {
     for entry in entries.flatten() {
         let path = entry.path();
 
+        // Skip macOS AppleDouble shadows and similar sidecars before
+        // the extension check — `._Track.m4a` would otherwise pass
+        // the allowlist and produce a useless ASS output (#577).
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
+
         // Only process media files (.m4a, .m4v, .mp4)
         let ext = path
             .extension()

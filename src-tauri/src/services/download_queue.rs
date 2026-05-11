@@ -4174,6 +4174,9 @@ async fn download_music_video_by_url(
 /// Returns the number of files matching any supported lyrics extension
 /// (`.ttml`, `.lrc`, `.srt`). Each unique stem is counted only once
 /// (e.g., `01 Song.ttml` and `01 Song.lrc` count as 1 stem with lyrics).
+///
+/// Skips filesystem sidecars (#577) so a `._01 Song.ttml` AppleDouble
+/// shadow doesn't double-count toward coverage checks.
 fn count_lyrics_files(dir: &std::path::Path) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -4181,6 +4184,9 @@ fn count_lyrics_files(dir: &std::path::Path) -> usize {
     let mut stems_with_lyrics = std::collections::HashSet::new();
     for entry in entries.flatten() {
         let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
         let ext = path
             .extension()
             .and_then(|e| e.to_str())

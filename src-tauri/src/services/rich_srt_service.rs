@@ -100,6 +100,12 @@ pub fn generate_rich_srt_for_directory(album_dir: &str) -> Result<usize, String>
     for entry in entries.flatten() {
         let path = entry.path();
 
+        // Skip macOS AppleDouble shadows and similar sidecars before
+        // the extension check (#577).
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
+
         // Only process media files (.m4a, .m4v, .mp4)
         let ext = path
             .extension()
@@ -434,6 +440,11 @@ pub fn embed_subtitles_for_directory(album_dir: &str) -> Result<usize, String> {
 
     for entry in entries.flatten() {
         let path = entry.path();
+
+        // Skip macOS AppleDouble shadows and similar sidecars (#577).
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
 
         // Only process media files
         let ext = path
