@@ -9520,10 +9520,14 @@ async fn run_download_with_events(
             .map(|u| redact_url_query(u))
             .unwrap_or_default();
         let gamdl_version = crate::services::gamdl_capabilities::detected_version();
+        // `url_for_report` is already `&str` (redact_url_query returns
+        // a borrowed slice of its input). Passing `&url_for_report`
+        // would create `&&str` and trigger clippy's `needless_borrow`
+        // under Rust 1.95+, breaking CI.
         let outcome = crate::services::traceback_diagnostic::write_diagnostic_if_any(
             app,
             download_id,
-            &url_for_report,
+            url_for_report,
             gamdl_version.as_deref(),
             item_state,
             &raw_snapshot,
