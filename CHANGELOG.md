@@ -142,6 +142,72 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
+- **(wrapper)** Explain re-authentication when decryption keeps failing (#750)
+
+## Summary
+
+  Follow-up to the wrapper-on-LAN docs
+  ([#746](https://github.com/MWBMPartners/MeedyaDL/pull/746)). When users
+  see every track in a download skipping with `Decryption is not available
+  for media ID: …` **and** wrapper auth is enabled, the most likely cause
+  is **stale wrapper credentials** — the wrapper appears healthy (sockets
+  accept, pre-flight checks pass) but the Apple Music tokens it cached
+  during initial login have expired and decryption requests silently fail
+  upstream.
+
+  The user can confirm this from the live state: pre-flights all green ✓,
+  manifest fetches succeed, but every per-track decryption WARNING is the
+  same `media ID: …` shape.
+
+  ### What this PR adds
+
+
+  [`help/troubleshooting.md`](../blob/docs/wrapper-reauth/help/troubleshooting.md)
+  gets a new **"Decryption is not available" warnings (wrapper enabled,
+  downloads still skipping)** subsection covering:
+
+  - Exact symptom shape (per-track WARNING lines, every-track-skips vs
+  only-some)
+  - Why it happens (cached tokens go stale)
+  - Step-by-step Docker re-auth: stop container → run in one-shot login
+  mode → enter 2FA if prompted → Ctrl-C → restart. Native install variant
+  noted briefly.
+  - Diagnostic — distinguishing "stale auth" from
+  "track-not-in-this-codec" by skip rate
+  - Other possible causes (wrapper not enabled, withdrawn tracks)
+  - **Explicit "no, Download Mode doesn't help" note** — addresses the
+  common "I switched yt-dlp ↔ N_m3u8DL-RE and it worked" misconception
+  (it's the reset, not the mode)
+
+  [`README.md`](../blob/docs/wrapper-reauth/README.md) gets a mirror
+  summary in the Wrapper Authentication section (between Auto-Retry and
+  Verifying Connectivity) pointing at the in-app help.
+
+  Wrapper login command sourced from upstream
+  `WorldObservationLog/wrapper` README — no MeedyaDL guesswork.
+
+  ### Tone
+
+  Matches the prior wrapper docs PR (#746) — less technical than PR/issue
+  text, step-by-step, no jargon.
+
+  ### Out of scope
+
+  - Detecting "stale auth" automatically and surfacing a one-click
+  suggestion in the activity log — could be a follow-up issue if you want.
+  - Wrapper-side changes (out of scope per project policy — wrapper is
+  upstream).
+
+  ## Test plan
+
+  - [x] `npm run lint` clean
+  - [x] Markdown linter satisfied (asterisk emphasis, blank lines around
+  lists)
+  - [ ] CI green (only PR title check + CodeQL should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ## [1.2.0] - 2026-05-10
 
