@@ -163,6 +163,18 @@ pub mod apple_music_api;
 /// present and non-trivially sized.
 pub mod cover_art_fallback;
 
+/// Python traceback diagnostic capture (#758).
+///
+/// Scans GAMDL stdout/stderr buffers at process completion for
+/// recurring Python tracebacks, deduplicates identical groups, and
+/// writes a diagnostic report under the existing crash-report
+/// infrastructure. Fires on **any** download where traceback noise
+/// was observed — even successful ones — because some upstream bugs
+/// (cover-bytes fetch, syllable-lyrics race, music-video relations)
+/// raise tracebacks but don't fail the download. The forensic record
+/// gives us aggregated visibility into otherwise-silent issues.
+pub mod traceback_diagnostic;
+
 /// Post-download metadata enrichment service.
 ///
 /// Injects comprehensive custom metadata into downloaded M4A files.

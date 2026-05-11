@@ -265,6 +265,19 @@ pub fn is_python_traceback_noise(line: &str) -> bool {
     trimmed.chars().all(|c| c == '^')
 }
 
+/// Reports whether `line` matches the Python exception summary pattern
+/// (e.g. `TypeError: …`, `httpx.ConnectError: Connection refused`).
+///
+/// Wraps [`PYTHON_EXCEPTION_REGEX`] for callers outside this module — the
+/// traceback diagnostic capture (#758) needs to recognise the closing
+/// line of a traceback group so it can package the header + frames + tail
+/// into a single forensic record.
+#[must_use]
+pub fn is_python_exception_summary(line: &str) -> bool {
+    let trimmed = line.trim();
+    PYTHON_EXCEPTION_REGEX.is_match(trimmed)
+}
+
 // ============================================================
 // Event types emitted to the frontend
 // ============================================================
