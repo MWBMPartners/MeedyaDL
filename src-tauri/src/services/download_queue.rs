@@ -9501,6 +9501,54 @@ async fn run_download_with_events(
     let _ = stdout_task.await;
     let _ = stderr_task.await;
 
+    // Python traceback diagnostic capture (#758). Runs once per GAMDL
+    // invocation regardless of exit status — some traceback patterns
+    // (notably the cover-bytes fetch failure on `cover_format = raw`)
+    // fire on successful downloads too. The helper is a no-op when no
+    // tracebacks are present, so the healthy-download fast path is
+    // a single buffer scan + an early return. The URL is redacted to
+    // strip wrapper auth tokens before being stored in the report.
+    {
+        let raw_snapshot = raw_output_lines.lock().await.clone();
+        let item_state = if status.success() {
+            "complete"
+        } else {
+            "error"
+        };
+        let url_for_report = urls
+            .first()
+            .map(|u| redact_url_query(u))
+            .unwrap_or_default();
+        let gamdl_version = crate::services::gamdl_capabilities::detected_version();
+        let outcome = crate::services::traceback_diagnostic::write_diagnostic_if_any(
+            app,
+            download_id,
+            &url_for_report,
+            gamdl_version.as_deref(),
+            item_state,
+            &raw_snapshot,
+        );
+        match outcome {
+            Ok(0) => {
+                // Healthy path — no tracebacks observed.
+            }
+            Ok(n) => {
+                emit_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "Captured {n} distinct Python traceback(s) — see Settings → Advanced → Crash Reporting for the diagnostic report"
+                    ),
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Traceback diagnostic write failed for {download_id}: {e}"
+                );
+            }
+        }
+    }
+
     // Check the exit status and construct an appropriate error message.
     //
     // #508 soft-error gate: GAMDL exits 0 even when a per-track download
