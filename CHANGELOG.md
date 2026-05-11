@@ -6,10 +6,179 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(activity-log)** Emit per-download GAMDL version + capability flags (#755)
+
+Adds a one-liner to each queue item's activity log stream identifying
+  the GAMDL version and active capability flags at the moment that item
+  ran. Surfaces in both the Tauri-event activity log and the on-disk
+  file, so any subsequent crash report can be correlated to the exact
+  GAMDL release that produced it.
+
+  - New `active_capabilities_summary()` in `gamdl_capabilities.rs`
+    returns a compact comma-separated list of currently-supported
+    feature gates ("native_codec_priority, wrapper_m3u8_ip, …").
+  - Reads the existing process-global version cache — no extra
+    subprocess spawn per item.
+  - Emission lives next to the existing "Authentication: …" line for
+    consistent download-start framing.
+  - Three new unit tests cover v3.5, v2.x, and uncached states.
+
+- **(cover-art)** RAW → PNG → JPEG fallback when GAMDL cover write fails (#756)
+
+When `cover_format = raw`, GAMDL occasionally fails the upstream
+  `httpx` cover-bytes fetch and leaves the album folder with no static
+  cover sidecar — though the embedded cover atom inside each M4A is
+  unaffected. The Python traceback noise reported alongside that bug
+  was the visible symptom; the missing `Cover.raw` was the underlying
+  loss.
+
+  This adds a deterministic post-download fallback chain that runs
+  during the enrichment pipeline:
+
+  1. **Fast path**: any `Cover.<ext>` (or user-stem `<X>.<ext>`) ≥ 4 KiB
+     in any of `.raw` / `.png` / `.jpg` is treated as a successful
+     GAMDL write — silent skip, no outbound request.
+  2. **Fallback fetch**: when nothing valid is on disk, the Apple
+     Music artwork URL template (now extracted from the API response
+     into `AlbumMetadata::artwork_url_template` + `_width` + `_height`)
+     is substituted with `{f}=png` and fetched. Failure → retry with
+     `{f}=jpg`. Both write atomically (temp + rename).
+  3. **All-failed path**: surfaced as an activity-log notice, with the
+     reminder that the embedded cover atom in M4A is unaffected.
+
+  Why post-download fetch rather than re-running GAMDL: re-running
+  costs whole-album minutes; a single HTTP GET costs <1 second.
+
+  Why RAW is excluded from the fallback chain: we cannot fabricate a
+  RAW byte stream from the API (which serves PNG / JPEG depending on
+  `{f}`). RAW is preserved on the fast path when GAMDL did write it.
+
+- **(diagnostics)** Capture Python tracebacks as forensic reports (#758)
+
+GAMDL and its Python deps (`httpx`, `async_lru`, `gamdl.interface`)
+  occasionally raise multi-line tracebacks during otherwise-successful
+  downloads — notably during cover-bytes fetch (especially with
+  `cover_format = raw`, see #756), syllable-lyrics requests, and
+  music-video relation lookups. The activity-log filter introduced in
+  #660 suppresses the visual noise, but until now MeedyaDL had no way
+  to aggregate or analyse these latent failures.
+
+  This adds a forensic-capture layer that piggybacks on the existing
+  crash-report infrastructure:
+
+  - New `services/traceback_diagnostic` scans the per-download raw
+    stdout/stderr buffer for traceback groups (header → frames → PEP
+    657 source-code context → exception summary).
+  - Identical groups are deduplicated with an occurrence count, so a
+    19-track album where every track hits the same cover-bytes
+    traceback reports as one entry with `count=19`, not 19 duplicates.
+  - The scanner runs once per GAMDL invocation, on any exit path
+    (success, error, soft-error). The healthy fast path is a single
+    buffer scan + early return when no `Traceback (...)` header was
+    observed — zero cost in the common case.
+  - Captured tracebacks are written as a `CrashReport` with
+    `source = "traceback_diagnostic"` via the existing
+    `save_error_report` path. They surface in Settings → Advanced →
+    Crash Reporting alongside other reports.
+  - The URL stored in the report context is run through the existing
+    `redact_url_query` helper so wrapper auth tokens never land in
+    the diagnostic file.
+  - A one-line activity-log notice is emitted on capture so users
+    know to look in the Crash Reporting section.
+
+  10 unit tests cover: single-group capture, duplicate dedup, PEP 657
+  source-context lines (Python 3.11+), distinct groups stay separate,
+  dangling tracebacks (process killed mid-stream), structlog interrupts
+  mid-group, lone-header discard, and empty-input/no-traceback fast
+  paths.
+
+  New `is_python_exception_summary` helper exposed in `utils/process.rs`
+  so the new module can recognise the closing line of a traceback
+  group without re-implementing `PYTHON_EXCEPTION_REGEX`.
+
+
+### 🐛 Bug Fixes
+
+- **(enrichment)** Skip filesystem sidecars in BPM/lyrics/SRT/VTT/ASS walkers (#577)
+
+The codec-detection (`metadata_tag_service`), ReplayGain
+  (`replaygain_service`), and AcoustID (`acoustid_service`) walkers
+  already filter macOS AppleDouble shadows (`._*`) and other sidecars via
+  the shared `utils::fs_safe::is_filesystem_sidecar` helper. Several
+  sister walkers in the same enrichment pipeline never got the same
+  guard, so on exFAT/FAT32/HFS-formatted external drives they silently
+  processed every `._Track.m4a` / `._Track.ttml` shadow alongside the
+  real file — emitting parse failures, redundant subprocess spawns, and
+  in some cases producing duplicate sidecar outputs.
+
+  Adds the existing helper to the seven previously-unguarded walkers:
+
+  - `bpm_service::analyze_directory_bpm` (silencedetect)
+  - `enhanced_lyrics_service::process_enhanced_lyrics_for_directory`
+  - `ass_subtitle_service::generate_ass_for_directory`
+  - `webvtt_service::generate_webvtt_for_directory`
+  - `rich_srt_service::generate_rich_srt_for_directory` + the
+    embed-srt walker in the same file
+  - `music_video_subtitle_service::copy_lyric_sidecars_for_video`
+  - `download_queue::count_lyrics_files` (lyrics-coverage check)
+
+  The two TTML scanners inside the syllable-lyrics upgrade path
+  (download_queue.rs ~line 7099, ~7154) already filter implicitly via
+  `name.starts_with("{:02} ", track_number)` — AppleDouble shadows
+  start with `._` and never match the track-number prefix, so no
+  explicit guard is needed there.
+
+  No new test fixtures: the `is_filesystem_sidecar` predicate has full
+  test coverage in `utils::fs_safe::tests`. Each walker now delegates to
+  that single source of truth.
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.3.1 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.3.2 [skip ci]
+
+### 🔧 Refactoring
+
+- **(settings)** Migrate 5 small/medium tabs to useSettingsField (#757)
+
+Audit v2 finding #6 — replaces the `settings.X` + `updateSettings({
+  X: v })` lambda pair with per-field Zustand bindings via the
+  `useSettingsField` hook. Each `useSettingsField('X')` call subscribes
+  to `state.settings.X` only, so a change to an unrelated field no
+  longer re-renders the entire tab.
+
+  Tabs migrated in this batch:
+
+  - `TemplatesTab.tsx` — 10 template + padding fields
+  - `FallbackTab.tsx` — 2 chain bindings
+  - `CoverArtTab.tsx` — 7 cover-art + animated-artwork fields
+  - `LyricsTab.tsx` — 10 lyrics-related toggles (multi-key
+    `handleFormatToggle` retains `updateSettings` for the single-shot
+    pair update; non-trivial dependency between two keys)
+  - `ToolsTab.tsx` — 1 statically-keyed `temp_path` field (the dynamic
+    tool-path map at `TOOL_PATH_KEYS[toolName]` retains `useSettingsStore`
+    because `useSettingsField` requires a compile-time key)
+
+  The remaining 4 tabs (AdvancedTab, GeneralTab, QualityTab,
+  CookiesTab) account for ~3.3 kLOC and ~180 settings sites. They are
+  tracked as a follow-up under #757 — splitting the migration in two
+  PRs keeps each reviewable. No behaviour changes — pure refactor.
+  TypeScript clean.
+
+  Partial — #757 stays open
+
+
+### 🧹 Maintenance
+
+- Bump version 1.3.1 → 1.3.2
+
+Bundles four user-visible improvements landed in this batch:
+
 
 ## [1.3.1] - 2026-05-11
 
