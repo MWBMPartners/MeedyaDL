@@ -2443,13 +2443,14 @@ pub async fn check_redownload_status(
     }))
 }
 
-/// Result of a Library Scan smart-retry diff (Phase 5b, #717).
+/// Result of a Library Scan smart-retry diff (Phase 5b, #717; Phase 2
+/// of 5b in #766 added `PartialCodecs`).
 ///
-/// Mirrors the three [`crate::services::smart_retry_planner::PlanOutcome`]
+/// Mirrors the four [`crate::services::smart_retry_planner::PlanOutcome`]
 /// variants but uses a TypeScript-friendly tagged-union shape so the
-/// Library Scan UI can render "X of Y missing" / "All present" /
-/// "Cannot diff" badges per row without re-implementing the variant
-/// inspection on every frontend re-render.
+/// Library Scan UI can render "X of Y missing" / "N codec(s) missing"
+/// / "All present" / "Cannot diff" badges per row without re-implementing
+/// the variant inspection on every frontend re-render.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryScanDiff {
@@ -2457,6 +2458,15 @@ pub enum LibraryScanDiff {
     /// track is missing.
     Plan {
         missing_tracks: usize,
+        total_tracks: usize,
+    },
+    /// Every track is present in *some* codec variant, but the
+    /// manifest's `companion_tiers` plan records at least one
+    /// codec tier with no matching files on disk (e.g. companion
+    /// tiers timed out after the primary landed; #766).
+    PartialCodecs {
+        /// Canonical codec-registry IDs (e.g. `"aac-hq"`, `"aac-mq"`).
+        missing_codecs: Vec<String>,
         total_tracks: usize,
     },
     /// Manifest was found and every track is on disk. No retry needed.
@@ -2493,6 +2503,10 @@ pub async fn diff_library_scan_manifest(
     Ok(match outcome {
         PlanOutcome::Plan(plan) => LibraryScanDiff::Plan {
             missing_tracks: plan.missing_tracks,
+            total_tracks: plan.total_tracks,
+        },
+        PlanOutcome::PartialCodecs(plan) => LibraryScanDiff::PartialCodecs {
+            missing_codecs: plan.missing_codecs,
             total_tracks: plan.total_tracks,
         },
         PlanOutcome::AllPresent { total_tracks } => {

@@ -1220,10 +1220,15 @@ export interface ScannedManifest {
 }
 
 /**
- * Smart-retry diff result for a single Library Scan row (Phase 5b, #717).
+ * Smart-retry diff result for a single Library Scan row (Phase 5b, #717;
+ * `partial_codecs` added in Phase 2 of 5b, #766).
  *
  * Mirrors the Rust `LibraryScanDiff` enum (tagged-union by `kind`):
  * - `plan`: at least one track is missing; UI renders "X of Y missing".
+ * - `partial_codecs`: every track present in *some* codec, but the
+ *   manifest's `companion_tiers` plan has unsatisfied tiers (e.g.
+ *   companion AAC variants timed out after primary Atmos landed); UI
+ *   renders "N codec(s) missing".
  * - `all_present`: every track on disk; UI renders "All present".
  * - `not_applicable`: manifest missing/malformed/no-source-match; UI
  *   renders a neutral "Cannot diff" badge.
@@ -1232,6 +1237,11 @@ export interface ScannedManifest {
  */
 export type LibraryScanDiff =
   | { kind: 'plan'; missing_tracks: number; total_tracks: number }
+  | {
+      kind: 'partial_codecs';
+      missing_codecs: string[];
+      total_tracks: number;
+    }
   | { kind: 'all_present'; total_tracks: number }
   | { kind: 'not_applicable' };
 

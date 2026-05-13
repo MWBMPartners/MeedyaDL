@@ -92,7 +92,7 @@ use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // after merging per-download overrides with global settings.
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
-use crate::models::codec_registry::codec_suffix_from_registry;
+use crate::models::codec_registry::{codec_suffix_from_registry, song_codec_to_registry_id};
 use crate::models::gamdl_options::{ArtistAutoSelect, GamdlOptions, LyricsFormat, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
@@ -1099,6 +1099,12 @@ use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, Pr
 ///
 /// If a manifest already exists, the new source is merged (append or
 /// replace matching platform+URL). Uses atomic write-to-temp-then-rename.
+///
+/// `primary_codec_id` is the canonical codec-registry ID of the primary
+/// download (e.g. `"eac3-atmos"`, `"alac"`). Populates `ManifestSource.codec`
+/// and seeds the tier-0 entry of `companion_tiers` so the smart-retry
+/// planner can diff codec-suffixed files against the planned variants
+/// (#766, Phase 2 of #717/5b).
 fn write_manifest(
     album_dir: &str,
     urls: &[String],
@@ -1106,6 +1112,8 @@ fn write_manifest(
     settings: &crate::models::settings::AppSettings,
     downloaded_at: &str,
     cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
+    primary_codec_id: Option<&str>,
+    companion_tiers: Option<Vec<Vec<String>>>,
 ) {
     use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
@@ -1184,8 +1192,9 @@ fn write_manifest(
         url: url.clone(),
         storefront,
         downloaded_at: downloaded_at.to_string(),
-        codec: None,
+        codec: primary_codec_id.map(str::to_owned),
         last_modified_date: album_metadata.and_then(|m| m.last_modified_date.clone()),
+        companion_tiers,
         tracks,
         // Phase 1 (#759): per-stage enrichment record. Initial
         // manifest write happens before enrichment runs, so all
@@ -3803,6 +3812,43 @@ fn plan_companions(
                 .collect()
         }
     }
+}
+
+/// Build the codec-registry-ID tier matrix recorded in
+/// `ManifestSource.companion_tiers` (#766, Phase 2 of #717/5b).
+///
+/// Tier 0 is the primary download's codec (one element — fallback chains
+/// are not surfaced here since the manifest only records the codec the
+/// download actually completed with). Tiers 1..N mirror the
+/// `plan_companions()` output, each tier's `codecs_to_try` mapped to
+/// canonical registry IDs via `song_codec_to_registry_id`.
+///
+/// Returns `None` when `primary_codec_cli` cannot be parsed back to a
+/// `SongCodec` (defensive — should never happen in practice since the
+/// primary codec string flows from a `SongCodec::to_cli_string()` call).
+/// `None` means "don't write companion_tiers" and the planner falls
+/// back to its track-number-only diff for this manifest.
+fn build_manifest_companion_tiers(
+    settings: &AppSettings,
+    primary_codec_cli: &str,
+) -> Option<Vec<Vec<String>>> {
+    let primary = SongCodec::from_cli_string(primary_codec_cli)?;
+    let mut tiers: Vec<Vec<String>> = vec![vec![song_codec_to_registry_id(&primary).to_string()]];
+
+    for tier in plan_companions(
+        &settings.companion_mode,
+        primary_codec_cli,
+        &settings.custom_companion_codecs,
+    ) {
+        tiers.push(
+            tier.codecs_to_try
+                .iter()
+                .map(|c| song_codec_to_registry_id(c).to_string())
+                .collect(),
+        );
+    }
+
+    Some(tiers)
 }
 
 /// Appends a codec-specific suffix to all file naming templates in a
@@ -9799,6 +9845,29 @@ pub fn process_queue(
                                 "Writing download manifest…",
                                 ProgressStage::Finalising.weight(),
                             );
+                            // Resolve the primary codec to its canonical
+                            // registry ID and snapshot the planned companion
+                            // tiers (#766). The smart-retry planner uses these
+                            // to detect missing-codec-variant gaps after
+                            // companion-tier timeouts. `enrich_codec_str` is the
+                            // CLI flag string (e.g. "atmos") captured on the
+                            // success path; map it back to a `SongCodec` to
+                            // derive the registry ID, falling through to `None`
+                            // for the (extremely rare) unparseable case so the
+                            // manifest write still succeeds with codec-blind
+                            // diff semantics.
+                            let (manifest_primary_id, manifest_companion_tiers) =
+                                enrich_codec_str
+                                    .as_deref()
+                                    .and_then(SongCodec::from_cli_string)
+                                    .map_or((None, None), |c| {
+                                        let id = song_codec_to_registry_id(&c).to_string();
+                                        let tiers = build_manifest_companion_tiers(
+                                            &enrich_settings,
+                                            c.to_cli_string(),
+                                        );
+                                        (Some(id), tiers)
+                                    });
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
@@ -9806,6 +9875,8 @@ pub fn process_queue(
                                 &enrich_settings,
                                 &enrich_started_at,
                                 cross_platform_urls,
+                                manifest_primary_id.as_deref(),
+                                manifest_companion_tiers,
                             );
                             emit_download_log(
                                 &enrich_app,
