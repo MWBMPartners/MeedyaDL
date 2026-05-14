@@ -6,11 +6,74 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(test)** Drop rerender() that flakes on Windows CI (#765)
+
+## Summary
+
+  The Windows GitHub Actions runner has been intermittently timing out on
+  a single ActivityLog test — `'subtitle pluralises lines correctly'` —
+  while macOS and Ubuntu pass cleanly. Latest hit: the v1.4.1 release
+  commit (df6549c) on main, breaking the post-merge CI run.
+
+  ## Root cause
+
+  The test called:
+
+  ```tsx
+  const { rerender } = render(<ActivityLog />);
+  expect(screen.getByText('1 line')).toBeInTheDocument();
+
+  act(() => { useActivityStore.setState({ entries: [...] }); });
+  rerender(<ActivityLog />);
+  expect(screen.getByText('2 lines')).toBeInTheDocument();
+  ```
+
+  The explicit `rerender()` forces a remount-style render. `ActivityLog`
+  uses `@tanstack/react-virtual` which re-measures DOM nodes on remount.
+  jsdom's DOM measurement is slower on the Windows runner than on macOS /
+  Ubuntu (a known win32 Node test-harness quirk), and the remeasure
+  occasionally exceeded the default 5000ms test timeout.
+
+  ## Fix
+
+  Drop the `rerender()` call. The component subscribes to the Zustand
+  activity store via `useActivityStore`, so a `setState` inside `act()`
+  triggers a normal React re-render — no need to remount. Keeps the
+  virtualiser instance stable across the two assertions.
+
+  ## Verification
+
+  - [x] `npm test -- --run src/components/download/ActivityLog.test.tsx` —
+  18 / 18 pass locally.
+  - [ ] CI runs the full Windows + macOS + Ubuntu Frontend matrix on this
+  PR.
+
+  ## Why a separate PR
+
+  Following the new "branch + PR for everything except `[skip ci]`
+  doc/chore" rule established in PR #760's retrospective. The fix is
+  one-test-file but the policy applies uniformly.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(gamdl)** Admit v3.5.2 to support window (#769)
+
+## [1.4.1] - 2026-05-11
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.4.0 [skip ci]
-- **(security)** Update supported versions to 1.4.1 [skip ci]
 
 ### 🔧 Refactoring
 
