@@ -197,7 +197,34 @@ minimum_version = "2.9.1"
 #   * User-facing benefit: 403 errors on music-video downloads (both
 #     standalone MV URLs and music-video companions) silently resolve
 #     once installed users upgrade to 3.5.1.
-maximum_tested_version = "3.5.1"
+#
+# 3.5.2 validation (#767, audit doc at
+# `.github/audits/gamdl-v3.5.2-audit.md`):
+#   * Four upstream commits, four functional files (plus pure version
+#     metadata). Bug-fix-only release.
+#     — `b48dbef` `gamdl/api/apple_music.py`: forward all `next_params`
+#       (except `limit`) when paginating `_amp_request`. Pure HTTP-layer
+#       fix; resolves silent pagination failures on Apple Music
+#       resources whose `next` link carries params beyond `offset`
+#       (playlists, artist track lists, editorial art extends).
+#     — `dec4a22` `gamdl/interface/music_video.py`: track Apple's
+#       host migration by rewriting `play-edge.itunes.apple.com` →
+#       `play.itunes.apple.com` (was rewriting `itunes.apple.com`).
+#       This is **the** user-facing fix referenced in the release
+#       ("Fixed an issue with music video m3u8 URL formation").
+#       MV downloads that broke on 3.5.1 once Apple flipped the edge
+#       host succeed once users upgrade. Also adds a `log.debug()`
+#       call gated behind `--log-level DEBUG`; MeedyaDL never sets
+#       that level so the line is invisible in normal operation.
+#     — `bc4cdd1` `gamdl/cli/utils.py`: `CustomOutputWriter.add_file()`
+#       opens the log file as UTF-8. Only matters for `--log-file`,
+#       which MeedyaDL never passes (we capture stdout/stderr via
+#       Tokio `BufReader::lines()` instead). Invisible to us.
+#   * No CLI / INI / output-format / regex / log surface change at
+#     the default `INFO` log level. No `GamdlFeature` gate touched.
+#   * Same zero-code-change admission shape as v3.3 (playlist fix),
+#     v3.5 (iTunes lookup fix), and v3.5.1 (music-video 403 fix).
+maximum_tested_version = "3.5.2"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.5.1"
+recommended_version = "3.5.2"
