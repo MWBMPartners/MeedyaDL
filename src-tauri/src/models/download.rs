@@ -341,6 +341,17 @@ pub struct QueueItemStatus {
     #[serde(default)]
     pub audio_traits: Vec<String>,
 
+    /// Number of music-video companions discovered for this item, once
+    /// the enrichment task has run its MV-relation lookup (#776). `None`
+    /// before the lookup runs (or when MV companions are disabled);
+    /// `Some(n)` once the count is known. Read by the completion-task
+    /// timeout calculation so the *companion-wait* deadline can scale
+    /// against the real number of MV downloads still pending instead of
+    /// the conservative `min(track_count, 30)` estimate used pre-lookup.
+    /// Cleared on retry alongside the other per-attempt state.
+    #[serde(default)]
+    pub mv_companion_count: Option<usize>,
+
     /// ISO 8601 timestamp (`YYYY-MM-DDTHH:MM:SS.sssZ`) when this item
     /// was added to the queue. Used for sorting the queue display and
     /// for calculating elapsed time.
@@ -518,6 +529,7 @@ mod tests {
             artist_name: Some("Test Artist".to_string()),
             warnings: Vec::new(),
             audio_traits: Vec::new(),
+            mv_companion_count: None,
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
 
@@ -569,6 +581,7 @@ mod tests {
             artist_name: None,
             warnings: Vec::new(),
             audio_traits: Vec::new(),
+            mv_companion_count: None,
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
 
@@ -613,6 +626,7 @@ mod tests {
             artist_name: None,
             warnings: Vec::new(),
             audio_traits: Vec::new(),
+            mv_companion_count: None,
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };
 

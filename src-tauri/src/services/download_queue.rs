@@ -1484,6 +1484,7 @@ impl DownloadQueue {
                     output_is_directory: false,
                     warnings: Vec::new(),
                     audio_traits: Vec::new(),
+                    mv_companion_count: None,
                     created_at: chrono::Utc::now().to_rfc3339(),
                 }
             },
@@ -2458,6 +2459,11 @@ impl DownloadQueue {
                 // allowed to try the rewrite once again, even if the previous
                 // automatic fallback already exhausted its single attempt.
                 item.storefront_fallback_attempted = false;
+                // Clear the cached MV-companion count (#776) so the next
+                // attempt's enrichment task re-discovers it from a fresh
+                // API call. Stale counts from a previous attempt could
+                // mis-size the companion-wait deadline.
+                item.status.mv_companion_count = None;
 
                 // Apply the smart-retry plan if one was produced. The plan
                 // narrows the URL set to per-track entries that GAMDL can
@@ -2675,6 +2681,8 @@ impl DownloadQueue {
                     warnings: Vec::new(),
                     // Re-fetched from the Apple Music API on next attempt.
                     audio_traits: Vec::new(),
+                    // Same — re-discovered when enrichment runs again.
+                    mv_companion_count: None,
                     created_at: p.created_at,
                 },
                 request: p.request,
@@ -8021,6 +8029,23 @@ pub fn process_queue(
                                 ProgressStage::MusicVideoDiscovery.weight(),
                             );
 
+                            // Snapshot the MV file count under the user's output
+                            // root BEFORE Step 6 / 6b run, so we can write the
+                            // *actual* count of MV companions produced into
+                            // `item.status.mv_companion_count` for the
+                            // completion-task companion-wait deadline (#776).
+                            // Pre-fix the deadline used a `min(track_count, 30)`
+                            // estimate — fine for the conservative case but
+                            // generous when the album has only a few MVs and
+                            // tight when it has more than 30.
+                            //
+                            // Empty `output_path` ⇒ user is on the OS default;
+                            // skip tracking (the heuristic estimate at the
+                            // completion-task site stays in effect for those
+                            // items).
+                            let mv_pre_count = (!enrich_settings.output_path.is_empty())
+                                .then(|| snapshot_video_files(&enrich_settings.output_path).len());
+
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
                             // API for music videos related to the downloaded tracks (requires
@@ -8090,6 +8115,29 @@ pub fn process_queue(
                                         .await;
                                     }
                                 }
+                            }
+
+                            // Snapshot the MV file count AFTER Step 6 + 6b
+                            // and write the diff to the queue item so the
+                            // completion task's companion-wait deadline can
+                            // size against the real number of MV downloads
+                            // instead of the conservative estimate (#776).
+                            // Skipped when `output_path` is empty (no
+                            // tracking root) — the heuristic estimate at
+                            // the completion-task site applies in that
+                            // case.
+                            if let Some(pre) = mv_pre_count {
+                                let post = snapshot_video_files(&enrich_settings.output_path).len();
+                                let mv_count = post.saturating_sub(pre);
+                                let mut q = enrich_queue.lock().await;
+                                if let Some(item) = q
+                                    .items
+                                    .iter_mut()
+                                    .find(|i| i.status.id == enrich_dl_id)
+                                {
+                                    item.status.mv_companion_count = Some(mv_count);
+                                }
+                                drop(q);
                             }
 
                             // Write/update manifest.meedyadl in the album folder.
@@ -8302,24 +8350,42 @@ pub fn process_queue(
                             // running.
                             if let Some(mut handle) = companion_handle {
                                 let tier_count = handle.tier_count();
-                                // Reuse the same MV estimate as the
-                                // enrichment-only deadline above (#776):
-                                // the companion wait covers the same item,
-                                // and an MV-heavy album that fitted the
-                                // enrichment window should also fit the
-                                // companion window.
+                                // Now that enrichment has finished, the
+                                // exact MV-companion count is on the queue
+                                // item (written by the snapshot pass at
+                                // the end of enrichment Step 6 + 6b, #776).
+                                // Use it if present; fall back to the
+                                // pre-enrichment estimate if the item was
+                                // tracked-out (empty `output_path`) or if
+                                // enrichment was aborted before the count
+                                // was written.
+                                let mv_count_actual = {
+                                    let q = completion_queue.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == completion_dl_id)
+                                        .and_then(|i| i.status.mv_companion_count)
+                                };
+                                let mv_count_for_companion =
+                                    mv_count_actual.unwrap_or(mv_count_estimate);
                                 let companion_timeout = compute_total_timeout(
                                     track_count,
                                     tier_count,
-                                    mv_count_estimate,
+                                    mv_count_for_companion,
                                 );
                                 let companion_timeout_mins = companion_timeout.as_secs() / 60;
+                                let mv_source = if mv_count_actual.is_some() {
+                                    "actual"
+                                } else {
+                                    "estimated"
+                                };
                                 log::info!(
-                                    "Companion timeout for {}: {} min ({} tier(s) planned, ~{} MV companion(s) estimated)",
+                                    "Companion timeout for {}: {} min ({} tier(s) planned, {} MV companion(s) {})",
                                     completion_dl_id,
                                     companion_timeout_mins,
                                     tier_count,
-                                    mv_count_estimate,
+                                    mv_count_for_companion,
+                                    mv_source,
                                 );
                                 if tokio::time::timeout(
                                     companion_timeout,
@@ -10294,6 +10360,60 @@ mod tests {
             );
             prev = t;
         }
+    }
+
+    // ----------------------------------------------------------
+    // mv_companion_count plumbing — actual count wins over estimate (#776)
+    // ----------------------------------------------------------
+
+    /// New items default `mv_companion_count` to `None` so the
+    /// completion task knows to fall back to the heuristic estimate
+    /// (no actual count has been written yet).
+    #[test]
+    fn enqueue_starts_with_no_mv_companion_count() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+        let item = queue
+            .items
+            .iter()
+            .find(|i| i.status.id == id)
+            .expect("item exists");
+        assert_eq!(
+            item.status.mv_companion_count, None,
+            "fresh enqueue must leave mv_companion_count as None"
+        );
+    }
+
+    /// Manual user retry from the UI must clear `mv_companion_count`
+    /// so the next attempt's enrichment task re-discovers it from a
+    /// fresh API call — stale counts from a previous attempt would
+    /// mis-size the companion-wait deadline.
+    #[test]
+    fn retry_clears_mv_companion_count() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Simulate enrichment writing a discovered MV count from a
+        // previous attempt.
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.mv_companion_count = Some(7);
+        }
+        queue.set_error(&id, "Some failure");
+
+        // Retry should reset the count so the next enrichment writes a
+        // fresh value.
+        assert!(queue.retry(&id, &settings));
+        let item = queue
+            .items
+            .iter()
+            .find(|i| i.status.id == id)
+            .expect("item exists");
+        assert_eq!(
+            item.status.mv_companion_count, None,
+            "retry must clear stale mv_companion_count"
+        );
     }
 
     use crate::models::settings::AppSettings;
