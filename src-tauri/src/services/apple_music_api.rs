@@ -1450,6 +1450,37 @@ fn build_included_name_lookup(
 /// URLs are returned unchanged.
 #[must_use]
 pub fn normalize_apple_music_url(url: &str) -> String {
+    // First pass: rewrite legacy iTunes-domain URLs to music.apple.com (#568).
+    //
+    // GAMDL 2.9.3+ rejects `itunes.apple.com` URLs outright with a
+    // "Could not parse … skipping" warning even though MeedyaDL's own
+    // parser accepts them (#548 audit). Catalog IDs are shared across
+    // both domains, so the rewrite is safe and silent.
+    //
+    // Two iTunes-specific quirks handled here:
+    //   1. Hostname swap: `itunes.apple.com` → `music.apple.com`.
+    //   2. `id`-prefix strip: iTunes URLs use `/album/id1567637891`
+    //      where Apple Music expects `/album/1567637891` (digits only).
+    //      Without the strip, the rewritten URL would still fail
+    //      every parser branch downstream.
+    //
+    // The slug-less variant (`/album/id123` with no human-readable slug)
+    // is already handled by parse_apple_music_url's `(?:[^/]+/)?`
+    // optional-slug regex — no extra work needed here.
+    //
+    // Pass-through: iTunes URLs that don't match the recognised
+    // `/<storefront>/<content-type>/<id-prefix?><digits>` shape (or the
+    // non-geographic equivalent below) are NOT rewritten — they fall
+    // through to #549's catch-all WARN ("Unrecognised Apple Music URL
+    // shape"). Better than mangling a URL we don't understand.
+    let url_owned = if let Some(rewritten) = rewrite_itunes_url(url) {
+        log::info!("Rewrote legacy iTunes URL: {url} → {rewritten}");
+        rewritten
+    } else {
+        url.to_string()
+    };
+    let url = url_owned.as_str();
+
     // If the URL already has a storefront (existing regex matches), return as-is.
     if parse_apple_music_url(url).is_some() {
         return url.to_string();
@@ -1465,6 +1496,62 @@ pub fn normalize_apple_music_url(url: &str) -> String {
 
     // Not an Apple Music URL or doesn't match non-geographic pattern — return unchanged.
     url.to_string()
+}
+
+/// Rewrite an `itunes.apple.com` URL to its `music.apple.com` equivalent (#568).
+///
+/// Returns `Some(rewritten)` when:
+///   - The hostname is `itunes.apple.com` (case-insensitive in scheme),
+///     AND
+///   - The path matches one of the known content-type shapes
+///     (album, song, music-video, artist, playlist), with optional
+///     storefront, optional slug, and an `id`-prefixed numeric ID
+///     (or `pl.<token>` for playlists).
+///
+/// Returns `None` when the URL isn't on the iTunes domain, or when the
+/// path shape doesn't match any recognised pattern (the catch-all WARN
+/// in `start_download` is the right place to surface those).
+///
+/// Implementation: a single regex with anchored alternation captures
+/// both the geographic (`/gb/album/…`) and non-geographic
+/// (`/album/…`) variants in one pass; the non-geographic variant
+/// is then re-routed through `detect_non_geographic_url` for
+/// storefront injection.
+#[must_use]
+fn rewrite_itunes_url(url: &str) -> Option<String> {
+    use std::sync::LazyLock;
+
+    // Single regex captures: optional `/<storefront>` (group 1),
+    // content-type (group 2), optional slug (group 3), and the
+    // `id`-prefixed or playlist ID (group 4). We strip the leading
+    // `id` from numeric IDs in the substitution; playlist IDs
+    // (`pl.…`) pass through unchanged.
+    static ITUNES_REWRITE_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"^(https?://)itunes\.apple\.com(/[a-z]{2})?/(album|song|music-video|artist|playlist)/((?:[^/?]+/)?)((?:id)?\d+|pl\.[A-Za-z0-9]+)(\?[^#]*)?(#.*)?$",
+        )
+        .expect("Invalid iTunes-rewrite regex")
+    });
+
+    let caps = ITUNES_REWRITE_RE.captures(url)?;
+    let scheme = caps.get(1).map_or("", |m| m.as_str());
+    let storefront_segment = caps.get(2).map_or("", |m| m.as_str()); // includes leading /
+    let content_type = caps.get(3).map_or("", |m| m.as_str());
+    let slug_segment = caps.get(4).map_or("", |m| m.as_str()); // includes trailing /
+    let id_token = caps.get(5).map_or("", |m| m.as_str());
+    let query = caps.get(6).map_or("", |m| m.as_str());
+    let fragment = caps.get(7).map_or("", |m| m.as_str());
+
+    // Strip the legacy `id` prefix from numeric IDs. Playlist IDs
+    // (`pl.…`) are left intact.
+    let normalised_id = id_token
+        .strip_prefix("id")
+        .filter(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(id_token);
+
+    Some(format!(
+        "{scheme}music.apple.com{storefront_segment}/{content_type}/{slug_segment}{normalised_id}{query}{fragment}"
+    ))
 }
 
 /// Rewrite an Apple Music URL to use a different storefront code (#666).
@@ -3034,6 +3121,163 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
     }
 
     // ----------------------------------------------------------
+    // iTunes legacy URL rewrite tests (#568)
+    // ----------------------------------------------------------
+
+    /// Acceptance criterion 1: geographic + id-prefix + slug-less.
+    #[test]
+    fn rewrite_itunes_album_with_storefront_and_id_prefix() {
+        let url = "https://itunes.apple.com/gb/album/id1567637891";
+        let result = normalize_apple_music_url(url);
+        assert_eq!(result, "https://music.apple.com/gb/album/1567637891");
+    }
+
+    /// Acceptance criterion 2: geographic + slug + numeric (no `id` prefix).
+    #[test]
+    fn rewrite_itunes_album_with_slug_and_plain_id() {
+        let url = "https://itunes.apple.com/gb/album/some-slug/1567637891";
+        let result = normalize_apple_music_url(url);
+        assert_eq!(result, "https://music.apple.com/gb/album/some-slug/1567637891");
+    }
+
+    /// Acceptance criterion 3: non-geographic + id-prefix + slug-less.
+    /// Storefront injection happens AFTER the iTunes-host rewrite so the
+    /// final URL has both fixes applied.
+    #[test]
+    fn rewrite_itunes_album_non_geographic_then_inject_storefront() {
+        let url = "https://itunes.apple.com/album/id1567637891";
+        let result = normalize_apple_music_url(url);
+        // Host swapped + id stripped; storefront injected by
+        // detect_non_geographic_url. Storefront resolution depends on
+        // the OS locale at test time, so we only assert the structural
+        // shape (host, content type, id) — not the specific code.
+        assert!(
+            result.starts_with("https://music.apple.com/"),
+            "host must be rewritten: {result}"
+        );
+        assert!(
+            result.ends_with("/album/1567637891"),
+            "id must be stripped of `id` prefix: {result}"
+        );
+        // Path between host and content type should be a 2-letter
+        // storefront.
+        let after_host = result
+            .strip_prefix("https://music.apple.com/")
+            .expect("host prefix");
+        let first_segment = after_host.split('/').next().unwrap_or("");
+        assert_eq!(first_segment.len(), 2, "storefront injected: {result}");
+    }
+
+    /// All five content types iTunes URLs can carry must rewrite.
+    #[test]
+    fn rewrite_itunes_song_url() {
+        assert_eq!(
+            normalize_apple_music_url("https://itunes.apple.com/us/song/some-song/9876543210"),
+            "https://music.apple.com/us/song/some-song/9876543210"
+        );
+    }
+
+    #[test]
+    fn rewrite_itunes_song_with_id_prefix() {
+        assert_eq!(
+            normalize_apple_music_url("https://itunes.apple.com/us/song/id9876543210"),
+            "https://music.apple.com/us/song/9876543210"
+        );
+    }
+
+    #[test]
+    fn rewrite_itunes_music_video_url() {
+        assert_eq!(
+            normalize_apple_music_url("https://itunes.apple.com/us/music-video/some-mv/1234567890"),
+            "https://music.apple.com/us/music-video/some-mv/1234567890"
+        );
+    }
+
+    #[test]
+    fn rewrite_itunes_artist_url() {
+        assert_eq!(
+            normalize_apple_music_url("https://itunes.apple.com/us/artist/some-artist/159260351"),
+            "https://music.apple.com/us/artist/some-artist/159260351"
+        );
+    }
+
+    /// Playlist IDs use a `pl.<token>` shape rather than digits — the
+    /// `id` prefix strip must NOT touch them.
+    #[test]
+    fn rewrite_itunes_playlist_url_preserves_pl_token() {
+        assert_eq!(
+            normalize_apple_music_url(
+                "https://itunes.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb"
+            ),
+            "https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb"
+        );
+    }
+
+    /// Query string (e.g. `?i=<song_id>` for in-album track) and
+    /// fragment (`#anchor`) survive the rewrite verbatim.
+    #[test]
+    fn rewrite_itunes_album_preserves_track_query() {
+        assert_eq!(
+            normalize_apple_music_url(
+                "https://itunes.apple.com/gb/album/some-slug/1567637891?i=9876543210"
+            ),
+            "https://music.apple.com/gb/album/some-slug/1567637891?i=9876543210"
+        );
+    }
+
+    #[test]
+    fn rewrite_itunes_album_preserves_fragment() {
+        assert_eq!(
+            normalize_apple_music_url(
+                "https://itunes.apple.com/gb/album/some-slug/1567637891#section"
+            ),
+            "https://music.apple.com/gb/album/some-slug/1567637891#section"
+        );
+    }
+
+    /// Defensive: iTunes URLs with shapes we don't recognise (uploaded
+    /// videos, lookup endpoint, novel paths) are passed through
+    /// unchanged so the #549 catch-all WARN can surface them as
+    /// "unrecognised" instead of silently mangling.
+    #[test]
+    fn rewrite_itunes_unknown_path_passes_through_unchanged() {
+        let url = "https://itunes.apple.com/lookup?id=1567637891&entity=song";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn rewrite_itunes_uploaded_video_passes_through_unchanged() {
+        // Hypothetical — `uploaded-video` isn't in the rewrite alternation
+        // (parser handles it via #549 catch-all instead).
+        let url = "https://itunes.apple.com/gb/uploaded-video/something/123";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    /// Non-iTunes URLs (the regular music.apple.com path, classical, etc.)
+    /// are not touched by the rewrite — they fall through to the existing
+    /// normalize logic.
+    #[test]
+    fn rewrite_does_not_touch_music_apple_com() {
+        let url = "https://music.apple.com/us/album/midnights/1649434004";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn rewrite_does_not_touch_classical_apple_com() {
+        let url = "https://classical.apple.com/us/album/some-classical/123456";
+        // classical.apple.com is recognised by parse_apple_music_url —
+        // normalize returns it unchanged.
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    /// Non-Apple URLs are completely untouched.
+    #[test]
+    fn rewrite_does_not_touch_non_apple_url() {
+        let url = "https://example.com/some/path";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    // ----------------------------------------------------------
     // Non-geographic URL normalization tests
     // ----------------------------------------------------------
 
@@ -3122,7 +3366,14 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
     fn normalize_itunes_url_without_storefront() {
         let url = "https://itunes.apple.com/album/some-album/1234567890";
         let result = normalize_apple_music_url(url);
-        assert!(result.starts_with("https://itunes.apple.com/"));
+        // Updated for #568: iTunes-domain URLs are now rewritten to
+        // music.apple.com (GAMDL doesn't accept itunes.apple.com URLs)
+        // before storefront injection runs. Final shape is therefore
+        // music.apple.com/{storefront}/album/some-album/1234567890.
+        assert!(
+            result.starts_with("https://music.apple.com/"),
+            "iTunes domain must be rewritten to music.apple.com: {result}"
+        );
         assert!(result.contains("/album/some-album/1234567890"));
         assert_ne!(result, url);
     }

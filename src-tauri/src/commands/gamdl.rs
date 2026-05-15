@@ -190,13 +190,29 @@ pub async fn start_download(
         .collect();
 
     // Log when normalization occurs so the user sees what happened.
+    // Two distinct rewrites can fire inside `normalize_apple_music_url`:
+    //   - iTunes-host rewrite (#568): `itunes.apple.com` → `music.apple.com`
+    //     plus stripping the legacy `id` prefix from numeric IDs.
+    //   - Storefront injection: missing `/<storefront>/` segment filled in
+    //     from the OS locale (or `us` as a last-resort default).
+    // Both can apply to the same URL (e.g. a non-geographic iTunes URL
+    // gets host-rewritten AND storefront-injected). Detect each
+    // contribution by host comparison so the user-facing log line is
+    // accurate, not just the generic "storefront auto-detected" we used
+    // to emit for every change.
     for (original, normalized) in original_urls.iter().zip(request.urls.iter()) {
         if original != normalized {
-            log::info!("Normalized non-geographic URL: {original} → {normalized}");
-            emit_app_log(
-                &app,
-                &format!("URL normalized — storefront auto-detected: {normalized}"),
-            );
+            let was_itunes_rewrite = original.contains("itunes.apple.com")
+                && !normalized.contains("itunes.apple.com");
+            let message = if was_itunes_rewrite {
+                format!(
+                    "Legacy iTunes URL rewritten to music.apple.com (GAMDL doesn't accept itunes.apple.com): {normalized}"
+                )
+            } else {
+                format!("URL normalized — storefront auto-detected: {normalized}")
+            };
+            log::info!("Normalized URL: {original} → {normalized}");
+            emit_app_log(&app, &message);
         }
     }
 
@@ -231,13 +247,21 @@ pub async fn start_download(
         }
 
         if url.contains("itunes.apple.com") {
+            // #568 added an iTunes-host rewrite to `normalize_apple_music_url`
+            // that runs BEFORE this audit pass — recognised iTunes URL
+            // shapes (album / song / music-video / artist / playlist) get
+            // rewritten to music.apple.com. So if we still see an
+            // itunes.apple.com URL here, it didn't match any of those
+            // shapes (e.g. a `/lookup`-style URL or a novel path the
+            // rewrite alternation doesn't cover yet). GAMDL will reject
+            // it; warn the user so they can convert manually.
             log::warn!(
-                "Legacy iTunes URL submitted (#548) — GAMDL compatibility unverified: {url}"
+                "iTunes URL didn't match the rewrite alternation (#568 / #548) — GAMDL will reject: {url}"
             );
             emit_app_log(
                 &app,
                 &format!(
-                    "Legacy iTunes URL detected (#548) — copy the music.apple.com link if the download fails: {url}"
+                    "iTunes URL detected but couldn't be auto-rewritten — please copy the music.apple.com link instead: {url}"
                 ),
             );
         }
