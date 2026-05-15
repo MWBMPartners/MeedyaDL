@@ -42,6 +42,53 @@ Combined PR superseding #777, #778, #780, plus a string of additional MV
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.4.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Bump release-please manifest to 1.4.2 (#784)
+
+## Why
+
+  `.release-please-manifest.json` was stuck at `1.4.1` because v1.4.2 was
+  tagged and released manually on 2026-05-15 (recovery from the
+  `version-bump.yml` tag-creation gap, since fixed in #771). The manual
+  tag bypassed release-please, so the manifest never got updated.
+
+  ## What broke
+
+  When release-please ran after PR #781 merged, it computed `1.4.1 + 1 fix
+  = 1.4.2` and opened **#783** proposing a duplicate v1.4.2 release. Wrong
+  on two counts:
+
+  - **Version**: v1.4.2 is already published.
+  - **Body**: just the squash-merge subject from #781 — too vague for an
+  in-app changelog.
+
+  #783 closed; this PR fixes the baseline.
+
+  ## What this fixes
+
+  - Bumps `.release-please-manifest.json` from `1.4.1` → `1.4.2` so
+  release-please's next run computes the correct next version (`1.4.3`).
+  - Source-of-truth versions in `package.json` / `tauri.conf.json` /
+  `Cargo.toml` were already at `1.4.2` — only the manifest needed catching
+  up.
+
+  ## After this merges
+
+  I'll trigger the `Release Please` workflow manually so the new v1.4.3 PR
+  opens with a fresh body, then write a richer user-facing changelog
+  directly into that PR's body before merging.
+
+  ## Test plan
+
+  - [x] Single-line manifest edit, no behavioural change.
+  - [ ] CI runs (no functional code touched, but matrix runs anyway for
+  hygiene).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
 
 ## [1.4.2] - 2026-05-15
 
