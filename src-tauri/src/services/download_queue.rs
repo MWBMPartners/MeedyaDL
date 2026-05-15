@@ -3578,10 +3578,39 @@ async fn spawn_music_video_companion_inner(
         ),
     );
 
+    // Snapshot the video-file set under the user's output root BEFORE any
+    // MV download runs, so the post-loop summary message can report the
+    // actual number of files produced rather than blindly claiming
+    // "{N} video(s)" when GAMDL silently failed every download (#774-class
+    // false-positive that mirrors Phase 3.5h for audio companions).
+    //
+    // Empty `output_path` ⇒ user is on the default (per-OS resolution
+    // happens inside GAMDL) — skip the snapshot in that case and fall
+    // back to the count-of-attempts message. Better than emitting a
+    // misleading "0 of N downloaded" when we just don't have visibility.
+    let video_count_tracking = (!settings.output_path.is_empty())
+        .then(|| (settings.output_path.clone(), snapshot_video_files(&settings.output_path).len()));
+
     // Download each music video using the shared helper
     for relation in &unique_relations {
         if shutdown.is_triggered() {
             log::info!("Music video companions stopping early for {dl_id} (app shutting down)");
+            // Even on early-exit, give the user an accurate summary if
+            // we know what landed on disk. Without this, they'd see the
+            // last "Downloading music video: X" line without ever
+            // learning whether anything succeeded.
+            if let Some((root, pre_count)) = video_count_tracking {
+                let post_count = snapshot_video_files(&root).len();
+                let new_files = post_count.saturating_sub(pre_count);
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Music video companion downloads stopped — {new_files} of {} attempted before shutdown",
+                        unique_relations.len()
+                    ),
+                );
+            }
             return;
         }
 
@@ -3594,14 +3623,39 @@ async fn spawn_music_video_companion_inner(
         download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings).await;
     }
 
-    emit_download_log(
-        app,
-        dl_id,
-        &format!(
-            "Music video companion downloads complete ({} video(s))",
+    // Honest completion summary (#774-class false-positive fix). When
+    // we have a tracked output root, diff the snapshot against the
+    // post-loop video-file set so the reported count reflects what
+    // actually downloaded — not the number of attempts. When we don't
+    // have a tracked root (empty output_path), fall back to the
+    // attempts-count phrasing so we never claim a number we can't
+    // verify.
+    let summary = match video_count_tracking {
+        Some((root, pre_count)) => {
+            let post_count = snapshot_video_files(&root).len();
+            let new_files = post_count.saturating_sub(pre_count);
+            let total_attempted = unique_relations.len();
+            if new_files == 0 {
+                format!(
+                    "Music video companion downloads finished — 0 of {total_attempted} produced any files (no compatible streams or all attempts failed)"
+                )
+            } else if new_files < total_attempted {
+                format!(
+                    "Music video companion downloads complete — {new_files} of {total_attempted} downloaded ({} unavailable or failed)",
+                    total_attempted - new_files
+                )
+            } else {
+                format!(
+                    "Music video companion downloads complete ({new_files} video(s))"
+                )
+            }
+        }
+        None => format!(
+            "Music video companion downloads attempted ({} video(s) — file count not verified)",
             unique_relations.len()
         ),
-    );
+    };
+    emit_download_log(app, dl_id, &summary);
 }
 
 /// Downloads a single music video given its Apple Music URL.
