@@ -237,13 +237,45 @@ jobs:
           command -v cargo || echo "  (none — good, Setup Rust will install a clean one)"
 
       # Step 3: Set up the Rust stable toolchain with clippy.
-      # dtolnay/rust-toolchain@stable installs the latest stable Rust compiler.
-      # The 'clippy' component is the Rust linter, added for the clippy step below.
+      #
+      # On Linux/Windows, dtolnay/rust-toolchain places real binaries at
+      # ~/.cargo/bin/ via upstream rustup-init.sh and just works.
+      #
+      # On macOS, dtolnay re-creates `/opt/homebrew/bin/rustup-init` (the
+      # very shim that Step 2.5 just scrubbed) and symlinks
+      # ~/.cargo/bin/cargo back to it, perpetuating the original shim
+      # bug — `cargo check` resolves to `rustup-init check` which exits
+      # 1 with `unexpected argument 'check' found`. The PR #770 v2
+      # diagnostic step caught this happening at 20:38:09 UTC on
+      # commit 27b7000.
+      #
+      # Bypass the action entirely on macOS — run upstream rustup-init.sh
+      # ourselves. The official installer places REAL binaries at
+      # ~/.cargo/bin/{cargo,rustc,rustup,...} (proxied through rustup,
+      # not rustup-init), which is what every subsequent step expects.
       # @see https://github.com/dtolnay/rust-toolchain
-      - name: Setup Rust
+      # @see https://rustup.rs (upstream rustup installer source)
+      - name: Setup Rust (Linux/Windows)
+        if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           components: clippy
+
+      - name: Setup Rust (macOS — upstream rustup, bypasses Homebrew shim)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `--default-toolchain stable` matches dtolnay/rust-toolchain@stable.
+          # `--profile minimal` skips docs/tests we don't need on CI.
+          # `--component clippy` matches the dtolnay step's `with: components: clippy`.
+          # `-y` accepts all defaults non-interactively.
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y \
+                --default-toolchain stable \
+                --profile minimal \
+                --component clippy
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
 
       # Step 3.5: Diagnostic + sanity check — confirm cargo on PATH is the
       # rustup-managed binary, not a Homebrew rustup-init shim. Same step
