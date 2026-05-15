@@ -105,9 +105,9 @@ jobs:
       # Step 4: Commit the version bump.
       # The commit message "chore(release): vX.Y.Z" is filtered by cliff.toml
       # so it never appears in the auto-generated CHANGELOG.md.
-      # We deliberately do NOT create a local annotated tag here; the tag is
-      # created on the remote in step 6 by `gh release create`, which makes
-      # the tag and the GitHub Release object atomically.
+      # The annotated tag is created locally in step 5 (so it can be pushed
+      # to origin and trigger `release.yml`), then the GitHub Release object
+      # is attached to that existing tag in step 6.
       - name: Commit version bump
         id: commit
         run: |
@@ -117,34 +117,51 @@ jobs:
           git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Step 5: Push the commit (without any tag yet) to origin.
-      # The tag is deliberately created later by `gh release create` so that
-      # the GitHub Release object exists *before* `release.yml` is triggered
-      # — see step 6's comment for why.
-      - name: Push commit
-        run: git push origin main
+      # Step 5: Create and push the annotated tag, then push the commit.
+      #
+      # **Why this step exists** (#771 — recovered live 2026-05-15):
+      #
+      # The previous design relied on `gh release create --draft` (step 6
+      # below) to create the tag for us. But `--draft` deliberately *defers*
+      # tag creation until the release is published — from GitHub's docs:
+      # "When a draft release is published, GitHub creates the tag." Result:
+      # the workflow finished, a draft release object existed, but no tag
+      # was on the repo, so `release.yml` (gated on `push: tags: ['v*']`)
+      # never fired. v1.4.2 sat as an empty draft for ~30 min until the
+      # tag was pushed manually from a maintainer's checkout.
+      #
+      # Fix: create the tag here, push both commit and tag together. By
+      # the time step 6 runs `gh release create`, the tag already exists
+      # on origin — `gh` attaches the draft to that existing tag instead
+      # of creating a new one, so the multi-job race that step 6 was
+      # designed to prevent (#645) is still avoided.
+      - name: Tag and push
+        env:
+          TAG: v${{ steps.bump.outputs.version }}
+        run: |
+          git tag -a "$TAG" -m "$TAG"
+          git push origin main
+          git push origin "$TAG"
+          echo "Pushed tag $TAG → release.yml will trigger now."
 
-      # Step 6: Pre-create the GitHub Release object as a draft (#645).
+      # Step 6: Attach a GitHub Release object as a draft to the existing
+      # tag (#645).
       #
       # WHY this exists:
       #   `release.yml` runs six platform-build jobs in parallel via
       #   tauri-action. Each job's `tauri-action@v0` calls `gh release
       #   view` first; if no release exists for the tag, it falls back to
       #   `gh release create --draft …`. When two jobs hit that fallback
-      #   simultaneously (which happens on every manual `version-bump.yml`
-      #   run because there is no release-please-action to pre-create the
-      #   release), GitHub's API races each other and creates two-or-three
+      #   simultaneously, GitHub's API races and creates two-or-three
       #   separate draft releases for the same tag, fragmenting installer
       #   assets across them. v0.49.1 and v0.49.2 both shipped this way —
       #   v0.49.1's published release was missing 14 of 20 installers
       #   until 2026-04-28; v0.49.2 sat as three competing drafts until
       #   the same date. See #645 for the full audit.
       #
-      # `gh release create` creates the tag *and* the draft release
-      # atomically through one API call. When `release.yml` triggers from
-      # the resulting tag-create event, every platform job's
-      # `gh release view` finds the same existing draft and attaches its
-      # assets to it, so no race, no fragmentation.
+      # By creating the draft here against the tag we just pushed (step
+      # 5), every platform job's `gh release view` finds the same existing
+      # draft and attaches its assets to it — no race, no fragmentation.
       #
       # The placeholder `--notes` are intentionally short. `release.yml`'s
       # `Finalize Release Notes` step appends a download guide at the end
@@ -163,12 +180,18 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           TAG="v${{ steps.bump.outputs.version }}"
+          # Race-tolerant: another platform job in the now-running
+          # release.yml may have already raced ahead and created the
+          # release. If it did, this is a no-op and we move on.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists (likely created by a platform job that beat us)."
+            exit 0
+          fi
           gh release create "$TAG" \
-            --target "${{ steps.commit.outputs.sha }}" \
             --draft \
             --title "$TAG" \
             --notes "Release $TAG — build in progress."
-          echo "Pre-created draft release for $TAG at ${{ steps.commit.outputs.sha }}"
+          echo "Pre-created draft release for $TAG."
 
       # Step 6: Print a summary for the workflow run log.
       - name: Summary
