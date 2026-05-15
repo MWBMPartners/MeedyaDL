@@ -8017,7 +8017,25 @@ pub fn process_queue(
                                     "Running AcoustID fingerprinting...",
                                 );
                                 match super::acoustid_service::process_acoustid_for_directory(
-                                    &album_dir, &api_key,
+                                    &album_dir,
+                                    &api_key,
+                                    // Per-track caption update (#574). Updates
+                                    // the per-item progress-bar caption as
+                                    // AcoustID iterates files so users see
+                                    // forward progress instead of a static
+                                    // label for the entire (~60-120 s) stage.
+                                    // MusicBrainz lookup runs in parallel and
+                                    // doesn't update the caption, so AcoustID
+                                    // owns the caption for the duration of
+                                    // this branch.
+                                    |current, total| {
+                                        set_label(
+                                            &format!(
+                                                "AcoustID fingerprinting: track {current} of {total}"
+                                            ),
+                                            ProgressStage::AcoustId.weight(),
+                                        );
+                                    },
                                 )
                                 .await
                                 {
@@ -8161,6 +8179,22 @@ pub fn process_queue(
                                     enrich_settings.replaygain_reference_level,
                                     enrich_settings.replaygain_prevent_clipping,
                                     enrich_settings.replaygain_album_gain,
+                                    // Per-track caption update (#574). The
+                                    // per-file FFmpeg ebur128 decode dominates
+                                    // ReplayGain wall time on long-form
+                                    // audio (live tracks 8-15 min each);
+                                    // updating the caption per file so the
+                                    // user sees forward progress instead of
+                                    // a static "ReplayGain analysis…" for
+                                    // 5-10 min on heavy albums.
+                                    |current, total| {
+                                        set_label(
+                                            &format!(
+                                                "ReplayGain analysis: track {current} of {total}"
+                                            ),
+                                            ProgressStage::ReplayGain.weight(),
+                                        );
+                                    },
                                 )
                                 .await
                                 {
