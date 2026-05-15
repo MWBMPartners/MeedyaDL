@@ -56,7 +56,7 @@
  *  - `FileOutput`    -> open file     (@see https://lucide.dev/icons/file-output)
  *  - `AlertTriangle` -> fallback warn (@see https://lucide.dev/icons/alert-triangle)
  */
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
   Clock,
   Copy,
@@ -70,6 +70,10 @@ import {
   FileOutput,
   AlertTriangle,
   Trash2,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUp,
+  ChevronsDown,
 } from 'lucide-react';
 
 /**
@@ -142,6 +146,27 @@ interface QueueItemProps {
    * `processing`) — the user must Cancel first.
    */
   onDelete: (id: string) => void;
+
+  /**
+   * Callbacks for the four queue-reorder context-menu entries (#782).
+   * Only fire for `Queued` items; the parent is responsible for
+   * invoking the matching IPC (`moveQueueItemToTop` etc.) and showing
+   * any toast feedback.
+   */
+  onMoveToTop: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onMoveToBottom: (id: string) => void;
+
+  /**
+   * Whether each move action is currently meaningful — drives the
+   * `disabled` flag on the corresponding context-menu entry so the
+   * user sees the action greyed-out when it would be a no-op
+   * (e.g. "Move up" on the topmost queued item). Computed by the
+   * parent from the item's position within the queued sub-sequence.
+   */
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }
 
 /**
@@ -216,13 +241,19 @@ const STATE_CONFIG: Record<
  * @see https://tailwindcss.com/docs/animation#spin
  *      Tailwind animate-spin for the processing spinner.
  */
-export function QueueItem({
+function QueueItemComponent({
   item,
   onCancel,
   onRetry,
   onRetryWithoutWrapper,
   onCopyUrl,
   onDelete,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onMoveToBottom,
+  canMoveUp,
+  canMoveDown,
 }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
@@ -345,6 +376,41 @@ export function QueueItem({
             label: 'Open Folder',
             icon: <FolderOpen size={14} />,
             onClick: handleOpenFolder,
+            separator: true,
+          },
+        ]
+      : []),
+    // Queue reorder actions (#782) — visible only for `Queued` items
+    // since active and terminal rows can't be reordered. The four
+    // entries form one logical group with a trailing separator so
+    // they sit visually apart from the Retry / Delete cluster below.
+    // Each entry is `disabled` when the move would be a no-op (e.g.
+    // "Move up" on the topmost queued item).
+    ...(item.state === 'queued'
+      ? [
+          {
+            label: 'Move to Top',
+            icon: <ChevronsUp size={14} />,
+            onClick: () => onMoveToTop(item.id),
+            disabled: !canMoveUp,
+          },
+          {
+            label: 'Move Up',
+            icon: <ChevronUp size={14} />,
+            onClick: () => onMoveUp(item.id),
+            disabled: !canMoveUp,
+          },
+          {
+            label: 'Move Down',
+            icon: <ChevronDown size={14} />,
+            onClick: () => onMoveDown(item.id),
+            disabled: !canMoveDown,
+          },
+          {
+            label: 'Move to Bottom',
+            icon: <ChevronsDown size={14} />,
+            onClick: () => onMoveToBottom(item.id),
+            disabled: !canMoveDown,
             separator: true,
           },
         ]
@@ -681,3 +747,67 @@ export function QueueItem({
     </div>
   );
 }
+
+/**
+ * Field-aware equality check for `React.memo` (#689).
+ *
+ * `getQueueStatus` IPC polling at ~10×/sec on active downloads
+ * deserialises fresh JSON, producing new object references for every
+ * `item` even when the content is unchanged. So a shallow `prev.item
+ * !== next.item` check would treat every poll as a change and defeat
+ * the memo. Instead, we compare only the fields that actually drive
+ * rendering of this row — when none have changed, React skips the
+ * re-render even if the parent passed a fresh object.
+ *
+ * Callbacks are deliberately *not* compared: they are invoke-only
+ * (clicked never read), so an identity change doesn't require a
+ * re-render. The parent already wraps every callback in
+ * `useCallback` (#689 sibling change in DownloadQueue.tsx) so they
+ * stay stable across renders for unrelated rows.
+ *
+ * `canMoveUp` / `canMoveDown` ARE compared because they affect the
+ * `disabled` state of the right-click menu entries the row renders.
+ *
+ * Returning `true` here means "props are equal — skip the re-render."
+ * Returning `false` means "render again."
+ */
+function arePropsEqual(prev: QueueItemProps, next: QueueItemProps): boolean {
+  if (prev.item.id !== next.item.id) return false;
+  if (prev.canMoveUp !== next.canMoveUp) return false;
+  if (prev.canMoveDown !== next.canMoveDown) return false;
+
+  const a = prev.item;
+  const b = next.item;
+  return (
+    a.state === b.state &&
+    a.progress === b.progress &&
+    a.processing_progress === b.processing_progress &&
+    a.processing_label === b.processing_label &&
+    a.current_track === b.current_track &&
+    a.codec_used === b.codec_used &&
+    a.fallback_occurred === b.fallback_occurred &&
+    a.used_wrapper === b.used_wrapper &&
+    a.output_path === b.output_path &&
+    a.output_is_directory === b.output_is_directory &&
+    a.error === b.error &&
+    a.speed === b.speed &&
+    a.eta === b.eta &&
+    a.total_tracks === b.total_tracks &&
+    a.completed_tracks === b.completed_tracks &&
+    a.album_name === b.album_name &&
+    a.artist_name === b.artist_name &&
+    // Arrays: shallow ref check is sufficient. The store replaces
+    // these in-place via setState, so ref-equal means content-equal
+    // for our purposes; if the array is rebuilt, the content has
+    // genuinely changed.
+    a.urls === b.urls &&
+    a.warnings === b.warnings
+  );
+}
+
+/**
+ * Memoised `QueueItem` export — see {@link arePropsEqual} for the
+ * rationale and field list. Without this wrap, every progress event
+ * re-renders every row in the queue.
+ */
+export const QueueItem = memo(QueueItemComponent, arePropsEqual);

@@ -835,8 +835,12 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     .len()
 }
 
-/// Completion-task timeout scaled by the number of output files
-/// produced by the primary download (#579).
+/// Unified completion-task timeout (#776).
+///
+/// Single source of truth for "how long is this download legitimately
+/// allowed to take?" Used both for the enrichment-alone wait (pass
+/// `companion_tier_count = 0`) and for the wait that includes companion
+/// tiers.
 ///
 /// **Why a timeout exists in the first place** (#461): the completion
 /// task awaits the enrichment + companion `JoinHandle`s. If any stage
@@ -845,96 +849,76 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 /// forever. The timeout is a belt-and-braces safety net that force-
 /// completes the item after the deadline so the queue keeps moving.
 ///
-/// **Why a fixed 10 minutes was too short** (#579): on a 200-track box
-/// set, each of ReplayGain / AcoustID / MusicBrainz iterates every
-/// file in the output directory at ~1–1.5 s per track. Total legitimate
-/// enrichment wall-clock time can exceed 15–20 min for large albums,
-/// triggering the original `Duration::from_secs(600)` mid-stage —
-/// marking the item "complete" with some tracks missing their tags.
-/// Captured live 2026-04-23 with *Complete Beethoven Piano Sonatas
-/// (Virtual Box Set)*, 200 tracks, `Enrichment timed out after 10
-/// minutes — marking complete` firing at ReplayGain analysis.
+/// **Scaling formula**:
+/// ```text
+///   base
+/// + tracks   × per_track_seconds   (drives RG/AcoustID/MB scaling)
+/// + tiers    × per_tier_seconds    (each companion variant = a full
+///                                   GAMDL re-download + remux)
+/// + mvs      × per_mv_seconds      (each MV companion = a separate
+///                                   GAMDL invocation)
+/// capped at 4 h
+/// ```
 ///
-/// **Scaling formula**: base 10 min + 10 s per output file, capped at
-/// 4 h. The per-track slice covers the dominant per-track cost of
-/// ReplayGain + AcoustID (each ~1.5 s/track) plus per-track overhead
-/// of the subtitle generators with margin. The cap prevents a
-/// pathologically large directory from proposing an unbounded timeout.
+/// **Why the per-track slice was raised from 10 s → 30 s** (#776):
+/// the previous 10 s/track allowance was tuned for the documented
+/// ~1.5 s/track ReplayGain + AcoustID cost — but ReplayGain decodes
+/// the entire audio file via FFmpeg `ebur128`, so live tracks (8-15
+/// min each) take 5-10 s of FFmpeg time alone. A 19-track live album
+/// brushed the old 13 min budget and timed out mid-stage with
+/// "some files may be missing ReplayGain / AcoustID / MusicBrainz
+/// tags". The new 30 s/track gives those albums genuine headroom even
+/// after #776's parallelisation roughly halves the wall-clock cost.
 ///
-/// | Track count | Scaled timeout |
-/// |---|---|
-/// | 0 (primary produced no files) | 10 min (but enrichment guard #567 should early-exit anyway) |
-/// | 12 (typical album) | 12 min |
-/// | 50 (double album / EP bundle) | ~18 min |
-/// | 200 (box set) | ~43 min |
-/// | 1000 (entire artist discography dump) | ~3 h |
-/// | > 1200 | capped at 4 h |
+/// **Why MV count is now an input** (#776): each music-video
+/// companion is a separate GAMDL invocation (decrypt + remux + tag).
+/// Without it counted, an album with many MV companions could blow
+/// the budget for the same reason the box-set case originally did.
 ///
-/// Extracted as a pure function so it can be exercised by unit tests
-/// without spinning up a completion task.
-fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
+/// | Workload | Old budget | New budget |
+/// |---|---|---|
+/// | 19 tracks, 0 tiers, 0 MVs | 13 min | 19.5 min |
+/// | 19 tracks, 1 tier, 5 MVs | 21 min | 32.5 min |
+/// | 50 tracks, 4 tiers, 0 MVs | 18 min (enrich-only) / 50 min (companions) | 67 min |
+/// | 200 tracks, 4 tiers, 0 MVs | 75 min | 150 min |
+/// | extreme | capped at 4 h | capped at 4 h |
+///
+/// The companion supervisor's per-process idle watchdog
+/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
+/// that genuinely stalls, so this completion-level deadline only needs
+/// to cover the *legitimate* total wall-clock cost.
+fn compute_total_timeout(
+    track_count: usize,
+    companion_tier_count: usize,
+    mv_count: usize,
+) -> std::time::Duration {
     /// 10-minute base timeout (unchanged from #461's original design).
     const BASE_SECS: u64 = 600;
-    /// Per-output-file slice. 10 s covers the dominant per-track cost of
-    /// ReplayGain + AcoustID + subtitle generation with margin.
-    const PER_TRACK_SECS: u64 = 10;
+    /// Per-output-file slice. Raised from 10 s → 30 s in #776 to cover
+    /// long-form audio (live albums) where ReplayGain's full-file
+    /// FFmpeg decode dominates per-track cost.
+    const PER_TRACK_SECS: u64 = 30;
+    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
+    /// mp4decrypt + remux on a typical album over a normal connection.
+    /// Generous on purpose: this is a "give up, something is wrong"
+    /// threshold, not a target.
+    const PER_TIER_SECS: u64 = 8 * 60;
+    /// Per-MV-companion overhead. 1 min covers a typical music-video
+    /// download (smaller than an album re-download but still a separate
+    /// GAMDL invocation per video).
+    const PER_MV_SECS: u64 = 60;
     /// Absolute cap — refuses to propose a timeout above 4 h regardless
     /// of how many files are in the directory. Protects against accidental
     /// recursion into a user's full music library if the output-path
     /// check ever mis-resolves.
     const MAX_SECS: u64 = 4 * 3600;
 
-    let scaled = BASE_SECS.saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64));
+    let scaled = BASE_SECS
+        .saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64))
+        .saturating_add(PER_TIER_SECS.saturating_mul(companion_tier_count as u64))
+        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64));
     let clamped = scaled.min(MAX_SECS);
     std::time::Duration::from_secs(clamped)
-}
-
-/// Companion-phase timeout: enrichment budget plus an allowance for each
-/// planned companion tier.
-///
-/// The original [`compute_completion_timeout`] sized the deadline for
-/// **enrichment alone** (per-track ReplayGain / AcoustID / subtitles).
-/// When the same value was reused for the companion wait at a single call
-/// site in the completion task, multi-tier configurations (Atmos → ALAC →
-/// AAC → AAC-Legacy = 4 full GAMDL re-downloads) routinely blew past it,
-/// because each tier is *another* end-to-end download + decrypt + remux
-/// pass. Real-world data from the queue manager: ~5–8 min per tier on a
-/// typical album, so the hard timeout (`× 2`) of 22 min was firing while
-/// tier 2 of 4 was still legitimately running.
-///
-/// **Scaling formula**: enrichment budget + 8 min × tier count, same
-/// 4-hour cap. The per-tier component is additive (not multiplicative)
-/// because enrichment runs once for the whole item regardless of how
-/// many companion variants are produced.
-///
-/// | Tracks × tiers | Soft timeout | Hard (× 2) |
-/// |---|---|---|
-/// | 12 × 0 (no companions) | 12 min | 24 min |
-/// | 12 × 1 (Atmos→Lossless) | 20 min | 40 min |
-/// | 12 × 4 (Atmos→all formats) | 44 min | 88 min |
-/// | 200 × 4 (box-set, 4 tiers) | ~75 min | ~2.5 h |
-/// | unbounded | capped at 4 h | capped at 4 h |
-///
-/// The companion supervisor's per-process idle watchdog
-/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
-/// that genuinely stalls, so this completion-level deadline only needs
-/// to cover the *legitimate* multi-tier wall-clock cost.
-fn compute_companion_timeout(
-    track_count: usize,
-    companion_tier_count: usize,
-) -> std::time::Duration {
-    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
-    /// mp4decrypt + remux on a typical album over a normal connection.
-    /// Generous on purpose: this is a "give up, something is wrong"
-    /// threshold, not a target.
-    const PER_TIER_SECS: u64 = 8 * 60;
-    /// Same absolute cap as the enrichment-only path.
-    const MAX_SECS: u64 = 4 * 3600;
-
-    let enrichment = compute_completion_timeout(track_count).as_secs();
-    let tier_extra = PER_TIER_SECS.saturating_mul(companion_tier_count as u64);
-    let total = enrichment.saturating_add(tier_extra).min(MAX_SECS);
-    std::time::Duration::from_secs(total)
 }
 
 // ============================================================
@@ -1180,13 +1164,6 @@ struct QueueItem {
     /// when neither catalog has the content. Reset by [`retry`] so a
     /// user-driven manual retry from the UI is allowed to try again.
     pub storefront_fallback_attempted: bool,
-    /// Whether [`try_mv_cover_workaround`] has already rewritten this
-    /// item's `exclude_tags` to skip the per-track cover fetcher (#715).
-    /// Budget is one attempt — guards against infinite loops when the
-    /// workaround itself fails for an unrelated reason. Reset by
-    /// [`retry`] so a user-driven manual retry from the UI may try
-    /// the workaround again on a fresh attempt.
-    pub mv_cover_workaround_attempted: bool,
 }
 
 // ============================================================
@@ -1507,6 +1484,7 @@ impl DownloadQueue {
                     output_is_directory: false,
                     warnings: Vec::new(),
                     audio_traits: Vec::new(),
+                    mv_companion_count: None,
                     created_at: chrono::Utc::now().to_rfc3339(),
                 }
             },
@@ -1516,7 +1494,6 @@ impl DownloadQueue {
             network_retries_left: self.max_network_retries,
             engine_fallback_index: 0,
             storefront_fallback_attempted: false,
-            mv_cover_workaround_attempted: false,
         };
 
         log::info!(
@@ -2325,70 +2302,174 @@ impl DownloadQueue {
         Some((from_storefront, target))
     }
 
-    /// Workaround retry for GAMDL's music-video cover-template bug (#715).
-    ///
-    /// GAMDL fetches per-track cover art for music videos from a URL with
-    /// `{w}x{h}` placeholders that should be replaced with concrete pixel
-    /// dimensions. On music-video albums (or any album whose tracks
-    /// include a (Visualizer) entry) GAMDL skips the substitution and
-    /// sends the literal `{w}x{h}` to Apple's CDN, which returns
-    /// `400 Bad Request`. Every track that hits this path fails without
-    /// downloading the audio.
-    ///
-    /// The bug is upstream and not fixed in GAMDL 3.5.1 (which only
-    /// addressed the m3u8 HLS 403). Until upstream lands a fix, we
-    /// work around it client-side by retrying with `cover` appended to
-    /// `--exclude-tags`. GAMDL then skips the buggy fetch entirely.
-    /// MeedyaDL's own `animated_artwork_service` separately fetches the
-    /// album-level cover via the Apple Music API (already part of the
-    /// enrichment pipeline), so the user keeps their album cover —
-    /// only the per-track music-video frame thumbnail (a nice-to-have
-    /// in MV files) is lost.
-    ///
-    /// Returns:
-    /// - `Some(())` — retry was set up, caller should re-queue
-    /// - `None` — retry not viable (already attempted, item missing,
-    ///   or no merged_options to mutate)
-    ///
-    /// Budget is one attempt per item (`mv_cover_workaround_attempted`)
-    /// to guard against infinite loops if the workaround itself fails
-    /// for an unrelated reason. Reset by [`Self::retry`] so a manual
-    /// user retry from the UI may try again on a fresh attempt.
-    pub fn try_mv_cover_workaround(&mut self, download_id: &str) -> Option<()> {
-        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
-        if item.mv_cover_workaround_attempted {
-            return None;
+    // ============================================================
+    // Queue reorder API (#782)
+    // ============================================================
+    //
+    // Reordering operates only on `Queued` items and only relative to
+    // other `Queued` items. Active items (`Downloading` / `Processing`)
+    // and terminal items (`Complete` / `Error` / `Cancelled`) keep
+    // their absolute positions in the `VecDeque`. The four move methods
+    // share the same outline:
+    //
+    //   1. Find the target item's current absolute index.
+    //   2. Refuse if the item isn't `Queued` (no preempting actives,
+    //      no shuffling completed history).
+    //   3. Compute the destination absolute index from the desired
+    //      logical position (top / up / down / bottom of the Queued
+    //      sub-sequence), refusing the move when it would be a no-op.
+    //   4. Pop the item and re-insert it at the destination index.
+    //
+    // Race-safety: callers acquire the same `Mutex<DownloadQueue>` as
+    // `next_pending`, so a move can never interleave with item
+    // selection. The moved item is visible to the very next
+    // `next_pending` call.
+    //
+    // All four return `true` when the queue mutated, `false` when the
+    // call was a no-op (item not found, not Queued, or already at the
+    // requested position) so the caller can short-circuit the
+    // `queue-updated` event + disk write when nothing changed.
+
+    /// Returns a human-friendly label for an item — Album name first,
+    /// URL fallback, item-id last-resort. Used by the IPC layer to
+    /// produce traceable activity-log entries for queue mutations
+    /// (#782) without exposing the private `items` field.
+    #[must_use]
+    pub fn friendly_label(&self, download_id: &str) -> Option<String> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        Some(
+            item.status
+                .album_name
+                .clone()
+                .or_else(|| item.status.urls.first().cloned())
+                .unwrap_or_else(|| download_id.to_string()),
+        )
+    }
+
+    /// Helper: indices of every `Queued` item in deque order.
+    /// Empty when no items are queued.
+    fn queued_indices(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| {
+                if item.status.state == DownloadState::Queued {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Move a `Queued` item to the top of the pending sub-sequence —
+    /// it becomes the next item `next_pending` will pick.
+    pub fn move_to_top(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        if queued.len() < 2 {
+            return false; // 0 or 1 queued items — no-op
         }
-
-        // Append "cover" to the existing exclude_tags CSV (or set it as
-        // the sole entry if none). De-dup so we don't accumulate
-        // duplicates if the user already happened to exclude cover.
-        let existing = item
-            .merged_options
-            .exclude_tags
-            .as_deref()
-            .unwrap_or("");
-        let already_excluded = existing
-            .split(',')
-            .any(|t| t.trim().eq_ignore_ascii_case("cover"));
-        if !already_excluded {
-            let new_excludes = if existing.is_empty() {
-                "cover".to_string()
-            } else {
-                format!("{existing},cover")
-            };
-            item.merged_options.exclude_tags = Some(new_excludes);
+        let first_queued_idx = queued[0];
+        let Some(current_idx) = self
+            .items
+            .iter()
+            .position(|i| i.status.id == download_id)
+        else {
+            return false;
+        };
+        if self.items[current_idx].status.state != DownloadState::Queued {
+            return false;
         }
+        if current_idx == first_queued_idx {
+            return false; // Already at top
+        }
+        // current_idx > first_queued_idx is guaranteed: the item is
+        // Queued and not already at first_queued_idx, so it must come
+        // later in the deque. Removing it shifts no earlier index, so
+        // first_queued_idx remains the correct insert position.
+        let removed = self.items.remove(current_idx).expect("index just verified");
+        self.items.insert(first_queued_idx, removed);
+        true
+    }
 
-        item.mv_cover_workaround_attempted = true;
-        item.status.state = DownloadState::Queued;
-        item.status.error = None;
-        item.status.progress = 0.0;
+    /// Move a `Queued` item to the bottom of the pending sub-sequence.
+    pub fn move_to_bottom(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        if queued.len() < 2 {
+            return false;
+        }
+        let last_queued_idx = *queued.last().expect("checked len >= 2");
+        let Some((current_idx, _)) = self
+            .items
+            .iter()
+            .enumerate()
+            .find(|(_, i)| i.status.id == download_id)
+        else {
+            return false;
+        };
+        if self.items[current_idx].status.state != DownloadState::Queued {
+            return false;
+        }
+        if current_idx == last_queued_idx {
+            return false; // Already at bottom
+        }
+        let removed = self.items.remove(current_idx).expect("index just verified");
+        // After removal, indices > current_idx shift down by 1. We
+        // want to insert at the OLD last_queued_idx position, which
+        // becomes last_queued_idx - 1 after removal (because the
+        // current_idx < last_queued_idx removal shifted it down).
+        let insert_at = if current_idx < last_queued_idx {
+            last_queued_idx - 1
+        } else {
+            // Defensive — would mean current_idx > last_queued_idx,
+            // which contradicts queued.last() being the largest queued
+            // index. Reject.
+            return false;
+        };
+        self.items.insert(insert_at + 1, removed);
+        true
+    }
 
-        log::info!(
-            "MV cover-template workaround for {download_id}: retrying with `cover` in exclude_tags"
-        );
-        Some(())
+    /// Swap a `Queued` item with the `Queued` item immediately above
+    /// it in the pending sub-sequence (skipping any intervening
+    /// non-`Queued` items).
+    pub fn move_up(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        // Find the target's position within the queued sub-sequence.
+        let Some(queued_pos) = queued.iter().position(|&idx| {
+            self.items
+                .get(idx)
+                .is_some_and(|item| item.status.id == download_id)
+        }) else {
+            return false; // Not in queue or not Queued
+        };
+        if queued_pos == 0 {
+            return false; // Already at top of queued sub-sequence
+        }
+        let above_idx = queued[queued_pos - 1];
+        let target_idx = queued[queued_pos];
+        self.items.swap(above_idx, target_idx);
+        true
+    }
+
+    /// Swap a `Queued` item with the `Queued` item immediately below
+    /// it in the pending sub-sequence.
+    pub fn move_down(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        let Some(queued_pos) = queued.iter().position(|&idx| {
+            self.items
+                .get(idx)
+                .is_some_and(|item| item.status.id == download_id)
+        }) else {
+            return false;
+        };
+        if queued_pos + 1 >= queued.len() {
+            return false; // Already at bottom of queued sub-sequence
+        }
+        let below_idx = queued[queued_pos + 1];
+        let target_idx = queued[queued_pos];
+        self.items.swap(target_idx, below_idx);
+        true
     }
 
     /// Gets the next queued item's download ID and options for execution.
@@ -2548,11 +2629,11 @@ impl DownloadQueue {
                 // allowed to try the rewrite once again, even if the previous
                 // automatic fallback already exhausted its single attempt.
                 item.storefront_fallback_attempted = false;
-                // Same logic for the MV cover-template workaround (#715) —
-                // a manual retry should get a fresh attempt at the
-                // exclude-tags-cover workaround if the upstream bug was
-                // intermittent or the user fixed something in between.
-                item.mv_cover_workaround_attempted = false;
+                // Clear the cached MV-companion count (#776) so the next
+                // attempt's enrichment task re-discovers it from a fresh
+                // API call. Stale counts from a previous attempt could
+                // mis-size the companion-wait deadline.
+                item.status.mv_companion_count = None;
 
                 // Apply the smart-retry plan if one was produced. The plan
                 // narrows the URL set to per-track entries that GAMDL can
@@ -2770,6 +2851,8 @@ impl DownloadQueue {
                     warnings: Vec::new(),
                     // Re-fetched from the Apple Music API on next attempt.
                     audio_traits: Vec::new(),
+                    // Same — re-discovered when enrichment runs again.
+                    mv_companion_count: None,
                     created_at: p.created_at,
                 },
                 request: p.request,
@@ -2778,7 +2861,6 @@ impl DownloadQueue {
                 engine_fallback_index: 0,
                 network_retries_left: self.max_network_retries,
                 storefront_fallback_attempted: false,
-                mv_cover_workaround_attempted: false,
             };
             self.items.push_back(item);
         }
@@ -3674,10 +3756,39 @@ async fn spawn_music_video_companion_inner(
         ),
     );
 
+    // Snapshot the video-file set under the user's output root BEFORE any
+    // MV download runs, so the post-loop summary message can report the
+    // actual number of files produced rather than blindly claiming
+    // "{N} video(s)" when GAMDL silently failed every download (#774-class
+    // false-positive that mirrors Phase 3.5h for audio companions).
+    //
+    // Empty `output_path` ⇒ user is on the default (per-OS resolution
+    // happens inside GAMDL) — skip the snapshot in that case and fall
+    // back to the count-of-attempts message. Better than emitting a
+    // misleading "0 of N downloaded" when we just don't have visibility.
+    let video_count_tracking = (!settings.output_path.is_empty())
+        .then(|| (settings.output_path.clone(), snapshot_video_files(&settings.output_path).len()));
+
     // Download each music video using the shared helper
     for relation in &unique_relations {
         if shutdown.is_triggered() {
             log::info!("Music video companions stopping early for {dl_id} (app shutting down)");
+            // Even on early-exit, give the user an accurate summary if
+            // we know what landed on disk. Without this, they'd see the
+            // last "Downloading music video: X" line without ever
+            // learning whether anything succeeded.
+            if let Some((root, pre_count)) = video_count_tracking {
+                let post_count = snapshot_video_files(&root).len();
+                let new_files = post_count.saturating_sub(pre_count);
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Music video companion downloads stopped — {new_files} of {} attempted before shutdown",
+                        unique_relations.len()
+                    ),
+                );
+            }
             return;
         }
 
@@ -3690,14 +3801,39 @@ async fn spawn_music_video_companion_inner(
         download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings).await;
     }
 
-    emit_download_log(
-        app,
-        dl_id,
-        &format!(
-            "Music video companion downloads complete ({} video(s))",
+    // Honest completion summary (#774-class false-positive fix). When
+    // we have a tracked output root, diff the snapshot against the
+    // post-loop video-file set so the reported count reflects what
+    // actually downloaded — not the number of attempts. When we don't
+    // have a tracked root (empty output_path), fall back to the
+    // attempts-count phrasing so we never claim a number we can't
+    // verify.
+    let summary = match video_count_tracking {
+        Some((root, pre_count)) => {
+            let post_count = snapshot_video_files(&root).len();
+            let new_files = post_count.saturating_sub(pre_count);
+            let total_attempted = unique_relations.len();
+            if new_files == 0 {
+                format!(
+                    "Music video companion downloads finished — 0 of {total_attempted} produced any files (no compatible streams or all attempts failed)"
+                )
+            } else if new_files < total_attempted {
+                format!(
+                    "Music video companion downloads complete — {new_files} of {total_attempted} downloaded ({} unavailable or failed)",
+                    total_attempted - new_files
+                )
+            } else {
+                format!(
+                    "Music video companion downloads complete ({new_files} video(s))"
+                )
+            }
+        }
+        None => format!(
+            "Music video companion downloads attempted ({} video(s) — file count not verified)",
             unique_relations.len()
         ),
-    );
+    };
+    emit_download_log(app, dl_id, &summary);
 }
 
 /// Downloads a single music video given its Apple Music URL.
@@ -7790,69 +7926,233 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...", ProgressStage::AcoustId.weight());
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
-                            // --- Step 4: AcoustID fingerprinting (opt-in) ---
-                            // When enabled, generates Chromaprint fingerprints using the
-                            // embedded rusty-chromaprint library and looks up AcoustID
-                            // identifiers from acoustid.org. The API key is resolved with
-                            // priority: user override → compile-time embedded key → none.
-                            if enrich_settings.acoustid_enabled {
-                                let resolved_key = super::acoustid_service::resolve_api_key(
-                                    &enrich_settings.acoustid_api_key,
-                                );
-                                if let Some(ref api_key) = resolved_key {
-                                    emit_download_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        "Running AcoustID fingerprinting...",
-                                    );
-                                    match super::acoustid_service::process_acoustid_for_directory(
-                                        &album_dir, api_key,
-                                    )
-                                    .await
-                                    {
-                                        Ok(count) if count > 0 => {
-                                            log::info!(
-                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
-                                        );
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("AcoustID tagged {count} file(s)"),
-                                            );
-                                        }
-                                        Ok(_) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "AcoustID: no matches found for any files",
-                                            );
-                                        }
-                                        Err(e) => {
-                                            log::debug!("AcoustID skipped for {enrich_dl_id}: {e}");
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("AcoustID failed: {e}"),
-                                            );
-                                        }
-                                    }
+                            // --- Steps 4 + 6b lookup: AcoustID + MusicBrainz lookup (parallel) ---
+                            //
+                            // These two stages have independent I/O domains:
+                            //   - AcoustID:    chromaprint fingerprint (CPU/I/O) →
+                            //                  acoustid.org HTTP lookup → freeform-atom
+                            //                  write via mp4ameta.
+                            //   - MusicBrainz: musicbrainz.org HTTP lookup, rate-limited
+                            //                  at 1.1 sec/req. No audio file writes.
+                            //
+                            // Running them concurrently saves up to one stage's worth of
+                            // wall-clock time on heavy albums where both are enabled
+                            // (#779 Option 1). For the user-reported 19-track live
+                            // album, the dominant per-track cost was ReplayGain +
+                            // AcoustID running serially; this fix overlaps AcoustID with
+                            // the rate-limited MusicBrainz HTTP lookup so neither has to
+                            // wait for the other.
+                            //
+                            // ReplayGain (Step 5, below) deliberately stays sequential
+                            // because it ALSO writes to the same M4A files via mp4ameta,
+                            // and concurrent `Tag::write_to_path` calls would race
+                            // (different atoms, but the underlying read-modify-write of
+                            // the tag set conflicts). Tracked separately as Option 2/3
+                            // in #779 if Option 1 isn't enough.
+                            //
+                            // The MusicBrainz video DOWNLOADS (separate GAMDL processes
+                            // per video) are kept after Step 6 (MV companion via Apple
+                            // Music API) so the per-video downloader sees the full set
+                            // of discovered MV URLs in one pass.
+
+                            // Pre-resolve mv_companion_enabled here so both the parallel
+                            // pair AND the sequential MV/MusicBrainz-download stages
+                            // below can share the same value. Originally lived in Step 6.
+                            let mv_companion_enabled = enrich_mv_override
+                                .unwrap_or(enrich_settings.music_video_companion);
+
+                            // Pre-compute the MusicBrainz lookup inputs once so the
+                            // async block doesn't re-borrow nested Option chains.
+                            let run_musicbrainz_lookup = (enrich_settings.musicbrainz_lookup
+                                || mv_companion_enabled)
+                                && !enrich_shutdown.is_triggered();
+                            let mb_isrc_tracks: Option<Vec<(String, Option<String>)>> =
+                                if run_musicbrainz_lookup {
+                                    album_metadata.as_ref().map(|metadata| {
+                                        metadata
+                                            .tracks
+                                            .iter()
+                                            .map(|t| (t.song_id.clone(), t.isrc.clone()))
+                                            .collect()
+                                    })
                                 } else {
+                                    None
+                                };
+
+                            set_label(
+                                "AcoustID + MusicBrainz lookup (parallel)…",
+                                ProgressStage::AcoustId.weight(),
+                            );
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "▶ AcoustID + MusicBrainz lookup started in parallel{}",
+                                    album_context()
+                                ),
+                            );
+
+                            // --- AcoustID async block (Step 4, opt-in) ---
+                            // Generates Chromaprint fingerprints via the embedded
+                            // rusty-chromaprint library and looks up AcoustID
+                            // identifiers from acoustid.org. API key resolution
+                            // priority: user override → compile-time embedded key → none.
+                            let acoustid_task = async {
+                                if !enrich_settings.acoustid_enabled {
+                                    return;
+                                }
+                                let Some(api_key) = super::acoustid_service::resolve_api_key(
+                                    &enrich_settings.acoustid_api_key,
+                                ) else {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         "AcoustID skipped: no API key available",
                                     );
+                                    return;
+                                };
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Running AcoustID fingerprinting...",
+                                );
+                                match super::acoustid_service::process_acoustid_for_directory(
+                                    &album_dir,
+                                    &api_key,
+                                    // Per-track caption update (#574). Updates
+                                    // the per-item progress-bar caption as
+                                    // AcoustID iterates files so users see
+                                    // forward progress instead of a static
+                                    // label for the entire (~60-120 s) stage.
+                                    // MusicBrainz lookup runs in parallel and
+                                    // doesn't update the caption, so AcoustID
+                                    // owns the caption for the duration of
+                                    // this branch.
+                                    |current, total| {
+                                        set_label(
+                                            &format!(
+                                                "AcoustID fingerprinting: track {current} of {total}"
+                                            ),
+                                            ProgressStage::AcoustId.weight(),
+                                        );
+                                    },
+                                )
+                                .await
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcoustID tagged {count} file(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "AcoustID: no matches found for any files",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!("AcoustID skipped for {enrich_dl_id}: {e}");
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcoustID failed: {e}"),
+                                        );
+                                    }
                                 }
-                            }
+                            };
+
+                            // --- MusicBrainz lookup async block (Step 6b lookup, opt-in) ---
+                            // Returns Option<Vec<MusicVideoUrl>> with the discovered
+                            // video URLs. The actual GAMDL download of any Apple Music
+                            // videos is deferred to a sequential step BELOW Step 5/6
+                            // so it doesn't race with the per-track audio file writes.
+                            let musicbrainz_lookup_task = async {
+                                let isrc_tracks = mb_isrc_tracks?;
+                                if isrc_tracks.is_empty() {
+                                    return None;
+                                }
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &format!(
+                                        "MusicBrainz: looking up {} track(s) via ISRC...",
+                                        isrc_tracks.len()
+                                    ),
+                                );
+                                match super::musicbrainz_service::lookup_videos_for_tracks(
+                                    &isrc_tracks,
+                                )
+                                .await
+                                {
+                                    Ok(videos) if !videos.is_empty() => {
+                                        // Log all discovered platform URLs for future reference
+                                        for video in &videos {
+                                            log::info!(
+                                                "MusicBrainz video for {}: {} → {}",
+                                                enrich_dl_id,
+                                                video.platform,
+                                                video.url,
+                                            );
+                                        }
+                                        let am_count = videos
+                                            .iter()
+                                            .filter(|v| v.platform == "apple_music")
+                                            .count();
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "MusicBrainz: found {} video(s) ({} on Apple Music)",
+                                                videos.len(),
+                                                am_count,
+                                            ),
+                                        );
+                                        Some(videos)
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "MusicBrainz: no music videos found",
+                                        );
+                                        None
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "MusicBrainz lookup failed for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("MusicBrainz lookup failed: {e}"),
+                                        );
+                                        None
+                                    }
+                                }
+                            };
+
+                            let ((), musicbrainz_videos) =
+                                tokio::join!(acoustid_task, musicbrainz_lookup_task);
 
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
                                 return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ AcoustID fingerprinting completed{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "✓ AcoustID + MusicBrainz lookup completed{}",
+                                    album_context()
+                                ),
+                            );
 
                             set_label(
                                 "ReplayGain loudness analysis...",
@@ -7879,6 +8179,22 @@ pub fn process_queue(
                                     enrich_settings.replaygain_reference_level,
                                     enrich_settings.replaygain_prevent_clipping,
                                     enrich_settings.replaygain_album_gain,
+                                    // Per-track caption update (#574). The
+                                    // per-file FFmpeg ebur128 decode dominates
+                                    // ReplayGain wall time on long-form
+                                    // audio (live tracks 8-15 min each);
+                                    // updating the caption per file so the
+                                    // user sees forward progress instead of
+                                    // a static "ReplayGain analysis…" for
+                                    // 5-10 min on heavy albums.
+                                    |current, total| {
+                                        set_label(
+                                            &format!(
+                                                "ReplayGain analysis: track {current} of {total}"
+                                            ),
+                                            ProgressStage::ReplayGain.weight(),
+                                        );
+                                    },
                                 )
                                 .await
                                 {
@@ -7917,6 +8233,23 @@ pub fn process_queue(
                                 ProgressStage::MusicVideoDiscovery.weight(),
                             );
 
+                            // Snapshot the MV file count under the user's output
+                            // root BEFORE Step 6 / 6b run, so we can write the
+                            // *actual* count of MV companions produced into
+                            // `item.status.mv_companion_count` for the
+                            // completion-task companion-wait deadline (#776).
+                            // Pre-fix the deadline used a `min(track_count, 30)`
+                            // estimate — fine for the conservative case but
+                            // generous when the album has only a few MVs and
+                            // tight when it has more than 30.
+                            //
+                            // Empty `output_path` ⇒ user is on the OS default;
+                            // skip tracking (the heuristic estimate at the
+                            // completion-task site stays in effect for those
+                            // items).
+                            let mv_pre_count = (!enrich_settings.output_path.is_empty())
+                                .then(|| snapshot_video_files(&enrich_settings.output_path).len());
+
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
                             // API for music videos related to the downloaded tracks (requires
@@ -7927,13 +8260,10 @@ pub fn process_queue(
                             // or queue progression. Gracefully skips if MusicKit credentials
                             // are not configured — Step 6b (MusicBrainz) provides a
                             // credential-free fallback path.
-                            // Phase 5e (#717): per-item override wins over the
-                            // global setting. Set by the Library Scan gap-fill
-                            // flow when the user opts in/out of MVs for a
-                            // specific re-download. `None` falls through to
-                            // settings (default for normal queue additions).
-                            let mv_companion_enabled = enrich_mv_override
-                                .unwrap_or(enrich_settings.music_video_companion);
+                            //
+                            // `mv_companion_enabled` was resolved earlier (above the
+                            // AcoustID || MusicBrainz join) so it could be shared between
+                            // the parallel lookup gate and this sequential download stage.
                             if mv_companion_enabled && !enrich_shutdown.is_triggered() {
                                 spawn_music_video_companion_inner(
                                     &enrich_app,
@@ -7946,130 +8276,72 @@ pub fn process_queue(
                                 .await;
                             }
 
-                            // --- Step 6b: MusicBrainz video discovery and download ---
-                            // Runs when `musicbrainz_lookup` OR `music_video_companion` is
-                            // enabled. Uses MusicBrainz ISRC lookups to discover music videos
-                            // that the MusicKit API may have missed (or as the sole discovery
-                            // method when MusicKit credentials are not configured). No
-                            // credentials required. When `music_video_companion` is also
-                            // enabled, Apple Music video URLs discovered here are downloaded
-                            // via GAMDL (same as Step 6). Cross-platform URLs (YouTube,
-                            // Spotify, etc.) are logged for future reference.
-                            // Phase 5e (#717): MusicBrainz lookup runs when
-                            // EITHER the standalone setting is on OR the
-                            // music-video-companion path is active (so we
-                            // can discover MV URLs via MB ISRC for the
-                            // companion downloader). Honour the per-item MV
-                            // override here too — opt-in/out applies to
-                            // both Apple Music + MusicBrainz MV discovery.
-                            tokio::task::yield_now().await;
-                            let run_musicbrainz = (enrich_settings.musicbrainz_lookup
-                                || mv_companion_enabled)
-                                && !enrich_shutdown.is_triggered();
-                            if run_musicbrainz {
-                                // Only run MusicBrainz lookup if we have ISRC codes from Step 1
-                                if let Some(ref metadata) = album_metadata {
-                                    let isrc_tracks: Vec<(String, Option<String>)> = metadata
-                                        .tracks
-                                        .iter()
-                                        .map(|t| (t.song_id.clone(), t.isrc.clone()))
-                                        .collect();
-
-                                    if !isrc_tracks.is_empty() {
-                                        set_label(
-                                            "MusicBrainz ISRC lookup (rate-limited)…",
-                                            ProgressStage::MusicVideoDiscovery.weight(),
-                                        );
-                                        emit_download_log(
+                            // --- Step 6b: Download MusicBrainz-discovered videos (opt-in) ---
+                            // The MusicBrainz lookup itself ran in parallel with AcoustID
+                            // (Steps 4 + 6b lookup, above). This block consumes the videos
+                            // it discovered and downloads any Apple Music URLs via GAMDL.
+                            // Cross-platform URLs (YouTube, Spotify, etc.) were already
+                            // logged at lookup time for future reference.
+                            //
+                            // Phase 5e (#717): per-item override applies here too — when
+                            // the user opted out of MVs for THIS gap-fill, MusicBrainz-
+                            // discovered URLs must not be downloaded either.
+                            if let Some(videos) = musicbrainz_videos {
+                                let am_videos: Vec<_> = videos
+                                    .iter()
+                                    .filter(|v| v.platform == "apple_music")
+                                    .collect();
+                                if mv_companion_enabled
+                                    && !am_videos.is_empty()
+                                    && !enrich_shutdown.is_triggered()
+                                {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!(
+                                            "MusicBrainz: downloading {} Apple Music video(s)...",
+                                            am_videos.len(),
+                                        ),
+                                    );
+                                    for video in &am_videos {
+                                        if enrich_shutdown.is_triggered() {
+                                            break;
+                                        }
+                                        let label =
+                                            video.title.as_deref().unwrap_or("unknown");
+                                        download_music_video_by_url(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            &format!(
-                                                "MusicBrainz: looking up {} track(s) via ISRC...",
-                                                isrc_tracks.len()
-                                            ),
-                                        );
-
-                                        match super::musicbrainz_service::lookup_videos_for_tracks(
-                                            &isrc_tracks,
+                                            &video.url,
+                                            label,
+                                            &enrich_settings,
                                         )
-                                        .await
-                                        {
-                                            Ok(videos) if !videos.is_empty() => {
-                                                // Filter for Apple Music video URLs (downloadable via GAMDL)
-                                                let am_videos: Vec<_> = videos
-                                                    .iter()
-                                                    .filter(|v| v.platform == "apple_music")
-                                                    .collect();
-
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!(
-                                                        "MusicBrainz: found {} video(s) ({} on Apple Music)",
-                                                        videos.len(),
-                                                        am_videos.len(),
-                                                    ),
-                                                );
-
-                                                // Log all discovered platform URLs for future reference
-                                                for video in &videos {
-                                                    log::info!(
-                                                        "MusicBrainz video for {}: {} → {}",
-                                                        enrich_dl_id,
-                                                        video.platform,
-                                                        video.url,
-                                                    );
-                                                }
-
-                                                // Phase 5e (#717): per-item override applies here too — when
-                                                // the user opted out of MVs for THIS gap-fill, MusicBrainz-
-                                                // discovered URLs must not be downloaded either.
-                                                if mv_companion_enabled && !am_videos.is_empty() {
-                                                    emit_download_log(
-                                                        &enrich_app,
-                                                        &enrich_dl_id,
-                                                        &format!(
-                                                            "MusicBrainz: downloading {} Apple Music video(s)...",
-                                                            am_videos.len(),
-                                                        ),
-                                                    );
-                                                    for video in &am_videos {
-                                                        if enrich_shutdown.is_triggered() {
-                                                            break;
-                                                        }
-                                                        let label = video
-                                                            .title
-                                                            .as_deref()
-                                                            .unwrap_or("unknown");
-                                                        download_music_video_by_url(
-                                                            &enrich_app,
-                                                            &enrich_dl_id,
-                                                            &video.url,
-                                                            label,
-                                                            &enrich_settings,
-                                                        )
-                                                        .await;
-                                                    }
-                                                }
-                                            }
-                                            Ok(_) => {
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    "MusicBrainz: no music videos found",
-                                                );
-                                            }
-                                            Err(e) => {
-                                                log::debug!("MusicBrainz lookup failed for {enrich_dl_id}: {e}");
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!("MusicBrainz lookup failed: {e}"),
-                                                );
-                                            }
-                                        }
+                                        .await;
                                     }
                                 }
+                            }
+
+                            // Snapshot the MV file count AFTER Step 6 + 6b
+                            // and write the diff to the queue item so the
+                            // completion task's companion-wait deadline can
+                            // size against the real number of MV downloads
+                            // instead of the conservative estimate (#776).
+                            // Skipped when `output_path` is empty (no
+                            // tracking root) — the heuristic estimate at
+                            // the completion-task site applies in that
+                            // case.
+                            if let Some(pre) = mv_pre_count {
+                                let post = snapshot_video_files(&enrich_settings.output_path).len();
+                                let mv_count = post.saturating_sub(pre);
+                                let mut q = enrich_queue.lock().await;
+                                if let Some(item) = q
+                                    .items
+                                    .iter_mut()
+                                    .find(|i| i.status.id == enrich_dl_id)
+                                {
+                                    item.status.mv_companion_count = Some(mv_count);
+                                }
+                                drop(q);
                             }
 
                             // Write/update manifest.meedyadl in the album folder.
@@ -8224,13 +8496,32 @@ pub fn process_queue(
                                     }
                                 })
                                 .unwrap_or(0);
-                            let enrichment_timeout = compute_completion_timeout(track_count);
+                            // Estimate the MV-companion budget from settings (#776).
+                            // The enrichment task hasn't yet fetched the
+                            // music-video relations, so we don't know the
+                            // exact count — but if the user has enabled MV
+                            // companions, give the timeout headroom for up to
+                            // `min(track_count, 30)` MVs (some tracks may
+                            // have an MV, most won't, but cap at 30 so a
+                            // 200-track box set doesn't propose 200 extra
+                            // minutes on top). Overestimating is harmless;
+                            // underestimating risks a false-positive timeout
+                            // on an MV-heavy album.
+                            let timeout_settings = load_settings_for_queue(&completion_app);
+                            let mv_count_estimate = if timeout_settings.music_video_companion {
+                                track_count.min(30)
+                            } else {
+                                0
+                            };
+                            let enrichment_timeout =
+                                compute_total_timeout(track_count, 0, mv_count_estimate);
                             let timeout_mins = enrichment_timeout.as_secs() / 60;
                             log::info!(
-                                "Completion timeout for {}: {} min ({} track(s) in output)",
+                                "Completion timeout for {}: {} min ({} track(s), ~{} MV companion(s) estimated)",
                                 completion_dl_id,
                                 timeout_mins,
                                 track_count,
+                                mv_count_estimate,
                             );
                             if let Some(mut handle) = enrichment_handle {
                                 if tokio::time::timeout(enrichment_timeout, &mut handle)
@@ -8263,14 +8554,42 @@ pub fn process_queue(
                             // running.
                             if let Some(mut handle) = companion_handle {
                                 let tier_count = handle.tier_count();
-                                let companion_timeout =
-                                    compute_companion_timeout(track_count, tier_count);
+                                // Now that enrichment has finished, the
+                                // exact MV-companion count is on the queue
+                                // item (written by the snapshot pass at
+                                // the end of enrichment Step 6 + 6b, #776).
+                                // Use it if present; fall back to the
+                                // pre-enrichment estimate if the item was
+                                // tracked-out (empty `output_path`) or if
+                                // enrichment was aborted before the count
+                                // was written.
+                                let mv_count_actual = {
+                                    let q = completion_queue.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == completion_dl_id)
+                                        .and_then(|i| i.status.mv_companion_count)
+                                };
+                                let mv_count_for_companion =
+                                    mv_count_actual.unwrap_or(mv_count_estimate);
+                                let companion_timeout = compute_total_timeout(
+                                    track_count,
+                                    tier_count,
+                                    mv_count_for_companion,
+                                );
                                 let companion_timeout_mins = companion_timeout.as_secs() / 60;
+                                let mv_source = if mv_count_actual.is_some() {
+                                    "actual"
+                                } else {
+                                    "estimated"
+                                };
                                 log::info!(
-                                    "Companion timeout for {}: {} min ({} tier(s) planned)",
+                                    "Companion timeout for {}: {} min ({} tier(s) planned, {} MV companion(s) {})",
                                     completion_dl_id,
                                     companion_timeout_mins,
                                     tier_count,
+                                    mv_count_for_companion,
+                                    mv_source,
                                 );
                                 if tokio::time::timeout(
                                     companion_timeout,
@@ -8617,40 +8936,6 @@ pub fn process_queue(
                     // If no retry will occur, check auto-retry-without-wrapper
                     // before falling through to the terminal error path.
                     if !should_retry {
-                        // GAMDL music-video cover-template bug workaround
-                        // (#715). Checked BEFORE the storefront fallback
-                        // because the bug is its own root cause — the
-                        // storefront is fine, GAMDL's URL templating is
-                        // broken. Retrying with `cover` in `--exclude-tags`
-                        // skips the buggy fetch path; MeedyaDL's
-                        // `animated_artwork_service` supplies the album
-                        // cover separately during enrichment. Per-item
-                        // budget of one attempt guards against infinite
-                        // loops if the workaround itself fails.
-                        if process::is_mv_cover_template_bug_error(&error_msg) {
-                            let workaround = {
-                                let mut q = queue_clone.lock().await;
-                                q.try_mv_cover_workaround(&dl_id)
-                            };
-                            if workaround.is_some() {
-                                log::info!(
-                                    "Auto-retrying download {dl_id} with --exclude-tags cover \
-                                     (MV cover-template bug workaround)"
-                                );
-                                emit_download_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    "GAMDL music-video cover URL bug detected — \
-                                     retrying with cover-art fetching disabled (MeedyaDL \
-                                     supplies the album cover separately during enrichment)…",
-                                );
-                                save_queue_to_disk(&app_clone, &queue_clone).await;
-                                let _ = app_clone.emit("download-queued", &dl_id);
-                                process_queue(app_clone, queue_clone).await;
-                                return;
-                            }
-                        }
-
                         // Storefront fallback (#666). Try BEFORE wrapper auto-
                         // retry because (a) wrong-storefront and wrapper
                         // failure are different root causes, (b) if the album
@@ -9575,30 +9860,30 @@ async fn run_download_with_events(
         // fallback wouldn't help here — the URL works fine, GAMDL's
         // template engine is at fault.
         //
-        // **v3.5.1 status (Phase 3.5i, 2026-05-08)**: NOT fixed.
-        // GAMDL 3.5.1's only change was the music-video m3u8 HLS
-        // fix (`error 403` → success). The cover-URL templating bug
-        // is a separate code path inside GAMDL's per-track cover
-        // fetcher and remains broken on the latest release. The
-        // user-facing message therefore continues to recommend
-        // reporting upstream (the existing GitHub issue is the right
-        // place to track resolution).
-        //
-        // **Workaround tracking**: a viable client-side workaround
-        // is to retry with `--exclude-tags cover` when this bug
-        // fires; GAMDL skips the buggy fetch path entirely and
-        // MeedyaDL's own `animated_artwork_service` can supply the
-        // album cover separately. Tracked as a follow-up issue.
+        // **v3.5.2 status (#774, 2026-05-15)**: still NOT fixed
+        // upstream. The previous client-side retry that appended
+        // `cover` to `--exclude-tags` (#715) was removed once we
+        // verified against GAMDL 3.5.2 source that `--exclude-tags`
+        // only filters which tag KEYS get embedded — it doesn't
+        // skip the per-track cover URL FETCH that triggers the
+        // bug (`gamdl/downloader/music_video.py:202-208` runs the
+        // fetch unconditionally for non-RAW cover formats; the RAW
+        // path also fetches via `_get_cover_file_extension`). No
+        // GAMDL CLI flag combination can avoid the bad request, so
+        // we now report the failure clearly and stop. MeedyaDL's
+        // own `animated_artwork_service` still attaches the
+        // album-level cover during enrichment, so the album cover
+        // is preserved — only the per-track music-video frame
+        // thumbnail is lost.
         if process::is_gamdl_mv_cover_template_bug(&combined) {
             return Err(format!(
-                "GAMDL bug — music-video cover URL not templated. \
-                 Apple returned 400 Bad Request for {soft_errors} track(s) \
-                 because GAMDL sent the literal `{{w}}x{{h}}` placeholders \
-                 instead of real dimensions. Upstream — not fixed in \
-                 GAMDL 3.5.1 (which only addressed the music-video m3u8 \
-                 HLS 403). Please report at \
-                 https://github.com/glomatico/gamdl/issues. \
-                 Audio for affected tracks did not download."
+                "Music video cover-art bug in GAMDL — {soft_errors} track(s) \
+                 skipped. Audio for those tracks did not download. This is \
+                 an upstream bug (Apple returns 400 Bad Request because \
+                 GAMDL sends literal `{{w}}x{{h}}` placeholders instead of \
+                 real dimensions). The album cover is still attached \
+                 separately during MeedyaDL's enrichment pass. Please \
+                 report at https://github.com/glomatico/gamdl/issues."
             ));
         }
 
@@ -10126,116 +10411,374 @@ mod tests {
     }
 
     // ----------------------------------------------------------
-    // Completion-task timeout scaling (#579)
+    // Unified completion-task timeout scaling (#579, #776)
     // ----------------------------------------------------------
 
     #[test]
-    fn compute_completion_timeout_small_album_gets_base() {
-        // Single-track single → should land just above the 10-minute base.
-        let t = compute_completion_timeout(1);
-        assert_eq!(t.as_secs(), 600 + 10);
+    fn compute_total_timeout_small_album_gets_base() {
+        // Single-track single → 10 min base + 30 s/track = 10 min 30 s.
+        let t = compute_total_timeout(1, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 30);
     }
 
     #[test]
-    fn compute_completion_timeout_zero_tracks_is_exactly_base() {
+    fn compute_total_timeout_zero_tracks_is_exactly_base() {
         // Shouldn't normally reach the timeout with zero tracks — the
         // #567 enrichment guard short-circuits earlier — but if it does,
         // the base still applies.
-        let t = compute_completion_timeout(0);
+        let t = compute_total_timeout(0, 0, 0);
         assert_eq!(t.as_secs(), 600);
     }
 
     #[test]
-    fn compute_completion_timeout_typical_album_under_15_minutes() {
-        // 12-track album — should stay under 15 min so small albums
-        // don't see a regression from the scaling.
-        let t = compute_completion_timeout(12);
-        assert_eq!(t.as_secs(), 600 + 120);
-        assert!(t.as_secs() / 60 < 15);
+    fn compute_total_timeout_typical_album_under_20_minutes() {
+        // 12-track album: 10 min + 12 × 30 s = 16 min. Stays comfortably
+        // under 20 min so small albums don't see a regression.
+        let t = compute_total_timeout(12, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30);
+        assert!(t.as_secs() / 60 < 20);
     }
 
     #[test]
-    fn compute_completion_timeout_box_set_accommodates_reality() {
-        // 200-track box set — the originating #579 case. Must give
-        // enough time for ReplayGain + AcoustID + MusicBrainz to complete
-        // on a 200-track directory at ~1.5 s per track per stage.
-        let t = compute_completion_timeout(200);
-        assert_eq!(t.as_secs(), 600 + 2000); // 43.3 min
+    fn compute_total_timeout_19_track_live_album_no_companions() {
+        // The originating #776 case: a 19-track live album was hitting
+        // the old 13 min budget. New formula: 10 min + 19 × 30 s
+        // = 19.5 min — comfortable headroom.
+        let t = compute_total_timeout(19, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 19 * 30);
+        assert!(
+            t.as_secs() / 60 >= 19,
+            "must give legitimate live albums >= 19 min"
+        );
+    }
+
+    #[test]
+    fn compute_total_timeout_box_set_accommodates_reality() {
+        // 200-track box set — the originating #579 case. New formula:
+        // 10 min + 200 × 30 s = 110 min. Well above the 40 min floor
+        // the original test asserted.
+        let t = compute_total_timeout(200, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 200 * 30);
         assert!(t.as_secs() / 60 >= 40);
     }
 
     #[test]
-    fn compute_completion_timeout_caps_at_four_hours() {
-        // Pathologically large directories get capped so an accidental
+    fn compute_total_timeout_caps_at_four_hours() {
+        // Pathologically large workloads get capped so an accidental
         // recursion into a full music library doesn't propose an
         // unbounded deadline.
-        let t = compute_completion_timeout(100_000);
+        let t = compute_total_timeout(100_000, 0, 0);
         assert_eq!(t.as_secs(), 4 * 3600);
     }
 
     #[test]
-    fn compute_completion_timeout_saturates_on_usize_max() {
-        // usize::MAX must not overflow the internal arithmetic.
-        let t = compute_completion_timeout(usize::MAX);
+    fn compute_total_timeout_saturates_on_usize_max() {
+        // usize::MAX in any input must not overflow the arithmetic.
+        let t = compute_total_timeout(usize::MAX, usize::MAX, usize::MAX);
         assert_eq!(t.as_secs(), 4 * 3600);
     }
 
     #[test]
-    fn compute_completion_timeout_monotonic() {
+    fn compute_total_timeout_monotonic_in_tracks() {
         // Scaling should never go backwards as track count rises.
-        let mut prev = compute_completion_timeout(0);
+        let mut prev = compute_total_timeout(0, 0, 0);
         for n in (1..1000).step_by(37) {
-            let t = compute_completion_timeout(n);
-            assert!(t >= prev, "non-monotonic at n={n}: {t:?} vs prev {prev:?}");
+            let t = compute_total_timeout(n, 0, 0);
+            assert!(
+                t >= prev,
+                "non-monotonic at n={n}: {t:?} vs prev {prev:?}"
+            );
             prev = t;
         }
     }
 
     // ----------------------------------------------------------
-    // Companion-phase timeout scaling
+    // Companion-tier scaling
     // ----------------------------------------------------------
 
     #[test]
-    fn compute_companion_timeout_zero_tiers_matches_enrichment() {
-        // No companions planned → identical to the enrichment-only path,
-        // so non-companion downloads see no behavioural change.
-        let t = compute_companion_timeout(12, 0);
-        assert_eq!(t, compute_completion_timeout(12));
+    fn compute_total_timeout_single_tier_adds_eight_minutes() {
+        // 12-track Atmos→Lossless: enrichment (10 + 12×30 s = 16 min)
+        // + 1 tier × 8 min = 24 min.
+        let t = compute_total_timeout(12, 1, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60);
     }
 
     #[test]
-    fn compute_companion_timeout_single_tier_adds_eight_minutes() {
-        // 12-track Atmos→Lossless: enrichment 12 min + 1 tier × 8 min = 20 min.
-        let t = compute_companion_timeout(12, 1);
-        assert_eq!(t.as_secs(), 600 + 120 + 8 * 60);
-    }
-
-    #[test]
-    fn compute_companion_timeout_four_tier_typical_album() {
+    fn compute_total_timeout_four_tier_typical_album() {
         // 12-track Atmos→all formats (Atmos, ALAC, AAC, AAC-Legacy):
-        // enrichment 12 min + 4 × 8 min = 44 min. Hard timeout would be
-        // 88 min — well clear of the 22 min that was firing in production.
-        let t = compute_companion_timeout(12, 4);
-        assert_eq!(t.as_secs(), 600 + 120 + 4 * 8 * 60);
+        // 10 + 12×30 s + 4×8 min = 48 min. Well above 40 min floor.
+        let t = compute_total_timeout(12, 4, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 4 * 8 * 60);
         assert!(t.as_secs() / 60 >= 40);
     }
 
     #[test]
-    fn compute_companion_timeout_caps_at_four_hours() {
-        // Multi-tier × box-set arithmetic shouldn't overrun the absolute cap.
-        let t = compute_companion_timeout(usize::MAX, usize::MAX);
-        assert_eq!(t.as_secs(), 4 * 3600);
+    fn compute_total_timeout_monotonic_in_tiers() {
+        // More tiers should never propose a smaller deadline than fewer.
+        let mut prev = compute_total_timeout(50, 0, 0);
+        for tiers in 1..=8 {
+            let t = compute_total_timeout(50, tiers, 0);
+            assert!(
+                t >= prev,
+                "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}"
+            );
+            prev = t;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // MV-companion scaling (new in #776)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_total_timeout_each_mv_adds_one_minute() {
+        // Five MV companions on a typical album: enrichment (16 min)
+        // + 1 tier (8 min) + 5 MVs × 1 min = 29 min.
+        let t = compute_total_timeout(12, 1, 5);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60 + 5 * 60);
     }
 
     #[test]
-    fn compute_companion_timeout_monotonic_in_tiers() {
-        // More tiers should never propose a smaller deadline than fewer.
-        let mut prev = compute_companion_timeout(50, 0);
-        for tiers in 1..=8 {
-            let t = compute_companion_timeout(50, tiers);
-            assert!(t >= prev, "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}");
+    fn compute_total_timeout_19_track_live_album_with_mvs_and_tier() {
+        // The originating #776 case + 1 companion tier + 5 MV companions:
+        // 10 + 19×30 s + 8 min + 5 min = 32.5 min. Well above the 13 min
+        // budget that was firing.
+        let t = compute_total_timeout(19, 1, 5);
+        assert_eq!(t.as_secs(), 600 + 19 * 30 + 8 * 60 + 5 * 60);
+        assert!(
+            t.as_secs() / 60 >= 30,
+            "must give heavy live albums >= 30 min"
+        );
+    }
+
+    #[test]
+    fn compute_total_timeout_monotonic_in_mvs() {
+        // More MV companions should never propose a smaller deadline.
+        let mut prev = compute_total_timeout(50, 1, 0);
+        for mvs in 1..=20 {
+            let t = compute_total_timeout(50, 1, mvs);
+            assert!(
+                t >= prev,
+                "non-monotonic at mvs={mvs}: {t:?} vs prev {prev:?}"
+            );
             prev = t;
         }
+    }
+
+    // ----------------------------------------------------------
+    // mv_companion_count plumbing — actual count wins over estimate (#776)
+    // ----------------------------------------------------------
+
+    /// New items default `mv_companion_count` to `None` so the
+    /// completion task knows to fall back to the heuristic estimate
+    /// (no actual count has been written yet).
+    #[test]
+    fn enqueue_starts_with_no_mv_companion_count() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+        let item = queue
+            .items
+            .iter()
+            .find(|i| i.status.id == id)
+            .expect("item exists");
+        assert_eq!(
+            item.status.mv_companion_count, None,
+            "fresh enqueue must leave mv_companion_count as None"
+        );
+    }
+
+    /// Manual user retry from the UI must clear `mv_companion_count`
+    /// so the next attempt's enrichment task re-discovers it from a
+    /// fresh API call — stale counts from a previous attempt would
+    /// mis-size the companion-wait deadline.
+    #[test]
+    fn retry_clears_mv_companion_count() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Simulate enrichment writing a discovered MV count from a
+        // previous attempt.
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.mv_companion_count = Some(7);
+        }
+        queue.set_error(&id, "Some failure");
+
+        // Retry should reset the count so the next enrichment writes a
+        // fresh value.
+        assert!(queue.retry(&id, &settings));
+        let item = queue
+            .items
+            .iter()
+            .find(|i| i.status.id == id)
+            .expect("item exists");
+        assert_eq!(
+            item.status.mv_companion_count, None,
+            "retry must clear stale mv_companion_count"
+        );
+    }
+
+    // ----------------------------------------------------------
+    // Queue reorder tests (#782)
+    // ----------------------------------------------------------
+
+    /// Helper: build a mixed-state queue [Active, Queued1, Queued2, Queued3, Complete].
+    /// Returns the four download IDs in deque order.
+    fn mixed_queue_with_actives_and_completed() -> (DownloadQueue, [String; 4]) {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let active_id = q.enqueue(test_request(), &s);
+        // Force into Downloading via the same path next_pending uses.
+        let _ = q.next_pending();
+        let q1 = q.enqueue(test_request(), &s);
+        let q2 = q.enqueue(test_request(), &s);
+        let q3 = q.enqueue(test_request(), &s);
+        // Push a "complete" item at the end.
+        let complete_id = q.enqueue(test_request(), &s);
+        if let Some(item) = q.items.iter_mut().find(|i| i.status.id == complete_id) {
+            item.status.state = DownloadState::Complete;
+        }
+        // Sanity: layout should be [Active, Q1, Q2, Q3, Complete].
+        assert_eq!(q.items[0].status.state, DownloadState::Downloading);
+        assert_eq!(q.items[0].status.id, active_id);
+        assert_eq!(q.items[1].status.id, q1);
+        assert_eq!(q.items[2].status.id, q2);
+        assert_eq!(q.items[3].status.id, q3);
+        assert_eq!(q.items[4].status.state, DownloadState::Complete);
+        (q, [active_id, q1, q2, q3])
+    }
+
+    /// move_to_top puts the target at the FIRST queued position
+    /// (right after any actives), preserving the active item's slot.
+    #[test]
+    fn move_to_top_promotes_queued_item_past_active_item() {
+        let (mut q, [active, q1, q2, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_to_top(&q3));
+        // Active stays at index 0; q3 is now at the front of the
+        // queued sub-sequence (index 1).
+        assert_eq!(q.items[0].status.id, active);
+        assert_eq!(q.items[1].status.id, q3);
+        assert_eq!(q.items[2].status.id, q1);
+        assert_eq!(q.items[3].status.id, q2);
+    }
+
+    /// move_to_top is a no-op when the target is already at the top.
+    #[test]
+    fn move_to_top_returns_false_when_already_at_top() {
+        let (mut q, [_active, q1, _q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top(&q1), "q1 already at top of queued");
+    }
+
+    /// move_to_top refuses to move active items.
+    #[test]
+    fn move_to_top_refuses_active_item() {
+        let (mut q, [active, _q1, _q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top(&active));
+    }
+
+    /// move_to_top returns false when the id isn't in the queue.
+    #[test]
+    fn move_to_top_returns_false_for_unknown_id() {
+        let (mut q, _) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top("does-not-exist"));
+    }
+
+    /// move_to_bottom puts the target at the LAST queued position,
+    /// preserving any non-queued items past the queued sub-sequence.
+    #[test]
+    fn move_to_bottom_demotes_queued_item_before_completed_item() {
+        let (mut q, [active, q1, q2, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_to_bottom(&q1));
+        // Active stays at 0; q2 / q3 shift up; q1 is now last in
+        // the queued sub-sequence; complete still at the end.
+        assert_eq!(q.items[0].status.id, active);
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q3);
+        assert_eq!(q.items[3].status.id, q1);
+        assert_eq!(q.items[4].status.state, DownloadState::Complete);
+    }
+
+    /// move_to_bottom no-op when target is already at bottom.
+    #[test]
+    fn move_to_bottom_returns_false_when_already_at_bottom() {
+        let (mut q, [_, _, _, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_bottom(&q3));
+    }
+
+    /// move_up swaps the target with the queued item immediately
+    /// above it, skipping any non-queued items in between.
+    #[test]
+    fn move_up_swaps_with_queued_neighbour_above() {
+        let (mut q, [_, q1, q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_up(&q2));
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q1);
+    }
+
+    /// move_up no-op when target is already at the top of the queued
+    /// sub-sequence.
+    #[test]
+    fn move_up_returns_false_for_topmost_queued_item() {
+        let (mut q, [_, q1, _, _]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_up(&q1));
+    }
+
+    /// move_down swaps with the queued item immediately below.
+    #[test]
+    fn move_down_swaps_with_queued_neighbour_below() {
+        let (mut q, [_, q1, q2, _]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_down(&q1));
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q1);
+    }
+
+    /// move_down no-op when target is at the bottom of the queued
+    /// sub-sequence.
+    #[test]
+    fn move_down_returns_false_for_bottommost_queued_item() {
+        let (mut q, [_, _, _, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_down(&q3));
+    }
+
+    /// All four move methods are no-ops on a single-item queue.
+    #[test]
+    fn move_methods_are_no_ops_on_single_item_queue() {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let id = q.enqueue(test_request(), &s);
+        assert!(!q.move_to_top(&id));
+        assert!(!q.move_to_bottom(&id));
+        assert!(!q.move_up(&id));
+        assert!(!q.move_down(&id));
+    }
+
+    /// Reorder is preserved through the persistence round-trip — the
+    /// new order applies after MeedyaDL is closed and restarted.
+    #[test]
+    fn move_to_top_persists_through_save_restore_round_trip() {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let q1 = q.enqueue(test_request(), &s);
+        let q2 = q.enqueue(test_request(), &s);
+        let q3 = q.enqueue(test_request(), &s);
+
+        // Promote q3 to the top of the queued sub-sequence.
+        assert!(q.move_to_top(&q3));
+        assert_eq!(q.items[0].status.id, q3);
+        assert_eq!(q.items[1].status.id, q1);
+        assert_eq!(q.items[2].status.id, q2);
+
+        // Persist + restore (simulating an app close/reopen).
+        let snapshot = q.get_persistable_items();
+        let mut restored = DownloadQueue::new();
+        restored.restore_items(snapshot, &s);
+
+        // Order is preserved across the round-trip.
+        assert_eq!(restored.items[0].status.id, q3);
+        assert_eq!(restored.items[1].status.id, q1);
+        assert_eq!(restored.items[2].status.id, q2);
     }
 
     use crate::models::settings::AppSettings;
@@ -11763,110 +12306,6 @@ mod tests {
         // the budget *would* allow it.
         settings.storefront = "fr".to_string();
         assert!(queue.try_storefront_fallback(&id, &settings).is_some());
-    }
-
-    // ----------------------------------------------------------
-    // try_mv_cover_workaround — #715 / GAMDL MV cover-URL bug
-    // ----------------------------------------------------------
-
-    /// Sets the workaround budget on first call, appends `cover` to
-    /// `exclude_tags`, resets state to Queued. Second call returns None
-    /// (budget exhausted).
-    #[test]
-    fn try_mv_cover_workaround_appends_cover_and_consumes_budget() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        // First call wires the workaround.
-        assert_eq!(queue.try_mv_cover_workaround(&id), Some(()));
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert!(item.mv_cover_workaround_attempted, "budget consumed");
-        assert_eq!(item.merged_options.exclude_tags.as_deref(), Some("cover"));
-        assert_eq!(item.status.state, DownloadState::Queued);
-        assert!(item.status.error.is_none());
-
-        // Second call returns None — never ping-pong.
-        assert_eq!(queue.try_mv_cover_workaround(&id), None);
-    }
-
-    /// Preserves any pre-existing exclude_tags entries when appending
-    /// `cover`. CSV-aware so a user who already excludes `lyrics` still
-    /// has their setting honoured.
-    #[test]
-    fn try_mv_cover_workaround_preserves_existing_excludes() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
-            item.merged_options.exclude_tags = Some("lyrics,disc".to_string());
-        }
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        assert!(queue.try_mv_cover_workaround(&id).is_some());
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert_eq!(
-            item.merged_options.exclude_tags.as_deref(),
-            Some("lyrics,disc,cover"),
-            "must append `cover` after existing entries"
-        );
-    }
-
-    /// Idempotent on repeated `cover` adds — if exclude_tags already
-    /// contains `cover` (any case / whitespace), no duplication.
-    #[test]
-    fn try_mv_cover_workaround_does_not_duplicate_cover_entry() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
-            item.merged_options.exclude_tags = Some("lyrics, Cover".to_string());
-        }
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        assert!(queue.try_mv_cover_workaround(&id).is_some());
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert_eq!(
-            item.merged_options.exclude_tags.as_deref(),
-            Some("lyrics, Cover"),
-            "must NOT duplicate `cover` when already present (case-insensitive)"
-        );
-    }
-
-    /// Manual user retry (the user clicks Retry in the UI) refreshes
-    /// the workaround budget — same convention as the storefront
-    /// fallback budget.
-    #[test]
-    fn retry_resets_mv_cover_workaround_budget() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        assert!(queue.try_mv_cover_workaround(&id).is_some());
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-        assert!(queue.try_mv_cover_workaround(&id).is_none(), "budget exhausted");
-
-        assert!(queue.retry(&id, &settings));
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert!(!item.mv_cover_workaround_attempted, "retry resets budget");
     }
 
     // ==========================================================

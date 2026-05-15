@@ -51,6 +51,41 @@ vi.mock('@/components/download/QueueItem', () => ({
   ),
 }));
 
+/**
+ * Also mock `QueueListVirtualized` so it skips
+ * `@tanstack/react-virtual` in the test. jsdom gives the scroll
+ * container zero height by default, so the real virtualizer thinks
+ * nothing is in view and renders zero rows — which makes
+ * `getByTestId("queue-item-a")` fail. The mocked version renders
+ * each item directly with the same `data-testid` shape the existing
+ * QueueItem mock provides, so test queries keep working unchanged. (#467)
+ */
+vi.mock('@/components/download/QueueListVirtualized', () => ({
+  QueueListVirtualized: ({ queueItems }: { queueItems: QueueItemStatus[] }) => {
+    if (queueItems.length === 0) {
+      return (
+        <div>
+          <p>No downloads in queue</p>
+          <p>Paste an Apple Music URL on the Download page</p>
+        </div>
+      );
+    }
+    return (
+      <div role="list" aria-label="Download queue items">
+        {queueItems.map((item) => (
+          <div
+            key={item.id}
+            data-testid={`queue-item-${item.id}`}
+            data-state={item.state}
+          >
+            {item.current_track ?? item.urls[0]}
+          </div>
+        ))}
+      </div>
+    );
+  },
+}));
+
 beforeEach(() => {
   // Reset all three stores between tests so no item state bleeds.
   act(() => {

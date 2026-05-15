@@ -63,6 +63,12 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { useConfirmation } from '@/lib/useConfirmation';
+import {
+  moveQueueItemToTop,
+  moveQueueItemToBottom,
+  moveQueueItemUp,
+  moveQueueItemDown,
+} from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
 import { Button, Modal } from '@/components/common';
@@ -74,7 +80,7 @@ import { PageHeader } from '@/components/layout';
  * Individual queue item row component.
  * @see QueueItem in ./QueueItem.tsx
  */
-import { QueueItem } from './QueueItem';
+import { QueueListVirtualized } from './QueueListVirtualized';
 
 /** Per-item snapshot type used by the Delete confirmation modal (#685). */
 import type { QueueItemStatus } from '@/types';
@@ -258,46 +264,114 @@ export function DownloadQueue() {
   // ---------------------------------------------------------------
 
   /**
-   * Cancel an active or queued download.
-   * Wraps `cancelDownload()` with toast feedback.
-   * @param id - The unique download ID from the backend.
+   * Per-row handlers wrapped in `useCallback` so their identity stays
+   * stable across renders (#689). Without this, the parent re-renders
+   * (queue updates land at ~10×/sec via `queue-updated` events when
+   * downloads are active) would create fresh function refs and defeat
+   * the `React.memo` comparator we just added to QueueItem.
+   *
+   * Dependencies are intentionally limited to store-derived setters,
+   * which Zustand returns as stable references for the lifetime of the
+   * store — so `[]` deps would also work, but listing them explicitly
+   * keeps the eslint-react-hooks rule happy without a disable comment.
+   *
+   * Each handler is a pure invoke-and-toast wrapper; any error path
+   * lands in a toast, never escapes the function.
    */
-  const handleCancel = async (id: string) => {
-    try {
-      await cancelDownload(id);
-      addToast('Download cancelled', 'info');
-    } catch {
-      addToast('Failed to cancel download', 'error');
-    }
-  };
+  const handleCancel = useCallback(
+    async (id: string) => {
+      try {
+        await cancelDownload(id);
+        addToast('Download cancelled', 'info');
+      } catch {
+        addToast('Failed to cancel download', 'error');
+      }
+    },
+    [cancelDownload, addToast]
+  );
+
+  const handleRetry = useCallback(
+    async (id: string) => {
+      try {
+        await retryDownload(id);
+        addToast('Download requeued', 'info');
+      } catch {
+        addToast('Failed to retry download', 'error');
+      }
+    },
+    [retryDownload, addToast]
+  );
+
+  const handleRetryWithoutWrapper = useCallback(
+    async (id: string) => {
+      try {
+        await retryWithoutWrapper(id);
+        addToast('Download requeued without wrapper', 'info');
+      } catch {
+        addToast('Failed to retry download without wrapper', 'error');
+      }
+    },
+    [retryWithoutWrapper, addToast]
+  );
 
   /**
-   * Retry a failed or cancelled download.
-   * Wraps `retryDownload()` with toast feedback.
-   * @param id - The unique download ID from the backend.
+   * Queue reorder handlers (#782). Each calls the matching IPC, lets
+   * the backend's `queue-updated` event refresh the store
+   * automatically, and shows a toast only on hard failure (the IPC
+   * never throws on no-op moves — those silently `return false`).
+   *
+   * No optimistic UI update needed: the backend persists the new
+   * order to `queue.json` AND emits `queue-updated`, and the App-
+   * level event listener calls `refreshQueue()` which pulls the
+   * authoritative state from disk on the next tick. This keeps the
+   * client always in sync with the persisted order, including
+   * across an app restart.
+   *
+   * Wrapped in `useCallback` for the same memo-stability reason as
+   * the per-row cancel/retry handlers above (#689). The IPC wrappers
+   * themselves are module-level imports, so `[addToast]` is the only
+   * real dep.
    */
-  const handleRetry = async (id: string) => {
-    try {
-      await retryDownload(id);
-      addToast('Download requeued', 'info');
-    } catch {
-      addToast('Failed to retry download', 'error');
-    }
-  };
-
-  /**
-   * Retry a failed download without the wrapper system.
-   * Wraps `retryWithoutWrapper()` with toast feedback.
-   * @param id - The unique download ID from the backend.
-   */
-  const handleRetryWithoutWrapper = async (id: string) => {
-    try {
-      await retryWithoutWrapper(id);
-      addToast('Download requeued without wrapper', 'info');
-    } catch {
-      addToast('Failed to retry download without wrapper', 'error');
-    }
-  };
+  const handleMoveToTop = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemToTop(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
+  const handleMoveUp = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemUp(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
+  const handleMoveDown = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemDown(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
+  const handleMoveToBottom = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemToBottom(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
 
   /**
    * Export the current queue to a `.meedyadl` file.
@@ -366,11 +440,19 @@ export function DownloadQueue() {
    * targeted item — actual deletion happens in
    * `handleDeleteItemConfirmed` only after the user confirms.
    */
-  const handleDeleteItem = (id: string) => {
-    const target = queueItems.find((i) => i.id === id);
+  const handleDeleteItem = useCallback((id: string) => {
+    // Read the item via `useDownloadStore.getState()` instead of the
+    // closed-over `queueItems` array (#689). Closing over `queueItems`
+    // would force a fresh callback identity on every queue update
+    // (~10×/sec for active downloads), defeating the React.memo
+    // comparator on QueueItem. The getState read happens at click
+    // time, so the lookup is still correct against current state.
+    const target = useDownloadStore
+      .getState()
+      .queueItems.find((i) => i.id === id);
     if (!target) return;
     setDeleteTarget(target);
-  };
+  }, []);
 
   /**
    * Confirms the Delete action for the currently-targeted item. Errors
@@ -727,50 +809,18 @@ export function DownloadQueue() {
         </div>
       )}
 
-      {/*
-       * Scrollable queue item list.
-       * `flex-1` makes it grow to fill remaining space below the header.
-       * `overflow-y-auto` enables vertical scrolling when items overflow.
-       */}
-      <div className="flex-1 overflow-y-auto">
-        {queueItems.length === 0 ? (
-          /*
-           * Empty state -- shown when the queue has no items at all.
-           * Centered vertically and horizontally with flex utilities.
-           */
-          <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
-            <Download size={40} className="mb-4 opacity-30" />
-            <p className="text-sm font-medium">No downloads in queue</p>
-            <p className="text-xs mt-1 text-center max-w-xs">Paste an Apple Music URL on the Download page to get started, or copy a URL to your clipboard and MeedyaDL will detect it automatically.</p>
-          </div>
-        ) : (
-          /*
-           * Queue item list -- maps each `QueueItemStatus` to a
-           * `<QueueItem>` component. The `key` prop uses the unique
-           * download ID from the backend for efficient React reconciliation.
-           *
-           * `onCancel` and `onRetry` callbacks are passed down so the
-           * child component can trigger queue operations without directly
-           * accessing the store (prop drilling for explicit data flow).
-           *
-           * @see QueueItem in ./QueueItem.tsx
-           * @see https://react.dev/learn/rendering-lists
-           */
-          <div role="list" aria-label="Download queue items">
-            {queueItems.map((item) => (
-              <QueueItem
-                key={item.id}
-                item={item}
-                onCancel={handleCancel}
-                onRetry={handleRetry}
-                onRetryWithoutWrapper={handleRetryWithoutWrapper}
-                onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
-                onDelete={handleDeleteItem}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <QueueListVirtualized
+        queueItems={queueItems}
+        onCancel={handleCancel}
+        onRetry={handleRetry}
+        onRetryWithoutWrapper={handleRetryWithoutWrapper}
+        onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
+        onDelete={handleDeleteItem}
+        onMoveToTop={handleMoveToTop}
+        onMoveUp={handleMoveUp}
+        onMoveDown={handleMoveDown}
+        onMoveToBottom={handleMoveToBottom}
+      />
 
       {/*
         Retry All Failed (#665) + Clear All confirmation modals — both

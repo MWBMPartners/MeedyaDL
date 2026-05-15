@@ -994,6 +994,13 @@ export interface QueueItemStatus {
    * `["atmos", "lossless", "lossy-stereo", "spatial"]`) used by the
    * companion planner to skip unavailable codecs (#504). */
   audio_traits: string[];
+  /** Number of music-video companions discovered for this item, once
+   * the enrichment task has run its MV-relation lookup (#776). `null`
+   * before the lookup runs (or when MV companions are disabled);
+   * a number once the count is known. Used by the completion-task
+   * companion-wait deadline so it can scale against the real MV
+   * count instead of a heuristic estimate. */
+  mv_companion_count: number | null;
   /** ISO 8601 timestamp when this download was queued */
   created_at: string;
 }

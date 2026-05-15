@@ -113,6 +113,12 @@ pub fn resolve_api_key(user_key: &str) -> Option<String> {
 /// # Arguments
 /// * `output_path` - Download output path (file or album directory)
 /// * `api_key` - AcoustID application API key (registered at acoustid.org)
+/// * `on_progress` - Called BEFORE each file is processed with
+///   `(current_index_one_based, total_files)`. Used by the
+///   enrichment task to update the per-item progress-bar caption
+///   so users see "AcoustID: track 5 of 19" instead of a static
+///   "AcoustID fingerprinting…" for the entire stage (#574).
+///   Pass `|_, _| {}` if you don't need progress updates.
 ///
 /// # Errors
 ///
@@ -124,6 +130,7 @@ pub fn resolve_api_key(user_key: &str) -> Option<String> {
 pub async fn process_acoustid_for_directory(
     output_path: &str,
     api_key: &str,
+    on_progress: impl Fn(usize, usize) + Send,
 ) -> Result<usize, String> {
     if api_key.is_empty() {
         return Err("AcoustID API key not configured".to_string());
@@ -138,6 +145,7 @@ pub async fn process_acoustid_for_directory(
 
     let total_files = m4a_files.len();
     for (i, file_path) in m4a_files.iter().enumerate() {
+        on_progress(i + 1, total_files);
         log::info!(
             "AcoustID: fingerprinting file {}/{} — {}",
             i + 1,
