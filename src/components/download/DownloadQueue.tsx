@@ -80,7 +80,7 @@ import { PageHeader } from '@/components/layout';
  * Individual queue item row component.
  * @see QueueItem in ./QueueItem.tsx
  */
-import { QueueItem } from './QueueItem';
+import { QueueListVirtualized } from './QueueListVirtualized';
 
 /** Per-item snapshot type used by the Delete confirmation modal (#685). */
 import type { QueueItemStatus } from '@/types';
@@ -775,75 +775,18 @@ export function DownloadQueue() {
         </div>
       )}
 
-      {/*
-       * Scrollable queue item list.
-       * `flex-1` makes it grow to fill remaining space below the header.
-       * `overflow-y-auto` enables vertical scrolling when items overflow.
-       */}
-      <div className="flex-1 overflow-y-auto">
-        {queueItems.length === 0 ? (
-          /*
-           * Empty state -- shown when the queue has no items at all.
-           * Centered vertically and horizontally with flex utilities.
-           */
-          <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
-            <Download size={40} className="mb-4 opacity-30" />
-            <p className="text-sm font-medium">No downloads in queue</p>
-            <p className="text-xs mt-1 text-center max-w-xs">Paste an Apple Music URL on the Download page to get started, or copy a URL to your clipboard and MeedyaDL will detect it automatically.</p>
-          </div>
-        ) : (
-          /*
-           * Queue item list -- maps each `QueueItemStatus` to a
-           * `<QueueItem>` component. The `key` prop uses the unique
-           * download ID from the backend for efficient React reconciliation.
-           *
-           * `onCancel` and `onRetry` callbacks are passed down so the
-           * child component can trigger queue operations without directly
-           * accessing the store (prop drilling for explicit data flow).
-           *
-           * @see QueueItem in ./QueueItem.tsx
-           * @see https://react.dev/learn/rendering-lists
-           */
-          <div role="list" aria-label="Download queue items">
-            {(() => {
-              // Compute the queued-only sub-sequence's id list once per
-              // render so each row knows its position within it (#782).
-              // canMoveUp / canMoveDown disable the matching context-menu
-              // entries when the move would be a no-op (topmost queued
-              // can't move up; bottommost can't move down). Non-Queued
-              // rows simply don't show the move actions, so their
-              // can-flags are unused — set both to `false` defensively.
-              const queuedIds = queueItems
-                .filter((i) => i.state === 'queued')
-                .map((i) => i.id);
-              return queueItems.map((item) => {
-                const queuedPos =
-                  item.state === 'queued' ? queuedIds.indexOf(item.id) : -1;
-                const canMoveUp = queuedPos > 0;
-                const canMoveDown =
-                  queuedPos >= 0 && queuedPos < queuedIds.length - 1;
-                return (
-                  <QueueItem
-                    key={item.id}
-                    item={item}
-                    onCancel={handleCancel}
-                    onRetry={handleRetry}
-                    onRetryWithoutWrapper={handleRetryWithoutWrapper}
-                    onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
-                    onDelete={handleDeleteItem}
-                    onMoveToTop={handleMoveToTop}
-                    onMoveUp={handleMoveUp}
-                    onMoveDown={handleMoveDown}
-                    onMoveToBottom={handleMoveToBottom}
-                    canMoveUp={canMoveUp}
-                    canMoveDown={canMoveDown}
-                  />
-                );
-              });
-            })()}
-          </div>
-        )}
-      </div>
+      <QueueListVirtualized
+        queueItems={queueItems}
+        onCancel={handleCancel}
+        onRetry={handleRetry}
+        onRetryWithoutWrapper={handleRetryWithoutWrapper}
+        onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
+        onDelete={handleDeleteItem}
+        onMoveToTop={handleMoveToTop}
+        onMoveUp={handleMoveUp}
+        onMoveDown={handleMoveDown}
+        onMoveToBottom={handleMoveToBottom}
+      />
 
       {/*
         Retry All Failed (#665) + Clear All confirmation modals — both
