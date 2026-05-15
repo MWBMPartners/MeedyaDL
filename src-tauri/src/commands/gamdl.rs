@@ -926,6 +926,111 @@ pub async fn cancel_download(
     }
 }
 
+// ============================================================
+// Queue reorder commands (#782)
+// ============================================================
+//
+// Four IPC entry points lets the frontend reorder Queued items live,
+// while other items are still processing. All four:
+//
+//   - Acquire the queue Mutex (so they cannot interleave with
+//     `next_pending` or any other queue mutation).
+//   - Call the matching `DownloadQueue` method.
+//   - On a non-no-op move, persist the queue to disk + emit
+//     `queue-updated` so the frontend re-fetches.
+//   - Emit a `[System]` activity-log entry naming the item and the
+//     direction so reorders are traceable.
+//
+// `Ok(true)` means the queue mutated; `Ok(false)` means the move was
+// a no-op (item missing, not Queued, or already at the requested
+// position). Errors are reserved for queue-lock failures.
+
+async fn run_queue_move(
+    app: &AppHandle,
+    queue: &State<'_, QueueHandle>,
+    download_id: &str,
+    direction_label: &'static str,
+    op: impl FnOnce(&mut crate::services::download_queue::DownloadQueue) -> bool,
+) -> Result<bool, String> {
+    let (moved, label) = {
+        let mut q = queue.lock().await;
+        let moved = op(&mut q);
+        // Capture a friendly label while we still hold the lock so
+        // the activity-log entry says "Black Velvet" not just an ID.
+        let label = q
+            .friendly_label(download_id)
+            .unwrap_or_else(|| download_id.to_string());
+        (moved, label)
+    };
+
+    if moved {
+        let queue_handle = queue.inner().clone();
+        crate::services::download_queue::save_queue_to_disk(app, &queue_handle).await;
+        let _ = app.emit("queue-updated", ());
+        emit_app_log(app, &format!("Reordered: {direction_label} — \"{label}\""));
+    }
+
+    Ok(moved)
+}
+
+/// Move a `Queued` item to the top of the pending sub-sequence.
+/// Returns `true` when the queue changed, `false` when it was a no-op
+/// (item not found, not Queued, or already at the top).
+#[tauri::command]
+pub async fn move_queue_item_to_top(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-to-top requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move to top", |q| {
+        q.move_to_top(&download_id)
+    })
+    .await
+}
+
+/// Move a `Queued` item to the bottom of the pending sub-sequence.
+#[tauri::command]
+pub async fn move_queue_item_to_bottom(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-to-bottom requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move to bottom", |q| {
+        q.move_to_bottom(&download_id)
+    })
+    .await
+}
+
+/// Swap a `Queued` item with the `Queued` item immediately above it.
+#[tauri::command]
+pub async fn move_queue_item_up(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-up requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move up", |q| {
+        q.move_up(&download_id)
+    })
+    .await
+}
+
+/// Swap a `Queued` item with the `Queued` item immediately below it.
+#[tauri::command]
+pub async fn move_queue_item_down(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-down requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move down", |q| {
+        q.move_down(&download_id)
+    })
+    .await
+}
+
 /// Retries a failed or cancelled download.
 ///
 /// **Frontend caller:** `retryDownload(downloadId)` in `src/lib/tauri-commands.ts`

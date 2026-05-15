@@ -63,6 +63,12 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { useConfirmation } from '@/lib/useConfirmation';
+import {
+  moveQueueItemToTop,
+  moveQueueItemToBottom,
+  moveQueueItemUp,
+  moveQueueItemDown,
+} from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
 import { Button, Modal } from '@/components/common';
@@ -296,6 +302,48 @@ export function DownloadQueue() {
       addToast('Download requeued without wrapper', 'info');
     } catch {
       addToast('Failed to retry download without wrapper', 'error');
+    }
+  };
+
+  /**
+   * Queue reorder handlers (#782). Each calls the matching IPC, lets
+   * the backend's `queue-updated` event refresh the store
+   * automatically, and shows a toast only on hard failure (the IPC
+   * never throws on no-op moves — those silently `return false`).
+   *
+   * No optimistic UI update needed: the backend persists the new
+   * order to `queue.json` AND emits `queue-updated`, and the App-
+   * level event listener calls `refreshQueue()` which pulls the
+   * authoritative state from disk on the next tick. This keeps the
+   * client always in sync with the persisted order, including
+   * across an app restart.
+   */
+  const handleMoveToTop = async (id: string) => {
+    try {
+      await moveQueueItemToTop(id);
+    } catch {
+      addToast('Failed to move item', 'error');
+    }
+  };
+  const handleMoveUp = async (id: string) => {
+    try {
+      await moveQueueItemUp(id);
+    } catch {
+      addToast('Failed to move item', 'error');
+    }
+  };
+  const handleMoveDown = async (id: string) => {
+    try {
+      await moveQueueItemDown(id);
+    } catch {
+      addToast('Failed to move item', 'error');
+    }
+  };
+  const handleMoveToBottom = async (id: string) => {
+    try {
+      await moveQueueItemToBottom(id);
+    } catch {
+      addToast('Failed to move item', 'error');
     }
   };
 
@@ -757,17 +805,42 @@ export function DownloadQueue() {
            * @see https://react.dev/learn/rendering-lists
            */
           <div role="list" aria-label="Download queue items">
-            {queueItems.map((item) => (
-              <QueueItem
-                key={item.id}
-                item={item}
-                onCancel={handleCancel}
-                onRetry={handleRetry}
-                onRetryWithoutWrapper={handleRetryWithoutWrapper}
-                onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
-                onDelete={handleDeleteItem}
-              />
-            ))}
+            {(() => {
+              // Compute the queued-only sub-sequence's id list once per
+              // render so each row knows its position within it (#782).
+              // canMoveUp / canMoveDown disable the matching context-menu
+              // entries when the move would be a no-op (topmost queued
+              // can't move up; bottommost can't move down). Non-Queued
+              // rows simply don't show the move actions, so their
+              // can-flags are unused — set both to `false` defensively.
+              const queuedIds = queueItems
+                .filter((i) => i.state === 'queued')
+                .map((i) => i.id);
+              return queueItems.map((item) => {
+                const queuedPos =
+                  item.state === 'queued' ? queuedIds.indexOf(item.id) : -1;
+                const canMoveUp = queuedPos > 0;
+                const canMoveDown =
+                  queuedPos >= 0 && queuedPos < queuedIds.length - 1;
+                return (
+                  <QueueItem
+                    key={item.id}
+                    item={item}
+                    onCancel={handleCancel}
+                    onRetry={handleRetry}
+                    onRetryWithoutWrapper={handleRetryWithoutWrapper}
+                    onCopyUrl={() => addToast('Link copied to clipboard', 'success')}
+                    onDelete={handleDeleteItem}
+                    onMoveToTop={handleMoveToTop}
+                    onMoveUp={handleMoveUp}
+                    onMoveDown={handleMoveDown}
+                    onMoveToBottom={handleMoveToBottom}
+                    canMoveUp={canMoveUp}
+                    canMoveDown={canMoveDown}
+                  />
+                );
+              });
+            })()}
           </div>
         )}
       </div>

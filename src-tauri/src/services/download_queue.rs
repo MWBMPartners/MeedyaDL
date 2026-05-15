@@ -2302,6 +2302,176 @@ impl DownloadQueue {
         Some((from_storefront, target))
     }
 
+    // ============================================================
+    // Queue reorder API (#782)
+    // ============================================================
+    //
+    // Reordering operates only on `Queued` items and only relative to
+    // other `Queued` items. Active items (`Downloading` / `Processing`)
+    // and terminal items (`Complete` / `Error` / `Cancelled`) keep
+    // their absolute positions in the `VecDeque`. The four move methods
+    // share the same outline:
+    //
+    //   1. Find the target item's current absolute index.
+    //   2. Refuse if the item isn't `Queued` (no preempting actives,
+    //      no shuffling completed history).
+    //   3. Compute the destination absolute index from the desired
+    //      logical position (top / up / down / bottom of the Queued
+    //      sub-sequence), refusing the move when it would be a no-op.
+    //   4. Pop the item and re-insert it at the destination index.
+    //
+    // Race-safety: callers acquire the same `Mutex<DownloadQueue>` as
+    // `next_pending`, so a move can never interleave with item
+    // selection. The moved item is visible to the very next
+    // `next_pending` call.
+    //
+    // All four return `true` when the queue mutated, `false` when the
+    // call was a no-op (item not found, not Queued, or already at the
+    // requested position) so the caller can short-circuit the
+    // `queue-updated` event + disk write when nothing changed.
+
+    /// Returns a human-friendly label for an item — Album name first,
+    /// URL fallback, item-id last-resort. Used by the IPC layer to
+    /// produce traceable activity-log entries for queue mutations
+    /// (#782) without exposing the private `items` field.
+    #[must_use]
+    pub fn friendly_label(&self, download_id: &str) -> Option<String> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        Some(
+            item.status
+                .album_name
+                .clone()
+                .or_else(|| item.status.urls.first().cloned())
+                .unwrap_or_else(|| download_id.to_string()),
+        )
+    }
+
+    /// Helper: indices of every `Queued` item in deque order.
+    /// Empty when no items are queued.
+    fn queued_indices(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| {
+                if item.status.state == DownloadState::Queued {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Move a `Queued` item to the top of the pending sub-sequence —
+    /// it becomes the next item `next_pending` will pick.
+    pub fn move_to_top(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        if queued.len() < 2 {
+            return false; // 0 or 1 queued items — no-op
+        }
+        let first_queued_idx = queued[0];
+        let Some(current_idx) = self
+            .items
+            .iter()
+            .position(|i| i.status.id == download_id)
+        else {
+            return false;
+        };
+        if self.items[current_idx].status.state != DownloadState::Queued {
+            return false;
+        }
+        if current_idx == first_queued_idx {
+            return false; // Already at top
+        }
+        // current_idx > first_queued_idx is guaranteed: the item is
+        // Queued and not already at first_queued_idx, so it must come
+        // later in the deque. Removing it shifts no earlier index, so
+        // first_queued_idx remains the correct insert position.
+        let removed = self.items.remove(current_idx).expect("index just verified");
+        self.items.insert(first_queued_idx, removed);
+        true
+    }
+
+    /// Move a `Queued` item to the bottom of the pending sub-sequence.
+    pub fn move_to_bottom(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        if queued.len() < 2 {
+            return false;
+        }
+        let last_queued_idx = *queued.last().expect("checked len >= 2");
+        let Some((current_idx, _)) = self
+            .items
+            .iter()
+            .enumerate()
+            .find(|(_, i)| i.status.id == download_id)
+        else {
+            return false;
+        };
+        if self.items[current_idx].status.state != DownloadState::Queued {
+            return false;
+        }
+        if current_idx == last_queued_idx {
+            return false; // Already at bottom
+        }
+        let removed = self.items.remove(current_idx).expect("index just verified");
+        // After removal, indices > current_idx shift down by 1. We
+        // want to insert at the OLD last_queued_idx position, which
+        // becomes last_queued_idx - 1 after removal (because the
+        // current_idx < last_queued_idx removal shifted it down).
+        let insert_at = if current_idx < last_queued_idx {
+            last_queued_idx - 1
+        } else {
+            // Defensive — would mean current_idx > last_queued_idx,
+            // which contradicts queued.last() being the largest queued
+            // index. Reject.
+            return false;
+        };
+        self.items.insert(insert_at + 1, removed);
+        true
+    }
+
+    /// Swap a `Queued` item with the `Queued` item immediately above
+    /// it in the pending sub-sequence (skipping any intervening
+    /// non-`Queued` items).
+    pub fn move_up(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        // Find the target's position within the queued sub-sequence.
+        let Some(queued_pos) = queued.iter().position(|&idx| {
+            self.items
+                .get(idx)
+                .is_some_and(|item| item.status.id == download_id)
+        }) else {
+            return false; // Not in queue or not Queued
+        };
+        if queued_pos == 0 {
+            return false; // Already at top of queued sub-sequence
+        }
+        let above_idx = queued[queued_pos - 1];
+        let target_idx = queued[queued_pos];
+        self.items.swap(above_idx, target_idx);
+        true
+    }
+
+    /// Swap a `Queued` item with the `Queued` item immediately below
+    /// it in the pending sub-sequence.
+    pub fn move_down(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        let Some(queued_pos) = queued.iter().position(|&idx| {
+            self.items
+                .get(idx)
+                .is_some_and(|item| item.status.id == download_id)
+        }) else {
+            return false;
+        };
+        if queued_pos + 1 >= queued.len() {
+            return false; // Already at bottom of queued sub-sequence
+        }
+        let below_idx = queued[queued_pos + 1];
+        let target_idx = queued[queued_pos];
+        self.items.swap(target_idx, below_idx);
+        true
+    }
+
     /// Gets the next queued item's download ID and options for execution.
     ///
     /// This is the "scheduler" — it decides whether a new download can start.
@@ -10414,6 +10584,167 @@ mod tests {
             item.status.mv_companion_count, None,
             "retry must clear stale mv_companion_count"
         );
+    }
+
+    // ----------------------------------------------------------
+    // Queue reorder tests (#782)
+    // ----------------------------------------------------------
+
+    /// Helper: build a mixed-state queue [Active, Queued1, Queued2, Queued3, Complete].
+    /// Returns the four download IDs in deque order.
+    fn mixed_queue_with_actives_and_completed() -> (DownloadQueue, [String; 4]) {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let active_id = q.enqueue(test_request(), &s);
+        // Force into Downloading via the same path next_pending uses.
+        let _ = q.next_pending();
+        let q1 = q.enqueue(test_request(), &s);
+        let q2 = q.enqueue(test_request(), &s);
+        let q3 = q.enqueue(test_request(), &s);
+        // Push a "complete" item at the end.
+        let complete_id = q.enqueue(test_request(), &s);
+        if let Some(item) = q.items.iter_mut().find(|i| i.status.id == complete_id) {
+            item.status.state = DownloadState::Complete;
+        }
+        // Sanity: layout should be [Active, Q1, Q2, Q3, Complete].
+        assert_eq!(q.items[0].status.state, DownloadState::Downloading);
+        assert_eq!(q.items[0].status.id, active_id);
+        assert_eq!(q.items[1].status.id, q1);
+        assert_eq!(q.items[2].status.id, q2);
+        assert_eq!(q.items[3].status.id, q3);
+        assert_eq!(q.items[4].status.state, DownloadState::Complete);
+        (q, [active_id, q1, q2, q3])
+    }
+
+    /// move_to_top puts the target at the FIRST queued position
+    /// (right after any actives), preserving the active item's slot.
+    #[test]
+    fn move_to_top_promotes_queued_item_past_active_item() {
+        let (mut q, [active, q1, q2, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_to_top(&q3));
+        // Active stays at index 0; q3 is now at the front of the
+        // queued sub-sequence (index 1).
+        assert_eq!(q.items[0].status.id, active);
+        assert_eq!(q.items[1].status.id, q3);
+        assert_eq!(q.items[2].status.id, q1);
+        assert_eq!(q.items[3].status.id, q2);
+    }
+
+    /// move_to_top is a no-op when the target is already at the top.
+    #[test]
+    fn move_to_top_returns_false_when_already_at_top() {
+        let (mut q, [_active, q1, _q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top(&q1), "q1 already at top of queued");
+    }
+
+    /// move_to_top refuses to move active items.
+    #[test]
+    fn move_to_top_refuses_active_item() {
+        let (mut q, [active, _q1, _q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top(&active));
+    }
+
+    /// move_to_top returns false when the id isn't in the queue.
+    #[test]
+    fn move_to_top_returns_false_for_unknown_id() {
+        let (mut q, _) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top("does-not-exist"));
+    }
+
+    /// move_to_bottom puts the target at the LAST queued position,
+    /// preserving any non-queued items past the queued sub-sequence.
+    #[test]
+    fn move_to_bottom_demotes_queued_item_before_completed_item() {
+        let (mut q, [active, q1, q2, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_to_bottom(&q1));
+        // Active stays at 0; q2 / q3 shift up; q1 is now last in
+        // the queued sub-sequence; complete still at the end.
+        assert_eq!(q.items[0].status.id, active);
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q3);
+        assert_eq!(q.items[3].status.id, q1);
+        assert_eq!(q.items[4].status.state, DownloadState::Complete);
+    }
+
+    /// move_to_bottom no-op when target is already at bottom.
+    #[test]
+    fn move_to_bottom_returns_false_when_already_at_bottom() {
+        let (mut q, [_, _, _, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_bottom(&q3));
+    }
+
+    /// move_up swaps the target with the queued item immediately
+    /// above it, skipping any non-queued items in between.
+    #[test]
+    fn move_up_swaps_with_queued_neighbour_above() {
+        let (mut q, [_, q1, q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_up(&q2));
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q1);
+    }
+
+    /// move_up no-op when target is already at the top of the queued
+    /// sub-sequence.
+    #[test]
+    fn move_up_returns_false_for_topmost_queued_item() {
+        let (mut q, [_, q1, _, _]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_up(&q1));
+    }
+
+    /// move_down swaps with the queued item immediately below.
+    #[test]
+    fn move_down_swaps_with_queued_neighbour_below() {
+        let (mut q, [_, q1, q2, _]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_down(&q1));
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q1);
+    }
+
+    /// move_down no-op when target is at the bottom of the queued
+    /// sub-sequence.
+    #[test]
+    fn move_down_returns_false_for_bottommost_queued_item() {
+        let (mut q, [_, _, _, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_down(&q3));
+    }
+
+    /// All four move methods are no-ops on a single-item queue.
+    #[test]
+    fn move_methods_are_no_ops_on_single_item_queue() {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let id = q.enqueue(test_request(), &s);
+        assert!(!q.move_to_top(&id));
+        assert!(!q.move_to_bottom(&id));
+        assert!(!q.move_up(&id));
+        assert!(!q.move_down(&id));
+    }
+
+    /// Reorder is preserved through the persistence round-trip — the
+    /// new order applies after MeedyaDL is closed and restarted.
+    #[test]
+    fn move_to_top_persists_through_save_restore_round_trip() {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let q1 = q.enqueue(test_request(), &s);
+        let q2 = q.enqueue(test_request(), &s);
+        let q3 = q.enqueue(test_request(), &s);
+
+        // Promote q3 to the top of the queued sub-sequence.
+        assert!(q.move_to_top(&q3));
+        assert_eq!(q.items[0].status.id, q3);
+        assert_eq!(q.items[1].status.id, q1);
+        assert_eq!(q.items[2].status.id, q2);
+
+        // Persist + restore (simulating an app close/reopen).
+        let snapshot = q.get_persistable_items();
+        let mut restored = DownloadQueue::new();
+        restored.restore_items(snapshot, &s);
+
+        // Order is preserved across the round-trip.
+        assert_eq!(restored.items[0].status.id, q3);
+        assert_eq!(restored.items[1].status.id, q1);
+        assert_eq!(restored.items[2].status.id, q2);
     }
 
     use crate::models::settings::AppSettings;

@@ -70,6 +70,10 @@ import {
   FileOutput,
   AlertTriangle,
   Trash2,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUp,
+  ChevronsDown,
 } from 'lucide-react';
 
 /**
@@ -142,6 +146,27 @@ interface QueueItemProps {
    * `processing`) — the user must Cancel first.
    */
   onDelete: (id: string) => void;
+
+  /**
+   * Callbacks for the four queue-reorder context-menu entries (#782).
+   * Only fire for `Queued` items; the parent is responsible for
+   * invoking the matching IPC (`moveQueueItemToTop` etc.) and showing
+   * any toast feedback.
+   */
+  onMoveToTop: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onMoveToBottom: (id: string) => void;
+
+  /**
+   * Whether each move action is currently meaningful — drives the
+   * `disabled` flag on the corresponding context-menu entry so the
+   * user sees the action greyed-out when it would be a no-op
+   * (e.g. "Move up" on the topmost queued item). Computed by the
+   * parent from the item's position within the queued sub-sequence.
+   */
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }
 
 /**
@@ -223,6 +248,12 @@ export function QueueItem({
   onRetryWithoutWrapper,
   onCopyUrl,
   onDelete,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onMoveToBottom,
+  canMoveUp,
+  canMoveDown,
 }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
@@ -345,6 +376,41 @@ export function QueueItem({
             label: 'Open Folder',
             icon: <FolderOpen size={14} />,
             onClick: handleOpenFolder,
+            separator: true,
+          },
+        ]
+      : []),
+    // Queue reorder actions (#782) — visible only for `Queued` items
+    // since active and terminal rows can't be reordered. The four
+    // entries form one logical group with a trailing separator so
+    // they sit visually apart from the Retry / Delete cluster below.
+    // Each entry is `disabled` when the move would be a no-op (e.g.
+    // "Move up" on the topmost queued item).
+    ...(item.state === 'queued'
+      ? [
+          {
+            label: 'Move to Top',
+            icon: <ChevronsUp size={14} />,
+            onClick: () => onMoveToTop(item.id),
+            disabled: !canMoveUp,
+          },
+          {
+            label: 'Move Up',
+            icon: <ChevronUp size={14} />,
+            onClick: () => onMoveUp(item.id),
+            disabled: !canMoveUp,
+          },
+          {
+            label: 'Move Down',
+            icon: <ChevronDown size={14} />,
+            onClick: () => onMoveDown(item.id),
+            disabled: !canMoveDown,
+          },
+          {
+            label: 'Move to Bottom',
+            icon: <ChevronsDown size={14} />,
+            onClick: () => onMoveToBottom(item.id),
+            disabled: !canMoveDown,
             separator: true,
           },
         ]
