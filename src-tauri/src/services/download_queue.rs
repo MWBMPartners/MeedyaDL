@@ -835,8 +835,12 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     .len()
 }
 
-/// Completion-task timeout scaled by the number of output files
-/// produced by the primary download (#579).
+/// Unified completion-task timeout (#776).
+///
+/// Single source of truth for "how long is this download legitimately
+/// allowed to take?" Used both for the enrichment-alone wait (pass
+/// `companion_tier_count = 0`) and for the wait that includes companion
+/// tiers.
 ///
 /// **Why a timeout exists in the first place** (#461): the completion
 /// task awaits the enrichment + companion `JoinHandle`s. If any stage
@@ -845,96 +849,76 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 /// forever. The timeout is a belt-and-braces safety net that force-
 /// completes the item after the deadline so the queue keeps moving.
 ///
-/// **Why a fixed 10 minutes was too short** (#579): on a 200-track box
-/// set, each of ReplayGain / AcoustID / MusicBrainz iterates every
-/// file in the output directory at ~1–1.5 s per track. Total legitimate
-/// enrichment wall-clock time can exceed 15–20 min for large albums,
-/// triggering the original `Duration::from_secs(600)` mid-stage —
-/// marking the item "complete" with some tracks missing their tags.
-/// Captured live 2026-04-23 with *Complete Beethoven Piano Sonatas
-/// (Virtual Box Set)*, 200 tracks, `Enrichment timed out after 10
-/// minutes — marking complete` firing at ReplayGain analysis.
+/// **Scaling formula**:
+/// ```text
+///   base
+/// + tracks   × per_track_seconds   (drives RG/AcoustID/MB scaling)
+/// + tiers    × per_tier_seconds    (each companion variant = a full
+///                                   GAMDL re-download + remux)
+/// + mvs      × per_mv_seconds      (each MV companion = a separate
+///                                   GAMDL invocation)
+/// capped at 4 h
+/// ```
 ///
-/// **Scaling formula**: base 10 min + 10 s per output file, capped at
-/// 4 h. The per-track slice covers the dominant per-track cost of
-/// ReplayGain + AcoustID (each ~1.5 s/track) plus per-track overhead
-/// of the subtitle generators with margin. The cap prevents a
-/// pathologically large directory from proposing an unbounded timeout.
+/// **Why the per-track slice was raised from 10 s → 30 s** (#776):
+/// the previous 10 s/track allowance was tuned for the documented
+/// ~1.5 s/track ReplayGain + AcoustID cost — but ReplayGain decodes
+/// the entire audio file via FFmpeg `ebur128`, so live tracks (8-15
+/// min each) take 5-10 s of FFmpeg time alone. A 19-track live album
+/// brushed the old 13 min budget and timed out mid-stage with
+/// "some files may be missing ReplayGain / AcoustID / MusicBrainz
+/// tags". The new 30 s/track gives those albums genuine headroom even
+/// after #776's parallelisation roughly halves the wall-clock cost.
 ///
-/// | Track count | Scaled timeout |
-/// |---|---|
-/// | 0 (primary produced no files) | 10 min (but enrichment guard #567 should early-exit anyway) |
-/// | 12 (typical album) | 12 min |
-/// | 50 (double album / EP bundle) | ~18 min |
-/// | 200 (box set) | ~43 min |
-/// | 1000 (entire artist discography dump) | ~3 h |
-/// | > 1200 | capped at 4 h |
+/// **Why MV count is now an input** (#776): each music-video
+/// companion is a separate GAMDL invocation (decrypt + remux + tag).
+/// Without it counted, an album with many MV companions could blow
+/// the budget for the same reason the box-set case originally did.
 ///
-/// Extracted as a pure function so it can be exercised by unit tests
-/// without spinning up a completion task.
-fn compute_completion_timeout(track_count: usize) -> std::time::Duration {
+/// | Workload | Old budget | New budget |
+/// |---|---|---|
+/// | 19 tracks, 0 tiers, 0 MVs | 13 min | 19.5 min |
+/// | 19 tracks, 1 tier, 5 MVs | 21 min | 32.5 min |
+/// | 50 tracks, 4 tiers, 0 MVs | 18 min (enrich-only) / 50 min (companions) | 67 min |
+/// | 200 tracks, 4 tiers, 0 MVs | 75 min | 150 min |
+/// | extreme | capped at 4 h | capped at 4 h |
+///
+/// The companion supervisor's per-process idle watchdog
+/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
+/// that genuinely stalls, so this completion-level deadline only needs
+/// to cover the *legitimate* total wall-clock cost.
+fn compute_total_timeout(
+    track_count: usize,
+    companion_tier_count: usize,
+    mv_count: usize,
+) -> std::time::Duration {
     /// 10-minute base timeout (unchanged from #461's original design).
     const BASE_SECS: u64 = 600;
-    /// Per-output-file slice. 10 s covers the dominant per-track cost of
-    /// ReplayGain + AcoustID + subtitle generation with margin.
-    const PER_TRACK_SECS: u64 = 10;
+    /// Per-output-file slice. Raised from 10 s → 30 s in #776 to cover
+    /// long-form audio (live albums) where ReplayGain's full-file
+    /// FFmpeg decode dominates per-track cost.
+    const PER_TRACK_SECS: u64 = 30;
+    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
+    /// mp4decrypt + remux on a typical album over a normal connection.
+    /// Generous on purpose: this is a "give up, something is wrong"
+    /// threshold, not a target.
+    const PER_TIER_SECS: u64 = 8 * 60;
+    /// Per-MV-companion overhead. 1 min covers a typical music-video
+    /// download (smaller than an album re-download but still a separate
+    /// GAMDL invocation per video).
+    const PER_MV_SECS: u64 = 60;
     /// Absolute cap — refuses to propose a timeout above 4 h regardless
     /// of how many files are in the directory. Protects against accidental
     /// recursion into a user's full music library if the output-path
     /// check ever mis-resolves.
     const MAX_SECS: u64 = 4 * 3600;
 
-    let scaled = BASE_SECS.saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64));
+    let scaled = BASE_SECS
+        .saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64))
+        .saturating_add(PER_TIER_SECS.saturating_mul(companion_tier_count as u64))
+        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64));
     let clamped = scaled.min(MAX_SECS);
     std::time::Duration::from_secs(clamped)
-}
-
-/// Companion-phase timeout: enrichment budget plus an allowance for each
-/// planned companion tier.
-///
-/// The original [`compute_completion_timeout`] sized the deadline for
-/// **enrichment alone** (per-track ReplayGain / AcoustID / subtitles).
-/// When the same value was reused for the companion wait at a single call
-/// site in the completion task, multi-tier configurations (Atmos → ALAC →
-/// AAC → AAC-Legacy = 4 full GAMDL re-downloads) routinely blew past it,
-/// because each tier is *another* end-to-end download + decrypt + remux
-/// pass. Real-world data from the queue manager: ~5–8 min per tier on a
-/// typical album, so the hard timeout (`× 2`) of 22 min was firing while
-/// tier 2 of 4 was still legitimately running.
-///
-/// **Scaling formula**: enrichment budget + 8 min × tier count, same
-/// 4-hour cap. The per-tier component is additive (not multiplicative)
-/// because enrichment runs once for the whole item regardless of how
-/// many companion variants are produced.
-///
-/// | Tracks × tiers | Soft timeout | Hard (× 2) |
-/// |---|---|---|
-/// | 12 × 0 (no companions) | 12 min | 24 min |
-/// | 12 × 1 (Atmos→Lossless) | 20 min | 40 min |
-/// | 12 × 4 (Atmos→all formats) | 44 min | 88 min |
-/// | 200 × 4 (box-set, 4 tiers) | ~75 min | ~2.5 h |
-/// | unbounded | capped at 4 h | capped at 4 h |
-///
-/// The companion supervisor's per-process idle watchdog
-/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
-/// that genuinely stalls, so this completion-level deadline only needs
-/// to cover the *legitimate* multi-tier wall-clock cost.
-fn compute_companion_timeout(
-    track_count: usize,
-    companion_tier_count: usize,
-) -> std::time::Duration {
-    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
-    /// mp4decrypt + remux on a typical album over a normal connection.
-    /// Generous on purpose: this is a "give up, something is wrong"
-    /// threshold, not a target.
-    const PER_TIER_SECS: u64 = 8 * 60;
-    /// Same absolute cap as the enrichment-only path.
-    const MAX_SECS: u64 = 4 * 3600;
-
-    let enrichment = compute_completion_timeout(track_count).as_secs();
-    let tier_extra = PER_TIER_SECS.saturating_mul(companion_tier_count as u64);
-    let total = enrichment.saturating_add(tier_extra).min(MAX_SECS);
-    std::time::Duration::from_secs(total)
 }
 
 // ============================================================
@@ -8144,13 +8128,32 @@ pub fn process_queue(
                                     }
                                 })
                                 .unwrap_or(0);
-                            let enrichment_timeout = compute_completion_timeout(track_count);
+                            // Estimate the MV-companion budget from settings (#776).
+                            // The enrichment task hasn't yet fetched the
+                            // music-video relations, so we don't know the
+                            // exact count — but if the user has enabled MV
+                            // companions, give the timeout headroom for up to
+                            // `min(track_count, 30)` MVs (some tracks may
+                            // have an MV, most won't, but cap at 30 so a
+                            // 200-track box set doesn't propose 200 extra
+                            // minutes on top). Overestimating is harmless;
+                            // underestimating risks a false-positive timeout
+                            // on an MV-heavy album.
+                            let timeout_settings = load_settings_for_queue(&completion_app);
+                            let mv_count_estimate = if timeout_settings.music_video_companion {
+                                track_count.min(30)
+                            } else {
+                                0
+                            };
+                            let enrichment_timeout =
+                                compute_total_timeout(track_count, 0, mv_count_estimate);
                             let timeout_mins = enrichment_timeout.as_secs() / 60;
                             log::info!(
-                                "Completion timeout for {}: {} min ({} track(s) in output)",
+                                "Completion timeout for {}: {} min ({} track(s), ~{} MV companion(s) estimated)",
                                 completion_dl_id,
                                 timeout_mins,
                                 track_count,
+                                mv_count_estimate,
                             );
                             if let Some(mut handle) = enrichment_handle {
                                 if tokio::time::timeout(enrichment_timeout, &mut handle)
@@ -8183,14 +8186,24 @@ pub fn process_queue(
                             // running.
                             if let Some(mut handle) = companion_handle {
                                 let tier_count = handle.tier_count();
-                                let companion_timeout =
-                                    compute_companion_timeout(track_count, tier_count);
+                                // Reuse the same MV estimate as the
+                                // enrichment-only deadline above (#776):
+                                // the companion wait covers the same item,
+                                // and an MV-heavy album that fitted the
+                                // enrichment window should also fit the
+                                // companion window.
+                                let companion_timeout = compute_total_timeout(
+                                    track_count,
+                                    tier_count,
+                                    mv_count_estimate,
+                                );
                                 let companion_timeout_mins = companion_timeout.as_secs() / 60;
                                 log::info!(
-                                    "Companion timeout for {}: {} min ({} tier(s) planned)",
+                                    "Companion timeout for {}: {} min ({} tier(s) planned, ~{} MV companion(s) estimated)",
                                     completion_dl_id,
                                     companion_timeout_mins,
                                     tier_count,
+                                    mv_count_estimate,
                                 );
                                 if tokio::time::timeout(
                                     companion_timeout,
@@ -10012,114 +10025,157 @@ mod tests {
     }
 
     // ----------------------------------------------------------
-    // Completion-task timeout scaling (#579)
+    // Unified completion-task timeout scaling (#579, #776)
     // ----------------------------------------------------------
 
     #[test]
-    fn compute_completion_timeout_small_album_gets_base() {
-        // Single-track single → should land just above the 10-minute base.
-        let t = compute_completion_timeout(1);
-        assert_eq!(t.as_secs(), 600 + 10);
+    fn compute_total_timeout_small_album_gets_base() {
+        // Single-track single → 10 min base + 30 s/track = 10 min 30 s.
+        let t = compute_total_timeout(1, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 30);
     }
 
     #[test]
-    fn compute_completion_timeout_zero_tracks_is_exactly_base() {
+    fn compute_total_timeout_zero_tracks_is_exactly_base() {
         // Shouldn't normally reach the timeout with zero tracks — the
         // #567 enrichment guard short-circuits earlier — but if it does,
         // the base still applies.
-        let t = compute_completion_timeout(0);
+        let t = compute_total_timeout(0, 0, 0);
         assert_eq!(t.as_secs(), 600);
     }
 
     #[test]
-    fn compute_completion_timeout_typical_album_under_15_minutes() {
-        // 12-track album — should stay under 15 min so small albums
-        // don't see a regression from the scaling.
-        let t = compute_completion_timeout(12);
-        assert_eq!(t.as_secs(), 600 + 120);
-        assert!(t.as_secs() / 60 < 15);
+    fn compute_total_timeout_typical_album_under_20_minutes() {
+        // 12-track album: 10 min + 12 × 30 s = 16 min. Stays comfortably
+        // under 20 min so small albums don't see a regression.
+        let t = compute_total_timeout(12, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30);
+        assert!(t.as_secs() / 60 < 20);
     }
 
     #[test]
-    fn compute_completion_timeout_box_set_accommodates_reality() {
-        // 200-track box set — the originating #579 case. Must give
-        // enough time for ReplayGain + AcoustID + MusicBrainz to complete
-        // on a 200-track directory at ~1.5 s per track per stage.
-        let t = compute_completion_timeout(200);
-        assert_eq!(t.as_secs(), 600 + 2000); // 43.3 min
+    fn compute_total_timeout_19_track_live_album_no_companions() {
+        // The originating #776 case: a 19-track live album was hitting
+        // the old 13 min budget. New formula: 10 min + 19 × 30 s
+        // = 19.5 min — comfortable headroom.
+        let t = compute_total_timeout(19, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 19 * 30);
+        assert!(
+            t.as_secs() / 60 >= 19,
+            "must give legitimate live albums >= 19 min"
+        );
+    }
+
+    #[test]
+    fn compute_total_timeout_box_set_accommodates_reality() {
+        // 200-track box set — the originating #579 case. New formula:
+        // 10 min + 200 × 30 s = 110 min. Well above the 40 min floor
+        // the original test asserted.
+        let t = compute_total_timeout(200, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 200 * 30);
         assert!(t.as_secs() / 60 >= 40);
     }
 
     #[test]
-    fn compute_completion_timeout_caps_at_four_hours() {
-        // Pathologically large directories get capped so an accidental
+    fn compute_total_timeout_caps_at_four_hours() {
+        // Pathologically large workloads get capped so an accidental
         // recursion into a full music library doesn't propose an
         // unbounded deadline.
-        let t = compute_completion_timeout(100_000);
+        let t = compute_total_timeout(100_000, 0, 0);
         assert_eq!(t.as_secs(), 4 * 3600);
     }
 
     #[test]
-    fn compute_completion_timeout_saturates_on_usize_max() {
-        // usize::MAX must not overflow the internal arithmetic.
-        let t = compute_completion_timeout(usize::MAX);
+    fn compute_total_timeout_saturates_on_usize_max() {
+        // usize::MAX in any input must not overflow the arithmetic.
+        let t = compute_total_timeout(usize::MAX, usize::MAX, usize::MAX);
         assert_eq!(t.as_secs(), 4 * 3600);
     }
 
     #[test]
-    fn compute_completion_timeout_monotonic() {
+    fn compute_total_timeout_monotonic_in_tracks() {
         // Scaling should never go backwards as track count rises.
-        let mut prev = compute_completion_timeout(0);
+        let mut prev = compute_total_timeout(0, 0, 0);
         for n in (1..1000).step_by(37) {
-            let t = compute_completion_timeout(n);
-            assert!(t >= prev, "non-monotonic at n={n}: {t:?} vs prev {prev:?}");
+            let t = compute_total_timeout(n, 0, 0);
+            assert!(
+                t >= prev,
+                "non-monotonic at n={n}: {t:?} vs prev {prev:?}"
+            );
             prev = t;
         }
     }
 
     // ----------------------------------------------------------
-    // Companion-phase timeout scaling
+    // Companion-tier scaling
     // ----------------------------------------------------------
 
     #[test]
-    fn compute_companion_timeout_zero_tiers_matches_enrichment() {
-        // No companions planned → identical to the enrichment-only path,
-        // so non-companion downloads see no behavioural change.
-        let t = compute_companion_timeout(12, 0);
-        assert_eq!(t, compute_completion_timeout(12));
+    fn compute_total_timeout_single_tier_adds_eight_minutes() {
+        // 12-track Atmos→Lossless: enrichment (10 + 12×30 s = 16 min)
+        // + 1 tier × 8 min = 24 min.
+        let t = compute_total_timeout(12, 1, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60);
     }
 
     #[test]
-    fn compute_companion_timeout_single_tier_adds_eight_minutes() {
-        // 12-track Atmos→Lossless: enrichment 12 min + 1 tier × 8 min = 20 min.
-        let t = compute_companion_timeout(12, 1);
-        assert_eq!(t.as_secs(), 600 + 120 + 8 * 60);
-    }
-
-    #[test]
-    fn compute_companion_timeout_four_tier_typical_album() {
+    fn compute_total_timeout_four_tier_typical_album() {
         // 12-track Atmos→all formats (Atmos, ALAC, AAC, AAC-Legacy):
-        // enrichment 12 min + 4 × 8 min = 44 min. Hard timeout would be
-        // 88 min — well clear of the 22 min that was firing in production.
-        let t = compute_companion_timeout(12, 4);
-        assert_eq!(t.as_secs(), 600 + 120 + 4 * 8 * 60);
+        // 10 + 12×30 s + 4×8 min = 48 min. Well above 40 min floor.
+        let t = compute_total_timeout(12, 4, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 4 * 8 * 60);
         assert!(t.as_secs() / 60 >= 40);
     }
 
     #[test]
-    fn compute_companion_timeout_caps_at_four_hours() {
-        // Multi-tier × box-set arithmetic shouldn't overrun the absolute cap.
-        let t = compute_companion_timeout(usize::MAX, usize::MAX);
-        assert_eq!(t.as_secs(), 4 * 3600);
+    fn compute_total_timeout_monotonic_in_tiers() {
+        // More tiers should never propose a smaller deadline than fewer.
+        let mut prev = compute_total_timeout(50, 0, 0);
+        for tiers in 1..=8 {
+            let t = compute_total_timeout(50, tiers, 0);
+            assert!(
+                t >= prev,
+                "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}"
+            );
+            prev = t;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // MV-companion scaling (new in #776)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_total_timeout_each_mv_adds_one_minute() {
+        // Five MV companions on a typical album: enrichment (16 min)
+        // + 1 tier (8 min) + 5 MVs × 1 min = 29 min.
+        let t = compute_total_timeout(12, 1, 5);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60 + 5 * 60);
     }
 
     #[test]
-    fn compute_companion_timeout_monotonic_in_tiers() {
-        // More tiers should never propose a smaller deadline than fewer.
-        let mut prev = compute_companion_timeout(50, 0);
-        for tiers in 1..=8 {
-            let t = compute_companion_timeout(50, tiers);
-            assert!(t >= prev, "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}");
+    fn compute_total_timeout_19_track_live_album_with_mvs_and_tier() {
+        // The originating #776 case + 1 companion tier + 5 MV companions:
+        // 10 + 19×30 s + 8 min + 5 min = 32.5 min. Well above the 13 min
+        // budget that was firing.
+        let t = compute_total_timeout(19, 1, 5);
+        assert_eq!(t.as_secs(), 600 + 19 * 30 + 8 * 60 + 5 * 60);
+        assert!(
+            t.as_secs() / 60 >= 30,
+            "must give heavy live albums >= 30 min"
+        );
+    }
+
+    #[test]
+    fn compute_total_timeout_monotonic_in_mvs() {
+        // More MV companions should never propose a smaller deadline.
+        let mut prev = compute_total_timeout(50, 1, 0);
+        for mvs in 1..=20 {
+            let t = compute_total_timeout(50, 1, mvs);
+            assert!(
+                t >= prev,
+                "non-monotonic at mvs={mvs}: {t:?} vs prev {prev:?}"
+            );
             prev = t;
         }
     }
