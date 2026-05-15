@@ -7694,69 +7694,215 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...", ProgressStage::AcoustId.weight());
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
-                            // --- Step 4: AcoustID fingerprinting (opt-in) ---
-                            // When enabled, generates Chromaprint fingerprints using the
-                            // embedded rusty-chromaprint library and looks up AcoustID
-                            // identifiers from acoustid.org. The API key is resolved with
-                            // priority: user override → compile-time embedded key → none.
-                            if enrich_settings.acoustid_enabled {
-                                let resolved_key = super::acoustid_service::resolve_api_key(
-                                    &enrich_settings.acoustid_api_key,
-                                );
-                                if let Some(ref api_key) = resolved_key {
-                                    emit_download_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        "Running AcoustID fingerprinting...",
-                                    );
-                                    match super::acoustid_service::process_acoustid_for_directory(
-                                        &album_dir, api_key,
-                                    )
-                                    .await
-                                    {
-                                        Ok(count) if count > 0 => {
-                                            log::info!(
-                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
-                                        );
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("AcoustID tagged {count} file(s)"),
-                                            );
-                                        }
-                                        Ok(_) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "AcoustID: no matches found for any files",
-                                            );
-                                        }
-                                        Err(e) => {
-                                            log::debug!("AcoustID skipped for {enrich_dl_id}: {e}");
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("AcoustID failed: {e}"),
-                                            );
-                                        }
-                                    }
+                            // --- Steps 4 + 6b lookup: AcoustID + MusicBrainz lookup (parallel) ---
+                            //
+                            // These two stages have independent I/O domains:
+                            //   - AcoustID:    chromaprint fingerprint (CPU/I/O) →
+                            //                  acoustid.org HTTP lookup → freeform-atom
+                            //                  write via mp4ameta.
+                            //   - MusicBrainz: musicbrainz.org HTTP lookup, rate-limited
+                            //                  at 1.1 sec/req. No audio file writes.
+                            //
+                            // Running them concurrently saves up to one stage's worth of
+                            // wall-clock time on heavy albums where both are enabled
+                            // (#779 Option 1). For the user-reported 19-track live
+                            // album, the dominant per-track cost was ReplayGain +
+                            // AcoustID running serially; this fix overlaps AcoustID with
+                            // the rate-limited MusicBrainz HTTP lookup so neither has to
+                            // wait for the other.
+                            //
+                            // ReplayGain (Step 5, below) deliberately stays sequential
+                            // because it ALSO writes to the same M4A files via mp4ameta,
+                            // and concurrent `Tag::write_to_path` calls would race
+                            // (different atoms, but the underlying read-modify-write of
+                            // the tag set conflicts). Tracked separately as Option 2/3
+                            // in #779 if Option 1 isn't enough.
+                            //
+                            // The MusicBrainz video DOWNLOADS (separate GAMDL processes
+                            // per video) are kept after Step 6 (MV companion via Apple
+                            // Music API) so the per-video downloader sees the full set
+                            // of discovered MV URLs in one pass.
+
+                            // Pre-resolve mv_companion_enabled here so both the parallel
+                            // pair AND the sequential MV/MusicBrainz-download stages
+                            // below can share the same value. Originally lived in Step 6.
+                            let mv_companion_enabled = enrich_mv_override
+                                .unwrap_or(enrich_settings.music_video_companion);
+
+                            // Pre-compute the MusicBrainz lookup inputs once so the
+                            // async block doesn't re-borrow nested Option chains.
+                            let run_musicbrainz_lookup = (enrich_settings.musicbrainz_lookup
+                                || mv_companion_enabled)
+                                && !enrich_shutdown.is_triggered();
+                            let mb_isrc_tracks: Option<Vec<(String, Option<String>)>> =
+                                if run_musicbrainz_lookup {
+                                    album_metadata.as_ref().map(|metadata| {
+                                        metadata
+                                            .tracks
+                                            .iter()
+                                            .map(|t| (t.song_id.clone(), t.isrc.clone()))
+                                            .collect()
+                                    })
                                 } else {
+                                    None
+                                };
+
+                            set_label(
+                                "AcoustID + MusicBrainz lookup (parallel)…",
+                                ProgressStage::AcoustId.weight(),
+                            );
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "▶ AcoustID + MusicBrainz lookup started in parallel{}",
+                                    album_context()
+                                ),
+                            );
+
+                            // --- AcoustID async block (Step 4, opt-in) ---
+                            // Generates Chromaprint fingerprints via the embedded
+                            // rusty-chromaprint library and looks up AcoustID
+                            // identifiers from acoustid.org. API key resolution
+                            // priority: user override → compile-time embedded key → none.
+                            let acoustid_task = async {
+                                if !enrich_settings.acoustid_enabled {
+                                    return;
+                                }
+                                let Some(api_key) = super::acoustid_service::resolve_api_key(
+                                    &enrich_settings.acoustid_api_key,
+                                ) else {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         "AcoustID skipped: no API key available",
                                     );
+                                    return;
+                                };
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Running AcoustID fingerprinting...",
+                                );
+                                match super::acoustid_service::process_acoustid_for_directory(
+                                    &album_dir, &api_key,
+                                )
+                                .await
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcoustID tagged {count} file(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "AcoustID: no matches found for any files",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!("AcoustID skipped for {enrich_dl_id}: {e}");
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcoustID failed: {e}"),
+                                        );
+                                    }
                                 }
-                            }
+                            };
+
+                            // --- MusicBrainz lookup async block (Step 6b lookup, opt-in) ---
+                            // Returns Option<Vec<MusicVideoUrl>> with the discovered
+                            // video URLs. The actual GAMDL download of any Apple Music
+                            // videos is deferred to a sequential step BELOW Step 5/6
+                            // so it doesn't race with the per-track audio file writes.
+                            let musicbrainz_lookup_task = async {
+                                let isrc_tracks = mb_isrc_tracks?;
+                                if isrc_tracks.is_empty() {
+                                    return None;
+                                }
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &format!(
+                                        "MusicBrainz: looking up {} track(s) via ISRC...",
+                                        isrc_tracks.len()
+                                    ),
+                                );
+                                match super::musicbrainz_service::lookup_videos_for_tracks(
+                                    &isrc_tracks,
+                                )
+                                .await
+                                {
+                                    Ok(videos) if !videos.is_empty() => {
+                                        // Log all discovered platform URLs for future reference
+                                        for video in &videos {
+                                            log::info!(
+                                                "MusicBrainz video for {}: {} → {}",
+                                                enrich_dl_id,
+                                                video.platform,
+                                                video.url,
+                                            );
+                                        }
+                                        let am_count = videos
+                                            .iter()
+                                            .filter(|v| v.platform == "apple_music")
+                                            .count();
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "MusicBrainz: found {} video(s) ({} on Apple Music)",
+                                                videos.len(),
+                                                am_count,
+                                            ),
+                                        );
+                                        Some(videos)
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "MusicBrainz: no music videos found",
+                                        );
+                                        None
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "MusicBrainz lookup failed for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("MusicBrainz lookup failed: {e}"),
+                                        );
+                                        None
+                                    }
+                                }
+                            };
+
+                            let ((), musicbrainz_videos) =
+                                tokio::join!(acoustid_task, musicbrainz_lookup_task);
 
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
                                 return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ AcoustID fingerprinting completed{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "✓ AcoustID + MusicBrainz lookup completed{}",
+                                    album_context()
+                                ),
+                            );
 
                             set_label(
                                 "ReplayGain loudness analysis...",
@@ -7831,13 +7977,10 @@ pub fn process_queue(
                             // or queue progression. Gracefully skips if MusicKit credentials
                             // are not configured — Step 6b (MusicBrainz) provides a
                             // credential-free fallback path.
-                            // Phase 5e (#717): per-item override wins over the
-                            // global setting. Set by the Library Scan gap-fill
-                            // flow when the user opts in/out of MVs for a
-                            // specific re-download. `None` falls through to
-                            // settings (default for normal queue additions).
-                            let mv_companion_enabled = enrich_mv_override
-                                .unwrap_or(enrich_settings.music_video_companion);
+                            //
+                            // `mv_companion_enabled` was resolved earlier (above the
+                            // AcoustID || MusicBrainz join) so it could be shared between
+                            // the parallel lookup gate and this sequential download stage.
                             if mv_companion_enabled && !enrich_shutdown.is_triggered() {
                                 spawn_music_video_companion_inner(
                                     &enrich_app,
@@ -7850,128 +7993,47 @@ pub fn process_queue(
                                 .await;
                             }
 
-                            // --- Step 6b: MusicBrainz video discovery and download ---
-                            // Runs when `musicbrainz_lookup` OR `music_video_companion` is
-                            // enabled. Uses MusicBrainz ISRC lookups to discover music videos
-                            // that the MusicKit API may have missed (or as the sole discovery
-                            // method when MusicKit credentials are not configured). No
-                            // credentials required. When `music_video_companion` is also
-                            // enabled, Apple Music video URLs discovered here are downloaded
-                            // via GAMDL (same as Step 6). Cross-platform URLs (YouTube,
-                            // Spotify, etc.) are logged for future reference.
-                            // Phase 5e (#717): MusicBrainz lookup runs when
-                            // EITHER the standalone setting is on OR the
-                            // music-video-companion path is active (so we
-                            // can discover MV URLs via MB ISRC for the
-                            // companion downloader). Honour the per-item MV
-                            // override here too — opt-in/out applies to
-                            // both Apple Music + MusicBrainz MV discovery.
-                            tokio::task::yield_now().await;
-                            let run_musicbrainz = (enrich_settings.musicbrainz_lookup
-                                || mv_companion_enabled)
-                                && !enrich_shutdown.is_triggered();
-                            if run_musicbrainz {
-                                // Only run MusicBrainz lookup if we have ISRC codes from Step 1
-                                if let Some(ref metadata) = album_metadata {
-                                    let isrc_tracks: Vec<(String, Option<String>)> = metadata
-                                        .tracks
-                                        .iter()
-                                        .map(|t| (t.song_id.clone(), t.isrc.clone()))
-                                        .collect();
-
-                                    if !isrc_tracks.is_empty() {
-                                        set_label(
-                                            "MusicBrainz ISRC lookup (rate-limited)…",
-                                            ProgressStage::MusicVideoDiscovery.weight(),
-                                        );
-                                        emit_download_log(
+                            // --- Step 6b: Download MusicBrainz-discovered videos (opt-in) ---
+                            // The MusicBrainz lookup itself ran in parallel with AcoustID
+                            // (Steps 4 + 6b lookup, above). This block consumes the videos
+                            // it discovered and downloads any Apple Music URLs via GAMDL.
+                            // Cross-platform URLs (YouTube, Spotify, etc.) were already
+                            // logged at lookup time for future reference.
+                            //
+                            // Phase 5e (#717): per-item override applies here too — when
+                            // the user opted out of MVs for THIS gap-fill, MusicBrainz-
+                            // discovered URLs must not be downloaded either.
+                            if let Some(videos) = musicbrainz_videos {
+                                let am_videos: Vec<_> = videos
+                                    .iter()
+                                    .filter(|v| v.platform == "apple_music")
+                                    .collect();
+                                if mv_companion_enabled
+                                    && !am_videos.is_empty()
+                                    && !enrich_shutdown.is_triggered()
+                                {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!(
+                                            "MusicBrainz: downloading {} Apple Music video(s)...",
+                                            am_videos.len(),
+                                        ),
+                                    );
+                                    for video in &am_videos {
+                                        if enrich_shutdown.is_triggered() {
+                                            break;
+                                        }
+                                        let label =
+                                            video.title.as_deref().unwrap_or("unknown");
+                                        download_music_video_by_url(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            &format!(
-                                                "MusicBrainz: looking up {} track(s) via ISRC...",
-                                                isrc_tracks.len()
-                                            ),
-                                        );
-
-                                        match super::musicbrainz_service::lookup_videos_for_tracks(
-                                            &isrc_tracks,
+                                            &video.url,
+                                            label,
+                                            &enrich_settings,
                                         )
-                                        .await
-                                        {
-                                            Ok(videos) if !videos.is_empty() => {
-                                                // Filter for Apple Music video URLs (downloadable via GAMDL)
-                                                let am_videos: Vec<_> = videos
-                                                    .iter()
-                                                    .filter(|v| v.platform == "apple_music")
-                                                    .collect();
-
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!(
-                                                        "MusicBrainz: found {} video(s) ({} on Apple Music)",
-                                                        videos.len(),
-                                                        am_videos.len(),
-                                                    ),
-                                                );
-
-                                                // Log all discovered platform URLs for future reference
-                                                for video in &videos {
-                                                    log::info!(
-                                                        "MusicBrainz video for {}: {} → {}",
-                                                        enrich_dl_id,
-                                                        video.platform,
-                                                        video.url,
-                                                    );
-                                                }
-
-                                                // Phase 5e (#717): per-item override applies here too — when
-                                                // the user opted out of MVs for THIS gap-fill, MusicBrainz-
-                                                // discovered URLs must not be downloaded either.
-                                                if mv_companion_enabled && !am_videos.is_empty() {
-                                                    emit_download_log(
-                                                        &enrich_app,
-                                                        &enrich_dl_id,
-                                                        &format!(
-                                                            "MusicBrainz: downloading {} Apple Music video(s)...",
-                                                            am_videos.len(),
-                                                        ),
-                                                    );
-                                                    for video in &am_videos {
-                                                        if enrich_shutdown.is_triggered() {
-                                                            break;
-                                                        }
-                                                        let label = video
-                                                            .title
-                                                            .as_deref()
-                                                            .unwrap_or("unknown");
-                                                        download_music_video_by_url(
-                                                            &enrich_app,
-                                                            &enrich_dl_id,
-                                                            &video.url,
-                                                            label,
-                                                            &enrich_settings,
-                                                        )
-                                                        .await;
-                                                    }
-                                                }
-                                            }
-                                            Ok(_) => {
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    "MusicBrainz: no music videos found",
-                                                );
-                                            }
-                                            Err(e) => {
-                                                log::debug!("MusicBrainz lookup failed for {enrich_dl_id}: {e}");
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!("MusicBrainz lookup failed: {e}"),
-                                                );
-                                            }
-                                        }
+                                        .await;
                                     }
                                 }
                             }
