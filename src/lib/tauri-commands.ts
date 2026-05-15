@@ -585,6 +585,63 @@ export function retryDownload(downloadId: string): Promise<void> {
 }
 
 /**
+ * Move a `Queued` item to the top of the pending sub-sequence (#782).
+ *
+ * Rust handler: `move_queue_item_to_top()` in
+ * `src-tauri/src/commands/gamdl.rs`.
+ *
+ * Active items (`Downloading` / `Processing`) keep their absolute slot;
+ * the moved item lands at the front of the queued sub-sequence and
+ * becomes the next item `next_pending` will pick. Reorders are
+ * persisted to `queue.json` and survive an app restart.
+ *
+ * Returns `true` when the queue mutated, `false` for a no-op (item
+ * not found, not Queued, or already at the top).
+ *
+ * @param downloadId - UUID of the queued item to promote
+ * @returns true if the queue changed
+ */
+export function moveQueueItemToTop(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_to_top', { downloadId });
+}
+
+/**
+ * Move a `Queued` item to the bottom of the pending sub-sequence (#782).
+ *
+ * Rust handler: `move_queue_item_to_bottom()` in
+ * `src-tauri/src/commands/gamdl.rs`.
+ *
+ * @param downloadId - UUID of the queued item to demote
+ * @returns true if the queue changed
+ */
+export function moveQueueItemToBottom(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_to_bottom', { downloadId });
+}
+
+/**
+ * Swap a `Queued` item with the `Queued` item immediately above it (#782).
+ *
+ * Skips over any non-Queued items (active downloads, completed items
+ * from prior sessions) — the swap is *within* the queued sub-sequence.
+ *
+ * @param downloadId - UUID of the queued item to move up one position
+ * @returns true if the queue changed
+ */
+export function moveQueueItemUp(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_up', { downloadId });
+}
+
+/**
+ * Swap a `Queued` item with the `Queued` item immediately below it (#782).
+ *
+ * @param downloadId - UUID of the queued item to move down one position
+ * @returns true if the queue changed
+ */
+export function moveQueueItemDown(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_down', { downloadId });
+}
+
+/**
  * Retries a failed download with wrapper authentication disabled.
  *
  * Rust handler: `retry_download_without_wrapper()` in `src-tauri/src/commands/gamdl.rs`

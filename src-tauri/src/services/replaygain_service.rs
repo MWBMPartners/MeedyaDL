@@ -87,6 +87,11 @@ pub struct ReplayGainResult {
 /// * `reference_level` - Target loudness in LUFS (e.g., -18.0 for EBU R128)
 /// * `prevent_clipping` - When true, limits gain so peak × gain never exceeds 1.0
 /// * `include_album_gain` - When true, computes and writes album-level gain tags
+/// * `on_progress` - Called BEFORE each file is analysed with
+///   `(current_index_one_based, total_files)`. Lets the
+///   enrichment task surface live "ReplayGain: track 5 of 19"
+///   captions on the per-item progress bar (#574). Pass
+///   `|_, _| {}` if you don't need progress updates.
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
@@ -97,6 +102,7 @@ pub async fn process_replaygain_for_directory(
     reference_level: f64,
     prevent_clipping: bool,
     include_album_gain: bool,
+    on_progress: impl Fn(usize, usize) + Send,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
@@ -110,6 +116,7 @@ pub async fn process_replaygain_for_directory(
 
     let total_files = audio_files.len();
     for (idx, file_path) in audio_files.iter().enumerate() {
+        on_progress(idx + 1, total_files);
         log::info!(
             "ReplayGain: analysing file {}/{} — {}",
             idx + 1,
