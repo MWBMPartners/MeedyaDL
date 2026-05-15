@@ -58,10 +58,55 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- **(ci)** Pin Backend matrix macos slot to macos-14 + shim guard (#770)
+
+## Summary
+
+  Backend (macos-latest) on every push since the macos-latest → macos-15
+  runner image rotation in mid-2026 has been failing instantly at `cargo
+  check`. The job duration is ~1m, the failure step (`Cargo check`) takes
+  0s, and the error is:
+
+  ```
+  Run cargo check
+  error: error: unexpected argument 'check' found
+  Usage: rustup-init[EXE] [OPTIONS]
+  For more information, try '--help'.
+  Error: Process completed with exit code 1.
+  ```
+
+  ## Root cause
+
+  The macos-15 runner image ships a Homebrew `cargo` shim at
+  `/opt/homebrew/bin/cargo` that proxies to `rustup-init` when rustup
+  isn't fully initialised. The current `dtolnay/rust-toolchain@631a55b`
+  pin installs rustup at `~/.cargo/` and adds `~/.cargo/bin` to
+  `$GITHUB_PATH`, but the Homebrew shim wins the PATH race. When the
+  workflow then runs `cargo check`, the shim invokes `rustup-init check`,
+  which doesn't recognise `check` as a valid arg → instant failure.
+
+  This isn't a project code issue — it's a runner-image regression. Ubuntu
+  and Windows are unaffected (no Homebrew shim). Frontend (macos-latest)
+  is unaffected because that matrix never runs cargo.
+
+  ## Evidence
+
+  - Failed on PR #769 head commit `27b7000` (Backend macOS, 1m9s) — every
+  other backend platform passed against the same code.
+  - Failed again on the post-merge main commit `04a9798` (CI run #1400) —
+  also 1m4s, same `rustup-init` banner.
+  - Two consecutive failures on different shas with the same fingerprint
+  rules out one-shot flake.
+  - Job log screenshot confirms `Setup Node.js` (4s ✓), `Install npm
+  dependencies` (12s ✓), `Build frontend` (8s ✓), `Cargo check` (0s ❌).
+
+  ## Fix
+
 
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.4.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
