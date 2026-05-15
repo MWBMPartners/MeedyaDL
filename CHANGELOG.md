@@ -8,6 +8,45 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Combined MV / enrichment / queue / UX fixes (11 issues closed) (#781)
+
+Combined PR superseding #777, #778, #780, plus a string of additional MV
+  / enrichment / queue / UX fixes added in the same review window. Closes
+  11 issues.
+
+  | Closes | Title | Commit |
+  |---|---|---|
+  | #774 | fix(downloads): stop the no-op MV cover-art retry | `e17ea81` |
+  | #775 | fix(metadata): real music-video names in activity log |
+  `2660574` |
+  | #776 | perf(enrichment): unified dynamic timeout (tracks + tiers +
+  MVs) | `3d80315` + `0668875` |
+  | #779 | perf(enrichment): parallelise AcoustID + MusicBrainz lookup
+  (Option 1) | `1239b33` |
+  | Cluster #5 | fix: stop claiming MV companions completed when they
+  didn't | `deaef79` |
+  | #771 | fix(release): version-bump.yml now creates the git tag |
+  `b350ac3` |
+  | #568 | fix(parser): rewrite legacy iTunes URLs so GAMDL accepts them |
+  `da640c0` |
+  | #782 | feat(queue): reorder pending items live via right-click |
+  `d2ae5cc` |
+  | #467 | perf: virtualize the queue list for large queues | `5af5654` |
+  | #689 | perf: memoise QueueItem rows with field-aware comparator |
+  `4081628` |
+  | #574 | feat(ux): per-track captions for AcoustID + ReplayGain |
+  `1d207b0` |
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.4.2 [skip ci]
+
+## [1.4.2] - 2026-05-15
+
+### 🐛 Bug Fixes
+
 - **(test)** Drop rerender() that flakes on Windows CI (#765)
 
 ## Summary
