@@ -1180,13 +1180,6 @@ struct QueueItem {
     /// when neither catalog has the content. Reset by [`retry`] so a
     /// user-driven manual retry from the UI is allowed to try again.
     pub storefront_fallback_attempted: bool,
-    /// Whether [`try_mv_cover_workaround`] has already rewritten this
-    /// item's `exclude_tags` to skip the per-track cover fetcher (#715).
-    /// Budget is one attempt — guards against infinite loops when the
-    /// workaround itself fails for an unrelated reason. Reset by
-    /// [`retry`] so a user-driven manual retry from the UI may try
-    /// the workaround again on a fresh attempt.
-    pub mv_cover_workaround_attempted: bool,
 }
 
 // ============================================================
@@ -1516,7 +1509,6 @@ impl DownloadQueue {
             network_retries_left: self.max_network_retries,
             engine_fallback_index: 0,
             storefront_fallback_attempted: false,
-            mv_cover_workaround_attempted: false,
         };
 
         log::info!(
@@ -2325,72 +2317,6 @@ impl DownloadQueue {
         Some((from_storefront, target))
     }
 
-    /// Workaround retry for GAMDL's music-video cover-template bug (#715).
-    ///
-    /// GAMDL fetches per-track cover art for music videos from a URL with
-    /// `{w}x{h}` placeholders that should be replaced with concrete pixel
-    /// dimensions. On music-video albums (or any album whose tracks
-    /// include a (Visualizer) entry) GAMDL skips the substitution and
-    /// sends the literal `{w}x{h}` to Apple's CDN, which returns
-    /// `400 Bad Request`. Every track that hits this path fails without
-    /// downloading the audio.
-    ///
-    /// The bug is upstream and not fixed in GAMDL 3.5.1 (which only
-    /// addressed the m3u8 HLS 403). Until upstream lands a fix, we
-    /// work around it client-side by retrying with `cover` appended to
-    /// `--exclude-tags`. GAMDL then skips the buggy fetch entirely.
-    /// MeedyaDL's own `animated_artwork_service` separately fetches the
-    /// album-level cover via the Apple Music API (already part of the
-    /// enrichment pipeline), so the user keeps their album cover —
-    /// only the per-track music-video frame thumbnail (a nice-to-have
-    /// in MV files) is lost.
-    ///
-    /// Returns:
-    /// - `Some(())` — retry was set up, caller should re-queue
-    /// - `None` — retry not viable (already attempted, item missing,
-    ///   or no merged_options to mutate)
-    ///
-    /// Budget is one attempt per item (`mv_cover_workaround_attempted`)
-    /// to guard against infinite loops if the workaround itself fails
-    /// for an unrelated reason. Reset by [`Self::retry`] so a manual
-    /// user retry from the UI may try again on a fresh attempt.
-    pub fn try_mv_cover_workaround(&mut self, download_id: &str) -> Option<()> {
-        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
-        if item.mv_cover_workaround_attempted {
-            return None;
-        }
-
-        // Append "cover" to the existing exclude_tags CSV (or set it as
-        // the sole entry if none). De-dup so we don't accumulate
-        // duplicates if the user already happened to exclude cover.
-        let existing = item
-            .merged_options
-            .exclude_tags
-            .as_deref()
-            .unwrap_or("");
-        let already_excluded = existing
-            .split(',')
-            .any(|t| t.trim().eq_ignore_ascii_case("cover"));
-        if !already_excluded {
-            let new_excludes = if existing.is_empty() {
-                "cover".to_string()
-            } else {
-                format!("{existing},cover")
-            };
-            item.merged_options.exclude_tags = Some(new_excludes);
-        }
-
-        item.mv_cover_workaround_attempted = true;
-        item.status.state = DownloadState::Queued;
-        item.status.error = None;
-        item.status.progress = 0.0;
-
-        log::info!(
-            "MV cover-template workaround for {download_id}: retrying with `cover` in exclude_tags"
-        );
-        Some(())
-    }
-
     /// Gets the next queued item's download ID and options for execution.
     ///
     /// This is the "scheduler" — it decides whether a new download can start.
@@ -2548,11 +2474,6 @@ impl DownloadQueue {
                 // allowed to try the rewrite once again, even if the previous
                 // automatic fallback already exhausted its single attempt.
                 item.storefront_fallback_attempted = false;
-                // Same logic for the MV cover-template workaround (#715) —
-                // a manual retry should get a fresh attempt at the
-                // exclude-tags-cover workaround if the upstream bug was
-                // intermittent or the user fixed something in between.
-                item.mv_cover_workaround_attempted = false;
 
                 // Apply the smart-retry plan if one was produced. The plan
                 // narrows the URL set to per-track entries that GAMDL can
@@ -2778,7 +2699,6 @@ impl DownloadQueue {
                 engine_fallback_index: 0,
                 network_retries_left: self.max_network_retries,
                 storefront_fallback_attempted: false,
-                mv_cover_workaround_attempted: false,
             };
             self.items.push_back(item);
         }
@@ -8617,40 +8537,6 @@ pub fn process_queue(
                     // If no retry will occur, check auto-retry-without-wrapper
                     // before falling through to the terminal error path.
                     if !should_retry {
-                        // GAMDL music-video cover-template bug workaround
-                        // (#715). Checked BEFORE the storefront fallback
-                        // because the bug is its own root cause — the
-                        // storefront is fine, GAMDL's URL templating is
-                        // broken. Retrying with `cover` in `--exclude-tags`
-                        // skips the buggy fetch path; MeedyaDL's
-                        // `animated_artwork_service` supplies the album
-                        // cover separately during enrichment. Per-item
-                        // budget of one attempt guards against infinite
-                        // loops if the workaround itself fails.
-                        if process::is_mv_cover_template_bug_error(&error_msg) {
-                            let workaround = {
-                                let mut q = queue_clone.lock().await;
-                                q.try_mv_cover_workaround(&dl_id)
-                            };
-                            if workaround.is_some() {
-                                log::info!(
-                                    "Auto-retrying download {dl_id} with --exclude-tags cover \
-                                     (MV cover-template bug workaround)"
-                                );
-                                emit_download_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    "GAMDL music-video cover URL bug detected — \
-                                     retrying with cover-art fetching disabled (MeedyaDL \
-                                     supplies the album cover separately during enrichment)…",
-                                );
-                                save_queue_to_disk(&app_clone, &queue_clone).await;
-                                let _ = app_clone.emit("download-queued", &dl_id);
-                                process_queue(app_clone, queue_clone).await;
-                                return;
-                            }
-                        }
-
                         // Storefront fallback (#666). Try BEFORE wrapper auto-
                         // retry because (a) wrong-storefront and wrapper
                         // failure are different root causes, (b) if the album
@@ -9575,30 +9461,30 @@ async fn run_download_with_events(
         // fallback wouldn't help here — the URL works fine, GAMDL's
         // template engine is at fault.
         //
-        // **v3.5.1 status (Phase 3.5i, 2026-05-08)**: NOT fixed.
-        // GAMDL 3.5.1's only change was the music-video m3u8 HLS
-        // fix (`error 403` → success). The cover-URL templating bug
-        // is a separate code path inside GAMDL's per-track cover
-        // fetcher and remains broken on the latest release. The
-        // user-facing message therefore continues to recommend
-        // reporting upstream (the existing GitHub issue is the right
-        // place to track resolution).
-        //
-        // **Workaround tracking**: a viable client-side workaround
-        // is to retry with `--exclude-tags cover` when this bug
-        // fires; GAMDL skips the buggy fetch path entirely and
-        // MeedyaDL's own `animated_artwork_service` can supply the
-        // album cover separately. Tracked as a follow-up issue.
+        // **v3.5.2 status (#774, 2026-05-15)**: still NOT fixed
+        // upstream. The previous client-side retry that appended
+        // `cover` to `--exclude-tags` (#715) was removed once we
+        // verified against GAMDL 3.5.2 source that `--exclude-tags`
+        // only filters which tag KEYS get embedded — it doesn't
+        // skip the per-track cover URL FETCH that triggers the
+        // bug (`gamdl/downloader/music_video.py:202-208` runs the
+        // fetch unconditionally for non-RAW cover formats; the RAW
+        // path also fetches via `_get_cover_file_extension`). No
+        // GAMDL CLI flag combination can avoid the bad request, so
+        // we now report the failure clearly and stop. MeedyaDL's
+        // own `animated_artwork_service` still attaches the
+        // album-level cover during enrichment, so the album cover
+        // is preserved — only the per-track music-video frame
+        // thumbnail is lost.
         if process::is_gamdl_mv_cover_template_bug(&combined) {
             return Err(format!(
-                "GAMDL bug — music-video cover URL not templated. \
-                 Apple returned 400 Bad Request for {soft_errors} track(s) \
-                 because GAMDL sent the literal `{{w}}x{{h}}` placeholders \
-                 instead of real dimensions. Upstream — not fixed in \
-                 GAMDL 3.5.1 (which only addressed the music-video m3u8 \
-                 HLS 403). Please report at \
-                 https://github.com/glomatico/gamdl/issues. \
-                 Audio for affected tracks did not download."
+                "Music video cover-art bug in GAMDL — {soft_errors} track(s) \
+                 skipped. Audio for those tracks did not download. This is \
+                 an upstream bug (Apple returns 400 Bad Request because \
+                 GAMDL sends literal `{{w}}x{{h}}` placeholders instead of \
+                 real dimensions). The album cover is still attached \
+                 separately during MeedyaDL's enrichment pass. Please \
+                 report at https://github.com/glomatico/gamdl/issues."
             ));
         }
 
@@ -11763,110 +11649,6 @@ mod tests {
         // the budget *would* allow it.
         settings.storefront = "fr".to_string();
         assert!(queue.try_storefront_fallback(&id, &settings).is_some());
-    }
-
-    // ----------------------------------------------------------
-    // try_mv_cover_workaround — #715 / GAMDL MV cover-URL bug
-    // ----------------------------------------------------------
-
-    /// Sets the workaround budget on first call, appends `cover` to
-    /// `exclude_tags`, resets state to Queued. Second call returns None
-    /// (budget exhausted).
-    #[test]
-    fn try_mv_cover_workaround_appends_cover_and_consumes_budget() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        // First call wires the workaround.
-        assert_eq!(queue.try_mv_cover_workaround(&id), Some(()));
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert!(item.mv_cover_workaround_attempted, "budget consumed");
-        assert_eq!(item.merged_options.exclude_tags.as_deref(), Some("cover"));
-        assert_eq!(item.status.state, DownloadState::Queued);
-        assert!(item.status.error.is_none());
-
-        // Second call returns None — never ping-pong.
-        assert_eq!(queue.try_mv_cover_workaround(&id), None);
-    }
-
-    /// Preserves any pre-existing exclude_tags entries when appending
-    /// `cover`. CSV-aware so a user who already excludes `lyrics` still
-    /// has their setting honoured.
-    #[test]
-    fn try_mv_cover_workaround_preserves_existing_excludes() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
-            item.merged_options.exclude_tags = Some("lyrics,disc".to_string());
-        }
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        assert!(queue.try_mv_cover_workaround(&id).is_some());
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert_eq!(
-            item.merged_options.exclude_tags.as_deref(),
-            Some("lyrics,disc,cover"),
-            "must append `cover` after existing entries"
-        );
-    }
-
-    /// Idempotent on repeated `cover` adds — if exclude_tags already
-    /// contains `cover` (any case / whitespace), no duplication.
-    #[test]
-    fn try_mv_cover_workaround_does_not_duplicate_cover_entry() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
-            item.merged_options.exclude_tags = Some("lyrics, Cover".to_string());
-        }
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        assert!(queue.try_mv_cover_workaround(&id).is_some());
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert_eq!(
-            item.merged_options.exclude_tags.as_deref(),
-            Some("lyrics, Cover"),
-            "must NOT duplicate `cover` when already present (case-insensitive)"
-        );
-    }
-
-    /// Manual user retry (the user clicks Retry in the UI) refreshes
-    /// the workaround budget — same convention as the storefront
-    /// fallback budget.
-    #[test]
-    fn retry_resets_mv_cover_workaround_budget() {
-        let mut queue = DownloadQueue::new();
-        let settings = test_settings();
-        let id = queue.enqueue(test_request(), &settings);
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-
-        assert!(queue.try_mv_cover_workaround(&id).is_some());
-        queue.set_error(&id, "GAMDL bug — music-video cover URL not templated…");
-        assert!(queue.try_mv_cover_workaround(&id).is_none(), "budget exhausted");
-
-        assert!(queue.retry(&id, &settings));
-        let item = queue
-            .items
-            .iter()
-            .find(|i| i.status.id == id)
-            .expect("item exists");
-        assert!(!item.mv_cover_workaround_attempted, "retry resets budget");
     }
 
     // ==========================================================

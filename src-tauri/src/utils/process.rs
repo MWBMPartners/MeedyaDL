@@ -1065,27 +1065,6 @@ pub fn is_gamdl_mv_cover_template_bug(error_message: &str) -> bool {
     has_400 && has_mv_url && has_unsubstituted_template
 }
 
-/// Detects whether an already-classified error string came from
-/// MeedyaDL's own `is_gamdl_mv_cover_template_bug` branch (#715
-/// workaround retry).
-///
-/// Distinct from [`is_gamdl_mv_cover_template_bug`] which inspects raw
-/// GAMDL output; this one inspects the post-processed friendly message
-/// MeedyaDL emits after detection ("GAMDL bug — music-video cover URL
-/// not templated"). The error-handler in the queue uses this to decide
-/// whether to attempt [`DownloadQueue::try_mv_cover_workaround`] retry
-/// instead of falling through to a terminal failure.
-///
-/// Match is case-insensitive on the unique distinguishing phrase
-/// "music-video cover URL not templated", which doesn't appear in any
-/// other MeedyaDL or GAMDL message.
-#[must_use]
-pub fn is_mv_cover_template_bug_error(error_message: &str) -> bool {
-    error_message
-        .to_lowercase()
-        .contains("music-video cover url not templated")
-}
-
 // ============================================================
 // GAMDL output classification helpers (companion download safety)
 // ============================================================
