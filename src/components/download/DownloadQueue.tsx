@@ -264,46 +264,55 @@ export function DownloadQueue() {
   // ---------------------------------------------------------------
 
   /**
-   * Cancel an active or queued download.
-   * Wraps `cancelDownload()` with toast feedback.
-   * @param id - The unique download ID from the backend.
+   * Per-row handlers wrapped in `useCallback` so their identity stays
+   * stable across renders (#689). Without this, the parent re-renders
+   * (queue updates land at ~10×/sec via `queue-updated` events when
+   * downloads are active) would create fresh function refs and defeat
+   * the `React.memo` comparator we just added to QueueItem.
+   *
+   * Dependencies are intentionally limited to store-derived setters,
+   * which Zustand returns as stable references for the lifetime of the
+   * store — so `[]` deps would also work, but listing them explicitly
+   * keeps the eslint-react-hooks rule happy without a disable comment.
+   *
+   * Each handler is a pure invoke-and-toast wrapper; any error path
+   * lands in a toast, never escapes the function.
    */
-  const handleCancel = async (id: string) => {
-    try {
-      await cancelDownload(id);
-      addToast('Download cancelled', 'info');
-    } catch {
-      addToast('Failed to cancel download', 'error');
-    }
-  };
+  const handleCancel = useCallback(
+    async (id: string) => {
+      try {
+        await cancelDownload(id);
+        addToast('Download cancelled', 'info');
+      } catch {
+        addToast('Failed to cancel download', 'error');
+      }
+    },
+    [cancelDownload, addToast]
+  );
 
-  /**
-   * Retry a failed or cancelled download.
-   * Wraps `retryDownload()` with toast feedback.
-   * @param id - The unique download ID from the backend.
-   */
-  const handleRetry = async (id: string) => {
-    try {
-      await retryDownload(id);
-      addToast('Download requeued', 'info');
-    } catch {
-      addToast('Failed to retry download', 'error');
-    }
-  };
+  const handleRetry = useCallback(
+    async (id: string) => {
+      try {
+        await retryDownload(id);
+        addToast('Download requeued', 'info');
+      } catch {
+        addToast('Failed to retry download', 'error');
+      }
+    },
+    [retryDownload, addToast]
+  );
 
-  /**
-   * Retry a failed download without the wrapper system.
-   * Wraps `retryWithoutWrapper()` with toast feedback.
-   * @param id - The unique download ID from the backend.
-   */
-  const handleRetryWithoutWrapper = async (id: string) => {
-    try {
-      await retryWithoutWrapper(id);
-      addToast('Download requeued without wrapper', 'info');
-    } catch {
-      addToast('Failed to retry download without wrapper', 'error');
-    }
-  };
+  const handleRetryWithoutWrapper = useCallback(
+    async (id: string) => {
+      try {
+        await retryWithoutWrapper(id);
+        addToast('Download requeued without wrapper', 'info');
+      } catch {
+        addToast('Failed to retry download without wrapper', 'error');
+      }
+    },
+    [retryWithoutWrapper, addToast]
+  );
 
   /**
    * Queue reorder handlers (#782). Each calls the matching IPC, lets
@@ -317,35 +326,52 @@ export function DownloadQueue() {
    * authoritative state from disk on the next tick. This keeps the
    * client always in sync with the persisted order, including
    * across an app restart.
+   *
+   * Wrapped in `useCallback` for the same memo-stability reason as
+   * the per-row cancel/retry handlers above (#689). The IPC wrappers
+   * themselves are module-level imports, so `[addToast]` is the only
+   * real dep.
    */
-  const handleMoveToTop = async (id: string) => {
-    try {
-      await moveQueueItemToTop(id);
-    } catch {
-      addToast('Failed to move item', 'error');
-    }
-  };
-  const handleMoveUp = async (id: string) => {
-    try {
-      await moveQueueItemUp(id);
-    } catch {
-      addToast('Failed to move item', 'error');
-    }
-  };
-  const handleMoveDown = async (id: string) => {
-    try {
-      await moveQueueItemDown(id);
-    } catch {
-      addToast('Failed to move item', 'error');
-    }
-  };
-  const handleMoveToBottom = async (id: string) => {
-    try {
-      await moveQueueItemToBottom(id);
-    } catch {
-      addToast('Failed to move item', 'error');
-    }
-  };
+  const handleMoveToTop = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemToTop(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
+  const handleMoveUp = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemUp(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
+  const handleMoveDown = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemDown(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
+  const handleMoveToBottom = useCallback(
+    async (id: string) => {
+      try {
+        await moveQueueItemToBottom(id);
+      } catch {
+        addToast('Failed to move item', 'error');
+      }
+    },
+    [addToast]
+  );
 
   /**
    * Export the current queue to a `.meedyadl` file.
@@ -414,11 +440,19 @@ export function DownloadQueue() {
    * targeted item — actual deletion happens in
    * `handleDeleteItemConfirmed` only after the user confirms.
    */
-  const handleDeleteItem = (id: string) => {
-    const target = queueItems.find((i) => i.id === id);
+  const handleDeleteItem = useCallback((id: string) => {
+    // Read the item via `useDownloadStore.getState()` instead of the
+    // closed-over `queueItems` array (#689). Closing over `queueItems`
+    // would force a fresh callback identity on every queue update
+    // (~10×/sec for active downloads), defeating the React.memo
+    // comparator on QueueItem. The getState read happens at click
+    // time, so the lookup is still correct against current state.
+    const target = useDownloadStore
+      .getState()
+      .queueItems.find((i) => i.id === id);
     if (!target) return;
     setDeleteTarget(target);
-  };
+  }, []);
 
   /**
    * Confirms the Delete action for the currently-targeted item. Errors
