@@ -43,6 +43,8 @@ Combined PR superseding #777, #778, #780, plus a string of additional MV
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.4.2 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.4.3 [skip ci]
 
 ### 🧹 Maintenance
 
