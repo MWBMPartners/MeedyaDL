@@ -223,7 +223,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Scrubbing Homebrew rustup shims (root cause of PR #770 v1 failure)..."
+          echo "Scrubbing Homebrew rustup shims AND stale ~/.cargo/bin/ symlinks..."
+          # /opt/homebrew/bin/ + /usr/local/bin/ — Homebrew install paths.
           for bindir in /opt/homebrew/bin /usr/local/bin; do
             for binname in cargo rustc rustdoc rustup rustup-init; do
               target="$bindir/$binname"
@@ -233,6 +234,28 @@ jobs:
               fi
             done
           done
+          # ~/.cargo/bin/ — runner image bakes this in pre-symlinked to
+          # the Homebrew rustup-init we just removed (PR #770 v3 root
+          # cause). Wipe it too so the upstream installer rebuilds clean
+          # links to ~/.cargo/bin/rustup (the actual proxy, not
+          # rustup-init).
+          if [ -d "${HOME}/.cargo/bin" ]; then
+            for binname in cargo rustc rustdoc rustup rustup-init; do
+              target="${HOME}/.cargo/bin/${binname}"
+              if [ -e "$target" ] || [ -L "$target" ]; then
+                echo "  removing $target"
+                rm -f "$target"
+              fi
+            done
+          fi
+          # ~/.rustup/ — pre-installed on the runner image; without
+          # removing it, `rustup-init.sh` short-circuits with
+          # "Updating existing toolchain" and never re-populates
+          # ~/.cargo/bin/. Wipe so the installer takes the fresh path.
+          if [ -d "${HOME}/.rustup" ]; then
+            echo "  removing ${HOME}/.rustup (forces fresh install)"
+            rm -rf "${HOME}/.rustup"
+          fi
           echo "Done. Remaining cargo on PATH (should be empty until Setup Rust runs):"
           command -v cargo || echo "  (none — good, Setup Rust will install a clean one)"
 
