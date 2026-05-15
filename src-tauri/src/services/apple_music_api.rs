@@ -1277,11 +1277,24 @@ pub async fn fetch_music_video_relations(
     let client = crate::utils::http_client::build_simple(30)?;
     let mut relations = Vec::new();
 
-    // Batch song IDs into groups of 100 (Apple Music API limit per request)
+    // Batch song IDs into groups of 100 (Apple Music API limit per request).
+    //
+    // We pass BOTH `include=music-videos` AND `relate=music-videos`:
+    // - `include` puts the related resources in a top-level `included[]`
+    //   array with full `attributes` (this is where `name` lives).
+    // - `relate` keeps the inline `relationships.music-videos.data[]`
+    //   structure populated, which is what we use to associate each
+    //   song_id with its MV ids. We use it as a defensive fallback for
+    //   the (rare) case where Apple omits `included[]`.
+    //
+    // Without `include`, `relate` alone returns only `id` + `type` on
+    // the inline references — so the per-MV `attributes.name` lookup
+    // returns `None` for every entry and the activity log says
+    // "Downloading music video: unknown" (#775).
     for chunk in song_ids.chunks(100) {
         let ids_param = chunk.join(",");
         let url = format!(
-            "https://api.music.apple.com/v1/catalog/{storefront}/songs?ids={ids_param}&relate=music-videos"
+            "https://api.music.apple.com/v1/catalog/{storefront}/songs?ids={ids_param}&include=music-videos&relate=music-videos"
         );
 
         log::debug!(
@@ -1309,6 +1322,11 @@ pub async fn fetch_music_video_relations(
             .await
             .map_err(|e| format!("Failed to parse music video relations response: {e}"))?;
 
+        // Build a side-table of MV ID → name from the top-level
+        // `included[]` array. JSON:API style: each entry has its own
+        // `id`, `type`, and full `attributes` block.
+        let included_names = build_included_name_lookup(&json);
+
         // Parse each song in the response
         if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
             for song in data {
@@ -1331,11 +1349,21 @@ pub async fn fetch_music_video_relations(
                             None => continue,
                         };
 
-                        let name = mv
-                            .get("attributes")
-                            .and_then(|a| a.get("name"))
-                            .and_then(|v| v.as_str())
-                            .map(std::string::ToString::to_string);
+                        // Prefer the name from `included[]` (the only
+                        // place full attributes are guaranteed to live
+                        // when `include=music-videos` is set). Fall
+                        // back to the inline `attributes.name` so we
+                        // still recover something if Apple sends a
+                        // sparse response.
+                        let name = included_names
+                            .get(music_video_id.as_str())
+                            .cloned()
+                            .or_else(|| {
+                                mv.get("attributes")
+                                    .and_then(|a| a.get("name"))
+                                    .and_then(|v| v.as_str())
+                                    .map(std::string::ToString::to_string)
+                            });
 
                         relations.push(MusicVideoRelation {
                             song_id: song_id.clone(),
@@ -1349,6 +1377,47 @@ pub async fn fetch_music_video_relations(
     }
 
     Ok(relations)
+}
+
+/// Builds a `MV id → name` lookup table from the top-level `included[]`
+/// array of an Apple Music JSON:API response.
+///
+/// Returns an empty map if `included[]` is absent or contains no
+/// `music-videos` entries with a `name` attribute. Callers should treat
+/// a missing entry as "fall back to inline relationship data."
+fn build_included_name_lookup(
+    json: &serde_json::Value,
+) -> std::collections::HashMap<String, String> {
+    let mut lookup = std::collections::HashMap::new();
+
+    let Some(included) = json.get("included").and_then(|v| v.as_array()) else {
+        return lookup;
+    };
+
+    for entry in included {
+        // Restrict to music-videos so we don't accidentally pick up the
+        // name of a different included resource type that happens to
+        // share an ID space.
+        if entry.get("type").and_then(|t| t.as_str()) != Some("music-videos") {
+            continue;
+        }
+
+        let Some(id) = entry.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+
+        let Some(name) = entry
+            .get("attributes")
+            .and_then(|a| a.get("name"))
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+
+        lookup.insert(id.to_string(), name.to_string());
+    }
+
+    lookup
 }
 
 // ============================================================
@@ -2881,6 +2950,87 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
 
         let json = serde_json::to_string(&relation).unwrap();
         assert!(json.contains("\"name\":null"));
+    }
+
+    // ----------------------------------------------------------
+    // build_included_name_lookup — JSON:API parser for MV names (#775)
+    // ----------------------------------------------------------
+
+    /// Happy path: `included[]` contains music-video entries with names;
+    /// the lookup picks them up keyed by id.
+    #[test]
+    fn build_included_name_lookup_extracts_mv_names() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "data": [],
+                "included": [
+                    { "id": "1649500001", "type": "music-videos",
+                      "attributes": { "name": "Lavender Haze" } },
+                    { "id": "1649500002", "type": "music-videos",
+                      "attributes": { "name": "Anti-Hero" } }
+                ]
+            }"#,
+        )
+        .expect("test JSON parses");
+
+        let lookup = super::build_included_name_lookup(&json);
+        assert_eq!(lookup.get("1649500001"), Some(&"Lavender Haze".to_string()));
+        assert_eq!(lookup.get("1649500002"), Some(&"Anti-Hero".to_string()));
+        assert_eq!(lookup.len(), 2);
+    }
+
+    /// Defensive: response without `included[]` returns an empty map
+    /// (callers fall back to inline relationship data).
+    #[test]
+    fn build_included_name_lookup_handles_missing_included_array() {
+        let json: serde_json::Value = serde_json::from_str(r#"{"data": []}"#).unwrap();
+        let lookup = super::build_included_name_lookup(&json);
+        assert!(lookup.is_empty());
+    }
+
+    /// Type discrimination: only entries with `type=="music-videos"`
+    /// contribute to the lookup. Songs / albums / other resource types
+    /// in `included[]` are ignored even if they share an ID space.
+    #[test]
+    fn build_included_name_lookup_ignores_non_mv_resource_types() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "data": [],
+                "included": [
+                    { "id": "999", "type": "songs",
+                      "attributes": { "name": "Song Title" } },
+                    { "id": "999", "type": "music-videos",
+                      "attributes": { "name": "MV Title" } }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let lookup = super::build_included_name_lookup(&json);
+        assert_eq!(lookup.get("999"), Some(&"MV Title".to_string()));
+        assert_eq!(lookup.len(), 1);
+    }
+
+    /// Defensive: an MV entry without `attributes.name` is skipped
+    /// rather than panicking. Callers fall back to inline data.
+    #[test]
+    fn build_included_name_lookup_skips_entries_without_name() {
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "data": [],
+                "included": [
+                    { "id": "100", "type": "music-videos",
+                      "attributes": { "artistName": "Some Artist" } },
+                    { "id": "101", "type": "music-videos",
+                      "attributes": { "name": "Has Name" } }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let lookup = super::build_included_name_lookup(&json);
+        assert!(!lookup.contains_key("100"), "no name → not in lookup");
+        assert_eq!(lookup.get("101"), Some(&"Has Name".to_string()));
     }
 
     // ----------------------------------------------------------
