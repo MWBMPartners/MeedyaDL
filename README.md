@@ -445,7 +445,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v1.4.3) <!-- x-release-please-version -->
+### v1.x — Current (v1.4.4) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
