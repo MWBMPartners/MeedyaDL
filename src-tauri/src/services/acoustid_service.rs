@@ -119,6 +119,11 @@ pub fn resolve_api_key(user_key: &str) -> Option<String> {
 ///   so users see "AcoustID: track 5 of 19" instead of a static
 ///   "AcoustID fingerprinting…" for the entire stage (#574).
 ///   Pass `|_, _| {}` if you don't need progress updates.
+/// * `file_locks` - Optional shared per-file write-coordination map
+///   (#779 Option 2). When supplied, each per-file
+///   `Tag::write_to_path` call acquires the lock for that file so
+///   it serialises with any other stage that's writing to the same
+///   file (notably ReplayGain). Pass `None` for standalone use.
 ///
 /// # Errors
 ///
@@ -131,6 +136,7 @@ pub async fn process_acoustid_for_directory(
     output_path: &str,
     api_key: &str,
     on_progress: impl Fn(usize, usize) + Send,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
 ) -> Result<usize, String> {
     if api_key.is_empty() {
         return Err("AcoustID API key not configured".to_string());
@@ -157,7 +163,7 @@ pub async fn process_acoustid_for_directory(
             sleep(API_RATE_LIMIT_DELAY).await;
         }
 
-        match process_single_file(file_path, api_key).await {
+        match process_single_file(file_path, api_key, file_locks).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
                 log::debug!("No AcoustID match for {}", file_path.display());
@@ -186,7 +192,17 @@ pub async fn process_acoustid_for_directory(
 /// Generate fingerprint, look up `AcoustID`, and write tags for a single file.
 ///
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
-async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, String> {
+///
+/// `file_locks` (when supplied) is used to serialise the write phase with
+/// any concurrent stage touching the same M4A file (#779 Option 2). The
+/// lock is held ONLY around the `Tag::read_from_path` → `set_data` →
+/// `Tag::write_to_path` cycle, so the slow fingerprint + API-lookup work
+/// runs without blocking other stages.
+async fn process_single_file(
+    file_path: &Path,
+    api_key: &str,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+) -> Result<bool, String> {
     // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
     // This is CPU-intensive (decodes the entire audio file), so we run it
     // on a blocking thread to avoid starving the async runtime.
@@ -201,7 +217,18 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
         return Ok(false); // No match found
     };
 
-    // Step 3: Write tags on a blocking thread to avoid starving the async
+    // Step 3: Acquire the per-file write lock (#779 Option 2). When
+    // supplied, this serialises against any other enrichment stage
+    // (notably ReplayGain) writing to the same file. Acquired BEFORE
+    // the spawn_blocking so the blocking task itself is short — read,
+    // mutate, write, release. The slow CPU-bound fingerprint work above
+    // already completed on its own thread without holding the lock.
+    let _write_guard = match file_locks {
+        Some(locks) => Some(locks.lock(file_path).await),
+        None => None,
+    };
+
+    // Step 4: Write tags on a blocking thread to avoid starving the async
     // runtime. Tag::read_from_path / Tag::write_to_path are sync I/O that
     // can block for seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
     let tag_path = file_path.to_path_buf();

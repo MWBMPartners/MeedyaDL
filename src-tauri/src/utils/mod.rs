@@ -131,3 +131,13 @@ pub mod subprocess_reader;
 /// durability changes (fsync, retry-on-EBUSY, lock-file support)
 /// touch one place.
 pub mod atomic_write;
+
+/// Per-file write-coordination locks for concurrent enrichment stages
+/// (#779 Option 2). When AcoustID and ReplayGain both write freeform
+/// atoms to the same M4A file via `mp4ameta::Tag::write_to_path`, the
+/// read-modify-write cycle races at the byte level — last write wins,
+/// losing the other stage's atoms. `FileWriteLocks` serialises writes
+/// at the granularity of a single file so the slow per-file analyses
+/// (chromaprint, FFmpeg ebur128) can run truly in parallel while the
+/// fast millisecond-scale writes coordinate correctly.
+pub mod file_locks;
