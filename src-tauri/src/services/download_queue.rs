@@ -8075,17 +8075,33 @@ pub fn process_queue(
                                 };
 
                             set_label(
-                                "AcoustID + MusicBrainz lookup (parallel)…",
+                                "AcoustID + MusicBrainz lookup + ReplayGain (parallel)…",
                                 ProgressStage::AcoustId.weight(),
                             );
                             emit_download_log(
                                 &enrich_app,
                                 &enrich_dl_id,
                                 &format!(
-                                    "▶ AcoustID + MusicBrainz lookup started in parallel{}",
+                                    "▶ AcoustID + MusicBrainz lookup + ReplayGain started in parallel{}",
                                     album_context()
                                 ),
                             );
+
+                            // Per-file write-coordination map (#779 Option 2).
+                            // AcoustID and ReplayGain both write freeform
+                            // atoms to the SAME M4A files via
+                            // `mp4ameta::Tag::write_to_path`. The locks
+                            // serialise their writes at the granularity of a
+                            // single file so the slow per-file analyses
+                            // (chromaprint, FFmpeg ebur128) can run truly in
+                            // parallel without racing on the tag-write
+                            // critical section. MusicBrainz doesn't touch
+                            // audio files at all, so it never contends.
+                            let enrich_file_locks = std::sync::Arc::new(
+                                crate::utils::file_locks::FileWriteLocks::new(),
+                            );
+                            let acoustid_file_locks = enrich_file_locks.clone();
+                            let replaygain_file_locks = enrich_file_locks.clone();
 
                             // --- AcoustID async block (Step 4, opt-in) ---
                             // Generates Chromaprint fingerprints via the embedded
@@ -8114,15 +8130,14 @@ pub fn process_queue(
                                 match super::acoustid_service::process_acoustid_for_directory(
                                     &album_dir,
                                     &api_key,
-                                    // Per-track caption update (#574). Updates
-                                    // the per-item progress-bar caption as
-                                    // AcoustID iterates files so users see
-                                    // forward progress instead of a static
-                                    // label for the entire (~60-120 s) stage.
-                                    // MusicBrainz lookup runs in parallel and
-                                    // doesn't update the caption, so AcoustID
-                                    // owns the caption for the duration of
-                                    // this branch.
+                                    // Per-track caption update (#574). Both
+                                    // AcoustID and ReplayGain now race to
+                                    // update the caption (they run in
+                                    // parallel post #779 Option 2). User
+                                    // sees whichever stage updated last —
+                                    // still better than the previous static
+                                    // label, and both labels name the stage
+                                    // so the caption is always meaningful.
                                     |current, total| {
                                         set_label(
                                             &format!(
@@ -8131,6 +8146,7 @@ pub fn process_queue(
                                             ProgressStage::AcoustId.weight(),
                                         );
                                     },
+                                    Some(&acoustid_file_locks),
                                 )
                                 .await
                                 {
@@ -8232,32 +8248,20 @@ pub fn process_queue(
                                 }
                             };
 
-                            let ((), musicbrainz_videos) =
-                                tokio::join!(acoustid_task, musicbrainz_lookup_task);
-
-                            if enrich_shutdown.is_triggered() {
-                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
-                                return;
-                            }
-
-                            emit_download_log(
-                                &enrich_app,
-                                &enrich_dl_id,
-                                &format!(
-                                    "✓ AcoustID + MusicBrainz lookup completed{}",
-                                    album_context()
-                                ),
-                            );
-
-                            set_label(
-                                "ReplayGain loudness analysis...",
-                                ProgressStage::ReplayGain.weight(),
-                            );
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
-                            // --- Step 5: ReplayGain loudness analysis (opt-in) ---
-                            // When enabled, analyses each file's loudness via FFmpeg's
-                            // ebur128 filter and writes non-destructive ReplayGain tags.
-                            if enrich_settings.replaygain_enabled {
+                            // --- ReplayGain async block (Step 5, opt-in) ---
+                            // Moved into the parallel join (#779 Option 2) so
+                            // its per-file FFmpeg ebur128 decode overlaps
+                            // with AcoustID's chromaprint + API work. The
+                            // tag-write race against AcoustID is prevented
+                            // by `enrich_file_locks` — both stages acquire
+                            // the per-file lock before mp4ameta touches the
+                            // file. The slow analysis (which is what
+                            // actually takes 5-10 sec/track on long-form
+                            // audio) runs without holding the lock.
+                            let replaygain_task = async {
+                                if !enrich_settings.replaygain_enabled {
+                                    return;
+                                }
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -8274,14 +8278,6 @@ pub fn process_queue(
                                     enrich_settings.replaygain_reference_level,
                                     enrich_settings.replaygain_prevent_clipping,
                                     enrich_settings.replaygain_album_gain,
-                                    // Per-track caption update (#574). The
-                                    // per-file FFmpeg ebur128 decode dominates
-                                    // ReplayGain wall time on long-form
-                                    // audio (live tracks 8-15 min each);
-                                    // updating the caption per file so the
-                                    // user sees forward progress instead of
-                                    // a static "ReplayGain analysis…" for
-                                    // 5-10 min on heavy albums.
                                     |current, total| {
                                         set_label(
                                             &format!(
@@ -8290,13 +8286,14 @@ pub fn process_queue(
                                             ProgressStage::ReplayGain.weight(),
                                         );
                                     },
+                                    Some(&replaygain_file_locks),
                                 )
                                 .await
                                 {
                                     Ok(count) if count > 0 => {
                                         log::info!(
-                                        "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
-                                    );
+                                            "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
@@ -8319,9 +8316,24 @@ pub fn process_queue(
                                         );
                                     }
                                 }
+                            };
+
+                            let ((), musicbrainz_videos, ()) =
+                                tokio::join!(acoustid_task, musicbrainz_lookup_task, replaygain_task);
+
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ ReplayGain analysis completed{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "✓ AcoustID + MusicBrainz lookup + ReplayGain completed{}",
+                                    album_context()
+                                ),
+                            );
 
                             set_label(
                                 "Music video discovery...",
