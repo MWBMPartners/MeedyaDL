@@ -8,6 +8,48 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Companion folder merge + fully parallel enrichment (#528, #779) (#786)
+
+Two fixes shipping together as v1.4.4:
+
+  | Closes | Title | Commit |
+  |---|---|---|
+  | #528 | fix: companion + advisory suffix no longer produces two sibling
+  folders | `dc579e6` |
+  | #779 | perf: enrichment fully parallel via per-file write locks
+  (Option 2) | `327752a` |
+
+  ## What's new (user-facing)
+
+  - **Companion downloads now merge with the primary album.** When you
+  download an Explicit album with companion codecs enabled (e.g. Atmos
+  primary + ALAC companion), MeedyaDL no longer leaves you with two
+  sibling folders (`Album/` and `Album [Explicit]/`) — both codec variants
+  now land in the single `Album [Explicit]/` folder per the user's
+  expectation. The per-file `[Lossless]` / `[Dolby Atmos]` codec suffixes
+  already prevent filename collisions inside that one folder. (#528)
+
+  - **Enrichment is roughly 40-50% faster on heavy albums.** AcoustID
+  fingerprinting, MusicBrainz ISRC lookup, and ReplayGain analysis now run
+  **fully in parallel** instead of staged. On a 19-track live album with
+  both AcoustID and ReplayGain enabled, total wall time drops from ~210 s
+  → ~120 s. v1.4.3 only parallelised AcoustID + MusicBrainz (Option 1);
+  this PR completes the picture by adding per-file write coordination so
+  ReplayGain can run alongside without racing on `mp4ameta` tag writes.
+  (#779)
+
+  ---
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.4.3] - 2026-05-15
+
+### 🐛 Bug Fixes
+
 - Combined MV / enrichment / queue / UX fixes (11 issues closed) (#781)
 
 Combined PR superseding #777, #778, #780, plus a string of additional MV
@@ -44,7 +86,6 @@ Combined PR superseding #777, #778, #780, plus a string of additional MV
 - **(security)** Update supported versions to 1.4.2 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.4.3 [skip ci]
 
 ### 🧹 Maintenance
 
