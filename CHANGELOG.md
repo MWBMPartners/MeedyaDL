@@ -45,6 +45,8 @@ Two fixes shipping together as v1.4.4:
 
 - **(security)** Update supported versions to 1.4.3 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.4.4 [skip ci]
 
 ## [1.4.3] - 2026-05-15
 
