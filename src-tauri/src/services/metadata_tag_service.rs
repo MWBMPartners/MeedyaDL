@@ -1348,7 +1348,14 @@ fn write_tags_from_registry(
 /// Apple Music normally returns lowercase `"explicit"` / `"clean"`, but we
 /// match case-insensitively to be defensive against capitalisation drift
 /// across API responses and locale variants.
-fn advisory_suffix(content_rating: &str) -> Option<&'static str> {
+///
+/// Made `pub` in #528 so the companion-spawn site in `download_queue.rs`
+/// can predict the suffix the primary's enrichment will apply, and inject
+/// it into the companion's GAMDL folder template — preventing the
+/// sibling-folder bug where the companion writes to `Album/` while the
+/// renamed primary lives at `Album [Explicit]/`.
+#[must_use]
+pub fn advisory_suffix(content_rating: &str) -> Option<&'static str> {
     match content_rating.trim().to_ascii_lowercase().as_str() {
         "explicit" => Some("[Explicit]"),
         "clean" | "cleaned" | "explicitcleaned" => Some("[Clean]"),

@@ -92,6 +92,11 @@ pub struct ReplayGainResult {
 ///   enrichment task surface live "ReplayGain: track 5 of 19"
 ///   captions on the per-item progress bar (#574). Pass
 ///   `|_, _| {}` if you don't need progress updates.
+/// * `file_locks` - Optional shared per-file write-coordination map
+///   (#779 Option 2). When supplied, each per-file tag-write
+///   acquires the lock for that file so it serialises with any
+///   other stage (notably AcoustID) writing to the same file.
+///   Pass `None` for standalone use.
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
@@ -103,6 +108,7 @@ pub async fn process_replaygain_for_directory(
     prevent_clipping: bool,
     include_album_gain: bool,
     on_progress: impl Fn(usize, usize) + Send,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
@@ -206,6 +212,7 @@ pub async fn process_replaygain_for_directory(
             result.true_peak,
             album_gain_db,
             album_peak,
+            file_locks,
         )
         .await
         {
@@ -268,6 +275,7 @@ async fn write_replaygain_tags(
     track_peak: f64,
     album_gain_db: Option<f64>,
     album_peak: Option<f64>,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
 ) -> Result<(), String> {
     let format = detect_format(file_path).ok_or_else(|| {
         format!(
@@ -275,6 +283,16 @@ async fn write_replaygain_tags(
             file_path.display()
         )
     })?;
+
+    // Acquire the per-file write lock (#779 Option 2) BEFORE the
+    // backend dispatch — whether it's mp4ameta or lofty doing the
+    // write, it's the SAME file on disk that AcoustID might also
+    // be writing to. Held for the full read-modify-write cycle of
+    // the format-specific writer.
+    let _write_guard = match file_locks {
+        Some(locks) => Some(locks.lock(file_path).await),
+        None => None,
+    };
 
     match format {
         AudioFormat::Mp4 => {
