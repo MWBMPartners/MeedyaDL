@@ -813,6 +813,42 @@ fn build_gapfill_priority_chain(original_chain: &str) -> Option<String> {
 /// Migrated to the shared [`crate::utils::fs_walk::walk_dir_depth`]
 /// helper (#716 finding #1, v1.0.2 prep). Pre-migration this was an
 /// open-coded recursive walker without an explicit depth limit;
+/// Inject an advisory suffix (`[Explicit]` / `[Clean]`) into a GAMDL
+/// folder template so a companion download lands in the same album
+/// folder as the post-enrichment renamed primary (#528).
+///
+/// Pre-fix the primary's `apply_advisory_suffixes` would rename
+/// `Album/` → `Album [Explicit]/` after the primary download
+/// finished; the parallel companion GAMDL run, oblivious to that
+/// rename, would write its files to a fresh `Album/` sibling. This
+/// helper builds the folder template the companion needs to match
+/// the post-rename path.
+///
+/// Substitution rule: replace **every** `{album}` placeholder with
+/// `{album} <suffix>`. The placeholder is the natural anchor — the
+/// suffix lives on the same path component as the album-name, and
+/// existing user templates always position `{album}` as the last
+/// path segment (the album folder itself).
+///
+/// Returns:
+/// - `Some(new_template)` — the template was modified.
+/// - `None` — the input was missing or didn't contain `{album}`
+///   (custom user template that doesn't reference the placeholder;
+///   we'd rather leave it alone than guess where to splice the
+///   suffix and risk a worse outcome).
+#[must_use]
+fn inject_advisory_suffix_into_template(
+    template: Option<&str>,
+    suffix: &str,
+) -> Option<String> {
+    let template = template?;
+    if !template.contains("{album}") {
+        return None;
+    }
+    let new_template = template.replace("{album}", &format!("{{album}} {suffix}"));
+    Some(new_template)
+}
+
 /// `walk_dir_depth` makes the bound mandatory and enforces the same
 /// `read_dir → recurse → filter` shape as the other 4+ walkers in
 /// the codebase. Depth 10 matches the convention used by
@@ -5874,13 +5910,23 @@ pub fn process_queue(
         // the progress bar caption and activity log from the very first track.
         // This is a lightweight API call that completes in <1s on good networks.
         // Failures are silently ignored — the enrichment pipeline will retry later.
-        if is_apple_music {
+        // Captured at this scope so the post-fetch companion-template
+        // injection (#528) can read it. `None` when the early metadata
+        // fetch failed (offline, API rate-limit) — companions then fall
+        // through to the existing folder template, which will produce
+        // the sibling-folder bug for that one item; better than blocking
+        // the download on a metadata fetch.
+        let early_album_content_rating: Option<String> = if is_apple_music {
             let early_metadata = super::metadata_tag_service::try_fetch_metadata(
                 &app,
                 &urls,
                 Some((&app, &download_id)),
             )
             .await;
+
+            let captured_rating = early_metadata
+                .as_ref()
+                .and_then(|m| m.content_rating.clone());
 
             if let Some(ref meta) = early_metadata {
                 let mut q = queue.lock().await;
@@ -5911,7 +5957,10 @@ pub fn process_queue(
                 // Trigger frontend queue refresh so progress bar picks up the metadata
                 let _ = app.emit("download-queued", &download_id);
             }
-        }
+            captured_rating
+        } else {
+            None
+        };
 
         // === GAMDL version detection (cached, runs once per queue lifetime) ===
         // Detect the installed GAMDL version on the first download so we can
@@ -6012,9 +6061,55 @@ pub fn process_queue(
         // (via `force_all_suffixes` in `spawn_companion_downloads`).
         //
         // Keep the original (unsuffixed) options for companion downloads later.
-        let companion_base_options = options.clone();
+        let mut companion_base_options = options.clone();
         let mut download_options = options;
         let settings_for_companion = load_settings_for_queue(&app);
+
+        // Companion-folder advisory-suffix injection (#528).
+        //
+        // When `content_advisory_in_filenames` is enabled, the primary's
+        // post-enrichment `apply_advisory_suffixes` will rename the album
+        // folder from `Album/` → `Album [Explicit]/` (or `[Clean]/`).
+        // GAMDL has no knowledge of that rename — a companion GAMDL run
+        // spawned with the default folder template writes its files to
+        // `Album/` again, leaving the user with two sibling folders.
+        //
+        // We pre-compute the suffix here from the album's content rating
+        // (captured during the early metadata fetch a few lines above)
+        // and inject it into the companion's `album_folder_template` BEFORE
+        // the tokio::spawn that owns these options. The companion's GAMDL
+        // run then writes directly into the post-rename folder.
+        //
+        // Why we predict rather than wait: the spawn block at the bottom
+        // of `process_queue` owns the options by move, and the enrichment
+        // task (which performs the rename) only kicks off inside that
+        // spawn. Waiting for the rename to land would require a fresh
+        // synchronisation primitive between two background tasks — A1
+        // (predict) avoids that complexity for a quick, low-risk fix.
+        //
+        // Graceful degradation: if the early metadata fetch returned no
+        // rating (offline, API failure) we leave the template alone and
+        // the user gets the existing sibling-folder behaviour for that
+        // one item. No worse than today.
+        if settings_for_companion.content_advisory_in_filenames {
+            if let Some(rating) = early_album_content_rating.as_deref() {
+                if let Some(suffix) =
+                    super::metadata_tag_service::advisory_suffix(rating)
+                {
+                    if let Some(new_template) = inject_advisory_suffix_into_template(
+                        companion_base_options.album_folder_template.as_deref(),
+                        suffix,
+                    ) {
+                        log::info!(
+                            "Companion folder template for {download_id}: \
+                             injecting advisory suffix `{suffix}` so companions \
+                             land in the primary's renamed folder (#528)"
+                        );
+                        companion_base_options.album_folder_template = Some(new_template);
+                    }
+                }
+            }
+        }
         if !uses_native_priority {
             // Single-codec mode: apply codec suffix to file templates only
             // when companion downloads will produce alternative formats.
@@ -10564,6 +10659,110 @@ mod tests {
             );
             prev = t;
         }
+    }
+
+    // ----------------------------------------------------------
+    // inject_advisory_suffix_into_template — companion folder fix (#528)
+    // ----------------------------------------------------------
+
+    /// Default GAMDL template — the suffix lands right after `{album}`
+    /// so the rendered companion folder matches the post-rename
+    /// primary folder exactly.
+    #[test]
+    fn inject_advisory_suffix_default_template_explicit() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{album}"),
+            "[Explicit]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{album} [Explicit]")
+        );
+    }
+
+    /// `[Clean]` follows the same shape as `[Explicit]`.
+    #[test]
+    fn inject_advisory_suffix_default_template_clean() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{album}"),
+            "[Clean]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{album} [Clean]")
+        );
+    }
+
+    /// User template with a year prefix — suffix still anchors to the
+    /// album-name segment, not the year.
+    #[test]
+    fn inject_advisory_suffix_with_year_prefix_template() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{year} - {album}"),
+            "[Explicit]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{year} - {album} [Explicit]")
+        );
+    }
+
+    /// `None` template input → `None` output (caller leaves the field
+    /// alone; uses GAMDL's default).
+    #[test]
+    fn inject_advisory_suffix_none_input_returns_none() {
+        let result = super::inject_advisory_suffix_into_template(None, "[Explicit]");
+        assert_eq!(result, None);
+    }
+
+    /// Custom template that doesn't reference `{album}` → return None
+    /// rather than guess where to splice the suffix. Caller falls back
+    /// to the original template; user gets the existing behaviour for
+    /// that one item (acceptable graceful degradation).
+    #[test]
+    fn inject_advisory_suffix_template_without_album_placeholder_returns_none() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{title}"),
+            "[Explicit]",
+        );
+        assert_eq!(result, None, "must not blindly append when {{album}} absent");
+    }
+
+    /// Idempotency-ish guard: the helper doesn't recognise that the
+    /// template already contains the suffix and would inject again. We
+    /// rely on the call site checking `content_advisory_in_filenames`
+    /// only ONCE per download to prevent double-injection. This test
+    /// documents the current behaviour so future refactors don't
+    /// silently change it.
+    #[test]
+    fn inject_advisory_suffix_documents_no_built_in_idempotency() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{album} [Explicit]"),
+            "[Explicit]",
+        );
+        // Note: helper does NOT detect that the template already has
+        // the suffix. Caller is responsible for not invoking twice.
+        // The result has the suffix duplicated:
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{album} [Explicit] [Explicit]"),
+            "caller-side guarantees: the call site invokes once per spawn"
+        );
+    }
+
+    /// Multiple `{album}` occurrences (uncommon but possible) — every
+    /// occurrence gets the suffix. Documents replace-all semantics so
+    /// the behaviour is intentional.
+    #[test]
+    fn inject_advisory_suffix_multiple_album_placeholders_all_replaced() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album}/{album}"),
+            "[Explicit]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album} [Explicit]/{album} [Explicit]")
+        );
     }
 
     // ----------------------------------------------------------
