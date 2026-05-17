@@ -942,6 +942,15 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // than a raw Python traceback excerpt.
     } else if is_playlist_title_keyerror(error_message) {
         "playlist_title_keyerror"
+    // Library webplayback KeyError (#570). Apple Music's library
+    // webplayback endpoint returns a different response shape than
+    // the catalog endpoint, and GAMDL's `interface_song.py:179`
+    // unconditionally dereferences `webplayback["songList"][0]…` —
+    // raises `KeyError: 'songList'` on every library track. Matched
+    // before the generic "unknown" bucket so users get an
+    // actionable message rather than a raw Python traceback excerpt.
+    } else if is_library_webplayback_keyerror(error_message) {
+        "library_webplayback_keyerror"
     // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
@@ -975,6 +984,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "rate_limit" => "Apple Music is rate-limiting requests. Wait a few minutes and retry.",
         "tool" => "A required tool (FFmpeg, mp4decrypt, etc.) may be missing or outdated. Check Settings > Tools.",
         "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
+        "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
 }
@@ -1026,6 +1036,30 @@ pub fn is_playlist_title_keyerror(error_message: &str) -> bool {
         && (lower.contains("get_playlist_file_path")
             || lower.contains("downloader_base")
             || lower.contains("playlist_file_path"))
+}
+
+/// Detect GAMDL's library-URL `KeyError: 'songList'` traceback (#570).
+///
+/// Captured 2026-04-23 during #546 scenario 1 repro on a personal-
+/// library album URL (`music.apple.com/.../library/albums/l.XXXX`).
+/// Apple Music's library webplayback endpoint returns a different
+/// response shape than the catalog endpoint, but GAMDL's
+/// `interface_song.py:179` unconditionally dereferences
+/// `webplayback["songList"][0]["assets"][0]["metadata"]` regardless
+/// of which endpoint produced the response — raises
+/// `KeyError: 'songList'` on every library track.
+///
+/// Matches the exact traceback signature to avoid false positives on
+/// other `KeyError: 'songList'` causes — we require BOTH the key
+/// name and the GAMDL-side filepath token so unrelated key-error
+/// shapes from a downstream tool aren't misclassified.
+#[must_use]
+pub fn is_library_webplayback_keyerror(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    lower.contains("keyerror: 'songlist'")
+        && (lower.contains("interface_song")
+            || lower.contains("get_tags")
+            || lower.contains("webplayback"))
 }
 
 /// Detect GAMDL's music-video cover-art URL templating bug.
@@ -1661,6 +1695,32 @@ mod tests {
         // playlist bug. Some unrelated upstream code path could
         // legitimately raise the same error with a different cause.
         let stderr = "KeyError: 'title' in unrelated module";
+        assert_eq!(classify_error(stderr), "unknown");
+    }
+
+    #[test]
+    fn classifies_gamdl_library_webplayback_keyerror() {
+        // The traceback signature captured 2026-04-23 during #546
+        // scenario 1 repro on a personal-library album URL (#570).
+        // GAMDL's `interface_song.py:179` unconditionally dereferences
+        // `webplayback["songList"][0]…`, but the library endpoint
+        // returns a different response shape — raises
+        // `KeyError: 'songList'` on every library track. Must route
+        // to the dedicated category so users get an actionable error.
+        let stderr = "Traceback (most recent call last):\n\
+            File \".../gamdl/interface/interface_song.py\", line 179, in get_tags\n\
+            webplayback_metadata = webplayback[\"songList\"][0][\"assets\"][0][\"metadata\"]\n\
+            KeyError: 'songList'";
+        assert_eq!(classify_error(stderr), "library_webplayback_keyerror");
+    }
+
+    #[test]
+    fn classifies_unrelated_keyerror_songlist_as_unknown() {
+        // Regression canary: a `KeyError: 'songList'` without the
+        // `interface_song` / `webplayback` frame must NOT be
+        // misclassified as the library-URL bug. Some unrelated
+        // upstream code could raise the same key error.
+        let stderr = "KeyError: 'songList' in unrelated module";
         assert_eq!(classify_error(stderr), "unknown");
     }
 
