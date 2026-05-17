@@ -6,6 +6,73 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.6.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(release)** Preserve release-please pr body across force-pushes (#812)
+
+## Summary
+
+  - Adds `.github/workflows/preserve-release-pr-body.yml` that re-applies
+  the user-facing PR body to release-please's open release PR after every
+  force-push (release-please regenerates the body from raw commit subjects
+  on every sync, wiping manual rewrites).
+  - Adds `.github/release-drafts/` folder with a README documenting the
+  `vX.Y.Z.md` filename convention and the four-section gold-standard
+  format.
+  - Ships `v1.6.0.md` as the first draft so v1.6.0 (currently in flight on
+  #810) is the first release to benefit.
+  - Closes the recurring failure mode that caused v1.5.0 to ship with the
+  generic `(closes #789, #793)` one-liner (see `.claude/CLAUDE.md` >
+  **MANDATORY: rewrite the release-please PR body before it merges**).
+
+  ## How it works
+
+  1. Maintainer writes `.github/release-drafts/v<version>.md` while the
+  release PR is open.
+  2. Commits to main. The next release-please sync force-pushes #810, then
+  `Preserve Release-Please PR Body` triggers on `workflow_run` completion.
+  3. The workflow extracts the version from the open PR title, looks for
+  the matching drafts file on main, and `gh pr edit`s the body. Missing
+  draft = silent no-op (maintainer hasn't written it yet).
+  4. Manual `workflow_dispatch` is also wired for iterating without
+  waiting for release-please.
+
+  ## Why this approach
+
+  Considered three alternatives:
+  - **Disable release-please body overwrite** — no upstream config option
+  exists.
+  - **Post-sync workflow without a drafts file** — body lives in workflow
+  logic, harder to iterate.
+  - **Manual re-apply via `gh pr edit`** — the status quo, ~30s of toil
+  per force-push.
+
+  The drafts-file approach makes the user-facing notes a first-class repo
+  artifact that survives infra changes.
+
+  ## Test plan
+
+  - [ ] PR merges to main; `Preserve Release-Please PR Body` workflow
+  becomes visible in Actions.
+  - [ ] Next time release-please force-pushes #810, the workflow triggers
+  and re-applies `.github/release-drafts/v1.6.0.md` (verify by editing
+  #810 body manually first, then push any commit to main, then confirm
+  body restores).
+  - [ ] Manually dispatch `Preserve Release-Please PR Body` with
+  `pr_number=810` and confirm it edits the body.
+  - [ ] Confirm a missing drafts file leaves the PR body alone (no
+  failure, just a notice in the run log).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [1.6.0] - 2026-05-17
+
 ### ✨ Features
 
 - **(v1.6)** Embed mv cover, canonical mb match, licence checks, vendor rename (30+ issues) (#809)
@@ -65,7 +132,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.6.0 [skip ci]
 
 ### 🧹 Maintenance
 
