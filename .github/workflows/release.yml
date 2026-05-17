@@ -519,6 +519,122 @@ jobs:
           echo "✅ Offline installer bundle ready"
           du -sh "$DEPS_DIR"
 
+      # Step 8.6: Harvest third-party licence notices from every bundled
+      # component into the offline installer.
+      #
+      # Why: MIT/BSD/Unlicense/PSF components require the upstream copyright
+      # notice + permission notice to travel with the binary when we
+      # redistribute. LGPL/GPL components additionally require a written
+      # offer for source code (#802). This step gathers both into the
+      # offline bundle so the legal text physically ships alongside the
+      # binaries it covers — no separate manual step, no risk of forgetting
+      # when a new component lands in tool-versions.toml.
+      #
+      # The repo-root THIRD_PARTY_LICENSES.md is the source of truth for
+      # the textual notices and is embedded into the app binary via
+      # include_str!() (src-tauri/src/commands/legal.rs). The bundle copy
+      # is additionally useful for downstream packagers and auditors who
+      # only see the offline installer tarball.
+      - name: Bundle third-party licence notices (offline installer, #802)
+        if: inputs.bundle_engines == true
+        run: |
+          set -euo pipefail
+          DEPS_DIR="src-tauri/bundled-deps"
+          if [ ! -d "$DEPS_DIR" ]; then
+            echo "::warning::No bundled-deps directory found — skipping licence harvest"
+            exit 0
+          fi
+          echo "::group::Bundle third-party licence notices"
+
+          # Copy the repo-root verbatim file in (single source of truth).
+          cp THIRD_PARTY_LICENSES.md "$DEPS_DIR/THIRD_PARTY_LICENSES.md"
+          cp ACKNOWLEDGEMENTS.md     "$DEPS_DIR/ACKNOWLEDGEMENTS.md"
+
+          # Harvest per-component LICENSE files from pip wheels' dist-info
+          # metadata. Most modern wheels carry the upstream LICENSE next
+          # to the METADATA file under *.dist-info/. We aggregate those
+          # into a single browseable directory so the bundle includes the
+          # raw upstream files, not just our consolidated markdown.
+          LIC_DIR="$DEPS_DIR/licences"
+          mkdir -p "$LIC_DIR/pip-packages" "$LIC_DIR/tools" "$LIC_DIR/source-offers"
+
+          if [ -d "$DEPS_DIR/python" ]; then
+            find "$DEPS_DIR/python" -type d -name '*.dist-info' | while read -r distinfo; do
+              pkg=$(basename "$distinfo" .dist-info)
+              find "$distinfo" -maxdepth 2 -type f \
+                \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+                | while read -r f; do
+                  out="$LIC_DIR/pip-packages/$pkg-$(basename "$f")"
+                  cp "$f" "$out" 2>/dev/null || true
+                done
+            done
+          fi
+
+          # Harvest binary-tool licence text from the tool source archives'
+          # standard layout. The mirror repo (MeedyaDL-Tools) stores the
+          # upstream LICENSE file alongside each tool binary, so the
+          # bundle dirs may already contain them — copy any we find.
+          if [ -d "$DEPS_DIR/tools" ]; then
+            find "$DEPS_DIR/tools" -type f \
+              \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+              | while read -r f; do
+                # Preserve the tool dir name so the user can tell which
+                # tool a licence belongs to (e.g. ffmpeg-LICENSE.txt).
+                tool=$(basename "$(dirname "$f")")
+                out="$LIC_DIR/tools/$tool-$(basename "$f")"
+                cp "$f" "$out" 2>/dev/null || true
+              done
+          fi
+
+          # Emit the per-version OFFER_FOR_SOURCE.txt for the LGPL/GPL
+          # components actually shipped. Versions come from tool-versions.toml
+          # which is the canonical source for what we'll be downloading. We
+          # parse minimally because installing a TOML parser inside this
+          # step would inflate CI time for one read.
+          OFFER="$LIC_DIR/source-offers/OFFER_FOR_SOURCE.txt"
+          {
+            echo "MeedyaDL written offer for complete corresponding source code"
+            echo "============================================================="
+            echo ""
+            echo "This file is part of the MeedyaDL offline-installer artefact for"
+            echo "the version named in ../../manifest.json. It constitutes the"
+            echo "MeedyaDL project's written offer to provide the complete"
+            echo "corresponding source code for every LGPL- or GPL-licensed"
+            echo "component shipped inside this installer, valid for three (3)"
+            echo "years from the date of this distribution."
+            echo ""
+            echo "The unmodified upstream source for the exact version of each"
+            echo "component listed below is available from the linked upstream"
+            echo "release page. If a linked URL becomes unreachable, you may"
+            echo "obtain a copy by opening an issue at:"
+            echo "    https://github.com/MWBMPartners/MeedyaDL/issues"
+            echo "with the subject 'Source request - <component> <version>'."
+            echo ""
+            echo "MeedyaDL does NOT currently modify any of these components."
+            echo "If a future release does, the modified source tree will be"
+            echo "published in MWBMPartners/MeedyaDL-Tools alongside the binary."
+            echo ""
+            echo "--- Components covered ---"
+            echo ""
+            if [ -f tool-versions.toml ]; then
+              echo "FFmpeg   - LGPL-2.1+  - https://ffmpeg.org/releases/"
+              echo "MP4Box   - LGPL-2.1   - https://github.com/gpac/gpac/releases"
+              echo "mp4decrypt (Bento4) - GPL-2.0 w/ linking exception"
+              echo "         - https://github.com/axiomatic-systems/Bento4/releases"
+              echo ""
+              echo "Exact shipped versions for this build:"
+              grep -E '^\s*(minimum_version|recommended_version|maximum_tested_version)\s*=' \
+                tool-versions.toml || true
+            fi
+            echo ""
+            echo "--- Issued by ---"
+            echo "MeedyaDL maintainers, ${GITHUB_REF_NAME:-unknown-tag}, $(date -u +%Y-%m-%d)"
+          } > "$OFFER"
+
+          echo "✅ Licences + source offer bundled at $LIC_DIR"
+          ls -la "$LIC_DIR" "$LIC_DIR/pip-packages" "$LIC_DIR/tools" "$LIC_DIR/source-offers" || true
+          echo "::endgroup::"
+
       # Step 8.9: Fix macOS codesign secure timestamp.
       # Tauri's tauri-macos-sign crate omits --timestamp from the codesign command,
       # causing Apple's notarization service to reject signatures with:

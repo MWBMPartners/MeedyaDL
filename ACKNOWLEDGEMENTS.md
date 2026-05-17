@@ -31,11 +31,13 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | Crate | Version | Licence | Description |
 |-------|---------|---------|-------------|
 | arboard | 3.6 | MIT/Apache-2.0 | Cross-platform clipboard access |
+| base64 | 0.22 | MIT/Apache-2.0 | Base64 encoding/decoding (animated artwork, API payloads) |
 | chrono | 0.4 | MIT/Apache-2.0 | Date and time library |
 | configparser | 3.1 | MIT/LGPL-3.0+ | INI file parsing (GAMDL config) |
 | cookie | 0.18 | MIT/Apache-2.0 | HTTP cookie parsing |
 | dirs | 6.0 | MIT/Apache-2.0 | Platform-standard directories |
 | flate2 | 1.1 | MIT/Apache-2.0 | Gzip compression/decompression |
+| fs2 | 0.4 | MIT/Apache-2.0 | Filesystem free-space + advisory locking (disk-space preflight) |
 | jsonwebtoken | 10.3 | MIT | MusicKit JWT generation |
 | keyring | 3.6 | MIT/Apache-2.0 | OS keychain access |
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
@@ -45,16 +47,22 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | reqwest | 0.12-0.13 | MIT/Apache-2.0 | HTTP client |
 | rookie | 0.5 | — | Browser cookie extraction |
 | roxmltree | 0.21 | MIT/Apache-2.0 | XML parsing (TTML lyrics) |
+| rusty-chromaprint | 0.2 | MIT | Audio fingerprinting (AcoustID) |
 | sentry | 0.46 | MIT | Crash reporting SDK |
+| sentry-tracing | 0.46 | MIT | Sentry integration for `tracing` events |
 | serde | 1.0 | MIT/Apache-2.0 | Serialization framework |
 | serde_json | 1.0 | MIT/Apache-2.0 | JSON serialization |
 | sha2 | 0.10 | MIT/Apache-2.0 | SHA-256 hashing |
 | symphonia | 0.5 | MPL-2.0 | Audio decoding (codec detection) |
+| sys-locale | 0.3 | MIT/Apache-2.0 | OS locale detection (storefront auto-derivation) |
 | tar | 0.4 | MIT/Apache-2.0 | TAR archive extraction |
 | tauri | 2.10 | MIT/Apache-2.0 | Desktop application framework |
+| thiserror | 2.0 | MIT/Apache-2.0 | Derive macro for ergonomic error types |
 | tokio | 1.51 | MIT | Async runtime |
 | toml | 0.8-0.9 | MIT/Apache-2.0 | TOML configuration parsing |
 | tracing | 0.1 | MIT | Structured logging |
+| tracing-appender | 0.2 | MIT | Daily-rotating file output for `tracing` logs |
+| tracing-subscriber | 0.3 | MIT | `tracing` event collector and formatter (stderr + file) |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
 | zip | 2.4-4.6 | MIT | ZIP archive extraction |
@@ -82,6 +90,8 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | @tanstack/react-virtual | 3.13 | MIT | Virtualized list rendering |
 | @sentry/browser | 10.47 | MIT | Frontend crash reporting |
 | @dnd-kit/core | 6.3 | MIT | Drag-and-drop framework |
+| @dnd-kit/sortable | 10.0 | MIT | Sortable preset for @dnd-kit |
+| @dnd-kit/utilities | 3.2 | MIT | Shared utilities for @dnd-kit |
 | i18next | 26.0 | MIT | Internationalisation framework |
 | i18next-browser-languagedetector | 8.2 | MIT | OS language detection |
 | lucide-react | 1.7 | MIT | Icon library |

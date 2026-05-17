@@ -1158,6 +1158,9 @@ pub fn run() {
             // Persistent on-disk activity log commands (#541)
             commands::activity_log::export_disk_activity_log,
             commands::activity_log::get_logs_folder_path,
+            // Embedded legal docs (ACKNOWLEDGEMENTS.md + THIRD_PARTY_LICENSES.md) — #802
+            commands::legal::get_acknowledgements_text,
+            commands::legal::get_third_party_licenses_text,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,

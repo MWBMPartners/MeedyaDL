@@ -521,6 +521,8 @@ Copyright (c) 2026 MeedyaDL
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.
 
+The verbatim upstream copyright notices and licence text for the third-party engines and tools that MeedyaDL invokes or bundles (GAMDL, FFmpeg, MP4Box, MediaInfo, mp4decrypt, N_m3u8DL-RE, Python, etc.) are reproduced in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), which also carries MeedyaDL's written offer for the complete corresponding source code of the LGPL/GPL components shipped in the offline-installer build. The [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) file lists the full dependency inventory with versions and one-line purposes.
+
 ---
 
 ## 🙏 Credits & Acknowledgements
