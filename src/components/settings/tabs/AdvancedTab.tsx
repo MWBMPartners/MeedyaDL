@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file AdvancedTab.tsx -- Advanced options settings tab.
@@ -92,7 +92,7 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import { Select, Toggle, Input, Button, HelpButton, SettingsSection } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
-import type { DownloadMode, RemuxMode, WrapperTestResult, ApiAuditResult } from '@/types';
+import type { DownloadMode, RemuxMode, WrapperTestResult, ApiAuditResult, LogLevel } from '@/types';
 
 // Platform detection hook for Wrapper feature gating.
 import { usePlatform } from '@/hooks/usePlatform';
@@ -884,6 +884,10 @@ function DevToolsSection() {
   // needs to refresh the entire settings snapshot from disk.
   const musickitTeamId = useSettingsField('musickit_team_id');
   const musickitKeyId = useSettingsField('musickit_key_id');
+  // GAMDL --log-level binding (#768). Lives in Dev Tools only; default
+  // INFO matches GAMDL's compiled-in level so this is a no-op for
+  // every user who never opens this panel.
+  const gamdlLogLevel = useSettingsField('gamdl_log_level');
   const loadSettings = useSettingsStore((s) => s.loadSettings);
 
   const [webplayerStatus, setWebplayerStatus] = useState<boolean | null>(null);
@@ -946,6 +950,43 @@ function DevToolsSection() {
               )}
             </div>
           </div>
+        </div>
+
+        {/*
+          GAMDL --log-level dropdown (#768). GAMDL accepts
+          DEBUG / INFO / WARNING / ERROR on every release in our
+          support window, so no version gate is needed. Flipping to
+          DEBUG surfaces v3.5.2+ structlog diagnostics (e.g.
+          `m3u8_master_url=...`) that are otherwise invisible to
+          MeedyaDL because GAMDL's default level is INFO.
+
+          Activity-log noise consideration: at DEBUG GAMDL emits
+          ~10x more lines per track. Users debugging a specific
+          issue will want this; everyone else should leave it on
+          INFO. Hence its placement in Dev Tools rather than the
+          user-facing Settings tabs.
+        */}
+        <div>
+          <h4 className="text-sm font-medium mb-2">GAMDL log level</h4>
+          <Select
+            options={[
+              { value: 'DEBUG', label: 'DEBUG — verbose (HTTP, decryption, m3u8 URLs)' },
+              { value: 'INFO', label: 'INFO — recommended (track names, progress)' },
+              { value: 'WARNING', label: 'WARNING — warnings + errors only' },
+              { value: 'ERROR', label: 'ERROR — fatal errors only' },
+            ]}
+            value={gamdlLogLevel.value}
+            onChange={(e) => gamdlLogLevel.set(e.target.value as LogLevel)}
+            aria-label="GAMDL subprocess log level"
+          />
+          <p className="text-xs text-content-secondary mt-1">
+            Emits <code>--log-level</code> to the gamdl subprocess. Default
+            <code> INFO</code> matches gamdl's compiled-in default. Switch to
+            <code> DEBUG</code> when filing upstream bug reports — it surfaces
+            v3.5.2+ structlog lines (e.g. <code>m3u8_master_url=</code>) that
+            are otherwise hidden, at the cost of ~10× more activity-log
+            output per track.
+          </p>
         </div>
 
         {/* Deactivate */}

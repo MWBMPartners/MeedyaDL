@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/types/index.ts - Central TypeScript type definitions
@@ -648,6 +648,12 @@ export interface AppSettings {
   cover_size: number;
   /** Filename for saved cover art image (without extension). Default: FrontCover */
   cover_art_name: CoverArtName;
+  /**
+   * Embed the music-video cover thumbnail as a `covr` atom in the MP4
+   * and delete the sidecar `.jpg`/`.png` (#533 / #569). Default `true`.
+   * Mirrors Rust field `AppSettings::music_video_embed_cover_sidecar`.
+   */
+  music_video_embed_cover_sidecar: boolean;
   /** Whether to download animated cover art (motion artwork) from Apple Music */
   animated_artwork_enabled: boolean;
   /** Whether to set the OS "hidden" attribute on animated artwork files */
@@ -762,6 +768,15 @@ export interface AppSettings {
    * Rust field `AppSettings::verbose_gamdl_exceptions`.
    */
   verbose_gamdl_exceptions: boolean;
+  /**
+   * GAMDL subprocess log level. Surfaced behind Developer Tools only
+   * (gated on `dev_access_enabled`). Default `'INFO'` matches GAMDL's
+   * compiled-in default; flipping to `'DEBUG'` surfaces v3.5.2+
+   * structlog diagnostics (e.g. `m3u8_master_url=…`) that are
+   * otherwise invisible to MeedyaDL (#768). Mirrors Rust field
+   * `AppSettings::gamdl_log_level` (enum `LogLevel`).
+   */
+  gamdl_log_level: LogLevel;
   /**
    * Optional user-chosen directory for the persistent on-disk activity log
    * (`activity-YYYY-MM-DD.log` files, #541). Empty string = use default

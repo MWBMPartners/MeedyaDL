@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file downloadStore.ts -- Download Queue State Management Store
  * @license MIT -- See LICENSE file in the project root.

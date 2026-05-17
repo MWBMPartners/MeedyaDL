@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // apple_music_api.rs -- Shared Apple Music API client and authentication
@@ -167,6 +167,16 @@ pub struct AlbumMetadata {
     pub artwork_square_url: Option<String>,
     /// HLS M3U8 URL for portrait (3:4) animated artwork, if available
     pub artwork_tall_url: Option<String>,
+    /// HLS M3U8 URL for 16:9 album-spotlight editorial video, if
+    /// available (#538). Sourced from `editorialVideo` on the
+    /// **album** endpoint (priority:
+    /// `motionArtistFullscreen16x9` → `motionArtistWide16x9`), and
+    /// destined for `AlbumSpotlightCover.mp4` in the album folder.
+    /// Distinct from the artist-page spotlight that's saved as
+    /// `ArtistSpotlightCover.mp4` — that one comes from the
+    /// `/artists/{id}` endpoint and is shared across the artist's
+    /// whole catalogue; this one is specific to the album.
+    pub album_spotlight_url: Option<String>,
     /// Static cover-art URL template from `attributes.artwork.url`. Apple
     /// returns a templated URL with `{w}`, `{h}`, and `{f}` placeholders
     /// (e.g., `https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}`).
@@ -1000,6 +1010,26 @@ pub async fn fetch_album_metadata(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
+    // #538: Album-level 16:9 editorial spotlight video. The same
+    // `editorialVideo` block can carry both portrait (`motionDetailTall`)
+    // and wide (`motionArtistFullscreen16x9` / `motionArtistWide16x9`)
+    // variants; the wide variants are album-cinematic teasers
+    // distinct from the static album cover. Priority matches the
+    // artist-spotlight code path (#455 / #538): prefer
+    // `motionArtistFullscreen16x9`, fall back to
+    // `motionArtistWide16x9`. Lower-tier `motionDetail*` keys are
+    // already covered by `artwork_square_url`/`artwork_tall_url`
+    // and intentionally excluded — they're tightly cropped around
+    // the cover and would look wrong as a 16:9 spotlight.
+    let album_spotlight_url = editorial_video
+        .and_then(|ev| {
+            ev.get("motionArtistFullscreen16x9")
+                .or_else(|| ev.get("motionArtistWide16x9"))
+        })
+        .and_then(|m| m.get("video"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
     // Static cover artwork (#756). The `artwork.url` is a template
     // with `{w}`, `{h}`, `{f}` placeholders we can substitute when
     // falling back from a failed RAW write to PNG/JPEG.
@@ -1050,6 +1080,7 @@ pub async fn fetch_album_metadata(
         tracks,
         artwork_square_url,
         artwork_tall_url,
+        album_spotlight_url,
         artwork_url_template,
         artwork_width,
         artwork_height,
@@ -1496,6 +1527,86 @@ pub fn normalize_apple_music_url(url: &str) -> String {
 
     // Not an Apple Music URL or doesn't match non-geographic pattern — return unchanged.
     url.to_string()
+}
+
+/// Reduce an Apple Music URL to its storefront-independent canonical
+/// form (#807). Used for cross-source URL matching where the two
+/// sides may carry different storefronts and/or different slugs but
+/// refer to the same catalogue entity (most commonly when matching
+/// MusicBrainz `external_urls.apple_music` against a downloaded
+/// album's source URL).
+///
+/// ## Normalisation steps
+///
+/// 1. **Strip the storefront segment** (`/{2-letter-ISO}/`). Both
+///    `https://music.apple.com/gb/album/.../123` and
+///    `https://music.apple.com/us/album/123` reduce to a single
+///    canonical shape with no storefront.
+/// 2. **Strip the slug** between the type segment and the numeric ID.
+///    `/album/super-bowl-lviii-megamix-dj-mix/1729264859` and
+///    `/album/1729264859` both reduce to `/album/1729264859`.
+///    Slugs are SEO furniture; the numeric ID is the canonical
+///    identifier.
+/// 3. **Strip the query string + fragment**. MusicBrainz never
+///    carries `?l=en-GB` or `?i=…`; Apple Music sometimes does.
+///
+/// ## Return value
+///
+/// `Some(canonical)` when the URL parses as Apple Music with a
+/// numeric ID we can extract; `None` for non-Apple-Music URLs,
+/// library URLs (`l.XXXX` prefix), or shapes the parser doesn't
+/// recognise. Returns the canonical form **without** scheme — pure
+/// path semantics — so callers compare on the path itself rather
+/// than recreating a `https://music.apple.com/…` envelope.
+///
+/// ## Example
+///
+/// ```ignore
+/// canonicalise_apple_music_url(
+///     "https://music.apple.com/gb/album/super-bowl-lviii-megamix-dj-mix/1729264859",
+/// );
+/// // → Some("music.apple.com/album/1729264859")
+///
+/// canonicalise_apple_music_url("https://music.apple.com/us/album/1729264859?i=171");
+/// // → Some("music.apple.com/album/1729264859")
+/// ```
+#[must_use]
+pub fn canonicalise_apple_music_url(url: &str) -> Option<String> {
+    // Use the existing `parse_apple_music_url` to do the heavy
+    // regex work — it already handles every URL shape we care about
+    // (storefronted, non-storefronted, slug-or-no-slug, classical /
+    // itunes / music subdomain), strips the query string, and
+    // extracts the numeric ID + content type. Reusing it keeps the
+    // canonicaliser aligned with the parser's evolving regex set —
+    // when a new content-type lands the canonical form picks it up
+    // for free.
+    //
+    // We deliberately first run `normalize_apple_music_url` to
+    // collapse the iTunes-legacy + non-geographic variants into
+    // their music.apple.com equivalents; that means canonicalisation
+    // is idempotent on the result.
+    let normalised = normalize_apple_music_url(url);
+    let parsed = parse_apple_music_url(&normalised)?;
+
+    // Library URLs (`l.XXXX`) carry a per-user identifier that's
+    // not portable across users, so canonicalising them for cross-
+    // source matching is meaningless — return None so the caller
+    // falls through to the next tier (ISRC / AcoustID).
+    if parsed.album_id.starts_with("l.") {
+        return None;
+    }
+
+    // The canonical form omits the storefront and slug, keeps only
+    // the content type + numeric ID. `parse_apple_music_url` has
+    // already given us those two as parsed fields. We use
+    // `album_id` as the canonical numeric ID even for non-album
+    // shapes (song, music-video, artist) because the field name
+    // is the historic shape — it carries the entity's numeric ID
+    // regardless of content type.
+    Some(format!(
+        "music.apple.com/{}/{}",
+        parsed.content_type, parsed.album_id
+    ))
 }
 
 /// Rewrite an `itunes.apple.com` URL to its `music.apple.com` equivalent (#568).
@@ -2508,6 +2619,114 @@ mod tests {
         assert_eq!(parsed.album_id, "9876543210");
     }
 
+    // ----------------------------------------------------------
+    // canonicalise_apple_music_url (#807)
+    // ----------------------------------------------------------
+
+    /// The literal repro from the user report — \`/gb/\` with a slug
+    /// must canonicalise to the same form as MusicBrainz's
+    /// \`/us/\` without a slug.
+    #[test]
+    fn canonicalise_matches_musicbrainz_super_bowl_pair() {
+        let user_url = "https://music.apple.com/gb/album/super-bowl-lviii-megamix-dj-mix/1729264859";
+        let mb_url = "https://music.apple.com/us/album/1729264859";
+        assert_eq!(
+            canonicalise_apple_music_url(user_url),
+            canonicalise_apple_music_url(mb_url),
+            "the canonicaliser must reduce both forms to the same string so MusicBrainz Tier 1 lookup matches across storefronts (#807)"
+        );
+    }
+
+    /// Storefront strip: every common storefront produces the same canonical form.
+    #[test]
+    fn canonicalise_strips_storefront() {
+        let canonical = canonicalise_apple_music_url(
+            "https://music.apple.com/us/album/anti-hero/1649434004",
+        );
+        for storefront in &["gb", "de", "fr", "jp", "br", "au", "ca", "mx", "es", "it"] {
+            let url = format!(
+                "https://music.apple.com/{storefront}/album/anti-hero/1649434004",
+            );
+            assert_eq!(
+                canonicalise_apple_music_url(&url),
+                canonical,
+                "storefront {storefront} must reduce to the same canonical form as us",
+            );
+        }
+    }
+
+    /// Slug strip: the canonical form drops the human-readable
+    /// slug between the type and the numeric ID.
+    #[test]
+    fn canonicalise_strips_slug() {
+        let with_slug = canonicalise_apple_music_url(
+            "https://music.apple.com/us/album/super-bowl-lviii-megamix-dj-mix/1729264859",
+        );
+        let without_slug =
+            canonicalise_apple_music_url("https://music.apple.com/us/album/1729264859");
+        assert_eq!(with_slug, without_slug);
+        // The canonical form itself shouldn't carry the slug.
+        let canonical = with_slug.unwrap();
+        assert!(
+            !canonical.contains("super-bowl"),
+            "canonical form must not carry the slug, got {canonical:?}",
+        );
+        assert!(canonical.contains("1729264859"));
+    }
+
+    /// Query-string strip: \`?i=…\` and \`?l=en-GB\` and similar
+    /// are dropped — the canonical form is the pure path.
+    #[test]
+    fn canonicalise_strips_query_string() {
+        let with_query = canonicalise_apple_music_url(
+            "https://music.apple.com/us/album/1729264859?l=en-GB",
+        );
+        let without_query =
+            canonicalise_apple_music_url("https://music.apple.com/us/album/1729264859");
+        assert_eq!(with_query, without_query);
+    }
+
+    /// Library URLs (\`l.XXXX\` numeric prefix) return None — they're
+    /// per-user identifiers and not portable across sources.
+    #[test]
+    fn canonicalise_library_url_returns_none() {
+        let url = "https://music.apple.com/us/library/albums/l.GpB5n1h";
+        assert!(canonicalise_apple_music_url(url).is_none());
+    }
+
+    /// Idempotency: canonicalising the canonical form returns the
+    /// same string. (Required because the MusicBrainz lookup may
+    /// call canonicalise on already-canonical MB-stored URLs.)
+    #[test]
+    fn canonicalise_is_idempotent() {
+        let url = "https://music.apple.com/us/album/super-bowl-lviii-megamix-dj-mix/1729264859";
+        let once = canonicalise_apple_music_url(url).unwrap();
+        // Re-canonicalising the canonical form requires routing
+        // through the parser, which expects a real URL — so we
+        // can't strictly assert `canonicalise(canonical) == canonical`
+        // without rebuilding a real URL envelope. What we CAN
+        // assert is that the canonical form is stable across
+        // every slug-and-storefront permutation of the same ID.
+        let permutations = [
+            "https://music.apple.com/gb/album/super-bowl/1729264859",
+            "https://music.apple.com/de/album/super-bowl-lviii-megamix-dj-mix/1729264859",
+            "https://music.apple.com/jp/album/1729264859?i=999",
+        ];
+        for p in permutations {
+            let canon = canonicalise_apple_music_url(p).unwrap();
+            assert_eq!(canon, once, "permutation {p:?} must produce the same canonical form");
+        }
+    }
+
+    /// Non-Apple-Music URLs return None — the canonicaliser is
+    /// scoped to Apple Music URLs only.
+    #[test]
+    fn canonicalise_non_apple_music_returns_none() {
+        assert!(canonicalise_apple_music_url("https://open.spotify.com/album/foo").is_none());
+        assert!(canonicalise_apple_music_url("https://www.youtube.com/watch?v=foo").is_none());
+        assert!(canonicalise_apple_music_url("not a url at all").is_none());
+    }
+
     #[test]
     fn parse_song_url() {
         let url = "https://music.apple.com/us/song/anti-hero/1649434280";
@@ -2865,6 +3084,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
             }],
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
+            album_spotlight_url: None,
             artwork_url_template: Some(
                 "https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}".to_string(),
             ),

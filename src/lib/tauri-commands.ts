@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/lib/tauri-commands.ts - Type-safe IPC command wrappers
@@ -831,6 +831,34 @@ export function exportDiskActivityLog(daysBack?: number): Promise<number> {
  */
 export function getLogsFolderPath(): Promise<string> {
   return invoke<string>('get_logs_folder_path');
+}
+
+/**
+ * Returns the verbatim content of `ACKNOWLEDGEMENTS.md` (the inventory
+ * of every direct dependency, its licence, and its purpose) — embedded
+ * into the binary at compile time via `include_str!()`, so this is
+ * always available on every platform regardless of bundle.resources
+ * config.
+ *
+ * Rust handler: `get_acknowledgements_text()` in
+ * `src-tauri/src/commands/legal.rs` (#802).
+ */
+export function getAcknowledgementsText(): Promise<string> {
+  return invoke<string>('get_acknowledgements_text');
+}
+
+/**
+ * Returns the verbatim content of `THIRD_PARTY_LICENSES.md` (the
+ * actual MIT/BSD/Unlicense/LGPL/GPL/PSF licence text for the bundled
+ * engines and tools, plus the written offer for source code for
+ * LGPL/GPL components shipped in offline-installer builds). Embedded
+ * at compile time via `include_str!()`.
+ *
+ * Rust handler: `get_third_party_licenses_text()` in
+ * `src-tauri/src/commands/legal.rs` (#802).
+ */
+export function getThirdPartyLicensesText(): Promise<string> {
+  return invoke<string>('get_third_party_licenses_text');
 }
 
 /**

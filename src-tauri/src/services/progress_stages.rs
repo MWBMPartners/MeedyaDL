@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Per-item progress stage registry.
@@ -172,6 +172,61 @@ pub fn set_stage(
     stage: ProgressStage,
 ) {
     set_stage_with_label(app, queue, download_id, stage, stage.label());
+}
+
+/// Updates the per-item progress bar caption **only**, leaving the
+/// progress fraction untouched (#808 regression fix).
+///
+/// Use this for caption-update sites that don't represent a real
+/// stage transition — e.g. per-track caption updates inside a
+/// long-running stage like the companion-download supervisor's
+/// `update_companion_label_from_line`. The progress fraction
+/// continues to be driven by the resolution chain established in
+/// #790 (per-file `[download] X%` from GAMDL → enrichment stage
+/// weights → terminal-state values) so the bar reflects the actual
+/// within-stage progress rather than the stage's nominal weight.
+///
+/// Distinct from [`set_stage_with_label`] which updates BOTH the
+/// label and the progress fraction — that's correct for stage
+/// transitions but wrong for caption-only updates that happen many
+/// times per stage (e.g. one per track in a 21-track companion
+/// download). Calling `set_stage_with_label(…, Finalising, …)` in
+/// a tight per-track loop pegs the bar at 0.95 — exactly the bug
+/// #808 reports.
+pub fn set_label_only(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    download_id: &str,
+    label: &str,
+) {
+    if let Ok(mut q) = queue.try_lock() {
+        // Same Artist: Album suffix logic as `set_stage_with_label`
+        // so the caption shape stays consistent across the two
+        // helpers. The only difference is that this helper does NOT
+        // call `set_processing_progress`.
+        let context = q
+            .get_status()
+            .into_iter()
+            .find(|s| s.id == download_id)
+            .map(|s| {
+                let artist = s.artist_name.unwrap_or_default();
+                let album = s.album_name.unwrap_or_default();
+                if !artist.is_empty() && !album.is_empty() {
+                    format!(" — {artist}: {album}")
+                } else if !album.is_empty() {
+                    format!(" — {album}")
+                } else {
+                    String::new()
+                }
+            })
+            .unwrap_or_default();
+        let full_label = format!("{label}{context}");
+        q.set_processing_label(download_id, &full_label);
+        // Deliberately NO `q.set_processing_progress(...)` here —
+        // #808 fix. The bar value stays driven by the resolution
+        // chain established in #790.
+    }
+    let _ = app.emit("queue-updated", download_id);
 }
 
 /// Same as [`set_stage`] but lets the caller override the caption

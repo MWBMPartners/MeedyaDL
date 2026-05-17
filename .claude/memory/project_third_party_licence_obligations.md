@@ -72,10 +72,49 @@ For LGPL specifically, also ensure each LGPL component is shipped as a
 - AGPL → would add "network use is distribution" — we have none today; if
   we ever add one, flag it for legal review before bundling.
 
+## Per-PR enforcement (#806)
+
+The `Licences` GitHub Actions workflow
+(`.github/workflows/licences.yml`) runs on every pull request to `main`
+and gates merges on three checks:
+
+1. **ACKNOWLEDGEMENTS.md drift** — `npm run check:acknowledgements`.
+   Every direct dep in `Cargo.toml` / `package.json` must be named in
+   the inventory. Catches the "added a dep, forgot to update docs"
+   failure mode.
+
+2. **Upstream licence string drift** — `npm run check:upstream-licences`.
+   Reads each direct Rust crate's licence from `cargo metadata` and
+   each direct npm runtime dep's licence from
+   `node_modules/<pkg>/package.json::license`; compares against
+   `ACKNOWLEDGEMENTS.md`. Catches the "upstream re-licensed between
+   MeedyaDL releases" failure mode (most commonly MIT → dual
+   MIT/Apache-2.0; rarely the permissive → copyleft flip that would
+   be a serious compliance risk).
+
+3. **cargo-deny licence allowlist** — `deny.toml` constrains the
+   project to permissive-only licences; cargo-deny enforces this
+   against the full transitive tree.
+
+The upstream-string check uses an SPDX-aware normaliser:
+`LGPL-3.0+` ≡ `LGPL-3.0-or-later`, `MIT/Apache-2.0` ≡
+`MIT OR Apache-2.0`, etc. Whitespace / casing / separator
+differences are advisory only (not blocking). A genuine licence
+change (e.g. our `lucide-react` MIT entry vs upstream's actual ISC,
+which the script caught on first run) is a hard fail.
+
+Run all three checks locally via `npm run check:legal`.
+
 ## Related
 
-- Tracked in #802.
+- Tracked in #802 (bundling) + #806 (per-PR enforcement).
 - Audit reference: `ACKNOWLEDGEMENTS.md` (component table),
+  `THIRD_PARTY_LICENSES.md` (verbatim notices + source offers),
   `src/components/help/HelpViewer.tsx` (in-app About → Open Source
   Acknowledgements), `.github/workflows/release.yml:384-520` (offline-bundle
-  pipeline), `src-tauri/tauri.conf.json:46-48` (bundle resources).
+  pipeline), `.github/workflows/release.yml::Step 8.6` (licence harvest +
+  source-offer emission), `.github/workflows/licences.yml` (per-PR
+  enforcement), `scripts/check-acknowledgements.mjs` (drift check),
+  `scripts/check-upstream-licences.mjs` (string-drift check),
+  `src-tauri/src/commands/legal.rs` (embedded-file IPC),
+  `src-tauri/tauri.conf.json:46-48` (bundle resources).

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Application settings model.
@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::gamdl_options::{
-    ArtistAutoSelect, CoverFormat, DownloadMode, LyricsFormat, RemuxMode, SongCodec,
+    ArtistAutoSelect, CoverFormat, DownloadMode, LogLevel, LyricsFormat, RemuxMode, SongCodec,
     VideoResolution,
 };
 
@@ -45,6 +45,14 @@ use super::gamdl_options::{
 /// older settings.json (backward compatibility during upgrades).
 fn default_true() -> bool {
     true
+}
+
+/// Serde default helper for the `gamdl_log_level` field (#768). Returns
+/// `LogLevel::Info`, which matches GAMDL's compiled-in default. Keeps
+/// settings.json files written by older builds (where the field was
+/// absent) loading unchanged on upgrade.
+fn default_gamdl_log_level() -> LogLevel {
+    LogLevel::Info
 }
 
 fn default_replaygain_reference() -> f64 {
@@ -975,6 +983,15 @@ pub struct AppSettings {
     #[serde(default = "default_cover_art_name")]
     pub cover_art_name: CoverArtName,
 
+    /// Embed the music-video cover thumbnail as a `covr` atom in the
+    /// `.mp4` and delete the sidecar `.jpg`/`.png` (#533 / #569).
+    /// Default `true` — most users see the embedded poster frame in
+    /// every modern player and never need the sidecar. Flip to `false`
+    /// to keep the sidecar on disk (e.g. for tooling that expects a
+    /// visible thumbnail next to the video).
+    #[serde(default = "default_true")]
+    pub music_video_embed_cover_sidecar: bool,
+
     // ================================================================
     // Animated Artwork (Motion Cover Art)
     // ================================================================
@@ -1348,6 +1365,34 @@ pub struct AppSettings {
     /// Controlled in Settings > Advanced > Diagnostics.
     #[serde(default)]
     pub verbose_gamdl_exceptions: bool,
+
+    /// GAMDL subprocess log level (`--log-level <LEVEL>`).
+    ///
+    /// Surfaced behind the Developer Tools panel only (gated on
+    /// `dev_access_enabled` via the Konami sentinel), so it doesn't
+    /// confuse end users with a knob that mostly just creates activity-
+    /// log noise.
+    ///
+    /// **Why this exists (#768):** GAMDL v3.5.2 (commit `dec4a22`,
+    /// "Bind logger and log m3u8 master URL extraction") added a
+    /// `log.debug("success", m3u8_master_url=...)` call inside the
+    /// music-video pipeline that is silent at GAMDL's default `INFO`
+    /// level. Future v3.x releases follow the same pattern as upstream
+    /// invests more in structlog instrumentation. Without this field a
+    /// developer hitting "music videos download to the wrong folder"
+    /// on v3.5.2+ has no in-app way to enable DEBUG output — they
+    /// have to fork settings.json or shell out to gamdl directly.
+    ///
+    /// **Default `Info`** matches GAMDL's compiled-in default, so this
+    /// field is a no-op for users who never open Developer Tools.
+    /// `merge_options()` in `download_queue.rs` copies the value into
+    /// `GamdlOptions.log_level`, which `to_cli_args()` then emits as
+    /// `--log-level <LEVEL>` regardless of GAMDL version (the flag
+    /// exists on every release in our support window). The serde
+    /// `default = "default_gamdl_log_level"` helper makes settings.json
+    /// files written by pre-#768 builds load unchanged.
+    #[serde(default = "default_gamdl_log_level")]
+    pub gamdl_log_level: LogLevel,
 
     /// Optional user-chosen directory for the persistent on-disk
     /// activity log (`activity-YYYY-MM-DD.log` files, #541).
@@ -1739,6 +1784,10 @@ impl Default for AppSettings {
             // Rename GAMDL's "Cover" to "FrontCover" for consistency with
             // animated artwork (FrontCover.mp4, FrontCoverPortrait.mp4).
             cover_art_name: CoverArtName::FrontCover,
+            // #569: embed MV cover sidecar into the .mp4 as a covr
+            // atom and delete the sidecar on success — keeps the
+            // poster frame, removes the redundant loose .jpg files.
+            music_video_embed_cover_sidecar: true,
 
             // --- Animated artwork ---
             // Enabled by default (#449): animated artwork is downloaded when
@@ -1857,6 +1906,11 @@ impl Default for AppSettings {
             // stderr is unreadable with raw tracebacks interleaved. Users
             // debugging upstream issues can flip this in Settings > Advanced.
             verbose_gamdl_exceptions: false,
+            // GAMDL log level — matches GAMDL's compiled-in default.
+            // Only relevant to users who flip this from Developer Tools
+            // (#768); for everyone else it's a no-op that GAMDL would
+            // pick anyway.
+            gamdl_log_level: LogLevel::Info,
             // Empty string = use default {app_data_dir}/logs/. Users can
             // point the on-disk activity log at an external drive via
             // Settings > Advanced > Diagnostics.

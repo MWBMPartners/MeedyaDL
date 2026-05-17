@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file TemplateBuilder.tsx -- Visual chip/pill builder for GAMDL templates.
@@ -45,8 +45,14 @@ interface TemplateBuilderProps {
   onChange: (value: string) => void;
   /**
    * Which variable categories to show in the add menu.
-   * Default: `['track', 'album']`. Playlist templates pass
-   * `['track', 'album', 'playlist']` to include playlist variables.
+   *
+   * Default: `['common', 'track', 'album']`. Playlist templates pass
+   * `['common', 'track', 'album', 'playlist']` to include playlist variables.
+   *
+   * `'common'` is included implicitly in every default so multi-service-prep
+   * tokens like `{platform}` (#800) are always pickable regardless of the
+   * caller's category list. Callers that omit `'common'` deliberately can
+   * pass an explicit list that excludes it, but doing so is rarely correct.
    */
   variableCategories?: TemplateVariable['category'][];
 }
@@ -60,7 +66,7 @@ export function TemplateBuilder({
   description,
   value,
   onChange,
-  variableCategories = ['track', 'album'],
+  variableCategories = ['common', 'track', 'album'],
 }: TemplateBuilderProps) {
   // Derive segments from the string prop (single source of truth)
   const segments = useMemo(() => parseTemplate(value), [value]);

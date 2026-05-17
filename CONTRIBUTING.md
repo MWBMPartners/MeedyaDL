@@ -47,7 +47,7 @@ See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) for a comprehensive architecture ov
 
 ## Coding Conventions
 
-- **Copyright header**: Every source file starts with `// Copyright (c) 2026 MeedyaDL` + MIT licence reference
+- **Copyright header**: Every source file starts with `// Copyright (c) 2026 MeedyaSuite` + MIT licence reference
 - **Comments**: Every function and significant code block gets detailed comments
 - **Conventional commits**: Required for automated changelog generation
   - `feat:` — new feature
