@@ -51,7 +51,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
  * - `RefreshCw` -- manual refresh button (@see https://lucide.dev/icons/refresh-cw)
  * - `Trash2`    -- "Clear Finished" button (@see https://lucide.dev/icons/trash-2)
  */
-import { Download, Play, RefreshCw, RotateCcw, Square, Trash2, Upload } from 'lucide-react';
+import { Download, Play, RefreshCw, RotateCcw, Search, Square, Trash2, Upload, X } from 'lucide-react';
 
 /**
  * Zustand store hooks.
@@ -83,7 +83,7 @@ import { PageHeader } from '@/components/layout';
 import { QueueListVirtualized } from './QueueListVirtualized';
 
 /** Per-item snapshot type used by the Delete confirmation modal (#685). */
-import type { QueueItemStatus } from '@/types';
+import type { DownloadState, QueueItemStatus } from '@/types';
 
 /**
  * Renders the download queue page showing all download items with their
@@ -207,6 +207,48 @@ export function DownloadQueue() {
 
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  // ---------------------------------------------------------------
+  // Search + filter (#462) and bulk-select (#463)
+  // ---------------------------------------------------------------
+
+  /**
+   * Live search query. Matched case-insensitively against artist,
+   * album, current track caption, and URL. Empty string disables
+   * filtering. Pattern mirrors HistoryPage (#462).
+   */
+  const [searchQuery, setSearchQuery] = useState('');
+
+  /**
+   * Active status filter set (#462). Items whose `state` is in this
+   * set are shown; empty set means "show everything" (default).
+   */
+  const [statusFilters, setStatusFilters] = useState<Set<DownloadState>>(new Set());
+
+  /**
+   * Set of queue-item ids currently selected for bulk actions
+   * (#463). Maintained as Set for O(1) membership checks; never
+   * mutated in place to keep React render correctness.
+   */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleStatusFilter = useCallback((state: DownloadState) => {
+    setStatusFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(state)) next.delete(state); else next.add(state);
+      return next;
+    });
+  }, []);
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
   const handleAbortAll = useCallback(async () => {
     setShowAbortConfirm(false);
@@ -522,6 +564,130 @@ export function DownloadQueue() {
   ).length;
 
   /**
+   * Search + filter-applied view of the queue (#462). The list passed
+   * down to QueueListVirtualized for rendering. Pure derived state —
+   * never mutated; the source of truth is `queueItems` from the store.
+   *
+   * Filter rules:
+   *   - When `statusFilters` is empty, all states match.
+   *   - When `searchQuery` is empty, the substring filter is a no-op.
+   *   - Substring match is case-insensitive against artist, album,
+   *     current track caption, and the FIRST url (multi-url items are
+   *     rare; covers the common case without iterating every entry).
+   *
+   * Selected ids that fall outside the filtered view are kept in the
+   * Set but become invisible to the bulk-action buttons (count is
+   * computed from `selectedVisibleIds` below). This matches user
+   * expectation: hiding a row doesn't deselect it; clearing the
+   * filter brings the selection back.
+   */
+  const filteredItems = useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed && statusFilters.size === 0) return queueItems;
+    return queueItems.filter((item) => {
+      if (statusFilters.size > 0 && !statusFilters.has(item.state)) return false;
+      if (!trimmed) return true;
+      const hay = [
+        item.artist_name ?? '',
+        item.album_name ?? '',
+        item.current_track ?? '',
+        item.urls?.[0] ?? '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(trimmed);
+    });
+  }, [queueItems, searchQuery, statusFilters]);
+
+  /**
+   * Subset of `selectedIds` that is currently visible in
+   * `filteredItems`. Drives the bulk-action button count and ensures
+   * actions never run on hidden rows. Empty when no rows selected or
+   * all selected rows are filtered out.
+   */
+  const selectedVisibleIds = useMemo(() => {
+    if (selectedIds.size === 0) return [] as string[];
+    const visible = new Set(filteredItems.map((i) => i.id));
+    return [...selectedIds].filter((id) => visible.has(id));
+  }, [selectedIds, filteredItems]);
+
+  /**
+   * Bulk-action helpers (#463). Each loops over the currently visible
+   * selected ids and calls the same per-item IPC the per-row buttons
+   * use. Errors per item don't abort the loop (we want partial
+   * success — a single network glitch shouldn't halt the rest). The
+   * selection is cleared on success so the bulk-action bar collapses.
+   */
+  const handleBulkCancel = useCallback(async () => {
+    const targets = useDownloadStore
+      .getState()
+      .queueItems.filter(
+        (i) =>
+          selectedVisibleIds.includes(i.id) &&
+          (i.state === 'queued' || i.state === 'downloading' || i.state === 'processing'),
+      );
+    for (const t of targets) {
+      try {
+        await cancelDownload(t.id);
+      } catch (e) {
+        console.warn(`bulk cancel: failed for ${t.id}:`, e);
+      }
+    }
+    addToast(`Cancelled ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    clearSelection();
+  }, [cancelDownload, addToast, selectedVisibleIds, clearSelection]);
+
+  const handleBulkRetry = useCallback(async () => {
+    const targets = useDownloadStore
+      .getState()
+      .queueItems.filter(
+        (i) => selectedVisibleIds.includes(i.id) && (i.state === 'error' || i.state === 'cancelled'),
+      );
+    for (const t of targets) {
+      try {
+        await retryDownload(t.id);
+      } catch (e) {
+        console.warn(`bulk retry: failed for ${t.id}:`, e);
+      }
+    }
+    addToast(`Retried ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    clearSelection();
+  }, [retryDownload, addToast, selectedVisibleIds, clearSelection]);
+
+  const handleBulkDelete = useCallback(async () => {
+    // Bulk delete removes finished/queued/cancelled rows in one pass.
+    // Active rows (downloading/processing) are protected — same rule
+    // as the per-item Delete trash icon. Order doesn't matter because
+    // deleteItem is independent per id.
+    const targets = useDownloadStore
+      .getState()
+      .queueItems.filter(
+        (i) =>
+          selectedVisibleIds.includes(i.id) &&
+          i.state !== 'downloading' &&
+          i.state !== 'processing',
+      );
+    for (const t of targets) {
+      try {
+        await deleteItem(t.id);
+      } catch (e) {
+        console.warn(`bulk delete: failed for ${t.id}:`, e);
+      }
+    }
+    addToast(`Removed ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    clearSelection();
+  }, [deleteItem, addToast, selectedVisibleIds, clearSelection]);
+
+  /**
+   * Select all rows currently visible in `filteredItems`. Honours the
+   * active search/filter so hidden rows aren't pulled in. Idempotent —
+   * re-selecting is a no-op.
+   */
+  const selectAllVisible = useCallback(() => {
+    setSelectedIds(new Set(filteredItems.map((i) => i.id)));
+  }, [filteredItems]);
+
+  /**
    * Count of failed items eligible for the "Retry All Failed" action
    * (#665). Only `error`-state items qualify; cancelled items were
    * stopped intentionally and shouldn't be auto-resumed by a bulk action.
@@ -784,6 +950,113 @@ export function DownloadQueue() {
       />
 
       {/*
+       * Search + status-filter bar (#462). Always rendered when the
+       * queue has at least one item so users can find one specific
+       * download without scrolling a 100-item list. Filter chips show
+       * counts per state and toggle membership in `statusFilters`.
+       */}
+      {queueItems.length > 0 && (
+        <div className="px-6 py-3 border-b border-border-light flex flex-col gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by artist, album, track, or URL..."
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-input-bg border border-input-border text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+              aria-label="Search queue"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-content-tertiary hover:text-content-primary"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span className="text-content-tertiary">Filter:</span>
+            {(['downloading', 'processing', 'queued', 'complete', 'error', 'cancelled'] as DownloadState[]).map(
+              (state) => {
+                const active = statusFilters.has(state);
+                const count = queueItems.filter((i) => i.state === state).length;
+                if (count === 0 && !active) return null;
+                return (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() => toggleStatusFilter(state)}
+                    className={`px-2 py-0.5 rounded-full border transition-colors ${
+                      active
+                        ? 'bg-accent text-white border-accent'
+                        : 'bg-surface-elevated text-content-secondary border-border-light hover:border-accent'
+                    }`}
+                    aria-pressed={active}
+                  >
+                    {state} ({count})
+                  </button>
+                );
+              },
+            )}
+            {(statusFilters.size > 0 || searchQuery) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilters(new Set());
+                  setSearchQuery('');
+                }}
+                className="text-content-tertiary hover:text-content-primary underline ml-1"
+              >
+                Reset
+              </button>
+            )}
+            {filteredItems.length !== queueItems.length && (
+              <span className="text-content-tertiary ml-auto">
+                Showing {filteredItems.length} of {queueItems.length}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/*
+       * Bulk-action bar (#463). Floats above the queue list while at
+       * least one VISIBLE row is selected. Includes select-all and the
+       * three bulk actions (Cancel / Retry / Remove) — the same per-item
+       * actions looped over the selection. Selection that's filtered
+       * out is kept but invisible to the action buttons.
+       */}
+      {queueItems.length > 0 && selectedVisibleIds.length > 0 && (
+        <div className="px-6 py-2 border-b border-border-light bg-accent/10 flex items-center gap-3 text-sm">
+          <span className="text-content-primary font-medium">
+            {selectedVisibleIds.length} selected
+          </span>
+          {selectedVisibleIds.length < filteredItems.length && (
+            <Button variant="ghost" size="sm" onClick={selectAllVisible}>
+              Select all visible
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={clearSelection}>
+            Clear
+          </Button>
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" icon={<Square size={14} />} onClick={handleBulkCancel}>
+            Cancel selected
+          </Button>
+          <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleBulkRetry}>
+            Retry selected
+          </Button>
+          <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={handleBulkDelete}>
+            Remove selected
+          </Button>
+        </div>
+      )}
+
+      {/*
        * Queue statistics bar -- shown when the queue has items.
        * Displays per-state counts (only non-zero) and an overall
        * progress bar showing the completed/total ratio.
@@ -810,7 +1083,7 @@ export function DownloadQueue() {
       )}
 
       <QueueListVirtualized
-        queueItems={queueItems}
+        queueItems={filteredItems}
         onCancel={handleCancel}
         onRetry={handleRetry}
         onRetryWithoutWrapper={handleRetryWithoutWrapper}
@@ -820,6 +1093,8 @@ export function DownloadQueue() {
         onMoveUp={handleMoveUp}
         onMoveDown={handleMoveDown}
         onMoveToBottom={handleMoveToBottom}
+        selectedIds={selectedIds}
+        onToggleSelect={toggleSelected}
       />
 
       {/*
