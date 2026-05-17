@@ -166,6 +166,16 @@ jobs:
   backend:
     name: Backend (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Suppress Node's DEP0040 punycode deprecation warning emitted by
+    # `@actions/cache`'s bundled dependencies, which the Swatinem/rust-cache
+    # post step invokes. The warning is cosmetic — neither MeedyaDL nor the
+    # action's hot path call `require('punycode')` — but it clutters CI logs
+    # on every cache save. Job-level env propagates to both the main and post
+    # steps of every action in this job. Targeted (`--disable-warning=DEP0040`
+    # rather than `--no-deprecation`) so other deprecations remain visible.
+    # @see https://github.com/MWBMPartners/MeedyaDL/issues — punycode audit 2026-05-17
+    env:
+      NODE_OPTIONS: --disable-warning=DEP0040
     strategy:
       fail-fast: false
       matrix:
@@ -337,7 +347,7 @@ jobs:
       # This can save 5-15 minutes on subsequent runs by reusing compiled dependencies.
       # @see https://github.com/Swatinem/rust-cache
       - name: Cache Rust
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2.9.1
         with:
           workspaces: src-tauri
 
