@@ -446,6 +446,13 @@ pub mod filename_safety;
 /// task is active.
 pub mod progress_stages;
 
+/// Legacy sibling-folder merge for pre-#528 downloads (#789).
+/// Detects `Album/` + `Album [Explicit]/` pairs left over from
+/// older versions and offers a three-phase (detect → preview →
+/// execute) merge to consolidate them into the single
+/// post-#528 layout.
+pub mod legacy_folder_merge;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

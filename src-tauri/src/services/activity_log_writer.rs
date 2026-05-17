@@ -293,6 +293,7 @@ mod tests {
         let event = ActivityLogEvent {
             download_id: "abc12345".to_string(),
             stream: "internal",
+            severity: crate::utils::activity_log::LogSeverity::Info,
             line: "hello world".to_string(),
             timestamp: "2026-04-22T14:03:21.482Z".to_string(),
         };
@@ -321,12 +322,14 @@ mod tests {
         let first = ActivityLogEvent {
             download_id: "system".to_string(),
             stream: "internal",
+            severity: crate::utils::activity_log::LogSeverity::Info,
             line: "day one".to_string(),
             timestamp: "2026-04-22T23:59:59.999Z".to_string(),
         };
         let second = ActivityLogEvent {
             download_id: "system".to_string(),
             stream: "internal",
+            severity: crate::utils::activity_log::LogSeverity::Info,
             line: "day two".to_string(),
             timestamp: "2026-04-23T00:00:00.001Z".to_string(),
         };

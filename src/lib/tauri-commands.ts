@@ -856,6 +856,83 @@ export function scanFolderForManifests(): Promise<ScannedManifest[]> {
   return invoke<ScannedManifest[]>('scan_folder_for_manifests');
 }
 
+// ============================================================
+// Legacy sibling-folder merge (#789)
+// ============================================================
+
+/** A `Foo` + `Foo [Explicit]` sibling pair detected on disk. */
+export interface SiblingPair {
+  parent: string;
+  unsuffixed_path: string;
+  suffixed_path: string;
+  suffix: string;
+  album_basename: string;
+}
+
+/** Dry-run summary returned by `previewLegacyFolderMerge`. */
+export interface MergePreview {
+  pair: SiblingPair;
+  audio_count: number;
+  sidecar_count: number;
+  other_count: number;
+  potential_collisions: string[];
+  will_merge_manifest: boolean;
+}
+
+/** Outcome of `executeLegacyFolderMerge`. */
+export interface MergeReport {
+  pair: SiblingPair;
+  audio_moved: number;
+  sidecars_moved: number;
+  other_moved: number;
+  collisions_disambiguated: string[];
+  manifest_merged: boolean;
+  source_folder_removed: boolean;
+  warnings: string[];
+}
+
+/**
+ * Walk a previously-scanned folder for sibling pairs left over
+ * from pre-#528 downloads. Defensive — only returns pairs whose
+ * un-suffixed sibling's audio carries the matching `rtng` advisory
+ * rating, so unrelated folders that happen to have similar names
+ * are never offered for merge.
+ *
+ * Rust handler: `detect_legacy_folder_pairs()` in `gamdl.rs`.
+ */
+export function detectLegacyFolderPairs(
+  folderPath: string
+): Promise<SiblingPair[]> {
+  return invoke<SiblingPair[]>('detect_legacy_folder_pairs', { folderPath });
+}
+
+/**
+ * Dry-run preview of what `executeLegacyFolderMerge` would do for
+ * `pair`. Returns file counts + potential collisions WITHOUT
+ * touching disk; powers the confirmation UI.
+ *
+ * Rust handler: `preview_legacy_folder_merge()` in `gamdl.rs`.
+ */
+export function previewLegacyFolderMerge(
+  pair: SiblingPair
+): Promise<MergePreview> {
+  return invoke<MergePreview>('preview_legacy_folder_merge', { pair });
+}
+
+/**
+ * Perform the merge. Renames audio + sidecars in the source folder
+ * to add the advisory suffix, moves all files into the suffixed
+ * sibling (auto-disambiguates collisions), merges `.meedyadl`
+ * manifests, and removes the source folder if empty.
+ *
+ * Rust handler: `execute_legacy_folder_merge()` in `gamdl.rs`.
+ */
+export function executeLegacyFolderMerge(
+  pair: SiblingPair
+): Promise<MergeReport> {
+  return invoke<MergeReport>('execute_legacy_folder_merge', { pair });
+}
+
 /** Result of scanning a folder for manifest files (#456). */
 export interface ScannedManifest {
   /** Path to the manifest file on disk */

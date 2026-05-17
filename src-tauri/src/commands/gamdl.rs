@@ -1992,6 +1992,94 @@ fn parse_manifest_at_path(path: &std::path::Path) -> Option<ScannedManifest> {
     })
 }
 
+// ============================================================
+// Legacy sibling-folder merge (#789) — IPC surface
+// ============================================================
+//
+// Three commands wrap the `legacy_folder_merge` service's
+// detect → preview → execute pipeline so the frontend Library
+// Scan UI can offer pre-#528 users a one-shot cleanup.
+//
+// All three are opt-in (user clicks a button); none auto-run on
+// startup. Real on-disk file moves only happen inside
+// `execute_legacy_folder_merge` and only after the user has
+// reviewed the preview.
+
+/// Walk a user-selected folder for sibling pairs that should be
+/// merged (e.g. `Album/` + `Album [Explicit]/`). Defensive — the
+/// service verifies the un-suffixed sibling's `rtng` atom matches
+/// the other sibling's advisory suffix before accepting a pair.
+///
+/// Returns an empty Vec when no pairs are detected — the frontend
+/// shows "no legacy pairs found" rather than a banner.
+#[tauri::command]
+pub async fn detect_legacy_folder_pairs(
+    folder_path: String,
+) -> Result<Vec<crate::services::legacy_folder_merge::SiblingPair>, String> {
+    log::info!("Scanning for legacy sibling-folder pairs at: {folder_path}");
+    let path = std::path::Path::new(&folder_path);
+    if !path.is_dir() {
+        return Err(format!(
+            "Path is not a directory or does not exist: {folder_path}"
+        ));
+    }
+    let pairs = crate::services::legacy_folder_merge::detect_sibling_pairs(path);
+    log::info!("Detected {} legacy sibling-folder pair(s)", pairs.len());
+    Ok(pairs)
+}
+
+/// Dry-run a merge — returns file counts, potential collisions,
+/// and whether manifests will be merged, WITHOUT touching disk.
+/// Powers the confirmation UI before [`execute_legacy_folder_merge`].
+#[tauri::command]
+pub async fn preview_legacy_folder_merge(
+    pair: crate::services::legacy_folder_merge::SiblingPair,
+) -> Result<crate::services::legacy_folder_merge::MergePreview, String> {
+    crate::services::legacy_folder_merge::preview_merge(&pair)
+}
+
+/// Perform the merge. Renames source-folder audio + sidecars to
+/// add the advisory suffix, moves all files into the suffixed
+/// destination via `fs_safe::safe_rename` (auto-disambiguates
+/// collisions), merges `.meedyadl` manifests, and removes the
+/// source folder if empty after.
+///
+/// Returns a structured report the UI can surface ("moved N audio,
+/// M sidecars, K disambiguated, manifest merged"). Non-fatal
+/// warnings are in `report.warnings`.
+#[tauri::command]
+pub async fn execute_legacy_folder_merge(
+    app: AppHandle,
+    pair: crate::services::legacy_folder_merge::SiblingPair,
+) -> Result<crate::services::legacy_folder_merge::MergeReport, String> {
+    log::info!(
+        "Executing legacy folder merge: {} + {}",
+        pair.unsuffixed_path.display(),
+        pair.suffixed_path.display()
+    );
+    let report = crate::services::legacy_folder_merge::execute_merge(&pair)?;
+
+    // Surface a brief summary in the in-app activity log so the
+    // user has a paper trail outside the modal.
+    let summary = format!(
+        "Legacy folder merge: \"{}\" — moved {} audio + {} sidecars + {} other ({} disambiguated, manifest {}, source folder {})",
+        report.pair.album_basename,
+        report.audio_moved,
+        report.sidecars_moved,
+        report.other_moved,
+        report.collisions_disambiguated.len(),
+        if report.manifest_merged { "merged" } else { "skipped" },
+        if report.source_folder_removed { "removed" } else { "left in place" },
+    );
+    emit_app_log(&app, &summary);
+    for w in &report.warnings {
+        log::warn!("Legacy folder merge warning: {w}");
+        emit_app_log(&app, &format!("Legacy folder merge: {w}"));
+    }
+
+    Ok(report)
+}
+
 /// Checks whether a URL was previously downloaded and returns change
 /// Detect the codec of the first M4A file in an album directory (#380).
 ///
