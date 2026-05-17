@@ -3462,8 +3462,24 @@ fn filter_tiers_by_audio_traits(
     available_traits: &[String],
 ) -> (Vec<CompanionTier>, Vec<String>) {
     if available_traits.is_empty() {
+        // #772 investigation: log the no-data path so the
+        // forensic record makes it clear when API metadata
+        // failed (vs the pre-filter genuinely dropping a tier).
+        log::debug!(
+            "filter_tiers_by_audio_traits: audioTraits unavailable from Apple Music API \
+             — passing all tiers through unfiltered (no AC3/Atmos pre-filter applied)"
+        );
         return (tiers, Vec::new());
     }
+    // #772 investigation: trace decision-making per tier so users
+    // gathering AC3-false-negative evidence can paste the raw log
+    // lines rather than reasoning from the absence of a tier.
+    // Always emits at debug level — surfaces in the on-disk
+    // activity log when `--log-level=Debug` is configured (#768)
+    // and stays out of the user-facing UI by default.
+    log::debug!(
+        "filter_tiers_by_audio_traits: available_traits = {available_traits:?}"
+    );
     let mut skipped = Vec::new();
     let kept: Vec<CompanionTier> = tiers
         .into_iter()
@@ -3472,12 +3488,38 @@ fn filter_tiers_by_audio_traits(
                 None => true,
                 Some(needed) => available_traits.iter().any(|t| t == needed),
             });
+            let names: Vec<&str> = tier
+                .codecs_to_try
+                .iter()
+                .map(SongCodec::to_cli_string)
+                .collect();
+            // Per-tier decision trace (#772). The keep/skip
+            // shape names the codec list AND the
+            // required-trait → matched-trait outcome so a user
+            // pasting these lines can answer the AC3-false-
+            // negative question without guessing.
+            let trait_details: Vec<String> = tier
+                .codecs_to_try
+                .iter()
+                .map(|c| match c.required_audio_trait() {
+                    None => format!("{}=ok(no-trait)", c.to_cli_string()),
+                    Some(needed) => {
+                        let matched = available_traits.iter().any(|t| t == needed);
+                        format!(
+                            "{}=needs[{needed}]={}",
+                            c.to_cli_string(),
+                            if matched { "matched" } else { "missing" }
+                        )
+                    }
+                })
+                .collect();
+            log::debug!(
+                "filter_tiers_by_audio_traits: tier=[{}] decision={} ({})",
+                names.join(","),
+                if any_codec_supported { "keep" } else { "drop" },
+                trait_details.join(", "),
+            );
             if !any_codec_supported {
-                let names: Vec<&str> = tier
-                    .codecs_to_try
-                    .iter()
-                    .map(SongCodec::to_cli_string)
-                    .collect();
                 skipped.push(names.join(","));
             }
             any_codec_supported
@@ -14392,6 +14434,53 @@ mod tests {
         assert!(
             super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title_id}"),
             "MV_NO_ALBUM_FILE_TEMPLATE must include {{title_id}} for uniqueness"
+        );
+    }
+
+    /// #547 — Apple Music Classical movement-title collision audit.
+    ///
+    /// Classical recordings have structurally non-unique movement
+    /// titles (every symphony has an "Allegro" movement). The
+    /// audit's HIGH-risk case is a direct song-URL into classical
+    /// content that falls through to `no_album_file_template` —
+    /// the user's library would silently collide as every
+    /// "Allegro" movement saved as `Allegro.m4a`.
+    ///
+    /// This test asserts the failure mode is **reproducible with
+    /// today's default `no_album_file_template` (`{title}`)** so a
+    /// future fix (e.g. forcing the same `{title} ({title_id})`
+    /// safety net the MV path uses, or auto-prefixing with the
+    /// album work name when the source is Classical) has a clear
+    /// regression target.
+    ///
+    /// Pairs with `mv_no_album_template_disambiguates_variants`
+    /// from #571 — that test covers the MV equivalent which is
+    /// already mitigated by the Tier 4 safety net. The audio path
+    /// has no equivalent safety net yet; this test documents the
+    /// gap.
+    #[test]
+    fn classical_movements_collide_under_default_no_album_template() {
+        // Today's default: `{title}` with no disambiguator.
+        // Pin the default in the assertion so a future refactor
+        // that adds `{title_id}` to the default is flagged.
+        let default_template = "{title}";
+
+        let render = |title: &str| default_template.replace("{title}", title);
+
+        // Concrete Classical scenario: two "Allegro" movements
+        // from two different Beethoven symphonies. Both have
+        // distinct title_ids in Apple Music but identical
+        // `tags.title` after GAMDL's tag parse. Same name, same
+        // template → same filename → silent overwrite.
+        let beethoven_5_allegro = render("Allegro con brio");
+        let beethoven_9_allegro = render("Allegro con brio");
+        assert_eq!(
+            beethoven_5_allegro, beethoven_9_allegro,
+            "documents the collision risk (#547) — today's default \
+             no_album_file_template offers no disambiguation for \
+             identically-titled Classical movements. A future fix \
+             should either force {{title_id}} into the default for \
+             Classical content or wire a Classical-specific template."
         );
     }
 
