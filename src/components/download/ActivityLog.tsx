@@ -31,6 +31,7 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+import type { ActivityLogEntry } from '@/types';
 import { useActivityStore } from '@/stores/activityStore';
 import { Button, Input } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -60,6 +61,38 @@ function formatTime(iso: string): string {
  */
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+/**
+ * Picks the Tailwind text-colour class for an activity-log entry.
+ *
+ * Severity wins (#793): an entry explicitly tagged
+ * `error` / `warning` always uses the matching status token —
+ * regardless of which stream produced it — so the user can scan
+ * the log for red/amber to find the actual problems.
+ *
+ * When severity is `info` or unset (the common case + the
+ * backwards-compat fallback for older Rust builds), fall through to
+ * the pre-#793 stream-based colour scheme so existing
+ * informational lines stay visually consistent:
+ *   - `internal`: accent (MeedyaDL-emitted messages)
+ *   - `stderr`: amber (subprocess stderr — most Python tooling
+ *     routes warnings there even without a level prefix)
+ *   - `stdout`: default content colour
+ *
+ * All four candidate classes (`text-status-error`,
+ * `text-status-warning`, `text-status-info`, `text-content-primary`)
+ * are defined in the project's design-token CSS and adapt across
+ * light / dark / high-contrast / colour-blind themes — so the
+ * coloured rendering stays readable in every accessibility mode
+ * without per-theme overrides here.
+ */
+function textColourForEntry(entry: ActivityLogEntry): string {
+  if (entry.severity === 'error') return 'text-status-error';
+  if (entry.severity === 'warning') return 'text-status-warning';
+  if (entry.stream === 'internal') return 'text-accent-primary';
+  if (entry.stream === 'stderr') return 'text-status-warning';
+  return 'text-content-primary';
 }
 
 /**
@@ -544,13 +577,7 @@ export function ActivityLog() {
                   }}
                   className={`group relative whitespace-pre-wrap break-words pr-6 py-0.5 px-1 font-mono text-xs leading-relaxed border-b border-border/20 ${
                     virtualRow.index % 2 === 0 ? '' : 'bg-surface-primary/30'
-                  } ${
-                    entry.stream === 'internal'
-                      ? 'text-accent-primary'
-                      : entry.stream === 'stderr'
-                        ? 'text-status-warning'
-                        : 'text-content-primary'
-                  }`}
+                  } ${textColourForEntry(entry)}`}
                 >
                   <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
                   {entry.download_id === 'system' ? (

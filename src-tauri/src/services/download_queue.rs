@@ -112,7 +112,10 @@ use crate::utils::process;
 // `app.emit("activity-log", &event)` site through the new
 // `emit_subprocess_line` helper, so download_queue.rs no longer needs
 // to construct events directly.
-use crate::utils::activity_log::{emit_app_log, emit_download_log, emit_verbose_download_log};
+use crate::utils::activity_log::{
+    emit_app_log, emit_download_error, emit_download_log, emit_download_warn,
+    emit_verbose_download_log,
+};
 
 // ============================================================
 // Graceful shutdown signal
@@ -3748,7 +3751,7 @@ async fn spawn_music_video_companion_inner(
         }
         Err(e) => {
             log::debug!("Music video companion token resolution failed for {dl_id}: {e}");
-            emit_download_log(app, dl_id, &format!("Music video lookup failed: {e}"));
+            emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
             return;
         }
     };
@@ -3763,7 +3766,7 @@ async fn spawn_music_video_companion_inner(
             Ok(r) => r,
             Err(e) => {
                 log::debug!("Music video relation lookup failed for {dl_id}: {e}");
-                emit_download_log(app, dl_id, &format!("Music video lookup failed: {e}"));
+                emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
                 return;
             }
         };
@@ -6604,7 +6607,7 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
                                 drop(q);
-                                emit_download_log(
+                                emit_download_error(
                                     &app_clone,
                                     &dl_id,
                                     &format!("Download failed: {error_msg}"),
@@ -9011,7 +9014,7 @@ pub fn process_queue(
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
-                            emit_download_log(
+                            emit_download_error(
                                 &app_clone,
                                 &dl_id,
                                 &format!(
@@ -9028,7 +9031,7 @@ pub fn process_queue(
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
-                            emit_download_log(
+                            emit_download_error(
                                 &app_clone,
                                 &dl_id,
                                 &format!("Download failed ({error_category}): {error_msg}"),

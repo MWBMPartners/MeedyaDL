@@ -1313,6 +1313,20 @@ export interface GamdlProgress {
  * @see ActivityLog component for the live log viewer
  * @see activityStore for the Zustand store that accumulates entries
  */
+/**
+ * Severity classification for an activity-log entry (#793).
+ *
+ * Drives the per-entry text colour in `ActivityLog.tsx`:
+ *   - `info` — default text colour (no override)
+ *   - `warning` — `text-status-warning` (amber/yellow), theme-aware
+ *   - `error` — `text-status-error` (red), theme-aware
+ *
+ * Optional in the wire format so older Rust builds / persisted
+ * records default cleanly to `info` (deserialised via
+ * `#[serde(default)]` on the Rust side).
+ */
+export type LogSeverity = 'info' | 'warning' | 'error';
+
 export interface ActivityLogEntry {
   /** Unique download ID this line belongs to, or `"system"` for app-wide events */
   download_id: string;
@@ -1323,6 +1337,13 @@ export interface ActivityLogEntry {
   line: string;
   /** ISO 8601 timestamp when the line was captured */
   timestamp: string;
+  /**
+   * Severity classification (#793). Defaults to `'info'` if the
+   * Rust backend didn't include the field (older builds /
+   * persisted records). The frontend coerces missing → `'info'`
+   * before rendering.
+   */
+  severity?: LogSeverity;
   /** Auto-incrementing ID assigned by the activity store for stable React keys.
    * Not present in the Rust-emitted payload — assigned on ingestion. */
   _id?: number;

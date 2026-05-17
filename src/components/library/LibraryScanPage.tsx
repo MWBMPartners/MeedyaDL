@@ -60,6 +60,7 @@ import {
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { MvGapFillModal } from './MvGapFillModal';
+import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 
 /**
  * Renders the per-row diff badge for a scanned manifest.
@@ -459,6 +460,12 @@ export function LibraryScanPage() {
         - 5e: Per-item music_video_companion override on QueueItem
         - 5f: "Re-download gaps" action button per row → enqueue with override
       */}
+
+      {/* #789: legacy sibling-folder merge for pre-#528 downloads.
+          Independent of the manifest scan above — owns its own
+          folder picker + state because the merge flow runs whether
+          or not the user has any .meedyadl manifests. */}
+      <LegacyFolderMergeSection />
     </div>
   );
 }
