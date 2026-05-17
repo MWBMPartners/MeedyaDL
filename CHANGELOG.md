@@ -57,6 +57,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
@@ -104,6 +105,24 @@ This changelog is automatically generated from [conventional commits](https://ww
   absent from `Post Cache Rust` step output
 
 - **(claude)** Remember third-party licence obligations when bundling (#802)
+- **(claude)** Remember third-party licence obligations (CLAUDE.md convention) (#803)
+
+Companion to the `push_files` commit that already landed the new shared
+  memory file + index hook on `main`. This PR carries just the CLAUDE.md
+  change — the new **Third-party licence obligations when bundling**
+  bullet in the Conventions section that points future contributors at
+  `.claude/memory/project_third_party_licence_obligations.md`.
+
+  Together with the earlier commit this closes out the Claude-side
+  breadcrumb for #802 so we cannot forget the LGPL "written offer for
+  source" requirement when bundling FFmpeg / MP4Box (today) or the GPL
+  "complete corresponding source" requirement when wiring up get_iplayer
+  for M8.
+
+  The diff is `.claude/CLAUDE.md` only — the working branch and `main`
+  already agree on the other two files (identical content / identical
+  index line) so git auto-resolves the overlap.
+
 
 ## [1.5.0] - 2026-05-17
 
