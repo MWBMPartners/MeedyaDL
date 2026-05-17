@@ -9,8 +9,8 @@
        - At 1.0.0+: support only the current full (stable) release. -->
 | Version       | Supported          |
 | ------------- | ------------------ |
-| 1.4.5       | :white_check_mark: |
-| != 1.4.5    | :x:                |
+| 1.5.0       | :white_check_mark: |
+| != 1.5.0    | :x:                |
 <!-- END supported-versions -->
 
 ## Supported Components
