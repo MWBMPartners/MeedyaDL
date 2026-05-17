@@ -6,6 +6,10 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(v1.6)** Embed mv cover, canonical mb match, licence checks, vendor rename (30+ issues) (#809)
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.5.0 [skip ci]
@@ -55,6 +59,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
