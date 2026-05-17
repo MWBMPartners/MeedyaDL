@@ -993,7 +993,7 @@ fn compute_total_timeout(
 // canonical label, no override) will be picked up by the companion
 // task in Phase 3.5g — re-exported here for that consumer.
 #[allow(unused_imports)]
-use super::progress_stages::{set_stage, set_stage_with_label, ProgressStage};
+use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, ProgressStage};
 
 // ============================================================
 // Manifest writer
@@ -4015,12 +4015,21 @@ async fn update_companion_label_from_line(
         _ => format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\""),
     };
 
-    // Drive the per-item caption via the existing `set_stage_with_label`
-    // helper so the bar's progress source resolution (#714 + #790)
-    // stays unified across primary + companion paths. Stage is
-    // `Finalising` because companion downloads run after the primary
-    // and shouldn't reset the bar to an earlier weight.
-    set_stage_with_label(app, queue, dl_id, ProgressStage::Finalising, &caption);
+    // #808 fix: use `set_label_only` rather than
+    // `set_stage_with_label(…, Finalising, …)` here. The per-track
+    // caption update fires many times during a single companion
+    // download (one per track in a 21-track album = 21 calls), and
+    // every `set_stage_with_label` call resets the bar to the
+    // stage's weight — `Finalising` is 0.95, which pegged the bar
+    // at 95% for the entire companion run regardless of actual
+    // within-companion progress.
+    //
+    // The bar value continues to be driven by the resolution chain
+    // from #790 (per-file `[download] X%` from companion GAMDL →
+    // enrichment stage weights → terminal-state values), so the
+    // visible bar advances naturally as each companion track
+    // downloads.
+    set_label_only(app, queue, dl_id, &caption);
 }
 
 async fn emit_companion_stream_line(
