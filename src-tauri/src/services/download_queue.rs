@@ -4704,6 +4704,150 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+/// Default cadence for the long-running-stage heartbeat ticker (#805).
+///
+/// Companion downloads + post-companion enrichment can occupy the
+/// activity log with zero output for tens of minutes at a time
+/// (per-track download lines all fire up front; then post-processing,
+/// FFmpeg remux, tag write, lyrics conversion, ReplayGain etc. all
+/// happen silently). Users reasonably conclude the app has stalled.
+///
+/// 120 s strikes a balance: short enough that no silent stretch
+/// exceeds a couple of minutes; long enough that healthy short
+/// downloads don't get spammed (a typical 8-track album with
+/// companions finishes in well under 2 min, so the heartbeat never
+/// even fires).
+pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(120);
+
+/// Lightweight handle for a heartbeat ticker spawned via
+/// [`start_heartbeat_ticker`]. Owning the handle keeps the ticker
+/// running; dropping the handle (or calling [`stop`](Self::stop))
+/// signals the ticker to exit on its next tick.
+///
+/// Pairs naturally with [`CompanionTaskHandle`]'s existing
+/// cooperative-cancel `Arc<AtomicBool>` — the same flag stops both
+/// the parent stage and its heartbeat ticker, so when a stage
+/// completes (success, error, or abort) the heartbeat dies with it
+/// and there's no risk of orphaned tickers chatting about a stage
+/// that's already over.
+pub(crate) struct HeartbeatTicker {
+    cancel: Arc<AtomicBool>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl HeartbeatTicker {
+    /// Signals the ticker to exit on the next tick (or
+    /// immediately, if it's currently waiting on the abort signal).
+    /// Idempotent — calling more than once is harmless.
+    pub(crate) fn stop(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.handle.abort();
+    }
+}
+
+impl Drop for HeartbeatTicker {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Spawns a tokio task that emits an `emit_download_log` heartbeat
+/// every [`HEARTBEAT_INTERVAL`] for the given download item, naming
+/// the current stage (read from the queue's `processing_label`) and
+/// the wall-clock elapsed time since the stage started. Returns a
+/// [`HeartbeatTicker`] whose drop signals the ticker to stop (#805).
+///
+/// The ticker reads the cooperative-cancel flag every tick and exits
+/// when set. Callers that already track a stage with an
+/// `Arc<AtomicBool>` abort flag (e.g. the companion supervisor's
+/// flag in [`CompanionTaskHandle`]) should pass *the same flag* here
+/// so the heartbeat stops automatically when the parent stage does.
+///
+/// Heartbeat line format (matches the existing `[MeedyaDL]` internal-
+/// emission style; the hourglass prefix lets users visually scan
+/// past heartbeats when they're not the focus):
+///
+/// ```text
+/// 17:17:38 [d3ba7a54] [MeedyaDL] ⏳ Still working — Companion: downloading atmos (tier 2)… — 8 min elapsed
+/// ```
+///
+/// When the queue's `processing_label` is empty (no work to describe
+/// — usually a brief state-transition window) the heartbeat is
+/// suppressed for that tick. This avoids spurious "Still working —
+/// (no label) — 2 min elapsed" lines during normal transitions.
+pub(crate) fn start_heartbeat_ticker(
+    app: tauri::AppHandle,
+    queue: QueueHandle,
+    dl_id: String,
+    cancel: Arc<AtomicBool>,
+    stage_kind: &'static str,
+) -> HeartbeatTicker {
+    let handle = tokio::spawn({
+        let cancel = Arc::clone(&cancel);
+        async move {
+            let start = std::time::Instant::now();
+            let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+            // Skip the immediate tick — we don't want a heartbeat at
+            // t=0 saying "0 min elapsed" right after the stage starts.
+            interval.set_missed_tick_behavior(
+                tokio::time::MissedTickBehavior::Delay,
+            );
+            interval.tick().await;
+
+            loop {
+                interval.tick().await;
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Look up the current stage label from the queue.
+                // The lock is released before emit so the heartbeat
+                // emission doesn't hold it.
+                let label = {
+                    let q = queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == dl_id)
+                        .and_then(|i| i.status.processing_label.clone())
+                };
+
+                let Some(label) = label.filter(|s| !s.trim().is_empty()) else {
+                    // Stage between transitions — suppress this tick.
+                    continue;
+                };
+
+                let elapsed = format_heartbeat_elapsed(start.elapsed());
+                emit_download_log(
+                    &app,
+                    &dl_id,
+                    &format!("⏳ Still working — {stage_kind}: {label} — {elapsed} elapsed"),
+                );
+            }
+        }
+    });
+
+    HeartbeatTicker { cancel, handle }
+}
+
+/// Formats a stage-elapsed `Duration` as a compact human string for
+/// heartbeat lines: `"2 min"`, `"1h 23 min"`, `"45 s"` (the last
+/// shouldn't appear in practice because we skip the first tick, but
+/// is included for completeness in case of unusual cadence overrides).
+fn format_heartbeat_elapsed(d: std::time::Duration) -> String {
+    let total_secs = d.as_secs();
+    if total_secs < 60 {
+        return format!("{total_secs} s");
+    }
+    let total_mins = total_secs / 60;
+    if total_mins < 60 {
+        return format!("{total_mins} min");
+    }
+    let hours = total_mins / 60;
+    let mins = total_mins % 60;
+    format!("{hours}h {mins} min")
+}
+
 /// Handle returned by [`spawn_companion_downloads`].
 ///
 /// Wraps the spawned task's `JoinHandle` together with progress metadata
@@ -4711,18 +4855,30 @@ async fn detect_actual_primary_codec(
 /// for the synchronous companion lyrics conversion checkpoints. The
 /// completion watcher first emits a soft advisory, then uses this flag
 /// only if the second hard deadline is also exceeded.
+///
+/// The optional `heartbeat` field owns the [`HeartbeatTicker`] spawned
+/// for the companion phase (#805). When the supervisor task finishes
+/// (success, failure, or abort) it drops `heartbeat` and the ticker
+/// exits cleanly.
 pub(crate) struct CompanionTaskHandle {
     handle: tokio::task::JoinHandle<()>,
     aborted: Arc<AtomicBool>,
     progress: Arc<StdMutex<CompanionTaskProgress>>,
+    #[allow(dead_code)] // Held for its Drop; not directly read.
+    heartbeat: Option<HeartbeatTicker>,
 }
 
 impl CompanionTaskHandle {
     /// Signals the companion task to stop processing at the next
     /// cooperative checkpoint *and* aborts the async runtime task.
+    /// Also stops the heartbeat ticker (#805) so it doesn't continue
+    /// chatting about a stage that the user has cancelled.
     pub(crate) fn abort(&mut self) {
         self.aborted.store(true, Ordering::Relaxed);
         self.handle.abort();
+        if let Some(hb) = self.heartbeat.take() {
+            hb.stop();
+        }
     }
 
     fn describe_pending(&self) -> String {
@@ -5264,10 +5420,25 @@ fn spawn_companion_downloads(
                 }
             }
         });
+        // Heartbeat ticker for the companion phase (#805). Shares the
+        // cooperative-cancel flag with the supervisor task — when the
+        // supervisor finishes (success / failure / abort) the flag
+        // flips and the heartbeat exits on its next tick. Dropping
+        // `CompanionTaskHandle` also drops the ticker via Drop, so
+        // the ticker never outlives the handle either.
+        let heartbeat = Some(start_heartbeat_ticker(
+            app.clone(),
+            queue.clone(),
+            dl_id.to_string(),
+            comp_aborted.clone(),
+            "Companion",
+        ));
+
         Some(CompanionTaskHandle {
             handle,
             aborted: comp_aborted,
             progress: companion_progress,
+            heartbeat,
         })
     };
 
@@ -11243,6 +11414,32 @@ mod tests {
                 "merge_options() should copy gamdl_log_level={level:?} into GamdlOptions.log_level",
             );
         }
+    }
+
+    /// Verifies that `format_heartbeat_elapsed` produces the compact
+    /// human-readable shape we want in the activity log heartbeat
+    /// lines (#805). Sub-minute and sub-hour shapes are both exercised
+    /// so a future refactor can't accidentally collapse them to one
+    /// arm (e.g. always emitting "0 min" for short stages).
+    #[test]
+    fn format_heartbeat_elapsed_compact_shape() {
+        use std::time::Duration;
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(0)), "0 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(45)), "45 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(59)), "59 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(60)), "1 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(120)), "2 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3540)), "59 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3600)), "1h 0 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3660)), "1h 1 min");
+        assert_eq!(
+            super::format_heartbeat_elapsed(Duration::from_secs(5025)),
+            "1h 23 min"
+        );
+        assert_eq!(
+            super::format_heartbeat_elapsed(Duration::from_secs(7200)),
+            "2h 0 min"
+        );
     }
 
     /// Verifies that the default `AppSettings::gamdl_log_level` is `Info`
