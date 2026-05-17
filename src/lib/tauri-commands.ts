@@ -270,6 +270,46 @@ export function installGamdlVersion(version: string): Promise<string> {
 }
 
 /**
+ * Snapshot + restore (#466).
+ *
+ * `createBackup` writes a timestamped snapshot of settings / queue /
+ * history into `{appDataDir}/backups/<YYYYMMDD-HHMMSS>/`.
+ * `listBackups` returns every existing snapshot, newest first.
+ * `restoreFromBackup` overwrites the live state files from a chosen
+ *   snapshot — the caller should prompt the user to restart MeedyaDL
+ *   so the in-memory caches don't diverge from disk.
+ * `deleteBackup` removes a single snapshot directory.
+ */
+export interface BackupSummary {
+  snapshot_path: string;
+  files: string[];
+  total_snapshots: number;
+}
+export interface RestoreSummary {
+  snapshot_path: string;
+  restored: string[];
+  skipped: string[];
+}
+export interface BackupEntry {
+  path: string;
+  name: string;
+  size_bytes: number;
+  file_count: number;
+}
+export function createBackup(): Promise<BackupSummary> {
+  return invoke<BackupSummary>('create_backup');
+}
+export function listBackups(): Promise<BackupEntry[]> {
+  return invoke<BackupEntry[]>('list_backups');
+}
+export function restoreFromBackup(snapshotPath: string): Promise<RestoreSummary> {
+  return invoke<RestoreSummary>('restore_from_backup', { snapshotPath });
+}
+export function deleteBackup(snapshotPath: string): Promise<void> {
+  return invoke<void>('delete_backup', { snapshotPath });
+}
+
+/**
  * Returns the MeedyaDL-tested GAMDL version window (#522).
  *
  * The frontend uses this to render the "Install recommended" button

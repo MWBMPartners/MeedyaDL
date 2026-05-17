@@ -45,7 +45,7 @@
  * @see {@link ../../setup/steps/DependenciesStep.tsx} -- Setup wizard equivalent
  */
 
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 
 import {
   CheckCircle,
@@ -57,7 +57,16 @@ import {
   ChevronRight,
 } from 'lucide-react';
 
-import { installGamdlVersion, getGamdlSupportWindow, type GamdlSupportWindow } from '@/lib/tauri-commands';
+import {
+  installGamdlVersion,
+  getGamdlSupportWindow,
+  type GamdlSupportWindow,
+  createBackup,
+  listBackups,
+  restoreFromBackup,
+  deleteBackup,
+  type BackupEntry,
+} from '@/lib/tauri-commands';
 import { useDependencyStore } from '@/stores/dependencyStore';
 import { useUiStore } from '@/stores/uiStore';
 // `useSettingsStore` retained — the per-tool path map (TOOL_PATH_KEYS)
@@ -416,6 +425,11 @@ export function ToolsTab() {
       </SettingsSection>
 
       {/* ============================================================ */}
+      {/* Section: Backups (#466)                                       */}
+      {/* ============================================================ */}
+      <BackupManagement />
+
+      {/* ============================================================ */}
       {/* Section: Directories                                          */}
       {/* ============================================================ */}
       <SettingsSection title="Directories">
@@ -640,4 +654,210 @@ function compareVersions(a: string, b: string): number {
     if (da !== db) return da - db;
   }
   return 0;
+}
+
+/**
+ * Backups section (#466). Auto-backup on app exit runs in the
+ * background (see `lib.rs::on_window_event`); this UI surfaces the
+ * resulting snapshots and lets the user create / restore / delete
+ * snapshots on demand.
+ *
+ * UX rules:
+ *   - "Create snapshot" button always available.
+ *   - Snapshot list shows newest first, with timestamp / file count /
+ *     size and per-entry Restore / Delete buttons.
+ *   - Restore prompts a confirmation modal (destructive — overwrites
+ *     live state) AND surfaces a "restart MeedyaDL to apply" toast
+ *     after success because the in-memory SettingsCache + active
+ *     queue lock would otherwise diverge from disk.
+ */
+function BackupManagement() {
+  const addToast = useUiStore((s) => s.addToast);
+  const [snapshots, setSnapshots] = useState<BackupEntry[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await listBackups();
+      setSnapshots(list);
+    } catch (e) {
+      addToast(`Failed to list backups: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      setSnapshots([]);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handleCreate = async () => {
+    setBusy(true);
+    try {
+      const summary = await createBackup();
+      addToast(
+        `Snapshot created with ${summary.files.length} file${summary.files.length === 1 ? '' : 's'}`,
+        'success',
+      );
+      await refresh();
+    } catch (e) {
+      addToast(`Snapshot failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRestoreConfirmed = async () => {
+    if (!restoreTarget) return;
+    const target = restoreTarget;
+    setRestoreTarget(null);
+    setBusy(true);
+    try {
+      const summary = await restoreFromBackup(target.path);
+      addToast(
+        `Restored ${summary.restored.length} file${summary.restored.length === 1 ? '' : 's'} — please restart MeedyaDL to apply.`,
+        'warning',
+      );
+    } catch (e) {
+      addToast(`Restore failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (entry: BackupEntry) => {
+    setBusy(true);
+    try {
+      await deleteBackup(entry.path);
+      addToast('Snapshot deleted.', 'info');
+      await refresh();
+    } catch (e) {
+      addToast(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsSection
+      title="Backups"
+      description="Snapshots include settings, queue, and history. A snapshot is taken automatically when MeedyaDL exits; only the most recent 10 are kept on disk."
+    >
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Download size={14} />}
+            loading={busy && snapshots !== null}
+            disabled={busy}
+            onClick={handleCreate}
+          >
+            Create snapshot now
+          </Button>
+          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={() => refresh()}>
+            Refresh
+          </Button>
+        </div>
+
+        {snapshots === null ? (
+          <LoadingSpinner label="Loading snapshots..." />
+        ) : snapshots.length === 0 ? (
+          <p className="text-sm text-content-tertiary">
+            No snapshots yet. Click "Create snapshot now" or quit MeedyaDL to take one
+            automatically.
+          </p>
+        ) : (
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {snapshots.map((s) => (
+              <div
+                key={s.path}
+                className="flex items-center gap-3 p-2 rounded-platform border border-border-light bg-surface-elevated"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-content-primary">
+                    {formatSnapshotName(s.name)}
+                  </p>
+                  <p className="text-xs text-content-tertiary mt-0.5">
+                    {s.file_count} file{s.file_count === 1 ? '' : 's'} &middot;{' '}
+                    {formatBytes(s.size_bytes)}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setRestoreTarget(s)}
+                >
+                  Restore
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<XCircle size={14} />}
+                  disabled={busy}
+                  onClick={() => handleDelete(s)}
+                  aria-label={`Delete snapshot ${s.name}`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Restore confirmation modal */}
+      {restoreTarget && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+          onClick={() => setRestoreTarget(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-surface-primary border border-border-light rounded-platform p-5 max-w-md mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-content-primary mb-2">
+              Restore from snapshot?
+            </h3>
+            <p className="text-sm text-content-secondary mb-4">
+              This will overwrite your current settings, queue, and history with the contents of{' '}
+              <span className="font-mono">{formatSnapshotName(restoreTarget.name)}</span>. Your
+              current state will be lost (unless you create a snapshot first). You'll need to
+              restart MeedyaDL for the restore to take effect.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRestoreTarget(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleRestoreConfirmed}>
+                Restore
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </SettingsSection>
+  );
+}
+
+/** Pretty-print a snapshot directory name (YYYYMMDD-HHMMSS) as a
+ *  human-friendly local timestamp. Falls back to the raw name on
+ *  any parse failure. */
+function formatSnapshotName(name: string): string {
+  // Expect "YYYYMMDD-HHMMSS"
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/.exec(name);
+  if (!m) return name;
+  const [, y, mo, d, h, mi, s] = m;
+  // Construct as UTC (matches backup_service::snapshot_dir_name).
+  const dt = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s));
+  if (Number.isNaN(dt.getTime())) return name;
+  return dt.toLocaleString();
+}
+
+/** Format byte count as KB / MB. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

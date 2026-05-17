@@ -140,3 +140,8 @@ pub mod activity_log;
 /// inside the binary on every platform without bundle-resource
 /// path quirks.
 pub mod legal;
+
+/// Snapshot + restore commands (#466). Wraps `backup_service` with
+/// IPC entry points: create, list, restore, delete. Each runs on a
+/// blocking thread so the FS work doesn't block the main runtime.
+pub mod backup;

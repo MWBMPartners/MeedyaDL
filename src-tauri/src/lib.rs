@@ -1170,6 +1170,11 @@ pub fn run() {
             // Embedded legal docs (ACKNOWLEDGEMENTS.md + THIRD_PARTY_LICENSES.md) — #802
             commands::legal::get_acknowledgements_text,
             commands::legal::get_third_party_licenses_text,
+            // Snapshot + restore (#466)
+            commands::backup::create_backup,
+            commands::backup::list_backups,
+            commands::backup::restore_from_backup,
+            commands::backup::delete_backup,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
@@ -1309,11 +1314,32 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
-                let shutdown = window
-                    .app_handle()
-                    .state::<services::download_queue::ShutdownSignal>();
+                let app = window.app_handle();
+                let shutdown = app.state::<services::download_queue::ShutdownSignal>();
                 shutdown.trigger();
                 log::info!("Window destroyed — shutdown signal sent to background tasks");
+
+                // Best-effort auto-backup on exit (#466). We do this
+                // synchronously so the snapshot completes before the
+                // process tears down. Errors are logged but do not
+                // block shutdown — a missing snapshot is preferable to
+                // a hung exit. Typical snapshot is ~10-500 KB and
+                // copies in well under 100ms.
+                match services::backup_service::create_backup(&app.clone()) {
+                    Ok(summary) => {
+                        log::info!(
+                            "Exit auto-backup wrote {} file(s) to {} ({} total snapshots)",
+                            summary.files.len(),
+                            summary.snapshot_path,
+                            summary.total_snapshots,
+                        );
+                    }
+                    Err(e) => {
+                        // Don't log as warn if it's just "nothing to back up"
+                        // (fresh install with no state files yet).
+                        log::debug!("Exit auto-backup skipped: {e}");
+                    }
+                }
             }
         })
         // ---------------------------------------------------------------
