@@ -1161,6 +1161,10 @@ pub fn run() {
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
+            // Legacy sibling-folder merge for pre-#528 downloads (#789)
+            commands::gamdl::detect_legacy_folder_pairs,
+            commands::gamdl::preview_legacy_folder_merge,
+            commands::gamdl::execute_legacy_folder_merge,
             // Library Scan smart-retry diff per row (Phase 5b, #717)
             commands::gamdl::diff_library_scan_manifest,
             // Library Scan Apple Music lastModifiedDate freshness check (Phase 5c, #717)
