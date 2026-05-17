@@ -32,6 +32,13 @@ jobs:
     name: Outdated Dependencies
     runs-on: ubuntu-latest
 
+    # Suppress Node's DEP0040 punycode deprecation warning emitted by
+    # `@actions/cache`'s bundled dependencies via the Swatinem/rust-cache
+    # post step. Targeted (`--disable-warning=DEP0040`) so other deprecations
+    # remain visible.
+    env:
+      NODE_OPTIONS: --disable-warning=DEP0040
+
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -88,7 +95,7 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2.9.1
         with:
           workspaces: src-tauri
 

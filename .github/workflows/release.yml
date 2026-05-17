@@ -188,6 +188,15 @@ jobs:
 
     runs-on: ${{ matrix.settings.os }}
 
+    # Suppress Node's DEP0040 punycode deprecation warning emitted by
+    # `@actions/cache`'s bundled dependencies, which the Swatinem/rust-cache
+    # post step invokes. Cosmetic only — neither MeedyaDL nor the action's
+    # hot path call `require('punycode')` — but it clutters every Build job's
+    # log. Job-level env propagates to main + post steps. Targeted
+    # (`--disable-warning=DEP0040`) so other deprecations remain visible.
+    env:
+      NODE_OPTIONS: --disable-warning=DEP0040
+
     # Linux ARM builds are experimental — allow them to fail without
     # blocking the overall release. All Tier 1 builds must succeed.
     continue-on-error: ${{ matrix.settings.cross_arch != '' }}
@@ -267,7 +276,7 @@ jobs:
       # Release builds compile all dependencies from scratch with optimizations,
       # which takes 15-30 minutes without caching. The cache saves most of this time.
       - name: Cache Rust
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2.9.1
         with:
           workspaces: src-tauri
 
