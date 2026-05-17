@@ -86,6 +86,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.4.5 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.5.0 [skip ci]
 
 ## [1.4.5] - 2026-05-17
 
