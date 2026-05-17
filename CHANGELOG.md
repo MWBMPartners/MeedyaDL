@@ -55,6 +55,53 @@ This changelog is automatically generated from [conventional commits](https://ww
 
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(ci)** Suppress DEP0040 punycode deprecation in CI logs (closes #797) (#798)
+
+## Summary
+
+  Every CI run currently emits a `[DEP0040] DeprecationWarning: The
+  'punycode' module is deprecated.` line during the "Post Cache Rust"
+  step. The warning is cosmetic — neither MeedyaDL nor the action's hot
+  path call `require('punycode')` — but it clutters every Build job's log
+  and was flagged from a v1.5.0 build screenshot.
+
+  Verified our own builds emit zero deprecation warnings (`tsc`, `vite
+  build`, `vitest run` all run cleanly under `node --trace-deprecation`).
+
+  ## Fix
+
+  1. **Bump `Swatinem/rust-cache` SHA pin** from `c19371144` (v2.9.0) to
+  `42dc69e1a` (v2.9.1) across all three workflows. v2.9.1 is a small
+  hash-calculation bugfix; tracks the latest patched SHA per the project's
+  commit-pin policy.
+
+  2. **Add `env: NODE_OPTIONS: --disable-warning=DEP0040`** at the job
+  level for every job containing a `Swatinem/rust-cache` step:
+  - `.github/workflows/ci.yml` — `backend` job (frontend job doesn't use
+  rust-cache)
+     - `.github/workflows/release.yml` — `publish` job (matrix builder)
+     - `.github/workflows/dependency-report.yml` — `report` job
+
+  Job-level env propagates to both the action's main and post steps.
+  Targeted (`--disable-warning=DEP0040`) rather than `--no-deprecation`,
+  so other Node deprecations remain visible.
+
+  `--disable-warning=DEP0040` exists in Node 22.5+; GitHub-hosted runners
+  ship Node 22+ in their action runtime since mid-2024.
+
+  ## Test plan
+
+  - [x] YAML lint clean on all three workflows (`python3 -c 'import yaml;
+  yaml.safe_load(...)'`)
+  - [x] `--disable-warning=DEP0040` flag silences `require('punycode')`
+  warning on local Node 25.6
+  - [ ] CI run on this PR: verify the `(node:XXXXX) [DEP0040]` line is
+  absent from `Post Cache Rust` step output
+
 
 ## [1.5.0] - 2026-05-17
 
