@@ -244,7 +244,7 @@ MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files.
 
 In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 12-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, subtitle files, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
 
-Tag definitions are driven by `tags.toml` — a config file that maps Apple Music API JSON fields to MP4 freeform atoms. All tags are written in dual namespaces: `com.apple.iTunes` (player-compatible) and `MeedyaMeta` (MeedyaDL-branded). Industry-standard alternative names are used where recognised by tools like MusicBrainz Picard, Mp3tag, and foobar2000 (`LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`).
+Tag definitions are driven by `tags.toml` — a config file that maps Apple Music API JSON fields to MP4 freeform atoms. All tags are written in dual namespaces: `com.apple.iTunes` (player-compatible) and `MeedyaMeta` (MeedyaDL-branded). Industry-standard alternative names are used where recognised by tools like MusicBrainz Picard, Mp3tag, and foobar2000 (`LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`). The complete tag-by-tag reference — including standard MP4 atoms, Apple proprietary IDs, per-format support matrix, and API source mapping — lives in the [Metadata Mapping Reference](metadata-mapping.md).
 
 The enrichment stages run in order:
 
