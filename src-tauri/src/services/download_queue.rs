@@ -3904,6 +3904,72 @@ async fn spawn_music_video_companion_inner(
 /// Shared by companion audio downloads and music-video companion
 /// downloads so their progress renders consistently with the primary
 /// GAMDL reader.
+/// Parses a single companion-GAMDL output line and, if it is a
+/// `TrackInfo` event, overwrites the per-item `processing_label`
+/// with a track-aware caption (#799). No-op on lines that are not
+/// `TrackInfo` events.
+///
+/// Caption format mirrors what users already see for the primary
+/// download caption, just prefixed with the companion tier + codec:
+///
+/// ```text
+/// Companion (tier 2 — atmos): "We Are the Champions (Ding a Dang Dong)" — 8 of 8
+/// ```
+///
+/// When the GAMDL line carries `title` only (no track counter) the
+/// counter clause is omitted. When neither is present the line is
+/// ignored — we keep the previous label rather than risk replacing
+/// a richer one with an empty placeholder.
+///
+/// Called from the LineEmitter closure inside
+/// `spawn_companion_downloads` for every line. Cheap single-line
+/// parse; no allocation when the event isn't `TrackInfo`.
+async fn update_companion_label_from_line(
+    app: &tauri::AppHandle,
+    queue: &QueueHandle,
+    dl_id: &str,
+    tier_idx: usize,
+    codec_name: &str,
+    raw_line: &str,
+) {
+    // `parse_gamdl_output` already strips ANSI codes and handles `\r`
+    // overwrites; we deliberately don't pre-clean here so the
+    // pre-strip shape matches what the parser was tuned for.
+    let event = crate::utils::process::parse_gamdl_output(raw_line);
+    let crate::utils::process::GamdlOutputEvent::TrackInfo {
+        track_number,
+        track_total,
+        title,
+        ..
+    } = event
+    else {
+        return;
+    };
+
+    // Compose the caption. Both `track_number` + `track_total` are
+    // required for the counter clause — partial track info would
+    // mislead more than it informs. `title` is always `String`
+    // (parser substitutes an empty string when missing) so guard
+    // against the empty case explicitly.
+    let title_trimmed = title.trim();
+    if title_trimmed.is_empty() {
+        return;
+    }
+    let caption = match (track_number, track_total) {
+        (Some(c), Some(t)) => {
+            format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\" — {c} of {t}")
+        }
+        _ => format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\""),
+    };
+
+    // Drive the per-item caption via the existing `set_stage_with_label`
+    // helper so the bar's progress source resolution (#714 + #790)
+    // stays unified across primary + companion paths. Stage is
+    // `Finalising` because companion downloads run after the primary
+    // and shouldn't reset the bar to an earlier weight.
+    set_stage_with_label(app, queue, dl_id, ProgressStage::Finalising, &caption);
+}
+
 async fn emit_companion_stream_line(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -4830,6 +4896,74 @@ pub(crate) fn start_heartbeat_ticker(
     HeartbeatTicker { cancel, handle }
 }
 
+/// Emits one activity-log line per animated-artwork variant
+/// (#529). Replaces the pre-#529 single-line summary that lied
+/// about availability when an offered variant failed to download.
+///
+/// One of three deterministic lines per call, depending on the
+/// `VariantStatus` discriminant:
+///
+/// - `NotOffered` → "Animated artwork: {variant} not offered by Apple Music" (info)
+/// - `Downloaded { path, size_bytes }` → "Animated artwork: {variant} downloaded ({size} → {path})" (info)
+/// - `DownloadFailed { reason, .. }` → "Animated artwork: {variant} download failed — {reason}" (warn-tagged)
+///
+/// `variant_label` is "square" or "portrait" (the user-facing
+/// term). Filesize is rendered with a human readable suffix
+/// (KB / MB) so the line reads cleanly in a log.
+fn emit_artwork_variant_log(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    variant_label: &'static str,
+    status: &super::animated_artwork_service::VariantStatus,
+) {
+    use super::animated_artwork_service::VariantStatus;
+    match status {
+        VariantStatus::NotOffered => {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Animated artwork: {variant_label} not offered by Apple Music"),
+            );
+        }
+        VariantStatus::Downloaded { path, size_bytes } => {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!(
+                    "Animated artwork: {variant_label} downloaded ({} → {path})",
+                    format_artwork_size(*size_bytes),
+                ),
+            );
+        }
+        VariantStatus::DownloadFailed { reason, .. } => {
+            // Use the warn-severity emitter so the line is colour-
+            // coded amber in the Activity Log (#793), matching the
+            // existing convention for "the work was attempted but
+            // didn't land on disk" outcomes.
+            emit_download_warn(
+                app,
+                dl_id,
+                &format!("Animated artwork: {variant_label} download failed — {reason}"),
+            );
+        }
+    }
+}
+
+/// Renders an animated-artwork file size as a compact human string
+/// (e.g. `"2.1 MB"`, `"512 KB"`). Used only by
+/// `emit_artwork_variant_log` for the success-path line.
+fn format_artwork_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{} KB", bytes / KB)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
+
 /// Formats a stage-elapsed `Duration` as a compact human string for
 /// heartbeat lines: `"2 min"`, `"1h 23 min"`, `"45 s"` (the last
 /// shouldn't appear in practice because we skip the first tick, but
@@ -5182,14 +5316,48 @@ fn spawn_companion_downloads(
                     let idle_timeout = std::time::Duration::from_secs(
                         u64::from(companion_settings.gamdl_idle_timeout_minutes.max(1)) * 60,
                     );
+                    // Track-aware companion caption (#799). The
+                    // per-tier label set at tier start
+                    // ("Companion: downloading atmos (tier 2)…") is
+                    // overwritten on each `TrackInfo` event with the
+                    // current track name + counter, so the top
+                    // progress bar tells the user *what track* is
+                    // running — not just the codec and tier.
+                    //
+                    // `parse_gamdl_output` is called twice for each
+                    // line (once inside `emit_companion_stream_line`
+                    // and once here) — cheap single-line parses,
+                    // worth it to avoid changing the LineEmitter
+                    // signature shared with the MV companion path.
+                    let tier_label_codec = codec.to_cli_string().to_string();
+                    let tier_idx_for_label = tier_idx;
+                    let queue_for_label = comp_queue.clone();
+                    let app_for_label = comp_app.clone();
+                    let dl_for_label = comp_dl_id.clone();
                     let emitter: super::companion_supervisor::LineEmitter =
                         std::sync::Arc::new(move |app, dl, stream, line| {
+                            // Captured-by-value clones for the per-line update path.
+                            let codec_name = tier_label_codec.clone();
+                            let tier_n = tier_idx_for_label;
+                            let queue_clone = queue_for_label.clone();
+                            let app_clone_inner = app_for_label.clone();
+                            let dl_clone_inner = dl_for_label.clone();
                             Box::pin(async move {
                                 let kind = if stream.contains("stderr") {
                                     "stderr"
                                 } else {
                                     "stdout"
                                 };
+                                // #799: update the per-item caption on every TrackInfo.
+                                update_companion_label_from_line(
+                                    &app_clone_inner,
+                                    &queue_clone,
+                                    &dl_clone_inner,
+                                    tier_n,
+                                    &codec_name,
+                                    &line,
+                                )
+                                .await;
                                 emit_companion_stream_line(&app, &dl, kind, &line).await
                             })
                         });
@@ -8036,57 +8204,94 @@ pub fn process_queue(
 
                                 match artwork_result {
                                     Ok(result) => {
-                                        if result.square_downloaded || result.portrait_downloaded {
+                                        // #529: emit one deterministic line per
+                                        // variant (square + portrait) instead of
+                                        // the pre-#529 ambiguous "(square: yes,
+                                        // portrait: no)" summary. The new
+                                        // per-variant `VariantStatus` enum lets
+                                        // us distinguish "API didn't offer this"
+                                        // from "API offered it but download
+                                        // failed" — the pre-#529 code lied
+                                        // ("not available") on real failures.
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "square",
+                                            &result.square,
+                                        );
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "portrait",
+                                            &result.portrait,
+                                        );
+
+                                        // Hide artwork files if enabled in
+                                        // settings. Hide-file failures are now
+                                        // surfaced as warnings instead of
+                                        // silently swallowed (#529 gap #4) —
+                                        // the user needs to know their files
+                                        // exist but didn't get the
+                                        // `hide_animated_artwork` treatment
+                                        // they configured.
+                                        if enrich_settings.hide_animated_artwork {
+                                            let dir = std::path::Path::new(&album_dir);
+                                            if result.square.is_downloaded() {
+                                                let target = dir.join("FrontCover.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide FrontCover.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide square cover ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                            if result.portrait.is_downloaded() {
+                                                let target = dir.join("FrontCoverPortrait.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide FrontCoverPortrait.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide portrait cover ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        // Frontend event still fires on any
+                                        // actual download (either variant) so
+                                        // the UI can refresh its artwork
+                                        // indicator.
+                                        if result.square.is_downloaded()
+                                            || result.portrait.is_downloaded()
+                                        {
                                             log::info!(
                                                 "Animated artwork downloaded for {enrich_dl_id}"
                                             );
-                                            emit_download_log(
-                                            &enrich_app,
-                                            &enrich_dl_id,
-                                            &format!(
-                                                "Animated artwork downloaded (square: {}, portrait: {})",
-                                                if result.square_downloaded { "yes" } else { "no" },
-                                                if result.portrait_downloaded { "yes" } else { "no" },
-                                            ),
-                                        );
-
-                                            // Hide artwork files if enabled in settings
-                                            if enrich_settings.hide_animated_artwork {
-                                                let dir = std::path::Path::new(&album_dir);
-                                                if result.square_downloaded {
-                                                    if let Err(e) =
-                                                        super::animated_artwork_service::hide_file(
-                                                            &dir.join("FrontCover.mp4"),
-                                                        )
-                                                        .await
-                                                    {
-                                                        log::debug!(
-                                                            "Failed to hide FrontCover.mp4: {e}"
-                                                        );
-                                                    }
-                                                }
-                                                if result.portrait_downloaded {
-                                                    if let Err(e) =
-                                                        super::animated_artwork_service::hide_file(
-                                                            &dir.join("FrontCoverPortrait.mp4"),
-                                                        )
-                                                        .await
-                                                    {
-                                                        log::debug!(
-                                                            "Failed to hide FrontCoverPortrait.mp4: {e}"
-                                                        );
-                                                    }
-                                                }
-                                            }
-
                                             let _ = enrich_app
                                                 .emit("artwork-downloaded", &enrich_dl_id);
-                                        } else {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "No animated artwork available for this album",
-                                            );
                                         }
                                     }
                                     Err(e) => {
@@ -11414,6 +11619,21 @@ mod tests {
                 "merge_options() should copy gamdl_log_level={level:?} into GamdlOptions.log_level",
             );
         }
+    }
+
+    /// Verifies `format_artwork_size` renders byte counts in the
+    /// human-readable form `emit_artwork_variant_log` puts in the
+    /// activity log (#529). Exercised at the three thresholds the
+    /// helper switches on.
+    #[test]
+    fn format_artwork_size_human_readable() {
+        assert_eq!(super::format_artwork_size(0), "0 bytes");
+        assert_eq!(super::format_artwork_size(512), "512 bytes");
+        assert_eq!(super::format_artwork_size(1024), "1 KB");
+        assert_eq!(super::format_artwork_size(1024 * 512), "512 KB");
+        assert_eq!(super::format_artwork_size(1024 * 1024), "1.0 MB");
+        // Mid-range: 2_200_000 bytes ≈ 2.1 MB.
+        assert_eq!(super::format_artwork_size(2_200_000), "2.1 MB");
     }
 
     /// Verifies that `format_heartbeat_elapsed` produces the compact

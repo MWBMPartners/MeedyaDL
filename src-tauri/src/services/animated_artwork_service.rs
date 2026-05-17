@@ -72,25 +72,95 @@ use crate::services::{apple_music_api, config_service, dependency_manager};
 // Public Types
 // ============================================================
 
+/// Per-variant outcome of an animated-artwork download attempt
+/// (#529). Replaces the pre-#529 `bool` flags which collapsed
+/// "API didn't offer this variant" and "API offered it but
+/// download failed" into the same `false` value, causing the
+/// activity log to lie ("No animated artwork available") when the
+/// downloads had actually failed.
+///
+/// The frontend uses the discriminant to render success/skip/error
+/// indicators in the queue UI; the embedded fields drive the
+/// activity-log emissions in `download_queue.rs`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VariantStatus {
+    /// Apple Music did not offer this variant for this album.
+    /// Distinct from `DownloadFailed` because no fix is possible.
+    NotOffered,
+    /// File landed on disk and passed the post-download verify
+    /// (exists + size > 0). `path` is absolute; `size_bytes` is
+    /// the on-disk file size at verification time.
+    Downloaded { path: String, size_bytes: u64 },
+    /// API offered the variant but the download itself failed —
+    /// either FFmpeg returned an error, FFmpeg returned success but
+    /// produced a missing / zero-byte file, or a post-rename step
+    /// (hide-file) failed.
+    DownloadFailed { url: String, reason: String },
+}
+
+impl VariantStatus {
+    /// Convenience: whether the variant landed on disk successfully.
+    /// Preserves the pre-#529 semantics of the `*_downloaded` bool
+    /// flag for callers that just want a yes/no.
+    #[must_use]
+    pub fn is_downloaded(&self) -> bool {
+        matches!(self, Self::Downloaded { .. })
+    }
+}
+
 /// Result of an animated artwork download attempt.
 ///
 /// Serialized to JSON and returned to the frontend via the
-/// `download_animated_artwork` Tauri command. The frontend can use
-/// these flags to display success/skip indicators in the queue UI.
+/// `download_animated_artwork` Tauri command. The frontend can
+/// use the per-variant `VariantStatus` to display the right
+/// indicator (success / not-offered / failed) in the queue UI;
+/// the activity-log emitter in `download_queue.rs` uses it to
+/// emit one tailored line per variant (#529).
+///
+/// Backwards compatibility: the pre-#529 `square_downloaded` /
+/// `portrait_downloaded` bool fields are preserved as serde-
+/// flattened getters so JSON consumers that only know the old
+/// shape (e.g. older `latest.json`-style frontend builds) keep
+/// working. New code should read `square` / `portrait` directly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtworkResult {
-    /// Whether the square (1:1) animated cover was downloaded as FrontCover.mp4
+    /// Square (1:1) animated cover — destined for FrontCover.mp4
+    pub square: VariantStatus,
+    /// Portrait (3:4) animated cover — destined for FrontCoverPortrait.mp4
+    pub portrait: VariantStatus,
+    /// LEGACY mirror of `square.is_downloaded()` for back-compat
+    /// with pre-#529 JSON consumers. Always serialised; ignored
+    /// on deserialise (derived from `square`).
+    #[serde(default)]
     pub square_downloaded: bool,
-    /// Whether the portrait (3:4) animated cover was downloaded as FrontCoverPortrait.mp4
+    /// LEGACY mirror of `portrait.is_downloaded()` for back-compat
+    /// with pre-#529 JSON consumers.
+    #[serde(default)]
     pub portrait_downloaded: bool,
 }
 
-/// Default result with both artwork types not downloaded.
-const fn empty_result() -> ArtworkResult {
-    ArtworkResult {
-        square_downloaded: false,
-        portrait_downloaded: false,
+impl ArtworkResult {
+    /// Builder helper that fills in the legacy `*_downloaded`
+    /// mirror fields from the per-variant statuses, so call sites
+    /// only need to set `square` / `portrait`.
+    pub(crate) fn with_variants(square: VariantStatus, portrait: VariantStatus) -> Self {
+        let square_downloaded = square.is_downloaded();
+        let portrait_downloaded = portrait.is_downloaded();
+        Self {
+            square,
+            portrait,
+            square_downloaded,
+            portrait_downloaded,
+        }
     }
+}
+
+/// Default result with both variants marked `NotOffered` —
+/// used by the early-return graceful-exit paths (feature
+/// disabled, credentials missing, non-album URL, etc.).
+fn empty_result() -> ArtworkResult {
+    ArtworkResult::with_variants(VariantStatus::NotOffered, VariantStatus::NotOffered)
 }
 
 // ============================================================
@@ -248,7 +318,12 @@ async fn download_artwork_from_metadata(
     metadata: &AlbumMetadata,
     output_dir: &str,
 ) -> Result<ArtworkResult, String> {
-    // Check if any artwork URLs are available
+    // Both variants start as `NotOffered`; the URL-present arms
+    // below flip them to `Downloaded` or `DownloadFailed` based on
+    // the actual outcome. This is the #529 fix — the pre-#529 code
+    // collapsed "API didn't offer" and "API offered but download
+    // failed" into the same `false` flag, producing the lying
+    // "No animated artwork available" activity-log line.
     if metadata.artwork_square_url.is_none() && metadata.artwork_tall_url.is_none() {
         log::info!(
             "No animated artwork available for album {}",
@@ -258,37 +333,101 @@ async fn download_artwork_from_metadata(
     }
 
     let output_path = Path::new(output_dir);
-    let mut result = empty_result();
 
-    // Download square artwork (FrontCover.mp4)
-    if let Some(ref square_url) = metadata.artwork_square_url {
-        let dest = output_path.join("FrontCover.mp4");
-        match download_hls_to_mp4(app, square_url, &dest).await {
-            Ok(()) => {
-                log::info!("Downloaded square animated artwork to {}", dest.display());
-                result.square_downloaded = true;
+    let square_status = match metadata.artwork_square_url.as_deref() {
+        Some(square_url) => {
+            let dest = output_path.join("FrontCover.mp4");
+            attempt_artwork_variant(app, square_url, &dest, "square").await
+        }
+        None => VariantStatus::NotOffered,
+    };
+
+    let portrait_status = match metadata.artwork_tall_url.as_deref() {
+        Some(tall_url) => {
+            let dest = output_path.join("FrontCoverPortrait.mp4");
+            attempt_artwork_variant(app, tall_url, &dest, "portrait").await
+        }
+        None => VariantStatus::NotOffered,
+    };
+
+    Ok(ArtworkResult::with_variants(square_status, portrait_status))
+}
+
+/// Downloads one HLS animated-artwork variant and runs the
+/// post-download verification that #529 adds. Returns:
+///
+/// - `Downloaded { path, size_bytes }` when FFmpeg succeeded
+///   AND the destination file exists with size > 0.
+/// - `DownloadFailed { url, reason }` in three cases:
+///     * FFmpeg returned an error.
+///     * FFmpeg returned success but the destination is missing.
+///     * FFmpeg returned success but the destination is zero bytes
+///       (FFmpeg occasionally produces empty outputs on broken
+///       upstream HLS playlists without flagging an error).
+///
+/// `variant_label` is just for log readability — `"square"` or
+/// `"portrait"`. The activity-log emission lives in
+/// `download_queue.rs` (so the writer has access to the
+/// download-id); this helper only writes to `log::info!` /
+/// `log::warn!` for the tracing log.
+async fn attempt_artwork_variant(
+    app: &AppHandle,
+    m3u8_url: &str,
+    dest: &Path,
+    variant_label: &'static str,
+) -> VariantStatus {
+    match download_hls_to_mp4(app, m3u8_url, dest).await {
+        Ok(()) => {
+            // FFmpeg returned 0 — verify the file is real (#529).
+            match std::fs::metadata(dest) {
+                Ok(meta) if meta.len() > 0 => {
+                    log::info!(
+                        "Downloaded {variant_label} animated artwork to {} ({} bytes)",
+                        dest.display(),
+                        meta.len(),
+                    );
+                    VariantStatus::Downloaded {
+                        path: dest.display().to_string(),
+                        size_bytes: meta.len(),
+                    }
+                }
+                Ok(meta) => {
+                    // size == 0 — FFmpeg lied.
+                    log::warn!(
+                        "{variant_label} animated artwork: FFmpeg reported success but file is empty (0 bytes) at {}",
+                        dest.display(),
+                    );
+                    VariantStatus::DownloadFailed {
+                        url: m3u8_url.to_string(),
+                        reason: format!(
+                            "FFmpeg reported success but the output file is empty ({} bytes)",
+                            meta.len()
+                        ),
+                    }
+                }
+                Err(e) => {
+                    // File missing after a "successful" FFmpeg run.
+                    log::warn!(
+                        "{variant_label} animated artwork: FFmpeg reported success but file is missing at {}: {e}",
+                        dest.display(),
+                    );
+                    VariantStatus::DownloadFailed {
+                        url: m3u8_url.to_string(),
+                        reason: format!(
+                            "FFmpeg reported success but the output file is missing: {e}"
+                        ),
+                    }
+                }
             }
-            Err(e) => {
-                log::warn!("Failed to download square animated artwork: {e}");
+        }
+        Err(e) => {
+            log::warn!("Failed to download {variant_label} animated artwork: {e}");
+            VariantStatus::DownloadFailed {
+                url: m3u8_url.to_string(),
+                reason: e,
             }
         }
     }
-
-    // Download portrait artwork (FrontCoverPortrait.mp4)
-    if let Some(ref tall_url) = metadata.artwork_tall_url {
-        let dest = output_path.join("FrontCoverPortrait.mp4");
-        match download_hls_to_mp4(app, tall_url, &dest).await {
-            Ok(()) => {
-                log::info!("Downloaded portrait animated artwork to {}", dest.display());
-                result.portrait_downloaded = true;
-            }
-            Err(e) => {
-                log::warn!("Failed to download portrait animated artwork: {e}");
-            }
-        }
-    }
-
-    Ok(result)
 }
 
 // ============================================================
@@ -579,23 +718,80 @@ mod tests {
     // ----------------------------------------------------------
 
     /// Verifies that ArtworkResult serializes to the expected JSON format
-    /// for the frontend to consume.
+    /// for the frontend to consume — both the new per-variant `square`/
+    /// `portrait` enum payloads (#529) and the legacy `*_downloaded`
+    /// bool mirrors (back-compat with pre-#529 JSON consumers).
     #[test]
     fn artwork_result_serializes_correctly() {
-        let result = ArtworkResult {
-            square_downloaded: true,
-            portrait_downloaded: false,
-        };
+        let result = ArtworkResult::with_variants(
+            VariantStatus::Downloaded {
+                path: "/Music/Album/FrontCover.mp4".to_string(),
+                size_bytes: 1_234_567,
+            },
+            VariantStatus::NotOffered,
+        );
         let json = serde_json::to_string(&result).unwrap();
+        // New per-variant shape — primary source of truth post-#529.
+        assert!(json.contains("\"square\""));
+        assert!(json.contains("\"kind\":\"downloaded\""));
+        assert!(json.contains("\"path\":\"/Music/Album/FrontCover.mp4\""));
+        assert!(json.contains("\"size_bytes\":1234567"));
+        assert!(json.contains("\"portrait\""));
+        assert!(json.contains("\"kind\":\"not_offered\""));
+        // Legacy mirror fields — preserved so older JSON consumers
+        // still see the bool flags they expect.
         assert!(json.contains("\"square_downloaded\":true"));
         assert!(json.contains("\"portrait_downloaded\":false"));
     }
 
-    /// Verifies the empty_result helper returns both false.
+    /// Verifies the `DownloadFailed` variant round-trips through serde
+    /// with both its `url` and `reason` payload intact — critical for
+    /// the activity-log emitter in `download_queue.rs` which composes
+    /// the user-facing failure message from `reason`.
     #[test]
-    fn empty_result_has_both_false() {
+    fn artwork_result_serialises_download_failed_variant() {
+        let result = ArtworkResult::with_variants(
+            VariantStatus::DownloadFailed {
+                url: "https://example.com/playlist.m3u8".to_string(),
+                reason: "FFmpeg exited with code 1".to_string(),
+            },
+            VariantStatus::NotOffered,
+        );
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"kind\":\"download_failed\""));
+        assert!(json.contains("\"url\":\"https://example.com/playlist.m3u8\""));
+        assert!(json.contains("\"reason\":\"FFmpeg exited with code 1\""));
+        // The legacy mirror correctly reports `false` because a
+        // DownloadFailed variant did NOT land on disk.
+        assert!(json.contains("\"square_downloaded\":false"));
+    }
+
+    /// Verifies the empty_result helper returns both variants as
+    /// `NotOffered` and the legacy mirrors as `false`.
+    #[test]
+    fn empty_result_has_both_not_offered() {
         let result = empty_result();
+        assert!(matches!(result.square, VariantStatus::NotOffered));
+        assert!(matches!(result.portrait, VariantStatus::NotOffered));
         assert!(!result.square_downloaded);
         assert!(!result.portrait_downloaded);
+    }
+
+    /// `is_downloaded()` should distinguish all three VariantStatus
+    /// shapes for downstream consumers that just want a yes/no
+    /// (matches the pre-#529 bool semantics).
+    #[test]
+    fn variant_status_is_downloaded_distinguishes_shapes() {
+        assert!(VariantStatus::Downloaded {
+            path: "/x".to_string(),
+            size_bytes: 1,
+        }
+        .is_downloaded());
+        assert!(!VariantStatus::NotOffered.is_downloaded());
+        assert!(!VariantStatus::DownloadFailed {
+            url: "u".to_string(),
+            reason: "r".to_string(),
+        }
+        .is_downloaded());
     }
 }

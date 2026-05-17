@@ -258,34 +258,147 @@ export function ActivityLog() {
    * - A verbose system entry is shown when Verbose OR System is on.
    * - A verbose download entry is shown when Verbose OR Download is on.
    */
+  /*
+   * Incremental filter (#691) — O(new-entries) per tick rather than
+   * O(all-entries). The Activity Log store guarantees two invariants
+   * that make this safe:
+   *   1. Entries are append-only at the back (newest last).
+   *   2. Trimming (when the 10 000-entry cap is exceeded) removes
+   *      ONLY from the front (oldest first).
+   * Combined with the monotonically-increasing `_id` field, the cache
+   * needs only:
+   *   - prepend trim: drop entries whose `_id` < `entries[0]._id`
+   *   - tail append: filter the slice strictly after the cached
+   *     `lastSeenId` and concatenate.
+   * The predicate key (search query + category toggles) is a stable
+   * string; when it changes, we fall back to a full re-filter and
+   * reseed the cache. That happens rarely — typing in the search box,
+   * toggling a filter chip — and the incremental path covers the
+   * common case of "60 RAF-batched entries/sec arriving from the
+   * download pipeline".
+   *
+   * Pre-#691 implementation was `entries.filter(predicate)` inside
+   * `useMemo`. On a heavy 50-item batch with verbose logging, the
+   * old code did 60 events/sec × 10 000 retained entries = 600 000
+   * predicate evaluations per second, dominating the React render
+   * budget. The incremental path does 60 events/sec × ~tail-size
+   * (often 1–10) = ~600/sec, three orders of magnitude less work.
+   */
+  const predicateKey = useMemo(
+    () => `${searchQuery.trim().toLowerCase()}|${showSystem ? 1 : 0}|${showDownload ? 1 : 0}|${showVerbose ? 1 : 0}`,
+    [searchQuery, showSystem, showDownload, showVerbose],
+  );
+
+  // Cache spans renders without triggering them. Stored as a ref so
+  // we can mutate it from inside the memo (the memo runs once per
+  // render and the ref isn't exposed externally, so this is safe).
+  const filterCacheRef = useRef<{
+    predicateKey: string;
+    filtered: ActivityLogEntry[];
+    lastSeenId: number;
+    firstStoreId: number;
+  }>({ predicateKey: '', filtered: [], lastSeenId: -1, firstStoreId: -1 });
+
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return entries.filter((entry) => {
-      // Step 1: Search query filter -- case-insensitive substring match on message text
-      if (query && !entry.line.toLowerCase().includes(query)) {
-        return false;
-      }
-
-      // Step 2: Category filter -- entry must have at least one enabled category
+    // Inline predicate — kept as a closure rather than a top-level
+    // function so the search query + category toggles close over by
+    // reference. Hot path: called once per *new* entry per tick,
+    // never the full 10 000.
+    const predicate = (entry: ActivityLogEntry): boolean => {
+      if (query && !entry.line.toLowerCase().includes(query)) return false;
       const { isSystem, isDownload, isVerbose } = getEntryCategories(entry);
-
-      // If the entry is verbose, it passes if the verbose toggle is on
-      // OR if its base category (system/download) toggle is on.
       if (isVerbose) {
         if (showVerbose) return true;
         if (isSystem && showSystem) return true;
         if (isDownload && showDownload) return true;
         return false;
       }
-
-      // Non-verbose entries: check their base category
       if (isSystem && showSystem) return true;
       if (isDownload && showDownload) return true;
-
       return false;
-    });
-  }, [entries, searchQuery, showSystem, showDownload, showVerbose]);
+    };
+
+    const cache = filterCacheRef.current;
+    const last = entries.length > 0 ? entries[entries.length - 1] : null;
+    const first = entries.length > 0 ? entries[0] : null;
+    const lastId = last?._id ?? -1;
+    const firstStoreId = first?._id ?? -1;
+
+    // Branch A — predicate changed (or first render). Full re-filter
+    // and reseed the cache. Rare: only when the user edits the
+    // search box or toggles a category chip.
+    if (cache.predicateKey !== predicateKey) {
+      const filtered = entries.filter(predicate);
+      filterCacheRef.current = {
+        predicateKey,
+        filtered,
+        lastSeenId: lastId,
+        firstStoreId,
+      };
+      return filtered;
+    }
+
+    // Branch B — same predicate. Apply the two structural deltas
+    // (front-trim, tail-append) against the cached array. Both are
+    // O(1) detection + O(delta) work.
+    let next = cache.filtered;
+
+    // B1: front-trim. The store removes the oldest 10% when the
+    // 10 000-entry cap is exceeded. Drop any cached entries whose
+    // `_id` predates the new `entries[0]._id`. `_id` is monotonic
+    // so we can stop as soon as we hit an in-range one.
+    if (firstStoreId > cache.firstStoreId && firstStoreId !== -1) {
+      // Binary search would be O(log n), but the trim batch is
+      // ~1 000 entries (10% of 10 000) which is a one-shot delta;
+      // a linear scan with early-return is simpler and not measurably
+      // slower in practice.
+      let dropCount = 0;
+      while (dropCount < next.length && (next[dropCount]._id ?? -1) < firstStoreId) {
+        dropCount++;
+      }
+      if (dropCount > 0) {
+        next = next.slice(dropCount);
+      }
+    }
+
+    // B2: tail-append. Filter only entries strictly after the cached
+    // `lastSeenId`. `_id` is monotonic so a from-the-end scan finds
+    // the boundary in O(new-entries) without scanning the whole array.
+    if (lastId > cache.lastSeenId) {
+      // Find the index of the first new entry. From-end is the right
+      // direction because we expect the delta to be small (handful
+      // of entries) and clustered at the tail.
+      let firstNewIdx = entries.length;
+      while (firstNewIdx > 0 && (entries[firstNewIdx - 1]._id ?? -1) > cache.lastSeenId) {
+        firstNewIdx--;
+      }
+      if (firstNewIdx < entries.length) {
+        const tail = entries.slice(firstNewIdx).filter(predicate);
+        if (tail.length > 0) {
+          next = next === cache.filtered ? [...next, ...tail] : [...next, ...tail];
+        }
+      }
+    }
+
+    // Commit the new cache snapshot for the next render. Only mutate
+    // if anything actually changed — keeps the React DevTools
+    // "renders" panel readable.
+    if (
+      next !== cache.filtered ||
+      lastId !== cache.lastSeenId ||
+      firstStoreId !== cache.firstStoreId
+    ) {
+      filterCacheRef.current = {
+        predicateKey,
+        filtered: next,
+        lastSeenId: lastId,
+        firstStoreId,
+      };
+    }
+    return next;
+  }, [entries, predicateKey, searchQuery, showSystem, showDownload, showVerbose]);
 
   /*
    * Cross-day banner injection (#801): wrap `filteredEntries` in a
