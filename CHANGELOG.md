@@ -8,6 +8,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- Companion sidecar rename + accurate per-item progress bar (#788, #790) (#791)
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.4.4] - 2026-05-16
+
+### 🐛 Bug Fixes
+
 - Companion folder merge + fully parallel enrichment (#528, #779) (#786)
 
 Two fixes shipping together as v1.4.4:
@@ -46,7 +57,6 @@ Two fixes shipping together as v1.4.4:
 - **(security)** Update supported versions to 1.4.3 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.4.4 [skip ci]
 
 ## [1.4.3] - 2026-05-15
 
