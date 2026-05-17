@@ -132,18 +132,62 @@ fn append_label(message: &str, label: Option<String>) -> String {
     }
 }
 
+/// Severity classification for activity-log entries (#793).
+///
+/// Drives the frontend's colour-coded rendering — red for `Error`,
+/// amber for `Warning`, default colour for `Info`. The serde
+/// representation is lowercase (`"info"` / `"warning"` / `"error"`)
+/// so it round-trips through JSON without ceremony.
+///
+/// `Info` is the default — existing emit sites get this implicitly
+/// via `default_severity()`, so the entire migration to severity-
+/// tagged emits is incremental: only sites that genuinely represent
+/// a warning or error need to opt in via the dedicated helpers.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum LogSeverity {
+    #[default]
+    Info,
+    Warning,
+    Error,
+}
+
+/// Helper for `#[serde(default = "default_severity")]` on
+/// [`ActivityLogEvent`] so older persisted records / older
+/// frontends that don't know about severity default cleanly to
+/// `Info`.
+fn default_severity() -> LogSeverity {
+    LogSeverity::Info
+}
+
 /// Payload for the `"activity-log"` Tauri event.
 ///
 /// Stream values:
 ///   - `"stdout"` — GAMDL subprocess stdout
 ///   - `"stderr"` — GAMDL subprocess stderr
 ///   - `"internal"` — MeedyaDL internal actions (enrichment, companions, system events)
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ActivityLogEvent {
     pub download_id: String,
     pub stream: &'static str,
     pub line: String,
     pub timestamp: String,
+    /// Severity classification (#793). `Info` by default; the
+    /// `warn` / `error` emit helpers set this explicitly. The
+    /// frontend uses it to pick the right design-token text class
+    /// (red / amber / default), staying theme-aware across light /
+    /// dark / high-contrast / colour-blind palettes.
+    #[serde(default = "default_severity")]
+    pub severity: LogSeverity,
 }
 
 /// Single-source-of-truth implementation for all four public emit
@@ -173,6 +217,7 @@ fn emit_inner(
     download_id: Option<&str>,
     message: &str,
     verbose: bool,
+    severity: LogSeverity,
 ) {
     let id = download_id.unwrap_or(SYSTEM_LOG_ID);
 
@@ -189,13 +234,18 @@ fn emit_inner(
     // Tracing-log line — `[id] msg` or `[System] msg`, with `[VERBOSE]`
     // prefix in the verbose case. Always emitted regardless of the
     // VERBOSE_LOGGING flag (the flag gates the activity-log UI, not
-    // the on-disk tracing log).
+    // the on-disk tracing log). Severity drives the tracing level
+    // so the file log groups Error/Warning/Info correctly too
+    // (#793 — same source of truth on disk as in the UI).
+    let id_prefix = if download_id.is_some() { id } else { "System" };
     if verbose {
-        log::debug!("[{id}] [VERBOSE] {enriched}");
-    } else if download_id.is_some() {
-        log::info!("[{id}] {enriched}");
+        log::debug!("[{id_prefix}] [VERBOSE] {enriched}");
     } else {
-        log::info!("[System] {enriched}");
+        match severity {
+            LogSeverity::Error => log::error!("[{id_prefix}] {enriched}"),
+            LogSeverity::Warning => log::warn!("[{id_prefix}] {enriched}"),
+            LogSeverity::Info => log::info!("[{id_prefix}] {enriched}"),
+        }
     }
 
     // Build the activity-log event payload. Verbose messages get the
@@ -211,6 +261,7 @@ fn emit_inner(
         stream: "internal",
         line,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        severity,
     };
 
     // Always fan out to disk — bug-hunting sessions need the full
@@ -229,16 +280,45 @@ fn emit_inner(
 /// Used for enrichment progress, companion downloads, fallback decisions,
 /// and other per-download diagnostic messages. Also writes to the tracing
 /// file log so enrichment progress is captured on disk.
+///
+/// Defaults to `LogSeverity::Info` — use [`emit_download_warn`] /
+/// [`emit_download_error`] when the message represents an actual
+/// warning or error so the UI can colour-code it (#793).
 pub fn emit_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    emit_inner(app, Some(download_id), message, false);
+    emit_inner(app, Some(download_id), message, false, LogSeverity::Info);
+}
+
+/// Emits an internal activity-log event with [`LogSeverity::Warning`]
+/// (#793). Frontend renders the line in `text-status-warning` (amber)
+/// across all themes.
+pub fn emit_download_warn(app: &tauri::AppHandle, download_id: &str, message: &str) {
+    emit_inner(app, Some(download_id), message, false, LogSeverity::Warning);
+}
+
+/// Emits an internal activity-log event with [`LogSeverity::Error`]
+/// (#793). Frontend renders the line in `text-status-error` (red)
+/// across all themes.
+pub fn emit_download_error(app: &tauri::AppHandle, download_id: &str, message: &str) {
+    emit_inner(app, Some(download_id), message, false, LogSeverity::Error);
 }
 
 /// Emits a system-level activity log event (not tied to any download).
 ///
 /// Used for queue operations, update checks, dependency installs, cookie
-/// imports, settings changes, and app lifecycle events.
+/// imports, settings changes, and app lifecycle events. See
+/// [`emit_app_warn`] / [`emit_app_error`] for severity-tagged variants.
 pub fn emit_app_log(app: &tauri::AppHandle, message: &str) {
-    emit_inner(app, None, message, false);
+    emit_inner(app, None, message, false, LogSeverity::Info);
+}
+
+/// Emits a system-level activity-log event with [`LogSeverity::Warning`].
+pub fn emit_app_warn(app: &tauri::AppHandle, message: &str) {
+    emit_inner(app, None, message, false, LogSeverity::Warning);
+}
+
+/// Emits a system-level activity-log event with [`LogSeverity::Error`].
+pub fn emit_app_error(app: &tauri::AppHandle, message: &str) {
+    emit_inner(app, None, message, false, LogSeverity::Error);
 }
 
 /// Emits a verbose download-specific activity log event.
@@ -254,7 +334,7 @@ pub fn emit_app_log(app: &tauri::AppHandle, message: &str) {
 /// The message is prefixed with `[VERBOSE]` in the activity log to
 /// distinguish it from normal messages.
 pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, message: &str) {
-    emit_inner(app, Some(download_id), message, true);
+    emit_inner(app, Some(download_id), message, true, LogSeverity::Info);
 }
 
 /// Emits a verbose system-level activity log event.
@@ -263,7 +343,7 @@ pub fn emit_verbose_download_log(app: &tauri::AppHandle, download_id: &str, mess
 /// enabled in settings. Always written to the tracing file log as
 /// `debug` AND to the on-disk activity log file.
 pub fn emit_verbose_app_log(app: &tauri::AppHandle, message: &str) {
-    emit_inner(app, None, message, true);
+    emit_inner(app, None, message, true, LogSeverity::Info);
 }
 
 /// Emits a raw subprocess-stream activity log event (Phase 3.5e).
@@ -294,11 +374,18 @@ pub fn emit_subprocess_line(
     line: String,
     show_in_ui: bool,
 ) {
+    // Severity inferred from GAMDL's structlog level prefix (#793).
+    // GAMDL 3.0+ emits lines like `[WARNING  12:10:05] [Track 2/4]
+    // Skipping…` so we can colour-code without changing the
+    // subprocess output itself. Pre-v3.0 GAMDL had no level prefix
+    // → defaults to Info.
+    let severity = infer_severity_from_subprocess_line(&line, stream);
     let event = ActivityLogEvent {
         download_id: download_id.to_string(),
         stream,
         line,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        severity,
     };
     if show_in_ui {
         let _ = app.emit("activity-log", &event);
@@ -306,4 +393,160 @@ pub fn emit_subprocess_line(
     // Disk fan-out is unconditional — the on-disk activity log file
     // is the forensic record, kept regardless of UI filtering.
     write_to_disk(&event);
+}
+
+/// Infer the severity of a raw subprocess output line for the
+/// frontend's colour-coded rendering (#793).
+///
+/// Three heuristics, applied in order:
+///
+///   1. **GAMDL structlog level prefix** (`[LEVEL    HH:MM:SS]`
+///      shape) — most reliable signal on GAMDL v3.0+. Maps
+///      `ERROR` / `CRITICAL` → Error and `WARNING` → Warning.
+///      Other levels (INFO / DEBUG) fall through.
+///
+///   2. **Stream tag** — anything on `stderr` defaults to Warning
+///      (most Python tooling sends genuine warnings + errors
+///      there). Avoids over-classifying because GAMDL's own
+///      `ERROR` lines also land on stderr and the level prefix
+///      already promoted them to `Error`.
+///
+///   3. **Default** — Info.
+///
+/// Deliberately conservative: we'd rather under-colour than
+/// mis-colour a line (e.g. a sentence containing "error" inside
+/// an otherwise informational message shouldn't go red).
+#[must_use]
+fn infer_severity_from_subprocess_line(line: &str, stream: &str) -> LogSeverity {
+    // Trim a leading `\r` overwrite that the GAMDL reader may have
+    // coalesced past; structlog prefix is always after that.
+    let trimmed = line.trim_start_matches('\r').trim_start();
+
+    if let Some(rest) = trimmed.strip_prefix('[') {
+        // Take everything up to the first ']' — should be
+        // `LEVEL    HH:MM:SS` — then split on whitespace and
+        // check the first token.
+        if let Some(end_idx) = rest.find(']') {
+            let inside = &rest[..end_idx];
+            let level = inside.split_whitespace().next().unwrap_or("");
+            match level {
+                "ERROR" | "CRITICAL" | "FATAL" => return LogSeverity::Error,
+                "WARNING" | "WARN" => return LogSeverity::Warning,
+                _ => {}
+            }
+        }
+    }
+
+    if stream == "stderr" {
+        return LogSeverity::Warning;
+    }
+
+    LogSeverity::Info
+}
+
+// ============================================================
+// Unit tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn severity_default_is_info() {
+        assert_eq!(LogSeverity::default(), LogSeverity::Info);
+    }
+
+    #[test]
+    fn severity_serialises_as_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&LogSeverity::Info).unwrap(),
+            "\"info\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LogSeverity::Warning).unwrap(),
+            "\"warning\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LogSeverity::Error).unwrap(),
+            "\"error\""
+        );
+    }
+
+    #[test]
+    fn infer_severity_recognises_gamdl_error_prefix() {
+        let line = "[ERROR    12:10:05] [Track 2/4] Failed to download";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stderr"),
+            LogSeverity::Error
+        );
+    }
+
+    #[test]
+    fn infer_severity_recognises_gamdl_warning_prefix() {
+        let line = "[WARNING  12:10:05] [Track 2/4] Skipping format";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stderr"),
+            LogSeverity::Warning
+        );
+    }
+
+    #[test]
+    fn infer_severity_info_prefix_falls_through_to_stream_default() {
+        // INFO on stderr → still Warning by stream-default rule
+        // (some tools route everything through stderr including
+        // genuine INFO; we prefer the conservative Warning over
+        // misleading Info).
+        let line = "[INFO     12:10:05] Starting download";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stderr"),
+            LogSeverity::Warning
+        );
+        // INFO on stdout → Info default.
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stdout"),
+            LogSeverity::Info
+        );
+    }
+
+    #[test]
+    fn infer_severity_unprefixed_stdout_is_info() {
+        let line = "Saved to: /Users/me/Music/Album/01 Track.m4a";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stdout"),
+            LogSeverity::Info
+        );
+    }
+
+    #[test]
+    fn infer_severity_unprefixed_stderr_is_warning() {
+        let line = "Some unexpected output";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stderr"),
+            LogSeverity::Warning
+        );
+    }
+
+    /// Conservative: a sentence MENTIONING "error" inside otherwise
+    /// informational text should NOT be promoted to Error — only
+    /// the explicit bracketed level prefix triggers a promotion.
+    #[test]
+    fn infer_severity_does_not_overreact_to_keyword_mentions() {
+        let line = "Skipping cover error retry as a no-op (#774)";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stdout"),
+            LogSeverity::Info
+        );
+    }
+
+    /// A leading `\r` overwrite (common in GAMDL progress output)
+    /// shouldn't confuse the prefix matcher.
+    #[test]
+    fn infer_severity_handles_leading_cr_overwrite() {
+        let line = "\r[ERROR    12:10:05] [Track 2/4] Boom";
+        assert_eq!(
+            infer_severity_from_subprocess_line(line, "stderr"),
+            LogSeverity::Error
+        );
+    }
 }
