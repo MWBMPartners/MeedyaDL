@@ -100,6 +100,14 @@ interface UiState {
    */
   helpActiveTopic: string | null;
 
+  /**
+   * Whether the global Keyboard Shortcuts help dialog (#465) is
+   * currently visible. Flipped by the Cmd/Ctrl+Shift+? handler in
+   * `useKeyboardShortcuts.ts` and consumed by `ShortcutsHelpDialog`
+   * which is mounted in MainLayout so it can appear over any page.
+   */
+  shortcutsHelpOpen: boolean;
+
   // ---------------------------------------------------------------------------
   // Actions -- each calls `set()` to produce the next immutable state snapshot
   // ---------------------------------------------------------------------------
@@ -150,6 +158,9 @@ interface UiState {
    * Prevents stale topic selections on subsequent visits to the Help page.
    */
   clearHelpActiveTopic: () => void;
+
+  /** Open or close the global Keyboard Shortcuts help dialog (#465). */
+  setShortcutsHelpOpen: (open: boolean) => void;
 
   /**
    * Create and display a new toast notification.
@@ -210,6 +221,7 @@ export const useUiStore = create<UiState>((set) => ({
   showPrereleaseNotice: false, // Pre-release notice hidden until version change detected
   showCrashReportPrompt: false, // Crash report opt-in prompt (first launch only)
   helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
+  shortcutsHelpOpen: false, // Shortcuts help dialog closed until Cmd/Ctrl+Shift+? opens it (#465)
 
   // -------------------------------------------------------------------------
   // Actions
@@ -250,6 +262,8 @@ export const useUiStore = create<UiState>((set) => ({
 
   /** Clear the help deep-link topic after HelpViewer has consumed it. */
   clearHelpActiveTopic: () => set({ helpActiveTopic: null }),
+
+  setShortcutsHelpOpen: (open) => set({ shortcutsHelpOpen: open }),
 
   /**
    * Create a new toast notification with a unique ID and optional auto-dismiss.

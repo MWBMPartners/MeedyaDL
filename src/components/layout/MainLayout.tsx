@@ -60,6 +60,7 @@ import { StatusBar } from './StatusBar';
 /** Toast notification overlay rendered outside the normal document flow. */
 /** UpdateBanner: dismissible notification shown when updates are available. */
 import { ToastContainer, UpdateBanner } from '@/components/common';
+import { ShortcutsHelpDialog } from '@/components/common/ShortcutsHelpDialog';
 
 /** URL parser to validate dropped Apple Music URLs. */
 import { parseAppleMusicUrl } from '@/lib/url-parser';
@@ -426,6 +427,14 @@ export function MainLayout({ children }: MainLayoutProps) {
        * @see ToastContainer component in @/components/common
        */}
       <ToastContainer />
+
+      {/*
+        Global keyboard-shortcuts help dialog (#465). Mounted once at
+        the root so Cmd/Ctrl + Shift + ? can open it from any page.
+        Visibility is driven entirely by `ui.shortcutsHelpOpen` in the
+        UI store; the dialog has its own Modal close handling.
+      */}
+      <ShortcutsHelpDialog />
     </div>
   );
 }
