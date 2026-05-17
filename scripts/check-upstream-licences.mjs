@@ -40,7 +40,7 @@
 // Skip rules mirror the companion script (#802) — see SKIP_RUST /
 // SKIP_NPM / isTauriPlugin below.
 
-import { execFileSync, execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -146,16 +146,10 @@ function licencesAgree(upstream, ack) {
 /** Read every Rust crate's declared licence from cargo-metadata. */
 function readRustUpstreamLicences() {
   try {
-    const raw = execFileSync(
-      'cargo',
-      ['metadata', '--format-version=1', '--no-deps', '--manifest-path', join('src-tauri', 'Cargo.toml')],
-      { cwd: ROOT, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' },
-    );
-    const meta = JSON.parse(raw);
-    // For our own package, dependencies[] has each direct dep but no
-    // licence (that's per-crate metadata, which `--no-deps` strips).
-    // Fetch the per-dep licences via a second call with `--no-deps`
-    // off, but constrain to direct deps only via the dependency tree.
+    // `cargo metadata` (without `--no-deps`) returns every package in the
+    // resolved tree with its declared SPDX licence string. The caller
+    // looks up direct deps by name, so extra transitive entries are
+    // harmless — and cheaper than a second `--no-deps` round-trip.
     const rawAll = execFileSync(
       'cargo',
       ['metadata', '--format-version=1', '--manifest-path', join('src-tauri', 'Cargo.toml')],
