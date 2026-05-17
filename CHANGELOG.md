@@ -6,6 +6,89 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Legacy folder merge + colour-coded activity log (closes #789, #793) (#794)
+
+## Summary
+
+  Two user-facing improvements bundled for **v1.4.6**:
+
+  ### 1. Legacy sibling-folder merge (#789)
+  For users with pre-#528 downloads on disk, the **Library** page now has
+  an opt-in **Merge Legacy Folders** tool that reconciles sibling album
+  folders (e.g. `Album` + `Album [Explicit]`) into a single canonical
+  folder, with collision-safe file moves and automatic `.meedyadl`
+  manifest merging.
+
+  - Three-phase API (`detect` → `preview` → `execute`) — no destructive
+  action without explicit confirmation.
+  - Defensive verification: each pair's `[Explicit]` / `[Clean]` suffix is
+  cross-checked against the actual `rtng` atom in the audio files.
+  Mismatches are rejected to avoid mis-merging unrelated folders that
+  happen to share a name pattern.
+  - `.meedyadl` manifest merge dedup key bumped from `(platform, url)` to
+  `(platform, url, codec)` so a folder that contains both ALAC and Atmos
+  downloads of the same album records both source entries instead of
+  clobbering one.
+  - Collision-safe file moves via `fs_safe::safe_rename` with
+  auto-disambiguation (`Cover.jpg` + `Cover.jpg` → `Cover.jpg` + `Cover
+  (1).jpg`).
+  - 11 unit tests covering detection, classification, manifest merge,
+  advisory verification, and collision handling.
+
+  ### 2. Colour-coded Activity Log (#793)
+  Activity Log entries now render in theme-aware colours that reflect
+  their severity — **errors in red, warnings in amber**, info in the
+  default content colour.
+
+  - Uses MeedyaDL's existing design tokens (`text-status-error` /
+  `text-status-warning` / `text-content-primary`), so the colour mapping
+  adapts to light, dark, high-contrast, and colour-blind themes without
+  any per-theme overrides.
+  - New `LogSeverity` enum (`info` / `warning` / `error`) added to
+  `ActivityLogEvent` as an optional field, serialised lowercase. Existing
+  emit sites keep working unchanged (default: `Info`).
+  - Subprocess output gets severity inferred from GAMDL's structlog prefix
+  (`[WARNING HH:MM:SS]`, `[ERROR HH:MM:SS]`, `[CRITICAL …]`). Stderr
+  without a prefix defaults to Warning; stdout defaults to Info.
+  - Four new emit helpers (`emit_download_warn`, `emit_download_error`,
+  `emit_app_warn`, `emit_app_error`) let high-impact failure sites opt in.
+  Five sites migrated: filesystem errors, terminal download failures (both
+  Err and success-path), and music-video lookup warnings.
+  - 9 new unit tests cover severity serialisation, default behaviour,
+  GAMDL prefix detection (WARNING / ERROR / CRITICAL / INFO), and the
+  conservative "no false positives from keyword mentions" guarantee.
+  - Exported activity logs remain plain text. A future HTML-with-CSS
+  export is straightforward to add now that severity is on the event
+  struct.
+
+  ## Test plan
+  - [x] `cargo check` clean
+  - [x] `cargo clippy --lib -- -D warnings` clean
+  - [x] `cargo test --lib` — 201 download_queue tests, 9 activity_log
+  severity tests, 11 legacy_folder_merge tests, 7 manifest tests, 3
+  activity_log_writer tests — all pass
+  - [x] `npx tsc --noEmit` clean
+  - [x] `npm test -- --run` — 482 frontend tests pass
+  - [ ] Manual: open Library page → Merge Legacy Folders → pick a folder
+  with mixed `[Explicit]` siblings → verify preview matches expectation →
+  execute → confirm files moved and manifest merged
+  - [ ] Manual: trigger a download failure (e.g. invalid URL) → confirm
+  Activity Log entry renders in red
+  - [ ] Manual: trigger a GAMDL warning (e.g. fallback codec) → confirm
+  Activity Log entry renders in amber
+  - [ ] Manual: switch UI theme (light/dark/high-contrast/colour-blind) →
+  confirm severity colours remain legible in each
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.5 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.4.5] - 2026-05-17
+
 ### 🐛 Bug Fixes
 
 - Companion sidecar rename + accurate per-item progress bar (#788, #790) (#791)
@@ -15,7 +98,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.4.4 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.4.5 [skip ci]
 
 ## [1.4.4] - 2026-05-16
 
