@@ -56,6 +56,7 @@ This changelog is automatically generated from [conventional commits](https://ww
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
@@ -102,6 +103,7 @@ This changelog is automatically generated from [conventional commits](https://ww
   - [ ] CI run on this PR: verify the `(node:XXXXX) [DEP0040]` line is
   absent from `Post Cache Rust` step output
 
+- **(claude)** Remember third-party licence obligations when bundling (#802)
 
 ## [1.5.0] - 2026-05-17
 
