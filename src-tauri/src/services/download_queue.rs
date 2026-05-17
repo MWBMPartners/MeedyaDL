@@ -4086,6 +4086,37 @@ async fn extract_music_video_subtitles_for_new_files(
     }
 
     for video_path in &new_videos {
+        // 0. Defensive filename-safety classification (#532).
+        //    GAMDL's MV pipeline is the highest-risk source for
+        //    degenerate output paths (#527 was the RC-blocker shape
+        //    landing here). The classifier surfaces a warn-severity
+        //    activity-log line so the user can investigate
+        //    suspicious or broken paths even after the Tier 4
+        //    safety net catches the worst case.
+        match crate::utils::fs_safe::classify_path_components(video_path) {
+            crate::utils::fs_safe::FilenameClassification::Ok => {}
+            crate::utils::fs_safe::FilenameClassification::Suspicious { reason } => {
+                emit_download_warn(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Filename safety: music video at '{}' is suspicious — {reason}",
+                        video_path.display()
+                    ),
+                );
+            }
+            crate::utils::fs_safe::FilenameClassification::Degenerate { reason } => {
+                emit_download_error(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Filename safety (#532): music video at '{}' is degenerate — {reason}. The Tier 4 safety net should have prevented this; please report as a bug.",
+                        video_path.display()
+                    ),
+                );
+            }
+        }
+
         // 1. Extract any embedded subtitle / caption streams to sidecars.
         match super::music_video_subtitle_service::extract_subtitles_to_sidecars(
             &ffprobe_path,
@@ -8273,6 +8304,13 @@ pub fn process_queue(
                                             "portrait",
                                             &result.portrait,
                                         );
+                                        // #538: album-level 16:9 spotlight video.
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "album spotlight",
+                                            &result.spotlight,
+                                        );
 
                                         // Hide artwork files if enabled in
                                         // settings. Hide-file failures are now
@@ -8326,6 +8364,28 @@ pub fn process_queue(
                                                     );
                                                 }
                                             }
+                                            // #538: hide the album-spotlight too.
+                                            if result.spotlight.is_downloaded() {
+                                                let target = dir.join("AlbumSpotlightCover.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide AlbumSpotlightCover.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide album spotlight ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
                                         }
 
                                         // Frontend event still fires on any
@@ -8334,6 +8394,7 @@ pub fn process_queue(
                                         // indicator.
                                         if result.square.is_downloaded()
                                             || result.portrait.is_downloaded()
+                                            || result.spotlight.is_downloaded()
                                         {
                                             log::info!(
                                                 "Animated artwork downloaded for {enrich_dl_id}"

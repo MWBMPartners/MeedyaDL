@@ -129,6 +129,13 @@ pub struct ArtworkResult {
     pub square: VariantStatus,
     /// Portrait (3:4) animated cover — destined for FrontCoverPortrait.mp4
     pub portrait: VariantStatus,
+    /// Album-level 16:9 spotlight video (#538) — destined for
+    /// AlbumSpotlightCover.mp4 in the album folder. Distinct from
+    /// the artist-page spotlight at `ArtistSpotlightCover.mp4`
+    /// which lives in the parent artist folder and is shared
+    /// across the artist's whole catalogue.
+    #[serde(default = "default_not_offered")]
+    pub spotlight: VariantStatus,
     /// LEGACY mirror of `square.is_downloaded()` for back-compat
     /// with pre-#529 JSON consumers. Always serialised; ignored
     /// on deserialise (derived from `square`).
@@ -140,27 +147,42 @@ pub struct ArtworkResult {
     pub portrait_downloaded: bool,
 }
 
+/// Serde default helper for the new `spotlight` field (#538) so
+/// older JSON payloads written by pre-#538 builds load cleanly.
+fn default_not_offered() -> VariantStatus {
+    VariantStatus::NotOffered
+}
+
 impl ArtworkResult {
     /// Builder helper that fills in the legacy `*_downloaded`
     /// mirror fields from the per-variant statuses, so call sites
-    /// only need to set `square` / `portrait`.
-    pub(crate) fn with_variants(square: VariantStatus, portrait: VariantStatus) -> Self {
+    /// only need to set `square` / `portrait` / `spotlight`.
+    pub(crate) fn with_variants(
+        square: VariantStatus,
+        portrait: VariantStatus,
+        spotlight: VariantStatus,
+    ) -> Self {
         let square_downloaded = square.is_downloaded();
         let portrait_downloaded = portrait.is_downloaded();
         Self {
             square,
             portrait,
+            spotlight,
             square_downloaded,
             portrait_downloaded,
         }
     }
 }
 
-/// Default result with both variants marked `NotOffered` —
-/// used by the early-return graceful-exit paths (feature
-/// disabled, credentials missing, non-album URL, etc.).
+/// Default result with all variants marked `NotOffered` — used
+/// by the early-return graceful-exit paths (feature disabled,
+/// credentials missing, non-album URL, etc.).
 fn empty_result() -> ArtworkResult {
-    ArtworkResult::with_variants(VariantStatus::NotOffered, VariantStatus::NotOffered)
+    ArtworkResult::with_variants(
+        VariantStatus::NotOffered,
+        VariantStatus::NotOffered,
+        VariantStatus::NotOffered,
+    )
 }
 
 // ============================================================
@@ -324,7 +346,10 @@ async fn download_artwork_from_metadata(
     // collapsed "API didn't offer" and "API offered but download
     // failed" into the same `false` flag, producing the lying
     // "No animated artwork available" activity-log line.
-    if metadata.artwork_square_url.is_none() && metadata.artwork_tall_url.is_none() {
+    if metadata.artwork_square_url.is_none()
+        && metadata.artwork_tall_url.is_none()
+        && metadata.album_spotlight_url.is_none()
+    {
         log::info!(
             "No animated artwork available for album {}",
             metadata.album_id
@@ -350,7 +375,24 @@ async fn download_artwork_from_metadata(
         None => VariantStatus::NotOffered,
     };
 
-    Ok(ArtworkResult::with_variants(square_status, portrait_status))
+    // #538: Album-level 16:9 spotlight video. Saved to the album
+    // folder as AlbumSpotlightCover.mp4 — distinct from the
+    // artist-page ArtistSpotlightCover.mp4 (which lives in the
+    // artist folder and is the same across the artist's whole
+    // catalogue). Same FFmpeg HLS pipeline as the cover variants.
+    let spotlight_status = match metadata.album_spotlight_url.as_deref() {
+        Some(spotlight_url) => {
+            let dest = output_path.join("AlbumSpotlightCover.mp4");
+            attempt_artwork_variant(app, spotlight_url, &dest, "album spotlight").await
+        }
+        None => VariantStatus::NotOffered,
+    };
+
+    Ok(ArtworkResult::with_variants(
+        square_status,
+        portrait_status,
+        spotlight_status,
+    ))
 }
 
 /// Downloads one HLS animated-artwork variant and runs the
@@ -729,6 +771,7 @@ mod tests {
                 size_bytes: 1_234_567,
             },
             VariantStatus::NotOffered,
+            VariantStatus::NotOffered,
         );
         let json = serde_json::to_string(&result).unwrap();
         // New per-variant shape — primary source of truth post-#529.
@@ -738,10 +781,36 @@ mod tests {
         assert!(json.contains("\"size_bytes\":1234567"));
         assert!(json.contains("\"portrait\""));
         assert!(json.contains("\"kind\":\"not_offered\""));
+        // #538: spotlight variant carried alongside square/portrait.
+        assert!(json.contains("\"spotlight\""));
         // Legacy mirror fields — preserved so older JSON consumers
         // still see the bool flags they expect.
         assert!(json.contains("\"square_downloaded\":true"));
         assert!(json.contains("\"portrait_downloaded\":false"));
+    }
+
+    /// #538 — Verify that the spotlight variant serialises as a
+    /// real `VariantStatus` enum payload, not a placeholder
+    /// `NotOffered` only. Round-trips a `Downloaded` spotlight
+    /// alongside `NotOffered` square + portrait.
+    #[test]
+    fn artwork_result_serialises_spotlight_variant() {
+        let result = ArtworkResult::with_variants(
+            VariantStatus::NotOffered,
+            VariantStatus::NotOffered,
+            VariantStatus::Downloaded {
+                path: "/Music/Album/AlbumSpotlightCover.mp4".to_string(),
+                size_bytes: 5_000_000,
+            },
+        );
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"spotlight\""));
+        // The path lives inside a quoted JSON string, so look for
+        // the bare filename substring rather than a quote-wrapped
+        // shape (the wrapping quotes are at the start/end of the
+        // full path, not around the filename).
+        assert!(json.contains("AlbumSpotlightCover.mp4"));
+        assert!(json.contains("\"size_bytes\":5000000"));
     }
 
     /// Verifies the `DownloadFailed` variant round-trips through serde
@@ -756,6 +825,7 @@ mod tests {
                 reason: "FFmpeg exited with code 1".to_string(),
             },
             VariantStatus::NotOffered,
+            VariantStatus::NotOffered,
         );
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"kind\":\"download_failed\""));
@@ -766,13 +836,14 @@ mod tests {
         assert!(json.contains("\"square_downloaded\":false"));
     }
 
-    /// Verifies the empty_result helper returns both variants as
-    /// `NotOffered` and the legacy mirrors as `false`.
+    /// Verifies the empty_result helper returns all three variants
+    /// as `NotOffered` and the legacy mirrors as `false`.
     #[test]
-    fn empty_result_has_both_not_offered() {
+    fn empty_result_has_all_not_offered() {
         let result = empty_result();
         assert!(matches!(result.square, VariantStatus::NotOffered));
         assert!(matches!(result.portrait, VariantStatus::NotOffered));
+        assert!(matches!(result.spotlight, VariantStatus::NotOffered));
         assert!(!result.square_downloaded);
         assert!(!result.portrait_downloaded);
     }

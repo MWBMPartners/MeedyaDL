@@ -292,6 +292,7 @@ mod tests {
             tracks: vec![],
             artwork_square_url: None,
             artwork_tall_url: None,
+            album_spotlight_url: None,
             artwork_url_template: template.map(str::to_string),
             artwork_width: Some(3000),
             artwork_height: Some(3000),

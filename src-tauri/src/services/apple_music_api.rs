@@ -167,6 +167,16 @@ pub struct AlbumMetadata {
     pub artwork_square_url: Option<String>,
     /// HLS M3U8 URL for portrait (3:4) animated artwork, if available
     pub artwork_tall_url: Option<String>,
+    /// HLS M3U8 URL for 16:9 album-spotlight editorial video, if
+    /// available (#538). Sourced from `editorialVideo` on the
+    /// **album** endpoint (priority:
+    /// `motionArtistFullscreen16x9` → `motionArtistWide16x9`), and
+    /// destined for `AlbumSpotlightCover.mp4` in the album folder.
+    /// Distinct from the artist-page spotlight that's saved as
+    /// `ArtistSpotlightCover.mp4` — that one comes from the
+    /// `/artists/{id}` endpoint and is shared across the artist's
+    /// whole catalogue; this one is specific to the album.
+    pub album_spotlight_url: Option<String>,
     /// Static cover-art URL template from `attributes.artwork.url`. Apple
     /// returns a templated URL with `{w}`, `{h}`, and `{f}` placeholders
     /// (e.g., `https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}`).
@@ -1000,6 +1010,26 @@ pub async fn fetch_album_metadata(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
+    // #538: Album-level 16:9 editorial spotlight video. The same
+    // `editorialVideo` block can carry both portrait (`motionDetailTall`)
+    // and wide (`motionArtistFullscreen16x9` / `motionArtistWide16x9`)
+    // variants; the wide variants are album-cinematic teasers
+    // distinct from the static album cover. Priority matches the
+    // artist-spotlight code path (#455 / #538): prefer
+    // `motionArtistFullscreen16x9`, fall back to
+    // `motionArtistWide16x9`. Lower-tier `motionDetail*` keys are
+    // already covered by `artwork_square_url`/`artwork_tall_url`
+    // and intentionally excluded — they're tightly cropped around
+    // the cover and would look wrong as a 16:9 spotlight.
+    let album_spotlight_url = editorial_video
+        .and_then(|ev| {
+            ev.get("motionArtistFullscreen16x9")
+                .or_else(|| ev.get("motionArtistWide16x9"))
+        })
+        .and_then(|m| m.get("video"))
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string);
+
     // Static cover artwork (#756). The `artwork.url` is a template
     // with `{w}`, `{h}`, `{f}` placeholders we can substitute when
     // falling back from a failed RAW write to PNG/JPEG.
@@ -1050,6 +1080,7 @@ pub async fn fetch_album_metadata(
         tracks,
         artwork_square_url,
         artwork_tall_url,
+        album_spotlight_url,
         artwork_url_template,
         artwork_width,
         artwork_height,
@@ -2865,6 +2896,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
             }],
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
+            album_spotlight_url: None,
             artwork_url_template: Some(
                 "https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}".to_string(),
             ),
