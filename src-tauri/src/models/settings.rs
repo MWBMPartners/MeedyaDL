@@ -983,6 +983,15 @@ pub struct AppSettings {
     #[serde(default = "default_cover_art_name")]
     pub cover_art_name: CoverArtName,
 
+    /// Embed the music-video cover thumbnail as a `covr` atom in the
+    /// `.mp4` and delete the sidecar `.jpg`/`.png` (#533 / #569).
+    /// Default `true` — most users see the embedded poster frame in
+    /// every modern player and never need the sidecar. Flip to `false`
+    /// to keep the sidecar on disk (e.g. for tooling that expects a
+    /// visible thumbnail next to the video).
+    #[serde(default = "default_true")]
+    pub music_video_embed_cover_sidecar: bool,
+
     // ================================================================
     // Animated Artwork (Motion Cover Art)
     // ================================================================
@@ -1775,6 +1784,10 @@ impl Default for AppSettings {
             // Rename GAMDL's "Cover" to "FrontCover" for consistency with
             // animated artwork (FrontCover.mp4, FrontCoverPortrait.mp4).
             cover_art_name: CoverArtName::FrontCover,
+            // #569: embed MV cover sidecar into the .mp4 as a covr
+            // atom and delete the sidecar on success — keeps the
+            // poster frame, removes the redundant loose .jpg files.
+            music_video_embed_cover_sidecar: true,
 
             // --- Animated artwork ---
             // Enabled by default (#449): animated artwork is downloaded when

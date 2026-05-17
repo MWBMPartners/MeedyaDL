@@ -648,6 +648,12 @@ export interface AppSettings {
   cover_size: number;
   /** Filename for saved cover art image (without extension). Default: FrontCover */
   cover_art_name: CoverArtName;
+  /**
+   * Embed the music-video cover thumbnail as a `covr` atom in the MP4
+   * and delete the sidecar `.jpg`/`.png` (#533 / #569). Default `true`.
+   * Mirrors Rust field `AppSettings::music_video_embed_cover_sidecar`.
+   */
+  music_video_embed_cover_sidecar: boolean;
   /** Whether to download animated cover art (motion artwork) from Apple Music */
   animated_artwork_enabled: boolean;
   /** Whether to set the OS "hidden" attribute on animated artwork files */

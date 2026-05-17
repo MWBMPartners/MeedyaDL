@@ -141,6 +141,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cover_format: 'jpg', // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
   cover_size: 10000, // Request maximum available artwork resolution from Apple CDN
   cover_art_name: 'front_cover' as const, // Rename Cover → FrontCover after download (#448)
+  music_video_embed_cover_sidecar: true, // Embed MV cover into MP4 + delete sidecar (#533 / #569)
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
   hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)

@@ -97,6 +97,8 @@ export function CoverArtTab() {
   const animatedEnabled = useSettingsField('animated_artwork_enabled');
   const hideAnimated = useSettingsField('hide_animated_artwork');
   const artistPromo = useSettingsField('artist_promo_video_enabled');
+  // #533 / #569: embed MV cover sidecar into MP4 + delete sidecar.
+  const mvEmbedCoverSidecar = useSettingsField('music_video_embed_cover_sidecar');
   /** Navigate to a help topic (for the "Animated Artwork help page" link) */
   const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
@@ -156,6 +158,14 @@ export function CoverArtTab() {
                 options={COVER_ART_NAME_OPTIONS}
                 value={coverArtName.value}
                 onChange={(e) => coverArtName.set(e.target.value as CoverArtName)}
+              />
+
+              {/* #533 / #569: embed MV cover sidecar into MP4 + delete. */}
+              <Toggle
+                label="Embed Music Video Cover Thumbnail"
+                description="Embed the music-video cover thumbnail into the MP4 as a poster atom and delete the sidecar .jpg/.png. Most modern players (VLC, mpv, QuickTime, Plex, Jellyfin) read the embedded poster directly, so the sidecar just clutters the library. When the embed fails for any reason, the sidecar is kept on disk and a warning is logged."
+                checked={mvEmbedCoverSidecar.value}
+                onChange={mvEmbedCoverSidecar.set}
               />
             </>
           )}

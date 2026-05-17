@@ -296,6 +296,16 @@ pub mod ass_subtitle_service;
 /// post-processing after GAMDL finishes).
 pub mod music_video_subtitle_service;
 
+/// Music-video cover-sidecar embedding (#533 / #569).
+///
+/// Embeds the `.jpg` / `.png` cover thumbnail GAMDL writes next to
+/// each music video into the MP4 container as a `covr` atom, then
+/// deletes the sidecar. Cleans up the library while preserving the
+/// thumbnail as an embedded poster frame that every modern player
+/// renders directly. Wired into the same MV post-download loop as
+/// `music_video_subtitle_service`.
+pub mod music_video_cover_embed;
+
 /// MusicBrainz recording lookup service.
 ///
 /// Queries the MusicBrainz database to discover recording metadata,

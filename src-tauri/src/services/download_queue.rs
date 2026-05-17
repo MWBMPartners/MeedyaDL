@@ -4140,6 +4140,54 @@ async fn extract_music_video_subtitles_for_new_files(
                 );
             }
         }
+
+        // 3. Embed the sidecar cover thumbnail into the MP4 and
+        //    delete it (#533 / #569). Gated on the
+        //    `music_video_embed_cover_sidecar` setting (default
+        //    true). Most modern players read the embedded poster
+        //    atom from the MP4 directly, so the sidecar is just
+        //    library clutter. The verify-before-delete logic in
+        //    `embed_and_remove_sidecar` makes the embed safe — a
+        //    failed write never loses the only cover copy.
+        let settings_for_mv = load_settings_for_queue(app);
+        if settings_for_mv.music_video_embed_cover_sidecar {
+            use super::music_video_cover_embed::{embed_and_remove_sidecar, EmbedOutcome};
+            let video_filename = video_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("music video")
+                .to_string();
+            match embed_and_remove_sidecar(video_path) {
+                EmbedOutcome::Embedded { sidecar_filename, bytes_embedded } => {
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Music video: embedded {sidecar_filename} ({} bytes) into {video_filename} and removed sidecar",
+                            bytes_embedded,
+                        ),
+                    );
+                }
+                EmbedOutcome::NoSidecar => {
+                    log::debug!("No cover sidecar found next to {}", video_path.display());
+                }
+                EmbedOutcome::Failed { sidecar_filename, reason } => {
+                    // Sidecar kept (safe by design) — warn so the
+                    // user knows the embed didn't happen.
+                    log::warn!(
+                        "Music video cover-embed failed for {}: {reason}",
+                        video_path.display(),
+                    );
+                    emit_download_warn(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Music video cover embed failed — {sidecar_filename} kept as sidecar: {reason}"
+                        ),
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -14256,5 +14304,61 @@ mod tests {
             super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title_id}"),
             "MV_NO_ALBUM_FILE_TEMPLATE must include {{title_id}} for uniqueness"
         );
+    }
+
+    /// #571 — Verify that the MV no-album template produces distinct
+    /// filenames for variants of the same song (studio cut vs. live
+    /// performance vs. acoustic cut), under two GAMDL-`tags.title`
+    /// shapes:
+    ///
+    ///   (a) **Title-disambiguates**: GAMDL surfaces the variant
+    ///       parenthetical in `tags.title` (e.g. `"Depressed (Live
+    ///       from London)"`). The filename is unique on `{title}`
+    ///       alone — the `{title_id}` suffix is belt-and-braces.
+    ///
+    ///   (b) **Title-collides**: GAMDL surfaces only `"Depressed"`
+    ///       for every variant (the parenthetical lives in
+    ///       `editorialNotes` rather than `name`). The filename is
+    ///       still unique because the `{title_id}` suffix carries
+    ///       the per-variant Apple Music numeric MV ID.
+    ///
+    /// Either way the user's library never silently overwrites one
+    /// variant with another. The test renders the template with
+    /// `String::replace` (the same substitution GAMDL performs) so
+    /// the assertion is end-to-end deterministic.
+    #[test]
+    fn mv_no_album_template_disambiguates_variants() {
+        // Convenience: applies `{title}` and `{title_id}` to the
+        // file template the same way GAMDL would.
+        fn render(title: &str, title_id: &str) -> String {
+            super::MV_NO_ALBUM_FILE_TEMPLATE
+                .replace("{title}", title)
+                .replace("{title_id}", title_id)
+        }
+
+        // (a) Title-disambiguates path. Each variant has a unique
+        // title AND a unique ID, so the rendered filename differs
+        // on both axes.
+        let studio_a = render("Depressed", "1840857276");
+        let live_a = render("Depressed (Live from London)", "1847893387");
+        let acoustic_a = render("Depressed (Acoustic)", "1900000001");
+        assert_ne!(studio_a, live_a, "title-disambiguating studio vs live must differ");
+        assert_ne!(studio_a, acoustic_a, "title-disambiguating studio vs acoustic must differ");
+        assert_ne!(live_a, acoustic_a, "title-disambiguating live vs acoustic must differ");
+        // The `(NNNN)` suffix is present even when titles differ —
+        // the belt-and-braces invariant from the test above.
+        assert!(studio_a.contains("(1840857276)"));
+        assert!(live_a.contains("(1847893387)"));
+
+        // (b) Title-collides path. The pessimistic scenario in
+        // which Apple Music returns only the base title for every
+        // variant. With `{title}` identical, only `{title_id}` is
+        // the disambiguator.
+        let studio_b = render("Depressed", "1840857276");
+        let live_b = render("Depressed", "1847893387");
+        let acoustic_b = render("Depressed", "1900000001");
+        assert_ne!(studio_b, live_b, "title-collides studio vs live must still differ via {{title_id}}");
+        assert_ne!(studio_b, acoustic_b, "title-collides studio vs acoustic must still differ via {{title_id}}");
+        assert_ne!(live_b, acoustic_b, "title-collides live vs acoustic must still differ via {{title_id}}");
     }
 }
