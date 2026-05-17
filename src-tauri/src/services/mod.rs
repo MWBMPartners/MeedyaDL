@@ -306,6 +306,14 @@ pub mod music_video_subtitle_service;
 /// `music_video_subtitle_service`.
 pub mod music_video_cover_embed;
 
+/// In-process `AppSettings` cache (#690).
+///
+/// Eliminates redundant disk reads on the queue hot path. Lazy-
+/// populated on first access, refreshed by the `save_settings` IPC
+/// after each write, and read by `load_settings_for_queue` so every
+/// caller path benefits without per-site changes.
+pub mod settings_cache;
+
 /// MusicBrainz recording lookup service.
 ///
 /// Queries the MusicBrainz database to discover recording metadata,

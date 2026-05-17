@@ -1016,6 +1016,13 @@ pub fn run() {
         // Fire-and-forget tasks (companions, lyrics, enrichment) poll this
         // flag between iterations and exit early when the app is closing.
         .manage(services::download_queue::ShutdownSignal::new())
+        // In-process AppSettings cache (#690). Eliminates redundant
+        // disk reads on the queue hot path — `load_settings_for_queue`
+        // and friends now read from this cache instead of round-
+        // tripping `config_service::load_settings()` per call. The
+        // `save_settings` IPC refreshes the cache after each disk
+        // write so the two stay in sync.
+        .manage(services::settings_cache::SettingsCache::new())
         // ---------------------------------------------------------------
         // Plugin Registration
         // ---------------------------------------------------------------

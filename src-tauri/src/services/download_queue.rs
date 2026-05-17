@@ -284,6 +284,17 @@ fn execute_after_queue_action(app: &AppHandle) {
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             let _ = std::fs::write(settings_path, json);
         }
+        // #690: also refresh the in-process settings cache so the
+        // next reader after a one-shot clear sees the post-clear
+        // value without re-reading disk. Without this, every read
+        // until the user next saves settings would see the stale
+        // pre-clear after_queue_once = Some(...) value.
+        use tauri::Manager as _;
+        if let Some(cache) =
+            app.try_state::<super::settings_cache::SettingsCache>()
+        {
+            cache.refresh(settings.clone());
+        }
     }
 
     match action {
@@ -10573,7 +10584,24 @@ async fn run_download_with_events(
 /// (the user might change settings while downloads are running).
 ///
 /// Returns `AppSettings::default()` on load failure to avoid blocking queue processing.
+///
+/// Post-#690: reads from the `SettingsCache` Tauri-managed state when
+/// available (lazy-populated on first access, refreshed by the
+/// `save_settings` IPC after each write). On cache miss — or when the
+/// cache isn't registered at all (test contexts that don't set up the
+/// full app state) — falls through to the original disk-read path so
+/// the function stays correct in every caller environment.
 fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
+    use tauri::Manager as _;
+    // Fast path: read from the cache when registered.
+    if let Some(cache) = app.try_state::<super::settings_cache::SettingsCache>() {
+        return cache.get_or_load(app);
+    }
+
+    // Fallback path (test contexts + the rare boot-order edge case
+    // where a queue task fires before AppState is fully managed):
+    // load directly from disk with the same default-on-error shape
+    // as pre-#690.
     match config_service::load_settings(app) {
         Ok(settings) => settings,
         Err(e) => {

@@ -44,7 +44,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 // AppHandle for resolving app data directory paths (settings.json location).
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 // AppSettings is the Rust struct representing the full application settings.
 // It implements both Serialize (for returning to frontend) and Deserialize
@@ -172,6 +172,16 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     //   1. settings.json — full AppSettings struct as JSON
     //   2. config.ini — relevant fields translated to GAMDL's INI format
     config_service::save_settings(&app, &settings)?;
+
+    // #690: refresh the in-process settings cache so the next
+    // `load_settings_for_queue` reader sees the post-save snapshot
+    // without re-touching the disk. If the cache isn't registered
+    // (test contexts), this is a no-op.
+    if let Some(cache) =
+        app.try_state::<crate::services::settings_cache::SettingsCache>()
+    {
+        cache.refresh(settings.clone());
+    }
 
     // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
