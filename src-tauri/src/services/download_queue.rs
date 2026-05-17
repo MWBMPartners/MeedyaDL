@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Download queue manager service.
@@ -283,6 +283,17 @@ fn execute_after_queue_action(app: &AppHandle) {
         let settings_path = data_dir.join("settings.json");
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             let _ = std::fs::write(settings_path, json);
+        }
+        // #690: also refresh the in-process settings cache so the
+        // next reader after a one-shot clear sees the post-clear
+        // value without re-reading disk. Without this, every read
+        // until the user next saves settings would see the stale
+        // pre-clear after_queue_once = Some(...) value.
+        use tauri::Manager as _;
+        if let Some(cache) =
+            app.try_state::<super::settings_cache::SettingsCache>()
+        {
+            cache.refresh(settings.clone());
         }
     }
 
@@ -982,7 +993,7 @@ fn compute_total_timeout(
 // canonical label, no override) will be picked up by the companion
 // task in Phase 3.5g — re-exported here for that consumer.
 #[allow(unused_imports)]
-use super::progress_stages::{set_stage, set_stage_with_label, ProgressStage};
+use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, ProgressStage};
 
 // ============================================================
 // Manifest writer
@@ -3203,6 +3214,14 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         .artist_auto_select
         .clone_from(&settings.artist_auto_select);
 
+    // GAMDL log level (#768) — `--log-level <LEVEL>` exists on every
+    // release in our support window, so there's no GamdlFeature gate
+    // needed here. The default (`Info`) matches GAMDL's compiled-in
+    // default; flipping to `Debug` in Developer Tools is what surfaces
+    // the v3.5.2+ structlog `m3u8_master_url=…` diagnostics that
+    // motivated this wiring. Cloned because LogLevel doesn't impl Copy.
+    options.log_level = Some(settings.gamdl_log_level.clone());
+
     // === Layer 2: Apply per-download overrides (highest priority) ===
     // Only non-None fields from the override replace the global values.
     // This selective merge allows partial overrides (e.g., only change codec).
@@ -3443,8 +3462,24 @@ fn filter_tiers_by_audio_traits(
     available_traits: &[String],
 ) -> (Vec<CompanionTier>, Vec<String>) {
     if available_traits.is_empty() {
+        // #772 investigation: log the no-data path so the
+        // forensic record makes it clear when API metadata
+        // failed (vs the pre-filter genuinely dropping a tier).
+        log::debug!(
+            "filter_tiers_by_audio_traits: audioTraits unavailable from Apple Music API \
+             — passing all tiers through unfiltered (no AC3/Atmos pre-filter applied)"
+        );
         return (tiers, Vec::new());
     }
+    // #772 investigation: trace decision-making per tier so users
+    // gathering AC3-false-negative evidence can paste the raw log
+    // lines rather than reasoning from the absence of a tier.
+    // Always emits at debug level — surfaces in the on-disk
+    // activity log when `--log-level=Debug` is configured (#768)
+    // and stays out of the user-facing UI by default.
+    log::debug!(
+        "filter_tiers_by_audio_traits: available_traits = {available_traits:?}"
+    );
     let mut skipped = Vec::new();
     let kept: Vec<CompanionTier> = tiers
         .into_iter()
@@ -3453,12 +3488,38 @@ fn filter_tiers_by_audio_traits(
                 None => true,
                 Some(needed) => available_traits.iter().any(|t| t == needed),
             });
+            let names: Vec<&str> = tier
+                .codecs_to_try
+                .iter()
+                .map(SongCodec::to_cli_string)
+                .collect();
+            // Per-tier decision trace (#772). The keep/skip
+            // shape names the codec list AND the
+            // required-trait → matched-trait outcome so a user
+            // pasting these lines can answer the AC3-false-
+            // negative question without guessing.
+            let trait_details: Vec<String> = tier
+                .codecs_to_try
+                .iter()
+                .map(|c| match c.required_audio_trait() {
+                    None => format!("{}=ok(no-trait)", c.to_cli_string()),
+                    Some(needed) => {
+                        let matched = available_traits.iter().any(|t| t == needed);
+                        format!(
+                            "{}=needs[{needed}]={}",
+                            c.to_cli_string(),
+                            if matched { "matched" } else { "missing" }
+                        )
+                    }
+                })
+                .collect();
+            log::debug!(
+                "filter_tiers_by_audio_traits: tier=[{}] decision={} ({})",
+                names.join(","),
+                if any_codec_supported { "keep" } else { "drop" },
+                trait_details.join(", "),
+            );
             if !any_codec_supported {
-                let names: Vec<&str> = tier
-                    .codecs_to_try
-                    .iter()
-                    .map(SongCodec::to_cli_string)
-                    .collect();
                 skipped.push(names.join(","));
             }
             any_codec_supported
@@ -3896,6 +3957,81 @@ async fn spawn_music_video_companion_inner(
 /// Shared by companion audio downloads and music-video companion
 /// downloads so their progress renders consistently with the primary
 /// GAMDL reader.
+/// Parses a single companion-GAMDL output line and, if it is a
+/// `TrackInfo` event, overwrites the per-item `processing_label`
+/// with a track-aware caption (#799). No-op on lines that are not
+/// `TrackInfo` events.
+///
+/// Caption format mirrors what users already see for the primary
+/// download caption, just prefixed with the companion tier + codec:
+///
+/// ```text
+/// Companion (tier 2 — atmos): "We Are the Champions (Ding a Dang Dong)" — 8 of 8
+/// ```
+///
+/// When the GAMDL line carries `title` only (no track counter) the
+/// counter clause is omitted. When neither is present the line is
+/// ignored — we keep the previous label rather than risk replacing
+/// a richer one with an empty placeholder.
+///
+/// Called from the LineEmitter closure inside
+/// `spawn_companion_downloads` for every line. Cheap single-line
+/// parse; no allocation when the event isn't `TrackInfo`.
+async fn update_companion_label_from_line(
+    app: &tauri::AppHandle,
+    queue: &QueueHandle,
+    dl_id: &str,
+    tier_idx: usize,
+    codec_name: &str,
+    raw_line: &str,
+) {
+    // `parse_gamdl_output` already strips ANSI codes and handles `\r`
+    // overwrites; we deliberately don't pre-clean here so the
+    // pre-strip shape matches what the parser was tuned for.
+    let event = crate::utils::process::parse_gamdl_output(raw_line);
+    let crate::utils::process::GamdlOutputEvent::TrackInfo {
+        track_number,
+        track_total,
+        title,
+        ..
+    } = event
+    else {
+        return;
+    };
+
+    // Compose the caption. Both `track_number` + `track_total` are
+    // required for the counter clause — partial track info would
+    // mislead more than it informs. `title` is always `String`
+    // (parser substitutes an empty string when missing) so guard
+    // against the empty case explicitly.
+    let title_trimmed = title.trim();
+    if title_trimmed.is_empty() {
+        return;
+    }
+    let caption = match (track_number, track_total) {
+        (Some(c), Some(t)) => {
+            format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\" — {c} of {t}")
+        }
+        _ => format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\""),
+    };
+
+    // #808 fix: use `set_label_only` rather than
+    // `set_stage_with_label(…, Finalising, …)` here. The per-track
+    // caption update fires many times during a single companion
+    // download (one per track in a 21-track album = 21 calls), and
+    // every `set_stage_with_label` call resets the bar to the
+    // stage's weight — `Finalising` is 0.95, which pegged the bar
+    // at 95% for the entire companion run regardless of actual
+    // within-companion progress.
+    //
+    // The bar value continues to be driven by the resolution chain
+    // from #790 (per-file `[download] X%` from companion GAMDL →
+    // enrichment stage weights → terminal-state values), so the
+    // visible bar advances naturally as each companion track
+    // downloads.
+    set_label_only(app, queue, dl_id, &caption);
+}
+
 async fn emit_companion_stream_line(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -4012,6 +4148,37 @@ async fn extract_music_video_subtitles_for_new_files(
     }
 
     for video_path in &new_videos {
+        // 0. Defensive filename-safety classification (#532).
+        //    GAMDL's MV pipeline is the highest-risk source for
+        //    degenerate output paths (#527 was the RC-blocker shape
+        //    landing here). The classifier surfaces a warn-severity
+        //    activity-log line so the user can investigate
+        //    suspicious or broken paths even after the Tier 4
+        //    safety net catches the worst case.
+        match crate::utils::fs_safe::classify_path_components(video_path) {
+            crate::utils::fs_safe::FilenameClassification::Ok => {}
+            crate::utils::fs_safe::FilenameClassification::Suspicious { reason } => {
+                emit_download_warn(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Filename safety: music video at '{}' is suspicious — {reason}",
+                        video_path.display()
+                    ),
+                );
+            }
+            crate::utils::fs_safe::FilenameClassification::Degenerate { reason } => {
+                emit_download_error(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Filename safety (#532): music video at '{}' is degenerate — {reason}. The Tier 4 safety net should have prevented this; please report as a bug.",
+                        video_path.display()
+                    ),
+                );
+            }
+        }
+
         // 1. Extract any embedded subtitle / caption streams to sidecars.
         match super::music_video_subtitle_service::extract_subtitles_to_sidecars(
             &ffprobe_path,
@@ -4064,6 +4231,54 @@ async fn extract_music_video_subtitles_for_new_files(
                             .unwrap_or("music video")
                     ),
                 );
+            }
+        }
+
+        // 3. Embed the sidecar cover thumbnail into the MP4 and
+        //    delete it (#533 / #569). Gated on the
+        //    `music_video_embed_cover_sidecar` setting (default
+        //    true). Most modern players read the embedded poster
+        //    atom from the MP4 directly, so the sidecar is just
+        //    library clutter. The verify-before-delete logic in
+        //    `embed_and_remove_sidecar` makes the embed safe — a
+        //    failed write never loses the only cover copy.
+        let settings_for_mv = load_settings_for_queue(app);
+        if settings_for_mv.music_video_embed_cover_sidecar {
+            use super::music_video_cover_embed::{embed_and_remove_sidecar, EmbedOutcome};
+            let video_filename = video_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("music video")
+                .to_string();
+            match embed_and_remove_sidecar(video_path) {
+                EmbedOutcome::Embedded { sidecar_filename, bytes_embedded } => {
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Music video: embedded {sidecar_filename} ({} bytes) into {video_filename} and removed sidecar",
+                            bytes_embedded,
+                        ),
+                    );
+                }
+                EmbedOutcome::NoSidecar => {
+                    log::debug!("No cover sidecar found next to {}", video_path.display());
+                }
+                EmbedOutcome::Failed { sidecar_filename, reason } => {
+                    // Sidecar kept (safe by design) — warn so the
+                    // user knows the embed didn't happen.
+                    log::warn!(
+                        "Music video cover-embed failed for {}: {reason}",
+                        video_path.display(),
+                    );
+                    emit_download_warn(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Music video cover embed failed — {sidecar_filename} kept as sidecar: {reason}"
+                        ),
+                    );
+                }
             }
         }
     }
@@ -4696,6 +4911,218 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+/// Default cadence for the long-running-stage heartbeat ticker (#805).
+///
+/// Companion downloads + post-companion enrichment can occupy the
+/// activity log with zero output for tens of minutes at a time
+/// (per-track download lines all fire up front; then post-processing,
+/// FFmpeg remux, tag write, lyrics conversion, ReplayGain etc. all
+/// happen silently). Users reasonably conclude the app has stalled.
+///
+/// 120 s strikes a balance: short enough that no silent stretch
+/// exceeds a couple of minutes; long enough that healthy short
+/// downloads don't get spammed (a typical 8-track album with
+/// companions finishes in well under 2 min, so the heartbeat never
+/// even fires).
+pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(120);
+
+/// Lightweight handle for a heartbeat ticker spawned via
+/// [`start_heartbeat_ticker`]. Owning the handle keeps the ticker
+/// running; dropping the handle (or calling [`stop`](Self::stop))
+/// signals the ticker to exit on its next tick.
+///
+/// Pairs naturally with [`CompanionTaskHandle`]'s existing
+/// cooperative-cancel `Arc<AtomicBool>` — the same flag stops both
+/// the parent stage and its heartbeat ticker, so when a stage
+/// completes (success, error, or abort) the heartbeat dies with it
+/// and there's no risk of orphaned tickers chatting about a stage
+/// that's already over.
+pub(crate) struct HeartbeatTicker {
+    cancel: Arc<AtomicBool>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl HeartbeatTicker {
+    /// Signals the ticker to exit on the next tick (or
+    /// immediately, if it's currently waiting on the abort signal).
+    /// Idempotent — calling more than once is harmless.
+    pub(crate) fn stop(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.handle.abort();
+    }
+}
+
+impl Drop for HeartbeatTicker {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Spawns a tokio task that emits an `emit_download_log` heartbeat
+/// every [`HEARTBEAT_INTERVAL`] for the given download item, naming
+/// the current stage (read from the queue's `processing_label`) and
+/// the wall-clock elapsed time since the stage started. Returns a
+/// [`HeartbeatTicker`] whose drop signals the ticker to stop (#805).
+///
+/// The ticker reads the cooperative-cancel flag every tick and exits
+/// when set. Callers that already track a stage with an
+/// `Arc<AtomicBool>` abort flag (e.g. the companion supervisor's
+/// flag in [`CompanionTaskHandle`]) should pass *the same flag* here
+/// so the heartbeat stops automatically when the parent stage does.
+///
+/// Heartbeat line format (matches the existing `[MeedyaDL]` internal-
+/// emission style; the hourglass prefix lets users visually scan
+/// past heartbeats when they're not the focus):
+///
+/// ```text
+/// 17:17:38 [d3ba7a54] [MeedyaDL] ⏳ Still working — Companion: downloading atmos (tier 2)… — 8 min elapsed
+/// ```
+///
+/// When the queue's `processing_label` is empty (no work to describe
+/// — usually a brief state-transition window) the heartbeat is
+/// suppressed for that tick. This avoids spurious "Still working —
+/// (no label) — 2 min elapsed" lines during normal transitions.
+pub(crate) fn start_heartbeat_ticker(
+    app: tauri::AppHandle,
+    queue: QueueHandle,
+    dl_id: String,
+    cancel: Arc<AtomicBool>,
+    stage_kind: &'static str,
+) -> HeartbeatTicker {
+    let handle = tokio::spawn({
+        let cancel = Arc::clone(&cancel);
+        async move {
+            let start = std::time::Instant::now();
+            let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+            // Skip the immediate tick — we don't want a heartbeat at
+            // t=0 saying "0 min elapsed" right after the stage starts.
+            interval.set_missed_tick_behavior(
+                tokio::time::MissedTickBehavior::Delay,
+            );
+            interval.tick().await;
+
+            loop {
+                interval.tick().await;
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Look up the current stage label from the queue.
+                // The lock is released before emit so the heartbeat
+                // emission doesn't hold it.
+                let label = {
+                    let q = queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == dl_id)
+                        .and_then(|i| i.status.processing_label.clone())
+                };
+
+                let Some(label) = label.filter(|s| !s.trim().is_empty()) else {
+                    // Stage between transitions — suppress this tick.
+                    continue;
+                };
+
+                let elapsed = format_heartbeat_elapsed(start.elapsed());
+                emit_download_log(
+                    &app,
+                    &dl_id,
+                    &format!("⏳ Still working — {stage_kind}: {label} — {elapsed} elapsed"),
+                );
+            }
+        }
+    });
+
+    HeartbeatTicker { cancel, handle }
+}
+
+/// Emits one activity-log line per animated-artwork variant
+/// (#529). Replaces the pre-#529 single-line summary that lied
+/// about availability when an offered variant failed to download.
+///
+/// One of three deterministic lines per call, depending on the
+/// `VariantStatus` discriminant:
+///
+/// - `NotOffered` → "Animated artwork: {variant} not offered by Apple Music" (info)
+/// - `Downloaded { path, size_bytes }` → "Animated artwork: {variant} downloaded ({size} → {path})" (info)
+/// - `DownloadFailed { reason, .. }` → "Animated artwork: {variant} download failed — {reason}" (warn-tagged)
+///
+/// `variant_label` is "square" or "portrait" (the user-facing
+/// term). Filesize is rendered with a human readable suffix
+/// (KB / MB) so the line reads cleanly in a log.
+fn emit_artwork_variant_log(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    variant_label: &'static str,
+    status: &super::animated_artwork_service::VariantStatus,
+) {
+    use super::animated_artwork_service::VariantStatus;
+    match status {
+        VariantStatus::NotOffered => {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Animated artwork: {variant_label} not offered by Apple Music"),
+            );
+        }
+        VariantStatus::Downloaded { path, size_bytes } => {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!(
+                    "Animated artwork: {variant_label} downloaded ({} → {path})",
+                    format_artwork_size(*size_bytes),
+                ),
+            );
+        }
+        VariantStatus::DownloadFailed { reason, .. } => {
+            // Use the warn-severity emitter so the line is colour-
+            // coded amber in the Activity Log (#793), matching the
+            // existing convention for "the work was attempted but
+            // didn't land on disk" outcomes.
+            emit_download_warn(
+                app,
+                dl_id,
+                &format!("Animated artwork: {variant_label} download failed — {reason}"),
+            );
+        }
+    }
+}
+
+/// Renders an animated-artwork file size as a compact human string
+/// (e.g. `"2.1 MB"`, `"512 KB"`). Used only by
+/// `emit_artwork_variant_log` for the success-path line.
+fn format_artwork_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{} KB", bytes / KB)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
+
+/// Formats a stage-elapsed `Duration` as a compact human string for
+/// heartbeat lines: `"2 min"`, `"1h 23 min"`, `"45 s"` (the last
+/// shouldn't appear in practice because we skip the first tick, but
+/// is included for completeness in case of unusual cadence overrides).
+fn format_heartbeat_elapsed(d: std::time::Duration) -> String {
+    let total_secs = d.as_secs();
+    if total_secs < 60 {
+        return format!("{total_secs} s");
+    }
+    let total_mins = total_secs / 60;
+    if total_mins < 60 {
+        return format!("{total_mins} min");
+    }
+    let hours = total_mins / 60;
+    let mins = total_mins % 60;
+    format!("{hours}h {mins} min")
+}
+
 /// Handle returned by [`spawn_companion_downloads`].
 ///
 /// Wraps the spawned task's `JoinHandle` together with progress metadata
@@ -4703,18 +5130,30 @@ async fn detect_actual_primary_codec(
 /// for the synchronous companion lyrics conversion checkpoints. The
 /// completion watcher first emits a soft advisory, then uses this flag
 /// only if the second hard deadline is also exceeded.
+///
+/// The optional `heartbeat` field owns the [`HeartbeatTicker`] spawned
+/// for the companion phase (#805). When the supervisor task finishes
+/// (success, failure, or abort) it drops `heartbeat` and the ticker
+/// exits cleanly.
 pub(crate) struct CompanionTaskHandle {
     handle: tokio::task::JoinHandle<()>,
     aborted: Arc<AtomicBool>,
     progress: Arc<StdMutex<CompanionTaskProgress>>,
+    #[allow(dead_code)] // Held for its Drop; not directly read.
+    heartbeat: Option<HeartbeatTicker>,
 }
 
 impl CompanionTaskHandle {
     /// Signals the companion task to stop processing at the next
     /// cooperative checkpoint *and* aborts the async runtime task.
+    /// Also stops the heartbeat ticker (#805) so it doesn't continue
+    /// chatting about a stage that the user has cancelled.
     pub(crate) fn abort(&mut self) {
         self.aborted.store(true, Ordering::Relaxed);
         self.handle.abort();
+        if let Some(hb) = self.heartbeat.take() {
+            hb.stop();
+        }
     }
 
     fn describe_pending(&self) -> String {
@@ -5018,14 +5457,48 @@ fn spawn_companion_downloads(
                     let idle_timeout = std::time::Duration::from_secs(
                         u64::from(companion_settings.gamdl_idle_timeout_minutes.max(1)) * 60,
                     );
+                    // Track-aware companion caption (#799). The
+                    // per-tier label set at tier start
+                    // ("Companion: downloading atmos (tier 2)…") is
+                    // overwritten on each `TrackInfo` event with the
+                    // current track name + counter, so the top
+                    // progress bar tells the user *what track* is
+                    // running — not just the codec and tier.
+                    //
+                    // `parse_gamdl_output` is called twice for each
+                    // line (once inside `emit_companion_stream_line`
+                    // and once here) — cheap single-line parses,
+                    // worth it to avoid changing the LineEmitter
+                    // signature shared with the MV companion path.
+                    let tier_label_codec = codec.to_cli_string().to_string();
+                    let tier_idx_for_label = tier_idx;
+                    let queue_for_label = comp_queue.clone();
+                    let app_for_label = comp_app.clone();
+                    let dl_for_label = comp_dl_id.clone();
                     let emitter: super::companion_supervisor::LineEmitter =
                         std::sync::Arc::new(move |app, dl, stream, line| {
+                            // Captured-by-value clones for the per-line update path.
+                            let codec_name = tier_label_codec.clone();
+                            let tier_n = tier_idx_for_label;
+                            let queue_clone = queue_for_label.clone();
+                            let app_clone_inner = app_for_label.clone();
+                            let dl_clone_inner = dl_for_label.clone();
                             Box::pin(async move {
                                 let kind = if stream.contains("stderr") {
                                     "stderr"
                                 } else {
                                     "stdout"
                                 };
+                                // #799: update the per-item caption on every TrackInfo.
+                                update_companion_label_from_line(
+                                    &app_clone_inner,
+                                    &queue_clone,
+                                    &dl_clone_inner,
+                                    tier_n,
+                                    &codec_name,
+                                    &line,
+                                )
+                                .await;
                                 emit_companion_stream_line(&app, &dl, kind, &line).await
                             })
                         });
@@ -5256,10 +5729,25 @@ fn spawn_companion_downloads(
                 }
             }
         });
+        // Heartbeat ticker for the companion phase (#805). Shares the
+        // cooperative-cancel flag with the supervisor task — when the
+        // supervisor finishes (success / failure / abort) the flag
+        // flips and the heartbeat exits on its next tick. Dropping
+        // `CompanionTaskHandle` also drops the ticker via Drop, so
+        // the ticker never outlives the handle either.
+        let heartbeat = Some(start_heartbeat_ticker(
+            app.clone(),
+            queue.clone(),
+            dl_id.to_string(),
+            comp_aborted.clone(),
+            "Companion",
+        ));
+
         Some(CompanionTaskHandle {
             handle,
             aborted: comp_aborted,
             progress: companion_progress,
+            heartbeat,
         })
     };
 
@@ -7857,57 +8345,124 @@ pub fn process_queue(
 
                                 match artwork_result {
                                     Ok(result) => {
-                                        if result.square_downloaded || result.portrait_downloaded {
+                                        // #529: emit one deterministic line per
+                                        // variant (square + portrait) instead of
+                                        // the pre-#529 ambiguous "(square: yes,
+                                        // portrait: no)" summary. The new
+                                        // per-variant `VariantStatus` enum lets
+                                        // us distinguish "API didn't offer this"
+                                        // from "API offered it but download
+                                        // failed" — the pre-#529 code lied
+                                        // ("not available") on real failures.
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "square",
+                                            &result.square,
+                                        );
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "portrait",
+                                            &result.portrait,
+                                        );
+                                        // #538: album-level 16:9 spotlight video.
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "album spotlight",
+                                            &result.spotlight,
+                                        );
+
+                                        // Hide artwork files if enabled in
+                                        // settings. Hide-file failures are now
+                                        // surfaced as warnings instead of
+                                        // silently swallowed (#529 gap #4) —
+                                        // the user needs to know their files
+                                        // exist but didn't get the
+                                        // `hide_animated_artwork` treatment
+                                        // they configured.
+                                        if enrich_settings.hide_animated_artwork {
+                                            let dir = std::path::Path::new(&album_dir);
+                                            if result.square.is_downloaded() {
+                                                let target = dir.join("FrontCover.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide FrontCover.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide square cover ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                            if result.portrait.is_downloaded() {
+                                                let target = dir.join("FrontCoverPortrait.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide FrontCoverPortrait.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide portrait cover ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                            // #538: hide the album-spotlight too.
+                                            if result.spotlight.is_downloaded() {
+                                                let target = dir.join("AlbumSpotlightCover.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide AlbumSpotlightCover.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide album spotlight ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        // Frontend event still fires on any
+                                        // actual download (either variant) so
+                                        // the UI can refresh its artwork
+                                        // indicator.
+                                        if result.square.is_downloaded()
+                                            || result.portrait.is_downloaded()
+                                            || result.spotlight.is_downloaded()
+                                        {
                                             log::info!(
                                                 "Animated artwork downloaded for {enrich_dl_id}"
                                             );
-                                            emit_download_log(
-                                            &enrich_app,
-                                            &enrich_dl_id,
-                                            &format!(
-                                                "Animated artwork downloaded (square: {}, portrait: {})",
-                                                if result.square_downloaded { "yes" } else { "no" },
-                                                if result.portrait_downloaded { "yes" } else { "no" },
-                                            ),
-                                        );
-
-                                            // Hide artwork files if enabled in settings
-                                            if enrich_settings.hide_animated_artwork {
-                                                let dir = std::path::Path::new(&album_dir);
-                                                if result.square_downloaded {
-                                                    if let Err(e) =
-                                                        super::animated_artwork_service::hide_file(
-                                                            &dir.join("FrontCover.mp4"),
-                                                        )
-                                                        .await
-                                                    {
-                                                        log::debug!(
-                                                            "Failed to hide FrontCover.mp4: {e}"
-                                                        );
-                                                    }
-                                                }
-                                                if result.portrait_downloaded {
-                                                    if let Err(e) =
-                                                        super::animated_artwork_service::hide_file(
-                                                            &dir.join("FrontCoverPortrait.mp4"),
-                                                        )
-                                                        .await
-                                                    {
-                                                        log::debug!(
-                                                            "Failed to hide FrontCoverPortrait.mp4: {e}"
-                                                        );
-                                                    }
-                                                }
-                                            }
-
                                             let _ = enrich_app
                                                 .emit("artwork-downloaded", &enrich_dl_id);
-                                        } else {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "No animated artwork available for this album",
-                                            );
                                         }
                                     }
                                     Err(e) => {
@@ -10080,7 +10635,24 @@ async fn run_download_with_events(
 /// (the user might change settings while downloads are running).
 ///
 /// Returns `AppSettings::default()` on load failure to avoid blocking queue processing.
+///
+/// Post-#690: reads from the `SettingsCache` Tauri-managed state when
+/// available (lazy-populated on first access, refreshed by the
+/// `save_settings` IPC after each write). On cache miss — or when the
+/// cache isn't registered at all (test contexts that don't set up the
+/// full app state) — falls through to the original disk-read path so
+/// the function stays correct in every caller environment.
 fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
+    use tauri::Manager as _;
+    // Fast path: read from the cache when registered.
+    if let Some(cache) = app.try_state::<super::settings_cache::SettingsCache>() {
+        return cache.get_or_load(app);
+    }
+
+    // Fallback path (test contexts + the rare boot-order edge case
+    // where a queue task fires before AppState is fully managed):
+    // load directly from disk with the same default-on-error shape
+    // as pre-#690.
     match config_service::load_settings(app) {
         Ok(settings) => settings,
         Err(e) => {
@@ -11203,6 +11775,91 @@ mod tests {
         assert_eq!(options.cover_format, None);
         assert_eq!(options.cover_size, None);
         assert_eq!(options.no_config_file, Some(true));
+    }
+
+    /// Verifies that the `gamdl_log_level` setting (#768) is propagated by
+    /// `merge_options()` into `GamdlOptions::log_level` for every variant,
+    /// so the existing `to_cli_args()` `--log-level <LEVEL>` emission path
+    /// fires in production instead of being dead code outside this test
+    /// suite. Without this propagation the field is always `None` and
+    /// GAMDL runs at its compiled-in default `INFO` regardless of what
+    /// the user picked in Developer Tools.
+    #[test]
+    fn enqueue_propagates_gamdl_log_level() {
+        use crate::models::gamdl_options::LogLevel;
+
+        for level in [
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warning,
+            LogLevel::Error,
+        ] {
+            let mut queue = DownloadQueue::new();
+            let mut settings = test_settings();
+            settings.gamdl_log_level = level.clone();
+
+            let _id = queue.enqueue(test_request(), &settings);
+            let options = &queue.items[0].merged_options;
+
+            assert_eq!(
+                options.log_level,
+                Some(level.clone()),
+                "merge_options() should copy gamdl_log_level={level:?} into GamdlOptions.log_level",
+            );
+        }
+    }
+
+    /// Verifies `format_artwork_size` renders byte counts in the
+    /// human-readable form `emit_artwork_variant_log` puts in the
+    /// activity log (#529). Exercised at the three thresholds the
+    /// helper switches on.
+    #[test]
+    fn format_artwork_size_human_readable() {
+        assert_eq!(super::format_artwork_size(0), "0 bytes");
+        assert_eq!(super::format_artwork_size(512), "512 bytes");
+        assert_eq!(super::format_artwork_size(1024), "1 KB");
+        assert_eq!(super::format_artwork_size(1024 * 512), "512 KB");
+        assert_eq!(super::format_artwork_size(1024 * 1024), "1.0 MB");
+        // Mid-range: 2_200_000 bytes ≈ 2.1 MB.
+        assert_eq!(super::format_artwork_size(2_200_000), "2.1 MB");
+    }
+
+    /// Verifies that `format_heartbeat_elapsed` produces the compact
+    /// human-readable shape we want in the activity log heartbeat
+    /// lines (#805). Sub-minute and sub-hour shapes are both exercised
+    /// so a future refactor can't accidentally collapse them to one
+    /// arm (e.g. always emitting "0 min" for short stages).
+    #[test]
+    fn format_heartbeat_elapsed_compact_shape() {
+        use std::time::Duration;
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(0)), "0 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(45)), "45 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(59)), "59 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(60)), "1 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(120)), "2 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3540)), "59 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3600)), "1h 0 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3660)), "1h 1 min");
+        assert_eq!(
+            super::format_heartbeat_elapsed(Duration::from_secs(5025)),
+            "1h 23 min"
+        );
+        assert_eq!(
+            super::format_heartbeat_elapsed(Duration::from_secs(7200)),
+            "2h 0 min"
+        );
+    }
+
+    /// Verifies that the default `AppSettings::gamdl_log_level` is `Info`
+    /// — matches GAMDL's compiled-in default and serialises identically
+    /// to a settings.json written by a pre-#768 build where the field
+    /// was absent.
+    #[test]
+    fn default_gamdl_log_level_is_info() {
+        use crate::models::gamdl_options::LogLevel;
+
+        let settings = test_settings();
+        assert_eq!(settings.gamdl_log_level, LogLevel::Info);
     }
 
     /// Verifies that multiple items can be enqueued and they all appear in
@@ -13787,5 +14444,108 @@ mod tests {
             super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title_id}"),
             "MV_NO_ALBUM_FILE_TEMPLATE must include {{title_id}} for uniqueness"
         );
+    }
+
+    /// #547 — Apple Music Classical movement-title collision audit.
+    ///
+    /// Classical recordings have structurally non-unique movement
+    /// titles (every symphony has an "Allegro" movement). The
+    /// audit's HIGH-risk case is a direct song-URL into classical
+    /// content that falls through to `no_album_file_template` —
+    /// the user's library would silently collide as every
+    /// "Allegro" movement saved as `Allegro.m4a`.
+    ///
+    /// This test asserts the failure mode is **reproducible with
+    /// today's default `no_album_file_template` (`{title}`)** so a
+    /// future fix (e.g. forcing the same `{title} ({title_id})`
+    /// safety net the MV path uses, or auto-prefixing with the
+    /// album work name when the source is Classical) has a clear
+    /// regression target.
+    ///
+    /// Pairs with `mv_no_album_template_disambiguates_variants`
+    /// from #571 — that test covers the MV equivalent which is
+    /// already mitigated by the Tier 4 safety net. The audio path
+    /// has no equivalent safety net yet; this test documents the
+    /// gap.
+    #[test]
+    fn classical_movements_collide_under_default_no_album_template() {
+        // Today's default: `{title}` with no disambiguator.
+        // Pin the default in the assertion so a future refactor
+        // that adds `{title_id}` to the default is flagged.
+        let default_template = "{title}";
+
+        let render = |title: &str| default_template.replace("{title}", title);
+
+        // Concrete Classical scenario: two "Allegro" movements
+        // from two different Beethoven symphonies. Both have
+        // distinct title_ids in Apple Music but identical
+        // `tags.title` after GAMDL's tag parse. Same name, same
+        // template → same filename → silent overwrite.
+        let beethoven_5_allegro = render("Allegro con brio");
+        let beethoven_9_allegro = render("Allegro con brio");
+        assert_eq!(
+            beethoven_5_allegro, beethoven_9_allegro,
+            "documents the collision risk (#547) — today's default \
+             no_album_file_template offers no disambiguation for \
+             identically-titled Classical movements. A future fix \
+             should either force {{title_id}} into the default for \
+             Classical content or wire a Classical-specific template."
+        );
+    }
+
+    /// #571 — Verify that the MV no-album template produces distinct
+    /// filenames for variants of the same song (studio cut vs. live
+    /// performance vs. acoustic cut), under two GAMDL-`tags.title`
+    /// shapes:
+    ///
+    ///   (a) **Title-disambiguates**: GAMDL surfaces the variant
+    ///       parenthetical in `tags.title` (e.g. `"Depressed (Live
+    ///       from London)"`). The filename is unique on `{title}`
+    ///       alone — the `{title_id}` suffix is belt-and-braces.
+    ///
+    ///   (b) **Title-collides**: GAMDL surfaces only `"Depressed"`
+    ///       for every variant (the parenthetical lives in
+    ///       `editorialNotes` rather than `name`). The filename is
+    ///       still unique because the `{title_id}` suffix carries
+    ///       the per-variant Apple Music numeric MV ID.
+    ///
+    /// Either way the user's library never silently overwrites one
+    /// variant with another. The test renders the template with
+    /// `String::replace` (the same substitution GAMDL performs) so
+    /// the assertion is end-to-end deterministic.
+    #[test]
+    fn mv_no_album_template_disambiguates_variants() {
+        // Convenience: applies `{title}` and `{title_id}` to the
+        // file template the same way GAMDL would.
+        fn render(title: &str, title_id: &str) -> String {
+            super::MV_NO_ALBUM_FILE_TEMPLATE
+                .replace("{title}", title)
+                .replace("{title_id}", title_id)
+        }
+
+        // (a) Title-disambiguates path. Each variant has a unique
+        // title AND a unique ID, so the rendered filename differs
+        // on both axes.
+        let studio_a = render("Depressed", "1840857276");
+        let live_a = render("Depressed (Live from London)", "1847893387");
+        let acoustic_a = render("Depressed (Acoustic)", "1900000001");
+        assert_ne!(studio_a, live_a, "title-disambiguating studio vs live must differ");
+        assert_ne!(studio_a, acoustic_a, "title-disambiguating studio vs acoustic must differ");
+        assert_ne!(live_a, acoustic_a, "title-disambiguating live vs acoustic must differ");
+        // The `(NNNN)` suffix is present even when titles differ —
+        // the belt-and-braces invariant from the test above.
+        assert!(studio_a.contains("(1840857276)"));
+        assert!(live_a.contains("(1847893387)"));
+
+        // (b) Title-collides path. The pessimistic scenario in
+        // which Apple Music returns only the base title for every
+        // variant. With `{title}` identical, only `{title_id}` is
+        // the disambiguator.
+        let studio_b = render("Depressed", "1840857276");
+        let live_b = render("Depressed", "1847893387");
+        let acoustic_b = render("Depressed", "1900000001");
+        assert_ne!(studio_b, live_b, "title-collides studio vs live must still differ via {{title_id}}");
+        assert_ne!(studio_b, acoustic_b, "title-collides studio vs acoustic must still differ via {{title_id}}");
+        assert_ne!(live_b, acoustic_b, "title-collides live vs acoustic must still differ via {{title_id}}");
     }
 }

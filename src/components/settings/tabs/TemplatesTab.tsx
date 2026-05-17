@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file TemplatesTab.tsx -- File and folder naming template settings tab.
@@ -127,7 +127,10 @@ export function TemplatesTab() {
             {'{track:02d}'}, {'{disc}'}, {'{year}'}, {'{genre}'}
           </p>
           <p>
-            {'{playlist_artist}'}, {'{playlist_title}'}
+            {'{playlist_artist}'}, {'{playlist_title}'}, {'{playlist_id}'}
+          </p>
+          <p>
+            {'{album_id}'}, {'{platform}'}
           </p>
         </div>
       </div>
@@ -171,7 +174,7 @@ export function TemplatesTab() {
           description="Folder structure for playlist downloads. Requires GAMDL v3.0+ — earlier versions fall back to the upstream default layout regardless of this value."
           value={playlistFolder.value}
           onChange={playlistFolder.set}
-          variableCategories={['playlist']}
+          variableCategories={['common', 'playlist']}
         />
       </SettingsSection>
 
@@ -204,7 +207,7 @@ export function TemplatesTab() {
           description="Filename template for playlist downloads"
           value={playlistFile.value}
           onChange={playlistFile.set}
-          variableCategories={['track', 'album', 'playlist']}
+          variableCategories={['common', 'track', 'album', 'playlist']}
         />
 
         {/* Padding controls (#587). Govern how `{track}` and `{disc}` get

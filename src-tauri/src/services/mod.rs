@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Service modules containing the core business logic.
@@ -295,6 +295,24 @@ pub mod ass_subtitle_service;
 /// Used by: `download_queue::download_music_video_by_url` (fire-and-forget
 /// post-processing after GAMDL finishes).
 pub mod music_video_subtitle_service;
+
+/// Music-video cover-sidecar embedding (#533 / #569).
+///
+/// Embeds the `.jpg` / `.png` cover thumbnail GAMDL writes next to
+/// each music video into the MP4 container as a `covr` atom, then
+/// deletes the sidecar. Cleans up the library while preserving the
+/// thumbnail as an embedded poster frame that every modern player
+/// renders directly. Wired into the same MV post-download loop as
+/// `music_video_subtitle_service`.
+pub mod music_video_cover_embed;
+
+/// In-process `AppSettings` cache (#690).
+///
+/// Eliminates redundant disk reads on the queue hot path. Lazy-
+/// populated on first access, refreshed by the `save_settings` IPC
+/// after each write, and read by `load_settings_for_queue` so every
+/// caller path benefits without per-site changes.
+pub mod settings_cache;
 
 /// MusicBrainz recording lookup service.
 ///

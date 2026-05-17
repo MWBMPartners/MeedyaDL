@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.5.0",
   "description": "A multiplatform media downloader",
-  "author": "MeedyaDL",
+  "author": "MeedyaSuite",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -15,6 +15,9 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "type-check": "tsc --noEmit",
+    "check:acknowledgements": "node scripts/check-acknowledgements.mjs",
+    "check:upstream-licences": "node scripts/check-upstream-licences.mjs",
+    "check:legal": "npm run check:acknowledgements && npm run check:upstream-licences",
     "test": "vitest run",
     "test:watch": "vitest",
     "docs:rust": "cd src-tauri && cargo doc --no-deps --open"

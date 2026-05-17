@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file settingsStore.ts -- Application Settings State Management Store
  * @license MIT -- See LICENSE file in the project root.
@@ -141,6 +141,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cover_format: 'jpg', // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
   cover_size: 10000, // Request maximum available artwork resolution from Apple CDN
   cover_art_name: 'front_cover' as const, // Rename Cover → FrontCover after download (#448)
+  music_video_embed_cover_sidecar: true, // Embed MV cover into MP4 + delete sidecar (#533 / #569)
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
   hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)
@@ -191,6 +192,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
   verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)
   verbose_gamdl_exceptions: false, // Pass --no-exceptions to GAMDL by default; flip on for upstream bug reports
+  gamdl_log_level: 'INFO', // GAMDL subprocess --log-level. Default matches GAMDL's compiled-in default; Developer Tools surface flips it to DEBUG (#768).
   activity_log_path_override: '', // Empty = use {app_data_dir}/logs/ for on-disk activity log (#541)
   dev_access_enabled: false, // Internal developer access mode (hidden, not in normal Settings UI)
   last_seen_version: '', // Last app version the user launched (empty = first run)

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/stores/settingsStore.test.ts - Unit tests for the settings store
@@ -90,6 +90,7 @@ const MOCK_SETTINGS: AppSettings = {
   cover_format: 'png',
   cover_size: 600,
   cover_art_name: 'front_cover',
+  music_video_embed_cover_sidecar: true,
   animated_artwork_enabled: true,
   hide_animated_artwork: false,
   artist_promo_video_enabled: false,
@@ -132,6 +133,7 @@ const MOCK_SETTINGS: AppSettings = {
   sentry_enabled: true,
   verbose_activity_log: false,
   verbose_gamdl_exceptions: false,
+  gamdl_log_level: 'INFO',
   activity_log_path_override: '',
   dev_access_enabled: false,
   last_seen_version: '0.10.0',
@@ -208,6 +210,7 @@ beforeEach(() => {
       cover_format: 'raw',
       cover_size: 10000,
       cover_art_name: 'front_cover',
+      music_video_embed_cover_sidecar: true,
       animated_artwork_enabled: false,
       hide_animated_artwork: true,
       artist_promo_video_enabled: false,
@@ -250,6 +253,7 @@ beforeEach(() => {
       sentry_enabled: false,
       verbose_activity_log: false,
       verbose_gamdl_exceptions: false,
+      gamdl_log_level: 'INFO',
       activity_log_path_override: '',
       dev_access_enabled: false,
       last_seen_version: '',

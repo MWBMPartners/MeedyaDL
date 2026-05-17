@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Command modules for Tauri IPC handlers.
@@ -132,3 +132,11 @@ pub mod smart_download;
 /// Complements `commands::gamdl::export_activity_log`, which exports
 /// the in-memory (possibly-trimmed) entries.
 pub mod activity_log;
+
+/// Legal / compliance IPC commands (#802) — surface the embedded
+/// `ACKNOWLEDGEMENTS.md` and `THIRD_PARTY_LICENSES.md` files to the
+/// frontend's Help > About > Open Source Acknowledgements view. The
+/// files are compiled in via `include_str!()` so the notices ride
+/// inside the binary on every platform without bundle-resource
+/// path quirks.
+pub mod legal;

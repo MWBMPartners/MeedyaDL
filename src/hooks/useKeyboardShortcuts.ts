@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file useKeyboardShortcuts.ts -- Global keyboard shortcut handler
  * @license MIT -- See LICENSE file in the project root.
@@ -208,6 +208,53 @@ export function useKeyboardShortcuts(): void {
             if (!confirmed) break;
           }
           void useDownloadStore.getState().abortAll();
+          break;
+        }
+
+        /*
+         * Page-navigation expansions (#465). Same shape as Cmd+D /
+         * Cmd+Q above — set the page via uiStore and let React
+         * render. Suppressed inside form elements via the
+         * `isInFormElement` guard above. Lower-case letters since
+         * `e.key.toLowerCase()` is the switch discriminator.
+         */
+        case 'l': {
+          e.preventDefault();
+          useUiStore.getState().setPage('library');
+          break;
+        }
+        case 'h': {
+          e.preventDefault();
+          useUiStore.getState().setPage('history');
+          break;
+        }
+        case 'k': {
+          // 'k' rather than 'a' (which is Select All) or 'l'
+          // (taken by Library above) — k is unused by every
+          // common desktop convention I checked, and the Activity
+          // page is what the user most often jumps to during a
+          // long download.
+          e.preventDefault();
+          useUiStore.getState().setPage('activity');
+          break;
+        }
+
+        /*
+         * Cmd/Ctrl + Shift + ? — show the keyboard shortcuts help
+         * dialog (#465). The standard "what shortcuts does this app
+         * have?" binding across macOS / Linux. `e.key === '?'`
+         * works because Shift is part of the chord — without Shift
+         * we'd see `/` instead, which doesn't match.
+         *
+         * `useUiStore.getState().setShortcutsHelpOpen(true)` flips
+         * the global `ShortcutsHelpDialog` (mounted in MainLayout)
+         * to visible; the user closes via Escape or the Modal's
+         * built-in close button.
+         */
+        case '?': {
+          if (!e.shiftKey) break;
+          e.preventDefault();
+          useUiStore.getState().setShortcutsHelpOpen(true);
           break;
         }
 
