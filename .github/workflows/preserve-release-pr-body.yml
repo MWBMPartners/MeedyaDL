@@ -1,0 +1,112 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Preserve Release-Please PR Body
+# ================================
+#
+# Release-please force-pushes its release branch on every sync (any push to
+# main triggers a sync), which regenerates the PR body from raw commit
+# subjects and overwrites any manual rewrites. There is no upstream config
+# option to disable this — the body is part of release-please's source of
+# truth.
+#
+# This workflow restores the user-facing body after every force-push:
+#
+#   1. Trigger when "Release Please" workflow completes.
+#   2. Find the open `chore(main): release X.Y.Z` PR.
+#   3. Extract the version X.Y.Z from the title.
+#   4. Read `.github/release-drafts/vX.Y.Z.md` from main.
+#   5. If the file exists, overwrite the PR body with its contents.
+#   6. If the file is missing, leave the PR alone (a maintainer hasn't
+#      written the notes yet — they'll commit it later and the next
+#      release-please sync will retrigger this workflow).
+#
+# To use:
+#   - Before a release ships, commit `.github/release-drafts/vX.Y.Z.md` to
+#     main using the four-section gold-standard format (What's new /
+#     What's fixed / Performance / Notes). See the README in that folder.
+#   - This workflow handles the rest. The PR body will be re-applied every
+#     time release-please force-pushes the branch.
+#
+# Manual trigger via `workflow_dispatch` is also supported so the body can
+# be re-applied without waiting for the next release-please sync (useful
+# when iterating on the drafts file).
+
+name: Preserve Release-Please PR Body
+
+on:
+  workflow_run:
+    workflows: ["Release Please"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Override: PR number to re-apply (auto-detected if blank)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preserve:
+    runs-on: ubuntu-latest
+    # Skip if the triggering Release Please run failed — no point patching
+    # a branch state that might not be valid.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout main (for drafts)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+
+      - name: Find release-please PR + apply drafts file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVERRIDE_PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          # --- Locate the release-please PR ---
+          if [ -n "${OVERRIDE_PR:-}" ]; then
+            PR_NUM="$OVERRIDE_PR"
+            echo "Using overridden PR #${PR_NUM}"
+          else
+            PR_JSON=$(gh pr list \
+              --state open \
+              --search 'in:title "chore(main): release"' \
+              --json number,title \
+              --limit 1)
+            PR_NUM=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
+            if [ -z "$PR_NUM" ]; then
+              echo "::notice::No open release-please PR found — nothing to do."
+              exit 0
+            fi
+            echo "Found release-please PR #${PR_NUM}"
+          fi
+
+          # --- Extract version from PR title ---
+          # Title shape: "chore(main): release 1.6.0" (no `v` prefix in
+          # release-please's default template).
+          TITLE=$(gh pr view "$PR_NUM" --json title --jq '.title')
+          VERSION=$(echo "$TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "::warning::Could not parse version from PR title: ${TITLE}"
+            exit 0
+          fi
+          echo "Detected version: v${VERSION}"
+
+          # --- Look for the drafts file (we're on main, so it must already exist here) ---
+          DRAFT=".github/release-drafts/v${VERSION}.md"
+          if [ ! -f "$DRAFT" ]; then
+            echo "::notice::${DRAFT} not found on main — leaving PR body alone."
+            echo "::notice::Write the user-facing notes there and commit to main."
+            exit 0
+          fi
+
+          # --- Apply ---
+          BYTES=$(wc -c < "$DRAFT" | tr -d ' ')
+          echo "Applying ${DRAFT} (${BYTES} bytes) to PR #${PR_NUM}"
+          gh pr edit "$PR_NUM" --body-file "$DRAFT"
+          echo "::notice::Re-applied user-facing release notes to PR #${PR_NUM} (v${VERSION})"
