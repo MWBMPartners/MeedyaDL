@@ -763,6 +763,15 @@ export interface AppSettings {
    */
   verbose_gamdl_exceptions: boolean;
   /**
+   * GAMDL subprocess log level. Surfaced behind Developer Tools only
+   * (gated on `dev_access_enabled`). Default `'INFO'` matches GAMDL's
+   * compiled-in default; flipping to `'DEBUG'` surfaces v3.5.2+
+   * structlog diagnostics (e.g. `m3u8_master_url=…`) that are
+   * otherwise invisible to MeedyaDL (#768). Mirrors Rust field
+   * `AppSettings::gamdl_log_level` (enum `LogLevel`).
+   */
+  gamdl_log_level: LogLevel;
+  /**
    * Optional user-chosen directory for the persistent on-disk activity log
    * (`activity-YYYY-MM-DD.log` files, #541). Empty string = use default
    * `{app_data_dir}/logs/`. Changes apply on the next app restart.

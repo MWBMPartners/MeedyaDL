@@ -191,6 +191,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
   verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)
   verbose_gamdl_exceptions: false, // Pass --no-exceptions to GAMDL by default; flip on for upstream bug reports
+  gamdl_log_level: 'INFO', // GAMDL subprocess --log-level. Default matches GAMDL's compiled-in default; Developer Tools surface flips it to DEBUG (#768).
   activity_log_path_override: '', // Empty = use {app_data_dir}/logs/ for on-disk activity log (#541)
   dev_access_enabled: false, // Internal developer access mode (hidden, not in normal Settings UI)
   last_seen_version: '', // Last app version the user launched (empty = first run)

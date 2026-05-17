@@ -3203,6 +3203,14 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
         .artist_auto_select
         .clone_from(&settings.artist_auto_select);
 
+    // GAMDL log level (#768) — `--log-level <LEVEL>` exists on every
+    // release in our support window, so there's no GamdlFeature gate
+    // needed here. The default (`Info`) matches GAMDL's compiled-in
+    // default; flipping to `Debug` in Developer Tools is what surfaces
+    // the v3.5.2+ structlog `m3u8_master_url=…` diagnostics that
+    // motivated this wiring. Cloned because LogLevel doesn't impl Copy.
+    options.log_level = Some(settings.gamdl_log_level.clone());
+
     // === Layer 2: Apply per-download overrides (highest priority) ===
     // Only non-None fields from the override replace the global values.
     // This selective merge allows partial overrides (e.g., only change codec).
@@ -11203,6 +11211,50 @@ mod tests {
         assert_eq!(options.cover_format, None);
         assert_eq!(options.cover_size, None);
         assert_eq!(options.no_config_file, Some(true));
+    }
+
+    /// Verifies that the `gamdl_log_level` setting (#768) is propagated by
+    /// `merge_options()` into `GamdlOptions::log_level` for every variant,
+    /// so the existing `to_cli_args()` `--log-level <LEVEL>` emission path
+    /// fires in production instead of being dead code outside this test
+    /// suite. Without this propagation the field is always `None` and
+    /// GAMDL runs at its compiled-in default `INFO` regardless of what
+    /// the user picked in Developer Tools.
+    #[test]
+    fn enqueue_propagates_gamdl_log_level() {
+        use crate::models::gamdl_options::LogLevel;
+
+        for level in [
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warning,
+            LogLevel::Error,
+        ] {
+            let mut queue = DownloadQueue::new();
+            let mut settings = test_settings();
+            settings.gamdl_log_level = level.clone();
+
+            let _id = queue.enqueue(test_request(), &settings);
+            let options = &queue.items[0].merged_options;
+
+            assert_eq!(
+                options.log_level,
+                Some(level.clone()),
+                "merge_options() should copy gamdl_log_level={level:?} into GamdlOptions.log_level",
+            );
+        }
+    }
+
+    /// Verifies that the default `AppSettings::gamdl_log_level` is `Info`
+    /// — matches GAMDL's compiled-in default and serialises identically
+    /// to a settings.json written by a pre-#768 build where the field
+    /// was absent.
+    #[test]
+    fn default_gamdl_log_level_is_info() {
+        use crate::models::gamdl_options::LogLevel;
+
+        let settings = test_settings();
+        assert_eq!(settings.gamdl_log_level, LogLevel::Info);
     }
 
     /// Verifies that multiple items can be enqueued and they all appear in
