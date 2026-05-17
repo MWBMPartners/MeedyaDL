@@ -39,6 +39,7 @@ import { StatisticsPanel } from '@/components/download/StatisticsPanel';
 import { Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen } from 'lucide-react';
 import { exportActivityLog, exportDiskActivityLog, getLogsFolderPath } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useLocalWallClock } from '@/hooks/useLocalWallClock';
 
 /**
  * Formats an ISO 8601 timestamp to a short HH:MM:SS format.
@@ -93,6 +94,90 @@ function textColourForEntry(entry: ActivityLogEntry): string {
   if (entry.stream === 'internal') return 'text-accent-primary';
   if (entry.stream === 'stderr') return 'text-status-warning';
   return 'text-content-primary';
+}
+
+/**
+ * Returns the local-time calendar date of an ISO-8601 timestamp as
+ * `YYYY-MM-DD`. Used by the cross-day banner logic to decide when two
+ * consecutive entries straddle a date boundary in the user's local TZ.
+ *
+ * Returns the empty string on parse failure — the banner generator
+ * treats that as "same as previous" and skips banner insertion so a
+ * malformed timestamp can never produce a stray banner row.
+ */
+function localDateKey(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    // toLocaleDateString('en-CA') yields YYYY-MM-DD reliably across
+    // browsers, which is what we want for stable date comparison.
+    return d.toLocaleDateString('en-CA');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Discriminated-union row item rendered by the activity-log virtualiser.
+ *
+ * The virtualiser used to iterate `filteredEntries` directly; #801
+ * interleaves cross-day banner rows between entries that fall on
+ * different local-time dates. The banners are UI-only: they don't
+ * count toward the line counter, don't appear in any export, and
+ * carry only the date string they're labelling.
+ */
+type DisplayItem =
+  | { kind: 'entry'; entry: ActivityLogEntry; key: string | number }
+  | { kind: 'banner'; date: string; key: string };
+
+/**
+ * Maps `filteredEntries` into the virtualiser's input array, inserting
+ * a `─── YYYY-MM-DD ───` banner row whenever two consecutive entries
+ * straddle a local-date boundary.
+ *
+ * Single-pass; banner-row keys are namespaced (`banner:DATE`) so they
+ * never collide with entry `_id`s. No banner is inserted before the
+ * first entry — the user already knows what day they're looking at
+ * when the log loads; the banner is specifically for the
+ * "this entry happened on a new day" callout.
+ */
+function buildDisplayItems(entries: ActivityLogEntry[]): DisplayItem[] {
+  const items: DisplayItem[] = [];
+  let lastDate = '';
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const date = localDateKey(entry.timestamp);
+    // Insert a banner whenever the calendar date advances. Skip the
+    // first iteration (lastDate === '' triggers the banner only on
+    // genuine date changes, never at i === 0).
+    if (date && lastDate && date !== lastDate) {
+      items.push({ kind: 'banner', date, key: `banner:${date}` });
+    }
+    items.push({ kind: 'entry', entry, key: entry._id ?? `entry:${i}` });
+    if (date) lastDate = date;
+  }
+  return items;
+}
+
+/**
+ * Live local-system wall clock rendered as a small chip in the page
+ * subtitle. Lives in its own component so the 1 Hz re-render is
+ * isolated to one `<span>` rather than the whole `ActivityLog` tree.
+ *
+ * Format matches the per-entry `formatTime()` timestamps below
+ * (24-hour HH:MM:SS), so the user can compare visually at a glance.
+ */
+function WallClockChip(): React.JSX.Element {
+  const now = useLocalWallClock();
+  return (
+    <span
+      className="font-mono tabular-nums text-content-secondary"
+      title="Local system time (updates every second)"
+      aria-label={`Local time ${now}`}
+    >
+      {now}
+    </span>
+  );
 }
 
 /**
@@ -203,6 +288,20 @@ export function ActivityLog() {
   }, [entries, searchQuery, showSystem, showDownload, showVerbose]);
 
   /*
+   * Cross-day banner injection (#801): wrap `filteredEntries` in a
+   * discriminated-union array (`DisplayItem[]`) where every entry-row is
+   * interleaved with a `─── YYYY-MM-DD ───` banner row whenever two
+   * consecutive entries straddle a local-date boundary. The virtualiser
+   * iterates this combined list so banners count as virtualised rows and
+   * scroll/measure consistently with the existing entry rows.
+   *
+   * Banner rows are pure UI — they aren't real entries, don't appear in
+   * any export, and don't count toward the user-facing line counter
+   * shown in the page subtitle (which still uses `filteredEntries.length`).
+   */
+  const displayItems = useMemo(() => buildDisplayItems(filteredEntries), [filteredEntries]);
+
+  /*
    * Stable height-measurement callback. Wrapped in `useCallback` so the
    * virtualizer's internal config doesn't thrash its reference identity
    * on every render — rapid log bursts at ~60 flushes/sec (per
@@ -241,15 +340,16 @@ export function ActivityLog() {
    * fix.
    */
   const getItemKey = useCallback(
-    (index: number) => filteredEntries[index]?._id ?? index,
-    [filteredEntries],
+    (index: number) => displayItems[index]?.key ?? index,
+    [displayItems],
   );
 
   /** Virtualizer for efficient rendering of large entry lists.
    * Uses dynamic height measurement so wrapped multi-line entries
-   * don't overlap with subsequent rows. */
+   * don't overlap with subsequent rows. Iterates `displayItems` (entries
+   * + cross-day banners, #801) rather than `filteredEntries` directly. */
   const virtualizer = useVirtualizer({
-    count: filteredEntries.length,
+    count: displayItems.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 26, // text-xs + leading-relaxed + py-0.5 + border (single-line estimate)
     overscan: 50, // render 50 extra rows above/below viewport
@@ -272,10 +372,10 @@ export function ActivityLog() {
    */
   useEffect(() => {
     if (paused) return;
-    if (filteredEntries.length > 0) {
-      virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
+    if (displayItems.length > 0) {
+      virtualizer.scrollToIndex(displayItems.length - 1, { align: 'end' });
     }
-  }, [filteredEntries.length, paused, virtualizer]);
+  }, [displayItems.length, paused, virtualizer]);
 
   /**
    * Detect user scroll position and sync the `paused` store flag with
@@ -309,10 +409,10 @@ export function ActivityLog() {
   const resumeAutoScroll = useCallback(() => {
     userScrolledRef.current = false;
     setPaused(false);
-    if (filteredEntries.length > 0) {
-      virtualizer.scrollToIndex(filteredEntries.length - 1, { align: 'end' });
+    if (displayItems.length > 0) {
+      virtualizer.scrollToIndex(displayItems.length - 1, { align: 'end' });
     }
-  }, [filteredEntries.length, setPaused, virtualizer]);
+  }, [displayItems.length, setPaused, virtualizer]);
 
   /**
    * Export all log entries to a .log file via native save dialog.
@@ -392,7 +492,13 @@ export function ActivityLog() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="Activity Log"
-        subtitle={subtitle}
+        subtitle={
+          <span className="text-sm text-content-secondary flex items-center gap-2">
+            <span>{subtitle}</span>
+            <span aria-hidden="true">·</span>
+            <WallClockChip />
+          </span>
+        }
         actions={
           <div className="flex items-center gap-2">
             <label
@@ -562,10 +668,40 @@ export function ActivityLog() {
             }}
           >
             {virtualizer.getVirtualItems().map((virtualRow) => {
-              const entry = filteredEntries[virtualRow.index];
+              const item = displayItems[virtualRow.index];
+
+              // Cross-day banner row (#801) — purely visual marker
+              // between two entries that fall on different local
+              // calendar dates. Not a real log entry; not exported.
+              if (item.kind === 'banner') {
+                return (
+                  <div
+                    key={item.key}
+                    ref={virtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    data-banner-date={item.date}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                    className="flex items-center gap-2 py-1 px-1 font-mono text-[11px] text-content-tertiary select-none"
+                    role="separator"
+                    aria-label={`Date changed to ${item.date}`}
+                  >
+                    <span className="flex-1 border-t border-border/40" aria-hidden="true" />
+                    <span className="tabular-nums tracking-wide">{item.date}</span>
+                    <span className="flex-1 border-t border-border/40" aria-hidden="true" />
+                  </div>
+                );
+              }
+
+              const entry = item.entry;
               return (
                 <div
-                  key={entry._id ?? virtualRow.index}
+                  key={item.key}
                   ref={virtualizer.measureElement}
                   data-index={virtualRow.index}
                   style={{

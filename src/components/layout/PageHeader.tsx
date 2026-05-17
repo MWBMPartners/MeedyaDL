@@ -51,8 +51,13 @@ interface PageHeaderProps {
    * Optional description text rendered below the title in a smaller,
    * muted font. Useful for contextual info like item counts
    * (e.g., "3 items in queue").
+   *
+   * Accepts `ReactNode` so callers can inline small live widgets next
+   * to the subtitle text — e.g. the Activity Log page renders a live
+   * wall-clock chip alongside the line count (#801). Pass a plain
+   * string for the common case.
    */
-  subtitle?: string;
+  subtitle?: ReactNode;
 
   /**
    * Optional ReactNode rendered on the right side of the header row.
