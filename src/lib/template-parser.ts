@@ -49,8 +49,16 @@ export interface TemplateVariable {
   label: string;
   /** Short description shown in the add menu. */
   description: string;
-  /** Category for grouping in the add menu. */
-  category: 'track' | 'album' | 'playlist';
+  /** Category for grouping in the add menu.
+   *
+   * - `'common'` — applies to every template context (e.g. `{platform}`).
+   *   Every `TemplateBuilder` invocation includes this so the chip is always
+   *   pickable. Use for multi-service-prep tokens (#800).
+   * - `'track'` — per-track values: artist, title, track #, disc.
+   * - `'album'` — album-context values: album, album_artist, year, genre, album_id.
+   * - `'playlist'` — playlist-context values: playlist_title, playlist_artist, playlist_id.
+   */
+  category: 'common' | 'track' | 'album' | 'playlist';
 }
 
 /** All available GAMDL template variables. */
@@ -100,8 +108,8 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   {
     value: 'platform',
     label: 'Platform',
-    description: 'Download platform (e.g., AppleMusic, Spotify)',
-    category: 'album',
+    description: 'Download platform name (e.g. AppleMusic, Spotify, YouTube). Use as a top-level folder when downloading from multiple services so each service has its own root.',
+    category: 'common',
   },
 ];
 

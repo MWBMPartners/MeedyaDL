@@ -12,6 +12,7 @@ import {
   parseTemplate,
   renderPreview,
   serializeTemplate,
+  TEMPLATE_VARIABLES,
 } from './template-parser';
 
 // ============================================================
@@ -222,5 +223,29 @@ describe('renderPreview', () => {
 
   it('renders empty segments as empty string', () => {
     expect(renderPreview([])).toBe('');
+  });
+
+  it('substitutes {platform} for the AppleMusic sample value (#800)', () => {
+    const segments = parseTemplate('{platform}/{album_artist}/{album}');
+    expect(renderPreview(segments)).toBe("AppleMusic/Taylor Swift/1989 (Taylor's Version)");
+  });
+});
+
+// ============================================================
+// TEMPLATE_VARIABLES categorisation (#800)
+// ============================================================
+
+describe('TEMPLATE_VARIABLES categorisation (#800)', () => {
+  it('exposes {platform} in the "common" category so every TemplateBuilder can pick it', () => {
+    const platform = TEMPLATE_VARIABLES.find((v) => v.value === 'platform');
+    expect(platform).toBeDefined();
+    expect(platform!.category).toBe('common');
+  });
+
+  it('does not regress the category of other variables', () => {
+    // Spot-check one per category that the audit doesn't quietly drift.
+    expect(TEMPLATE_VARIABLES.find((v) => v.value === 'title')?.category).toBe('track');
+    expect(TEMPLATE_VARIABLES.find((v) => v.value === 'album')?.category).toBe('album');
+    expect(TEMPLATE_VARIABLES.find((v) => v.value === 'playlist_title')?.category).toBe('playlist');
   });
 });
