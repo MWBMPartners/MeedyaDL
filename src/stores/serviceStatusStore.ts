@@ -3,7 +3,7 @@
 // The IPC commands and types it imports don't exist in the current codebase yet.
 // Remove @ts-nocheck when wiring this into the active app.
 //
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 
 /**
  * @file Zustand store for the remote service status (kill-switch) system.

@@ -516,7 +516,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 ```text
 MIT License
 
-Copyright (c) 2026 MeedyaDL
+Copyright (c) 2026 MeedyaSuite
 ```
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.
@@ -550,5 +550,5 @@ For the full implementation plan, project status, architecture decisions, and de
 ---
 
 <p align="center">
-  Made with ❤️ by MeedyaDL
+  Made with ❤️ by MeedyaSuite
 </p>

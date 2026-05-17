@@ -115,7 +115,7 @@ assets/brand/           # Brand assets: SVGs, animated PNGs, icons (ICO/ICNS/PNG
 
 ## Conventions
 
-- **Copyright header**: Every source file starts with `// Copyright (c) 2026 MeedyaDL` + MIT license reference
+- **Copyright header**: Every source file starts with `// Copyright (c) 2026 MeedyaSuite` + MIT license reference
 - **Comments**: Every function and significant code block gets detailed comments
 - **Conventional commits**: Required for automated changelog generation (release-please)
 - **GAMDL options**: All 11 audio codecs, 8 video resolutions, all CLI flags typed as Rust enums in `models/gamdl_options.rs`. Includes `song_codec_priority` (for GAMDL >= 2.9.1 native multi-codec support) and `artist_auto_select` (7 variants: main-albums, compilation-albums, live-albums, singles-eps, all-albums, top-songs, music-videos). **Multi-select artist auto-select**: `artist_auto_select_multi: Vec<ArtistAutoSelect>` stores multiple modes; when downloading from an artist URL with multiple modes selected, `start_download` creates N separate queue items (one per mode) since GAMDL only accepts a single `--artist-auto-select` value. Legacy `artist_auto_select` field kept in sync for backwards compatibility.

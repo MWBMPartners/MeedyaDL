@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Sync the repo's shared Claude memory files into the developer's local

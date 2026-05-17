@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.5.0",
   "description": "A multiplatform media downloader",
-  "author": "MeedyaDL",
+  "author": "MeedyaSuite",
   "license": "MIT",
   "type": "module",
   "scripts": {

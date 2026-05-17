@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Copyright Year Updater for MeedyaDL
@@ -44,7 +44,7 @@ else
 fi
 # Two patterns: one for "YYYY-YYYY" ranges, one for standalone "YYYY"
 PATTERN_RANGE="s/Copyright (c) 20[0-9][0-9]-[0-9][0-9][0-9][0-9]/${YEAR_REPLACE}/g"
-PATTERN_SINGLE="s/Copyright (c) 20[0-9][0-9] MeedyaDL/${YEAR_REPLACE} MeedyaDL/g"
+PATTERN_SINGLE="s/Copyright (c) 20[0-9][0-9] MeedyaSuite/${YEAR_REPLACE} MeedyaSuite/g"
 PATTERN="${PATTERN_RANGE}"
 
 # --- Rust source files (.rs) ---

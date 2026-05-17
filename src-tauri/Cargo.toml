@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Cargo.toml -- Rust Package Manifest for MeedyaDL Tauri Backend
@@ -38,7 +38,7 @@ version = "1.5.0"
 # description -- Short description shown on crates.io and in `cargo search` results.
 description = "A multiplatform media downloader"
 # authors -- Package authors. Used in bundle metadata (installers, About dialogs).
-authors = ["MeedyaDL"]
+authors = ["MeedyaSuite"]
 # license -- SPDX license identifier. MIT is permissive, allowing commercial and private use.
 license = "MIT"
 # repository -- URL to the source code. Included in bundle metadata and crates.io listings.
