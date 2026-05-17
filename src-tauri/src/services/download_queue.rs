@@ -4323,18 +4323,24 @@ async fn extract_music_video_subtitles_for_new_files(
 /// compilation unit. If either constant changes, update the literals
 /// in `services/filename_safety.rs` too.
 ///
-/// ## Not reached by uploaded videos (#549)
+/// ## Not reached by uploaded videos (#549, decided 2026-05-17)
 ///
 /// Apple Music's label/artist-uploaded videos (backstage clips, live
 /// sessions, interviews) have their own GAMDL entry points
 /// (`downloader_uploaded_video.py` / `interface_uploaded_video.py`) and
 /// tag shape (`{artist, date, title, title_id, storefront}` — no album
-/// context). MeedyaDL does NOT currently detect uploaded-video URLs or
-/// route them through `download_music_video_by_url()`, so this template
-/// constant is never applied to uploaded videos today. If an
-/// uploaded-video URL reaches GAMDL at all, it inherits the user's
-/// audio-oriented `no_album_*` templates — same collision risk class as
-/// #527/#531, different URL scheme. Tracked in #549.
+/// context). The MeedyaDL decision is to **accept** uploaded-video URLs
+/// (they reach GAMDL via the URL audit catch-all in `commands::gamdl`),
+/// but **defer wiring** them through `download_music_video_by_url()`
+/// until a concrete test URL is available — the uploaded-video URL
+/// shape is undocumented publicly and we can't safely add a regex
+/// without an example. The audit log explicitly names uploaded videos
+/// in the WARN line so users understand what they're seeing. Until a
+/// test URL surfaces and the follow-up wiring lands, an uploaded-video
+/// download inherits the user's audio-oriented `no_album_*` templates
+/// — same collision risk class as #527/#531, different URL scheme.
+/// The GAMDL `--uploaded-video-quality` flag is already a pass-through
+/// (`GamdlOptions.uploaded_video_quality`).
 pub(crate) const MV_NO_ALBUM_FOLDER_TEMPLATE: &str = "{artist}/Music Videos";
 
 /// File template applied to GAMDL music-video downloads when the MV has
