@@ -1455,9 +1455,82 @@ pub fn apply_advisory_suffixes_from_tags(output_path: &str) {
                 file_path.display(),
                 final_path.display()
             ),
+            Err(e) => {
+                log::warn!(
+                    "Post-companion advisory rename failed for {}: {e}",
+                    file_path.display()
+                );
+                // Audio rename failed → skip the sidecar pass for
+                // this file. Without the audio rename the sidecars
+                // are already correctly paired with the un-renamed
+                // audio stem; renaming them now would create the
+                // orphan situation #788 was opened to prevent.
+                continue;
+            }
+        }
+
+        // Sidecar rename in lockstep with the audio (#788). Pre-fix,
+        // `apply_advisory_suffixes_from_tags` only renamed audio
+        // files, so companion sidecars (`01 Title [Lossless].lrc`)
+        // were left orphaned next to the now-renamed audio
+        // (`01 Title [Explicit] [Lossless].m4a`) — lyrics
+        // conversion + subtitle embedding couldn't pair them.
+        // Mirrors the pattern from `apply_codec_rename_suffix` /
+        // `rename_matching_sidecars` (#535) but uses the
+        // advisory-insertion stem transform instead of plain
+        // suffix-append.
+        rename_matching_advisory_sidecars(file_path, stem, &new_stem);
+    }
+}
+
+/// Rename lyrics / subtitle sidecars next to `audio_path` whose stem
+/// matches `old_stem` so they keep pace with an audio file that was
+/// just renamed by the advisory pass (#788).
+///
+/// Mirror of `rename_matching_sidecars` (the codec-suffix sibling
+/// from #535), but takes the explicit new stem rather than a suffix
+/// to append — because the advisory rename uses
+/// `insert_advisory_before_codec_suffix` (advisory lands BEFORE
+/// any codec suffix, not at the end), the caller already has the
+/// new stem from that helper and passes it in.
+///
+/// Silently skips sidecars that don't exist or whose target is
+/// already occupied. Errors are logged but don't propagate — sidecar
+/// rename is best-effort; the audio rename already landed.
+fn rename_matching_advisory_sidecars(audio_path: &Path, old_stem: &str, new_stem: &str) {
+    let parent = match audio_path.parent() {
+        Some(p) => p,
+        None => return,
+    };
+    for sidecar_ext in CODEC_RENAME_SIDECAR_EXTENSIONS {
+        let sidecar = parent.join(format!("{old_stem}.{sidecar_ext}"));
+        if !sidecar.exists() {
+            continue;
+        }
+        let new_sidecar = parent.join(format!("{new_stem}.{sidecar_ext}"));
+        // Idempotency: if a prior run already produced the renamed
+        // sidecar AND the old-stem sidecar still exists (e.g. a
+        // partial run earlier created the suffixed version but
+        // didn't remove the source), leave both alone — the user
+        // can decide. Same conservative behaviour as the codec
+        // sidecar helper.
+        if new_sidecar.exists() {
+            log::debug!(
+                "Advisory sidecar rename: target {} already exists — leaving {} in place",
+                new_sidecar.display(),
+                sidecar.display()
+            );
+            continue;
+        }
+        match crate::utils::fs_safe::safe_rename(&sidecar, &new_sidecar) {
+            Ok(final_path) => log::debug!(
+                "Advisory sidecar: {} → {}",
+                sidecar.display(),
+                final_path.display()
+            ),
             Err(e) => log::warn!(
-                "Post-companion advisory rename failed for {}: {e}",
-                file_path.display()
+                "Advisory sidecar rename failed for {}: {e}",
+                sidecar.display()
             ),
         }
     }
@@ -2720,5 +2793,148 @@ mod tests {
                 .join("05 Song [Lossless] [Lossless].ttml")
                 .exists()
         );
+    }
+
+    // ----------------------------------------------------------
+    // Advisory sidecar rename tests (#788)
+    // ----------------------------------------------------------
+
+    /// All five sidecar formats follow the audio when the post-companion
+    /// advisory pass renames `01 Track [Lossless].m4a` →
+    /// `01 Track [Explicit] [Lossless].m4a`.
+    #[test]
+    fn rename_matching_advisory_sidecars_renames_all_formats() {
+        let dir = tempfile::tempdir().unwrap();
+        let new_audio = dir
+            .path()
+            .join("01 Track [Explicit] [Lossless].m4a");
+        // Audio already renamed in place by the caller; sidecars
+        // still on the old (pre-advisory) stem.
+        std::fs::write(&new_audio, b"audio").unwrap();
+        for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
+            std::fs::write(
+                dir.path().join(format!("01 Track [Lossless].{ext}")),
+                b"sidecar",
+            )
+            .unwrap();
+        }
+
+        rename_matching_advisory_sidecars(
+            &new_audio,
+            "01 Track [Lossless]",
+            "01 Track [Explicit] [Lossless]",
+        );
+
+        for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
+            let renamed = dir
+                .path()
+                .join(format!("01 Track [Explicit] [Lossless].{ext}"));
+            assert!(
+                renamed.exists(),
+                "expected sidecar .{ext} to be renamed with advisory suffix"
+            );
+            let orig =
+                dir.path().join(format!("01 Track [Lossless].{ext}"));
+            assert!(
+                !orig.exists(),
+                "expected original sidecar .{ext} to be gone after rename"
+            );
+        }
+    }
+
+    /// Missing sidecars don't cause errors — the helper is best-effort.
+    #[test]
+    fn rename_matching_advisory_sidecars_skips_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let new_audio = dir
+            .path()
+            .join("01 Track [Explicit] [Lossless].m4a");
+        std::fs::write(&new_audio, b"audio").unwrap();
+        // Only .lrc present — others missing.
+        std::fs::write(
+            dir.path().join("01 Track [Lossless].lrc"),
+            b"side",
+        )
+        .unwrap();
+
+        rename_matching_advisory_sidecars(
+            &new_audio,
+            "01 Track [Lossless]",
+            "01 Track [Explicit] [Lossless]",
+        );
+
+        assert!(dir
+            .path()
+            .join("01 Track [Explicit] [Lossless].lrc")
+            .exists());
+        assert!(!dir.path().join("01 Track [Lossless].lrc").exists());
+        // Missing .ttml/.srt/etc. don't get spurious targets.
+        assert!(!dir
+            .path()
+            .join("01 Track [Explicit] [Lossless].ttml")
+            .exists());
+    }
+
+    /// Idempotency: if a prior partial run created the advisory-renamed
+    /// sidecar AND the old-stem sidecar still exists (e.g. a crash
+    /// between audio and sidecar rename), don't blindly overwrite — leave
+    /// both files alone for the user to reconcile.
+    #[test]
+    fn rename_matching_advisory_sidecars_preserves_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let new_audio = dir
+            .path()
+            .join("01 Track [Explicit] [Lossless].m4a");
+        std::fs::write(&new_audio, b"audio").unwrap();
+        std::fs::write(
+            dir.path().join("01 Track [Lossless].ttml"),
+            b"old",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("01 Track [Explicit] [Lossless].ttml"),
+            b"new",
+        )
+        .unwrap();
+
+        rename_matching_advisory_sidecars(
+            &new_audio,
+            "01 Track [Lossless]",
+            "01 Track [Explicit] [Lossless]",
+        );
+
+        // Both files still exist, untouched.
+        assert!(dir.path().join("01 Track [Lossless].ttml").exists());
+        let suffixed = dir
+            .path()
+            .join("01 Track [Explicit] [Lossless].ttml");
+        assert!(suffixed.exists());
+        assert_eq!(std::fs::read(&suffixed).unwrap(), b"new");
+        assert_eq!(
+            std::fs::read(dir.path().join("01 Track [Lossless].ttml"))
+                .unwrap(),
+            b"old"
+        );
+    }
+
+    /// Track with no codec suffix at all (single-codec mode where the
+    /// primary doesn't need a suffix) → sidecars rename from `01 Track.lrc`
+    /// to `01 Track [Explicit].lrc`. Confirms the helper handles the
+    /// suffix-less case.
+    #[test]
+    fn rename_matching_advisory_sidecars_handles_no_codec_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let new_audio = dir.path().join("01 Track [Explicit].m4a");
+        std::fs::write(&new_audio, b"audio").unwrap();
+        std::fs::write(dir.path().join("01 Track.lrc"), b"side").unwrap();
+
+        rename_matching_advisory_sidecars(
+            &new_audio,
+            "01 Track",
+            "01 Track [Explicit]",
+        );
+
+        assert!(dir.path().join("01 Track [Explicit].lrc").exists());
+        assert!(!dir.path().join("01 Track.lrc").exists());
     }
 }

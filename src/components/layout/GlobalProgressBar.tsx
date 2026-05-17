@@ -23,6 +23,7 @@ import { useMemo, useState, useEffect } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
 import { formatActiveItemCaption } from '@/lib/progress-caption';
+import { computeItemProgress } from '@/lib/progress-percent';
 
 /**
  * Platform detection config — loaded once from engines.toml via IPC.
@@ -303,15 +304,14 @@ export function GlobalProgressBar() {
   if (!hasWork) return null;
 
   /**
-   * Per-item progress value.
-   * During processing: use actual progress if available (companion downloads
-   * update progress while item stays in 'processing' state), otherwise null
-   * for indeterminate animation (enrichment stages without progress data).
+   * Per-item progress value — see `computeItemProgress` for the
+   * aggregation rule (#790). For multi-track items the value now
+   * spans the WHOLE item (completed_tracks + current_track%), not
+   * just the current track's GAMDL `[download] X%` — so the bar
+   * ticks monotonically forward instead of "scrolling" left-to-
+   * right as each track resets to 0.
    */
-  const itemProgress =
-    activeItem?.state === 'processing'
-      ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
-      : (activeItem?.progress ?? 0);
+  const itemProgress = computeItemProgress(activeItem ?? null);
 
   /** Per-item caption — see `formatActiveItemCaption` for rules. */
   const itemLabel = formatActiveItemCaption(activeItem);
@@ -337,7 +337,13 @@ export function GlobalProgressBar() {
         <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
-        {/* Speed + ETA + percentage (right) */}
+        {/* Speed + ETA + percentage (right).
+            #790: `computeItemProgress` now exhausts every signal
+            (active byte stream → enrichment stage weight) before
+            falling back to `null`, so the "Processing…" placeholder
+            only fires in the brief gaps where no signal exists at
+            all. When it does fire, that's the honest answer — we
+            don't fake a percentage we can't measure. */}
         <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
           {speedEta ? `${speedEta} · ` : ''}
           {itemProgress !== null ? `${Math.round(itemProgress)}%` : 'Processing…'}
@@ -352,16 +358,24 @@ export function GlobalProgressBar() {
         aria-label="Current download progress"
       >
         {itemProgress === null ? (
-          /* Indeterminate (processing) */
+          /* Indeterminate — LAST resort per #790. Only fires when
+             we have neither an active GAMDL byte stream nor an
+             enrichment stage weight. Should be brief; persistent
+             indeterminate state would indicate a missing emit at
+             the source, not a problem in this render. */
           <div
             className="h-full w-1/3 rounded-full bg-accent animate-[indeterminate_1.5s_ease-in-out_infinite]"
             style={{ animation: 'indeterminate 1.5s ease-in-out infinite' }}
           />
         ) : (
-          /* Determinate */
+          /* Determinate — per-file byte progress (GAMDL active),
+             enrichment stage weight, or terminal-state value.
+             Each file's bar cycles 0 → 100 as expected; the
+             caption changes per file so the user can see which
+             file is in flight. */
           <div
             className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
-            style={{ width: `${Math.max(0, Math.min(100, itemProgress))}%` }}
+            style={{ width: `${itemProgress}%` }}
           />
         )}
       </div>
