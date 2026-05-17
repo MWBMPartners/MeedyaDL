@@ -1120,6 +1120,8 @@ pub fn run() {
             commands::dependencies::install_python,
             commands::dependencies::check_gamdl_status,
             commands::dependencies::install_gamdl,
+            commands::dependencies::install_gamdl_version,
+            commands::dependencies::get_gamdl_support_window,
             commands::dependencies::check_votify_status,
             commands::dependencies::install_votify,
             commands::dependencies::check_ofscraper_status,

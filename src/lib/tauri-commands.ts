@@ -253,6 +253,41 @@ export function installGamdl(): Promise<string> {
 }
 
 /**
+ * Installs a **specific** GAMDL version (#522).
+ *
+ * Wraps `install_gamdl_version` in `src-tauri/src/commands/dependencies.rs`.
+ * Uses `pip install --force-reinstall gamdl==<version>` so it supports
+ * downgrades as well as upgrades. The standard `installGamdl()` above
+ * uses `--upgrade` which only goes higher.
+ *
+ * Validates the version string format on the backend before pip runs.
+ *
+ * @param version PyPI-compatible version (e.g., "2.9.3", "3.5.2").
+ * @returns Promise resolving to the post-install version reported by `pip show gamdl`.
+ */
+export function installGamdlVersion(version: string): Promise<string> {
+  return invoke<string>('install_gamdl_version', { version });
+}
+
+/**
+ * Returns the MeedyaDL-tested GAMDL version window (#522).
+ *
+ * The frontend uses this to render the "Install recommended" button
+ * label, the support badge, and to validate user-typed versions
+ * against the known range.
+ *
+ * Reads from compiled-in `tool-versions.toml` — zero I/O, always succeeds.
+ */
+export interface GamdlSupportWindow {
+  minimum: string;
+  maximum_tested: string;
+  recommended: string;
+}
+export function getGamdlSupportWindow(): Promise<GamdlSupportWindow> {
+  return invoke<GamdlSupportWindow>('get_gamdl_support_window');
+}
+
+/**
  * Returns the installation status of votify (Spotify engine).
  *
  * Rust handler: `check_votify_status()` in `src-tauri/src/commands/dependencies.rs`
