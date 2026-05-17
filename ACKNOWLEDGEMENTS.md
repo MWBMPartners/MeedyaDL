@@ -94,7 +94,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | @dnd-kit/utilities | 3.2 | MIT | Shared utilities for @dnd-kit |
 | i18next | 26.0 | MIT | Internationalisation framework |
 | i18next-browser-languagedetector | 8.2 | MIT | OS language detection |
-| lucide-react | 1.7 | MIT | Icon library |
+| lucide-react | 1.7 | ISC | Icon library |
 | react | 19.0 | MIT | UI component library |
 | react-dom | 19.0 | MIT | React DOM renderer |
 | react-i18next | 17.0 | MIT | React i18n bindings |
