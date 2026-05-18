@@ -7138,6 +7138,28 @@ pub fn process_queue(
         let shutdown_clone = shutdown_signal;
 
         tokio::spawn(async move {
+            // Snapshot the audio-file count in the configured output base
+            // BEFORE spawning GAMDL (#831). This is the primary-path twin
+            // of the Phase 3.5h companion-task snapshot. After a clean
+            // GAMDL exit we compare against this baseline; if no new audio
+            // files have landed in the output tree, the run failed
+            // silently (GAMDL exits 0 when every track is skipped due to
+            // format unavailability — "Skipping … format is not
+            // available" is a warning, not an error from GAMDL's view).
+            //
+            // Without this check, the recovery path's `find_album_directory`
+            // can pick up a previously-downloaded album directory from a
+            // prior run and treat its files as evidence this run
+            // succeeded — producing the user-visible "Complete" badge on
+            // an item where every single track was actually skipped
+            // (#831).
+            let pre_run_audio_count = download_options
+                .output_path
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(count_audio_files_in_directory)
+                .unwrap_or(0);
+
             // Run the GAMDL download with real-time event forwarding.
             // This function handles subprocess spawning, output parsing,
             // and cancellation polling. See run_download_with_events() below.
@@ -7455,7 +7477,57 @@ pub fn process_queue(
                                 .and_then(|i| i.status.output_path.as_ref())
                                 .is_some();
 
-                            if !has_output_now {
+                            // #831: even if `has_output_now` is true, verify
+                            // that this run actually produced NEW audio files.
+                            // The `find_album_directory` recovery above can
+                            // pick up a previously-downloaded album folder
+                            // from an earlier run and set `output_path` to
+                            // it — making the rest of the pipeline treat
+                            // this run as a success even though zero new
+                            // tracks landed. Without this check, retrying a
+                            // failed item with the same (unavailable) codec
+                            // chain endlessly produces "Complete" badges on
+                            // items where every track was actually Skipped.
+                            //
+                            // Compare against the pre-run snapshot taken at
+                            // the top of this spawn (line ~7155). If the
+                            // count hasn't moved, treat the run as a
+                            // no-files-produced failure regardless of what
+                            // the recovery path set `output_path` to.
+                            let new_files_landed = if has_output_now {
+                                let post_run_count = download_options
+                                    .output_path
+                                    .as_deref()
+                                    .map(std::path::Path::new)
+                                    .map(count_audio_files_in_directory)
+                                    .unwrap_or(0);
+                                if post_run_count <= pre_run_audio_count {
+                                    log::info!(
+                                        "Download {dl_id}: output_path set but no new \
+                                         audio files landed (pre={pre_run_audio_count}, \
+                                         post={post_run_count}) — treating as \
+                                         no-files-produced failure (#831)"
+                                    );
+                                    // Clear the misleading output_path so the
+                                    // post-error UI doesn't open a folder that
+                                    // was actually pre-existing.
+                                    if let Some(item) = q
+                                        .items
+                                        .iter_mut()
+                                        .find(|i| i.status.id == dl_id)
+                                    {
+                                        item.status.output_path = None;
+                                        item.status.output_is_directory = false;
+                                    }
+                                    false
+                                } else {
+                                    true
+                                }
+                            } else {
+                                false
+                            };
+
+                            if !new_files_landed {
                                 // Terminal: no output, no IO recovery, no files on
                                 // disk despite codec fallback exhausted.
                                 //
