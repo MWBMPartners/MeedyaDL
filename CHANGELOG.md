@@ -6,9 +6,53 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(v1.7)** Queue UX, GAMDL rollback, MV folder routing, auto-backup, diagnostics (13 closed) (#813)
+
+## Summary
+
+  A 22-issue bumper bundle. **13 issues fully closed** (commits below),
+  **9 status-commented and left open** as deferred/ongoing trackers with
+  concrete next-step plans (upstream-blocked, multi-PR sweeps, or
+  quarterly trackers).
+
+  User-facing release notes for v1.7.0 are already drafted in
+  [.github/release-drafts/v1.7.0.md](.github/release-drafts/v1.7.0.md) —
+  the
+  [preserve-release-pr-body.yml](.github/workflows/preserve-release-pr-body.yml)
+  workflow from #812 will apply them automatically when release-please
+  opens the v1.7.0 release PR.
+
+  ## Commits in this PR (12, oldest first)
+
+  1. `b030d8d` — **docs(549)**: decide on Apple Music uploaded-video URL
+  pipeline
+  2. `8f4500c` — **docs(457)**: comprehensive metadata mapping reference
+  3. `3a6caf1` — **feat(522)**: GAMDL version management UI (install
+  specific / rollback)
+  4. `7721147` — **feat(queue)**: search + status filter + bulk select
+  (#462 #463)
+  5. `f1989b0` — **feat(466)**: auto-backup + restore for settings / queue
+  / history
+  6. `fcaac13` — **feat(464)**: persistent lifetime download stats +
+  analytics
+  7. `afa72dd` — **fix(536)**: defensive guard against motion-art URLs in
+  the MV pipeline
+  8. `1510571` — **feat(558)**: MV filename resolution Tier 2 — Apple
+  Music Catalog album linkage
+  9. `088823f` — **feat(559)**: MV filename resolution Tier 3 — parent
+  album context override
+  10. `42476be` — **feat(572)**: Phase 1 MVP diagnostic bundle composer
+  11. (Claude memory + release notes draft)
+
+  ## Issues fully closed (13)
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.6.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
