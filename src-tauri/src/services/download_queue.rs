@@ -9728,9 +9728,67 @@ pub fn process_queue(
                                                     .unwrap_or(output_dir.clone())
                                             }
                                         };
-                                        super::metadata_tag_service::apply_advisory_suffixes_from_tags(
-                                            &dir_for_advisory,
-                                        );
+                                        // #815 defensive fix: the advisory pass is
+                                        // a sync recursive fs walk. On a slow
+                                        // network share / disconnected cloud
+                                        // mount / pathological tree it can hang
+                                        // for hours and block the completion
+                                        // task — preventing the set_complete +
+                                        // on_task_finished that release the queue
+                                        // slot. Wrap in spawn_blocking + timeout
+                                        // so:
+                                        //   1. The sync walk runs on a dedicated
+                                        //      blocking thread (doesn't block the
+                                        //      runtime).
+                                        //   2. If it doesn't finish in
+                                        //      ADVISORY_TIMEOUT, we log a warning
+                                        //      and let the completion task
+                                        //      proceed. The orphaned blocking
+                                        //      thread keeps running on its own
+                                        //      — no leak from the runtime's
+                                        //      perspective.
+                                        //
+                                        // Result: even if the advisory pass
+                                        // hangs forever, the queue slot still
+                                        // gets released and the next item
+                                        // starts.
+                                        const ADVISORY_TIMEOUT: std::time::Duration =
+                                            std::time::Duration::from_secs(300);
+                                        let dir_clone = dir_for_advisory.clone();
+                                        let blocking = tokio::task::spawn_blocking(move || {
+                                            super::metadata_tag_service::apply_advisory_suffixes_from_tags(
+                                                &dir_clone,
+                                            );
+                                        });
+                                        match tokio::time::timeout(ADVISORY_TIMEOUT, blocking).await {
+                                            Ok(Ok(())) => {
+                                                // Normal completion — advisory pass
+                                                // finished in time.
+                                            }
+                                            Ok(Err(join_err)) => {
+                                                log::warn!(
+                                                    "Advisory pass panicked for {completion_dl_id}: {join_err} — proceeding to set_complete anyway"
+                                                );
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    "⚠ Final tag pass: internal error — proceeding to completion to keep the queue moving",
+                                                );
+                                            }
+                                            Err(_) => {
+                                                log::warn!(
+                                                    "Advisory pass timed out after {ADVISORY_TIMEOUT:?} for {completion_dl_id} — proceeding to set_complete (orphaned blocking task continues in background)"
+                                                );
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    &format!(
+                                                        "⚠ Final tag pass timed out after {} min — proceeding to completion to keep the queue moving. Already-completed renames are preserved on disk.",
+                                                        ADVISORY_TIMEOUT.as_secs() / 60,
+                                                    ),
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
