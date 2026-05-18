@@ -5866,25 +5866,11 @@ fn spawn_companion_downloads(
                                 let comp_settings = load_settings_for_queue(&comp_app);
                                 rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
 
-                                match super::metadata_tag_service::apply_codec_metadata_tags(
-                                    output_dir, codec,
-                                ) {
-                                    Ok(count) if count > 0 => {
-                                        log::info!(
-                                            "Tagged {} companion file(s) with {} metadata for {}",
-                                            count, stream_codec, comp_dl_id
-                                        );
-                                    }
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
-                                    }
-                                }
-
-                                // Scope the lyrics conversion to the album we
-                                // just produced — falls back to a recursive
-                                // walk only when the artist/album hints are
-                                // unavailable (#502).
+                                // Scope the lyrics conversion AND the tag pass
+                                // (#816) to the album we just produced —
+                                // falls back to a recursive walk over the
+                                // whole output root only when the artist/
+                                // album hints are unavailable (#502).
                                 let (artist_hint, album_hint) = {
                                     let q = comp_queue.lock().await;
                                     q.items
@@ -5897,6 +5883,52 @@ fn spawn_companion_downloads(
                                             )
                                         })
                                         .unwrap_or((None, None))
+                                };
+
+                                // **#816 fix**: the codec-metadata tagger
+                                // walks every M4A under the path it's given.
+                                // Pre-#816, we passed `output_dir` (the
+                                // user's whole output root, e.g.
+                                // `/Volumes/DriveC/[MeedyaDL]/[AppleMusic]`)
+                                // which made the tagger walk the user's
+                                // ENTIRE library on every tier completion —
+                                // 8000+ files tagged per tier × 4 tiers ×
+                                // 220 queue items = ~18-36 hours of wasted
+                                // tag-write work per queue run, AND silently
+                                // overwriting hand-edited tags on
+                                // previously-completed items. Now scope to
+                                // the current item's resolved album dir via
+                                // the same hints the lyrics conversion uses.
+                                let tag_pass_target = find_album_directory(
+                                    std::path::Path::new(output_dir),
+                                    artist_hint.as_deref(),
+                                    album_hint.as_deref(),
+                                )
+                                .unwrap_or_else(|| output_dir.clone());
+                                match super::metadata_tag_service::apply_codec_metadata_tags(
+                                    &tag_pass_target,
+                                    codec,
+                                ) {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Tagged {} companion file(s) with {} metadata in {} for {}",
+                                            count, stream_codec, tag_pass_target, comp_dl_id
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
+                                    }
+                                }
+
+                                // Hints already captured above for the
+                                // shared tag-pass + lyrics-conversion
+                                // scoping (#816). The legacy duplicate
+                                // capture was here pre-#816; the
+                                // lyrics conversion below reuses the
+                                // earlier bindings.
+                                let _hints_captured_above = {
+                                    (artist_hint.clone(), album_hint.clone())
                                 };
                                 // Phase 3.5g: surface the companion-lyrics
                                 // phase to the per-item bar. With #712's
