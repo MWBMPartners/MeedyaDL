@@ -268,3 +268,69 @@ pub fn save_session_log(app: tauri::AppHandle, entries: Vec<String>) -> Result<(
     );
     Ok(())
 }
+
+/// Sends a one-off test notification through the **backend** notification
+/// pipeline (#834).
+///
+/// The "Send Test Notification" button in Settings → General used to call
+/// the JS notification plugin directly, which:
+/// 1. Tested a different code path than what production downloads use, and
+/// 2. Was unable to surface OS-level send failures because the plugin's
+///    `sendNotification()` resolves successfully even when macOS silently
+///    drops the notification (Focus mode, sandbox, etc.).
+///
+/// This IPC routes the test through the same Rust pipeline as
+/// `send_desktop_notification`, but bypasses the focus-check and throttle
+/// (the user is explicitly testing — silently no-opping defeats the
+/// purpose). Returns a structured error string the frontend can render
+/// directly into a toast so the user knows whether the failure is at the
+/// settings layer, the permission layer, or the OS layer.
+///
+/// **Frontend caller:** `testDesktopNotification()` in `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub fn test_desktop_notification(app: tauri::AppHandle) -> Result<(), String> {
+    crate::services::download_queue::test_desktop_notification(&app)
+}
+
+/// Returns a diagnostic snapshot of the desktop-notification configuration
+/// and current OS permission state (#834).
+///
+/// Used by the Settings → Advanced → Diagnostics panel so users on macOS 26+
+/// (where notifications have been silently failing) can see at a glance
+/// whether the toggle, the style, and the OS permission are all in the
+/// expected state. Pure read-only — never triggers a permission prompt.
+///
+/// **Frontend caller:** `getNotificationDiagnostics()` in `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub fn get_notification_diagnostics(
+    app: tauri::AppHandle,
+) -> NotificationDiagnostics {
+    // `load_settings` returns `Result<AppSettings, String>`; on a load
+    // failure we fall back to the safe defaults so the diagnostics
+    // panel still renders something useful (and the user can see that
+    // settings.json failed to load via the surfaced error elsewhere).
+    let settings = crate::services::config_service::load_settings(&app)
+        .unwrap_or_default();
+    NotificationDiagnostics {
+        desktop_notifications_enabled: settings.desktop_notifications,
+        notification_style: settings.notification_style,
+        platform: std::env::consts::OS.to_string(),
+        // The actual OS permission grant lives in the JS plugin layer
+        // — the frontend fills `os_permission_state` itself by calling
+        // `isPermissionGranted()` and merges it with this snapshot.
+    }
+}
+
+/// Backend half of the notification diagnostics readout (#834). The
+/// frontend tops this up with the JS-side permission state.
+#[derive(serde::Serialize)]
+pub struct NotificationDiagnostics {
+    /// Mirrors `AppSettings::desktop_notifications`.
+    pub desktop_notifications_enabled: bool,
+    /// Mirrors `AppSettings::notification_style` — one of
+    /// `in_app_only`, `native_and_in_app`, `native_only`.
+    pub notification_style: String,
+    /// Current build's target OS — `macos`, `windows`, `linux`, etc.
+    /// Lets the frontend hint at OS-specific troubleshooting steps.
+    pub platform: String,
+}

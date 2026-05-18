@@ -1911,3 +1911,49 @@ export function readClipboard(): Promise<string | null> {
 export function saveSessionLog(entries: string[]): Promise<void> {
   return invoke<void>('save_session_log', { entries });
 }
+
+/**
+ * Backend-half of the desktop-notification diagnostics readout (#834).
+ *
+ * The Settings → Advanced → Diagnostics panel reads this snapshot to show
+ * the user their current notification configuration — useful on macOS
+ * where Tauri's `sendNotification()` can resolve successfully even when
+ * the OS silently drops the notification.
+ *
+ * The frontend tops the result up with the JS-side
+ * `isPermissionGranted()` value to give a complete picture.
+ *
+ * IPC target: `get_notification_diagnostics` → `commands::system::get_notification_diagnostics`
+ */
+export interface NotificationDiagnostics {
+  desktop_notifications_enabled: boolean;
+  notification_style: string;
+  platform: string;
+}
+
+export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
+  return invoke<NotificationDiagnostics>('get_notification_diagnostics');
+}
+
+/**
+ * Sends a one-off test notification through the **backend** notification
+ * pipeline (#834).
+ *
+ * The pre-#834 "Send Test Notification" button in Settings → General
+ * called the JS plugin directly. That tested a different code path than
+ * what production downloads use AND couldn't surface OS-level failures
+ * because `sendNotification()` resolves successfully even when macOS
+ * drops the notification.
+ *
+ * This wrapper routes the test through the same Rust path as
+ * `send_desktop_notification`, but bypasses the focus check and the
+ * throttle — the user is explicitly testing, so silently no-opping
+ * would defeat the purpose. Returns the actual OS-level error string
+ * when the plugin call fails, which the caller renders into a toast so
+ * the user can act on it (e.g. open System Settings → Notifications).
+ *
+ * IPC target: `test_desktop_notification` → `commands::system::test_desktop_notification`
+ */
+export function testDesktopNotification(): Promise<void> {
+  return invoke<void>('test_desktop_notification');
+}

@@ -250,13 +250,94 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         }
     };
 
-    // Send the OS-native notification
-    app.notification()
+    // Send the OS-native notification.
+    //
+    // Instrumentation (#834): the previous `.ok()` swallowed every
+    // failure silently, which made it impossible to tell whether
+    // notifications were being dropped at the plugin layer, the
+    // OS permission layer, or somewhere else. Now log both arms
+    // through tracing so the on-disk log (#541) captures the truth
+    // for any future bug report. The user's in-app activity log is
+    // *not* spammed — these are OS-pipeline events, not download
+    // events.
+    match app
+        .notification()
         .builder()
         .title(title)
         .body(&display_body)
         .show()
-        .ok();
+    {
+        Ok(()) => {
+            log::debug!(
+                "desktop notification sent: title={:?} body={:?}",
+                title,
+                display_body
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "desktop notification FAILED: title={:?} error={:?} \
+                 (likely OS-level: permission revoked, Focus mode, or sandbox block)",
+                title,
+                e
+            );
+        }
+    }
+}
+
+/// Sends a one-off test notification through the **real** backend
+/// pipeline so the user can self-diagnose why OS notifications are
+/// or aren't appearing.
+///
+/// Differs from `send_desktop_notification` in two ways:
+/// - Bypasses the focus check. The user is clicking "Send Test
+///   Notification" while the app is focused (by definition — they're
+///   on a Settings page); we don't want to silently no-op on them.
+/// - Bypasses the throttle. They might click the button repeatedly.
+///
+/// Otherwise hits the exact same plugin entrypoint, so a successful
+/// test means the production path will also work; a failure surfaces
+/// the actual reason via the returned `Err`.
+///
+/// Closes #834 (instrumentation half).
+pub fn test_desktop_notification(
+    app: &AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+
+    let settings = load_settings_for_queue(app);
+    if !settings.desktop_notifications {
+        return Err(
+            "Desktop Notifications toggle is off. \
+             Turn it on in Settings → General → Notifications first."
+                .to_string(),
+        );
+    }
+    if settings.notification_style == "in_app_only" {
+        return Err(
+            "Notification Style is set to 'In-app only'. \
+             Switch to 'Native + in-app' or 'Native only' to test the OS pipeline."
+                .to_string(),
+        );
+    }
+
+    app.notification()
+        .builder()
+        .title("MeedyaDL — Backend Test")
+        .body(
+            "If you can read this, the native notification pipeline is working \
+             from the Rust side. If you don't see this notification, check macOS \
+             System Settings → Notifications → MeedyaDL.",
+        )
+        .show()
+        .map_err(|e| {
+            format!(
+                "OS-level send failed: {e}. \
+                 Likely causes: macOS notification permission revoked, \
+                 Focus / Do Not Disturb mode enabled, or the app bundle \
+                 missing from System Settings → Notifications."
+            )
+        })
 }
 
 /// Executes the configured after-queue action when the queue becomes idle.

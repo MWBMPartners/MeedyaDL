@@ -1115,6 +1115,9 @@ pub fn run() {
             // Multi-service URL detection (#315)
             commands::system::detect_service,
             commands::system::save_session_log,
+            // Notification diagnostics + backend-pipeline test button (#834).
+            commands::system::test_desktop_notification,
+            commands::system::get_notification_diagnostics,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,

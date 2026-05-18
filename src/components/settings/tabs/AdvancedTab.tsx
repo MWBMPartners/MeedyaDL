@@ -112,7 +112,9 @@ import {
   getLogsFolderPath,
   buildDiagnosticBundle,
   getComponentVersions,
+  getNotificationDiagnostics,
   type DiagnosticBundle,
+  type NotificationDiagnostics,
 } from '@/lib/tauri-commands';
 import { useActivityStore } from '@/stores/activityStore';
 
@@ -401,6 +403,15 @@ export function AdvancedTab() {
 
       {/* ── Diagnostics ── */}
       <SettingsSection title="Diagnostics" description="Verbose logging for troubleshooting.">
+        {/* Native notification diagnostic readout (#834). Surfaces the
+            current notification configuration AND the OS-level
+            permission state so users on macOS — where `sendNotification`
+            can succeed silently while the OS drops the notification —
+            can see at a glance whether the toggle / style / permission
+            are aligned. Pure read-only: NEVER triggers a permission
+            prompt (use Send Test Notification in General for that). */}
+        <NotificationDiagnosticsRow />
+
         <Toggle
           label="Verbose Activity Log"
           description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. In pre-release versions (v0.x.x), this setting is preserved across restarts. In full releases, it resets to off on each restart as a safety measure."
@@ -885,6 +896,115 @@ export function AdvancedTab() {
  * Only rendered when `dev_access_enabled` is true (activated via Konami code).
  * Shows token status, web player token management, and a deactivate button.
  */
+
+/**
+ * Native notification configuration + OS permission diagnostic readout (#834).
+ *
+ * Compact 4-row table showing:
+ *   - "Desktop Notifications" toggle state (from settings)
+ *   - "Notification Style" selection (from settings)
+ *   - Platform (`darwin` / `linux` / `windows-style`)
+ *   - OS-level permission grant (from the JS plugin's `isPermissionGranted`)
+ *
+ * Lives in Settings → Advanced → Diagnostics rather than Settings → General
+ * (where the Send Test Notification button is) because Advanced is where
+ * users go to *diagnose* issues. General is for everyday tuning.
+ *
+ * Pure read-only: does NOT call `requestPermission()` — only
+ * `isPermissionGranted()` which silently returns the current cached
+ * state without prompting. Triggering a prompt from a diagnostic
+ * readout would confuse users who just wanted to see their config.
+ */
+function NotificationDiagnosticsRow() {
+  const [diag, setDiag] = useState<NotificationDiagnostics | null>(null);
+  const [osPermission, setOsPermission] = useState<string>('unknown');
+  const [error, setError] = useState<string | null>(null);
+
+  // Load both halves on mount: the backend snapshot and the JS-side
+  // permission state. Wrapped in a single async IIFE so errors from
+  // either source land in the same `setError` and we don't render a
+  // half-loaded readout.
+  useEffect(() => {
+    (async () => {
+      try {
+        const backend = await getNotificationDiagnostics();
+        setDiag(backend);
+      } catch (e) {
+        setError(`Failed to load backend diagnostics: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      try {
+        const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
+        const granted = await isPermissionGranted();
+        setOsPermission(granted ? 'granted' : 'not granted');
+      } catch (e) {
+        setOsPermission(`error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+  }, []);
+
+  if (error) {
+    return (
+      <div className="p-3 rounded-lg bg-status-error-bg border border-status-error">
+        <p className="text-xs text-status-error">{error}</p>
+      </div>
+    );
+  }
+
+  if (!diag) {
+    return (
+      <div className="text-xs text-content-tertiary">Loading notification diagnostics…</div>
+    );
+  }
+
+  // Pretty-format the style key — the backend stores it as snake_case
+  // so the diagnostics readout matches what the dropdown shows in the
+  // General tab. Falls back to the raw key for unknown values so a
+  // future style enum addition doesn't render as a blank cell.
+  const styleLabels: Record<string, string> = {
+    in_app_only: 'In-app only',
+    native_and_in_app: 'Native + in-app',
+    native_only: 'Native only',
+  };
+  const styleLabel = styleLabels[diag.notification_style] ?? diag.notification_style;
+
+  return (
+    <div className="p-3 rounded-lg bg-surface-secondary border border-border-default">
+      <p className="text-xs font-semibold text-content-primary mb-2">
+        Native notification diagnostics (#834)
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <span className="text-content-tertiary">Desktop Notifications</span>
+        <span className="text-content-primary">
+          {diag.desktop_notifications_enabled ? 'ON' : 'OFF'}
+        </span>
+        <span className="text-content-tertiary">Notification Style</span>
+        <span className="text-content-primary">{styleLabel}</span>
+        <span className="text-content-tertiary">Platform</span>
+        <span className="text-content-primary">{diag.platform}</span>
+        <span className="text-content-tertiary">OS Permission</span>
+        <span
+          className={
+            osPermission === 'granted'
+              ? 'text-status-success'
+              : osPermission === 'not granted'
+                ? 'text-status-warning'
+                : 'text-content-primary'
+          }
+        >
+          {osPermission}
+        </span>
+      </div>
+      <p className="text-xs text-content-tertiary mt-2">
+        If notifications aren't appearing despite all four rows looking correct, check
+        macOS System Settings → Notifications → MeedyaDL, and ensure Focus / Do Not
+        Disturb is off. Use <strong>Send Test Notification</strong> in Settings → General
+        to verify the full pipeline end-to-end.
+      </p>
+    </div>
+  );
+}
+
 function DevToolsSection() {
   // Per-field bindings for the two MusicKit fields read by this
   // section. `loadSettings` retained because the deactivate flow
