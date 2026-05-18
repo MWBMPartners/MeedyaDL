@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.8.0 [skip ci]
+
+## [1.8.0] - 2026-05-18
+
 ### ✨ Features
 
 - **(v1.8)** Queue freeze recovery, Odesli lookup, library gaps, status bar split (10 closed) (#819)
@@ -67,6 +73,16 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.7.0 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.8.0 user-facing release notes draft
+
+Source of truth for the v1.8.0 release body. The preserve-release-pr-body
+  workflow re-applies this file to PR #822 on every release-please sync,
+  and (after #820 landed) also patches the live GitHub Release body via
+  `gh release edit` when the release is published.
+
+  [skip ci]
+
 
 ### 🔄 CI/CD
 
