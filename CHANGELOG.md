@@ -9,6 +9,34 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.8.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(825)** Fix recurring PR-title failures — relax length cap + skip release-please branch (#826)
+
+## Summary
+
+  The \`Conventional PR title\` check has been failing recurrently in two
+  distinct ways. This PR addresses both root causes.
+
+  ### Mode 1 — Header length cap rejects descriptive multi-issue titles
+
+  \`@commitlint/config-conventional\`'s default \`header-max-length: 100\`
+  is too tight for the project's [[feedback_pr_squash_titles]] convention.
+  Multi-issue bumper PRs routinely run 110–150 chars:
+
+  | PR | Title | Length | Outcome |
+  |---|---|---|---|
+  | #819 (today) | \`feat(v1.8): queue freeze recovery, Odesli
+  cross-platform lookup, library gap detection, status bar split (10
+  closed)\` | 116 chars | rejected; hand-trimmed to 92 |
+  | v1.5.0–v1.7.0 source PRs | (similar) | varied | all hand-trimmed |
+
+  Trimmed titles ship to end users as the release-notes line via
+  release-please, so the rule was actively degrading release-notes
+  quality.
+
 
 ## [1.8.0] - 2026-05-18
 
