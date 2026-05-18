@@ -1009,6 +1009,7 @@ fn write_manifest(
     album_metadata: Option<&crate::services::apple_music_api::AlbumMetadata>,
     settings: &crate::models::settings::AppSettings,
     downloaded_at: &str,
+    cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
 ) {
     use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
@@ -1090,6 +1091,12 @@ fn write_manifest(
         codec: None,
         last_modified_date: album_metadata.and_then(|m| m.last_modified_date.clone()),
         tracks,
+        // Phase 1 (#759): per-stage enrichment record. Initial
+        // manifest write happens before enrichment runs, so all
+        // stages are absent here; the post-stage hooks will add
+        // records as each stage completes (Phase 2 wiring).
+        enrichment: None,
+        cross_platform_urls,
     };
 
     // Read existing manifest or create new
@@ -5859,25 +5866,11 @@ fn spawn_companion_downloads(
                                 let comp_settings = load_settings_for_queue(&comp_app);
                                 rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
 
-                                match super::metadata_tag_service::apply_codec_metadata_tags(
-                                    output_dir, codec,
-                                ) {
-                                    Ok(count) if count > 0 => {
-                                        log::info!(
-                                            "Tagged {} companion file(s) with {} metadata for {}",
-                                            count, stream_codec, comp_dl_id
-                                        );
-                                    }
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
-                                    }
-                                }
-
-                                // Scope the lyrics conversion to the album we
-                                // just produced — falls back to a recursive
-                                // walk only when the artist/album hints are
-                                // unavailable (#502).
+                                // Scope the lyrics conversion AND the tag pass
+                                // (#816) to the album we just produced —
+                                // falls back to a recursive walk over the
+                                // whole output root only when the artist/
+                                // album hints are unavailable (#502).
                                 let (artist_hint, album_hint) = {
                                     let q = comp_queue.lock().await;
                                     q.items
@@ -5890,6 +5883,52 @@ fn spawn_companion_downloads(
                                             )
                                         })
                                         .unwrap_or((None, None))
+                                };
+
+                                // **#816 fix**: the codec-metadata tagger
+                                // walks every M4A under the path it's given.
+                                // Pre-#816, we passed `output_dir` (the
+                                // user's whole output root, e.g.
+                                // `/Volumes/DriveC/[MeedyaDL]/[AppleMusic]`)
+                                // which made the tagger walk the user's
+                                // ENTIRE library on every tier completion —
+                                // 8000+ files tagged per tier × 4 tiers ×
+                                // 220 queue items = ~18-36 hours of wasted
+                                // tag-write work per queue run, AND silently
+                                // overwriting hand-edited tags on
+                                // previously-completed items. Now scope to
+                                // the current item's resolved album dir via
+                                // the same hints the lyrics conversion uses.
+                                let tag_pass_target = find_album_directory(
+                                    std::path::Path::new(output_dir),
+                                    artist_hint.as_deref(),
+                                    album_hint.as_deref(),
+                                )
+                                .unwrap_or_else(|| output_dir.clone());
+                                match super::metadata_tag_service::apply_codec_metadata_tags(
+                                    &tag_pass_target,
+                                    codec,
+                                ) {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Tagged {} companion file(s) with {} metadata in {} for {}",
+                                            count, stream_codec, tag_pass_target, comp_dl_id
+                                        );
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
+                                    }
+                                }
+
+                                // Hints already captured above for the
+                                // shared tag-pass + lyrics-conversion
+                                // scoping (#816). The legacy duplicate
+                                // capture was here pre-#816; the
+                                // lyrics conversion below reuses the
+                                // earlier bindings.
+                                let _hints_captured_above = {
+                                    (artist_hint.clone(), album_hint.clone())
                                 };
                                 // Phase 3.5g: surface the companion-lyrics
                                 // phase to the per-item bar. With #712's
@@ -9272,6 +9311,73 @@ pub fn process_queue(
                                 drop(q);
                             }
 
+                            // Step 6c (#295 Phase A): Odesli cross-platform URL
+                            // lookup. Opt-in via `odesli_lookup_enabled`. The
+                            // call is rate-limited at ~1.1 s between requests
+                            // (well below the 10 req/min free-tier cap) by
+                            // `odesli_service`'s per-process limiter, so the
+                            // wait time is bounded regardless of how many
+                            // albums are enriching in parallel. Result is
+                            // threaded into `write_manifest` below.
+                            //
+                            // Skipped silently on:
+                            //   - feature toggle off
+                            //   - empty URL list (defensive)
+                            //   - API miss / network failure (logged at debug)
+                            let cross_platform_urls = if enrich_settings.odesli_lookup_enabled
+                                && !enrich_shutdown.is_triggered()
+                            {
+                                let source_url = enrich_urls
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or_default();
+                                if source_url.is_empty() {
+                                    None
+                                } else {
+                                    set_label(
+                                        "Odesli: looking up cross-platform URLs…",
+                                        ProgressStage::Finalising.weight(),
+                                    );
+                                    let key = if enrich_settings.odesli_api_key.is_empty() {
+                                        None
+                                    } else {
+                                        Some(enrich_settings.odesli_api_key.as_str())
+                                    };
+                                    match crate::services::odesli_service::fetch_links(
+                                        &source_url,
+                                        key,
+                                    )
+                                    .await
+                                    {
+                                        Ok(Some(urls)) if !urls.is_empty() => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!(
+                                                    "Odesli: discovered {} cross-platform URL(s)",
+                                                    urls.len()
+                                                ),
+                                            );
+                                            Some(urls)
+                                        }
+                                        Ok(_) => {
+                                            log::debug!(
+                                                "Odesli: no cross-platform matches for {source_url}"
+                                            );
+                                            None
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Odesli lookup failed for {source_url}: {e}"
+                                            );
+                                            None
+                                        }
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
                             // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
@@ -9285,6 +9391,7 @@ pub fn process_queue(
                                 album_metadata.as_ref(),
                                 &enrich_settings,
                                 &enrich_started_at,
+                                cross_platform_urls,
                             );
                             emit_download_log(
                                 &enrich_app,
@@ -9621,9 +9728,67 @@ pub fn process_queue(
                                                     .unwrap_or(output_dir.clone())
                                             }
                                         };
-                                        super::metadata_tag_service::apply_advisory_suffixes_from_tags(
-                                            &dir_for_advisory,
-                                        );
+                                        // #815 defensive fix: the advisory pass is
+                                        // a sync recursive fs walk. On a slow
+                                        // network share / disconnected cloud
+                                        // mount / pathological tree it can hang
+                                        // for hours and block the completion
+                                        // task — preventing the set_complete +
+                                        // on_task_finished that release the queue
+                                        // slot. Wrap in spawn_blocking + timeout
+                                        // so:
+                                        //   1. The sync walk runs on a dedicated
+                                        //      blocking thread (doesn't block the
+                                        //      runtime).
+                                        //   2. If it doesn't finish in
+                                        //      ADVISORY_TIMEOUT, we log a warning
+                                        //      and let the completion task
+                                        //      proceed. The orphaned blocking
+                                        //      thread keeps running on its own
+                                        //      — no leak from the runtime's
+                                        //      perspective.
+                                        //
+                                        // Result: even if the advisory pass
+                                        // hangs forever, the queue slot still
+                                        // gets released and the next item
+                                        // starts.
+                                        const ADVISORY_TIMEOUT: std::time::Duration =
+                                            std::time::Duration::from_secs(300);
+                                        let dir_clone = dir_for_advisory.clone();
+                                        let blocking = tokio::task::spawn_blocking(move || {
+                                            super::metadata_tag_service::apply_advisory_suffixes_from_tags(
+                                                &dir_clone,
+                                            );
+                                        });
+                                        match tokio::time::timeout(ADVISORY_TIMEOUT, blocking).await {
+                                            Ok(Ok(())) => {
+                                                // Normal completion — advisory pass
+                                                // finished in time.
+                                            }
+                                            Ok(Err(join_err)) => {
+                                                log::warn!(
+                                                    "Advisory pass panicked for {completion_dl_id}: {join_err} — proceeding to set_complete anyway"
+                                                );
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    "⚠ Final tag pass: internal error — proceeding to completion to keep the queue moving",
+                                                );
+                                            }
+                                            Err(_) => {
+                                                log::warn!(
+                                                    "Advisory pass timed out after {ADVISORY_TIMEOUT:?} for {completion_dl_id} — proceeding to set_complete (orphaned blocking task continues in background)"
+                                                );
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    &format!(
+                                                        "⚠ Final tag pass timed out after {} min — proceeding to completion to keep the queue moving. Already-completed renames are preserved on disk.",
+                                                        ADVISORY_TIMEOUT.as_secs() / 60,
+                                                    ),
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -839,6 +839,34 @@ pub struct AppSettings {
     #[serde(default)]
     pub musicbrainz_lookup: bool,
 
+    /// **Odesli (song.link) cross-platform URL lookup** (#295 Phase A).
+    ///
+    /// When enabled, after the primary download MeedyaDL queries
+    /// Odesli's API (`api.song.link/v1-alpha.1/links?url=…`) with
+    /// the album URL and stores the returned per-platform URLs
+    /// (Spotify / YouTube / Tidal / Deezer / Amazon Music /
+    /// SoundCloud / Bandcamp / Pandora / …) in the manifest's
+    /// `ManifestSource.cross_platform_urls` field.
+    ///
+    /// **Rate limit**: free tier is 10 req/min (one album = one
+    /// request). Set [`odesli_api_key`] for the 60 req/min tier if
+    /// you regularly download many albums in a short window. Without
+    /// a key, MeedyaDL's per-process limiter throttles to ~54
+    /// req/min so a free-tier user can't burst-trip the cap.
+    #[serde(default)]
+    pub odesli_lookup_enabled: bool,
+
+    /// **Odesli API key** (#295 Phase A — optional).
+    ///
+    /// Free-tier requests have no auth requirement. Setting this
+    /// field bumps your account to the 60 req/min tier — useful for
+    /// power users with large libraries. Get a key at
+    /// <https://songlink.notion.site/API-d0ebe08a5e304a55928405eb682f6741>.
+    ///
+    /// Empty string ⇒ free tier (default).
+    #[serde(default)]
+    pub odesli_api_key: String,
+
     // ================================================================
     // Lyrics
     // ================================================================
@@ -1736,6 +1764,8 @@ impl Default for AppSettings {
             music_video_companion: false,
             // MusicBrainz lookup disabled by default — opt-in for video discovery fallback.
             musicbrainz_lookup: false,
+            odesli_lookup_enabled: false,
+            odesli_api_key: String::new(),
 
             // --- Lyrics ---
             // Enabled by default: embed lyrics in audio metadata.

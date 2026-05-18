@@ -2443,3 +2443,29 @@ pub struct RedownloadInfo {
     /// Album name from the previous download.
     pub album: Option<String>,
 }
+
+/// Enrichment gap detection for a Library Scan row (#759 Phase 1).
+///
+/// Given an album directory, reads any `manifest.meedyadl` in it +
+/// inspects the directory's files, and reports per-stage status
+/// (complete / missing / unknown). The Library Scan UI calls this
+/// to render a "12/15 stages complete" badge per row.
+///
+/// **Frontend caller:** `scanEnrichmentGaps(albumDir)` in
+/// `src/lib/tauri-commands.ts`.
+///
+/// Pure read — no side effects. Tag-embedded stages without a
+/// manifest record return "unknown" so legacy downloads aren't
+/// falsely flagged as missing (Phase 1 limitation).
+#[tauri::command]
+pub fn scan_enrichment_gaps(
+    album_dir: String,
+) -> crate::services::enrichment_gaps::EnrichmentGapReport {
+    let dir = std::path::PathBuf::from(&album_dir);
+    // Read the manifest if one exists alongside the audio files.
+    let manifest_path = dir.join("manifest.meedyadl");
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<crate::models::manifest::ManifestFile>(&s).ok());
+    crate::services::enrichment_gaps::scan_album_dir(&dir, manifest.as_ref())
+}
