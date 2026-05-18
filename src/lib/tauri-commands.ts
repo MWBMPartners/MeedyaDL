@@ -736,6 +736,49 @@ export function retryDownload(downloadId: string): Promise<void> {
 }
 
 /**
+ * Result of a `retry_failed_bulk` call (#835).
+ *
+ * `requested` is the input length. `retried` is the count of items
+ * that actually transitioned back to Queued. `skipped` is one entry
+ * per item that couldn't be retried, with the reason — typically
+ * "All N tracks already on disk" (smart-retry planner) or "Item is
+ * not in a retryable state" (e.g. user-cancelled mid-flight, item
+ * already completed before the bulk request landed).
+ */
+export interface BulkRetrySkipped {
+  id: string;
+  reason: string;
+}
+
+export interface BulkRetryReport {
+  requested: number;
+  retried: number;
+  skipped: BulkRetrySkipped[];
+}
+
+/**
+ * Bulk-retry every failed download in one IPC round-trip (#835).
+ *
+ * Pre-#835 the Queue page's "Retry All Failed" button mapped over
+ * the failed items and called `retryDownload` per item via
+ * `Promise.allSettled`. Each call held the queue mutex 3 times,
+ * peeked smart-retry, persisted queue.json, and kicked
+ * `process_queue` — 29 failed items = ~90 mutex acquisitions and
+ * 29 disk writes, taking minutes on the affected user's system.
+ *
+ * This wrapper hands the whole batch to the Rust side which does
+ * the same per-item work but persists / kicks process_queue / emits
+ * one summary log line — ONCE for the whole batch instead of N
+ * times. Per-item `download-queued` events are still emitted so
+ * the per-row UI animation works as before.
+ *
+ * Always resolves (per-item failures are aggregated in `skipped`).
+ */
+export function retryFailedBulk(downloadIds: string[]): Promise<BulkRetryReport> {
+  return invoke<BulkRetryReport>('retry_failed_bulk', { downloadIds });
+}
+
+/**
  * Move a `Queued` item to the top of the pending sub-sequence (#782).
  *
  * Rust handler: `move_queue_item_to_top()` in

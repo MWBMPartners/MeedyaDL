@@ -1149,6 +1149,7 @@ pub fn run() {
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
             commands::gamdl::retry_download,
+            commands::gamdl::retry_failed_bulk,
             commands::gamdl::retry_download_without_wrapper,
             commands::gamdl::move_queue_item_to_top,
             commands::gamdl::move_queue_item_to_bottom,
