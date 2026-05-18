@@ -3059,16 +3059,33 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.cover_size = Some(settings.cover_size);
     options.overwrite = Some(settings.overwrite);
     options.language = Some(settings.language.clone());
-    options.album_folder_template = Some(settings.album_folder_template.clone());
-    options.compilation_folder_template = Some(settings.compilation_folder_template.clone());
-    options.no_album_folder_template = Some(settings.no_album_folder_template.clone());
+    // Every template field is passed through
+    // `config_service::resolve_meedyadl_template_vars` BEFORE assignment
+    // so MeedyaDL-introduced placeholders (currently `{platform}`, #829)
+    // are resolved to concrete values. Without this, GAMDL's Python
+    // `str.format(**metadata)` raises `KeyError: 'platform'` and every
+    // download fails — same path as the INI-write equivalent in
+    // `config_service::ini_template_section`. CLI-arg path matters
+    // because options can also be passed via `--album-folder-template`
+    // etc. when overriding INI defaults.
+    options.album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.album_folder_template,
+    ));
+    options.compilation_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.compilation_folder_template,
+    ));
+    options.no_album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.no_album_folder_template,
+    ));
     // `playlist_folder_template` is a GAMDL v3.0+ CLI flag (#618). We can
     // safely set the field on `options` unconditionally — the CLI-emission
     // path in `GamdlOptions::to_cli_args` gates the actual `--playlist-
     // folder-template` arg behind `GamdlFeature::PlaylistFolderTemplate`,
     // so v2.9.x still gets a crash-free invocation. Setting the field on
     // every version keeps `GamdlOptions` the canonical debug dump.
-    options.playlist_folder_template = Some(settings.playlist_folder_template.clone());
+    options.playlist_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.playlist_folder_template,
+    ));
     // Apply user-configurable zero-padding (#587). Padding widths are
     // derived from the user's settings; `resolve_width(None)` passes
     // `None` because `track_total` / `disc_total` aren't known at merge
@@ -3076,18 +3093,34 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     // pipeline. `Auto` mode falls back to pre-#587 defaults in that
     // case; fixed widths take effect immediately. See
     // `apply_padding_to_template` for the substitution rules.
+    //
+    // {platform} resolution runs FIRST, then padding rewrites
+    // `{track}` / `{disc}`. Order matters only insofar as one helper
+    // produces literal characters the other might touch — neither
+    // currently does (padding only matches `{track}` / `{disc}`;
+    // platform substitution only matches `{platform}`), so the order
+    // is purely cosmetic, but we keep `{platform}` first so the
+    // post-resolution debug dump shows the user-visible service name.
     options.single_disc_file_template = Some(apply_padding_to_template(
-        &settings.single_disc_file_template,
+        &super::config_service::resolve_meedyadl_template_vars(
+            &settings.single_disc_file_template,
+        ),
         settings.track_number_padding.resolve_width(None),
         settings.disc_number_padding.resolve_width(None),
     ));
     options.multi_disc_file_template = Some(apply_padding_to_template(
-        &settings.multi_disc_file_template,
+        &super::config_service::resolve_meedyadl_template_vars(
+            &settings.multi_disc_file_template,
+        ),
         settings.track_number_padding.resolve_width(None),
         settings.disc_number_padding.resolve_width(None),
     ));
-    options.no_album_file_template = Some(settings.no_album_file_template.clone());
-    options.playlist_file_template = Some(settings.playlist_file_template.clone());
+    options.no_album_file_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.no_album_file_template,
+    ));
+    options.playlist_file_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.playlist_file_template,
+    ));
     options.use_wrapper = Some(settings.use_wrapper);
     options.wrapper_account_url = Some(settings.wrapper_account_url.clone());
     // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the

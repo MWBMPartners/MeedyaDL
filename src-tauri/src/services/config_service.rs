@@ -534,6 +534,39 @@ fn sanitize_ini_value(value: &str) -> String {
     value.replace(['\n', '\r'], "")
 }
 
+/// Substitute MeedyaDL-introduced template variables before handing the
+/// template off to GAMDL.
+///
+/// GAMDL's `CustomStringFormatter` only knows about its own metadata
+/// keys (`artist`, `album`, `title`, `track`, `disc`, etc.). Any
+/// MeedyaDL-introduced placeholder must be resolved here BEFORE the
+/// template is written into GAMDL's `config.ini` or passed via CLI,
+/// otherwise GAMDL's Python `str.format(**metadata)` raises
+/// `KeyError: '<our-var>'` and the download fails.
+///
+/// Currently:
+/// - `{platform}` → `"AppleMusic"` (only supported service today; will
+///   become per-queue-item once M8 / M9 / M10 land).
+///
+/// **Why this exists (#829):** `{platform}` was added to the frontend
+/// `TEMPLATE_VARIABLES` registry in #309 (April 2026) for multi-service
+/// preparedness, but the corresponding write-time substitution was
+/// never implemented. #800 (v1.6.0 bundle) then added the `[Platform]`
+/// chip to every `TemplateBuilder` instance by default, making the
+/// broken variable highly discoverable. Any user who clicked the chip
+/// got `Error processing "...": 'platform'` on every download until
+/// they manually removed the chip from their templates.
+pub(crate) fn resolve_meedyadl_template_vars(template: &str) -> String {
+    // Short-circuit the common case (no MeedyaDL vars in the template)
+    // to avoid an unnecessary allocation. The check is cheap — if the
+    // template doesn't contain `{platform}`, return the original slice
+    // unchanged via `to_string`.
+    if !template.contains("{platform}") {
+        return template.to_string();
+    }
+    template.replace("{platform}", "AppleMusic")
+}
+
 /// Validate a user-provided path for safety (#459).
 ///
 /// Rejects paths containing traversal sequences (`..`) that could
@@ -751,22 +784,35 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output path templates use Python format strings with metadata placeholders.
     // Example: "{album_artist}/{album}" -> "Taylor Swift/1989 (Taylor's Version)"
     // Ref: https://github.com/glomatico/gamdl#output-path-template
+    // Every template field below is passed through
+    // `resolve_meedyadl_template_vars` BEFORE `sanitize_ini_value` so
+    // MeedyaDL-introduced placeholders (currently just `{platform}`,
+    // #829) are resolved to concrete values that GAMDL's metadata dict
+    // actually contains. Without this, GAMDL's
+    // `CustomStringFormatter.format(**metadata)` raises
+    // `KeyError: '<our-var>'` and every download fails.
     if !settings.album_folder_template.is_empty() {
         lines.push(format!(
             "album_folder_template = {}",
-            sanitize_ini_value(&settings.album_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.album_folder_template
+            ))
         ));
     }
     if !settings.compilation_folder_template.is_empty() {
         lines.push(format!(
             "compilation_folder_template = {}",
-            sanitize_ini_value(&settings.compilation_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.compilation_folder_template
+            ))
         ));
     }
     if !settings.no_album_folder_template.is_empty() {
         lines.push(format!(
             "no_album_folder_template = {}",
-            sanitize_ini_value(&settings.no_album_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.no_album_folder_template
+            ))
         ));
     }
     // `playlist_folder_template` is GAMDL v3.0+ only (#618). On v2.9.x the
@@ -781,31 +827,41 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
     {
         lines.push(format!(
             "playlist_folder_template = {}",
-            sanitize_ini_value(&settings.playlist_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.playlist_folder_template
+            ))
         ));
     }
     if !settings.single_disc_file_template.is_empty() {
         lines.push(format!(
             "single_disc_file_template = {}",
-            sanitize_ini_value(&settings.single_disc_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.single_disc_file_template
+            ))
         ));
     }
     if !settings.multi_disc_file_template.is_empty() {
         lines.push(format!(
             "multi_disc_file_template = {}",
-            sanitize_ini_value(&settings.multi_disc_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.multi_disc_file_template
+            ))
         ));
     }
     if !settings.no_album_file_template.is_empty() {
         lines.push(format!(
             "no_album_file_template = {}",
-            sanitize_ini_value(&settings.no_album_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.no_album_file_template
+            ))
         ));
     }
     if !settings.playlist_file_template.is_empty() {
         lines.push(format!(
             "playlist_file_template = {}",
-            sanitize_ini_value(&settings.playlist_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.playlist_file_template
+            ))
         ));
     }
 }
@@ -942,6 +998,56 @@ mod tests {
         fn drop(&mut self) {
             gamdl_capabilities::set_detected_version(self.previous.take());
         }
+    }
+
+    // ----------------------------------------------------------
+    // resolve_meedyadl_template_vars (#829)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn platform_var_is_substituted_to_apple_music() {
+        assert_eq!(
+            resolve_meedyadl_template_vars("{platform}/{album_artist}/{album}"),
+            "AppleMusic/{album_artist}/{album}"
+        );
+    }
+
+    #[test]
+    fn platform_var_substitutes_every_occurrence() {
+        // Defensive: a user could put `{platform}` in both folder AND
+        // file templates and the result must substitute consistently.
+        assert_eq!(
+            resolve_meedyadl_template_vars("[{platform}]/{artist}/{platform}-cover"),
+            "[AppleMusic]/{artist}/AppleMusic-cover"
+        );
+    }
+
+    #[test]
+    fn templates_without_platform_pass_through_unchanged() {
+        // The short-circuit branch must not corrupt templates that
+        // don't mention `{platform}`. GAMDL's own placeholders
+        // (`{album_artist}`, `{album}`, `{track}`) survive verbatim.
+        let template = "{album_artist}/{album}/{track:02d} {title}";
+        assert_eq!(resolve_meedyadl_template_vars(template), template);
+    }
+
+    #[test]
+    fn ini_template_section_resolves_platform_var() {
+        // End-to-end: settings with `{platform}` in a folder template
+        // must produce an INI line that already has it substituted.
+        // Pre-#829, GAMDL would read the unresolved `{platform}` and
+        // crash on `KeyError: 'platform'` at first download.
+        let mut settings = default_settings();
+        settings.album_folder_template = "{platform}/{album_artist}/{album}".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(
+            ini.contains("album_folder_template = AppleMusic/{album_artist}/{album}"),
+            "expected substituted template in INI, got:\n{ini}"
+        );
+        assert!(
+            !ini.contains("album_folder_template = {platform}"),
+            "unresolved {{platform}} leaked into INI:\n{ini}"
+        );
     }
 
     // ----------------------------------------------------------

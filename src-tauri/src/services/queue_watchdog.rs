@@ -130,12 +130,25 @@ struct ItemState {
 /// Public entry point — spawn the watchdog task. Call once from the
 /// Tauri `.setup()` closure. The task runs until the shutdown signal
 /// fires.
+///
+/// **Important (#827):** must use `tauri::async_runtime::spawn`, NOT
+/// `tokio::spawn`. On macOS the Tauri setup closure runs from the
+/// AppKit main thread inside `applicationDidFinishLaunching:` BEFORE
+/// the Tauri-managed Tokio runtime is registered as the *current*
+/// runtime, so `tokio::spawn` → `Handle::current()` panics. The panic
+/// crosses the `extern "C"` FFI boundary that tao uses to bridge into
+/// AppKit, which Rust can't unwind across, so it aborts the entire
+/// process. `tauri::async_runtime::spawn` looks up Tauri's runtime
+/// handle directly and is safe to call from any thread.
+///
+/// Same convention as `setup_queue_recovery()` in lib.rs — see the
+/// CLAUDE.md "Queue persistence" section.
 pub fn spawn_queue_watchdog(
     app: AppHandle,
     queue: Arc<Mutex<DownloadQueue>>,
     shutdown: Arc<ShutdownSignal>,
 ) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         log::info!("queue watchdog started — polling every {:?}", POLL_INTERVAL);
         let mut tracked: HashMap<String, ItemState> = HashMap::new();
         let mut ticker = tokio::time::interval(POLL_INTERVAL);
