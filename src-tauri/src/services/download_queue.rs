@@ -4370,6 +4370,41 @@ pub(crate) const MV_NO_ALBUM_FOLDER_TEMPLATE: &str = "{artist}/Music Videos";
 /// use this constant at all — their filenames remain clean.
 pub(crate) const MV_NO_ALBUM_FILE_TEMPLATE: &str = "{title} ({title_id})";
 
+/// Heuristic check that returns `true` when the supplied URL looks
+/// like it came from Apple Music's `editorialVideo` block rather than
+/// from the music-video catalog. Motion-art / spotlight HLS streams
+/// are hosted under a distinct subdomain pattern and never have a
+/// `music.apple.com/<region>/music-video/...` shape.
+///
+/// Used by [`download_music_video_by_url`] as a defensive guard
+/// against the #536 failure mode where a motion-art URL would be
+/// passed in by mistake (e.g. a future caller refactor that confuses
+/// `relationships.music-videos.data` with `editorialVideo`).
+///
+/// Two positive signals:
+///   1. Host contains "video-ssl.itunes.apple.com" /
+///      "play-edge.itunes.apple.com" → these are Apple's HLS hosts
+///      for editorial / motion art, never used for music-video
+///      master m3u8s (which come from the GAMDL DRM resolver path).
+///   2. Path ends in `.m3u8` AND there's no `/music-video/` segment
+///      anywhere in the URL.
+///
+/// False negative is tolerable (we just fall through and GAMDL tells
+/// us the URL is bad); false positive would block a real MV, so the
+/// signals are deliberately conservative.
+fn is_likely_motion_art_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("/music-video/") {
+        return false; // unambiguously an MV catalog URL
+    }
+    // Apple's editorial HLS hosts.
+    let looks_like_editorial_host = lower.contains("video-ssl.itunes.apple.com")
+        || lower.contains("play-edge.itunes.apple.com")
+        || lower.contains("itunes.apple.com/video-cdn");
+    let looks_like_hls = lower.ends_with(".m3u8") || lower.contains(".m3u8?");
+    looks_like_editorial_host && looks_like_hls
+}
+
 /// Shared helper used by both the MusicKit-based video companion pipeline
 /// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
 /// minimal `GamdlOptions` using the user's video quality settings and
@@ -4384,6 +4419,39 @@ async fn download_music_video_by_url(
     video_label: &str,
     settings: &crate::models::settings::AppSettings,
 ) -> bool {
+    // Defensive guard (#536): motion-art HLS URLs (album cover /
+    // portrait cover / album spotlight / artist spotlight) come from
+    // the API's `editorialVideo` block and are processed by
+    // `animated_artwork_service` with fixed filenames (FrontCover.mp4
+    // / FrontCoverPortrait.mp4 / AlbumSpotlightCover.mp4 /
+    // ArtistSpotlightCover.mp4). They are NOT DRM-protected music
+    // videos and must never reach GAMDL's MV pipeline — which would
+    // try to apply DRM unwrapping and route the file through
+    // `no_album_*` templates, producing `[Unknown]/-.mp4`-style
+    // collision-prone paths (the #527 / #532 failure mode).
+    //
+    // Architecturally the two pipelines read different API fields and
+    // cannot cross-pollinate by construction (motion art comes from
+    // `extend=editorialVideo` URLs; MVs come from `relationships.
+    // music-videos.data[*].attributes.url`). This guard is a
+    // belt-and-braces sanity check that catches any future regression
+    // — if a motion-art URL somehow reaches here, we bail out with a
+    // clear log + activity-log line rather than corrupt the user's
+    // motion-art assets.
+    if is_likely_motion_art_url(video_url) {
+        log::warn!(
+            "Refusing to route motion-art URL through GAMDL MV pipeline (#536): {video_label} \
+             — should go through animated_artwork_service instead"
+        );
+        emit_app_log(
+            app,
+            &format!(
+                "Skipped MV download — URL looks like motion-art (cover / spotlight) which doesn't belong in the music-video pipeline: {video_label}"
+            ),
+        );
+        return false;
+    }
+
     // Inherit the user's filename/folder templates, tool paths, and metadata
     // settings so the music video output matches what the primary pipeline
     // produces. Without these, GAMDL falls back to its own defaults which
@@ -14553,5 +14621,58 @@ mod tests {
         assert_ne!(studio_b, live_b, "title-collides studio vs live must still differ via {{title_id}}");
         assert_ne!(studio_b, acoustic_b, "title-collides studio vs acoustic must still differ via {{title_id}}");
         assert_ne!(live_b, acoustic_b, "title-collides live vs acoustic must still differ via {{title_id}}");
+    }
+
+    // ============================================================
+    // is_likely_motion_art_url (#536) — defensive guard tests
+    // ============================================================
+
+    #[test]
+    fn motion_art_url_detector_recognises_editorial_hls() {
+        // Apple's editorial HLS host + .m3u8 = motion art.
+        assert!(super::is_likely_motion_art_url(
+            "https://video-ssl.itunes.apple.com/itunes-assets/HLS/.../motion.m3u8"
+        ));
+        assert!(super::is_likely_motion_art_url(
+            "https://play-edge.itunes.apple.com/playback/v1/playlist/.../artist-spotlight.m3u8?token=xyz"
+        ));
+    }
+
+    #[test]
+    fn motion_art_url_detector_passes_through_music_video_urls() {
+        // Real music-video URLs MUST NOT be flagged — they belong in
+        // the GAMDL MV pipeline.
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/us/music-video/song-title/1639963816"
+        ));
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/gb/music-video/mv/1234567890"
+        ));
+    }
+
+    #[test]
+    fn motion_art_url_detector_passes_through_album_urls() {
+        // Regular album / song URLs are clearly not motion art.
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/us/album/some-album/1234567"
+        ));
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/gb/song/title/9999?i=8888"
+        ));
+    }
+
+    #[test]
+    fn motion_art_url_detector_requires_both_signals() {
+        // editorial host BUT not an HLS playlist → not flagged
+        // (the guard is conservative — false positives would block
+        // a real download).
+        assert!(!super::is_likely_motion_art_url(
+            "https://video-ssl.itunes.apple.com/some/other/path"
+        ));
+        // HLS playlist on an unrelated host → not flagged (could be
+        // a legitimate MV master m3u8 from a CDN we don't recognise).
+        assert!(!super::is_likely_motion_art_url(
+            "https://cdn.example.com/master.m3u8"
+        ));
     }
 }
