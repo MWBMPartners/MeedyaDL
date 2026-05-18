@@ -10,6 +10,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.8.0 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -36,6 +37,65 @@ This changelog is automatically generated from [conventional commits](https://ww
   Trimmed titles ship to end users as the release-notes line via
   release-please, so the rule was actively degrading release-notes
   quality.
+
+- **(823)** Harden npm ci against Windows pwsh-swallow-output flake (#824)
+
+## Summary
+
+  CI run #1470
+  ([26049382561](https://github.com/MWBMPartners/MeedyaDL/actions/runs/26049382561))
+  failed at Frontend (windows-latest) → Install dependencies with **zero
+  output between the `npm ci` echo and `Process completed with exit code
+  1`**. A rerun on the same SHA passed; the Backend (windows-latest) job
+  on the same run/SHA/invocation passed first time.
+
+  Root cause: GitHub Actions' default `pwsh -command \". '{0}'\"` shell on
+  Windows runners has a known failure mode where it silently swallows a
+  child process's stdout/stderr when the process exits mid-output-flush.
+  With a cold npm cache (`npm cache is not found` in the preceding
+  setup-node step), `npm ci` had to download all 529 packages while
+  Windows Defender scanned each extracted file, and npm's progress-bar TTY
+  updates were the failure surface.
+
+  This PR applies Option B + C from the diagnosis: switch shell + quiet
+  npm flags.
+
+  ## Changes
+
+  Both `npm ci` invocations in `.github/workflows/ci.yml` (Frontend job
+  step 3 + Backend job step 6) now use:
+
+  ```yaml
+  - shell: bash                                # sidesteps the pwsh dot-source pattern
+    run: npm ci --no-audit --no-fund --no-progress
+  ```
+
+  - **`shell: bash`** works uniformly on all 3 platforms — native bash on
+  Linux/macOS, Git Bash on Windows (bundled with the runner image). No
+  platform-specific branching needed.
+  - **`--no-audit`** because the dedicated \"Security audit\" step at line
+  138 already runs `npm audit --audit-level=high`. No coverage lost.
+  - **`--no-fund`** skips an informational-only network call.
+  - **`--no-progress`** removes the TTY progress-bar that pwsh swallows.
+
+  ## Why both options
+
+  Option B alone (just the flags) would remove the progress-bar
+  interaction but the pwsh dot-source pattern is still in the picture and
+  can swallow output from other npm operations (post-install scripts,
+  etc.). Option C alone (just `shell: bash`) leaves the progress bar
+  pumping unnecessary TTY traffic and the audit/fund network calls slowing
+  CI. Combined, they eliminate the entire class of failure.
+
+  ## Verification
+
+  - ✅ YAML parses (`python3 -c \"import yaml; yaml.safe_load(...)\"`)
+  - ✅ Local `npm ci --no-audit --no-fund --no-progress` runs cleanly in 19
+  s with 529 packages installed.
+  - Plan after merge: 5 consecutive green CI runs on Frontend
+  (windows-latest) before treating this as proven fixed. If the failure
+  recurs, the log will now contain npm's actual error output (no pwsh in
+  the picture).
 
 
 ## [1.8.0] - 2026-05-18
