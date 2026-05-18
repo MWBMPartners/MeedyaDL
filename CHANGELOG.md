@@ -62,6 +62,18 @@ v1.6.0 was flipped to Pre-release after the v1.8.0 hotfix cycle
 
   [skip ci]
 
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.8.1 hotfix release notes draft
+
+User-facing notes for the v1.8.1 hotfix bundle (#828) — focused
+  two-bug release covering #827 (macOS startup crash) and #829
+  ({platform} template KeyError on every download). The
+  preserve_release_body workflow will apply this file to the v1.8.1
+  GitHub Release body on publish.
+
+  [skip ci]
+
+- **(security)** Update supported versions to 1.8.1 [skip ci]
 
 ### 🔄 CI/CD
 
