@@ -1090,6 +1090,11 @@ fn write_manifest(
         codec: None,
         last_modified_date: album_metadata.and_then(|m| m.last_modified_date.clone()),
         tracks,
+        // Phase 1 (#759): per-stage enrichment record. Initial
+        // manifest write happens before enrichment runs, so all
+        // stages are absent here; the post-stage hooks will add
+        // records as each stage completes (Phase 2 wiring).
+        enrichment: None,
     };
 
     // Read existing manifest or create new

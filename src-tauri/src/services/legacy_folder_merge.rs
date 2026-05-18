@@ -786,6 +786,7 @@ mod tests {
             codec: Some("atmos".to_string()),
             last_modified_date: None,
             tracks: Vec::new(),
+            enrichment: None,
         });
         let companion_manifest = ManifestFile::new(ManifestSource {
             platform: "apple-music".to_string(),
@@ -795,6 +796,7 @@ mod tests {
             codec: Some("alac".to_string()),
             last_modified_date: None,
             tracks: Vec::new(),
+            enrichment: None,
         });
 
         std::fs::write(

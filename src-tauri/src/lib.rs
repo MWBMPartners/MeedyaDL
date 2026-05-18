@@ -1178,6 +1178,7 @@ pub fn run() {
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
+            commands::gamdl::scan_enrichment_gaps,
             // Legacy sibling-folder merge for pre-#528 downloads (#789)
             commands::gamdl::detect_legacy_folder_pairs,
             commands::gamdl::preview_legacy_folder_merge,

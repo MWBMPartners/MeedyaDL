@@ -343,6 +343,18 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// Enrichment gap detection (#759 Phase 1).
+///
+/// Inspects an album directory + its `manifest.meedyadl` and reports
+/// which enrichment stages (ReplayGain, AcoustID, MusicBrainz,
+/// Enhanced LRC, animated artwork, …) are missing. Hybrid signals:
+/// manifest record when present, file-based heuristics for sidecar
+/// outputs (LRC / SRT / VTT / ASS / FrontCover.mp4 / Cover.{jpg,png}).
+/// Stages whose output is tag-embedded with no manifest record
+/// return "unknown" — Phase 2 adds ffprobe-based tag detection.
+/// Runner that re-executes missing stages is deferred to Phase 2.
+pub mod enrichment_gaps;
+
 /// Opt-in diagnostic bundle composer (#572 Phase 1).
 ///
 /// Composes a redacted Markdown report covering system state at

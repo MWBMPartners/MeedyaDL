@@ -50,6 +50,8 @@ import {
 
 import {
   scanFolderForManifests,
+  scanEnrichmentGaps,
+  type EnrichmentGapReport,
   diffLibraryScanManifest,
   checkLibraryScanFreshness,
   startDownload,
@@ -133,6 +135,65 @@ function FreshnessBadge({
   );
 }
 
+/**
+ * Per-row enrichment-completeness badge (#759 Phase 1). Shows
+ * `M/T complete` (green when M == T, amber when M < T) with a
+ * tooltip listing every missing stage by display name.
+ *
+ * Three states:
+ * - `undefined` (gap scan still in flight) → faint ellipsis
+ * - `missing_count == 0 && unknown_count == 0` → "All complete"
+ * - otherwise → "M/T complete" with a missing/unknown breakdown
+ *
+ * "Unknown" stages are counted separately so a legacy download
+ * with no manifest record doesn't get falsely flagged as missing.
+ */
+function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }) {
+  if (!report) {
+    return <span className="text-content-tertiary text-xs">…</span>;
+  }
+  const { missing_count, complete_count, unknown_count, stages } = report;
+  const total = stages.length;
+  const isComplete = missing_count === 0 && unknown_count === 0;
+  if (isComplete) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success"
+        title={`All ${total} enrichment stages complete.`}
+      >
+        <CheckCircle2 size={12} />
+        All complete
+      </span>
+    );
+  }
+  const missingList = stages
+    .filter((s) => s.status === 'missing')
+    .map((s) => s.label)
+    .join('\n  • ');
+  const unknownList = stages
+    .filter((s) => s.status === 'unknown')
+    .map((s) => s.label)
+    .join('\n  • ');
+  const tooltip = [
+    missing_count > 0 ? `Missing (${missing_count}):\n  • ${missingList}` : null,
+    unknown_count > 0
+      ? `Status unknown — Phase 2 will add ffprobe-based detection (${unknown_count}):\n  • ${unknownList}`
+      : null,
+    `Complete: ${complete_count}/${total}`,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning"
+      title={tooltip}
+    >
+      <AlertCircle size={12} />
+      {complete_count}/{total} stages
+    </span>
+  );
+}
+
 export function LibraryScanPage() {
   const addToast = useUiStore((s) => s.addToast);
   const mvCompanionEnabled = useSettingsStore(
@@ -165,6 +226,14 @@ export function LibraryScanPage() {
   const [pendingGapFill, setPendingGapFill] = useState<ScannedManifest | null>(
     null
   );
+  /**
+   * Per-manifest enrichment-gap reports (#759 Phase 1). Filled in
+   * lazily after the scan finishes — each row dispatches its own
+   * `scanEnrichmentGaps` IPC. The detector is pure filesystem
+   * (no network), so all rows can run in parallel. Map keyed by
+   * `manifest_path`.
+   */
+  const [gaps, setGaps] = useState<Record<string, EnrichmentGapReport>>({});
 
   /**
    * Concurrency cap for the per-row Apple Music freshness check
@@ -251,6 +320,7 @@ export function LibraryScanPage() {
     setScanning(true);
     setDiffs({});
     setFreshness({});
+    setGaps({});
     try {
       const manifests = await scanFolderForManifests();
       setResults(manifests);
@@ -291,6 +361,22 @@ export function LibraryScanPage() {
       // MusicKit credentials (the dominant case in practice), so this
       // is also a no-op for most users.
       void runFreshnessChecks(manifests);
+
+      // #759 Phase 1: per-row enrichment-gap detection. Pure
+      // filesystem reads — no network — so all rows run in parallel
+      // without throttling. Results merge into `gaps` map as they
+      // resolve.
+      void Promise.allSettled(
+        manifests.map(async (m) => {
+          try {
+            const report = await scanEnrichmentGaps(m.album_dir);
+            setGaps((prev) => ({ ...prev, [m.manifest_path]: report }));
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`Gap scan failed for ${m.album_dir}: ${msg}`);
+          }
+        })
+      );
     } catch (err) {
       // User cancelled the folder picker, or I/O failure.
       const msg = err instanceof Error ? err.message : String(err);
@@ -369,6 +455,7 @@ export function LibraryScanPage() {
                 <th className="text-right px-4 py-2 font-medium">Tracks</th>
                 <th className="text-right px-4 py-2 font-medium">Files</th>
                 <th className="text-left px-4 py-2 font-medium">Codec</th>
+                <th className="text-left px-4 py-2 font-medium">Enrichment</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-left px-4 py-2 font-medium">Last download</th>
                 <th className="text-right px-4 py-2 font-medium">Action</th>
@@ -394,6 +481,9 @@ export function LibraryScanPage() {
                   </td>
                   <td className="px-4 py-2 uppercase text-xs text-content-secondary">
                     {m.current_codec ?? '—'}
+                  </td>
+                  <td className="px-4 py-2">
+                    <EnrichmentBadge report={gaps[m.manifest_path]} />
                   </td>
                   <td className="px-4 py-2">
                     <DiffBadge diff={diffs[m.manifest_path]} />
