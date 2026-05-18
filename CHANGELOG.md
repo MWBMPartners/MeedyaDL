@@ -6,6 +6,71 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.7.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(820)** Preserve workflow now also rewrites the published release body (#821)
+
+## Summary
+
+  v1.5.0, v1.6.0 and v1.7.0 all shipped with **blank release notes** on
+  GitHub. Each had to be rescued post-publish via `gh release edit
+  --notes-file`. Root cause: the existing `preserve-release-pr-body.yml`
+  workflow (from #812) only rewrites the PR body — it doesn't patch the
+  published release object — and it loses a timing race against
+  release-please's auto-merge.
+
+  This PR adds a `release.released` trigger and a sister
+  `preserve_release_body` job that re-applies
+  `.github/release-drafts/v<tag>.md` to the live GitHub Release at publish
+  time. Belt-and-braces: no matter who wins the PR-edit race, the
+  published release body still gets the user-facing content.
+
+  ## What changes
+
+  - New `release.released` workflow trigger on
+  `preserve-release-pr-body.yml`.
+  - New `preserve_release_body` job that runs only on the `release` event.
+  - Existing PR-body job renamed `preserve_pr_body` and gated to skip on
+  `release` so each event drives one job.
+  - `permissions.contents` bumped `read → write` (releases live under the
+  contents scope).
+  - The new job:
+    - Reads `.github/release-drafts/v<tag>.md` from main at publish time.
+  - Skips cleanly if the drafts file is missing (expected for prereleases
+  without a drafts file).
+  - Skips idempotently if the live body already contains the drafts
+  headline (so a `prerelease → released` flip doesn't clobber a body that
+  was manually rewritten in the meantime).
+  - Preserves the existing "Choose your download" footer that
+  `release.yml` appends after the per-platform builds finish.
+    - Applies the rewritten body via `gh release edit --notes-file`.
+
+  ## Why now
+
+  v1.8.0 will publish from `feat/v1.8-bumper-bundle` (PR #819) some time
+  after this lands. Without this patch, v1.8.0 would risk hitting the same
+  race as the previous three releases. Shipping this as a small, focused,
+  non-user-visible chore PR before v1.8 cuts means the v1.8.0 publish
+  event will be covered by the new safety net.
+
+  ## Verification
+
+  - ✅ YAML parses (`python3 -c "import yaml; yaml.safe_load(...)"`).
+  - Manual smoke-test plan after merge (no code path to unit-test):
+  - [ ] Manually flip a recent prerelease to `released` via `gh release
+  edit --prerelease=false`; verify the new job fires and re-applies the
+  drafts file.
+  - [ ] On the next real release publish, confirm the body contains the
+  drafts headline + the "Choose your download" footer.
+
+
+## [1.7.0] - 2026-05-18
+
 ### ✨ Features
 
 - **(v1.7)** Queue UX, GAMDL rollback, MV folder routing, auto-backup, diagnostics (13 closed) (#813)
@@ -55,7 +120,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.7.0 [skip ci]
 
 ### 🔄 CI/CD
 
