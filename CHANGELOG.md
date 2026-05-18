@@ -6,9 +6,66 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(v1.8)** Queue freeze recovery, Odesli lookup, library gaps, status bar split (10 closed) (#819)
+
+## What's new
+
+  - **Cross-platform URL lookup via Odesli (song.link)** — paste any Apple
+  Music, Spotify, YouTube, Tidal, Deezer, SoundCloud or Bandcamp link and
+  MeedyaDL can resolve the matching Apple Music entry (Phase A — currently
+  surfaced as a backend service ahead of the M9/M10 service rollout,
+  closes #295).
+  - **Library scan: enrichment gap detection** — the Library Scan page now
+  flags album folders that are missing expected sidecars or codec variants
+  so you can re-queue the gaps in one click (Phase 1 MVP, closes #759).
+
+  ## What's fixed
+
+  - **Queue no longer freezes on a stuck filesystem** — the post-companion
+  "Applying [Explicit]/[Clean] suffixes…" stage is now time-bounded. If a
+  network share, cloud mount or pathological directory tree hangs the
+  recursive walk, MeedyaDL warns once and moves on instead of silently
+  stalling the entire queue (closes #815). The visible symptom this fixes
+  is the "stuck at 95% for hours with no log lines" report from a 220-item
+  run.
+  - **External queue watchdog** — a new top-level safety net polls every
+  active item every 60 s and recovers any item whose progress signal
+  hasn't changed for 10 min (warning) or 20 min (auto-transition to Error
+  so the queue slot is released). Catches stuck downloads regardless of
+  root cause, even when the per-item heartbeat dies with its parent task
+  (closes #818).
+  - **Status bar now distinguishes "downloading" from "processing"** —
+  instead of a single lumped counter, the status bar shows separate chips
+  so you can tell at a glance whether an item is actively in GAMDL or in
+  post-companion / enrichment / final-tag stages (closes #817).
+  - **Companion final-tag pass no longer rewrites unrelated folders** —
+  the post-companion advisory rename is now correctly scoped to the album
+  directory of the current item rather than the whole output root,
+  preventing collateral renames on neighbouring albums (closes #816).
+  - **Dependency on meedya-core is now stable** — pinned to a commit
+  rather than a deleted branch ref, so fresh clones build reliably (closes
+  #352, #353, #596).
+
+  ## Notes
+
+  - **Apple Music station URL support (`/station/.../ra.*`)** — Phase 0
+  audit completed; blocked on upstream GAMDL accepting station URLs.
+  Tracker comment landed (#804).
+  - **Filesystem-safety audit v1** — internal audit catalogued 14 rename /
+  129 write / 8 copy sites across the codebase as the precondition for
+  follow-up hardening work (#487).
+  - **MeedyaSuite-core verification rule** — standing convention added:
+  dependency checks against the shared core go via the online repo, never
+  local checkouts. Prevents the class of "works on my machine" failures we
+  hit in the v1.6 cycle.
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.7.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
