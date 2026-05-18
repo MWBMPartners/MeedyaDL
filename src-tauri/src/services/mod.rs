@@ -343,6 +343,39 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// External queue watchdog (#818).
+///
+/// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
+/// the queue processor — that polls every 60 s and escalates queue
+/// items whose progress has been bit-identical for >10 min (WARN)
+/// or >20 min (transition to Error + release queue slot). Independent
+/// of the queue processor's task tree so a hang in the parent can't
+/// kill the watchdog. Recovers from the #815 silent-hang failure
+/// class without needing to identify each specific hang surface.
+pub mod queue_watchdog;
+
+/// Odesli (song.link) API client (#295 Phase A).
+///
+/// Cross-platform URL discovery — given an Apple Music URL, returns
+/// matching URLs for Spotify / YouTube / Tidal / Deezer / Amazon
+/// Music / SoundCloud / Bandcamp / Pandora / etc. Rate-limited per-
+/// process at 1 req/~1.1 s (well below the 10 req/min free tier).
+/// Phase A returns the URLs; integration into the manifest and the
+/// MeedyaMeta:*Url freeform atoms is wired in the enrichment task.
+pub mod odesli_service;
+
+/// Enrichment gap detection (#759 Phase 1).
+///
+/// Inspects an album directory + its `manifest.meedyadl` and reports
+/// which enrichment stages (ReplayGain, AcoustID, MusicBrainz,
+/// Enhanced LRC, animated artwork, …) are missing. Hybrid signals:
+/// manifest record when present, file-based heuristics for sidecar
+/// outputs (LRC / SRT / VTT / ASS / FrontCover.mp4 / Cover.{jpg,png}).
+/// Stages whose output is tag-embedded with no manifest record
+/// return "unknown" — Phase 2 adds ffprobe-based tag detection.
+/// Runner that re-executes missing stages is deferred to Phase 2.
+pub mod enrichment_gaps;
+
 /// Opt-in diagnostic bundle composer (#572 Phase 1).
 ///
 /// Composes a redacted Markdown report covering system state at

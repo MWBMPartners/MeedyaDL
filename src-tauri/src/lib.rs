@@ -1178,6 +1178,7 @@ pub fn run() {
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
+            commands::gamdl::scan_enrichment_gaps,
             // Legacy sibling-folder merge for pre-#528 downloads (#789)
             commands::gamdl::detect_legacy_folder_pairs,
             commands::gamdl::preview_legacy_folder_merge,
@@ -1434,6 +1435,25 @@ pub fn run() {
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
+
+            // Spawn the external queue watchdog (#818). Runs on its own
+            // top-level tokio task so it can't be killed by a hang in
+            // the queue processor's task tree — the failure mode that
+            // caused the v1.6.0 silent-stuck-download in #815. Polls
+            // every 60s; escalates items with bit-identical progress
+            // signal for >10min (WARN) or >20min (Error + release slot).
+            {
+                use tauri::Manager;
+                let queue: tauri::State<'_, services::download_queue::QueueHandle> =
+                    app.state();
+                let shutdown: tauri::State<'_, services::download_queue::ShutdownSignal> =
+                    app.state();
+                services::queue_watchdog::spawn_queue_watchdog(
+                    app.handle().clone(),
+                    queue.inner().clone(),
+                    std::sync::Arc::new(shutdown.inner().clone()),
+                );
+            }
 
             // Register the deep link URL handler for the `meedyadl://` scheme.
             // When an external tool opens a URL like:

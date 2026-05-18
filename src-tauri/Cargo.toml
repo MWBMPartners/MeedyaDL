@@ -67,9 +67,31 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 
 # ---- MeedyaSuite-core ----
-# Shared core library providing metadata providers, codec detection, and fingerprinting.
+# Shared core library providing metadata providers, codec detection,
+# fingerprinting, lyrics (LRC + LRCLIB), tag schemas, library-import,
+# and provider/credentials machinery.
+#
 # @see https://github.com/MWBMPartners/MeedyaSuite-core
-meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "claude/interesting-mirzakhani", features = ["full"] }
+#
+# **Pinned to a specific main-branch commit (rev = …)** rather than a
+# branch ref so reproducible builds don't break when feature branches
+# get deleted upstream. The previous pin to
+# `branch = "claude/interesting-mirzakhani"` silently broke fresh
+# clones after the upstream branch was removed — local cargo cache
+# still resolved cleanly, but anyone new hit
+# `error: failed to resolve git reference`. The online audit during
+# the v1.8 bumper bundle caught this; the rev pin prevents the same
+# class of breakage from recurring.
+#
+# `features = ["full"]` enables every module (metadata + codecs +
+# fingerprint + lyrics + providers + tags-extended + library-import + db).
+#
+# **Bumping this commit:**
+#   1. `gh api repos/MWBMPartners/MeedyaSuite-core/commits/main --jq '.sha'`
+#   2. Replace the `rev` below with the new SHA.
+#   3. `cargo update -p meedya-core` to refresh Cargo.lock.
+#   4. Run the full test suite — upstream may have changed APIs.
+meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "0a4654ff4db30d27fc0e29699f342a93ebc86d94", features = ["full"] }
 
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.

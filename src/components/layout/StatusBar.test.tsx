@@ -88,15 +88,22 @@ describe('StatusBar', () => {
     expect(screen.getByText(/2 downloading/)).toBeInTheDocument();
   });
 
-  /** Items in 'processing' state should also count as active. */
-  it('includes processing items in active count', () => {
+  /**
+   * Per #817: downloading and processing are surfaced as TWO
+   * distinct counters so the serial-queue invariant is visible.
+   * The pre-#817 behaviour lumped them as "2 downloading" which
+   * was misleading when an item was stuck in post-processing
+   * (#815 surfaced exactly this confusion in the user's screenshot).
+   */
+  it('splits downloading and processing into distinct counters (#817)', () => {
     useDownloadStore.setState({
       queueItems: [createItem('downloading'), createItem('processing')],
     });
 
     render(<StatusBar />);
 
-    expect(screen.getByText(/2 downloading/)).toBeInTheDocument();
+    expect(screen.getByText(/1 downloading/)).toBeInTheDocument();
+    expect(screen.getByText(/1 processing/)).toBeInTheDocument();
   });
 
   // =========================================================================

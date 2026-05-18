@@ -63,6 +63,52 @@ pub struct ManifestSource {
     /// Per-track metadata from the download.
     #[serde(default)]
     pub tracks: Vec<ManifestTrack>,
+
+    /// Per-enrichment-stage completion record (#759). `None` for
+    /// manifests written before this field existed; treat absent /
+    /// `None` as "stage status unknown — assume incomplete and let
+    /// the file-based gap detector make the final call". Present
+    /// records carry an ISO 8601 `completed_at` and a `stage_version`
+    /// so future schema bumps can re-run stages whose contract
+    /// changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrichment: Option<std::collections::BTreeMap<String, EnrichmentRecord>>,
+
+    /// Cross-platform URLs discovered for this album (#295 Phase A).
+    /// Keyed by Odesli's platform identifier (`spotify`,
+    /// `youtubeMusic`, `tidal`, `deezer`, `amazonMusic`, …). Sparse —
+    /// only populated when `odesli_lookup_enabled` was on at
+    /// download time AND Odesli returned matches. Absent for older
+    /// manifests / Odesli misses / lookup disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
+}
+
+/// Per-stage enrichment completion record (#759).
+///
+/// Recorded into the manifest after each enrichment stage runs to
+/// completion. The Library Scan gap-fill UI consults this to decide
+/// which stages need to be re-run.
+///
+/// Schema: keep additive only. New fields must be `#[serde(default)]`
+/// so old manifests deserialize cleanly. `stage_version = 1` is the
+/// initial baseline; bump per stage when the stage's output contract
+/// changes in a way that warrants forced re-run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnrichmentRecord {
+    /// ISO 8601 timestamp when the stage completed successfully.
+    /// `None` means "ran but failed / partial / timed out".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    /// Stage-contract version. Increment per stage when its output
+    /// changes incompatibly (e.g. ReplayGain switches from RG2 to
+    /// EBU R128). Defaults to 1 for any stage that hasn't bumped.
+    #[serde(default = "default_stage_version")]
+    pub stage_version: u32,
+}
+
+fn default_stage_version() -> u32 {
+    1
 }
 
 /// Metadata for a single track within a manifest source.
@@ -161,6 +207,8 @@ mod tests {
             codec: codec.map(String::from),
             last_modified_date: None,
             tracks: Vec::new(),
+            enrichment: None,
+            cross_platform_urls: None,
         }
     }
 

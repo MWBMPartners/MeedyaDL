@@ -121,10 +121,21 @@ export function StatusBar() {
    * queue sizes this is efficient enough without memoisation.
    */
 
-  /** Number of items currently downloading or being post-processed. */
-  const activeCount = queueItems.filter(
-    (i) => i.state === 'downloading' || i.state === 'processing'
-  ).length;
+  /**
+   * Split downloading vs processing (#817). Pre-fix, both were
+   * lumped into a single "N downloading" count, which violated the
+   * serial-queue invariant on screen — users would see "2 downloading"
+   * when one item was actively downloading via GAMDL and another was
+   * stuck in post-processing (e.g. the #815 silent-hang). Showing
+   * them separately gives a truthful signal: "1 downloading · 1
+   * processing" makes the stuck-post-processing state visible
+   * without misleading users that two GAMDL subprocesses are racing.
+   */
+  const downloadingCount = queueItems.filter((i) => i.state === 'downloading').length;
+  const processingCount = queueItems.filter((i) => i.state === 'processing').length;
+  /** Combined for backwards-compat with downstream conditions that
+   * just need to know "is anything active". */
+  const activeCount = downloadingCount + processingCount;
 
   /** Number of items waiting in the queue that have not yet started. */
   const queuedCount = queueItems.filter((i) => i.state === 'queued').length;
@@ -195,10 +206,23 @@ export function StatusBar() {
          * to draw attention to ongoing activity.
          * @see https://tailwindcss.com/docs/animation#pulse
          */}
-        {activeCount > 0 && (
+        {downloadingCount > 0 && (
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-status-info animate-pulse" />
-            {activeCount} downloading
+            {downloadingCount} downloading
+          </span>
+        )}
+        {/* Processing count (#817) — items past GAMDL exit and in
+         * the post-companion / enrichment / final-tag stages. Shown
+         * separately from `downloading` so the serial-queue
+         * invariant ("only 1 GAMDL subprocess active at a time") is
+         * visible without lumping stuck post-processing into the
+         * download count. Uses an hourglass-style amber dot to
+         * distinguish at a glance. */}
+        {processingCount > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-status-warning" />
+            {processingCount} processing
           </span>
         )}
         {/* Queued count -- items waiting to start */}

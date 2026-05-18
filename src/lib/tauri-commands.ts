@@ -270,6 +270,35 @@ export function installGamdlVersion(version: string): Promise<string> {
 }
 
 /**
+ * Enrichment gap detection (#759 Phase 1).
+ *
+ * Inspects an album directory + its `manifest.meedyadl` and reports
+ * which enrichment stages (ReplayGain, AcoustID, MusicBrainz,
+ * Enhanced LRC, animated artwork, …) are missing. Pure read — safe
+ * to call as often as the Library Scan UI needs.
+ *
+ * Tag-embedded stages without a manifest record return "unknown"
+ * so legacy downloads aren't falsely flagged as missing.
+ */
+export interface StageStatus {
+  stage: string;
+  status: 'complete' | 'missing' | 'unknown';
+  label: string;
+  key: string;
+}
+export interface EnrichmentGapReport {
+  album_dir: string;
+  audio_file_count: number;
+  stages: StageStatus[];
+  missing_count: number;
+  complete_count: number;
+  unknown_count: number;
+}
+export function scanEnrichmentGaps(albumDir: string): Promise<EnrichmentGapReport> {
+  return invoke<EnrichmentGapReport>('scan_enrichment_gaps', { albumDir });
+}
+
+/**
  * Diagnostic bundle composer (#572 Phase 1).
  *
  * Builds a redacted Markdown bundle (version info + settings snapshot +
