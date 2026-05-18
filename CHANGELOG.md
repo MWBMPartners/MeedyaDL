@@ -6,11 +6,62 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(v1.8.1)** MacOS startup crash (#827) + {platform} KeyError on every download (#829) (#828)
+
+## P0 hotfix bundle for v1.8.1
+
+  Two unrelated critical bugs surfaced within an hour of v1.8.0
+  publishing. Bundled into a single hotfix release so users only need one
+  update.
+
+  Mitigation already in place: **v1.8.0 + v1.7.0 are now
+  \`isPrerelease=true\`** (v1.7.0 ALSO has bug #829), \`Latest\` points at
+  **v1.6.0**, both release bodies carry a **Known Issues** banner
+  explaining the workaround. v1.6.0 left as Stable because it has the same
+  #829 chip but is the most-recent build that auto-update users had a
+  clean upgrade path TO before the breakage cascade started.
+
+  ## Fix 1 — #827: macOS startup crash
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.8.0 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add Known Issues banner to v1.7.0 + v1.8.0 drafts
+
+Sync the drafts files with what's now live on the GitHub Releases for
+  v1.7.0 and v1.8.0 — both bodies were updated post-publish with a
+  Known Issues banner explaining the {platform} KeyError (#829) and,
+  for v1.8.0 only, the macOS startup crash (#827).
+
+  Keeping the drafts in sync with the live releases means the next
+  release.released event for these tags (e.g. an idempotent re-trigger
+  via gh release edit) won't accidentally overwrite the banner with
+  stale content. The preserve_release_body workflow's idempotency
+  check (added in #820) compares the live body against the drafts
+  file's first non-empty line — both must reflect the same headline.
+
+  [skip ci]
+
+- **(release)** Add Known Issues banner to v1.6.0 drafts
+
+v1.6.0 was flipped to Pre-release after the v1.8.0 hotfix cycle
+  exposed that #800's `[Platform]` chip auto-addition made the
+  latent #309 substitution bug (#829) mass-discoverable. Same banner
+  as v1.7.0; macOS crash (#827) is not mentioned because that bug
+  was introduced in v1.8.0 via #818 and doesn't affect v1.6.x.
+
+  Sync the drafts file with the live release body so the
+  preserve_release_body workflow's idempotency check (#820) doesn't
+  overwrite the banner on a future re-trigger.
+
+  [skip ci]
+
 
 ### 🔄 CI/CD
 
