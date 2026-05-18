@@ -405,6 +405,7 @@ mod tests {
                     track(4, 1, "1004", url),
                 ],
                 enrichment: None,
+                cross_platform_urls: None,
             },
         );
         // Tracks 1 and 3 made it; 2 and 4 are missing.
@@ -444,6 +445,7 @@ mod tests {
                 last_modified_date: None,
                 tracks: vec![track(1, 1, "1001", url), track(2, 1, "1002", url)],
                 enrichment: None,
+                cross_platform_urls: None,
             },
         );
         touch(dir.path(), "01 Track 1.m4a");
@@ -478,6 +480,7 @@ mod tests {
                 last_modified_date: None,
                 tracks: vec![track(1, 1, "1001", "https://music.apple.com/gb/album/foo/123")],
                 enrichment: None,
+                cross_platform_urls: None,
             },
         );
         // Different album URL than what the manifest recorded.
@@ -506,6 +509,7 @@ mod tests {
                 last_modified_date: None,
                 tracks: vec![track(1, 1, "1001", album), track(2, 1, "1002", album)],
                 enrichment: None,
+                cross_platform_urls: None,
             },
         );
         // Disk has track 1 only.
@@ -537,6 +541,7 @@ mod tests {
                 last_modified_date: None,
                 tracks: vec![t],
                 enrichment: None,
+                cross_platform_urls: None,
             },
         );
         assert_eq!(plan_retry(dir.path(), url), PlanOutcome::NotApplicable);

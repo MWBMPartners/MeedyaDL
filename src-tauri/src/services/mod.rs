@@ -343,6 +343,16 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// Odesli (song.link) API client (#295 Phase A).
+///
+/// Cross-platform URL discovery — given an Apple Music URL, returns
+/// matching URLs for Spotify / YouTube / Tidal / Deezer / Amazon
+/// Music / SoundCloud / Bandcamp / Pandora / etc. Rate-limited per-
+/// process at 1 req/~1.1 s (well below the 10 req/min free tier).
+/// Phase A returns the URLs; integration into the manifest and the
+/// MeedyaMeta:*Url freeform atoms is wired in the enrichment task.
+pub mod odesli_service;
+
 /// Enrichment gap detection (#759 Phase 1).
 ///
 /// Inspects an album directory + its `manifest.meedyadl` and reports

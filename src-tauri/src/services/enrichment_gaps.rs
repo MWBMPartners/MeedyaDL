@@ -413,6 +413,7 @@ mod tests {
                     song_id: None,
                 }],
                 enrichment: Some(enrichment),
+                cross_platform_urls: None,
             }],
         }
     }

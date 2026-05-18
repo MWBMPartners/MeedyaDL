@@ -73,6 +73,15 @@ pub struct ManifestSource {
     /// changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enrichment: Option<std::collections::BTreeMap<String, EnrichmentRecord>>,
+
+    /// Cross-platform URLs discovered for this album (#295 Phase A).
+    /// Keyed by Odesli's platform identifier (`spotify`,
+    /// `youtubeMusic`, `tidal`, `deezer`, `amazonMusic`, …). Sparse —
+    /// only populated when `odesli_lookup_enabled` was on at
+    /// download time AND Odesli returned matches. Absent for older
+    /// manifests / Odesli misses / lookup disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// Per-stage enrichment completion record (#759).
@@ -199,6 +208,7 @@ mod tests {
             last_modified_date: None,
             tracks: Vec::new(),
             enrichment: None,
+            cross_platform_urls: None,
         }
     }
 

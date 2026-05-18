@@ -1009,6 +1009,7 @@ fn write_manifest(
     album_metadata: Option<&crate::services::apple_music_api::AlbumMetadata>,
     settings: &crate::models::settings::AppSettings,
     downloaded_at: &str,
+    cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
 ) {
     use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
@@ -1095,6 +1096,7 @@ fn write_manifest(
         // stages are absent here; the post-stage hooks will add
         // records as each stage completes (Phase 2 wiring).
         enrichment: None,
+        cross_platform_urls,
     };
 
     // Read existing manifest or create new
@@ -9277,6 +9279,73 @@ pub fn process_queue(
                                 drop(q);
                             }
 
+                            // Step 6c (#295 Phase A): Odesli cross-platform URL
+                            // lookup. Opt-in via `odesli_lookup_enabled`. The
+                            // call is rate-limited at ~1.1 s between requests
+                            // (well below the 10 req/min free-tier cap) by
+                            // `odesli_service`'s per-process limiter, so the
+                            // wait time is bounded regardless of how many
+                            // albums are enriching in parallel. Result is
+                            // threaded into `write_manifest` below.
+                            //
+                            // Skipped silently on:
+                            //   - feature toggle off
+                            //   - empty URL list (defensive)
+                            //   - API miss / network failure (logged at debug)
+                            let cross_platform_urls = if enrich_settings.odesli_lookup_enabled
+                                && !enrich_shutdown.is_triggered()
+                            {
+                                let source_url = enrich_urls
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or_default();
+                                if source_url.is_empty() {
+                                    None
+                                } else {
+                                    set_label(
+                                        "Odesli: looking up cross-platform URLs…",
+                                        ProgressStage::Finalising.weight(),
+                                    );
+                                    let key = if enrich_settings.odesli_api_key.is_empty() {
+                                        None
+                                    } else {
+                                        Some(enrich_settings.odesli_api_key.as_str())
+                                    };
+                                    match crate::services::odesli_service::fetch_links(
+                                        &source_url,
+                                        key,
+                                    )
+                                    .await
+                                    {
+                                        Ok(Some(urls)) if !urls.is_empty() => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!(
+                                                    "Odesli: discovered {} cross-platform URL(s)",
+                                                    urls.len()
+                                                ),
+                                            );
+                                            Some(urls)
+                                        }
+                                        Ok(_) => {
+                                            log::debug!(
+                                                "Odesli: no cross-platform matches for {source_url}"
+                                            );
+                                            None
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Odesli lookup failed for {source_url}: {e}"
+                                            );
+                                            None
+                                        }
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
                             // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
@@ -9290,6 +9359,7 @@ pub fn process_queue(
                                 album_metadata.as_ref(),
                                 &enrich_settings,
                                 &enrich_started_at,
+                                cross_platform_urls,
                             );
                             emit_download_log(
                                 &enrich_app,
