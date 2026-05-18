@@ -4405,6 +4405,125 @@ fn is_likely_motion_art_url(url: &str) -> bool {
     looks_like_editorial_host && looks_like_hls
 }
 
+/// **MV filename-resolution Tier 2** (#558): try to resolve the MV's
+/// parent album via Apple Music's
+/// `music-videos/{id}?include=albums` endpoint and return a literal
+/// folder path (e.g. `Anne-Marie/Psycho - Single`) suitable for
+/// passing as `no_album_folder_template`.
+///
+/// Returns `None` on every fail-soft condition (URL parse miss, no
+/// MusicKit credentials, 404, 401/403, missing album name/artist) so
+/// callers always fall through to Tier 4 cleanly. Network errors are
+/// logged at debug but also produce `None` — Tier 4 is a correct
+/// safety net, not a degraded mode.
+///
+/// **Why a literal path instead of a template string?** GAMDL renders
+/// `no_album_folder_template` against the MV's own tag bag — which
+/// doesn't carry `{album}` / `{album_artist}` for unanchored MVs.
+/// We could pre-render the user's `album_folder_template` here, but
+/// that risks template-syntax drift (curly-brace placeholders the
+/// user has customised). Passing the literal path bypasses GAMDL's
+/// template engine for this specific call without affecting global
+/// settings — same trick #531 uses for the Tier 4 safety net.
+async fn try_resolve_mv_album_folder_via_catalog_api(
+    app: &tauri::AppHandle,
+    video_url: &str,
+    settings: &crate::models::settings::AppSettings,
+) -> Option<String> {
+    // Parse the MV URL to extract storefront + video_id.
+    let parsed = crate::services::apple_music_api::parse_apple_music_url(video_url)?;
+    if parsed.content_type != "music-video" {
+        return None;
+    }
+    // For music-video URLs the parser stores the MV's numeric ID in
+    // `album_id` (the regex reuses the album-style numeric-tail
+    // capture group). Per parse_apple_music_url's contract, this is
+    // populated for every music-video URL the regex matches.
+    let storefront = parsed.storefront;
+    let video_id = parsed.album_id;
+
+    // Resolve MusicKit JWT (same path as animated artwork / syllable
+    // lyrics). Skip Tier 2 silently when no credentials are available
+    // — Tier 4 still gives a correct result.
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
+    let private_key =
+        match crate::services::apple_music_api::get_private_key_from_keychain() {
+            Ok(Some(key)) => Some(key),
+            Ok(None) => None,
+            Err(e) => {
+                log::debug!("Tier 2 skipped — keychain read failed: {e}");
+                return None;
+            }
+        };
+    let token_pair = match crate::services::apple_music_api::resolve_premium_feature_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    ) {
+        Ok(Some(pair)) => pair,
+        Ok(None) => {
+            log::debug!("Tier 2 skipped — no MusicKit token available");
+            return None;
+        }
+        Err(e) => {
+            log::debug!("Tier 2 skipped — token resolution failed: {e}");
+            return None;
+        }
+    };
+    let (jwt, _src) = token_pair;
+
+    // Fetch + parse. fetch_music_video_album_linkage already maps
+    // 404/401/403 to Ok(None); anything else (Err) we treat as a
+    // Tier-2 miss and fall through.
+    let linkage = match crate::services::apple_music_api::fetch_music_video_album_linkage(
+        &jwt,
+        &storefront,
+        &video_id,
+    )
+    .await
+    {
+        Ok(Some(l)) => l,
+        Ok(None) => return None,
+        Err(e) => {
+            log::debug!("Tier 2 lookup failed for {video_url}: {e} — falling through");
+            // Mark `app` as used to keep the signature stable when
+            // the activity-log import is needed for non-debug logs.
+            let _ = app;
+            return None;
+        }
+    };
+
+    // Build the literal folder path. Strip filesystem-unsafe chars
+    // the way GAMDL's template engine does (`/ \ : * ? " < > |` →
+    // `_`, plus trim leading/trailing dots and whitespace which
+    // collapse to invisible files on Unix and bare-name conflicts
+    // on Windows). The result is safe on every FS MeedyaDL targets.
+    let safe_artist = sanitize_fs_segment(&linkage.artist_name);
+    let safe_album = sanitize_fs_segment(&linkage.album_name);
+    if safe_artist.is_empty() || safe_album.is_empty() {
+        log::debug!(
+            "Tier 2 produced empty artist/album after sanitisation — falling through"
+        );
+        return None;
+    }
+    Some(format!("{safe_artist}/{safe_album}"))
+}
+
+/// Strip filesystem-unsafe characters from a path segment. Mirrors
+/// the sanitisation GAMDL applies internally to album / artist names
+/// before rendering them into folder templates, so the resulting
+/// path is identical to what GAMDL would produce when rendering
+/// `{album_artist}/{album}` itself.
+fn sanitize_fs_segment(raw: &str) -> String {
+    const UNSAFE: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    raw.chars()
+        .map(|c| if UNSAFE.contains(&c) || c.is_control() { '_' } else { c })
+        .collect::<String>()
+        .trim_matches(|c: char| c == '.' || c.is_whitespace())
+        .to_string()
+}
+
 /// Shared helper used by both the MusicKit-based video companion pipeline
 /// (Step 6) and the MusicBrainz fallback discovery (Step 6b). Builds a
 /// minimal `GamdlOptions` using the user's video quality settings and
@@ -4465,6 +4584,35 @@ async fn download_music_video_by_url(
     // pre-v2 defaults), which yield literal `[Unknown]` directories and
     // empty `-.mp4` filenames for MVs (#531). Override with MV-safe
     // fixed templates regardless of user settings.
+    //
+    // **Tier 2 (#558)**: before applying the MV_NO_ALBUM_FOLDER_TEMPLATE
+    // safety net, query Apple Music's `music-videos/{id}?include=albums`
+    // endpoint for an album linkage. When the API returns one, route the
+    // MV into that album's folder (`{album_artist}/{album}/`) so it lands
+    // alongside the audio tracks the user already has. Falls through to
+    // the Tier 4 safety net (`{artist}/Music Videos/`) on miss / 404 /
+    // auth error — never blocks the download.
+    let tier2_folder_template =
+        try_resolve_mv_album_folder_via_catalog_api(app, video_url, settings).await;
+    let resolved_no_album_folder_template = match tier2_folder_template {
+        Some(literal_path) => {
+            log::info!(
+                "MV folder resolved via Tier 2 (Apple Music Catalog album linkage): {literal_path}"
+            );
+            emit_app_log(
+                app,
+                &format!(
+                    "MV folder routed to album linkage via Tier 2: {video_label} → {literal_path}"
+                ),
+            );
+            literal_path
+        }
+        None => {
+            log::debug!("Tier 2 miss for MV {video_label} — using Tier 4 safety net");
+            MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()
+        }
+    };
+
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: Some(settings.output_path.clone()),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
@@ -4488,7 +4636,7 @@ async fn download_music_video_by_url(
         // templates — see rationale above.
         album_folder_template: Some(settings.album_folder_template.clone()),
         compilation_folder_template: Some(settings.compilation_folder_template.clone()),
-        no_album_folder_template: Some(MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()),
+        no_album_folder_template: Some(resolved_no_album_folder_template),
         single_disc_file_template: Some(settings.single_disc_file_template.clone()),
         multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
         no_album_file_template: Some(MV_NO_ALBUM_FILE_TEMPLATE.to_string()),
