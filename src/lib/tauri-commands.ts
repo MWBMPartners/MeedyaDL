@@ -270,6 +270,29 @@ export function installGamdlVersion(version: string): Promise<string> {
 }
 
 /**
+ * Diagnostic bundle composer (#572 Phase 1).
+ *
+ * Builds a redacted Markdown bundle (version info + settings snapshot +
+ * activity-log slice + output-dir tree) plus a pre-filled GitHub
+ * issue URL. Privacy-first: no credentials, no file contents, no
+ * auto-submit. Caller passes the activity-log slice from the
+ * in-memory store + the version list from `getComponentVersions()`.
+ */
+export interface DiagnosticBundleInput {
+  activity_log_lines: string[];
+  component_versions: { name: string; version: string }[];
+  user_summary?: string | null;
+}
+export interface DiagnosticBundle {
+  markdown_body: string;
+  github_issue_url: string;
+  size_bytes: number;
+}
+export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<DiagnosticBundle> {
+  return invoke<DiagnosticBundle>('build_diagnostic_bundle', { input });
+}
+
+/**
  * Lifetime download analytics (#464). Aggregates the persistent
  * history into roll-up stats: totals, success rate, codec
  * distribution, top artist/album, last-7-day activity.

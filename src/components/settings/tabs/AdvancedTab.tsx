@@ -110,7 +110,11 @@ import {
   clearWebplayerToken,
   deactivateDevAccess,
   getLogsFolderPath,
+  buildDiagnosticBundle,
+  getComponentVersions,
+  type DiagnosticBundle,
 } from '@/lib/tauri-commands';
+import { useActivityStore } from '@/stores/activityStore';
 
 // Toast notifications for the "Open folder" button failure modes.
 import { useUiStore } from '@/stores/uiStore';
@@ -504,6 +508,9 @@ export function AdvancedTab() {
             pruned automatically. <strong>Applies on the next app restart.</strong>
           </p>
         </div>
+
+        {/* Diagnostic bundle (#572 Phase 1) */}
+        <DiagnosticBundleSection />
       </SettingsSection>
 
       {/* ── Setup ── */}
@@ -999,5 +1006,158 @@ function DevToolsSection() {
         </button>
       </div>
     </SettingsSection>
+  );
+}
+
+/**
+ * Diagnostic bundle section (#572 Phase 1 MVP).
+ *
+ * Renders a "Generate Diagnostic Bundle" button. On click, captures
+ * the last 200 activity-log entries + the component versions + the
+ * user's free-text summary, composes a redacted Markdown bundle on
+ * the backend, and opens a review modal where the user can:
+ *
+ *   - Read the full bundle before sharing it.
+ *   - Copy the Markdown to clipboard for inclusion in an existing
+ *     thread.
+ *   - Click "Open GitHub Issue" to pop the system browser to a
+ *     pre-filled new-issue form. User reviews + clicks GitHub's
+ *     own Submit button — never auto-submitted from MeedyaDL.
+ *
+ * Privacy: the backend redacts credential fields, username paths,
+ * and never reads file contents. The review modal is the user's
+ * second-chance veto.
+ */
+function DiagnosticBundleSection() {
+  const addToast = useUiStore((s) => s.addToast);
+  const recentEntries = useActivityStore((s) => s.entries);
+  const [summary, setSummary] = useState('');
+  const [bundle, setBundle] = useState<DiagnosticBundle | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const handleGenerate = async () => {
+    setBusy(true);
+    try {
+      // Pull the last 200 entries — caps bundle size at ~50 KB
+      // typical, well below the GitHub issue body limit.
+      const slice = recentEntries
+        .slice(-200)
+        .map((e) => `${e.timestamp} [${e.download_id}] [${e.stream}] ${e.line}`);
+      const versions = await getComponentVersions().catch(() => []);
+      const result = await buildDiagnosticBundle({
+        activity_log_lines: slice,
+        component_versions: versions.map((v) => ({
+          name: v.name,
+          version: v.version ?? 'unknown',
+        })),
+        user_summary: summary.trim() || null,
+      });
+      setBundle(result);
+    } catch (e) {
+      addToast(
+        `Diagnostic bundle failed: ${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!bundle) return;
+    try {
+      await navigator.clipboard.writeText(bundle.markdown_body);
+      addToast('Bundle copied to clipboard.', 'success');
+    } catch (e) {
+      addToast(
+        `Copy failed: ${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
+    }
+  };
+
+  const handleOpenIssue = async () => {
+    if (!bundle) return;
+    try {
+      const { open } = await import('@tauri-apps/plugin-shell');
+      await open(bundle.github_issue_url);
+    } catch (e) {
+      addToast(
+        `Failed to open browser: ${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      );
+    }
+  };
+
+  return (
+    <div className="pt-2 border-t border-border-light mt-2">
+      <h4 className="text-sm font-medium text-content-primary mb-1">
+        Diagnostic Bundle
+      </h4>
+      <p className="text-xs text-content-secondary mb-2">
+        Captures the last 200 activity-log entries, component versions,
+        a redacted settings snapshot, and your output-directory tree
+        into a Markdown bundle suitable for pasting into a GitHub
+        issue. Credentials, file contents, and keychain material are
+        never included. Username paths are redacted to{' '}
+        <code>/Users/{'{user}'}</code>.
+      </p>
+      <Input
+        value={summary}
+        onChange={(e) => setSummary(e.target.value)}
+        placeholder="Optional: short summary (e.g. 'MV download fails for AnneMarie album')"
+        aria-label="Diagnostic bundle summary"
+      />
+      <div className="mt-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={busy}
+          disabled={busy}
+          onClick={handleGenerate}
+        >
+          Generate Diagnostic Bundle
+        </Button>
+      </div>
+
+      {bundle && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+          onClick={() => setBundle(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-surface-primary border border-border-light rounded-platform p-5 max-w-3xl w-[90vw] max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold text-content-primary">
+                Review diagnostic bundle ({Math.round(bundle.size_bytes / 1024)} KB)
+              </h3>
+              <Button variant="ghost" size="sm" onClick={() => setBundle(null)}>
+                Close
+              </Button>
+            </div>
+            <p className="text-xs text-content-secondary mb-3">
+              Review the contents below before sharing. Click <strong>Open
+              GitHub Issue</strong> to pop the new-issue form in your
+              browser — MeedyaDL never auto-submits.
+            </p>
+            <pre className="text-xs bg-surface-elevated border border-border-light rounded-platform p-3 overflow-auto max-h-[55vh] whitespace-pre-wrap break-all">
+              {bundle.markdown_body}
+            </pre>
+            <div className="flex justify-end gap-2 mt-3">
+              <Button variant="ghost" size="sm" onClick={handleCopy}>
+                Copy to clipboard
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleOpenIssue}>
+                Open GitHub Issue
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

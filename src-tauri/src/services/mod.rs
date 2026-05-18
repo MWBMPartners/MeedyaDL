@@ -343,6 +343,15 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// Opt-in diagnostic bundle composer (#572 Phase 1).
+///
+/// Composes a redacted Markdown report covering system state at
+/// capture time (version info, settings snapshot, recent activity-log
+/// slice, output-dir structure) plus a pre-filled GitHub issue URL.
+/// Privacy-first: no credentials, no file contents, no auto-submit.
+/// Username paths are redacted to `/Users/{user}/`.
+pub mod diagnostic_bundle;
+
 /// Lifetime download analytics (#464).
 ///
 /// Aggregates `history.json` into roll-up stats: total downloads,
