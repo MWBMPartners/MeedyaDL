@@ -3740,6 +3740,7 @@ async fn spawn_music_video_companion_inner(
     album_metadata: Option<&super::apple_music_api::AlbumMetadata>,
     settings: &crate::models::settings::AppSettings,
     shutdown: &ShutdownSignal,
+    parent_album_path: Option<&str>,
 ) {
     // Early exit if the original URL is already a music-video URL
     // (no self-referencing companion).
@@ -3898,7 +3899,15 @@ async fn spawn_music_video_companion_inner(
 
         emit_download_log(app, dl_id, &format!("Downloading music video: {mv_name}"));
 
-        download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings).await;
+        download_music_video_by_url(
+            app,
+            dl_id,
+            &mv_url,
+            mv_name,
+            settings,
+            parent_album_path,
+        )
+        .await;
     }
 
     // Honest completion summary (#774-class false-positive fix). When
@@ -4537,6 +4546,7 @@ async fn download_music_video_by_url(
     video_url: &str,
     video_label: &str,
     settings: &crate::models::settings::AppSettings,
+    parent_album_path: Option<&str>,
 ) -> bool {
     // Defensive guard (#536): motion-art HLS URLs (album cover /
     // portrait cover / album spotlight / artist spotlight) come from
@@ -4585,32 +4595,54 @@ async fn download_music_video_by_url(
     // empty `-.mp4` filenames for MVs (#531). Override with MV-safe
     // fixed templates regardless of user settings.
     //
-    // **Tier 2 (#558)**: before applying the MV_NO_ALBUM_FOLDER_TEMPLATE
-    // safety net, query Apple Music's `music-videos/{id}?include=albums`
-    // endpoint for an album linkage. When the API returns one, route the
-    // MV into that album's folder (`{album_artist}/{album}/`) so it lands
-    // alongside the audio tracks the user already has. Falls through to
-    // the Tier 4 safety net (`{artist}/Music Videos/`) on miss / 404 /
-    // auth error — never blocks the download.
-    let tier2_folder_template =
-        try_resolve_mv_album_folder_via_catalog_api(app, video_url, settings).await;
-    let resolved_no_album_folder_template = match tier2_folder_template {
-        Some(literal_path) => {
-            log::info!(
-                "MV folder resolved via Tier 2 (Apple Music Catalog album linkage): {literal_path}"
-            );
-            emit_app_log(
-                app,
-                &format!(
-                    "MV folder routed to album linkage via Tier 2: {video_label} → {literal_path}"
-                ),
-            );
-            literal_path
-        }
-        None => {
-            log::debug!("Tier 2 miss for MV {video_label} — using Tier 4 safety net");
-            MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()
-        }
+    // Folder-template cascade (#558 Tier 2 + #559 Tier 3 + Tier 4
+    // safety net). Tier precedence is deliberate:
+    //
+    //   Tier 3 wins over Tier 2 because the local parent-album path
+    //   is more trustworthy than the API — the user has already
+    //   downloaded a specific release into a specific folder, and
+    //   the API might point at a different re-release of the same
+    //   recording.
+    //
+    //   Tier 2 wins over Tier 4 because Apple Music's album linkage,
+    //   when present, gives the user-facing album-folder layout
+    //   instead of the generic `{artist}/Music Videos/` bucket.
+    //
+    //   Tier 4 is the always-safe last resort.
+    let resolved_no_album_folder_template = if let Some(parent_path) = parent_album_path {
+        // Tier 3: parent album context known from caller (MV companion
+        // or MusicBrainz fallback within an album-scoped enrichment
+        // task). Use the literal on-disk path directly.
+        log::info!(
+            "MV folder resolved via Tier 3 (parent album context): {parent_path}"
+        );
+        emit_app_log(
+            app,
+            &format!(
+                "MV folder routed to parent album via Tier 3: {video_label} → {parent_path}"
+            ),
+        );
+        parent_path.to_string()
+    } else if let Some(literal_path) =
+        try_resolve_mv_album_folder_via_catalog_api(app, video_url, settings).await
+    {
+        // Tier 2: Apple Music Catalog endpoint returned an album linkage.
+        log::info!(
+            "MV folder resolved via Tier 2 (Apple Music Catalog album linkage): {literal_path}"
+        );
+        emit_app_log(
+            app,
+            &format!(
+                "MV folder routed to album linkage via Tier 2: {video_label} → {literal_path}"
+            ),
+        );
+        literal_path
+    } else {
+        // Tier 4: safety net.
+        log::debug!(
+            "Tier 2 + Tier 3 missed for MV {video_label} — using Tier 4 safety net"
+        );
+        MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()
     };
 
     let opts = crate::models::gamdl_options::GamdlOptions {
@@ -9152,6 +9184,10 @@ pub fn process_queue(
                             // AcoustID || MusicBrainz join) so it could be shared between
                             // the parallel lookup gate and this sequential download stage.
                             if mv_companion_enabled && !enrich_shutdown.is_triggered() {
+                                // Tier 3 (#559): pass the resolved on-disk
+                                // album directory so MVs land alongside
+                                // the album's audio tracks instead of in
+                                // a generic Music Videos/ bucket.
                                 spawn_music_video_companion_inner(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -9159,6 +9195,7 @@ pub fn process_queue(
                                     album_metadata.as_ref(),
                                     &enrich_settings,
                                     &enrich_shutdown,
+                                    Some(album_dir.as_str()),
                                 )
                                 .await;
                             }
@@ -9196,12 +9233,16 @@ pub fn process_queue(
                                         }
                                         let label =
                                             video.title.as_deref().unwrap_or("unknown");
+                                        // Tier 3 (#559): MusicBrainz
+                                        // fallback inherits the same parent-
+                                        // album context as the MusicKit path.
                                         download_music_video_by_url(
                                             &enrich_app,
                                             &enrich_dl_id,
                                             &video.url,
                                             label,
                                             &enrich_settings,
+                                            Some(album_dir.as_str()),
                                         )
                                         .await;
                                     }
@@ -14807,6 +14848,20 @@ mod tests {
         assert!(!super::is_likely_motion_art_url(
             "https://music.apple.com/gb/song/title/9999?i=8888"
         ));
+    }
+
+    #[test]
+    fn sanitize_fs_segment_strips_unsafe_chars() {
+        // Sanity check on the helper used by Tier 2 to build literal
+        // folder paths from API-returned album names.
+        assert_eq!(super::sanitize_fs_segment("Hello/World"), "Hello_World");
+        assert_eq!(super::sanitize_fs_segment("foo:bar*baz?"), "foo_bar_baz_");
+        // Trailing dots and whitespace are trimmed (Windows-unsafe).
+        assert_eq!(super::sanitize_fs_segment("  Album.  "), "Album");
+        // Non-ASCII passes through unchanged.
+        assert_eq!(super::sanitize_fs_segment("Björk - Vespertine"), "Björk - Vespertine");
+        // Empty stays empty (caller falls through to Tier 4).
+        assert_eq!(super::sanitize_fs_segment(""), "");
     }
 
     #[test]
