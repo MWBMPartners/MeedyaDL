@@ -56,3 +56,21 @@ pub fn delete_history_entry(app: AppHandle, id: String) -> Result<(), String> {
         Err(format!("History entry {id} not found"))
     }
 }
+
+/// Aggregate lifetime download analytics (#464). Returns totals,
+/// success rate, codec distribution, top artist / album, and
+/// last-7-day activity computed on-demand from the persistent history.
+///
+/// **Frontend caller:** `getLifetimeStats()` in
+/// `src/lib/tauri-commands.ts`, wired to the StatisticsPanel.
+///
+/// Pure read — no side effects, safe to call as often as the UI
+/// likes. Computed on each call rather than cached because the
+/// history is small (≤1000 entries per MAX_HISTORY_ENTRIES) and
+/// the aggregation is sub-ms.
+#[tauri::command]
+pub fn get_lifetime_stats(
+    app: AppHandle,
+) -> crate::services::stats_service::LifetimeStats {
+    crate::services::stats_service::get_lifetime_stats(&app)
+}

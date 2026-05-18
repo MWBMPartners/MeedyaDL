@@ -253,6 +253,128 @@ export function installGamdl(): Promise<string> {
 }
 
 /**
+ * Installs a **specific** GAMDL version (#522).
+ *
+ * Wraps `install_gamdl_version` in `src-tauri/src/commands/dependencies.rs`.
+ * Uses `pip install --force-reinstall gamdl==<version>` so it supports
+ * downgrades as well as upgrades. The standard `installGamdl()` above
+ * uses `--upgrade` which only goes higher.
+ *
+ * Validates the version string format on the backend before pip runs.
+ *
+ * @param version PyPI-compatible version (e.g., "2.9.3", "3.5.2").
+ * @returns Promise resolving to the post-install version reported by `pip show gamdl`.
+ */
+export function installGamdlVersion(version: string): Promise<string> {
+  return invoke<string>('install_gamdl_version', { version });
+}
+
+/**
+ * Diagnostic bundle composer (#572 Phase 1).
+ *
+ * Builds a redacted Markdown bundle (version info + settings snapshot +
+ * activity-log slice + output-dir tree) plus a pre-filled GitHub
+ * issue URL. Privacy-first: no credentials, no file contents, no
+ * auto-submit. Caller passes the activity-log slice from the
+ * in-memory store + the version list from `getComponentVersions()`.
+ */
+export interface DiagnosticBundleInput {
+  activity_log_lines: string[];
+  component_versions: { name: string; version: string }[];
+  user_summary?: string | null;
+}
+export interface DiagnosticBundle {
+  markdown_body: string;
+  github_issue_url: string;
+  size_bytes: number;
+}
+export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<DiagnosticBundle> {
+  return invoke<DiagnosticBundle>('build_diagnostic_bundle', { input });
+}
+
+/**
+ * Lifetime download analytics (#464). Aggregates the persistent
+ * history into roll-up stats: totals, success rate, codec
+ * distribution, top artist/album, last-7-day activity.
+ */
+export interface CodecCount { codec: string; count: number; }
+export interface NameCount { name: string; count: number; }
+export interface DayCount { date: string; count: number; }
+export interface LifetimeStats {
+  total: number;
+  success: number;
+  failed: number;
+  success_rate: number;
+  codec_distribution: CodecCount[];
+  top_artist: NameCount | null;
+  top_album: NameCount | null;
+  last_7_days: DayCount[];
+  earliest: string | null;
+  latest: string | null;
+}
+export function getLifetimeStats(): Promise<LifetimeStats> {
+  return invoke<LifetimeStats>('get_lifetime_stats');
+}
+
+/**
+ * Snapshot + restore (#466).
+ *
+ * `createBackup` writes a timestamped snapshot of settings / queue /
+ * history into `{appDataDir}/backups/<YYYYMMDD-HHMMSS>/`.
+ * `listBackups` returns every existing snapshot, newest first.
+ * `restoreFromBackup` overwrites the live state files from a chosen
+ *   snapshot — the caller should prompt the user to restart MeedyaDL
+ *   so the in-memory caches don't diverge from disk.
+ * `deleteBackup` removes a single snapshot directory.
+ */
+export interface BackupSummary {
+  snapshot_path: string;
+  files: string[];
+  total_snapshots: number;
+}
+export interface RestoreSummary {
+  snapshot_path: string;
+  restored: string[];
+  skipped: string[];
+}
+export interface BackupEntry {
+  path: string;
+  name: string;
+  size_bytes: number;
+  file_count: number;
+}
+export function createBackup(): Promise<BackupSummary> {
+  return invoke<BackupSummary>('create_backup');
+}
+export function listBackups(): Promise<BackupEntry[]> {
+  return invoke<BackupEntry[]>('list_backups');
+}
+export function restoreFromBackup(snapshotPath: string): Promise<RestoreSummary> {
+  return invoke<RestoreSummary>('restore_from_backup', { snapshotPath });
+}
+export function deleteBackup(snapshotPath: string): Promise<void> {
+  return invoke<void>('delete_backup', { snapshotPath });
+}
+
+/**
+ * Returns the MeedyaDL-tested GAMDL version window (#522).
+ *
+ * The frontend uses this to render the "Install recommended" button
+ * label, the support badge, and to validate user-typed versions
+ * against the known range.
+ *
+ * Reads from compiled-in `tool-versions.toml` — zero I/O, always succeeds.
+ */
+export interface GamdlSupportWindow {
+  minimum: string;
+  maximum_tested: string;
+  recommended: string;
+}
+export function getGamdlSupportWindow(): Promise<GamdlSupportWindow> {
+  return invoke<GamdlSupportWindow>('get_gamdl_support_window');
+}
+
+/**
  * Returns the installation status of votify (Spotify engine).
  *
  * Rust handler: `check_votify_status()` in `src-tauri/src/commands/dependencies.rs`

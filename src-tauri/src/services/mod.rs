@@ -343,6 +343,35 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// Opt-in diagnostic bundle composer (#572 Phase 1).
+///
+/// Composes a redacted Markdown report covering system state at
+/// capture time (version info, settings snapshot, recent activity-log
+/// slice, output-dir structure) plus a pre-filled GitHub issue URL.
+/// Privacy-first: no credentials, no file contents, no auto-submit.
+/// Username paths are redacted to `/Users/{user}/`.
+pub mod diagnostic_bundle;
+
+/// Lifetime download analytics (#464).
+///
+/// Aggregates `history.json` into roll-up stats: total downloads,
+/// success rate, codec distribution, top artist / album, last-7-day
+/// activity. Computed on-demand (no separate stats file) so
+/// `history_service` remains the single source of truth for terminal
+/// download records. Pure function `compute_lifetime_stats` is
+/// covered by unit tests.
+pub mod stats_service;
+
+/// Snapshot + restore for essential state (#466).
+///
+/// Bundles `settings.json`, `queue.json`, and `history.json` into a
+/// timestamped directory under `{app_data_dir}/backups/`. Keeps the
+/// last 10 backups (constant inside the module), pruning older ones
+/// after each successful write. Restore is opt-in via the Settings >
+/// Tools UI; the IPC also exposes list / delete commands. Snapshots
+/// are flat directories of plain JSON for trivial inspection.
+pub mod backup_service;
+
 /// API field audit service — diagnostic tool for discovering new API fields.
 ///
 /// Fetches a real album from the Apple Music API and diffs the raw JSON
