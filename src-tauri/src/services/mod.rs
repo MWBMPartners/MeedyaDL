@@ -343,6 +343,17 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// External queue watchdog (#818).
+///
+/// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
+/// the queue processor — that polls every 60 s and escalates queue
+/// items whose progress has been bit-identical for >10 min (WARN)
+/// or >20 min (transition to Error + release queue slot). Independent
+/// of the queue processor's task tree so a hang in the parent can't
+/// kill the watchdog. Recovers from the #815 silent-hang failure
+/// class without needing to identify each specific hang surface.
+pub mod queue_watchdog;
+
 /// Odesli (song.link) API client (#295 Phase A).
 ///
 /// Cross-platform URL discovery — given an Apple Music URL, returns
