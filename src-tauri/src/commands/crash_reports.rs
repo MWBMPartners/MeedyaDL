@@ -136,3 +136,23 @@ pub fn log_frontend_error(
 pub fn get_github_issue_url(app: AppHandle, id: String) -> Result<String, String> {
     crash_report_service::build_github_issue_url(&app, &id)
 }
+
+/// Compose a diagnostic bundle (#572 Phase 1).
+///
+/// Takes a caller-supplied input bundle (activity log slice + version
+/// list + optional summary) and returns a pre-filled GitHub issue
+/// URL plus the redacted Markdown body for review.
+///
+/// Privacy-first: no credentials, no file contents, no auto-submit.
+/// See [`crate::services::diagnostic_bundle`] for the full contract.
+///
+/// **Frontend caller:** `buildDiagnosticBundle(input)` in
+/// `src/lib/tauri-commands.ts`, wired to the
+/// `Settings > Advanced > Diagnostics > Generate Bundle` button.
+#[tauri::command]
+pub fn build_diagnostic_bundle(
+    app: AppHandle,
+    input: crate::services::diagnostic_bundle::DiagnosticBundleInput,
+) -> Result<crate::services::diagnostic_bundle::DiagnosticBundle, String> {
+    crate::services::diagnostic_bundle::build_diagnostic_bundle(&app, input)
+}

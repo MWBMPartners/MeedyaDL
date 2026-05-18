@@ -279,13 +279,27 @@ pub async fn start_download(
         if !is_library
             && crate::services::apple_music_api::parse_apple_music_url(url).is_none()
         {
+            // Two known shapes land here:
+            //   1. Uploaded videos (`downloader_uploaded_video.py` route in
+            //      GAMDL — label/artist-uploaded backstage clips, live
+            //      sessions, interviews). URL pattern is undocumented but
+            //      GAMDL has full handling. Decision per #549: accept the
+            //      URL, let GAMDL handle it, but warn the user that the
+            //      MeedyaDL prefetch + Tier 4 MV safety net don't apply.
+            //      Wiring for proper MV-safe routing is deferred to a
+            //      follow-up once a concrete test URL is available.
+            //   2. Genuinely novel paths (Apple may add new shapes).
+            //
+            // We can't tell the two apart from the URL alone, so the
+            // message names uploaded videos as the most common case and
+            // leaves the door open for others.
             log::warn!(
                 "Unrecognised Apple Music URL shape (#549) — passed to GAMDL without MeedyaDL prefetch or safety net: {url}"
             );
             emit_app_log(
                 &app,
                 &format!(
-                    "Unrecognised Apple Music URL (#549) — no MeedyaDL metadata prefetch or filename safety net applies; GAMDL compatibility unverified: {url}"
+                    "Unrecognised Apple Music URL (#549) — likely an uploaded-video, post, or novel path. GAMDL will try to handle it but MeedyaDL's metadata prefetch and music-video filename safety net don't apply; same-title collisions are possible: {url}"
                 ),
             );
         }

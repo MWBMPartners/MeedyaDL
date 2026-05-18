@@ -197,6 +197,102 @@ pub async fn install_gamdl(
     Ok(version)
 }
 
+/// Installs a **specific** GAMDL version using `--force-reinstall`.
+///
+/// Unlike [`install_gamdl`] (which uses `--upgrade`), this function
+/// works for **downgrades** as well as upgrades. Pip's resolver only
+/// goes higher under `--upgrade`; to land on an explicit version
+/// regardless of what's currently installed we have to combine
+/// `--force-reinstall` with the exact `gamdl==X.Y.Z` pin.
+///
+/// Use cases (per #522):
+///   - User auto-installed GAMDL v3.0, v3.0 has a regression they ran
+///     into, they want to pin v2.9.3 until a fix ships.
+///   - Power user on a MeedyaDL pre-release wants to validate v3.0.1
+///     manually before the support ceiling moves.
+///   - Support engineer asking "downgrade GAMDL to $version and see if
+///     the bug reproduces" — needs a CLI-free path for non-technical
+///     reporters.
+///
+/// The target version is **not** validated against the support window
+/// here — the caller is expected to surface a warning to the user when
+/// they pick an Unsupported / Untested version, and the user is
+/// expected to confirm. We only sanity-check that the version string
+/// parses as `MAJOR.MINOR.PATCH` (with optional suffix) so a typo
+/// can't trigger an unbounded pip resolve.
+///
+/// After install we re-probe via `get_gamdl_version` which also
+/// refreshes the capability cache, so every consumer sees the new
+/// version immediately (critical when downgrading from v3.x → v2.x
+/// flips feature gates like `FetchExtraTags`).
+///
+/// # Errors
+///
+/// * `target` doesn't parse as a recognisable version string.
+/// * Python isn't installed.
+/// * `pip install --force-reinstall` exits non-zero.
+/// * Post-install version probe fails.
+pub async fn install_gamdl_version(
+    app: &AppHandle,
+    target: &str,
+) -> Result<String, String> {
+    // Cheap sanity check on the version string. We accept anything pip
+    // will accept (X.Y, X.Y.Z, X.Y.Z.devN, X.Y.ZrcN, …) — the bar is
+    // just "no shell metacharacters, no whitespace, starts with a
+    // digit". pip itself is the authoritative validator.
+    let trimmed = target.trim();
+    if trimmed.is_empty()
+        || !trimmed.starts_with(|c: char| c.is_ascii_digit())
+        || trimmed
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '`' | '$' | ';' | '&' | '|' | '<' | '>' | '"' | '\''))
+    {
+        return Err(format!(
+            "Invalid GAMDL version string '{target}' — expected a PyPI-compatible version like '2.9.3' or '3.5.2'."
+        ));
+    }
+
+    log::info!("Installing GAMDL version {trimmed} via pip --force-reinstall (per #522)…");
+
+    let python_dir = platform::get_python_dir(app);
+    let python_bin = platform::get_python_binary_path(&python_dir);
+
+    if !python_bin.exists() {
+        return Err(
+            "Cannot install GAMDL: Python is not installed. Run the setup wizard first."
+                .to_string(),
+        );
+    }
+
+    let pip_spec = super::gamdl_capabilities::pip_target_spec(trimmed);
+    log::info!("Pip spec: {pip_spec} (force-reinstall)");
+
+    let output = Command::new(&python_bin)
+        .args(["-m", "pip", "install", "--force-reinstall", &pip_spec])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run pip install: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "pip install --force-reinstall {pip_spec} failed: {}",
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    log::info!("pip install output: {}", stdout.trim());
+
+    // Re-probe and refresh the capability cache.
+    let version = get_gamdl_version(app)
+        .await?
+        .unwrap_or_else(|| "unknown".to_string());
+
+    log::info!("GAMDL {version} installed (force-reinstall) and capability cache refreshed");
+    Ok(version)
+}
+
 /// Checks whether GAMDL is installed and returns its version.
 ///
 /// Runs `python -m pip show gamdl` and parses the "Version: X.Y.Z" line.

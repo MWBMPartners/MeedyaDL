@@ -1451,6 +1451,306 @@ fn build_included_name_lookup(
     lookup
 }
 
+/// Album linkage for a music video, returned by [`fetch_music_video_album_linkage`].
+///
+/// Carries just the fields needed to route the MV into the linked
+/// album's existing folder on disk: artist name + album name +
+/// release date. **Not** a full `AlbumMetadata` — we don't need the
+/// editorial-video URLs, audio traits, or 20-odd other fields for the
+/// folder-resolution use case, and fetching them would add latency
+/// without UX benefit (Tier 2's whole point is the linked-folder
+/// hint; if the user wants enrichment, the album download itself
+/// handles that).
+#[derive(Debug, Clone)]
+pub struct MusicVideoAlbumLinkage {
+    /// Canonical album ID from Apple Music.
+    pub album_id: String,
+    /// Album name as Apple lists it (used for `{album}` substitution).
+    pub album_name: String,
+    /// Artist name from the album record (used for `{album_artist}`).
+    pub artist_name: String,
+    /// Release date (ISO date) if available. Used by templates that
+    /// substitute `{release_year}` etc.
+    pub release_date: Option<String>,
+}
+
+/// **MV filename-resolution Tier 2** (#558): fetch the music video's
+/// album linkage from the Apple Music Catalog API.
+///
+/// Endpoint: `GET .../music-videos/{id}?include=albums`. The response
+/// embeds the linked album(s) under
+/// `relationships.albums.data[]` (id only) and the full attributes
+/// under top-level `included[]` (JSON:API style). Most MVs link to
+/// exactly one album; the first entry is canonical for our purposes.
+///
+/// Fail-soft contract per the issue spec:
+///   - 404 (MV has no album linkage) → `Ok(None)` so callers can
+///     fall through to Tier 3 / Tier 4.
+///   - 401 / 403 (auth) → `Ok(None)` with a warn, same fall-through.
+///   - Network error → bubbled up as `Err` so the caller decides
+///     whether to retry; current callers just log + fall through.
+///
+/// Token comes from [`resolve_premium_feature_token`] (same path as
+/// animated artwork / syllable lyrics) so this gracefully degrades
+/// when MusicKit credentials are missing.
+pub async fn fetch_music_video_album_linkage(
+    jwt: &str,
+    storefront: &str,
+    video_id: &str,
+) -> Result<Option<MusicVideoAlbumLinkage>, String> {
+    let url = format!(
+        "https://api.music.apple.com/v1/catalog/{storefront}/music-videos/{video_id}?include=albums"
+    );
+    log::debug!("Fetching MV album linkage (Tier 2): {url}");
+
+    let client = crate::utils::http_client::build_simple(15)?;
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {jwt}"))
+        .header("User-Agent", "meedyadl")
+        .send()
+        .await
+        .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        match status.as_u16() {
+            404 => {
+                log::debug!("MV {video_id} has no album linkage (404) — falling through to Tier 3/4");
+                return Ok(None);
+            }
+            401 | 403 => {
+                log::warn!(
+                    "MV album linkage lookup auth failed ({status}) — falling through to Tier 3/4"
+                );
+                return Ok(None);
+            }
+            _ => {
+                return Err(format!(
+                    "Apple Music API returned HTTP {status} for MV album linkage"
+                ));
+            }
+        }
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse MV album linkage response: {e}"))?;
+
+    parse_mv_album_linkage(&json)
+}
+
+/// Extracted parser so unit tests can exercise the shape without
+/// needing live API access. Returns the first linked album when
+/// `relationships.albums.data[]` is non-empty AND the corresponding
+/// entry in `included[]` is resolvable; otherwise `None`.
+fn parse_mv_album_linkage(json: &serde_json::Value) -> Result<Option<MusicVideoAlbumLinkage>, String> {
+    // Locate the MV record. `/music-videos/{id}` returns a single
+    // `data` object (not an array). Defensive: handle both shapes.
+    let mv = json
+        .get("data")
+        .and_then(|d| {
+            if d.is_array() {
+                d.as_array().and_then(|arr| arr.first())
+            } else {
+                Some(d)
+            }
+        });
+    let Some(mv) = mv else { return Ok(None); };
+
+    let album_data = mv
+        .get("relationships")
+        .and_then(|r| r.get("albums"))
+        .and_then(|a| a.get("data"))
+        .and_then(|d| d.as_array());
+
+    let Some(album_data) = album_data else { return Ok(None); };
+    let Some(first_album_ref) = album_data.first() else {
+        return Ok(None);
+    };
+    let Some(album_id) = first_album_ref.get("id").and_then(|v| v.as_str()) else {
+        return Ok(None);
+    };
+
+    // Look up the full album attributes from `included[]`.
+    let included = json.get("included").and_then(|i| i.as_array());
+    let Some(included) = included else { return Ok(None); };
+
+    for entry in included {
+        if entry.get("type").and_then(|t| t.as_str()) != Some("albums") {
+            continue;
+        }
+        if entry.get("id").and_then(|v| v.as_str()) != Some(album_id) {
+            continue;
+        }
+        let attrs = match entry.get("attributes") {
+            Some(a) => a,
+            None => continue,
+        };
+        let album_name = attrs
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let artist_name = attrs
+            .get("artistName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let release_date = attrs
+            .get("releaseDate")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Defensive: a linkage with both name and artist empty is
+        // useless for folder routing — treat as a miss.
+        if album_name.is_empty() && artist_name.is_empty() {
+            return Ok(None);
+        }
+
+        return Ok(Some(MusicVideoAlbumLinkage {
+            album_id: album_id.to_string(),
+            album_name,
+            artist_name,
+            release_date,
+        }));
+    }
+
+    Ok(None)
+}
+
+#[cfg(test)]
+mod mv_album_linkage_tests {
+    use super::*;
+
+    #[test]
+    fn parses_canonical_response_shape() {
+        let json = serde_json::json!({
+            "data": {
+                "id": "1639963816",
+                "type": "music-videos",
+                "relationships": {
+                    "albums": {
+                        "data": [
+                            { "id": "1639963810", "type": "albums" }
+                        ]
+                    }
+                }
+            },
+            "included": [
+                {
+                    "id": "1639963810",
+                    "type": "albums",
+                    "attributes": {
+                        "name": "Psycho - Single",
+                        "artistName": "Anne-Marie",
+                        "releaseDate": "2022-08-26"
+                    }
+                }
+            ]
+        });
+        let linkage = parse_mv_album_linkage(&json).unwrap().unwrap();
+        assert_eq!(linkage.album_id, "1639963810");
+        assert_eq!(linkage.album_name, "Psycho - Single");
+        assert_eq!(linkage.artist_name, "Anne-Marie");
+        assert_eq!(linkage.release_date.as_deref(), Some("2022-08-26"));
+    }
+
+    #[test]
+    fn returns_none_when_no_album_relationship() {
+        let json = serde_json::json!({
+            "data": {
+                "id": "999",
+                "type": "music-videos",
+                "relationships": {}
+            }
+        });
+        assert!(parse_mv_album_linkage(&json).unwrap().is_none());
+    }
+
+    #[test]
+    fn returns_none_when_album_data_array_empty() {
+        let json = serde_json::json!({
+            "data": {
+                "id": "999",
+                "type": "music-videos",
+                "relationships": {
+                    "albums": { "data": [] }
+                }
+            }
+        });
+        assert!(parse_mv_album_linkage(&json).unwrap().is_none());
+    }
+
+    #[test]
+    fn returns_none_when_included_missing_album_attrs() {
+        // relationships.albums.data references id "X" but included[]
+        // doesn't carry the matching record. Treat as a miss rather
+        // than reporting an empty linkage.
+        let json = serde_json::json!({
+            "data": {
+                "id": "999",
+                "type": "music-videos",
+                "relationships": {
+                    "albums": {
+                        "data": [{ "id": "X", "type": "albums" }]
+                    }
+                }
+            },
+            "included": []
+        });
+        assert!(parse_mv_album_linkage(&json).unwrap().is_none());
+    }
+
+    #[test]
+    fn returns_none_when_album_attrs_empty_strings() {
+        // Defensive: an album record with both name and artist empty
+        // is useless for folder routing — Tier 2 should miss so
+        // Tier 3/4 can fire.
+        let json = serde_json::json!({
+            "data": {
+                "id": "999",
+                "relationships": {
+                    "albums": {
+                        "data": [{ "id": "X", "type": "albums" }]
+                    }
+                }
+            },
+            "included": [
+                { "id": "X", "type": "albums", "attributes": { "name": "", "artistName": "" } }
+            ]
+        });
+        assert!(parse_mv_album_linkage(&json).unwrap().is_none());
+    }
+
+    #[test]
+    fn picks_first_album_when_multiple_linked() {
+        // Edge case: an MV linked to multiple albums (e.g. compilation
+        // + original single). The first entry is canonical per spec.
+        let json = serde_json::json!({
+            "data": {
+                "id": "999",
+                "relationships": {
+                    "albums": {
+                        "data": [
+                            { "id": "FIRST", "type": "albums" },
+                            { "id": "SECOND", "type": "albums" }
+                        ]
+                    }
+                }
+            },
+            "included": [
+                { "id": "FIRST", "type": "albums", "attributes": { "name": "Original", "artistName": "A" } },
+                { "id": "SECOND", "type": "albums", "attributes": { "name": "Compilation", "artistName": "A" } }
+            ]
+        });
+        let linkage = parse_mv_album_linkage(&json).unwrap().unwrap();
+        assert_eq!(linkage.album_id, "FIRST");
+        assert_eq!(linkage.album_name, "Original");
+    }
+}
+
 // ============================================================
 // Unit Tests
 // ============================================================

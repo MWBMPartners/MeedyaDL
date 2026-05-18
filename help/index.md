@@ -21,6 +21,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 - [:musical_note: Downloading Music](downloading-music.md) -- How to download songs, albums, and playlists from Apple Music.
 - [:clapper: Downloading Videos](downloading-videos.md) -- How to download music videos and post videos, including quality options.
 - [:pencil2: Lyrics and Metadata](lyrics-and-metadata.md) -- Working with LRC, SRT, and TTML lyric formats, and embedding metadata into downloaded files.
+- [:bookmark_tabs: Metadata Mapping Reference](metadata-mapping.md) -- Canonical reference for every tag MeedyaDL writes: standard MP4 atoms, Apple proprietary IDs, iTunes freeform, MeedyaMeta freeform, per-format support, and API source mapping.
 
 ### Configuration and Quality
 

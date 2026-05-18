@@ -138,6 +138,21 @@ interface QueueItemProps {
   onCopyUrl: (url: string) => void;
 
   /**
+   * Whether this row is currently selected for bulk actions (#463).
+   * When `undefined` (the legacy path) the checkbox is not rendered
+   * and the row behaves exactly as before. When defined, a checkbox
+   * is prepended to the row's left edge.
+   */
+  isSelected?: boolean;
+
+  /**
+   * Callback invoked when the user toggles the selection checkbox
+   * (#463). Receives the item id. Required when `isSelected` is
+   * defined; ignored otherwise.
+   */
+  onToggleSelect?: (id: string) => void;
+
+  /**
    * Callback invoked when the user picks "Delete" from the right-click
    * menu (#685). The parent is responsible for showing a confirmation
    * modal before invoking the IPC. Receives the unique download ID.
@@ -254,6 +269,8 @@ function QueueItemComponent({
   onMoveToBottom,
   canMoveUp,
   canMoveDown,
+  isSelected,
+  onToggleSelect,
 }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
@@ -462,17 +479,31 @@ function QueueItemComponent({
      * `transition-colors` smoothly animates the background change.
      */
     <div
-      className="px-4 py-3 border-b border-border-light last:border-b-0 hover:bg-surface-secondary transition-colors"
+      className={`px-4 py-3 border-b border-border-light last:border-b-0 transition-colors ${
+        isSelected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-secondary'
+      }`}
       role="listitem"
       aria-label={`Download: ${item.urls?.[0] ?? 'unknown'}`}
       onContextMenu={handleContextMenu}
     >
       {/*
-       * Top row: three-column flex layout.
-       * Left: status icon | Center: URL + track info | Right: action buttons.
+       * Top row: three-column flex layout (or four when bulk-select mode
+       * is active: checkbox | status icon | URL + track info | actions).
        * `items-start` aligns all columns to the top edge.
        */}
       <div className="flex items-start gap-3">
+        {/* Bulk-select checkbox (#463). Only rendered when the parent
+         * has wired isSelected + onToggleSelect; otherwise the legacy
+         * 3-column layout is preserved. */}
+        {isSelected !== undefined && onToggleSelect && (
+          <input
+            type="checkbox"
+            className="mt-1 accent-accent cursor-pointer"
+            checked={isSelected}
+            onChange={() => onToggleSelect(item.id)}
+            aria-label={isSelected ? 'Deselect queue item' : 'Select queue item'}
+          />
+        )}
         {/*
          * Status icon column.
          *
@@ -775,6 +806,7 @@ function arePropsEqual(prev: QueueItemProps, next: QueueItemProps): boolean {
   if (prev.item.id !== next.item.id) return false;
   if (prev.canMoveUp !== next.canMoveUp) return false;
   if (prev.canMoveDown !== next.canMoveDown) return false;
+  if (prev.isSelected !== next.isSelected) return false;
 
   const a = prev.item;
   const b = next.item;

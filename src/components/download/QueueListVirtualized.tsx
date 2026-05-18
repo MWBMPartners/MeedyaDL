@@ -48,6 +48,12 @@ interface QueueListVirtualizedProps {
   onMoveUp: (id: string) => void;
   onMoveDown: (id: string) => void;
   onMoveToBottom: (id: string) => void;
+  /** Optional bulk-select state (#463). When provided, each row
+   *  renders a checkbox bound to this Set; absent means no checkboxes. */
+  selectedIds?: ReadonlySet<string>;
+  /** Toggle a single row's selection. Required when `selectedIds`
+   *  is supplied. */
+  onToggleSelect?: (id: string) => void;
 }
 
 export function QueueListVirtualized({
@@ -61,6 +67,8 @@ export function QueueListVirtualized({
   onMoveUp,
   onMoveDown,
   onMoveToBottom,
+  selectedIds,
+  onToggleSelect,
 }: QueueListVirtualizedProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -162,6 +170,10 @@ export function QueueListVirtualized({
                 onMoveToBottom={onMoveToBottom}
                 canMoveUp={canMoveUp}
                 canMoveDown={canMoveDown}
+                isSelected={
+                  selectedIds === undefined ? undefined : selectedIds.has(item.id)
+                }
+                onToggleSelect={onToggleSelect}
               />
             </div>
           );
