@@ -270,6 +270,30 @@ export function installGamdlVersion(version: string): Promise<string> {
 }
 
 /**
+ * Lifetime download analytics (#464). Aggregates the persistent
+ * history into roll-up stats: totals, success rate, codec
+ * distribution, top artist/album, last-7-day activity.
+ */
+export interface CodecCount { codec: string; count: number; }
+export interface NameCount { name: string; count: number; }
+export interface DayCount { date: string; count: number; }
+export interface LifetimeStats {
+  total: number;
+  success: number;
+  failed: number;
+  success_rate: number;
+  codec_distribution: CodecCount[];
+  top_artist: NameCount | null;
+  top_album: NameCount | null;
+  last_7_days: DayCount[];
+  earliest: string | null;
+  latest: string | null;
+}
+export function getLifetimeStats(): Promise<LifetimeStats> {
+  return invoke<LifetimeStats>('get_lifetime_stats');
+}
+
+/**
  * Snapshot + restore (#466).
  *
  * `createBackup` writes a timestamped snapshot of settings / queue /

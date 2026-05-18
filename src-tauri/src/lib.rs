@@ -1230,6 +1230,7 @@ pub fn run() {
             commands::history::clear_history,
             commands::history::search_history,
             commands::history::delete_history_entry,
+            commands::history::get_lifetime_stats,
             // API field audit command (diagnostic tool)
             commands::api_audit::audit_api_fields,
             // Clipboard monitoring command

@@ -343,6 +343,16 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// Lifetime download analytics (#464).
+///
+/// Aggregates `history.json` into roll-up stats: total downloads,
+/// success rate, codec distribution, top artist / album, last-7-day
+/// activity. Computed on-demand (no separate stats file) so
+/// `history_service` remains the single source of truth for terminal
+/// download records. Pure function `compute_lifetime_stats` is
+/// covered by unit tests.
+pub mod stats_service;
+
 /// Snapshot + restore for essential state (#466).
 ///
 /// Bundles `settings.json`, `queue.json`, and `history.json` into a
