@@ -27,6 +27,17 @@ jobs:
   commitlint:
     name: Conventional PR title
     runs-on: ubuntu-latest
+    # Skip release-please's own PRs (#825). The title comes from a fixed
+    # template (`chore(main): release X.Y.Z`) that is always valid, so
+    # validating it adds zero value. Release-please force-pushes its
+    # release branch rapidly (multiple syncs within seconds); with the
+    # workflow's `cancel-in-progress: true` concurrency group, an earlier
+    # in-flight run can be cancelled by a later push and the cancelled
+    # run becomes the rollup status on the current HEAD — blocking merge
+    # of an otherwise-fine release PR. v1.8.0's #822 hit this exact race
+    # and required a manual rerun. Skipping the job entirely on that
+    # branch eliminates the hazard.
+    if: github.event.pull_request.head.ref != 'release-please--branches--main--components--meedyadl'
 
     steps:
       - name: Checkout code
@@ -39,7 +50,8 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: npm ci --no-audit --no-fund --no-progress
 
       - name: Validate PR title
         env:
