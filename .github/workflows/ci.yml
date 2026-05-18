@@ -128,8 +128,22 @@ jobs:
       #   - It uses the exact versions from package-lock.json (no version drift)
       #   - It deletes node_modules/ first for a deterministic install
       #   - It fails if package-lock.json is out of sync with package.json
+      #
+      # `shell: bash` + quiet flags (closes #823):
+      # - `shell: bash` sidesteps the GitHub-Actions-default pwsh
+      #   dot-source pattern (`pwsh -command ". '{0}'"`) on Windows
+      #   runners, which has a known failure mode of silently
+      #   swallowing a child process's stdout/stderr when the process
+      #   exits mid-output-flush. The 2026-05-18 #823 flake reproduced
+      #   exactly that: `npm ci` exited 1 in 19 s with zero output.
+      # - `--no-progress` removes the progress-bar TTY interaction
+      #   that interacts badly with pwsh.
+      # - `--no-audit` because the dedicated "Security audit" step
+      #   below already runs `npm audit --audit-level=high`.
+      # - `--no-fund` skips an unnecessary informational network call.
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: npm ci --no-audit --no-fund --no-progress
 
       # Step 3.5: Check for known vulnerabilities in npm dependencies.
       # 'npm audit' checks installed packages against the npm advisory database.
@@ -362,8 +376,13 @@ jobs:
 
       # Step 6: Install npm dependencies.
       # Needed for step 7 (building the frontend).
+      # `shell: bash` + quiet flags applied here for the same reason
+      # as the Frontend job's step 3 — closes #823. The Backend job
+      # didn't reproduce the flake on 2026-05-18 but uses identical
+      # tooling, so the same hardening applies as defence-in-depth.
       - name: Install npm dependencies
-        run: npm ci
+        shell: bash
+        run: npm ci --no-audit --no-fund --no-progress
 
       # Step 7: Build the frontend.
       # Runs 'vite build' to generate the dist/ directory with compiled HTML/JS/CSS.
