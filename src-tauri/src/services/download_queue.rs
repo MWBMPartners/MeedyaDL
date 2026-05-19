@@ -4153,13 +4153,39 @@ async fn update_companion_label_from_line(
     // stage's weight — `Finalising` is 0.95, which pegged the bar
     // at 95% for the entire companion run regardless of actual
     // within-companion progress.
-    //
-    // The bar value continues to be driven by the resolution chain
-    // from #790 (per-file `[download] X%` from companion GAMDL →
-    // enrichment stage weights → terminal-state values), so the
-    // visible bar advances naturally as each companion track
-    // downloads.
     set_label_only(app, queue, dl_id, &caption);
+
+    // #836: drive the per-item bar between 95% and ~99% so the
+    // companion phase no longer appears frozen for 30+ minutes on
+    // big multi-tier runs. The pre-fix design assumed the
+    // companion subprocess's `[download] X%` events would advance
+    // the bar (#808 comment), but in practice each companion track
+    // is its own GAMDL run that resets `[download]` to 0% on each
+    // track start. The visible bar therefore oscillated within a
+    // single track and never advanced across tracks — users saw
+    // "95%" for the entire companion phase.
+    //
+    // Strategy: advance the bar by `(track_number / track_total) *
+    // 0.04` within the 0.95..0.99 reserve, so each track-start
+    // tick produces a small but visible forward movement. The
+    // reserve's last 1% (0.99..1.00) is left for the post-companion
+    // advisory pass and `set_complete`.
+    //
+    // This is per-TIER progress — multi-tier runs (e.g. Custom
+    // mode with [ac3, alac, atmos]) will replay 0.95 → 0.99 once
+    // per tier rather than spreading the 4% slice across all
+    // tiers. Sufficient to remove the "stuck" appearance; precise
+    // multi-tier mapping is a follow-up if users want it.
+    if let (Some(n), Some(t)) = (track_number, track_total) {
+        if t > 0 {
+            // Cap at 0.99 so the bar can't accidentally hit 1.0
+            // before the advisory pass / set_complete fires.
+            let fraction = (n as f32 / t as f32).clamp(0.0, 1.0);
+            let bar_value = 0.95 + fraction * 0.04;
+            let mut q = queue.lock().await;
+            q.set_processing_progress(dl_id, bar_value);
+        }
+    }
 }
 
 async fn emit_companion_stream_line(
@@ -5399,11 +5425,28 @@ pub(crate) fn start_heartbeat_ticker(
                     continue;
                 };
 
+                // #836: dedup the stage prefix. Companion captions
+                // already start with `"Companion: "` (set via
+                // `set_label_only(…, &caption)` in
+                // `update_companion_label_from_line`, where the caption
+                // is `"Companion: downloading atmos (tier 2)…"` and the
+                // like). The heartbeat formatter would then produce
+                // `"⏳ Still working — Companion: Companion: downloading
+                // atmos…"` — the user's 2026-05-18 / v1.8.1 screenshot
+                // shows the duplication verbatim. Strip the leading
+                // `"{stage_kind}: "` from `label` if it's already
+                // there, so the format string's own prefix is the
+                // only one users see.
+                let stage_prefix = format!("{stage_kind}: ");
+                let display_label = label
+                    .strip_prefix(stage_prefix.as_str())
+                    .unwrap_or(label.as_str());
+
                 let elapsed = format_heartbeat_elapsed(start.elapsed());
                 emit_download_log(
                     &app,
                     &dl_id,
-                    &format!("⏳ Still working — {stage_kind}: {label} — {elapsed} elapsed"),
+                    &format!("⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"),
                 );
             }
         }
