@@ -1115,6 +1115,11 @@ pub fn run() {
             // Multi-service URL detection (#315)
             commands::system::detect_service,
             commands::system::save_session_log,
+            // Notification diagnostics + backend-pipeline test button (#834).
+            commands::system::test_desktop_notification,
+            commands::system::get_notification_diagnostics,
+            // Output-directory integrity scan (#537 chunk B).
+            commands::system::run_integrity_scan,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
@@ -1146,6 +1151,7 @@ pub fn run() {
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
             commands::gamdl::retry_download,
+            commands::gamdl::retry_failed_bulk,
             commands::gamdl::retry_download_without_wrapper,
             commands::gamdl::move_queue_item_to_top,
             commands::gamdl::move_queue_item_to_bottom,

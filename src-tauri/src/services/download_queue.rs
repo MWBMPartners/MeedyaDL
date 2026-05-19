@@ -250,13 +250,94 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         }
     };
 
-    // Send the OS-native notification
-    app.notification()
+    // Send the OS-native notification.
+    //
+    // Instrumentation (#834): the previous `.ok()` swallowed every
+    // failure silently, which made it impossible to tell whether
+    // notifications were being dropped at the plugin layer, the
+    // OS permission layer, or somewhere else. Now log both arms
+    // through tracing so the on-disk log (#541) captures the truth
+    // for any future bug report. The user's in-app activity log is
+    // *not* spammed — these are OS-pipeline events, not download
+    // events.
+    match app
+        .notification()
         .builder()
         .title(title)
         .body(&display_body)
         .show()
-        .ok();
+    {
+        Ok(()) => {
+            log::debug!(
+                "desktop notification sent: title={:?} body={:?}",
+                title,
+                display_body
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "desktop notification FAILED: title={:?} error={:?} \
+                 (likely OS-level: permission revoked, Focus mode, or sandbox block)",
+                title,
+                e
+            );
+        }
+    }
+}
+
+/// Sends a one-off test notification through the **real** backend
+/// pipeline so the user can self-diagnose why OS notifications are
+/// or aren't appearing.
+///
+/// Differs from `send_desktop_notification` in two ways:
+/// - Bypasses the focus check. The user is clicking "Send Test
+///   Notification" while the app is focused (by definition — they're
+///   on a Settings page); we don't want to silently no-op on them.
+/// - Bypasses the throttle. They might click the button repeatedly.
+///
+/// Otherwise hits the exact same plugin entrypoint, so a successful
+/// test means the production path will also work; a failure surfaces
+/// the actual reason via the returned `Err`.
+///
+/// Closes #834 (instrumentation half).
+pub fn test_desktop_notification(
+    app: &AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+
+    let settings = load_settings_for_queue(app);
+    if !settings.desktop_notifications {
+        return Err(
+            "Desktop Notifications toggle is off. \
+             Turn it on in Settings → General → Notifications first."
+                .to_string(),
+        );
+    }
+    if settings.notification_style == "in_app_only" {
+        return Err(
+            "Notification Style is set to 'In-app only'. \
+             Switch to 'Native + in-app' or 'Native only' to test the OS pipeline."
+                .to_string(),
+        );
+    }
+
+    app.notification()
+        .builder()
+        .title("MeedyaDL — Backend Test")
+        .body(
+            "If you can read this, the native notification pipeline is working \
+             from the Rust side. If you don't see this notification, check macOS \
+             System Settings → Notifications → MeedyaDL.",
+        )
+        .show()
+        .map_err(|e| {
+            format!(
+                "OS-level send failed: {e}. \
+                 Likely causes: macOS notification permission revoked, \
+                 Focus / Do Not Disturb mode enabled, or the app bundle \
+                 missing from System Settings → Notifications."
+            )
+        })
 }
 
 /// Executes the configured after-queue action when the queue becomes idle.
@@ -4072,13 +4153,39 @@ async fn update_companion_label_from_line(
     // stage's weight — `Finalising` is 0.95, which pegged the bar
     // at 95% for the entire companion run regardless of actual
     // within-companion progress.
-    //
-    // The bar value continues to be driven by the resolution chain
-    // from #790 (per-file `[download] X%` from companion GAMDL →
-    // enrichment stage weights → terminal-state values), so the
-    // visible bar advances naturally as each companion track
-    // downloads.
     set_label_only(app, queue, dl_id, &caption);
+
+    // #836: drive the per-item bar between 95% and ~99% so the
+    // companion phase no longer appears frozen for 30+ minutes on
+    // big multi-tier runs. The pre-fix design assumed the
+    // companion subprocess's `[download] X%` events would advance
+    // the bar (#808 comment), but in practice each companion track
+    // is its own GAMDL run that resets `[download]` to 0% on each
+    // track start. The visible bar therefore oscillated within a
+    // single track and never advanced across tracks — users saw
+    // "95%" for the entire companion phase.
+    //
+    // Strategy: advance the bar by `(track_number / track_total) *
+    // 0.04` within the 0.95..0.99 reserve, so each track-start
+    // tick produces a small but visible forward movement. The
+    // reserve's last 1% (0.99..1.00) is left for the post-companion
+    // advisory pass and `set_complete`.
+    //
+    // This is per-TIER progress — multi-tier runs (e.g. Custom
+    // mode with [ac3, alac, atmos]) will replay 0.95 → 0.99 once
+    // per tier rather than spreading the 4% slice across all
+    // tiers. Sufficient to remove the "stuck" appearance; precise
+    // multi-tier mapping is a follow-up if users want it.
+    if let (Some(n), Some(t)) = (track_number, track_total) {
+        if t > 0 {
+            // Cap at 0.99 so the bar can't accidentally hit 1.0
+            // before the advisory pass / set_complete fires.
+            let fraction = (n as f32 / t as f32).clamp(0.0, 1.0);
+            let bar_value = 0.95 + fraction * 0.04;
+            let mut q = queue.lock().await;
+            q.set_processing_progress(dl_id, bar_value);
+        }
+    }
 }
 
 async fn emit_companion_stream_line(
@@ -5318,11 +5425,28 @@ pub(crate) fn start_heartbeat_ticker(
                     continue;
                 };
 
+                // #836: dedup the stage prefix. Companion captions
+                // already start with `"Companion: "` (set via
+                // `set_label_only(…, &caption)` in
+                // `update_companion_label_from_line`, where the caption
+                // is `"Companion: downloading atmos (tier 2)…"` and the
+                // like). The heartbeat formatter would then produce
+                // `"⏳ Still working — Companion: Companion: downloading
+                // atmos…"` — the user's 2026-05-18 / v1.8.1 screenshot
+                // shows the duplication verbatim. Strip the leading
+                // `"{stage_kind}: "` from `label` if it's already
+                // there, so the format string's own prefix is the
+                // only one users see.
+                let stage_prefix = format!("{stage_kind}: ");
+                let display_label = label
+                    .strip_prefix(stage_prefix.as_str())
+                    .unwrap_or(label.as_str());
+
                 let elapsed = format_heartbeat_elapsed(start.elapsed());
                 emit_download_log(
                     &app,
                     &dl_id,
-                    &format!("⏳ Still working — {stage_kind}: {label} — {elapsed} elapsed"),
+                    &format!("⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"),
                 );
             }
         }
@@ -7057,6 +7181,28 @@ pub fn process_queue(
         let shutdown_clone = shutdown_signal;
 
         tokio::spawn(async move {
+            // Snapshot the audio-file count in the configured output base
+            // BEFORE spawning GAMDL (#831). This is the primary-path twin
+            // of the Phase 3.5h companion-task snapshot. After a clean
+            // GAMDL exit we compare against this baseline; if no new audio
+            // files have landed in the output tree, the run failed
+            // silently (GAMDL exits 0 when every track is skipped due to
+            // format unavailability — "Skipping … format is not
+            // available" is a warning, not an error from GAMDL's view).
+            //
+            // Without this check, the recovery path's `find_album_directory`
+            // can pick up a previously-downloaded album directory from a
+            // prior run and treat its files as evidence this run
+            // succeeded — producing the user-visible "Complete" badge on
+            // an item where every single track was actually skipped
+            // (#831).
+            let pre_run_audio_count = download_options
+                .output_path
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(count_audio_files_in_directory)
+                .unwrap_or(0);
+
             // Run the GAMDL download with real-time event forwarding.
             // This function handles subprocess spawning, output parsing,
             // and cancellation polling. See run_download_with_events() below.
@@ -7374,7 +7520,57 @@ pub fn process_queue(
                                 .and_then(|i| i.status.output_path.as_ref())
                                 .is_some();
 
-                            if !has_output_now {
+                            // #831: even if `has_output_now` is true, verify
+                            // that this run actually produced NEW audio files.
+                            // The `find_album_directory` recovery above can
+                            // pick up a previously-downloaded album folder
+                            // from an earlier run and set `output_path` to
+                            // it — making the rest of the pipeline treat
+                            // this run as a success even though zero new
+                            // tracks landed. Without this check, retrying a
+                            // failed item with the same (unavailable) codec
+                            // chain endlessly produces "Complete" badges on
+                            // items where every track was actually Skipped.
+                            //
+                            // Compare against the pre-run snapshot taken at
+                            // the top of this spawn (line ~7155). If the
+                            // count hasn't moved, treat the run as a
+                            // no-files-produced failure regardless of what
+                            // the recovery path set `output_path` to.
+                            let new_files_landed = if has_output_now {
+                                let post_run_count = download_options
+                                    .output_path
+                                    .as_deref()
+                                    .map(std::path::Path::new)
+                                    .map(count_audio_files_in_directory)
+                                    .unwrap_or(0);
+                                if post_run_count <= pre_run_audio_count {
+                                    log::info!(
+                                        "Download {dl_id}: output_path set but no new \
+                                         audio files landed (pre={pre_run_audio_count}, \
+                                         post={post_run_count}) — treating as \
+                                         no-files-produced failure (#831)"
+                                    );
+                                    // Clear the misleading output_path so the
+                                    // post-error UI doesn't open a folder that
+                                    // was actually pre-existing.
+                                    if let Some(item) = q
+                                        .items
+                                        .iter_mut()
+                                        .find(|i| i.status.id == dl_id)
+                                    {
+                                        item.status.output_path = None;
+                                        item.status.output_is_directory = false;
+                                    }
+                                    false
+                                } else {
+                                    true
+                                }
+                            } else {
+                                false
+                            };
+
+                            if !new_files_landed {
                                 // Terminal: no output, no IO recovery, no files on
                                 // disk despite codec fallback exhausted.
                                 //
