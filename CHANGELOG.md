@@ -38,6 +38,12 @@ The queue watchdog's stall detector compared a tuple of
 
 - **(security)** Update supported versions to 1.9.1 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.2 user-facing release notes draft
+
+[skip ci]
+
+- **(security)** Update supported versions to 1.9.2 [skip ci]
 
 ## [1.9.1] - 2026-05-19
 
