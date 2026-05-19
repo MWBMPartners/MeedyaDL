@@ -8,6 +8,29 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(activity-log)** Break 'Queued: ...' URL lists across lines (#849)
+
+Third sibling site to #840 / #845. The constructive ("succeeded")
+  enqueue branches at gamdl.rs:609 (artist-mode multi-enqueue) and
+  gamdl.rs:872 (single-mode standard enqueue) still produced the same
+  wall-of-text single-line `, `-joined URL list. Spotted in v1.9.2
+  hand-test on a 356-item batch.
+
+  Same `\n  • {url}` bullet treatment as the previous two fixes. The
+  unused `urls_display = request.urls.join(", ")` binding at line 631
+  goes away too — both consumers now build the bulleted list directly
+  from the URL Vec.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.9.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.9.2] - 2026-05-19
+
+### 🐛 Bug Fixes
+
 - **(watchdog)** Count activity-log emissions as progress signal (#846)
 
 The queue watchdog's stall detector compared a tuple of
@@ -43,7 +66,6 @@ The queue watchdog's stall detector compared a tuple of
 
 [skip ci]
 
-- **(security)** Update supported versions to 1.9.2 [skip ci]
 
 ## [1.9.1] - 2026-05-19
 
