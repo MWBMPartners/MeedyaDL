@@ -6234,58 +6234,63 @@ fn spawn_companion_downloads(
             return;
         }
 
-        // Prefer the targeted `{output_dir}/{artist}/{album}/` resolution
-        // when we have both hints; only do a (depth-bounded) recursive
-        // walk when hints aren't available (#502 / #707-followup).
+        // Resolve the album directory in three layered ways, falling
+        // through to the next only when the prior produces nothing:
+        //   (1) targeted `{output_dir}/{artist}/{album}/` when both hints
+        //       are non-empty strings,
+        //   (2) `find_album_directory` (case-insensitive match + deepest
+        //       recently-modified audio dir),
+        //   (3) skip — return an empty `album_dirs` and bail.
         //
-        // **Why we no longer fall back to the recursive walk when the
-        // scoped path exists but has no TTML.** Previously, an item that
-        // was skipped during primary GAMDL (e.g. `Atmos` not available)
-        // produced an empty scoped directory; the code then recursively
-        // walked the ENTIRE output tree (typically the user's whole
-        // music library, tens of thousands of files) looking for TTML
-        // and ran lyrics conversion on every other album. For a library
-        // with many existing albums that has produced 30+ minutes of
-        // silent CPU/disk work plus log entries like
-        // `Companion: converted N TTML file(s)` for albums that had
-        // nothing to do with the queued item. Now: if we have hints
-        // and the scoped path exists, we operate ONLY inside it (even
-        // if it has no TTML — nothing to do is the correct outcome).
-        // The recursive fallback only runs when no hints are available
-        // (older queue items with no API metadata yet), and even then
-        // it's depth-bounded to 10 levels via [`find_dirs_with_ttml`].
-        let album_dirs: Vec<std::path::PathBuf> = match (artist_hint, album_hint) {
-            (Some(artist), Some(album)) => {
-                let scoped = base.join(artist).join(album);
-                if scoped.is_dir() {
-                    log::debug!(
-                        "Companion lyrics: scoped to album dir {} for {dl_id}",
-                        scoped.display()
-                    );
-                    find_dirs_with_ttml(&scoped)
-                } else {
-                    log::debug!(
-                        "Companion lyrics: scoped path {} does not exist — \
-                         skipping conversion (item likely had no successful audio)",
-                        scoped.display()
-                    );
-                    Vec::new()
-                }
-            }
-            _ => {
+        // **What we no longer do (#839).** Previously the catch-all arm
+        // walked `find_dirs_with_ttml(base)` over the *entire* output
+        // root whenever either hint was missing, producing the
+        // 484-album-dir / 25-minute symptom users reported on v1.8.x.
+        // The depth-10 cap inside `find_dirs_with_ttml` doesn't help
+        // because user libraries naturally fit within 3 levels
+        // (`~/Music/Artist/Album/`). The trigger wasn't only
+        // `(None, None)`: an Apple Music API response with an empty
+        // artist or album string (`Some("")`) joined as `base` itself,
+        // satisfied `.is_dir()`, and walked the whole library too. The
+        // empty-string filter below treats those as missing.
+        let artist_hint = artist_hint.filter(|s| !s.is_empty());
+        let album_hint = album_hint.filter(|s| !s.is_empty());
+
+        let resolved_album_dir: Option<std::path::PathBuf> = if let (Some(artist), Some(album)) =
+            (artist_hint, album_hint)
+        {
+            let scoped = base.join(artist).join(album);
+            if scoped.is_dir() {
                 log::debug!(
-                    "Companion lyrics: no artist/album hints for {dl_id} — \
-                     recursive walk (depth-limited) over {output_dir}"
+                    "Companion lyrics: scoped to album dir {} for {dl_id}",
+                    scoped.display()
                 );
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!(
-                        "Companion: scanning {output_dir} for TTML lyrics \
-                         (no album hints available, depth-limited to 10)..."
-                    ),
+                Some(scoped)
+            } else {
+                // Hinted path doesn't exist on disk (e.g. user's folder
+                // template differs from `{album_artist}/{album}`, or
+                // sanitisation rewrote special characters). Try the
+                // shared `find_album_directory` resolver which handles
+                // case-insensitive matches + a bounded deepest-audio-dir
+                // scan, same as the codec-tag pass uses at #816.
+                find_album_directory(base, Some(artist), Some(album)).map(std::path::PathBuf::from)
+            }
+        } else {
+            log::debug!(
+                "Companion lyrics: no artist/album hints for {dl_id} — \
+                 attempting find_album_directory recovery for {output_dir}"
+            );
+            find_album_directory(base, artist_hint, album_hint).map(std::path::PathBuf::from)
+        };
+
+        let album_dirs: Vec<std::path::PathBuf> = match resolved_album_dir {
+            Some(dir) => find_dirs_with_ttml(&dir),
+            None => {
+                log::debug!(
+                    "Companion lyrics: no specific album dir resolved for {dl_id} — \
+                     skipping conversion (item likely had no successful audio)"
                 );
-                find_dirs_with_ttml(base)
+                Vec::new()
             }
         };
         if album_dirs.is_empty() {
