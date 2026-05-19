@@ -579,10 +579,19 @@ pub async fn start_download(
             // Every mode was SkipEntirely — report this to the caller as a
             // no-op success with a warning. The frontend will show the
             // duplicate_warning toast and the user sees the activity log.
+            let urls_bulleted = if urls_display.contains(", ") {
+                urls_display
+                    .split(", ")
+                    .map(|u| format!("  • {u}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                format!("  • {urls_display}")
+            };
             emit_app_log(
                 &app,
                 &format!(
-                    "Nothing queued for {urls_display} — every track is already downloaded or queued"
+                    "Nothing queued — every track is already downloaded or queued:\n{urls_bulleted}"
                 ),
             );
             return Ok(StartDownloadResult {
@@ -830,9 +839,14 @@ pub async fn start_download(
     };
     if filtered_urls.is_empty() {
         crate::services::history_service::remove_entries_for_urls(&app, &submitted_urls);
+        let urls_bulleted = submitted_urls
+            .iter()
+            .map(|u| format!("  • {u}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         emit_app_log(
             &app,
-            &format!("Nothing queued for {urls_display} — already in Queue"),
+            &format!("Nothing queued — already in Queue:\n{urls_bulleted}"),
         );
         return Ok(StartDownloadResult {
             download_id: String::new(),
