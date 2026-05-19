@@ -69,7 +69,7 @@ use tokio::sync::Mutex;
 
 use crate::models::download::{DownloadState, QueueItemStatus};
 use crate::services::download_queue::{DownloadQueue, ShutdownSignal};
-use crate::utils::activity_log::emit_download_log;
+use crate::utils::activity_log::{emit_download_log, get_activity_count};
 
 /// Polling cadence. Short enough that a stalled item is noticed
 /// within ~1 min, long enough that the watchdog itself is
@@ -93,6 +93,16 @@ struct ProgressSnapshot {
     processing_label: Option<String>,
     current_track: Option<String>,
     completed_tracks: Option<usize>,
+    /// Activity-log event counter for this download (#846). The
+    /// QueueItemStatus alone misses long-running passes that don't
+    /// touch the bar/label (e.g. the once-per-item companion lyrics
+    /// conversion from #843, which emits 100s of "converted N TTML"
+    /// events without changing any of the fields above) and the
+    /// watchdog used to false-positive on them. Bumped from inside
+    /// `utils::activity_log::emit_inner` /
+    /// `emit_subprocess_line` so any activity-log emission for the
+    /// item changes the snapshot.
+    activity_count: u64,
 }
 
 impl ProgressSnapshot {
@@ -110,6 +120,7 @@ impl ProgressSnapshot {
             processing_label: item.processing_label.clone(),
             current_track: item.current_track.clone(),
             completed_tracks: item.completed_tracks,
+            activity_count: get_activity_count(&item.id),
         }
     }
 }
@@ -318,7 +329,35 @@ mod tests {
             processing_label: processing_label.map(String::from),
             current_track: current_track.map(String::from),
             completed_tracks,
+            activity_count: 0,
         }
+    }
+
+    /// Same as [`make_snapshot`] but with an explicit activity counter
+    /// (#846).
+    fn make_snapshot_with_activity(
+        progress: f64,
+        activity_count: u64,
+    ) -> ProgressSnapshot {
+        ProgressSnapshot {
+            progress_bucket: (progress * 10.0).round() as i64,
+            processing_progress_bucket: -1,
+            processing_label: None,
+            current_track: None,
+            completed_tracks: None,
+            activity_count,
+        }
+    }
+
+    #[test]
+    fn snapshot_picks_up_activity_count_change() {
+        // #846: even with every other field identical, a change in
+        // activity_count must mark the snapshot as different so the
+        // watchdog sees long-running activity-log-only passes as
+        // progress rather than a stall.
+        let s1 = make_snapshot_with_activity(100.0, 10);
+        let s2 = make_snapshot_with_activity(100.0, 11);
+        assert_ne!(s1, s2);
     }
 
     #[test]
