@@ -72,6 +72,7 @@ For artist URLs the early-metadata API fetch returns None (logs "URL is
   For a 3-track Forrest Frank artist URL on a 484-album library this
   turned a 30 s enrichment into a 6-minute walk.
 
+- **(lint)** Collapse nested if in #843 single-run lyrics block
 
 ### 📚 Documentation
 
@@ -85,6 +86,7 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 
   [skip ci]
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
