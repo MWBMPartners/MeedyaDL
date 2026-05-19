@@ -73,6 +73,15 @@ For artist URLs the early-metadata API fetch returns None (logs "URL is
   turned a 30 s enrichment into a 6-minute walk.
 
 - **(lint)** Collapse nested if in #843 single-run lyrics block
+- **(lint)** Use let-else for output_dir extraction to satisfy clippy 1.95
+
+The collapsed nested if fix in 4ed66b3b still tripped clippy 1.95's
+  collapsible_if lint because the inner `if let Some(output_dir) = ...`
+  wanted to be folded into a let-chain. Let-chains need Rust 2024 edition
+  which we're not on yet. Switch to a `let Some(...) else { return; }`
+  pattern (stable since Rust 1.65) — same behaviour, clean across both
+  the 1.93 local toolchain and the 1.95 CI toolchain.
+
 
 ### 📚 Documentation
 
@@ -86,6 +95,7 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 
   [skip ci]
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
