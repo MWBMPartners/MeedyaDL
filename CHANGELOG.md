@@ -8,6 +8,41 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(watchdog)** Count activity-log emissions as progress signal (#846)
+
+The queue watchdog's stall detector compared a tuple of
+  QueueItemStatus fields (progress, processing_label, current_track,
+  completed_tracks) across poll cycles. During long-running passes that
+  don't touch any of those — the once-per-item companion lyrics
+  conversion from #843 is the canonical example, emitting 100s of
+  "converted N TTML" lines without changing the bar or label — the
+  tuple was bit-identical for 10+ minutes and the watchdog issued a
+  false-positive "no progress signal for 10 min" warning even though
+  the item was actively working.
+
+  Add a per-download monotonic counter in utils/activity_log.rs that
+  bumps from inside emit_inner (every emit_download_log /
+  emit_download_warn / emit_download_error / emit_verbose_download_log
+  call) and emit_subprocess_line (every GAMDL stdout/stderr line). The
+  watchdog snapshot now includes the counter — any activity-log event
+  for the item changes the snapshot and resets the stall timer.
+
+  System-level emit_app_log calls deliberately don't bump anything;
+  they're not tied to a specific stalled item.
+
+  Map grows monotonically (one u64 per ever-seen download_id) which
+  is fine — even 10k downloads is ~240 KB.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.9.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.9.1] - 2026-05-19
+
+### 🐛 Bug Fixes
+
 - **(companion)** Never walk whole output library on missing/empty hints (#839)
 
 When an item's early Apple Music API fetch returned an empty string for
@@ -115,7 +150,6 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 [skip ci]
 
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.9.1 [skip ci]
 
 ### ⚡ Performance
 
