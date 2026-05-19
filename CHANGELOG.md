@@ -6,6 +6,54 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(companion)** Never walk whole output library on missing/empty hints (#839)
+
+When an item's early Apple Music API fetch returned an empty string for
+  artist or album (rare API quirk on featured-artist tracks), the existing
+  match arm computed base.join("").join("") == base, found base.is_dir()
+  true, and ran find_dirs_with_ttml(&base) — walking the user's entire
+  music library and re-running every TTML→LRC/SRT/VTT/ASS conversion on
+  every album dir, once per successful companion tier. Symptom reported on
+  v1.8.1: 25+ minutes stuck on "converting lyrics formats…" for a single
+  queue item, with the activity log showing "Companion: converted N TTML
+  file(s) to Enhanced LRC" firing on hundreds of unrelated albums.
+
+  The fix has three parts:
+    1. Treat Some("") as missing via .filter(|s| !s.is_empty()).
+    2. When hints are present but the scoped path doesn't exist on disk,
+       delegate to find_album_directory — it already handles case-
+       insensitive matching + a bounded deepest-audio-dir scan and is
+       used by the codec-tag pass for the same reason (#816).
+    3. Drop the recursive-walk-over-base fallback entirely. If no specific
+       album dir can be resolved, skip companion lyrics conversion for
+       that item. Missing companion lyrics on one orphan item is far
+       better than 25 minutes of silent CPU/disk on the whole library.
+
+- **(activity-log)** Break long deduplicated-URL log entries across lines (#840)
+
+For batch enqueues with many duplicates the entry became an unreadable
+  single-line wall of ", "-joined URLs. The activity log already renders
+  with `whitespace-pre-wrap`, so emitting "\n  • {url}" per URL produces a
+  neat bulleted list that scales to hundreds of entries.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.9.0 [skip ci]
+- **(release)** Add Known Issues banner to v1.8.1 draft
+
+Records the lyrics-conversion loop bug now tracked in #839 so the file
+  in-repo matches the live GitHub Release body. v1.8.1 is flagged as
+  Pre-release on the Releases page until #839 ships.
+
+  [skip ci]
+
+
+## [1.9.0] - 2026-05-19
+
 ### ✨ Features
 
 - **(v1.9)** Native-toast diagnostics, bulk retry, restart prompt, false-complete fix, 95% peg fix, codec labels, integrity scan (7 closed, 1 partial) (#837)
