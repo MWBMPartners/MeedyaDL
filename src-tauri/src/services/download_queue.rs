@@ -7942,14 +7942,58 @@ pub fn process_queue(
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
                             // For albums, output_path is already the directory.
+                            //
+                            // **#842 (artist-URL enrichment scope).** Pre-fix,
+                            // when GAMDL wrote into `~/Music/Artist/Album/`,
+                            // `output_dir` was `~/Music/` (the user's root)
+                            // and the `dir.is_dir()` branch set `album_dir`
+                            // to that same root. Every downstream pass
+                            // (codec tagger, AcoustID, ReplayGain, lyrics
+                            // services) then walked the WHOLE library —
+                            // for the Forrest Frank 3-track artist URL the
+                            // user reported, that meant tagging 69 files,
+                            // fingerprinting 69 files, ReplayGain-analysing
+                            // 73 files, and lyrics-fallback-scanning 73
+                            // tracks. Now we resolve a specific album dir
+                            // via the shared `find_album_directory` helper
+                            // (same one #839 wired into the companion lyrics
+                            // path). When hints are missing — common for
+                            // artist URLs whose early metadata fetch returns
+                            // `None` — the helper falls back to a depth-10
+                            // most-recently-modified-leaf scan via
+                            // `find_deepest_audio_dir` (#844 bounded the
+                            // depth, so this is fast even on big libraries)
+                            // and picks up the album GAMDL just produced.
                             let dir = std::path::Path::new(&output_dir);
-                            let mut album_dir = if dir.is_dir() {
-                                output_dir.clone()
+                            let (early_artist_hint, early_album_hint) = {
+                                let q = enrich_queue.lock().await;
+                                q.items
+                                    .iter()
+                                    .find(|i| i.status.id == enrich_dl_id)
+                                    .map(|i| {
+                                        (
+                                            i.status.artist_name.clone(),
+                                            i.status.album_name.clone(),
+                                        )
+                                    })
+                                    .unwrap_or((None, None))
+                            };
+                            let resolved_album_dir = if dir.is_dir() {
+                                find_album_directory(
+                                    dir,
+                                    early_artist_hint.as_deref().filter(|s| !s.is_empty()),
+                                    early_album_hint.as_deref().filter(|s| !s.is_empty()),
+                                )
                             } else {
-                                dir.parent().map_or_else(
+                                None
+                            };
+                            let mut album_dir = match resolved_album_dir {
+                                Some(found) => found,
+                                None if dir.is_dir() => output_dir.clone(),
+                                None => dir.parent().map_or_else(
                                     || output_dir.clone(),
                                     |p| p.to_string_lossy().to_string(),
-                                )
+                                ),
                             };
 
                             // Helper: update the processing label AND the
