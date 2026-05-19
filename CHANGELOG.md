@@ -82,6 +82,14 @@ The collapsed nested if fix in 4ed66b3b still tripped clippy 1.95's
   pattern (stable since Rust 1.65) — same behaviour, clean across both
   the 1.93 local toolchain and the 1.95 CI toolchain.
 
+- **(activity-log)** Break 'Nothing queued for ...' URL lists across lines (#845)
+
+Sibling sites to #840 at gamdl.rs:585 (every-track-already-downloaded)
+  and gamdl.rs:844 (already-in-queue). Same wall-of-text symptom — a
+  batch enqueue of hundreds of duplicates produced an unreadable single
+  visually-wrapped line. ActivityLog already renders whitespace-pre-wrap
+  so emitting "\n  • {url}" per URL renders as a clean bullet list.
+
 
 ### 📚 Documentation
 
@@ -101,6 +109,11 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.1 user-facing release notes draft
+
+[skip ci]
+
 
 ### ⚡ Performance
 
