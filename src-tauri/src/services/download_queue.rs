@@ -6187,39 +6187,35 @@ fn spawn_companion_downloads(
             // work on big libraries. TTML files don't change between tiers,
             // so converting them once is correct.
             if any_tier_produced_files && !aborted_for_task.load(Ordering::Relaxed) {
-                if let Some(output_dir) = comp_base_opts.output_path.as_deref() {
-                        // Re-read hints from the queue item — the enrichment
-                        // task may have populated them via API mid-flight
-                        // even though they were absent at companion-loop start.
-                        let (artist_hint, album_hint) = {
-                            let q = comp_queue.lock().await;
-                            q.items
-                                .iter()
-                                .find(|i| i.status.id == comp_dl_id)
-                                .map(|i| {
-                                    (
-                                        i.status.artist_name.clone(),
-                                        i.status.album_name.clone(),
-                                    )
-                                })
-                                .unwrap_or((None, None))
-                        };
-                        set_stage_with_label(
-                            &comp_app,
-                            &comp_queue,
-                            &comp_dl_id,
-                            ProgressStage::Finalising,
-                            "Companion: converting lyrics formats…",
-                        );
-                        run_companion_lyrics_conversion(
-                            &comp_app,
-                            &comp_dl_id,
-                            output_dir,
-                            artist_hint.as_deref(),
-                            album_hint.as_deref(),
-                            &aborted_for_task,
-                        );
-                    }
+                let Some(output_dir) = comp_base_opts.output_path.as_deref() else {
+                    return;
+                };
+                // Re-read hints from the queue item — the enrichment
+                // task may have populated them via API mid-flight
+                // even though they were absent at companion-loop start.
+                let (artist_hint, album_hint) = {
+                    let q = comp_queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == comp_dl_id)
+                        .map(|i| (i.status.artist_name.clone(), i.status.album_name.clone()))
+                        .unwrap_or((None, None))
+                };
+                set_stage_with_label(
+                    &comp_app,
+                    &comp_queue,
+                    &comp_dl_id,
+                    ProgressStage::Finalising,
+                    "Companion: converting lyrics formats…",
+                );
+                run_companion_lyrics_conversion(
+                    &comp_app,
+                    &comp_dl_id,
+                    output_dir,
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                    &aborted_for_task,
+                );
             }
         });
         // Heartbeat ticker for the companion phase (#805). Shares the
