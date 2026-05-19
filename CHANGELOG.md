@@ -52,6 +52,23 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
   [skip ci]
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### ⚡ Performance
+
+- **(fs)** Bound find_deepest_audio_dir recursion to depth 10 (#844)
+
+The hint-recovery fallback in find_album_directory walked the entire
+  output directory tree with no depth limit. On a 484-album user library
+  this added 30-60 s of pure I/O before any actual enrichment work began,
+  limiting the effectiveness of the #839 lyrics-conversion fix (which
+  routes hint-less items through this scan).
+
+  Cap depth at 10, matching the existing convention used by
+  find_dirs_with_ttml and scan_folder_for_manifests. User libraries
+  naturally fit within 3 levels (Music/Artist/Album/), so 10 is generous
+  headroom for unusual layouts.
+
 
 ## [1.9.0] - 2026-05-19
 
