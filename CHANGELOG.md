@@ -108,6 +108,11 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.8.1 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.0 user-facing release notes draft
+
+[skip ci]
+
 
 ## [1.8.1] - 2026-05-18
 
