@@ -38,6 +38,25 @@ For batch enqueues with many duplicates the entry became an unreadable
   with `whitespace-pre-wrap`, so emitting "\n  • {url}" per URL produces a
   neat bulleted list that scales to hundreds of entries.
 
+- **(companion)** Run lyrics conversion once per item, not once per tier (#843)
+
+Pre-fix, run_companion_lyrics_conversion fired inside the per-tier
+  success branch. Multi-tier items that produced files in more than one
+  tier (e.g. Atmos tier 2 + AAC-Legacy tier 4 both succeeding for the
+  same artist URL) re-walked the user's library and re-converted the
+  same TTML files once per successful tier.
+
+  Observed v1.8.1 symptom: Sam Rivera item ran the 484-album-dir scan
+  twice in 50+ minutes (once after tier 2, once after tier 4).
+
+  TTML files don't change between tiers — companions inherit them from
+  the primary download. Hoist the call out of the tier loop and run it
+  exactly once after the loop completes, gated on a new
+  `any_tier_produced_files` flag that flips when any tier writes new
+  audio files to disk. Hints are re-read from the queue item at that
+  point so the enrichment pipeline's API population (which runs
+  concurrently with companions) is picked up if it landed in time.
+
 
 ### 📚 Documentation
 
@@ -51,6 +70,7 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 
   [skip ci]
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
