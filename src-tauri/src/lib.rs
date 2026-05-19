@@ -1118,6 +1118,8 @@ pub fn run() {
             // Notification diagnostics + backend-pipeline test button (#834).
             commands::system::test_desktop_notification,
             commands::system::get_notification_diagnostics,
+            // Output-directory integrity scan (#537 chunk B).
+            commands::system::run_integrity_scan,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,

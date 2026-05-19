@@ -113,8 +113,10 @@ import {
   buildDiagnosticBundle,
   getComponentVersions,
   getNotificationDiagnostics,
+  runIntegrityScan,
   type DiagnosticBundle,
   type NotificationDiagnostics,
+  type IntegrityScanReport,
 } from '@/lib/tauri-commands';
 import { useActivityStore } from '@/stores/activityStore';
 
@@ -411,6 +413,13 @@ export function AdvancedTab() {
             are aligned. Pure read-only: NEVER triggers a permission
             prompt (use Send Test Notification in General for that). */}
         <NotificationDiagnosticsRow />
+
+        {/* Output-directory integrity scan (#537 chunk B). User-initiated
+            walk that detects historic damage from pre-v1.6 broken
+            builds — `[Unknown]/-.mp4`, `Unknown Album/-.jpg`, zero-byte
+            cover files. Read-only: only DETECTS and REPORTS. Quarantine
+            UI lands as a follow-up. */}
+        <IntegrityScanSection />
 
         <Toggle
           label="Verbose Activity Log"
@@ -1001,6 +1010,120 @@ function NotificationDiagnosticsRow() {
         Disturb is off. Use <strong>Send Test Notification</strong> in Settings → General
         to verify the full pipeline end-to-end.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Output-directory integrity scan (#537 chunk B).
+ *
+ * Renders a "Run Integrity Scan" button + on-demand results panel.
+ * Detects historic damage from pre-v1.6 broken builds:
+ *   - Empty-tag filenames (`-.mp4`, `-.jpg`)
+ *   - `[Unknown]/` folder segments
+ *   - Zero-byte fixed-name covers (`FrontCover.mp4` etc.)
+ *
+ * Read-only — does NOT modify or remove anything. Users with
+ * detected issues can use the listed paths to manually inspect /
+ * delete affected files; a future commit lands the quarantine
+ * action that moves them to `_quarantine_<DATE>/`.
+ *
+ * Lives in Settings → Advanced → Diagnostics because it's a
+ * support-grade diagnostic — pre-v1.6 users may not even know
+ * they have damaged files until they run this scan.
+ */
+function IntegrityScanSection() {
+  const [report, setReport] = useState<IntegrityScanReport | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const addToast = useUiStore((s) => s.addToast);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError(null);
+    setReport(null);
+    try {
+      const r = await runIntegrityScan();
+      setReport(r);
+      // Brief toast so the user notices a "no issues found" result
+      // even if they navigate away from this panel — the result row
+      // below is the persistent surface, the toast is just a nudge.
+      if (r.issues.length === 0) {
+        addToast(`Integrity scan: ${r.files_walked} file(s) walked, no issues found.`, 'success');
+      } else {
+        addToast(
+          `Integrity scan found ${r.issues.length} issue(s). See Diagnostics for details.`,
+          'warning',
+        );
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      addToast(`Integrity scan failed: ${msg}`, 'error');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="p-3 rounded-lg bg-surface-secondary border border-border-default">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-content-primary">
+          Integrity scan (#537)
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleRun}
+          disabled={running}
+        >
+          {running ? 'Scanning…' : 'Run Integrity Scan'}
+        </Button>
+      </div>
+      <p className="text-xs text-content-tertiary mb-2">
+        Walks your output folder looking for historic damage from
+        pre-v1.6 broken builds — empty-tag filenames (<code>-.mp4</code>),
+        <code>[Unknown]/</code> folder segments, and zero-byte cover
+        files. <strong>Read-only</strong>: detects and reports only.
+        Quarantine action lands in a future update.
+      </p>
+      {error && (
+        <p className="text-xs text-status-error mb-2">{error}</p>
+      )}
+      {report && (
+        <div className="mt-2">
+          <p className="text-xs text-content-tertiary mb-1">
+            Scanned: <code>{report.scanned_path}</code> — {report.files_walked} file(s) walked.
+          </p>
+          {report.issues.length === 0 ? (
+            <p className="text-xs text-status-success">
+              ✓ No issues found — your library is clean.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-status-warning mb-1">
+                {report.issues.length} issue(s) found:
+              </p>
+              <div className="max-h-48 overflow-y-auto border border-border-default rounded p-2 bg-surface-primary">
+                {report.issues.map((issue, idx) => (
+                  <div key={idx} className="text-xs font-mono text-content-primary py-0.5">
+                    <span
+                      className={
+                        issue.kind === 'zero_byte_cover'
+                          ? 'text-status-warning'
+                          : 'text-status-error'
+                      }
+                    >
+                      [{issue.kind === 'zero_byte_cover' ? 'zero-byte cover' : 'degenerate name'}]
+                    </span>{' '}
+                    {issue.path}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

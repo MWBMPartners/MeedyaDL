@@ -2000,3 +2000,42 @@ export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
 export function testDesktopNotification(): Promise<void> {
   return invoke<void>('test_desktop_notification');
 }
+
+/**
+ * Single integrity-scan finding (#537 chunk B).
+ *
+ * Discriminated by `kind`:
+ * - `degenerate_name` — filename/path matches one of the empty-tag
+ *   MV pipeline signatures. `signature` says which one
+ *   (`hyphen-dot-extension`, `unknown-folder-segment`,
+ *   `unknown-album-with-empty-filename`).
+ * - `zero_byte_cover` — fixed-name cover file (`FrontCover.mp4`,
+ *   `PortraitCover.mp4`, `ArtistSpotlightCover.mp4`) is 0 bytes,
+ *   likely from an interrupted HLS download.
+ */
+export type IntegrityIssue =
+  | { kind: 'degenerate_name'; path: string; signature: string }
+  | { kind: 'zero_byte_cover'; path: string };
+
+export interface IntegrityScanReport {
+  files_walked: number;
+  issues: IntegrityIssue[];
+  scanned_path: string;
+}
+
+/**
+ * Walks the user's configured output directory and returns a report
+ * of historic damage from pre-v1.6 broken builds (#537 chunk B).
+ *
+ * Detects: `-.mp4`/`-.jpg` empty-tag filenames, `[Unknown]/` folder
+ * segments, zero-byte fixed-name covers. Read-only — does NOT
+ * modify or remove anything. Quarantine action lands as a
+ * follow-up; for now the report is purely informational.
+ *
+ * The Rust side runs the walk on a `spawn_blocking` thread so the
+ * frontend can `await` this freely even on libraries with 1000+
+ * albums (where the scan can take several seconds).
+ */
+export function runIntegrityScan(): Promise<IntegrityScanReport> {
+  return invoke<IntegrityScanReport>('run_integrity_scan');
+}
