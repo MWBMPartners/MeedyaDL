@@ -675,9 +675,13 @@ fn find_album_directory(
     }
 
     // --- Fallback: generic deep scan (picks most recently modified leaf dir) ---
+    // Depth-bounded to 10 levels (#844) — matches the convention used by
+    // `find_dirs_with_ttml` and `scan_folder_for_manifests`. Without the cap,
+    // pointing this at a 484-album library walked tens of thousands of dirs
+    // and added 30-60 s of pure I/O before any actual enrichment work began.
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
 
-    find_deepest_audio_dir(base_dir, &mut best);
+    find_deepest_audio_dir(base_dir, &mut best, 0);
 
     // If no subdirectory with audio files found, check if base itself has audio
     if best.is_none() && has_direct_audio_files(base_dir) {
@@ -732,10 +736,21 @@ fn find_directory_case_insensitive(
 
 /// Recursively finds the deepest directory that directly contains audio files.
 /// Prefers the most recently modified leaf directory.
+/// Maximum recursion depth for [`find_deepest_audio_dir`] (#844).
+///
+/// User libraries typically fit within 3 levels (`Music/Artist/Album/`); 10
+/// gives generous headroom for unusual layouts while keeping the cold-scan
+/// cost bounded.
+const FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH: u32 = 10;
+
 fn find_deepest_audio_dir(
     dir: &std::path::Path,
     best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
+    depth: u32,
 ) {
+    if depth >= FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -754,7 +769,7 @@ fn find_deepest_audio_dir(
                 }
             }
             // Always recurse deeper — there may be nested album directories
-            find_deepest_audio_dir(&path, best);
+            find_deepest_audio_dir(&path, best, depth + 1);
         }
     }
 }
