@@ -112,7 +112,11 @@ import {
   getLogsFolderPath,
   buildDiagnosticBundle,
   getComponentVersions,
+  getNotificationDiagnostics,
+  runIntegrityScan,
   type DiagnosticBundle,
+  type NotificationDiagnostics,
+  type IntegrityScanReport,
 } from '@/lib/tauri-commands';
 import { useActivityStore } from '@/stores/activityStore';
 
@@ -401,6 +405,22 @@ export function AdvancedTab() {
 
       {/* ── Diagnostics ── */}
       <SettingsSection title="Diagnostics" description="Verbose logging for troubleshooting.">
+        {/* Native notification diagnostic readout (#834). Surfaces the
+            current notification configuration AND the OS-level
+            permission state so users on macOS — where `sendNotification`
+            can succeed silently while the OS drops the notification —
+            can see at a glance whether the toggle / style / permission
+            are aligned. Pure read-only: NEVER triggers a permission
+            prompt (use Send Test Notification in General for that). */}
+        <NotificationDiagnosticsRow />
+
+        {/* Output-directory integrity scan (#537 chunk B). User-initiated
+            walk that detects historic damage from pre-v1.6 broken
+            builds — `[Unknown]/-.mp4`, `Unknown Album/-.jpg`, zero-byte
+            cover files. Read-only: only DETECTS and REPORTS. Quarantine
+            UI lands as a follow-up. */}
+        <IntegrityScanSection />
+
         <Toggle
           label="Verbose Activity Log"
           description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. In pre-release versions (v0.x.x), this setting is preserved across restarts. In full releases, it resets to off on each restart as a safety measure."
@@ -885,6 +905,229 @@ export function AdvancedTab() {
  * Only rendered when `dev_access_enabled` is true (activated via Konami code).
  * Shows token status, web player token management, and a deactivate button.
  */
+
+/**
+ * Native notification configuration + OS permission diagnostic readout (#834).
+ *
+ * Compact 4-row table showing:
+ *   - "Desktop Notifications" toggle state (from settings)
+ *   - "Notification Style" selection (from settings)
+ *   - Platform (`darwin` / `linux` / `windows-style`)
+ *   - OS-level permission grant (from the JS plugin's `isPermissionGranted`)
+ *
+ * Lives in Settings → Advanced → Diagnostics rather than Settings → General
+ * (where the Send Test Notification button is) because Advanced is where
+ * users go to *diagnose* issues. General is for everyday tuning.
+ *
+ * Pure read-only: does NOT call `requestPermission()` — only
+ * `isPermissionGranted()` which silently returns the current cached
+ * state without prompting. Triggering a prompt from a diagnostic
+ * readout would confuse users who just wanted to see their config.
+ */
+function NotificationDiagnosticsRow() {
+  const [diag, setDiag] = useState<NotificationDiagnostics | null>(null);
+  const [osPermission, setOsPermission] = useState<string>('unknown');
+  const [error, setError] = useState<string | null>(null);
+
+  // Load both halves on mount: the backend snapshot and the JS-side
+  // permission state. Wrapped in a single async IIFE so errors from
+  // either source land in the same `setError` and we don't render a
+  // half-loaded readout.
+  useEffect(() => {
+    (async () => {
+      try {
+        const backend = await getNotificationDiagnostics();
+        setDiag(backend);
+      } catch (e) {
+        setError(`Failed to load backend diagnostics: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      try {
+        const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
+        const granted = await isPermissionGranted();
+        setOsPermission(granted ? 'granted' : 'not granted');
+      } catch (e) {
+        setOsPermission(`error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+  }, []);
+
+  if (error) {
+    return (
+      <div className="p-3 rounded-lg bg-status-error-bg border border-status-error">
+        <p className="text-xs text-status-error">{error}</p>
+      </div>
+    );
+  }
+
+  if (!diag) {
+    return (
+      <div className="text-xs text-content-tertiary">Loading notification diagnostics…</div>
+    );
+  }
+
+  // Pretty-format the style key — the backend stores it as snake_case
+  // so the diagnostics readout matches what the dropdown shows in the
+  // General tab. Falls back to the raw key for unknown values so a
+  // future style enum addition doesn't render as a blank cell.
+  const styleLabels: Record<string, string> = {
+    in_app_only: 'In-app only',
+    native_and_in_app: 'Native + in-app',
+    native_only: 'Native only',
+  };
+  const styleLabel = styleLabels[diag.notification_style] ?? diag.notification_style;
+
+  return (
+    <div className="p-3 rounded-lg bg-surface-secondary border border-border-default">
+      <p className="text-xs font-semibold text-content-primary mb-2">
+        Native notification diagnostics (#834)
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <span className="text-content-tertiary">Desktop Notifications</span>
+        <span className="text-content-primary">
+          {diag.desktop_notifications_enabled ? 'ON' : 'OFF'}
+        </span>
+        <span className="text-content-tertiary">Notification Style</span>
+        <span className="text-content-primary">{styleLabel}</span>
+        <span className="text-content-tertiary">Platform</span>
+        <span className="text-content-primary">{diag.platform}</span>
+        <span className="text-content-tertiary">OS Permission</span>
+        <span
+          className={
+            osPermission === 'granted'
+              ? 'text-status-success'
+              : osPermission === 'not granted'
+                ? 'text-status-warning'
+                : 'text-content-primary'
+          }
+        >
+          {osPermission}
+        </span>
+      </div>
+      <p className="text-xs text-content-tertiary mt-2">
+        If notifications aren't appearing despite all four rows looking correct, check
+        macOS System Settings → Notifications → MeedyaDL, and ensure Focus / Do Not
+        Disturb is off. Use <strong>Send Test Notification</strong> in Settings → General
+        to verify the full pipeline end-to-end.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Output-directory integrity scan (#537 chunk B).
+ *
+ * Renders a "Run Integrity Scan" button + on-demand results panel.
+ * Detects historic damage from pre-v1.6 broken builds:
+ *   - Empty-tag filenames (`-.mp4`, `-.jpg`)
+ *   - `[Unknown]/` folder segments
+ *   - Zero-byte fixed-name covers (`FrontCover.mp4` etc.)
+ *
+ * Read-only — does NOT modify or remove anything. Users with
+ * detected issues can use the listed paths to manually inspect /
+ * delete affected files; a future commit lands the quarantine
+ * action that moves them to `_quarantine_<DATE>/`.
+ *
+ * Lives in Settings → Advanced → Diagnostics because it's a
+ * support-grade diagnostic — pre-v1.6 users may not even know
+ * they have damaged files until they run this scan.
+ */
+function IntegrityScanSection() {
+  const [report, setReport] = useState<IntegrityScanReport | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const addToast = useUiStore((s) => s.addToast);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setError(null);
+    setReport(null);
+    try {
+      const r = await runIntegrityScan();
+      setReport(r);
+      // Brief toast so the user notices a "no issues found" result
+      // even if they navigate away from this panel — the result row
+      // below is the persistent surface, the toast is just a nudge.
+      if (r.issues.length === 0) {
+        addToast(`Integrity scan: ${r.files_walked} file(s) walked, no issues found.`, 'success');
+      } else {
+        addToast(
+          `Integrity scan found ${r.issues.length} issue(s). See Diagnostics for details.`,
+          'warning',
+        );
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      addToast(`Integrity scan failed: ${msg}`, 'error');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="p-3 rounded-lg bg-surface-secondary border border-border-default">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-content-primary">
+          Integrity scan (#537)
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleRun}
+          disabled={running}
+        >
+          {running ? 'Scanning…' : 'Run Integrity Scan'}
+        </Button>
+      </div>
+      <p className="text-xs text-content-tertiary mb-2">
+        Walks your output folder looking for historic damage from
+        pre-v1.6 broken builds — empty-tag filenames (<code>-.mp4</code>),
+        <code>[Unknown]/</code> folder segments, and zero-byte cover
+        files. <strong>Read-only</strong>: detects and reports only.
+        Quarantine action lands in a future update.
+      </p>
+      {error && (
+        <p className="text-xs text-status-error mb-2">{error}</p>
+      )}
+      {report && (
+        <div className="mt-2">
+          <p className="text-xs text-content-tertiary mb-1">
+            Scanned: <code>{report.scanned_path}</code> — {report.files_walked} file(s) walked.
+          </p>
+          {report.issues.length === 0 ? (
+            <p className="text-xs text-status-success">
+              ✓ No issues found — your library is clean.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-status-warning mb-1">
+                {report.issues.length} issue(s) found:
+              </p>
+              <div className="max-h-48 overflow-y-auto border border-border-default rounded p-2 bg-surface-primary">
+                {report.issues.map((issue, idx) => (
+                  <div key={idx} className="text-xs font-mono text-content-primary py-0.5">
+                    <span
+                      className={
+                        issue.kind === 'zero_byte_cover'
+                          ? 'text-status-warning'
+                          : 'text-status-error'
+                      }
+                    >
+                      [{issue.kind === 'zero_byte_cover' ? 'zero-byte cover' : 'degenerate name'}]
+                    </span>{' '}
+                    {issue.path}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DevToolsSection() {
   // Per-field bindings for the two MusicKit fields read by this
   // section. `loadSettings` retained because the deactivate flow

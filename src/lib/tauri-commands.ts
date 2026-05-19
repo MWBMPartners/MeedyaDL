@@ -736,6 +736,49 @@ export function retryDownload(downloadId: string): Promise<void> {
 }
 
 /**
+ * Result of a `retry_failed_bulk` call (#835).
+ *
+ * `requested` is the input length. `retried` is the count of items
+ * that actually transitioned back to Queued. `skipped` is one entry
+ * per item that couldn't be retried, with the reason — typically
+ * "All N tracks already on disk" (smart-retry planner) or "Item is
+ * not in a retryable state" (e.g. user-cancelled mid-flight, item
+ * already completed before the bulk request landed).
+ */
+export interface BulkRetrySkipped {
+  id: string;
+  reason: string;
+}
+
+export interface BulkRetryReport {
+  requested: number;
+  retried: number;
+  skipped: BulkRetrySkipped[];
+}
+
+/**
+ * Bulk-retry every failed download in one IPC round-trip (#835).
+ *
+ * Pre-#835 the Queue page's "Retry All Failed" button mapped over
+ * the failed items and called `retryDownload` per item via
+ * `Promise.allSettled`. Each call held the queue mutex 3 times,
+ * peeked smart-retry, persisted queue.json, and kicked
+ * `process_queue` — 29 failed items = ~90 mutex acquisitions and
+ * 29 disk writes, taking minutes on the affected user's system.
+ *
+ * This wrapper hands the whole batch to the Rust side which does
+ * the same per-item work but persists / kicks process_queue / emits
+ * one summary log line — ONCE for the whole batch instead of N
+ * times. Per-item `download-queued` events are still emitted so
+ * the per-row UI animation works as before.
+ *
+ * Always resolves (per-item failures are aggregated in `skipped`).
+ */
+export function retryFailedBulk(downloadIds: string[]): Promise<BulkRetryReport> {
+  return invoke<BulkRetryReport>('retry_failed_bulk', { downloadIds });
+}
+
+/**
  * Move a `Queued` item to the top of the pending sub-sequence (#782).
  *
  * Rust handler: `move_queue_item_to_top()` in
@@ -1910,4 +1953,89 @@ export function readClipboard(): Promise<string | null> {
  */
 export function saveSessionLog(entries: string[]): Promise<void> {
   return invoke<void>('save_session_log', { entries });
+}
+
+/**
+ * Backend-half of the desktop-notification diagnostics readout (#834).
+ *
+ * The Settings → Advanced → Diagnostics panel reads this snapshot to show
+ * the user their current notification configuration — useful on macOS
+ * where Tauri's `sendNotification()` can resolve successfully even when
+ * the OS silently drops the notification.
+ *
+ * The frontend tops the result up with the JS-side
+ * `isPermissionGranted()` value to give a complete picture.
+ *
+ * IPC target: `get_notification_diagnostics` → `commands::system::get_notification_diagnostics`
+ */
+export interface NotificationDiagnostics {
+  desktop_notifications_enabled: boolean;
+  notification_style: string;
+  platform: string;
+}
+
+export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
+  return invoke<NotificationDiagnostics>('get_notification_diagnostics');
+}
+
+/**
+ * Sends a one-off test notification through the **backend** notification
+ * pipeline (#834).
+ *
+ * The pre-#834 "Send Test Notification" button in Settings → General
+ * called the JS plugin directly. That tested a different code path than
+ * what production downloads use AND couldn't surface OS-level failures
+ * because `sendNotification()` resolves successfully even when macOS
+ * drops the notification.
+ *
+ * This wrapper routes the test through the same Rust path as
+ * `send_desktop_notification`, but bypasses the focus check and the
+ * throttle — the user is explicitly testing, so silently no-opping
+ * would defeat the purpose. Returns the actual OS-level error string
+ * when the plugin call fails, which the caller renders into a toast so
+ * the user can act on it (e.g. open System Settings → Notifications).
+ *
+ * IPC target: `test_desktop_notification` → `commands::system::test_desktop_notification`
+ */
+export function testDesktopNotification(): Promise<void> {
+  return invoke<void>('test_desktop_notification');
+}
+
+/**
+ * Single integrity-scan finding (#537 chunk B).
+ *
+ * Discriminated by `kind`:
+ * - `degenerate_name` — filename/path matches one of the empty-tag
+ *   MV pipeline signatures. `signature` says which one
+ *   (`hyphen-dot-extension`, `unknown-folder-segment`,
+ *   `unknown-album-with-empty-filename`).
+ * - `zero_byte_cover` — fixed-name cover file (`FrontCover.mp4`,
+ *   `PortraitCover.mp4`, `ArtistSpotlightCover.mp4`) is 0 bytes,
+ *   likely from an interrupted HLS download.
+ */
+export type IntegrityIssue =
+  | { kind: 'degenerate_name'; path: string; signature: string }
+  | { kind: 'zero_byte_cover'; path: string };
+
+export interface IntegrityScanReport {
+  files_walked: number;
+  issues: IntegrityIssue[];
+  scanned_path: string;
+}
+
+/**
+ * Walks the user's configured output directory and returns a report
+ * of historic damage from pre-v1.6 broken builds (#537 chunk B).
+ *
+ * Detects: `-.mp4`/`-.jpg` empty-tag filenames, `[Unknown]/` folder
+ * segments, zero-byte fixed-name covers. Read-only — does NOT
+ * modify or remove anything. Quarantine action lands as a
+ * follow-up; for now the report is purely informational.
+ *
+ * The Rust side runs the walk on a `spawn_blocking` thread so the
+ * frontend can `await` this freely even on libraries with 1000+
+ * albums (where the scan can take several seconds).
+ */
+export function runIntegrityScan(): Promise<IntegrityScanReport> {
+  return invoke<IntegrityScanReport>('run_integrity_scan');
 }

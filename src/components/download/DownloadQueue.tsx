@@ -68,6 +68,7 @@ import {
   moveQueueItemToBottom,
   moveQueueItemUp,
   moveQueueItemDown,
+  retryFailedBulk,
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
@@ -532,20 +533,50 @@ export function DownloadQueue() {
       addToast('No failed downloads to retry', 'info');
       return;
     }
-    const results = await Promise.allSettled(
-      failedItems.map((i) => retryDownload(i.id)),
+
+    // Instant UI feedback (#835). Pre-fix the user had no signal that
+    // the click was even received — `Promise.allSettled` over N IPC
+    // calls hung the UI for minutes on big batches. Show a toast
+    // immediately so the user knows the work is in flight, then await
+    // the bulk IPC.
+    addToast(
+      `Retrying ${failedItems.length} failed download${failedItems.length !== 1 ? 's' : ''}…`,
+      'info',
     );
-    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-    const failed = results.length - succeeded;
-    if (failed === 0) {
+
+    // Single bulk IPC (#835). Replaces the N-parallel `retryDownload`
+    // calls that each acquired the queue mutex 3 times, peeked the
+    // smart-retry planner, removed history entries, persisted
+    // queue.json, and kicked `process_queue` — every single one of
+    // those steps now happens once for the whole batch.
+    try {
+      const report = await retryFailedBulk(failedItems.map((i) => i.id));
+      if (report.skipped.length === 0) {
+        addToast(
+          `Re-queued ${report.retried} failed download${report.retried !== 1 ? 's' : ''}`,
+          'success',
+        );
+      } else {
+        // Two-line breakdown so the user can act on the skips. Skips
+        // are usually "all tracks already on disk" (smart-retry) — a
+        // success outcome dressed as a skip — so the warning tier is
+        // appropriate, not error.
+        const reasonSummary = report.skipped
+          .slice(0, 3)
+          .map((s) => s.reason)
+          .filter((r, i, arr) => arr.indexOf(r) === i)
+          .join('; ');
+        const extra =
+          report.skipped.length > 3 ? ` (and ${report.skipped.length - 3} more)` : '';
+        addToast(
+          `Re-queued ${report.retried} of ${report.requested}. ${report.skipped.length} skipped: ${reasonSummary}${extra}`,
+          'warning',
+        );
+      }
+    } catch (e) {
       addToast(
-        `Re-queued ${succeeded} failed download${succeeded !== 1 ? 's' : ''}`,
-        'success',
-      );
-    } else {
-      addToast(
-        `Re-queued ${succeeded} of ${results.length} (${failed} could not be retried — check items individually)`,
-        'warning',
+        `Bulk retry failed: ${e instanceof Error ? e.message : String(e)}`,
+        'error',
       );
     }
   };

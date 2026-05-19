@@ -533,6 +533,17 @@ pub mod progress_stages;
 /// post-#528 layout.
 pub mod legacy_folder_merge;
 
+/// Output-directory integrity scan (#537 chunk B).
+///
+/// Walks the user's configured output directory looking for historic
+/// damage from pre-v1.6 broken builds: `-.mp4` / `-.jpg` filenames
+/// from the empty-tag MV pipeline, `[Unknown]/` folder segments, and
+/// zero-byte fixed-name covers (`FrontCover.mp4`,
+/// `PortraitCover.mp4`, `ArtistSpotlightCover.mp4`) from interrupted
+/// HLS downloads. User-initiated via Settings → Advanced →
+/// Diagnostics; quarantine action lands as a follow-up.
+pub mod integrity_scan;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;

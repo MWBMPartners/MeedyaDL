@@ -594,8 +594,30 @@ export function GeneralTab() {
                 variant="secondary"
                 icon={<Bell size={14} />}
                 onClick={async () => {
+                  // Two-stage test (#834):
+                  //
+                  // 1. Ensure the JS plugin has the OS permission granted.
+                  //    If not, prompt for it. macOS only fires its system
+                  //    prompt the first time `requestPermission()` is called
+                  //    per bundle ID, so this is also the safety net for
+                  //    users who dismissed (rather than granted) the
+                  //    startup preflight.
+                  //
+                  // 2. Send the test notification through the **Rust**
+                  //    pipeline via `testDesktopNotification()` IPC. This
+                  //    is the same code path production downloads use, so
+                  //    a successful test means production will work; a
+                  //    failure surfaces the actual OS-level error string
+                  //    (e.g. "permission denied", "Focus mode active")
+                  //    instead of silently appearing to succeed.
+                  //
+                  // Pre-#834 this button called `sendNotification()`
+                  // directly, which:
+                  //   - tested a different code path than production, and
+                  //   - returned success even when macOS dropped the
+                  //     notification, leaving users with no diagnostic.
                   try {
-                    const { isPermissionGranted, requestPermission, sendNotification } =
+                    const { isPermissionGranted, requestPermission } =
                       await import('@tauri-apps/plugin-notification');
                     let granted = await isPermissionGranted();
                     if (!granted) {
@@ -604,17 +626,21 @@ export function GeneralTab() {
                     }
                     if (!granted) {
                       addToast(
-                        'Notification permission was not granted. Open System Settings > Notifications > MeedyaDL to enable.',
+                        'Notification permission was not granted. Open System Settings > Notifications > MeedyaDL to enable, then try again.',
                         'warning',
                       );
                       return;
                     }
-                    sendNotification({
-                      title: 'MeedyaDL — Test',
-                      body: 'If you can read this, native notifications are working.',
-                    });
-                    addToast('Test notification sent. If you do not see it, check OS notification settings.', 'info');
+                    const { testDesktopNotification } = await import('@/lib/tauri-commands');
+                    await testDesktopNotification();
+                    addToast(
+                      'Test notification sent via the production pipeline. If you do not see it on your desktop, check OS notification settings — likely causes: Focus / DND mode, app bundle missing from System Settings → Notifications.',
+                      'info',
+                    );
                   } catch (err) {
+                    // The backend returns a structured error string with
+                    // the actual OS-level failure reason — surface it
+                    // verbatim so the user knows what to fix.
                     addToast(
                       `Test notification failed: ${err instanceof Error ? err.message : String(err)}`,
                       'error',
