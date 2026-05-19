@@ -51,6 +51,7 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 
   [skip ci]
 
+- Update CHANGELOG.md [skip ci]
 
 ## [1.9.0] - 2026-05-19
 
