@@ -549,12 +549,15 @@ pub async fn start_download(
                         &app,
                         &split_request.urls,
                     );
+                    let bulleted = split_request
+                        .urls
+                        .iter()
+                        .map(|u| format!("  • {u}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     emit_app_log(
                         &app,
-                        &format!(
-                            "Skipped duplicate queued URL(s): {}",
-                            split_request.urls.join(", ")
-                        ),
+                        &format!("Skipped duplicate queued URL(s):\n{bulleted}"),
                     );
                     continue;
                 }
