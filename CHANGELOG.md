@@ -57,6 +57,21 @@ Pre-fix, run_companion_lyrics_conversion fired inside the per-tier
   point so the enrichment pipeline's API population (which runs
   concurrently with companions) is picked up if it landed in time.
 
+- **(enrichment)** Scope all enrichment passes to a specific album dir (#842)
+
+For artist URLs the early-metadata API fetch returns None (logs "URL is
+  not an album, skipping API metadata") and the enrichment task fell back
+  to setting album_dir = output_dir (the user's root, e.g. ~/Music/).
+  Every downstream service then walked the entire library:
+
+    Enriched 69 file(s) with metadata tags       (3 expected)
+    Lyrics fallback: 24/73 tracks have lyrics    (3 expected)
+    AcoustID fingerprinting: track 50 of 69      (3 expected)
+    ReplayGain analysed 73 file(s)               (3 expected)
+
+  For a 3-track Forrest Frank artist URL on a 484-album library this
+  turned a 30 s enrichment into a 6-minute walk.
+
 
 ### 📚 Documentation
 
@@ -70,6 +85,7 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 
   [skip ci]
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
