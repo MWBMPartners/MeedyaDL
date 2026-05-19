@@ -6,6 +6,111 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **(v1.9)** Native-toast diagnostics, bulk retry, restart prompt, false-complete fix, 95% peg fix, codec labels, integrity scan (7 closed, 1 partial) (#837)
+
+## What's new
+
+  - **Settings → Templates now warns you when a change needs a restart and
+  offers to do it for you (#833).** Template edits don't take effect for
+  downloads already in flight — GAMDL reads its template config at process
+  spawn. If you change one of the eight template fields and click Save,
+  you now get a clear modal explaining the situation with two buttons:
+  **Restart Now** (cleanly relaunches the app, the queue restores from
+  disk via the existing persistence layer) or **Restart Later** (dismisses
+  with a persistent "Restart pending" pill in the header to remind you).
+  - **New integrity scan in Settings → Advanced → Diagnostics (#537 chunk
+  B).** A "Run Integrity Scan" button walks your output folder looking for
+  historic damage from pre-v1.6 broken builds — `-.mp4` / `-.jpg`
+  empty-tag filenames, `[Unknown]/` folder segments, and zero-byte cover
+  files. Detects and reports only (read-only, never modifies); a
+  quarantine action lands in a follow-up once the detection signatures are
+  proven on real user data.
+
+  ## What's fixed
+
+  - **"Retry All Failed" no longer freezes the UI for minutes on big
+  queues (#835).** Pre-fix, retrying 29 failed items meant 29 sequential
+  IPC round-trips with ~90 queue-mutex acquisitions and 29 file writes —
+  the UI gave zero feedback while it worked. Now it's a single bulk IPC:
+  settings loaded once, smart-retry peek under one read-lock, state
+  transitions under one write-lock, history rewritten once, queue
+  persisted once, `process_queue` kicked once. Plus an immediate "Retrying
+  N…" toast so the click never looks ignored. Per-item completion still
+  emits per-row events so the queue UI updates as before.
+  - **Items no longer show "Complete" when zero tracks actually downloaded
+  (#831).** The success-path recovery that runs when GAMDL >=2.9.1 doesn't
+  emit "Saved to:" lines (a documented post-#452 pattern) could pick up a
+  previously-downloaded album folder and treat its files as evidence this
+  run succeeded. Result: re-running a queue with an unavailable codec
+  chain green-ticked every item even though every track was skipped. Fixed
+  by snapshotting the audio-file count before GAMDL runs and verifying new
+  files actually landed before declaring success — same shape the
+  companion path has used since Phase 3.5h.
+  - **The "stuck at 95%" progress bar during companion downloads finally
+  advances (#836).** The per-track caption update site now also nudges the
+  bar forward by a fractional amount within a reserved 95–99% slice, so
+  multi-tier companion runs (Atmos → ALAC → AC3 fallback chains, 30+
+  minutes on big albums) show visible motion instead of looking frozen.
+  The reserved last 1% (99–100%) is kept for the post-companion advisory
+  pass + final completion.
+  - **Codec-skip activity-log lines no longer leak Python internals or use
+  ugly enum identifiers (#832).** `[<SongCodec.AC3: 'ac3'>]` rendered as
+  `AC3 not available` (proper display label, no Python repr). GAMDL 3.x's
+  verbose `(Unavailable requested format candidates: Dolby Atmos
+  (Experimental) [atmos] -> Lossless (ALAC) (Experimental) [alac] -> …)`
+  parenthetical is stripped entirely — it was 150+ characters of the same
+  codec list repeated with redundant "(Experimental)" annotations. The
+  lowercase comma summary (`atmos, alac, ac3, aac, aac-legacy not
+  available`) is rewritten to proper labels (`Atmos, ALAC, AC3, AAC, AAC
+  Legacy not available`). Defensive: only triggers when every token in the
+  run is a known codec, so unrelated GAMDL warnings sharing a comma-list
+  shape pass through untouched.
+  - **Heartbeat caption no longer duplicates the "Companion:" prefix
+  (#836).** Companion captions already start with `"Companion: "` (set by
+  the per-track caption update), so the heartbeat formatter was producing
+  `"⏳ Still working — Companion: Companion: downloading atmos…"`. Now
+  strips the leading stage prefix from the inner label so users see a
+  clean `"⏳ Still working — Companion: downloading atmos…"`.
+
+  ## Notes
+
+  - **macOS native notifications now log every send attempt to tracing +
+  ship a backend-pipeline test button + diagnostics readout (#834).** This
+  is the **instrumentation half** of the macOS-26.5 native-toast bug — the
+  previous `.ok()` swallowed every plugin failure silently, so we had no
+  signal whether notifications were being dropped at the plugin layer, the
+  OS permission layer, or somewhere else. Now: every
+  `send_desktop_notification` attempt is logged (debug on success,
+  warn-with-error-string on failure); the "Send Test Notification" button
+  in Settings → General routes through the **same Rust path** production
+  downloads use (bypassing only the focus check and throttle) so test
+  results reflect production behaviour; a new diagnostics row in Settings
+  → Advanced → Diagnostics shows desktop_notifications /
+  notification_style / platform / OS permission state in a compact 4-row
+  table. The next bug report from a macOS 26 user will have actionable
+  data; root-cause fix lands once that report comes in.
+  - **5 new backend services / IPC commands** wired across these eight
+  commits: `services/integrity_scan.rs`,
+  `commands/system::run_integrity_scan`,
+  `commands/system::test_desktop_notification`,
+  `commands/system::get_notification_diagnostics`,
+  `commands/gamdl::retry_failed_bulk`. Plus 12 new unit tests (4 humanise
+  / 5 integrity_scan / 3 retry-related coverage) — all 1191 backend tests
+  and 489 frontend tests pass.
+  - **PRs #824 + #826 from the v1.8.1 cycle** (Windows `npm ci` hardening
+  + PR-title workflow structural fix) are already on `main` and shipped in
+  v1.8.1; not in this bundle.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.8.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.8.1] - 2026-05-18
+
 ### 🐛 Bug Fixes
 
 - **(v1.8.1)** MacOS startup crash (#827) + {platform} KeyError on every download (#829) (#828)
@@ -73,7 +178,6 @@ User-facing notes for the v1.8.1 hotfix bundle (#828) — focused
 
   [skip ci]
 
-- **(security)** Update supported versions to 1.8.1 [skip ci]
 
 ### 🔄 CI/CD
 
