@@ -5763,6 +5763,15 @@ fn spawn_companion_downloads(
         }
 
         let handle = tokio::spawn(async move {
+            // `any_tier_produced_files` is set the first time a tier actually
+            // writes new audio files to disk (#843). After the tier loop we
+            // run the companion lyrics conversion exactly once if the flag is
+            // set — moving it out of the loop fixes the duplicated walk-the-
+            // library symptom from v1.8.x where multi-tier items (e.g. Atmos
+            // tier 2 + AAC-Legacy tier 4 both succeeding) re-converted the
+            // same TTML files once per successful tier.
+            let mut any_tier_produced_files = false;
+
             // Process each companion tier sequentially
             for (tier_idx, tier) in companion_tiers.iter().enumerate() {
                 // Check for app shutdown between tiers
@@ -6093,37 +6102,13 @@ fn spawn_companion_downloads(
                                     }
                                 }
 
-                                // Hints already captured above for the
-                                // shared tag-pass + lyrics-conversion
-                                // scoping (#816). The legacy duplicate
-                                // capture was here pre-#816; the
-                                // lyrics conversion below reuses the
-                                // earlier bindings.
-                                let _hints_captured_above = {
-                                    (artist_hint.clone(), album_hint.clone())
-                                };
-                                // Phase 3.5g: surface the companion-lyrics
-                                // phase to the per-item bar. With #712's
-                                // depth-bounded scoping the walk is now
-                                // fast for hint-bearing items, but a label
-                                // here is still useful so users can tell
-                                // the difference between "tier downloading"
-                                // and "post-tier lyrics conversion".
-                                set_stage_with_label(
-                                    &comp_app,
-                                    &comp_queue,
-                                    &comp_dl_id,
-                                    ProgressStage::Finalising,
-                                    "Companion: converting lyrics formats…",
-                                );
-                                run_companion_lyrics_conversion(
-                                    &comp_app,
-                                    &comp_dl_id,
-                                    output_dir,
-                                    artist_hint.as_deref(),
-                                    album_hint.as_deref(),
-                                    &aborted_for_task,
-                                );
+                                // #843: lyrics conversion was previously called
+                                // here. It now runs ONCE after the tier loop
+                                // completes (TTML files don't change between
+                                // tiers — companions inherit them from the
+                                // primary download), so multi-tier items
+                                // don't pay the conversion cost N times.
+                                any_tier_produced_files = true;
                             }
 
                             // Clear the post-processing label now that we're done.
@@ -6191,6 +6176,51 @@ fn spawn_companion_downloads(
                         &comp_dl_id,
                         &format!("Companion tier {tier_idx}: all codecs exhausted"),
                     );
+                }
+            }
+
+            // #843: run the companion lyrics conversion ONCE for the whole
+            // item, after every tier has finished. Pre-fix, this ran inside
+            // the tier-success branch — multi-tier items (e.g. Atmos tier 2
+            // + AAC-Legacy tier 4 both succeeding) re-walked the user's
+            // library once per successful tier, doubling/tripling wasted
+            // work on big libraries. TTML files don't change between tiers,
+            // so converting them once is correct.
+            if any_tier_produced_files {
+                if !aborted_for_task.load(Ordering::Relaxed) {
+                    if let Some(output_dir) = comp_base_opts.output_path.as_deref() {
+                        // Re-read hints from the queue item — the enrichment
+                        // task may have populated them via API mid-flight
+                        // even though they were absent at companion-loop start.
+                        let (artist_hint, album_hint) = {
+                            let q = comp_queue.lock().await;
+                            q.items
+                                .iter()
+                                .find(|i| i.status.id == comp_dl_id)
+                                .map(|i| {
+                                    (
+                                        i.status.artist_name.clone(),
+                                        i.status.album_name.clone(),
+                                    )
+                                })
+                                .unwrap_or((None, None))
+                        };
+                        set_stage_with_label(
+                            &comp_app,
+                            &comp_queue,
+                            &comp_dl_id,
+                            ProgressStage::Finalising,
+                            "Companion: converting lyrics formats…",
+                        );
+                        run_companion_lyrics_conversion(
+                            &comp_app,
+                            &comp_dl_id,
+                            output_dir,
+                            artist_hint.as_deref(),
+                            album_hint.as_deref(),
+                            &aborted_for_task,
+                        );
+                    }
                 }
             }
         });
